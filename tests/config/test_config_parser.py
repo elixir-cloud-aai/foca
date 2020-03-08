@@ -2,15 +2,15 @@
 Tests for config_parser.py
 """
 
-import pytest
-
-
 from archetype_flask_connexion.config.config_parser import YAMLConfigParser
 
 """
-Test for update_from_yaml function.
+Test that update_from_yaml return a string object
 """
-def test_update_from_yaml(monkeypatch):
+
+
+def test_update_from_yaml_returns_str(monkeypatch):
+
     instance = YAMLConfigParser()
     config_path = ["tests/config/sample1.yaml"]
     config_var = []
