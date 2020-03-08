@@ -6,16 +6,18 @@ import pytest
 
 
 from archetype_flask_connexion.config.config_parser import YAMLConfigParser
-import yaml
-from addict import Dict
 
 """
 Test for update_from_yaml function.
 """
-def test_update_from_yaml(mocker):
+def test_update_from_yaml(monkeypatch):
     instance = YAMLConfigParser()
     config_path = ["tests/config/sample1.yaml"]
     config_var = []
-    mocker.patch('archetype_flask_connexion.config.config_parser.YAMLConfigParser.update')
+
+    def mock_update(*args, **kwargs):
+        return
+
+    monkeypatch.setattr(YAMLConfigParser, "update", mock_update)
     res = instance.update_from_yaml(config_path, config_var)
     assert isinstance(res, str)
