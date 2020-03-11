@@ -119,7 +119,14 @@ def test_invert_types_false_returns_system_exit():
             touchy=True)
 
 
-def test_invert_types_true_returns_1system_exit():
+"""
+invert_types is false and
+val is an instance of types
+then return System Error
+"""
+
+
+def test_invert_types_true_returns_system_exit():
     myDict = {
         "config1": {
             "config3": "val3",
