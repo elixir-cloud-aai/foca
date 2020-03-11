@@ -48,7 +48,7 @@ def handle_bad_request(exception: Union[Exception, int]) -> Response:
         response=dumps({
             'msg': 'The request is malformed.',
             'status_code': '400'
-            }),
+        }),
         status=400,
         mimetype="application/problem+json"
     )
@@ -59,7 +59,7 @@ def __handle_unauthorized(exception: Exception) -> Response:
         response=dumps({
             'msg': 'The request is unauthorized.',
             'status_code': '401'
-            }),
+        }),
         status=401,
         mimetype="application/problem+json"
     )
@@ -70,7 +70,7 @@ def __handle_forbidden(exception: Exception) -> Response:
         response=dumps({
             'msg': 'The requester is not authorized to perform this action.',
             'status_code': '403'
-            }),
+        }),
         status=403,
         mimetype="application/problem+json"
     )
@@ -81,7 +81,7 @@ def __handle_task_not_found(exception: Exception) -> Response:
         response=dumps({
             'msg': 'The requested task was not found.',
             'status_code': '404'
-            }),
+        }),
         status=404,
         mimetype="application/problem+json"
     )
@@ -92,7 +92,7 @@ def __handle_internal_server_error(exception: Exception) -> Response:
         response=dumps({
             'msg': 'An unexpected error occurred.',
             'status_code': '500'
-            }),
+        }),
         status=500,
         mimetype="application/problem+json"
     )
