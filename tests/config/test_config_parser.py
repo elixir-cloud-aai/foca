@@ -57,9 +57,10 @@ def test_get_conf():
         },
         "config2": "val2"
     }
-    arg1 = "['config1', 'config3']"
+    arg1 = "config1"
+    arg3 = "config3"
     arg2 = "config2"
-    res1 = get_conf_type(myDict, arg1)
+    res1 = get_conf_type(myDict, arg1, arg3)
     res2 = get_conf(myDict, arg2)
     assert res1 == "val3"
     assert res2 == "val2"
@@ -96,3 +97,41 @@ def test_get_conf_type_system_error():
     with pytest.raises(SystemExit):
         arg1 = "config3"
         get_conf_type(myDict, arg1)
+
+
+"""
+invert_types is false and
+val is not an instance of types
+then return System Error
+"""
+
+
+def test_invert_types_false_returns_system_exit():
+    myDict = {
+            "config1": "val1",
+            "config2": "val2"
+            }
+    with pytest.raises(SystemExit):
+        get_conf_type(
+            myDict, "config1",
+            types=(dict, list),
+            invert_types=False,
+            touchy=True)
+
+
+def test_invert_types_true_returns_1system_exit():
+    myDict = {
+        "config1": {
+            "config3": "val3",
+            "config4": "val4"
+        },
+        "config2": "val2"
+    }
+
+    with pytest.raises(SystemExit):
+        get_conf_type(
+            myDict, "config1",
+            types=(dict, list),
+            invert_types=True,
+            touchy=True
+        )
