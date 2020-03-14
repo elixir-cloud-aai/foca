@@ -2,6 +2,8 @@ addict==2.2.0
 astroid==2.3.3
 attrs==19.3.0
 Click==7.0
+coverage==5.0.3
+coveralls==1.11.1
 entrypoints==0.3
 flake8==3.7.9
 Flask==1.0.2
