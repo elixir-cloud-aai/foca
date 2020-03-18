@@ -2,6 +2,7 @@
 Tests for log_config.py
 """
 
+
 from foca.config.config_parser import YAMLConfigParser
 from foca.config.log_config import configure_logging
 from unittest.mock import MagicMock, patch
