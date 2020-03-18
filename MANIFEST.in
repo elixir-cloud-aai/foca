@@ -1,0 +1,6 @@
+# Package setuptools-git will ensure that all files that are version-controlled
+# are packaged. Therefore, this file lists only those files that are not
+# supposed to end up in distributions.
+
+exclude .gitignore
+prune .github
