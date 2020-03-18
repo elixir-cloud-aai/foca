@@ -14,12 +14,12 @@ if os.path.isfile(req):
         install_requires = f.read().splitlines()
 
 setup(
-    name="archetype_flask_connexion",
+    name="foca",
     version="0.0.1",
     description="Archetype for flask-connexion microservices",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/elixir-cloud-aai/archetype_flask_connexion",
+    url="https://github.com/elixir-cloud-aai/foca",
     author="ELIXIR Cloud & AAI",
     author_email="alexander.kanitz@alumni.ethz.ch",
     maintainer="Alexander Kanitz",
@@ -54,9 +54,9 @@ setup(
         'ga4gh tes elixir rest api app openapi python task distribution'
     ),
     project_urls={
-        "Repository": "https://github.com/elixir-cloud-aai/archetype_flask_connexion",
+        "Repository": "https://github.com/elixir-cloud-aai/foca",
         "ELIXIR Cloud & AAI": "https://elixir-europe.github.io/cloud/",
-        "Tracker": "https://github.com/elixir-cloud-aai/archetype_flask_connexion/issues",
+        "Tracker": "https://github.com/elixir-cloud-aai/foca/issues",
     },
     packages=find_packages(),
     install_requires=install_requires,
