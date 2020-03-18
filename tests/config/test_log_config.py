@@ -2,8 +2,8 @@
 Tests for log_config.py
 """
 
-from archetype_flask_connexion.config.config_parser import YAMLConfigParser
-from archetype_flask_connexion.config.log_config import configure_logging
+from foca.config.config_parser import YAMLConfigParser
+from foca.config.log_config import configure_logging
 from unittest.mock import MagicMock, patch
 
 import os
@@ -32,7 +32,7 @@ dictConfig is called once if config_var is undefined
 """
 
 
-@patch('archetype_flask_connexion.config.log_config.dictConfig')
+@patch('foca.config.log_config.dictConfig')
 def test_configure_logging_config_var_undefined(test_patch):
     configure_logging("")
     assert test_patch.called is True
@@ -43,7 +43,7 @@ dictConfig is not called if config_path does not have any file
 """
 
 
-@patch('archetype_flask_connexion.config.log_config.dictConfig')
+@patch('foca.config.log_config.dictConfig')
 def test_configure_logging_config_var_not_defined__file_not_found(test_patch):
     # Assuming it will raise FileNotFoundError
     YAMLConfigParser.update_from_yaml = MagicMock(
@@ -58,7 +58,7 @@ dictConfig is called once if config_var is defined
 """
 
 
-@patch('archetype_flask_connexion.config.log_config.dictConfig')
+@patch('foca.config.log_config.dictConfig')
 def test_configure_logging_config_var_defined(test_patch):
     os.environ['TEST_LOG_CONFIG'] = CONFIG_VAR_OK
     YAMLConfigParser.update_from_yaml = MagicMock()

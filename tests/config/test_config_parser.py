@@ -3,9 +3,9 @@ Tests for config_parser.py
 """
 
 import pytest
-from archetype_flask_connexion.config.config_parser import YAMLConfigParser
-from archetype_flask_connexion.config.config_parser import get_conf
-from archetype_flask_connexion.config.config_parser import get_conf_type
+from foca.config.config_parser import YAMLConfigParser
+from foca.config.config_parser import get_conf
+from foca.config.config_parser import get_conf_type
 
 CONFIG_PATH_OK = ["tests/config/sample1.yaml"]
 CONFIG_PATH_MISSING = []
