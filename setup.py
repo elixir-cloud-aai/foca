@@ -16,7 +16,9 @@ if os.path.isfile(req):
 setup(
     name="foca",
     version="0.1.0",
-    description="Archetype for OpenAPI microservices based on Flask and Connexion",
+    description=(
+        "Archetype for OpenAPI microservices based on Flask and Connexion"
+    ),
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/elixir-cloud-aai/foca",
