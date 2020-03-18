@@ -11,6 +11,6 @@ if: type != pull_request  # do not build anything for PRs
 
 script:
   - flake8
-  - coverage run --source archetype_flask_connexion -m pytest
+  - coverage run --source foca -m pytest
   - coveralls
 
