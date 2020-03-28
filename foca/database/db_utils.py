@@ -22,4 +22,7 @@ def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
 def find_id_latest(collection: Collection) -> Optional[ObjectId]:
     """Returns object id of newest/latest object, or None if no object exists.
     """
-    return find_one_latest(collection=collection)['_id']
+    try:
+        return collection.find().sort([('_id', -1)]).limit(1).next()['_id']
+    except StopIteration:
+        return None
