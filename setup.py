@@ -15,8 +15,10 @@ if os.path.isfile(req):
 
 setup(
     name="foca",
-    version="0.0.1",
-    description="Archetype for flask-connexion microservices",
+    version="0.1.0",
+    description=(
+        "Archetype for OpenAPI microservices based on Flask and Connexion"
+    ),
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/elixir-cloud-aai/foca",
@@ -30,28 +32,20 @@ setup(
         "Environment :: Web Environment",
         "Framework :: Flask",
         "Intended Audience :: Developers",
-        "Intended Audience :: Healthcare Industry",
         "Intended Audience :: Information Technology",
-        "Intended Audience :: Science/Research",
         "Intended Audience :: System Administrators",
         "License :: OSI Approved :: Apache Software License",
         "Natural Language :: English",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
         "Topic :: Internet :: WWW/HTTP",
-        "Topic :: Scientific/Engineering :: Bio-Informatics",
-        "Topic :: Scientific/Engineering :: Medical Science Apps.",
         "Topic :: System :: Systems Administration",
         "Topic :: Utilities",
         "Typing :: Typed",
     ],
-    entry_points={
-        'console_scripts': [
-            'testribute = TEStribute.cli:main',
-        ],
-    },
     keywords=(
-        'ga4gh tes elixir rest api app openapi python task distribution'
+        'rest api app openapi python microservice'
     ),
     project_urls={
         "Repository": "https://github.com/elixir-cloud-aai/foca",
@@ -60,7 +54,6 @@ setup(
     },
     packages=find_packages(),
     install_requires=install_requires,
-    python_requires='~=3.6',
     include_package_data=True,
     setup_requires=[
         "setuptools_git == 1.2",
