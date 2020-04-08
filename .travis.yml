@@ -1,6 +1,16 @@
+os:
+  - linux
+dist: bionic
 language: python
 python:
-  - 3.6
-install: "pip install -r requirements.txt"
+  - "3.6"
+  - "3.7"
+  - "3.8"
+
+if: type != pull_request  # do not build anything for PRs
+
 script:
   - flake8
+  - coverage run --source foca -m pytest
+  - coveralls
+
