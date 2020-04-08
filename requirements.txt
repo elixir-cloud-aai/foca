@@ -1,5 +1,6 @@
 addict==2.2.1
 bson==0.5.9
+connexion==1.5.2
 coverage==5.0.3
 coveralls==1.11.1
 flake8==3.7.9
