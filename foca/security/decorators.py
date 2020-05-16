@@ -17,6 +17,7 @@ from foca.config.config_parser import get_conf, get_conf_type
 # Get logger instance
 logger = logging.getLogger(__name__)
 
+
 def param_pass(current_app):
     def auth_token_optional(fn: Callable) -> Callable:
         """
@@ -113,8 +114,9 @@ def param_pass(current_app):
                 if validation_checks not in ['all', 'any']:
                     logger.error(
                         (
-                            "Illegal argument '{validation_checks} passed to "
-                            "configuration paramater 'validation_checks'. Allowed "
+                            "Illegal argument '{validation_checks}"
+                            "passed to configuration paramater"
+                            "'validation_checks'. Allowed "
                             "values: 'any', 'all'"
                         )
                     )
@@ -146,8 +148,8 @@ def param_pass(current_app):
                         if not claims and validation_checks == 'all':
                             logger.error(
                                 (
-                                    "Insufficient number of JWT validation checks "
-                                    "passed."
+                                    "Insufficient number of JWT "
+                                    "validation checks passed."
                                 )
                             )
                             raise Unauthorized
@@ -157,8 +159,8 @@ def param_pass(current_app):
                     if not (claims and validation_checks == 'any'):
                         logger.debug(
                             (
-                                "Validating JWT via identity provider's public "
-                                "key..."
+                                "Validating JWT via identity provider's"
+                                "public key..."
                             )
                         )
                         claims = validate_jwt_via_public_key(
@@ -173,8 +175,8 @@ def param_pass(current_app):
                         if not claims and validation_checks == 'all':
                             logger.error(
                                 (
-                                    "Insufficient number of JWT validation checks "
-                                    "passed."
+                                    "Insufficient number of JWT"
+                                    "validation checks passed."
                                 )
                             )
                             raise Unauthorized
@@ -215,7 +217,6 @@ def param_pass(current_app):
 
         return wrapper
 
-
     def parse_jwt_from_header(
         header_name: str = 'Authorization',
         expected_prefix: str = 'Bearer',
@@ -225,9 +226,10 @@ def param_pass(current_app):
         # Ensure that authorization header is present
         auth_header = request.headers.get(header_name, None)
         if not auth_header:
-            logger.error("No HTTP header with name '{header_name}' found.".format(
-                header_name=header_name,
-            ))
+            logger.error(
+                "No HTTP header with name"
+                "'{header_name}' found.".format(header_name=header_name,)
+            )
             raise Unauthorized
 
         # Ensure that authorization header is formatted correctly
@@ -236,7 +238,8 @@ def param_pass(current_app):
         except ValueError as e:
             logger.error(
                 (
-                    "Authentication header is malformed. Original error message: "
+                    "Authentication header is malformed."
+                    "Original error message: "
                     "{type}: {msg}"
                 ).format(
                     type=type(e).__name__,
@@ -258,7 +261,6 @@ def param_pass(current_app):
             raise Unauthorized
 
         return token
-
 
     def validate_jwt_via_userinfo_endpoint(
         token: str,
@@ -318,7 +320,6 @@ def param_pass(current_app):
         )
         return claims
 
-
     def validate_jwt_via_public_key(
         token: str,
         algorithms: Iterable[str] = ['RS256'],
@@ -340,8 +341,8 @@ def param_pass(current_app):
         except Exception as e:
             logger.error(
                 (
-                    "JWT could not be decoded. Original error message: {type}: "
-                    "{msg}"
+                    "JWT could not be decoded. Original error message:"
+                    "{type}: {msg}"
                 ).format(
                     type=type(e).__name__,
                     msg=e,
@@ -355,8 +356,8 @@ def param_pass(current_app):
         except Exception as e:
             logger.error(
                 (
-                    "Could not extract JWT header claims. Original error message: "
-                    "{type}: {msg}"
+                    "Could not extract JWT header claims."
+                    "Original error message: {type}: {msg}"
                 ).format(
                     type=type(e).__name__,
                     msg=e,
@@ -464,13 +465,13 @@ def param_pass(current_app):
         )
         return claims
 
-
     def validate_jwt_claims(
         *args: str,
         claims: Mapping,
     ) -> bool:
         """
-        Validates the existence of JWT claims. Returns False if any are missing,
+        Validates the existence of JWT claims.
+        Returns False if any are missing,
         otherwise returns True.
         """
         # Check for existence of required claims
@@ -487,13 +488,13 @@ def param_pass(current_app):
         else:
             return True
 
-
     def get_entry_from_idp_service_discovery_endpoint(
             issuer: str,
             entry: str,
     ) -> Optional[str]:
         """
-        Access the identity provider's service discovery endpoint to retrieve the
+        Access the identity provider's service
+        discovery endpoint to retrieve the
         value of the specified entry.
         """
         # Build endpoint URL
@@ -523,8 +524,9 @@ def param_pass(current_app):
         if entry not in response.json():
             logger.warning(
                 (
-                    "Required entry '{entry}' not found in identity provider's "
-                    "documentation accessed at endpoint '{endpoint}'."
+                    "Required entry '{entry}' not found in "
+                    "identity provider's documentation accessed "
+                    "at endpoint '{endpoint}'."
                 ).format(
                     entry=entry,
                     url=url,
@@ -533,7 +535,6 @@ def param_pass(current_app):
             return None
         else:
             return response.json()[entry]
-
 
     def validate_jwt_via_endpoint(
         url: str,
@@ -575,7 +576,6 @@ def param_pass(current_app):
 
         return None
 
-
     def get_public_keys(
         url: str,
         claim_key_id: str = 'kid',
@@ -603,7 +603,8 @@ def param_pass(current_app):
         # Iterate over all JWK sets and store public keys in dictionary
         public_keys = {}
         for jwk in response.json()['keys']:
-            public_keys[jwk[claim_key_id]] = jwt.algorithms.RSAAlgorithm.from_jwk(
+            token_algo = jwt.algorithms.RSAAlgorithm
+            public_keys[jwk[claim_key_id]] = token_algo.from_jwk(
                 json.dumps(jwk)
             )
 
