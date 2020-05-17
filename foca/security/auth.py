@@ -18,7 +18,7 @@ from foca.config.config_parser import get_conf, get_conf_type
 logger = logging.getLogger(__name__)
 
 
-def param_pass(current_app):
+def param_pass(config_dict):
     def auth_token_optional(fn: Callable) -> Callable:
         """
         **The decorator protects an endpoint from being called without a valid
@@ -29,77 +29,77 @@ def param_pass(current_app):
 
             # Check if authentication is enabled
             if get_conf(
-                current_app.config,
+                config_dict,
                 'security',
                 'authorization_required',
             ):
 
                 # Get config parameters
                 validation_methods = get_conf_type(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'validation_methods',
                     types=(list),
                 )
                 validation_checks = get_conf(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'validation_checks',
                 )
                 algorithms = get_conf_type(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'algorithms',
                     types=(list),
                 )
                 expected_prefix = get_conf(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'token_prefix',
                 )
                 header_name = get_conf(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'header_name',
                 )
                 claim_key_id = get_conf(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'claim_key_id',
                 )
                 claim_issuer = get_conf(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'claim_issuer',
                 )
                 claim_identity = get_conf(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'claim_identity',
                 )
                 add_key_to_claims = get_conf(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'add_key_to_claims',
                 )
                 audience = get_conf_type(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'audience',
                     types=(list, type(None)),
                 )
                 allow_expired = get_conf(
-                    current_app.config,
+                    config_dict,
                     'security',
                     'jwt',
                     'allow_expired',
