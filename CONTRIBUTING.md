@@ -78,4 +78,4 @@ We are using [pytest](https://docs.pytest.org/en/latest/) framework. To run the 
 
 Please ensure that your changes do not reduce the existing code coverage.
 
-Happy Contributing!!
+Happy Contributing!! :smile:
