@@ -31,7 +31,7 @@ from foca.config.config_parser import YAMLConfigParser
 
 ## Contributing
 
-This project is a community effort and lives off your contributions, be it in the form of bug reports, feature requests, discussions, or fixes and other code changes. Please read these [guidelines](CONTRIBUTING.md) if you want to contribute. And please mind the [code of conduct](CODE_OF_CONDUCT.md) for all interactions with the community.
+This project is a community effort and lives off your contributions, be it in the form of bug reports, feature requests, discussions, or fixes and other code changes. Please read these [guidelines and practices](CONTRIBUTING.md) if you want to contribute. And please mind the [code of conduct](CODE_OF_CONDUCT.md) for all interactions with the community.
 
 ## License
 

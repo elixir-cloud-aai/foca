@@ -68,3 +68,13 @@ commit:
 - [`pylint`](https://github.com/PyCQA/pylint)
 - [`flake8`](https://gitlab.com/pycqa/flake8)
 - [`mypy`](https://github.com/python/mypy)
+
+### Adding Tests
+
+We are using [pytest](https://docs.pytest.org/en/latest/) framework. To run the tests locally, execute 
+
+`$ pytest`
+
+Please ensure that your changes do not reduce the existing code coverage.
+
+Happy Contributing!!
