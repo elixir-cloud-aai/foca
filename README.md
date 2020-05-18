@@ -54,7 +54,6 @@ Please contact the [project leader](mailto:alexander.kanitz@sib.swiss) for inqui
 * <https://elixir-europe.github.io/cloud/>
 * <https://www.ga4gh.org/>
 
-***More info coming soon...***
 
 [badge-build-status]:<https://travis-ci.com/elixir-cloud-aai/foca.svg?branch=dev>
 [badge-coverage]:<https://img.shields.io/coveralls/github/elixir-cloud-aai/foca>
