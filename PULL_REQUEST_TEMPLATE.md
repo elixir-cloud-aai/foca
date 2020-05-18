@@ -15,7 +15,7 @@ Please delete options that are not relevant.
 
 ## Checklist:
 
-- [ ] My code follows the [style guidelines](CONTRIBUTING.md) of this project
+- [ ] My code follows the [style guidelines](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/resources/contributing_guidelines.md#language-specific-guidelines) of this project
 - [ ] I have performed a self-review of my own code
 - [ ] I have commented my code, particularly in hard-to-understand areas
 - [ ] My changes generate no new warnings

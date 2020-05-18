@@ -13,7 +13,11 @@ microservices with Flask and Connexion.
 
 ## Description
 
-FOCA is a package [library](https://pypi.org/project/foca/), which can be used to develop OpenAPI-based microservices with Flask and Connexion. It has a set of tools and utilities to handle configuration, databases, security, etc of a flask-connexion microservice.
+FOCA is a [Python package](https://pypi.org/project/foca/) that enables fast development of OpenAPI-based HTTP API microservices in Flask. It includes modules for
+* configuration management
+* error handling
+* database interaction (currently MongoDB)
+* JWT validation
 
 ## Usage
 
@@ -31,7 +35,7 @@ from foca.config.config_parser import YAMLConfigParser
 
 ## Contributing
 
-This project is a community effort and lives off your contributions, be it in the form of bug reports, feature requests, discussions, or fixes and other code changes. Please read these [guidelines and practices](CONTRIBUTING.md) if you want to contribute. And please mind the [code of conduct](CODE_OF_CONDUCT.md) for all interactions with the community.
+This project is a community effort and lives off your contributions, be it in the form of bug reports, feature requests, discussions, or fixes and other code changes. Please read these [guidelines and practices](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/resources/contributing_guidelines.md) if you want to contribute. And please mind the [code of conduct](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md) for all interactions with the community.
 
 ## License
 
