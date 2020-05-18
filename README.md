@@ -8,12 +8,16 @@
 
 ## Synopsis
 
-Opinionated set of tools/utils for quickly developing OpenAPI-based
-microservices with Flask and Connexion.
+Opinionated set of tools/utils for quickly developing
+[OpenAPI][res-open-api]-based microservices with [Flask][res-flask] and
+[Connexion][res-connexion].
 
 ## Description
 
-FOCA is a [Python package](https://pypi.org/project/foca/) that enables fast development of OpenAPI-based HTTP API microservices in Flask. It includes modules for
+FOCA is a [Python package][res-foca] that enables fast development of
+OpenAPI-based HTTP API microservices in [Flask][res-flask]. It includes modules
+for:
+
 * configuration management
 * error handling
 * database interaction (currently MongoDB)
@@ -35,25 +39,30 @@ from foca.config.config_parser import YAMLConfigParser
 
 ## Contributing
 
-This project is a community effort and lives off your contributions, be it in the form of bug reports, feature requests, discussions, or fixes and other code changes. Please read these [guidelines and practices](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/resources/contributing_guidelines.md) if you want to contribute. And please mind the [code of conduct](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md) for all interactions with the community.
+This project is a community effort and lives off your contributions, be it in
+the form of bug reports, feature requests, discussions, or fixes and other code
+changes. Please refer to our organization's [contributing
+guidelines][res-elixir-cloud-contributing] if you are interested to contribute.
+Please mind the [code of conduct][res-elixir-cloud-coc] for all interactions
+with the community.
+
+## Versioning
+
+The project adopts the [semantic versioning][res-semver] scheme for versioning.
+Currently the service is in beta stage, so the API may change without further
+notice.
 
 ## License
 
-This project is covered by the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) also
-[shipped with this repository](LICENSE).
+This project is covered by the [Apache License 2.0][license-apache] also
+[shipped with this repository][license].
 
 ## Contact
 
-The project is a collaborative effort under the umbrella of the [ELIXIR
-Cloud and AAI](https://elixir-europe.github.io/cloud/) group.
-
-Please contact the [project leader](mailto:alexander.kanitz@sib.swiss) for inquiries, proposals, questions etc. that are not covered by the [Contributing](#Contributing) sections.
-
-## References
-
-* <https://elixir-europe.github.io/cloud/>
-* <https://www.ga4gh.org/>
-
+The project is a collaborative effort under the umbrella of [ELIXIR Cloud &
+AAI][org-elixir-cloud]. Follow the link to get in touch with us via chat or
+email. Please mention the name of this service for any inquiry, proposal,
+question etc.
 
 [badge-build-status]:<https://travis-ci.com/elixir-cloud-aai/foca.svg?branch=dev>
 [badge-coverage]:<https://img.shields.io/coveralls/github/elixir-cloud-aai/foca>
@@ -65,4 +74,13 @@ Please contact the [project leader](mailto:alexander.kanitz@sib.swiss) for inqui
 [badge-url-github-tag]:<https://github.com/elixir-cloud-aai/foca/releases>
 [badge-url-license]:<http://www.apache.org/licenses/LICENSE-2.0>
 [badge-url-pypi]:<https://pypi.python.org/pypi/foca>
-
+[license]: LICENSE
+[license-apache]: <https://www.apache.org/licenses/LICENSE-2.0>
+[org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
+[res-elixir-cloud-coc]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md>
+[res-elixir-cloud-contributing]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CONTRIBUTING.md>
+[res-connexion]: <https://github.com/zalando/connexion>
+[res-flask]: <http://flask.pocoo.org/>
+[res-foca]: <https://pypi.org/project/foca/>
+[res-open-api]: <https://www.openapis.org/>
+[res-semver]: <https://semver.org/>
