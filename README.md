@@ -20,8 +20,8 @@ for:
 
 * configuration management
 * error handling
-* database interaction (currently MongoDB)
-* JWT validation
+* database interaction (currently [MongoDB][res-mongo-db])
+* [JWT][res-jwt] validation
 
 ## Usage
 
@@ -82,5 +82,7 @@ question etc.
 [res-connexion]: <https://github.com/zalando/connexion>
 [res-flask]: <http://flask.pocoo.org/>
 [res-foca]: <https://pypi.org/project/foca/>
+[res-jwt]: <https://jwt.io>
+[res-mongo-db]: <https://www.mongodb.com/>
 [res-open-api]: <https://www.openapis.org/>
 [res-semver]: <https://semver.org/>
