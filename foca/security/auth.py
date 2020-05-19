@@ -153,6 +153,7 @@ def param_pass(
         return wrapper
     return jwt_validation
 
+
 def parse_jwt_from_header(
     header_name: str = 'Authorization',
     token_prefix: str = 'Bearer',
@@ -197,6 +198,7 @@ def parse_jwt_from_header(
         raise Unauthorized
 
     return token
+
 
 def validate_jwt_via_userinfo_endpoint(
     token: str,
@@ -255,6 +257,7 @@ def validate_jwt_via_userinfo_endpoint(
         f"Claims decoded: {claims}"
     )
     return claims
+
 
 def validate_jwt_via_public_key(
     token: str,
@@ -400,6 +403,7 @@ def validate_jwt_via_public_key(
     )
     return claims
 
+
 def validate_jwt_claims(
     *args: str,
     claims: Mapping,
@@ -422,6 +426,7 @@ def validate_jwt_claims(
             return False
     else:
         return True
+
 
 def get_entry_from_idp_service_discovery_endpoint(
         issuer: str,
@@ -471,6 +476,7 @@ def get_entry_from_idp_service_discovery_endpoint(
     else:
         return response.json()[entry]
 
+
 def validate_jwt_via_endpoint(
     url: str,
     token: str,
@@ -510,6 +516,7 @@ def validate_jwt_via_endpoint(
         raise
 
     return None
+
 
 def get_public_keys(
     url: str,
