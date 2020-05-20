@@ -29,11 +29,11 @@ def param_pass(
     audience: Optional[Iterable[str]] = None,
     allow_expired: bool = False,
 ):
+    """
+    **The decorator protects an endpoint from being called without a valid
+    authorization token.
+    """
     def jwt_validation(fn: Callable) -> Callable:
-        """
-        **The decorator protects an endpoint from being called without a valid
-        authorization token.
-        """
         @wraps(fn)
         def wrapper(*args, **kwargs):
 
@@ -466,7 +466,7 @@ def get_entry_from_idp_service_discovery_endpoint(
             (
                 "Required entry '{entry}' not found in "
                 "identity provider's documentation accessed "
-                "at endpoint '{endpoint}'."
+                "at endpoint '{url}'."
             ).format(
                 entry=entry,
                 url=url,
