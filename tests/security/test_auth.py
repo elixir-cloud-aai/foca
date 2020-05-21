@@ -314,3 +314,170 @@ def test_param_pass_through_userinfo(monkeypatch):
         p = locals()
         return len(p)
     assert mock_func() == 2
+
+
+def test_invalid_jwt_claims_via_public_key(monkeypatch):
+    """Test for improper jwt extraction when val_method=public_key"""
+    request = MagicMock(name='request')
+    request.args = {}
+    request.headers = {'Authorization': 'prefix suffix'}
+    request.cookies = {}
+    request.params = {}
+    monkeypatch.setattr('foca.security.auth.request', request)
+
+    with pytest.raises(Unauthorized):
+        @param_pass(token_prefix="prefix", validation_methods=["public_key"])
+        def mock_func():
+            p = locals()
+            return len(p)
+        assert mock_func() == 0
+
+
+def test_invalid_jwt_headers_via_public_key(monkeypatch):
+    """Test for improper jwt header claims when val_method=public_key"""
+    request = MagicMock(name='request')
+    request.args = {}
+    request.headers = {'Authorization': 'prefix suffix'}
+    request.cookies = {}
+    request.params = {}
+    mock_jwt = MagicMock(name='jwt')
+    mock_jwt.decode.return_value = {'iss': 'payload1'}
+    monkeypatch.setattr('foca.security.auth.request', request)
+    monkeypatch.setattr('foca.security.auth.jwt', mock_jwt)
+
+    with pytest.raises(Unauthorized):
+        @param_pass(token_prefix="prefix", validation_methods=["public_key"])
+        def mock_func():
+            p = locals()
+            return len(p)
+        assert mock_func() == 0
+
+
+def test_invalid_url_request_public_key(monkeypatch):
+    """Test if entry point url missing when val_method=public_key"""
+    request = MagicMock(name='request')
+    request.args = {}
+    request.headers = {'Authorization': 'prefix suffix'}
+    request.cookies = {}
+    request.params = {}
+    mock_jwt = MagicMock(name='jwt')
+    mock_jwt.decode.return_value = {'iss': 'payload1'}
+    mock_jwt.get_unverified_header.return_value = {
+        u'alg': u'RS256',
+        u'typ': u'JWT',
+        u'iss': u'payload1'
+        }
+    monkeypatch.setattr('foca.security.auth.request', request)
+    monkeypatch.setattr('foca.security.auth.jwt', mock_jwt)
+    monkeypatch.setattr('foca.security.auth.requests.get', None)
+
+    with pytest.raises(Unauthorized):
+        @param_pass(token_prefix="prefix", validation_methods=["public_key"])
+        def mock_func():
+            p = locals()
+            return len(p)
+        assert mock_func() == 0
+
+
+def test_entry_missing_endpoint_connect_public_key(monkeypatch):
+    """Test if entry is absent in GET(url) when val_method=public_key"""
+    request = MagicMock(name='request')
+    request.args = {}
+    request.headers = {'Authorization': 'prefix suffix'}
+    request.cookies = {}
+    request.params = {}
+    mock_jwt = MagicMock(name='jwt')
+    mock_jwt.decode.return_value = {'iss': 'payload1'}
+    mock_jwt.get_unverified_header.return_value = {
+        u'alg': u'RS256',
+        u'typ': u'JWT',
+        u'iss': u'payload1'
+        }
+    request_url = MagicMock(name='requests')
+    request_url.status_code = 200
+    request_url.return_value.json.return_value = {
+        'random': 'random_url'
+        }
+    monkeypatch.setattr('foca.security.auth.request', request)
+    monkeypatch.setattr('foca.security.auth.jwt', mock_jwt)
+    monkeypatch.setattr('foca.security.auth.requests.get', request_url)
+
+    with pytest.raises(Unauthorized):
+        @param_pass(token_prefix="prefix", validation_methods=["public_key"])
+        def mock_func():
+            p = locals()
+            return len(p)
+        assert mock_func() == 0
+
+
+def test_entry_present_endpoint_connect_public_key(monkeypatch):
+    """
+    Test if entry is present in GET(url) and obtain
+    identity provider's public keys(here None)
+    """
+    request = MagicMock(name='request')
+    request.args = {}
+    request.headers = {'Authorization': 'prefix suffix'}
+    request.cookies = {}
+    request.params = {}
+    mock_jwt = MagicMock(name='jwt')
+    mock_jwt.decode.return_value = {'iss': 'payload1'}
+    mock_jwt.get_unverified_header.return_value = {
+        u'alg': u'RS256',
+        u'typ': u'JWT',
+        u'iss': u'payload1',
+        }
+    request_url = MagicMock(name='requests')
+    request_url.status_code = 200
+    request_url.return_value.json.return_value = {
+        'random': 'random_url',
+        'jwks_uri': 'check1',
+        'keys': []
+        }
+    monkeypatch.setattr('foca.security.auth.request', request)
+    monkeypatch.setattr('foca.security.auth.jwt', mock_jwt)
+    monkeypatch.setattr('foca.security.auth.requests.get', request_url)
+
+    with pytest.raises(Unauthorized):
+        @param_pass(token_prefix="prefix", validation_methods=["public_key"])
+        def mock_func():
+            p = locals()
+            return len(p)
+        assert mock_func() == 0
+
+
+def test_kid_not_in_header_claim(monkeypatch):
+    """
+    Test if claim_key_id is present in header claims
+    but it's value is absent in public keys
+    """
+    request = MagicMock(name='request')
+    request.args = {}
+    request.headers = {'Authorization': 'prefix suffix'}
+    request.cookies = {}
+    request.params = {}
+    mock_jwt = MagicMock(name='jwt')
+    mock_jwt.decode.return_value = {'iss': 'payload1'}
+    mock_jwt.get_unverified_header.return_value = {
+        u'alg': u'RS256',
+        u'typ': u'JWT',
+        u'iss': u'payload1',
+        u'kid': u'paylod2'
+        }
+    request_url = MagicMock(name='requests')
+    request_url.status_code = 200
+    request_url.return_value.json.return_value = {
+        'random': 'random_url',
+        'jwks_uri': 'check1',
+        'keys': []
+        }
+    monkeypatch.setattr('foca.security.auth.request', request)
+    monkeypatch.setattr('foca.security.auth.jwt', mock_jwt)
+    monkeypatch.setattr('foca.security.auth.requests.get', request_url)
+
+    with pytest.raises(Unauthorized):
+        @param_pass(token_prefix="prefix", validation_methods=["public_key"])
+        def mock_func():
+            p = locals()
+            return len(p)
+        assert mock_func() == 0
