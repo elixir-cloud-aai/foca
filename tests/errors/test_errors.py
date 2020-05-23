@@ -7,12 +7,9 @@ from foca.errors.errors import (
     __handle_task_not_found,
     __handle_forbidden,
     __handle_unauthorized,
-    handle_bad_request,
-	register_error_handlers
+    handle_bad_request
 )
 import json
-from unittest.mock import MagicMock
-from werkzeug.exceptions import (BadRequest, InternalServerError, NotFound)
 
 
 def test_internal_server_error():
@@ -22,9 +19,9 @@ def test_internal_server_error():
     assert error.mimetype == "application/problem+json"
     response = json.loads(error.data.decode('utf-8'))
     assert response == {
-	"msg": "An unexpected error occurred.",
-	"status_code": "500"
-	}
+        "msg": "An unexpected error occurred.",
+        "status_code": "500"
+        }
 
 
 def test_task_not_found():
@@ -34,9 +31,9 @@ def test_task_not_found():
     assert error.mimetype == "application/problem+json"
     response = json.loads(error.data.decode('utf-8'))
     assert response == {
-	"msg": "The requested task was not found.",
-	"status_code": "404"
-	}
+        "msg": "The requested task was not found.",
+        "status_code": "404"
+        }
 
 
 def test_forbidden():
@@ -46,9 +43,9 @@ def test_forbidden():
     assert error.mimetype == "application/problem+json"
     response = json.loads(error.data.decode('utf-8'))
     assert response == {
-	"msg": "The requester is not authorized to perform this action.",
-	"status_code": "403"
-	}
+        "msg": "The requester is not authorized to perform this action.",
+        "status_code": "403"
+        }
 
 
 def test_unauthorized():
@@ -58,9 +55,9 @@ def test_unauthorized():
     assert error.mimetype == "application/problem+json"
     response = json.loads(error.data.decode('utf-8'))
     assert response == {
-	"msg": "The request is unauthorized.",
-	"status_code": "401"
-	}
+        "msg": "The request is unauthorized.",
+        "status_code": "401"
+        }
 
 
 def test_bad_request():
@@ -70,13 +67,6 @@ def test_bad_request():
     assert error.mimetype == "application/problem+json"
     response = json.loads(error.data.decode('utf-8'))
     assert response == {
-	"msg": "The request is malformed.",
-	"status_code": "400"
-	}
-
-def test_app(monkeypatch):
-	a = MagicMock(name='app')
-	monkeypatch.setattr('foca.errors.errors.App', a)
-	a = register_error_handlers(a)
-	def tmp():
-		return BadRequest
+        "msg": "The request is malformed.",
+        "status_code": "400"
+        }
