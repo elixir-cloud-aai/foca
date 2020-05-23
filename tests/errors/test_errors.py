@@ -7,9 +7,11 @@ from foca.errors.errors import (
     __handle_task_not_found,
     __handle_forbidden,
     __handle_unauthorized,
-    handle_bad_request
+    handle_bad_request,
+	register_error_handlers
 )
 import json
+from unittest.mock import MagicMock
 
 
 def test_internal_server_error():
@@ -70,3 +72,10 @@ def test_bad_request():
         "msg": "The request is malformed.",
         "status_code": "400"
         }
+
+
+def test_register_error_handlers(monkeypatch):
+	test_app = MagicMock(name='App')
+	monkeypatch.setattr('foca.errors.errors.App', test_app)
+	test_app = register_error_handlers(test_app)
+	assert type(test_app) == type(test_app)
