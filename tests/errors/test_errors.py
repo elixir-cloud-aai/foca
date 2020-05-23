@@ -8,7 +8,7 @@ from foca.errors.errors import (
     __handle_forbidden,
     __handle_unauthorized,
     handle_bad_request,
-	register_error_handlers
+    register_error_handlers
 )
 import json
 from unittest.mock import MagicMock
@@ -75,7 +75,7 @@ def test_bad_request():
 
 
 def test_register_error_handlers(monkeypatch):
-	test_app = MagicMock(name='App')
-	monkeypatch.setattr('foca.errors.errors.App', test_app)
-	test_app = register_error_handlers(test_app)
-	assert type(test_app) == type(test_app)
+    test_app = MagicMock(name='App')
+    monkeypatch.setattr('foca.errors.errors.App', test_app)
+    test_app = register_error_handlers(test_app)
+    assert type(test_app) == type(test_app)
