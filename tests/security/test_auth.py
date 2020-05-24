@@ -341,9 +341,9 @@ def test_invalid_jwt_headers_via_public_key(monkeypatch):
     request.cookies = {}
     request.params = {}
     mock_jwt = MagicMock(name='jwt')
-    mock_jwt.decode.return_value = {'iss': 'payload1'}
+    mock_jwt.return_value = {'iss': 'payload1'}
     monkeypatch.setattr('foca.security.auth.request', request)
-    monkeypatch.setattr('foca.security.auth.jwt', mock_jwt)
+    monkeypatch.setattr('foca.security.auth.jwt.decode', mock_jwt)
 
     with pytest.raises(Unauthorized):
         @param_pass(token_prefix="prefix", validation_methods=["public_key"])
@@ -476,7 +476,10 @@ def test_kid_not_in_header_claim(monkeypatch):
     monkeypatch.setattr('foca.security.auth.requests.get', request_url)
 
     with pytest.raises(Unauthorized):
-        @param_pass(token_prefix="prefix", validation_methods=["public_key"])
+        @param_pass(
+            token_prefix="prefix", validation_methods=["public_key"],
+            allow_expired=True
+            )
         def mock_func():
             p = locals()
             return len(p)
