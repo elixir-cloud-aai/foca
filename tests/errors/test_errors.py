@@ -8,7 +8,8 @@ from foca.errors.errors import (
     __handle_forbidden,
     __handle_unauthorized,
     handle_bad_request,
-    register_error_handlers
+    register_error_handlers,
+    ResourceNotFound
 )
 import json
 from unittest.mock import MagicMock
@@ -79,3 +80,12 @@ def test_register_error_handlers(monkeypatch):
     monkeypatch.setattr('foca.errors.errors.App', test_app)
     test_app = register_error_handlers(test_app)
     assert type(test_app) == type(test_app)
+
+
+def test_object_creation():
+    obj = ResourceNotFound()
+    assert obj.code == 404
+    assert obj.description == (
+            "The requested URL was not found on the server. "
+            "If you entered the URL manually please check your spelling and try again."
+    )
