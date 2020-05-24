@@ -87,5 +87,6 @@ def test_object_creation():
     assert obj.code == 404
     assert obj.description == (
             "The requested URL was not found on the server. "
-            "If you entered the URL manually please check your spelling and try again."
+            "If you entered the URL manually please check your "
+            "spelling and try again."
     )
