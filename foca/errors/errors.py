@@ -26,20 +26,12 @@ def register_error_handlers(app: App) -> App:
     app.add_error_handler(ExtraParameterProblem, handle_bad_request)
     app.add_error_handler(Forbidden, __handle_forbidden)
     app.add_error_handler(InternalServerError, __handle_internal_server_error)
+    app.add_error_handler(NotFound, __handle_not_found)
     app.add_error_handler(Unauthorized, __handle_unauthorized)
-    app.add_error_handler(ResourceNotFound, __handle_task_not_found)
     logger.info('Registered custom error handlers with Connexion app.')
 
     # Return Connexion app instance
     return app
-
-
-# CUSTOM ERRORS
-class ResourceNotFound(ProblemException, NotFound, BaseException):
-    """ResourceNotFound(404) error compatible with Connexion."""
-
-    def __init__(self, title=None, **kwargs):
-        super(ResourceNotFound, self).__init__(title=title, **kwargs)
 
 
 # CUSTOM ERROR HANDLERS
@@ -76,10 +68,10 @@ def __handle_forbidden(exception: Exception) -> Response:
     )
 
 
-def __handle_task_not_found(exception: Exception) -> Response:
+def __handle_not_found(exception: Exception) -> Response:
     return Response(
         response=dumps({
-            'msg': 'The requested task was not found.',
+            'msg': 'The requested resource was not found.',
             'status_code': '404'
             }),
         status=404,
@@ -96,3 +88,4 @@ def __handle_internal_server_error(exception: Exception) -> Response:
         status=500,
         mimetype="application/problem+json"
     )
+
