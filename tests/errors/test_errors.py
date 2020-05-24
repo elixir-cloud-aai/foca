@@ -4,7 +4,7 @@ Tests for errors.py
 
 from foca.errors.errors import (
     __handle_internal_server_error,
-    __handle_task_not_found,
+    __handle_not_found,
     __handle_forbidden,
     __handle_unauthorized,
     handle_bad_request,
@@ -58,7 +58,7 @@ def test_not_found():
     assert error.mimetype == "application/problem+json"
     response = json.loads(error.data.decode('utf-8'))
     assert response == {
-        "msg": "The requested task was not found.",
+        "msg": "The requested resource was not found.",
         "status_code": "404"
         }
 

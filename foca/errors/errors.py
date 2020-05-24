@@ -3,7 +3,7 @@ handlers with a Connexion app instance."""
 
 import logging
 
-from connexion import App, ProblemException
+from connexion import App
 from connexion.exceptions import (
     ExtraParameterProblem,
     Forbidden,
@@ -88,4 +88,3 @@ def __handle_internal_server_error(exception: Exception) -> Response:
         status=500,
         mimetype="application/problem+json"
     )
-
