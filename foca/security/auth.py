@@ -4,10 +4,11 @@ from connexion.exceptions import Unauthorized
 from connexion import request
 from functools import wraps
 import logging
-from typing import (Callable, Iterable, Mapping, Optional)
+from typing import (Callable, Iterable, List, Mapping, Optional)
 
 from cryptography.hazmat.primitives import serialization
 import jwt
+from jwt.exceptions import InvalidKeyError
 import requests
 import json
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def param_pass(
     authorization_required: bool = True,
-    validation_methods: Iterable[str] = ["userinfo", "public_key"],
+    validation_methods: List[str] = ["userinfo", "public_key"],
     validation_checks: str = "all",
     algorithms: Iterable[str] = ["RS256"],
     token_prefix: str = "Bearer",
@@ -366,9 +367,7 @@ def validate_jwt_via_public_key(
                 options=validation_options,
             )
         # Wrong or faulty key was used; try next one
-        except (
-            jwt.exceptions.InvalidKeyError
-        ) as e:
+        except InvalidKeyError as e:
             logger.debug(
                 "JWT could not be decoded with current JWK:\n"
                 f"{pem}\n"
