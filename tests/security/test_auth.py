@@ -515,7 +515,7 @@ def test_kid_in_header_claim(monkeypatch):
     monkeypatch.setattr('foca.security.auth.jwt', mock_jwt)
     monkeypatch.setattr('foca.security.auth.requests.get', request_url)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(Unauthorized):
         @param_pass(
             token_prefix="prefix", validation_methods=["public_key"],
             allow_expired=True
