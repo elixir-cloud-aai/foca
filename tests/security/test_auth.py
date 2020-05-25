@@ -3,10 +3,13 @@ Tests for auth.py
 """
 import pytest
 from unittest.mock import MagicMock
-
 from connexion.exceptions import Unauthorized
 
-from foca.security.auth import param_pass
+from foca.security.auth import (
+    param_pass,
+    get_public_keys,
+    validate_jwt_via_userinfo_endpoint,
+    )
 
 
 def test_not_authorized():
@@ -530,3 +533,29 @@ def test_kid_in_header_claim(monkeypatch):
             p = locals()
             return len(p)
         assert mock_func() == 0
+
+
+def test_get_public_key_invalid_url_request():
+    """Test for invalid url get request before public key extraction"""
+    assert get_public_keys(url="") == {}
+
+
+def test_validate_jwt_via_userinfo_endpoint_invalid_url_request(monkeypatch):
+    """Test for invalid url get request before public key extraction"""
+    mock_jwt = MagicMock(name='jwt')
+    mock_jwt.decode.return_value = {'iss': 'payload1'}
+
+    mock_valid = MagicMock()
+    mock_valid.return_value = "temp1"
+
+    mock_url_endpoint = MagicMock()
+    mock_url_endpoint.return_value = "tmp_url"
+
+    monkeypatch.setattr('foca.security.auth.jwt', mock_jwt)
+    monkeypatch.setattr('foca.security.auth.validate_jwt_claims', mock_valid)
+    monkeypatch.setattr(
+        'foca.security.auth.get_entry_from_idp_service_discovery_endpoint',
+        mock_url_endpoint
+        )
+
+    assert validate_jwt_via_userinfo_endpoint(token="token") == {}
