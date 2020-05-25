@@ -493,7 +493,9 @@ def test_kid_not_in_header_claim(monkeypatch):
 def test_kid_in_header_claim(monkeypatch):
     """
     Test if claim_key_id is present in header claims
-    and it's value is present in public keys
+    and it's value is present in public keys.
+    Also check code coverage due to when allow_expired and
+    add_key_to_claims variables are True.
     """
     request = MagicMock(name='request')
     request.args = {}
@@ -522,7 +524,7 @@ def test_kid_in_header_claim(monkeypatch):
     with pytest.raises(Unauthorized):
         @param_pass(
             token_prefix="prefix", validation_methods=["public_key"],
-            allow_expired=True
+            allow_expired=True, add_key_to_claims=True
             )
         def mock_func():
             p = locals()
