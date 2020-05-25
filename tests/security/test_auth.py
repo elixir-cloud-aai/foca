@@ -484,3 +484,43 @@ def test_kid_not_in_header_claim(monkeypatch):
             p = locals()
             return len(p)
         assert mock_func() == 0
+
+
+def test_kid_in_header_claim(monkeypatch):
+    """
+    Test if claim_key_id is present in header claims
+    and it's value is present in public keys
+    """
+    request = MagicMock(name='request')
+    request.args = {}
+    request.headers = {'Authorization': 'prefix suffix'}
+    request.cookies = {}
+    request.params = {}
+    mock_jwt = MagicMock(name='jwt')
+    mock_jwt.decode.return_value = {'iss': 'payload1'}
+    mock_jwt.get_unverified_header.return_value = {
+        u'alg': u'RS256',
+        u'typ': u'JWT',
+        u'iss': u'payload1',
+        u'kid': u'paylod2'
+        }
+    request_url = MagicMock(name='requests')
+    request_url.status_code = 200
+    request_url.return_value.json.return_value = {
+        'random': 'random_url',
+        'jwks_uri': 'check1',
+        'keys': [{'kid': u'payload2'}]
+        }
+    monkeypatch.setattr('foca.security.auth.request', request)
+    monkeypatch.setattr('foca.security.auth.jwt', mock_jwt)
+    monkeypatch.setattr('foca.security.auth.requests.get', request_url)
+
+    with pytest.raises(ValueError):
+        @param_pass(
+            token_prefix="prefix", validation_methods=["public_key"],
+            allow_expired=True
+            )
+        def mock_func():
+            p = locals()
+            return len(p)
+        assert mock_func() == 0
