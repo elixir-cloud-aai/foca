@@ -439,7 +439,11 @@ def test_entry_present_endpoint_connect_public_key(monkeypatch):
     monkeypatch.setattr('foca.security.auth.requests.get', request_url)
 
     with pytest.raises(Unauthorized):
-        @param_pass(token_prefix="prefix", validation_methods=["public_key"])
+        @param_pass(
+            token_prefix="prefix",
+            validation_methods=["public_key"],
+            allow_expired=True
+            )
         def mock_func():
             p = locals()
             return len(p)
@@ -502,7 +506,7 @@ def test_kid_in_header_claim(monkeypatch):
         u'alg': u'RS256',
         u'typ': u'JWT',
         u'iss': u'payload1',
-        u'kid': u'paylod2'
+        u'kid': u'payload2'
         }
     request_url = MagicMock(name='requests')
     request_url.status_code = 200
