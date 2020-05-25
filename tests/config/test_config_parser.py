@@ -12,13 +12,8 @@ CONFIG_PATH_MISSING = []
 CONFIG_PATH_INVALID = ["tests/config/samplex.yaml"]
 
 
-"""
-Test that update_from_yaml return a string object
-"""
-
-
 def test_update_from_yaml_should_returns_str(monkeypatch):
-
+    """Test that update_from_yaml return a string object"""
     instance = YAMLConfigParser()
     print(instance)
     config_path = CONFIG_PATH_OK
@@ -29,13 +24,9 @@ def test_update_from_yaml_should_returns_str(monkeypatch):
     assert isinstance(res, str)
 
 
-"""
-update_from_yaml should return FileNotFoundError
-when file path is incorrect
-"""
-
-
 def test_update_from_yaml_should_return_FileNotFoundError():
+    """update_from_yaml should return FileNotFoundError when file
+    path is incorrect"""
 
     with pytest.raises(FileNotFoundError):
         instance = YAMLConfigParser()
@@ -44,13 +35,8 @@ def test_update_from_yaml_should_return_FileNotFoundError():
         instance.update_from_yaml(config_path, config_var)
 
 
-"""
-get_conf should return correct key value on call
-"""
-
-
 def test_get_conf():
-
+    """get_conf should return correct key value on call"""
     myDict = {
         "config1": {
             "config3": "val3"
@@ -66,14 +52,10 @@ def test_get_conf():
     assert res2 == "val2"
 
 
-"""
-get_conf should raise KeyError when an illegal
-value is provided for 'args' and touchy is false
-"""
-
-
 def test_get_conf_type_key_error():
-
+    """get_conf should raise KeyError when an illegal
+    value is provided for 'args' and touchy is false.
+    """
     with pytest.raises(KeyError):
         myDict = {
             "config1": "val1",
@@ -83,34 +65,27 @@ def test_get_conf_type_key_error():
         get_conf_type(myDict, arg1, touchy=False)
 
 
-"""
-get_conf_type should return SystemError
-when touchy is false and any exception is raised
-"""
-
-
 def test_get_conf_type_system_error():
+    """get_conf_type should return SystemError
+    when touchy is false and any exception is raised
+    """
     myDict = {
         "config1": "val1",
         "config2": "val2"
-        }
+    }
     with pytest.raises(SystemExit):
         arg1 = "config3"
         get_conf_type(myDict, arg1)
 
 
-"""
-invert_types is false and
-val is not an instance of types
-then return System Error
-"""
-
-
 def test_invert_types_false_returns_system_exit():
+    """invert_types is false and val is not an instance of types
+    then return SystemExit.
+    """
     myDict = {
-            "config1": "val1",
-            "config2": "val2"
-            }
+        "config1": "val1",
+        "config2": "val2"
+    }
     with pytest.raises(SystemExit):
         get_conf_type(
             myDict, "config1",
@@ -119,14 +94,10 @@ def test_invert_types_false_returns_system_exit():
             touchy=True)
 
 
-"""
-invert_types is false and
-val is an instance of types
-then return System Error
-"""
-
-
 def test_invert_types_true_returns_system_exit():
+    """invert_types is false and val is an instance of types
+    then return System Error
+    """
     myDict = {
         "config1": {
             "config3": "val3",
