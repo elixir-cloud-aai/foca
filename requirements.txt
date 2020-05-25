@@ -6,6 +6,7 @@ coveralls==1.11.1
 flake8==3.7.9
 Flask==1.1.1
 Flask-Cors==3.0.8
+Flask-PyMongo==2.3.0
 mongomock==3.19.0
 PyJWT==1.6.4
 pylint==2.4.4
