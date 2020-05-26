@@ -295,13 +295,8 @@ def validate_jwt_via_public_key(
         header_claims = jwt.get_unverified_header(token)
     except Exception as e:
         logger.error(
-            (
-                "Could not extract JWT header claims."
-                "Original error message: {type}: {msg}"
-            ).format(
-                type=type(e).__name__,
-                msg=e,
-            )
+            "Could not extract JWT header claims. Original error message: "
+            f"{type(e).__name__}: {e}"
         )
         return {}
 
@@ -348,6 +343,7 @@ def validate_jwt_via_public_key(
 
     # Try public keys one after the other
     pem = ''
+    claims = {}
     for key in public_keys.values():
 
         # Get PEM representation of key

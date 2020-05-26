@@ -3,13 +3,24 @@ Tests for auth.py
 """
 import pytest
 from unittest.mock import MagicMock
+
 from connexion.exceptions import Unauthorized
+import cryptography
+from jwt.exceptions import InvalidKeyError
 
 from foca.security.auth import (
     param_pass,
     get_public_keys,
     validate_jwt_via_userinfo_endpoint,
-    )
+    validate_jwt_via_public_key,
+)
+
+DICT_EMPTY = {}
+MOCK_BYTES = b'my-mock-bytes'
+MOCK_CLAIMS_ISSUER = {"iss": "some-mock-issuer"}
+MOCK_JWK_SET = {"key1": cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey}
+MOCK_TOKEN = "my-mock-token"
+MOCK_URL = "https://some-url-that-does-not.exist"
 
 
 def test_not_authorized():
@@ -456,7 +467,7 @@ def test_entry_present_endpoint_connect_public_key(monkeypatch):
 def test_kid_not_in_header_claim(monkeypatch):
     """
     Test if claim_key_id is present in header claims
-    but it's value is absent in public keys
+    but its value is absent in public keys
     """
     request = MagicMock(name='request')
     request.args = {}
@@ -496,7 +507,7 @@ def test_kid_not_in_header_claim(monkeypatch):
 def test_kid_in_header_claim(monkeypatch):
     """
     Test if claim_key_id is present in header claims
-    and it's value is present in public keys.
+    and its value is present in public keys.
     Also check code coverage due to when allow_expired and
     add_key_to_claims variables are True.
     """
@@ -559,3 +570,91 @@ def test_validate_jwt_via_userinfo_endpoint_invalid_url_request(monkeypatch):
         )
 
     assert validate_jwt_via_userinfo_endpoint(token="token") == {}
+
+
+def test_validate_jwt_via_public_key_no_jwk_sets_returned(monkeypatch):
+    """Test JWT validation via public key if no public keys are returned"""
+    monkeypatch.setattr(
+        'jwt.decode',
+        lambda *args, **kwargs: MOCK_CLAIMS_ISSUER,
+    )
+    monkeypatch.setattr(
+        'jwt.get_unverified_header',
+        lambda *args, **kwargs: DICT_EMPTY,
+    )
+    monkeypatch.setattr(
+        'foca.security.auth.get_entry_from_idp_service_discovery_endpoint',
+        lambda *args, **kwargs: MOCK_URL,
+    )
+    monkeypatch.setattr(
+        'foca.security.auth.get_public_keys',
+        lambda *args, **kwargs: DICT_EMPTY,
+    )
+    res = validate_jwt_via_public_key(token=MOCK_TOKEN)
+    assert res == DICT_EMPTY
+
+
+def test_validate_jwt_via_public_key_invalid_key_raised(monkeypatch):
+    """Check whether JWT validation via public key raises InvalidKeyError"""
+
+    def jwt_decode_patch_1(verify=False, **kwargs):
+        if verify:
+            raise InvalidKeyError
+        else:
+            return MOCK_CLAIMS_ISSUER
+
+    monkeypatch.setattr(
+        'jwt.decode',
+        jwt_decode_patch_1,
+    )
+    monkeypatch.setattr(
+        'jwt.get_unverified_header',
+        lambda *args, **kwargs: DICT_EMPTY,
+    )
+    monkeypatch.setattr(
+        'foca.security.auth.get_entry_from_idp_service_discovery_endpoint',
+        lambda *args, **kwargs: MOCK_URL,
+    )
+    monkeypatch.setattr(
+        'foca.security.auth.get_public_keys',
+        lambda *args, **kwargs: MOCK_JWK_SET,
+    )
+    monkeypatch.setattr(
+        'cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey.public_bytes',
+        lambda *args, **kwargs: MOCK_BYTES,
+    )
+    res = validate_jwt_via_public_key(token=MOCK_TOKEN)
+    assert res == DICT_EMPTY
+
+
+def test_validate_jwt_via_public_key_exception_raised(monkeypatch):
+    """Check whether JWT validation via public key raises Exception"""
+
+    def jwt_decode_patch_1(verify=False, **kwargs):
+        if verify:
+            raise Exception
+        else:
+            return MOCK_CLAIMS_ISSUER
+
+    monkeypatch.setattr(
+        'jwt.decode',
+        jwt_decode_patch_1,
+    )
+    monkeypatch.setattr(
+        'jwt.get_unverified_header',
+        lambda *args, **kwargs: DICT_EMPTY,
+    )
+    monkeypatch.setattr(
+        'foca.security.auth.get_entry_from_idp_service_discovery_endpoint',
+        lambda *args, **kwargs: MOCK_URL,
+    )
+    monkeypatch.setattr(
+        'foca.security.auth.get_public_keys',
+        lambda *args, **kwargs: MOCK_JWK_SET,
+    )
+    monkeypatch.setattr(
+        'cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey.public_bytes',
+        lambda *args, **kwargs: MOCK_BYTES,
+    )
+    res = validate_jwt_via_public_key(token=MOCK_TOKEN)
+    assert res == DICT_EMPTY
