@@ -15,7 +15,7 @@ if os.path.isfile(req):
 
 setup(
     name="foca",
-    version="0.1.0",
+    version="0.2.0",
     description=(
         "Archetype for OpenAPI microservices based on Flask and Connexion"
     ),
