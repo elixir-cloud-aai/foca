@@ -18,7 +18,9 @@ from foca.security.auth import (
 DICT_EMPTY = {}
 MOCK_BYTES = b'my-mock-bytes'
 MOCK_CLAIMS_ISSUER = {"iss": "some-mock-issuer"}
-MOCK_JWK_SET = {"key1": cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey}
+MOCK_JWK_SET = {
+    "key1": cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey
+}
 MOCK_TOKEN = "my-mock-token"
 MOCK_URL = "https://some-url-that-does-not.exist"
 
@@ -620,7 +622,10 @@ def test_validate_jwt_via_public_key_invalid_key_raised(monkeypatch):
         lambda *args, **kwargs: MOCK_JWK_SET,
     )
     monkeypatch.setattr(
-        'cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey.public_bytes',
+        (
+            'cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey.'
+            'public_bytes'
+        ),
         lambda *args, **kwargs: MOCK_BYTES,
     )
     res = validate_jwt_via_public_key(token=MOCK_TOKEN)
@@ -653,7 +658,10 @@ def test_validate_jwt_via_public_key_exception_raised(monkeypatch):
         lambda *args, **kwargs: MOCK_JWK_SET,
     )
     monkeypatch.setattr(
-        'cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey.public_bytes',
+        (
+            'cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey.'
+            'public_bytes'
+        ),
         lambda *args, **kwargs: MOCK_BYTES,
     )
     res = validate_jwt_via_public_key(token=MOCK_TOKEN)
