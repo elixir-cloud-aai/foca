@@ -3,6 +3,9 @@ from foca.factories.connexion_app import (
     create_connexion_app
     )
 from connexion import App
+from flask import Response
+from json import dumps
+import json
 
 
 DICT_CONF_VALS = {
@@ -45,5 +48,22 @@ def test_creation_of_connexion_app(monkeypatch):
 
     res_app = create_connexion_app({})
     app_ret_type = type(App(__name__))
-
     assert type(res_app) == app_ret_type
+
+    with res_app.app.test_request_context('/url'):
+        resp = Response(
+            response=dumps({
+                'title': 'abc',
+                'status_code': '400'
+                }),
+            status=400,
+            mimetype="application/problem+json"
+            )
+        resp = res_app.app.process_response(resp)
+        assert resp.status == '400 BAD REQUEST'
+        assert resp.mimetype == "application/problem+json"
+        response = json.loads(resp.data.decode('utf-8'))
+        assert response == {
+            "msg": "The request is malformed.",
+            "status_code": "400"
+            }
