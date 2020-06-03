@@ -69,7 +69,6 @@ def register_openapi(
     # Iterate over list of API specs
     for spec_path, spec in specs_in:
         modified = False
-        specs = {}
         with open(spec_path, 'r') as spec_file:
             try:
                 specs = safe_load(spec_file)
