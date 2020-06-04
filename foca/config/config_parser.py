@@ -44,9 +44,9 @@ class YAMLConfigParser(Dict):
 
         Args:
             config_paths: List of YAML file paths.
+
             config_vars: List of environment variables, each pointing to one or
-                         more YAML files, separated by colons; unset variables
-                         are ignored.
+            more YAML files, separated by colons; unset variables are ignored.
 
         Returns:
             A string of all file paths that were used to update the dictionary,
@@ -85,22 +85,29 @@ def get_conf_type(
 
     Args:
         config: Dictionary containing config values.
-        *args: Keys of nested dictionary, from outer to innermost.
+
+        `*args`: Keys of nested dictionary, from outer to innermost.
+
         types: Tuple of allowed types for return values; if `False`, no
-               checking is done.
+        checking is done.
+
         invert_types: Types specified in parameter `types` are *forbidden*;
-                      ignored if `types` is `False`.
+        ignored if `types` is `False`.
+
         touchy: If `True`, exceptions will raise `SystemExit(1)`; otherwise
-                exceptions are re-raised.
+        exceptions are re-raised.
 
     Raises:
         AttributeError: May occur when an illegal value is provided for
-                        `*args`; raised only if `touchy` is `False`.
+        `*args`; raised only if `touchy` is `False`.
+
         KeyError: Raised when dictionary keys passed in `*args` are not
-                  available and `touchy` is `False`.
+        available and `touchy` is `False`.
+
         TypeError: The return value is not of any of the allowed `types` or
-                   is among any of the forbidden `types` (if `invert_types` is
-                   `True`); only raised if `touchy` is `False`.
+        is among any of the forbidden `types` (if `invert_types` is `True`);
+        only raised if `touchy` is `False`.
+
         SystemExit: Raised if any exception occurs and `touchy` is `True`.
     """
     # Get value for list of keys
@@ -164,13 +171,9 @@ def get_conf(
     """Returns the value corresponding to a chain of keys from a nested
     dictionary. Extracts only 'leafs' of nested dictionary.
 
-    Shortcut for ```
-    get_conf_type(
-        config,
-        *args,
-        types=(dict, list),
-        invert_types=True
-    ```
+    Shortcut for ```get_conf_type(
+    config, *args, types=(dict, list),
+    invert_types=True```
 
     See signature for `get_conf_type()` for info on arguments and errors.
     """
