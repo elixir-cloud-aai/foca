@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Read long description from file 
+# Read long description from file
 file_name = os.path.join(root_dir, "README.md")
 with open(file_name, "r") as fh:
     long_description = fh.read()
