@@ -15,43 +15,28 @@ services:
 # PRs from forks and pushes to existing PRs from forks
 if: (type == push) OR (type == pull_request AND fork == true)
 
-stages:
-- name: test
-- name: build
-- name: publish
-  # for security reasons, builds from forks won't be published until merged;
-  # also, environment variables defined in repository settings are not
-  # available to builds from PRs coming from external repos
-  if: fork == false
-
-before_script:
-  - |
-    if [ "$TRAVIS_BRANCH" = "dev" ]; then
-        export DOCKER_TAG="$(date '+%Y%m%d')"
-    else
-        export DOCKER_TAG=${TRAVIS_BRANCH//_/-}
-        export DOCKER_TAG=${DOCKER_TAG//\//-}
-    fi
-
-matrix:
-  include:
-    - stage: test
-      name: Linter, unit & integration tests
-      script:
-        - flake8
-        - coverage run --source foca -m pytest
-        - coveralls
+script:
+  - flake8
+  - coverage run --source foca -m pytest
+  - coveralls
 
 jobs:
   include:
-    - stage: test
-      language: minimal
-      name: Docker build test
-      script:
-        - docker build .
     - stage: publish
-      language: minimal
+      if: fork == false
+      # for security reasons, builds from forks won't be published until merged;
+      # also, environment variables defined in repository settings are not
+      # available to builds from PRs coming from external repos
+      language: shell
       name: Build and publish
+      script:
+        - |
+          if [ "$TRAVIS_BRANCH" = "dev" ]; then
+              export DOCKER_TAG="$(date '+%Y%m%d')"
+          else
+              export DOCKER_TAG=${TRAVIS_BRANCH//_/-}
+              export DOCKER_TAG=${DOCKER_TAG//\//-}
+          fi
         - docker build . -t "${DOCKER_REPO_NAME}:latest" -t "${DOCKER_REPO_NAME}:${DOCKER_TAG}"
         - echo "${DOCKER_TOKEN}" | docker login -u "${DOCKER_USER}" --password-stdin
         - docker push "${DOCKER_REPO_NAME}:${DOCKER_TAG}"
