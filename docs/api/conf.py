@@ -12,6 +12,9 @@
 #
 import os
 import sys
+
+from sphinx.ext import apidoc
+
 sys.path.insert(0, os.path.abspath('../..'))
 
 
@@ -57,11 +60,8 @@ html_static_path = []
 
 
 # Auto-generate API doc
-from sphinx.ext import apidoc
-
 def run_apidoc(_):
     ignore_paths = [
-        ...
     ]
     argv = [
         "-f",
@@ -70,6 +70,7 @@ def run_apidoc(_):
         ".."
     ] + ignore_paths
     apidoc.main(argv)
+
 
 def setup(app):
     app.connect('builder-inited', run_apidoc)
