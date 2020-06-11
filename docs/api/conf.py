@@ -64,10 +64,10 @@ def run_apidoc(_):
     ignore_paths = [
     ]
     argv = [
-        "-f",
-        "-M",
+        "--force",
+        "--module-first",
         "-o", ".",
-        ".."
+        "../../foca"
     ] + ignore_paths
     apidoc.main(argv)
 
