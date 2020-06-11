@@ -30,8 +30,7 @@ def param_pass(
     audience: Optional[Iterable[str]] = None,
     allow_expired: bool = False,
 ):
-    """
-    **The decorator protects an endpoint from being called without a valid
+    """The decorator protects an endpoint from being called without a valid
     authorization token.
     """
     def jwt_validation(fn: Callable) -> Callable:
