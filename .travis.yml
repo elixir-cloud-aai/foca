@@ -1,6 +1,11 @@
 os:
   - linux
 dist: bionic
+language: python
+python:
+  - "3.6"
+  - "3.7"
+  - "3.8"
 
 services:
 - docker
@@ -31,11 +36,6 @@ jobs:
   include:
     - stage: test
       name: Linter, unit & integration tests
-      language: python
-      python:
-        - "3.6"
-        - "3.7"
-        - "3.8"
       script:
         - flake8
         - coverage run --source foca -m pytest
