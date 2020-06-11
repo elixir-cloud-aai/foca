@@ -9,7 +9,7 @@ FOCA API docs
 .. toctree::
    :caption: Modules
 
-   doc_files/modules
+   modules/modules
 
 .. toctree::
    :caption: Index

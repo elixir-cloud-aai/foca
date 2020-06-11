@@ -76,7 +76,7 @@ question etc.
 [badge-url-github-tag]:<https://github.com/elixir-cloud-aai/foca/releases>
 [badge-url-license]:<http://www.apache.org/licenses/LICENSE-2.0>
 [badge-url-pypi]:<https://pypi.python.org/pypi/foca>
-[docs-api]: docs/api/html/index.html
+[docs-api]: <https://foca.readthedocs.io/en/latest/>
 [license]: LICENSE
 [license-apache]: <https://www.apache.org/licenses/LICENSE-2.0>
 [org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
