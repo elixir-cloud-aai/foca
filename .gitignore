@@ -326,5 +326,4 @@ pip-selfcheck.json
 # Custom additions
 .vscode
 docs/api/doc_files/
-docs/api/doctrees/
 
