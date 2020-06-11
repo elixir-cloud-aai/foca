@@ -1,11 +1,6 @@
 os:
   - linux
 dist: bionic
-language: python
-python:
-  - "3.6"
-  - "3.7"
-  - "3.8"
 
 services:
 - docker
@@ -36,15 +31,22 @@ jobs:
   include:
     - stage: test
       name: Linter, unit & integration tests
+      language: python
+      python:
+        - "3.6"
+        - "3.7"
+        - "3.8"
       script:
         - flake8
         - coverage run --source foca -m pytest
         - coveralls
     - stage: build
+      language: minimal
       name: Docker build test
       script:
         - docker build .
     - stage: publish
+      language: minimal
       name: Build and publish
         - docker build . -t "${DOCKER_REPO_NAME}:latest" -t "${DOCKER_REPO_NAME}:${DOCKER_TAG}"
         - echo "${DOCKER_TOKEN}" | docker login -u "${DOCKER_USER}" --password-stdin
