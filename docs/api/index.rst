@@ -15,3 +15,10 @@ FOCA API docs
    :caption: Index
 
    indices
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+
