@@ -40,7 +40,7 @@ jobs:
         - flake8
         - coverage run --source foca -m pytest
         - coveralls
-    - stage: build
+    - stage: test
       language: minimal
       name: Docker build test
       script:
