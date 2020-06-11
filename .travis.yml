@@ -11,7 +11,6 @@ if: type != pull_request  # do not build anything for PRs
 
 script:
   - flake8
-  - ./docs/build-docs foca
   - coverage run --source foca -m pytest
   - coveralls
 
