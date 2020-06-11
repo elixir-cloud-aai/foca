@@ -1,6 +1,11 @@
 foca.security package
 =====================
 
+.. automodule:: foca.security
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Submodules
 ----------
 
@@ -20,11 +25,3 @@ foca.security.cors module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: foca.security
-   :members:
-   :undoc-members:
-   :show-inheritance:

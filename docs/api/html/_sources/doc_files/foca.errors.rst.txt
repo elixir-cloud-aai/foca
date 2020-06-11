@@ -1,6 +1,11 @@
 foca.errors package
 ===================
 
+.. automodule:: foca.errors
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Submodules
 ----------
 
@@ -12,11 +17,3 @@ foca.errors.errors module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: foca.errors
-   :members:
-   :undoc-members:
-   :show-inheritance:

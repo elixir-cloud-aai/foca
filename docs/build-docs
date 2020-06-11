@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Set Bash flags
+set -euxo pipefail
+
+# Check whether correct number of args supplied
+if [ "$#" -ne 1 ]
+then
+  echo "Usage: build-docs SOURCE_CODE_DIR"
+  exit 1
+fi
+
+# Set vars
+THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+SOURCE_CODE_DIR=$1
+
+# Delete available rST and built doc files
+rm -rf ${THIS_DIR}/build ${THIS_DIR}/api/doc_files
+
+# Generate rST doc files
+sphinx-apidoc \
+  --force \
+  --module-first \
+  -o ${THIS_DIR}/api/doc_files \
+  $SOURCE_CODE_DIR
+
+# Build doc files
+(cd ${THIS_DIR} && make html)

@@ -1,6 +1,11 @@
 foca.database package
 =====================
 
+.. automodule:: foca.database
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Submodules
 ----------
 
@@ -20,11 +25,3 @@ foca.database.register\_mongodb module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: foca.database
-   :members:
-   :undoc-members:
-   :show-inheritance:

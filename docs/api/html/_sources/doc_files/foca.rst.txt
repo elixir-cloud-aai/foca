@@ -1,6 +1,11 @@
 foca package
 ============
 
+.. automodule:: foca
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Subpackages
 -----------
 
@@ -11,11 +16,3 @@ Subpackages
    foca.database
    foca.errors
    foca.security
-
-Module contents
----------------
-
-.. automodule:: foca
-   :members:
-   :undoc-members:
-   :show-inheritance:

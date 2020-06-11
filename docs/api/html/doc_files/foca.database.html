@@ -1,0 +1,276 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>foca.database package &mdash; FOCA 0.2.0 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="foca.errors package" href="foca.errors.html" />
+    <link rel="prev" title="foca.config package" href="foca.config.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> FOCA
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <p class="caption"><span class="caption-text">Modules</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="modules.html">foca</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="foca.html">foca package</a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="foca.html#subpackages">Subpackages</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="foca.config.html">foca.config package</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">foca.database package</a></li>
+<li class="toctree-l4"><a class="reference internal" href="foca.errors.html">foca.errors package</a></li>
+<li class="toctree-l4"><a class="reference internal" href="foca.security.html">foca.security package</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption"><span class="caption-text">Index</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../indices.html">Indices and tables</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">FOCA</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="modules.html">foca</a> &raquo;</li>
+        
+          <li><a href="foca.html">foca package</a> &raquo;</li>
+        
+      <li>foca.database package</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/doc_files/foca.database.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="module-foca.database">
+<span id="foca-database-package"></span><h1>foca.database package<a class="headerlink" href="#module-foca.database" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-foca.database.db_utils">
+<span id="foca-database-db-utils-module"></span><h2>foca.database.db_utils module<a class="headerlink" href="#module-foca.database.db_utils" title="Permalink to this headline">¶</a></h2>
+<p>Utility functions for MongoDB document insertion, updates and retrieval.</p>
+<dl class="py function">
+<dt id="foca.database.db_utils.find_id_latest">
+<code class="sig-prename descclassname">foca.database.db_utils.</code><code class="sig-name descname">find_id_latest</code><span class="sig-paren">(</span><em class="sig-param">collection: &lt;module 'pymongo.collection' from '/home/uniqueg/Software/miniconda3/envs/foca/lib/python3.7/site-packages/pymongo/collection.py'&gt;</em><span class="sig-paren">)</span> &#x2192; Optional<span class="p">[</span>bson.objectid.ObjectId<span class="p">]</span><a class="headerlink" href="#foca.database.db_utils.find_id_latest" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns object id of newest/latest object, or None if no object exists.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="foca.database.db_utils.find_one_latest">
+<code class="sig-prename descclassname">foca.database.db_utils.</code><code class="sig-name descname">find_one_latest</code><span class="sig-paren">(</span><em class="sig-param">collection: &lt;module 'pymongo.collection' from '/home/uniqueg/Software/miniconda3/envs/foca/lib/python3.7/site-packages/pymongo/collection.py'&gt;</em><span class="sig-paren">)</span> &#x2192; Optional<span class="p">[</span>Mapping<span class="p">[</span>Any<span class="p">, </span>Any<span class="p">]</span><span class="p">]</span><a class="headerlink" href="#foca.database.db_utils.find_one_latest" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns newest/latest object, stripped of the object id, or None if no
+object exists: collection.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="module-foca.database.register_mongodb">
+<span id="foca-database-register-mongodb-module"></span><h2>foca.database.register_mongodb module<a class="headerlink" href="#module-foca.database.register_mongodb" title="Permalink to this headline">¶</a></h2>
+<dl class="py function">
+<dt id="foca.database.register_mongodb.create_mongo_client">
+<code class="sig-prename descclassname">foca.database.register_mongodb.</code><code class="sig-name descname">create_mongo_client</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">app</span><span class="p">:</span> <span class="n">flask.app.Flask</span></em>, <em class="sig-param"><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span></em><span class="sig-paren">)</span><a class="headerlink" href="#foca.database.register_mongodb.create_mongo_client" title="Permalink to this definition">¶</a></dt>
+<dd><p>Register MongoDB database with Flask app.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt id="foca.database.register_mongodb.register_mongodb">
+<code class="sig-prename descclassname">foca.database.register_mongodb.</code><code class="sig-name descname">register_mongodb</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">app</span><span class="p">:</span> <span class="n">flask.app.Flask</span></em>, <em class="sig-param"><span class="n">db</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="default_value">'db'</span></em>, <em class="sig-param"><span class="n">collections</span><span class="p">:</span> <span class="n">Mapping<span class="p">[</span>str<span class="p">, </span>Iterable<span class="p">[</span>pymongo.operations.IndexModel<span class="p">]</span><span class="p">]</span></span> <span class="o">=</span> <span class="default_value">{}</span></em><span class="sig-paren">)</span> &#x2192; flask.app.Flask<a class="headerlink" href="#foca.database.register_mongodb.register_mongodb" title="Permalink to this definition">¶</a></dt>
+<dd><p>Instantiates a MongoDB database, initializes collections and adds the
+database and collections to a Flask app.</p>
+<p>Collections can optionally be registered with custom indexes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>db</strong> – name of database to be registered</p></li>
+<li><p><strong>collections</strong> – mappings of collections to be registered; keys will be
+used as collection names, values are passed to
+<cite>flask_pymongo.wrappers.Collection.create_indexes</cite></p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Flask app object with updated config;
+config[‘database’][‘database’] contains the database object;
+config[‘database’][‘collections’] contains a dictionary of
+collection objects</p>
+</dd>
+</dl>
+</dd></dl>
+
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="foca.errors.html" class="btn btn-neutral float-right" title="foca.errors package" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="foca.config.html" class="btn btn-neutral float-left" title="foca.config package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2020, ELIXIR Cloud &amp; AAI
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

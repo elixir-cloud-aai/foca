@@ -3,17 +3,15 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to Foca's documentation!
-================================
+FOCA API docs
+=============
 
 .. toctree::
-   :maxdepth: 2
    :caption: Modules
 
    doc_files/modules
 
 .. toctree::
-   :maxdepth: 2
    :caption: Index
 
    indices

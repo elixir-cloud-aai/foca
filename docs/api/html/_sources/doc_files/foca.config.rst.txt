@@ -1,6 +1,11 @@
 foca.config package
 ===================
 
+.. automodule:: foca.config
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Submodules
 ----------
 
@@ -20,11 +25,3 @@ foca.config.log\_config module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: foca.config
-   :members:
-   :undoc-members:
-   :show-inheritance:
