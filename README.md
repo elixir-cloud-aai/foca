@@ -37,6 +37,8 @@ Import in your code! For example:
 from foca.config.config_parser import YAMLConfigParser
 ```
 
+Check the [API docs][docs-api] to see what's in FOCA.
+
 ## Contributing
 
 This project is a community effort and lives off your contributions, be it in
@@ -74,6 +76,7 @@ question etc.
 [badge-url-github-tag]:<https://github.com/elixir-cloud-aai/foca/releases>
 [badge-url-license]:<http://www.apache.org/licenses/LICENSE-2.0>
 [badge-url-pypi]:<https://pypi.python.org/pypi/foca>
+[docs-api]: <https://foca.readthedocs.io/en/latest/>
 [license]: LICENSE
 [license-apache]: <https://www.apache.org/licenses/LICENSE-2.0>
 [org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
