@@ -17,6 +17,7 @@ if: (type == push) OR (type == pull_request AND fork == true)
 
 stages:
 - name: test
+- name: build
 - name: publish
   # for security reasons, builds from forks won't be published until merged;
   # also, environment variables defined in repository settings are not
@@ -32,7 +33,7 @@ before_script:
         export DOCKER_TAG=${DOCKER_TAG//\//-}
     fi
 
-jobs:
+matrix:
   include:
     - stage: test
       name: Linter, unit & integration tests
@@ -40,6 +41,9 @@ jobs:
         - flake8
         - coverage run --source foca -m pytest
         - coveralls
+
+jobs:
+  include:
     - stage: test
       language: minimal
       name: Docker build test
