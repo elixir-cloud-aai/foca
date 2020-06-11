@@ -37,7 +37,11 @@ jobs:
               export DOCKER_TAG=${TRAVIS_BRANCH//_/-}
               export DOCKER_TAG=${DOCKER_TAG//\//-}
           fi
-        - docker build . -t "${DOCKER_REPO_NAME}:latest" -t "${DOCKER_REPO_NAME}:${DOCKER_TAG}"
+        - |
+          docker build . \
+            -t "${DOCKER_REPO_NAME}:latest" \
+            -t "${DOCKER_REPO_NAME}:${DOCKER_TAG}" \
+            || travis_terminate 1
         - echo "${DOCKER_TOKEN}" | docker login -u "${DOCKER_USER}" --password-stdin
         - docker push "${DOCKER_REPO_NAME}:${DOCKER_TAG}"
         - if [ "$TRAVIS_BRANCH" = "dev" ]; then docker push "${DOCKER_REPO_NAME}:latest"; fi
