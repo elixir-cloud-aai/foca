@@ -15,6 +15,8 @@ pymongo==3.10.1
 pytest==5.4.1
 PyYAML==5.3
 requests==2.20.0
+Sphinx==3.0.4
+sphinx-rtd-theme==0.4.3
 twine==3.1.1
 typing==3.6.6
 Werkzeug==0.16.1
