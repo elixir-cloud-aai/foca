@@ -1,4 +1,5 @@
-"""Functions for registering OpenAPI specs with a Connexion app instance."""
+"""Helper class & function definitions for registering OpenAPI specs with a
+Connexion app instance."""
 
 from json import load, decoder
 import logging
@@ -6,11 +7,13 @@ import os
 from typing import Dict, List, Optional
 
 from connexion import App
-from yaml import safe_load, safe_dump, parser
+from connexion.exceptions import InvalidSpecification
+from yaml import (safe_load,
+                  safe_dump,
+                  parser,
+                  )
 
 from foca.config.config_parser import get_conf
-from foca.errors.errors import InvalidSpecification
-
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -18,13 +21,52 @@ logger = logging.getLogger(__name__)
 
 class OpenAPIConfig(Dict):
     """Helper class for the configuration parameters of the specification files.
-    Inherits from the Dictionary class.
+    Inherits from the Dictionary class. The purpose of this class is to help
+    the user neatly pass any OpenAPI preferences/configurations in an easily
+    verifiable way, that follows the FOCA vocabulary and structure.
 
     Attributes (optional):
         out_file: The directory for the output specification file, in case it's
-                either modified or in JSON format
-        append: Fields to be added/modified in the root of the specification file
-        add_operation_fields: Fields to be added/modified in Operation Objects
+                either modified or in JSON format. If no path is specified by
+                the user, the output will be stored in the source directory,
+                under a modified filename
+        append: Fields to be added/modified in the root of the specification
+                file. By making use of this list of dictionaries object, the
+                user can add or modify specific OpenAPI2 or OpenAPI3 specs.
+                For OpenAPI 2, see https://swagger.io/specification/v2/
+                For OpenAPI 3, see
+                https://swagger.io/specification/#oas-document
+        add_operation_fields: Fields to be added/modified in Operation Objects.
+                By making use of this dictionary object, the user can add or
+                modify specific fields of the Operation Objects of each Path
+                Info Object fo the required paths field; this is mostly to
+                support the addition (or replacement) of the
+                x-swagger-router-controller field
+                For OpenAPI 2, see
+                https://swagger.io/specification/v2/#operation-object
+                For OpenAPI 3, see
+                https://swagger.io/specification/#operation-object
+
+        An example OpenAPIConfig instance would look like this:
+            my_specs_config = OpenAPIConfig(
+                out_file='/path/to/my/modified/specs.yaml',
+                append=[
+                    {
+                        'security':
+                            'jwt':
+                                'type': 'apiKey',
+                                'name': 'Authorization',
+                                'in': 'header',
+                    },
+                    {
+                       'my_other_root_field': 'some_value',
+                    },
+                ],
+                add_operation_fields = {
+                    'x-swagger-router-controller': 'controllers.ga4gh.wes',
+                    'some-other-custom-field': 'some_value',
+                },
+            )
     """
 
     def __init__(
@@ -44,16 +86,16 @@ class OpenAPIConfig(Dict):
 
 def register_openapi(
         app: App,
-        specs_in: Dict[str, OpenAPIConfig]
+        specs: Dict[str, OpenAPIConfig]
 ) -> App:
     """
     Registers OpenAPI specs with Connexion app
 
     Args:
         app: A Connexion app instance
-        specs_in: A Dictionary containing the path of configuration
-                files as keys and OpenAPIConfig objects as values for
-                further additions/modifications to the configuration
+        specs: A Dictionary containing the absolute path of OpenAPI
+            specification files as keys and OpenAPIConfig objects as
+            values for further additions/modifications to the configuration.
 
     Returns:
         A Connexion app instance
@@ -67,8 +109,7 @@ def register_openapi(
         PermissionError: Any of the files were not accessible.
     """
     # Iterate over list of API specs
-    for spec_path, spec in specs_in:
-        modified = False
+    for spec_path, spec in specs:
         with open(spec_path, 'r') as spec_file:
             try:
                 specs = safe_load(spec_file)
@@ -76,7 +117,8 @@ def register_openapi(
                 try:
                     specs = load(spec_file)
                 except decoder.JSONDecodeError:
-                    raise InvalidSpecification
+                    raise InvalidSpecification("The specification object\
+                     is not in a valid YAML/JSON format")
 
         # Add/replace content to the root of the specs
         if 'append' in spec:
@@ -91,11 +133,13 @@ def register_openapi(
                         for operation_object in path_item_object.values():
                             operation_object[key] = val
                 except (AttributeError, KeyError):
-                    raise InvalidSpecification
+                    raise InvalidSpecification("Invalid Operation Object\
+                     access")
 
-        # Check if the configuration file has been modified or was of type json, and if an output file name
-        # has been provided
-        if any(['append', 'add_operation_fields']) in spec or get_conf(spec, 'type') == 'json':
+        # Check if the configuration file has been modified or was of type
+        # json, and if an output file name has been provided
+        if any(['append', 'add_operation_fields']) in spec or \
+                get_conf(spec, 'type') == 'json':
             if 'out_file' in spec:
                 spec_path = spec['out_file']
             else:

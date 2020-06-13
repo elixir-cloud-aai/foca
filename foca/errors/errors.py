@@ -4,16 +4,17 @@ handlers with a Connexion app instance."""
 import logging
 
 from connexion import App
-from connexion.exceptions import (
-    ExtraParameterProblem,
-    Forbidden,
-    Unauthorized,
-    InvalidSpecification
-)
+from connexion.exceptions import (ExtraParameterProblem,
+                                  Forbidden,
+                                  Unauthorized,
+                                  )
 from flask import Response
 from json import dumps
 from typing import Union
-from werkzeug.exceptions import (BadRequest, InternalServerError, NotFound)
+from werkzeug.exceptions import (BadRequest,
+                                 InternalServerError,
+                                 NotFound,
+                                 )
 
 
 # Get logger instance
@@ -29,7 +30,6 @@ def register_error_handlers(app: App) -> App:
     app.add_error_handler(InternalServerError, __handle_internal_server_error)
     app.add_error_handler(NotFound, __handle_not_found)
     app.add_error_handler(Unauthorized, __handle_unauthorized)
-    app.add_error_handler(InvalidSpecification, __handle_invalid_specs)
     logger.info('Registered custom error handlers with Connexion app.')
 
     # Return Connexion app instance
@@ -88,16 +88,5 @@ def __handle_internal_server_error(exception: Exception) -> Response:
             'status_code': '500'
             }),
         status=500,
-        mimetype="application/problem+json"
-    )
-
-
-def __handle_invalid_specs(exception: Exception) -> Response:
-    return Response(
-        response=dumps({
-            'msg': 'Invalid specifications format. Accepted formats are YAML, JSON.',
-            'status_code': '400'
-        }),
-        status=400,
         mimetype="application/problem+json"
     )
