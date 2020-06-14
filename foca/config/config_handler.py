@@ -1,24 +1,25 @@
 import logging
 from typing import (Dict)
+from pydantic import BaseModel
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 
+config = {}  # input from foca
+
+
 class Config(Dict):
     """ Main Config class """
 
-    def __init__(self, config: Dict) -> None:
-        self.config = config.get('foca')
-        self._config = config.get('foca')
+    def __init__(self) -> None:
+        self._config = config
 
     def get_property(
         self,
         property_name,
     ):
-        try:
-            self._config = self._config.get(property_name)
-        except (AttributeError, TypeError, KeyError, ValueError):
+        if property_name not in self._config.keys():
             logger.exception(
                 (
                     'Invalid Config file.'
@@ -28,54 +29,32 @@ class Config(Dict):
                 )
             )
             raise InvalidConfig
-        else:
-            return self
-
-    @property
-    def value(self):
-        value = self._config
-        self._config = self.config
-        return value
+        return self._config[property_name]
 
     @property
     def database(self):
-        return self.get_property('database')
-
-    @property
-    def specs(self):
-        return self.get_property('specs')
-
-    @property
-    def errors(self):
-        return self.get_property('errors')
-
-    @property
-    def celery(self):
-        return self.get_property('celery')
-
-    @property
-    def log(self):
-        return self.get_property('log')
-
-    @property
-    def security(self):
-        return self.get_property('security')
+        database_config = self.get_property('database')
+        return dict(databaseConfig(**database_config))
 
     @property
     def server(self):
-        return self.get_property('server')
+        server_config = self.get_property('server')
+        return dict(serverConfig(**server_config))
 
-    @property
-    def host(self):
-        return self.get_property('host')
 
-    @property
-    def port(self):
-        return self.get_property('port')
+class databaseConfig(BaseModel):
+    host: str
+    port: int
+    name: str
 
-    @property
-    def name(self):
-        return self.get_property('name')
+
+class serverConfig(BaseModel):
+    host: str
+    port: int
+    debug: bool
+    environment: str
+    testing: bool
+    use_reloader: bool
 
 
 class InvalidConfig(Exception):
