@@ -38,7 +38,7 @@ class YAMLConfigParser(Dict):
         last value will be retained. File paths in the `config_paths` list are
         used first (lowest precedence), from the first to the last item/path,
         followed by file paths pointed to by the environment variables in
-        `config_vars` (highest precedence), form the first to the last
+        `config_vars` (highest precedence), from the first to the last
         item/variable. If a given variable points to multiple file paths, these
         will be used for updating from the first to the last path.
 
