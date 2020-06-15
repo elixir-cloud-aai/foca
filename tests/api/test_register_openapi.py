@@ -38,6 +38,14 @@ SPEC_CONFIG = {
         },
     ],
     "add_operation_fields": OPERATION_FIELDS,
+    "connexion": {
+        "strict_validation": True,
+        "validate_responses": False,
+        "options": {
+            "swagger_ui": True,
+            "swagger_json": True,
+        }
+    }
 }
 
 

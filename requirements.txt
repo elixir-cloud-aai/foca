@@ -2,7 +2,7 @@ addict==2.2.1
 connexion==2.7.0
 coverage==5.1
 coveralls==2.0.0
-flake8==3.8.3
+flake8==3.7.9
 Flask==1.1.2
 Flask-Cors==3.0.8
 Flask-PyMongo==2.3.0
