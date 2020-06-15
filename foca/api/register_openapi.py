@@ -3,7 +3,7 @@
 
 import logging
 import os
-from typing import (Iterable, Mapping, Optional)
+from typing import (Dict, Iterable, Optional)
 
 from connexion import App
 from connexion.exceptions import InvalidSpecification
@@ -88,9 +88,9 @@ custom-field': 'some_value'})
     """
     path: str
     path_out: Optional[str] = None
-    append: Optional[Iterable[Mapping]] = None
-    add_operation_fields: Optional[Mapping] = None
-    connexion: Optional[Mapping] = None
+    append: Optional[Iterable[Dict]] = None
+    add_operation_fields: Optional[Dict] = None
+    connexion: Optional[Dict] = None
 
     # raise error if additional arg is passed
     class Config:
