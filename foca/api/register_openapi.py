@@ -1,180 +1,196 @@
-"""Helper class & function definitions for registering OpenAPI specs with a
-Connexion app instance."""
+"""Register OpenAPI specs with a Connexion app instance.
+"""
 
-from json import load, decoder
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import (Iterable, Mapping, Optional)
 
 from connexion import App
 from connexion.exceptions import InvalidSpecification
-from yaml import (safe_load,
-                  safe_dump,
-                  parser,
-                  )
-
-from foca.config.config_parser import get_conf
+from pydantic import (BaseModel, validator)
+import yaml
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 
-class OpenAPIConfig(Dict):
-    """Helper class for the configuration parameters of the specification files.
-    Inherits from the Dictionary class. The purpose of this class is to help
-    the user neatly pass any OpenAPI preferences/configurations in an easily
-    verifiable way, that follows the FOCA vocabulary and structure.
+class OpenAPIConfig(BaseModel):
+    """Model for configuration parameters for OpenAPI 2.x or 3.x specifications
+    to be attached to a Connexion app.
 
-    Attributes (optional):
-        out_file: The directory for the output specification file, in case it's
-                either modified or in JSON format. If no path is specified by
-                the user, the output will be stored in the source directory,
-                under a modified filename
+    Args:
+        path: Path to an OpenAPI 2.x or 3.x specification in YAML format.
+        path_out: Output path for modified specification file. Ignored if specs
+            are not modified. If not specified, the original file path is
+            stripped of the file extension and the suffix '.modified.yaml' is
+            appended.
         append: Fields to be added/modified in the root of the specification
-                file. By making use of this list of dictionaries object, the
-                user can add or modify specific OpenAPI2 or OpenAPI3 specs.
-                For OpenAPI 2, see https://swagger.io/specification/v2/
-                For OpenAPI 3, see
-                https://swagger.io/specification/#oas-document
-        add_operation_fields: Fields to be added/modified in Operation Objects.
-                By making use of this dictionary object, the user can add or
-                modify specific fields of the Operation Objects of each Path
-                Info Object fo the required paths field; this is mostly to
-                support the addition (or replacement) of the
-                x-swagger-router-controller field
-                For OpenAPI 2, see
-                https://swagger.io/specification/v2/#operation-object
-                For OpenAPI 3, see
-                https://swagger.io/specification/#operation-object
+            file. For OpenAPI 2, see https://swagger.io/specification/v2/. For
+            OpenAPI 3, see https://swagger.io/specification/.
+        add_operation_fields: Fields to be added/modified in the Operation
+            Objects of each Path Info Object. An example use case for this is
+            the addition or replacement of the `x-swagger-router-controller`
+            field. For OpenAPI 2, see
+            https://swagger.io/specification/v2/#operation-object. For OpenAPI
+            3, see https://swagger.io/specification/#operation-object.
+        connexion: Keyword arguments passed through to the `add_api()` method
+            in Connexion's `connexion.apps.flask_app` module.
 
-        An example OpenAPIConfig instance would look like this:
-            my_specs_config = OpenAPIConfig(
-                out_file='/path/to/my/modified/specs.yaml',
-                append=[
-                    {
-                        'security':
-                            'jwt':
-                                'type': 'apiKey',
-                                'name': 'Authorization',
-                                'in': 'header',
-                    },
-                    {
-                       'my_other_root_field': 'some_value',
-                    },
-                ],
-                add_operation_fields = {
-                    'x-swagger-router-controller': 'controllers.ga4gh.wes',
-                    'some-other-custom-field': 'some_value',
-                },
-            )
+    Attributes:
+        path: Path to an OpenAPI 2.x or 3.x specification in YAML format.
+        path_out: Output path for modified specification file. Ignored if specs
+            are not modified. If not specified, the original file path is
+            stripped of the file extension and the suffix '.modified.yaml' is
+            appended.
+        append: Fields to be added/modified in the root of the specification
+            file. For OpenAPI 2, see https://swagger.io/specification/v2/. For
+            OpenAPI 3, see https://swagger.io/specification/.
+        add_operation_fields: Fields to be added/modified in the Operation
+            Objects of each Path Info Object. An example use case for this is
+            the addition or replacement of the `x-swagger-router-controller`
+            field. For OpenAPI 2, see
+            https://swagger.io/specification/v2/#operation-object. For OpenAPI
+            3, see https://swagger.io/specification/#operation-object.
+        connexion: Keyword arguments passed through to the `add_api()` method
+            in Connexion's `connexion.apps.flask_app` module.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Example:
+        >>> OpenAPIConfig(
+        ...     path="/path/to/my/specs.yaml",
+        ...     path_out="/path/to/modified/specs.yaml",
+        ...     append=[
+        ...         {
+        ...             "security": {
+        ...                 "jwt": {
+        ...                     "type": "apiKey",
+        ...                     "name": "Authorization",
+        ...                     "in": "header",
+        ...                 }
+        ...             }
+        ...         },
+        ...         {
+        ...             "my_other_root_field": "some_value",
+        ...         },
+        ...     ],
+        ...     add_operation_fields = {
+        ...         "x-swagger-router-controller": "controllers.my_specs",
+        ...         "x-some-other-custom-field": "some_value",
+        ...     },
+        ... )
+        OpenAPIConfig(path='/path/to/my/specs.yaml', path_out='/path/to/modifi\
+ed/specs.yaml', append=<list_iterator object at 0x7f12f0f56f10>, add_operation\
+_fields={'x-swagger-router-controller': 'controllers.my_specs', 'x-some-other-\
+custom-field': 'some_value'})
     """
+    path: str
+    path_out: Optional[str] = None
+    append: Optional[Iterable[Mapping]] = None
+    add_operation_fields: Optional[Mapping] = None
+    connexion: Optional[Mapping] = None
 
-    def __init__(
-            self,
-            out_file: Optional[str],
-            append: Optional[List[Dict]],
-            add_operation_fields: Optional[Dict]
-    ) -> None:
-        super().__init__()
-        if out_file:
-            self.out_file = out_file
-        if append:
-            self.append = append
-        if add_operation_fields:
-            self.add_operation_fields = add_operation_fields
+    # raise error if additional arg is passed
+    class Config:
+        extra = 'forbid'
+
+    # set default if no output file path provided
+    @validator('path_out', always=True)
+    def modify_default_out_path(cls, v, *, values):
+        """Set default output path for spec file if not supplied by user.
+        """
+        try:
+            return v or '.'.join([
+                os.path.splitext(values['path'])[0],
+                "modified.yaml"
+            ])
+        except KeyError:
+            return v
 
 
 def register_openapi(
         app: App,
-        specs: Dict[str, OpenAPIConfig]
+        specs: Iterable[OpenAPIConfig],
 ) -> App:
     """
-    Registers OpenAPI specs with Connexion app
+    Register OpenAPI specs with Connexion app.
 
     Args:
-        app: A Connexion app instance
-        specs: A Dictionary containing the absolute path of OpenAPI
-            specification files as keys and OpenAPIConfig objects as
-            values for further additions/modifications to the configuration.
+        app: A Connexion app instance.
+        specs: An `Iterable` of `OpenAPIConfig` objects describing OpenAPI 2.x
+            and/or 3.x specifications to be registered with `app`.
 
     Returns:
-        A Connexion app instance
+        A Connexion app instance.
 
     Raises:
-        InvalidSpecification: The InvalidSpecification exception is
-                            raised in case the configuration file is
-                            malformed (invalid YAML/JSON formats) or
-                            in the case of invalid specs field access.
-        FileNotFoundError: Any of the files were not found.
-        PermissionError: Any of the files were not accessible.
+        OSError: Specification file cannot be accessed.
+        InvalidSpecification: Specification file is not valid OpenAPI 2.x or
+            3.x.
+        yaml.YAMLError: Modified specification cannot be serialized.
     """
-    # Iterate over list of API specs
-    for spec_path, spec in specs:
-        with open(spec_path, 'r') as spec_file:
-            try:
-                specs = safe_load(spec_file)
-            except parser.ParserError:
+    # Iterate over API specs
+    for spec in specs:
+        spec_modified = False
+        try:
+            with open(spec.path, 'r') as spec_file:
                 try:
-                    specs = load(spec_file)
-                except decoder.JSONDecodeError:
-                    raise InvalidSpecification("The specification object\
-                     is not in a valid YAML/JSON format")
+                    spec_parsed = yaml.safe_load(spec_file)
+                except yaml.parser.ParserError:
+                    raise InvalidSpecification(
+                        f"specification '{spec.path}' is not valid YAML"
+                    )
+        except OSError as e:
+            raise OSError(
+                f"specification file '{spec.path}' could not be read"
+            ) from e
 
-        # Add/replace content to the root of the specs
-        if 'append' in spec:
-            for item in spec['append']:
-                specs.update(item)
+        # Add/replace root objects
+        if spec.append is not None:
+            for item in spec.append:
+                spec_parsed.update(item)
+            spec_modified = True
 
         # Add/replace fields to Operation Objects
-        if 'add_operation_fields' in spec:
-            for key, val in spec['add_operation_fields'].items():
+        if spec.add_operation_fields is not None:
+            for key, val in spec.add_operation_fields.items():
                 try:
-                    for path_item_object in specs['paths'].values():
+                    for path_item_object in spec_parsed['paths'].values():
                         for operation_object in path_item_object.values():
                             operation_object[key] = val
-                except (AttributeError, KeyError):
-                    raise InvalidSpecification("Invalid Operation Object\
-                     access")
+                except KeyError:
+                    raise InvalidSpecification("invalid Operation Object")
+            spec_modified = True
 
-        # Check if the configuration file has been modified or was of type
-        # json, and if an output file name has been provided
-        if any(['append', 'add_operation_fields']) in spec or \
-                get_conf(spec, 'type') == 'json':
-            if 'out_file' in spec:
-                spec_path = spec['out_file']
-            else:
-                spec_path = os.path.splitext(spec_path)[0] + 'modified.yaml'
+        # Write modified specs
+        if spec_modified:
+            try:
+                with open(spec.path_out, 'w') as out_file:  # type: ignore
+                    try:
+                        yaml.safe_dump(spec_parsed, out_file)
+                    except yaml.YAMLError as e:
+                        raise yaml.YAMLError(
+                            "could not encode modified specification"
+                        ) from e
+            except OSError as e:
+                raise OSError(
+                    "modified specification could not be written to file "
+                    f"'{spec.path_out}'"
+                ) from e
+            spec_use = spec.path_out
+        else:
+            spec_use = spec.path
 
-        # Generate the output file
-        with open(spec_path, 'w') as out_file:
-            safe_dump(specs, out_file)
+        # Attach specs to connexion App
+        if spec.connexion is None:
+            spec.connexion = {}
+        app.add_api(
+            specification=spec_use,
+            **spec.dict()['connexion'],
+        )
 
-        # Generate API endpoints from OpenAPI spec
-        try:
-            app.add_api(
-                spec_path,
-                strict_validation=get_conf(spec, 'strict_validation'),
-                validate_responses=get_conf(spec, 'validate_responses'),
-                swagger_ui=get_conf(spec, 'swagger_ui'),
-                swagger_json=get_conf(spec, 'swagger_json'),
-            )
-
-            logger.info("API endpoints specified in '{path}' added.".format(
-                path=spec_path,
-            ))
-
-        except (FileNotFoundError, PermissionError) as e:
-            logger.critical(
-                (
-                    "API specification file not found or accessible at "
-                    "'{path}'. Execution aborted. Original error message: "
-                    "{type}: {msg}"
-                ).format(
-                    path=spec_path,
-                    type=type(e).__name__,
-                    msg=e,
-                )
-            )
-            raise SystemExit(1)
+        logger.info(f"API endpoints specified in '{spec.path_out}' added.")
 
     return app
