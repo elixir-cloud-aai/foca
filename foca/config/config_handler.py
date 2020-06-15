@@ -1,5 +1,6 @@
 import logging
-from pydantic import BaseModel, ValidationError
+
+from pydantic import ValidationError
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class Config():
         """Extract database config variables"""
         try:
             database_config = self.get_property('database')
-            return dict(databaseConfig(**database_config))
+            return dict(DBConfig(**database_config))
         except ValidationError as e:
             logger.exception(
                 'Invalid database config format, database fields missing.'
@@ -42,13 +43,6 @@ class Config():
             raise e
 
 
-class databaseConfig(BaseModel):
-    """Basic database class"""
-    host: str
-    port: int
-    name: str
-
-
 class InvalidConfig(Exception):
     """Raised when the Config file has errors"""
-    pass
+    # move to errors if necessary, but better use pydantic.ValidationError
