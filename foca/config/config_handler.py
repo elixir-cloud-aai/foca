@@ -1,24 +1,22 @@
 import logging
-from typing import (Dict)
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 
-config = {}  # input from foca
+class Config():
+    """Config class for database config handling"""
 
-
-class Config(Dict):
-    """ Main Config class """
-
-    def __init__(self) -> None:
+    def __init__(self, config) -> None:
+        """Initialise config structure"""
         self._config = config
 
     def get_property(
         self,
         property_name,
     ):
+        """Extract config properties"""
         if property_name not in self._config.keys():
             logger.exception(
                 (
@@ -33,28 +31,22 @@ class Config(Dict):
 
     @property
     def database(self):
-        database_config = self.get_property('database')
-        return dict(databaseConfig(**database_config))
-
-    @property
-    def server(self):
-        server_config = self.get_property('server')
-        return dict(serverConfig(**server_config))
+        """Extract database config variables"""
+        try:
+            database_config = self.get_property('database')
+            return dict(databaseConfig(**database_config))
+        except ValidationError as e:
+            logger.exception(
+                'Invalid database config format, database fields missing.'
+            )
+            raise e
 
 
 class databaseConfig(BaseModel):
+    """Basic database class"""
     host: str
     port: int
     name: str
-
-
-class serverConfig(BaseModel):
-    host: str
-    port: int
-    debug: bool
-    environment: str
-    testing: bool
-    use_reloader: bool
 
 
 class InvalidConfig(Exception):
