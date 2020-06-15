@@ -1,57 +1,97 @@
-"""FOCA class definition"""
+""" Definition of an entry-point function for setting up and initializing a
+FOCA based microservice."""
 
-from foca.api.register_openapi import (register_openapi, OpenAPIConfig)
-from foca.config.config_parser import (get_conf, get_conf_type)
+from foca.api.register_openapi import register_openapi
 from foca.config.log_config import configure_logging
 from foca.database.register_mongodb import register_mongodb
 from foca.errors.errors import register_error_handlers
 from foca.factories.connexion_app import create_connexion_app
+from foca.factories.celery_app import create_celery_app
 from foca.security.cors import enable_cors
-from connexion import App
 from foca.config.config_handler import Config
-from typing import Iterable
+from connexion import App
+from typing import Mapping, Any
 
 
-class FOCA():
-    """Description"""
+def foca(config: Mapping[str, Any]
+         ) -> App:
+    """ Initialization of a FOCA based microservice.
 
-    def __init__(self,
-                 config_in: Iterable[str, OpenAPIConfig]
-                 ) -> None:
-        """Description"""
+    Args:
+        config: A Dict object, parsed from a proper YAML configuration file,
+                containing the required FOCA-specific configuration parameters
+                (under the reserved `foca` key), along with any
+                serivce-specific parameters. It should follow the format shown
+                below:
 
-        self._config = config_in
+                {
+                    foca:
+                        db:
+                            # Any database parameters
+                        api:
+                            # Any OpenAPI specifications
+                        errors:
+                            # Any custom errors
+                        celery:
+                            # Any Celery parameters for background jobs
+                        log:
+                            # Any log parameters
+                        security:
+                            # Any protected endpoints/security parameters
+                        server:
+                            # Any general Flask/Connexion/Gunicorn parameters
+                            # (e.g., host, port...)
 
-        # Configure logger
-        configure_logging(config_var='FOCA_CONFIG_LOG')
+                    # Any parameter below this point is service-specifc and
+                    will be added to `app.config` without validation
 
-        # TODO: validate configuration object's sections
+                    service_specific_section_1:
+                        param_1: my_param_1
+                        param_2: my_param_2
+                    service_specific_section_2:
+                        param_1: my_param_1
+                        param_2: my_param_2
+                }
 
-        # Create Connexion app
-        self._connexion_app = create_connexion_app(self._config)
+    Returns:
+        A Connexion app instance
 
-        # Register MongoDB
-        self._connexion_app.app = register_mongodb(self._connexion_app.app)
+    Example:
 
-        # Register error handlers
-        self._connexion_app = register_error_handlers(self._connexion_app)
+        from foca.foca import foca
+        import yaml
 
-        # Create Celery app and register background task monitoring service
-        # register_task_service(self._connexion_app.app)
+        with open('/path/to/config.yaml') as config_file:
+            config = yaml.safe_load(config_file)
 
-        # Register OpenAPI specs
-        self._connexion_app = register_openapi(
-            app=self._connexion_app,
-            specs_in=self._config['specs']
-        )
+        app = foca(**config)
+    """
 
-        # Enable cross-origin resource sharing
-        enable_cors(self._connexion_app.app)
+    # Configure logger
+    configure_logging(config_var='FOCA_CONFIG_LOG')
 
-    def __new__(cls,
-                *args,
-                **kwargs):
-        """__new__ method override for returning the Connexion app object at FOCA class instance creation"""
-        
-        instance = super(FOCA, cls).__new__(cls, *args, **kwargs)
-        return instance._connexion_app
+    # Create a Config class instance for parameters validation
+    conf = Config(config)
+
+    # Create Connexion app
+    connexion_app = create_connexion_app(conf.dict())
+
+    # Register MongoDB
+    connexion_app.app = register_mongodb(connexion_app.app)
+
+    # Register error handlers
+    connexion_app = register_error_handlers(connexion_app)
+
+    # Create Celery app and register background task monitoring service
+    create_celery_app(connexion_app.app)
+
+    # Register OpenAPI specs
+    connexion_app = register_openapi(
+        app=connexion_app,
+        specs=conf.foca.api
+    )
+
+    # Enable cross-origin resource sharing
+    enable_cors(connexion_app.app)
+
+    return connexion_app
