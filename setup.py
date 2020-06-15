@@ -1,13 +1,15 @@
 import os
 from setuptools import setup, find_packages
 
+root_dir = os.path.dirname(os.path.abspath(__file__))
+
 # Read long description from file
-with open("README.md", "r") as fh:
+file_name = os.path.join(root_dir, "README.md")
+with open(file_name, "r") as fh:
     long_description = fh.read()
 
 # Read requirements from file
 install_requires = []
-root_dir = os.path.dirname(os.path.realpath(__file__))
 req = root_dir + '/requirements.txt'
 if os.path.isfile(req):
     with open(req) as f:
