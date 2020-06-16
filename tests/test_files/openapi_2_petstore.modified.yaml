@@ -1,0 +1,106 @@
+basePath: /v1
+consumes:
+- application/json
+definitions:
+  Error:
+    properties:
+      code:
+        format: int32
+        type: integer
+      message:
+        type: string
+    required:
+    - code
+    - message
+    type: object
+  Pet:
+    properties:
+      id:
+        format: int64
+        type: integer
+      name:
+        type: string
+      tag:
+        type: string
+    required:
+    - id
+    - name
+    type: object
+  Pets:
+    items:
+      $ref: '#/definitions/Pet'
+    type: array
+host: petstore.swagger.io
+info:
+  license:
+    name: MIT
+  title: Swagger Petstore
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      parameters:
+      - description: How many items to return at one time (max 100)
+        format: int32
+        in: query
+        name: limit
+        required: false
+        type: integer
+      responses:
+        '200':
+          description: A paged array of pets
+          headers:
+            x-next:
+              description: A link to the next page of responses
+              type: string
+          schema:
+            $ref: '#/definitions/Pets'
+        default:
+          description: unexpected error
+          schema:
+            $ref: '#/definitions/Error'
+      summary: List all pets
+      tags:
+      - pets
+      x-swagger-router-controller: controllers
+    post:
+      operationId: createPets
+      responses:
+        '201':
+          description: Null response
+        default:
+          description: unexpected error
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Create a pet
+      tags:
+      - pets
+      x-swagger-router-controller: controllers
+  /pets/{petId}:
+    get:
+      operationId: showPetById
+      parameters:
+      - description: The id of the pet to retrieve
+        in: path
+        name: petId
+        required: true
+        type: string
+      responses:
+        '200':
+          description: Expected response to a valid request
+          schema:
+            $ref: '#/definitions/Pets'
+        default:
+          description: unexpected error
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Info for a specific pet
+      tags:
+      - pets
+      x-swagger-router-controller: controllers
+produces:
+- application/json
+schemes:
+- http
+swagger: '2.0'

@@ -4,15 +4,17 @@ handlers with a Connexion app instance."""
 import logging
 
 from connexion import App
-from connexion.exceptions import (
-    ExtraParameterProblem,
-    Forbidden,
-    Unauthorized
-)
+from connexion.exceptions import (ExtraParameterProblem,
+                                  Forbidden,
+                                  Unauthorized,
+                                  )
 from flask import Response
 from json import dumps
 from typing import Union
-from werkzeug.exceptions import (BadRequest, InternalServerError, NotFound)
+from werkzeug.exceptions import (BadRequest,
+                                 InternalServerError,
+                                 NotFound,
+                                 )
 
 
 # Get logger instance
