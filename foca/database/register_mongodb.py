@@ -7,7 +7,6 @@ from flask import Flask
 from flask_pymongo import PyMongo
 from pymongo.operations import IndexModel
 
-from foca.config.config_handler import Config
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -74,13 +73,10 @@ def create_mongo_client(
     else:
         auth = ''
 
-    conf = Config(config)
-    db_conf = conf.database
-
     app.config['MONGO_URI'] = 'mongodb://{auth}{host}:{port}/{dbname}'.format(
-        host=os.environ.get('MONGO_HOST', db_conf.get('host')),
-        port=os.environ.get('MONGO_PORT', db_conf.get('port')),
-        dbname=os.environ.get('MONGO_DBNAME', db_conf.get('name')),
+        host=os.environ.get('MONGO_HOST', config['database']['host']),
+        port=os.environ.get('MONGO_PORT', config['database']['port']),
+        dbname=os.environ.get('MONGO_DBNAME', config['database']['name']),
         auth=auth
     )
 
@@ -90,9 +86,9 @@ def create_mongo_client(
             "Registered database '{name}' at URI '{uri}':'{port}' with Flask "
             'application.'
         ).format(
-            name=os.environ.get('MONGO_DBNAME', db_conf.get('name')),
-            uri=os.environ.get('MONGO_HOST', db_conf.get('host')),
-            port=os.environ.get('MONGO_PORT', db_conf.get('port'))
+            name=os.environ.get('MONGO_DBNAME', config['database']['name']),
+            uri=os.environ.get('MONGO_HOST', config['database']['host']),
+            port=os.environ.get('MONGO_PORT', config['database']['port'])
         )
     )
     return mongo
