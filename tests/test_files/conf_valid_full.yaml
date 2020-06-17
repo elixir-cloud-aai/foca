@@ -48,3 +48,21 @@ custom:
     my_custom_field_1: my_custom_value_1
     my_custom_field_2: my_custom_value_2
     my_custom_field_3: my_custom_value_3
+
+log:
+    version: 1
+    disable_existing_loggers: False
+    formatters:
+        standard:
+            class_handler: logging.Formatter
+            style: "{"
+            format: "[{asctime}: {levelname:<8}] {message} [{name}]"
+    handlers:
+        console:
+            class_handler: logging.StreamHandler
+            level: logging.DEBUG
+            formatter: standard
+            stream: ext://sys.stderr
+    root:
+        level: INFO
+        handlers: [console]

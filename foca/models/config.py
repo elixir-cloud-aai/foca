@@ -1,6 +1,7 @@
 """FOCA config models."""
 
 import os
+import logging
 from typing import (Dict, List, Optional)
 
 from pydantic import (BaseSettings, validator)
@@ -97,7 +98,7 @@ custom-field': 'some_value'})
     connexion: Optional[Dict] = None
 
     # set default if no output file path provided
-    @validator('path_out', always=True)
+    @validator('path_out', always=True, allow_reuse=True)
     def modify_default_out_path(cls, v, *, values):
         """Set default output path for spec file if not supplied by user.
         """
@@ -155,3 +156,37 @@ class Config(FOCABaseConfig):
 
     class Config:
         extra = 'allow'
+
+
+class LogFormatterConfig(FOCABaseConfig):
+    class_handler: logging.Formatter = logging.Formatter
+    style: str = "{"
+    format: str = "[{asctime}: {levelname:<8}] {message} [{name}]"
+
+
+class LogHandlerConfig(FOCABaseConfig):
+    class_handler: logging.StreamHandler = logging.StreamHandler
+    level: int = logging.DEBUG
+    formatter: LogFormatterConfig = LogFormatterConfig()
+    stream: str = "ext://sys.stderr"
+
+    @validator('level', allow_reuse=True)
+    def check_allowed_values(cls, v):
+        allowed_vals = [0, 10, 20, 30, 40, 50, 60]
+        if v not in allowed_vals:
+            raise KeyError
+        else:
+            return v
+
+
+class LogRootConfig(FOCABaseConfig):
+    level: str = "INFO"
+    handlers: Optional[LogHandlerConfig] = None
+
+
+class LogConfig(FOCABaseConfig):
+    version: int = 1
+    disable_existing_loggers: bool = False
+    formatters: Optional[Dict[str, LogFormatterConfig]] = None
+    handlers: Optional[Dict[str, LogHandlerConfig]] = None
+    root: Optional[LogRootConfig] = None
