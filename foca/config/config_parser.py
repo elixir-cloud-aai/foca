@@ -18,5 +18,11 @@ class YAMLConfigParser():
 
     @staticmethod
     def parse_yaml(conf: str) -> Dict:
-        with open(conf) as config_file:
-            return yaml.safe_load(config_file)
+        try:
+            with open(conf) as config_file:
+                return yaml.safe_load(config_file)
+        except Exception as e:
+            logger.error(
+                "Invalid YAML file."
+            )
+            raise e
