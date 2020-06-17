@@ -54,13 +54,13 @@ log:
     disable_existing_loggers: False
     formatters:
         standard:
-            class_handler: logging.Formatter
+            class: logging.Formatter
             style: "{"
             format: "[{asctime}: {levelname:<8}] {message} [{name}]"
     handlers:
         console:
-            class_handler: logging.StreamHandler
-            level: logging.DEBUG
+            class: logging.StreamHandler
+            level: 10
             formatter: standard
             stream: ext://sys.stderr
     root:

@@ -1,7 +1,6 @@
+import yaml
 import logging
 from typing import Dict
-
-import yaml
 
 from foca.models.config import Config
 

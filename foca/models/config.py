@@ -147,17 +147,6 @@ class JobsConfig(FOCABaseConfig):
     include: Optional[List[str]] = None
 
 
-class Config(FOCABaseConfig):
-    server: ServerConfig = ServerConfig()
-    api: APIConfig = APIConfig()
-    security: SecurityConfig = SecurityConfig()
-    db: DBConfig = DBConfig()
-    jobs: JobsConfig = JobsConfig()
-
-    class Config:
-        extra = 'allow'
-
-
 class LogFormatterConfig(FOCABaseConfig):
     class_handler: logging.Formatter = logging.Formatter
     style: str = "{"
@@ -181,7 +170,7 @@ class LogHandlerConfig(FOCABaseConfig):
 
 class LogRootConfig(FOCABaseConfig):
     level: str = "INFO"
-    handlers: Optional[LogHandlerConfig] = None
+    handlers: Optional[LogHandlerConfig()]
 
 
 class LogConfig(FOCABaseConfig):
@@ -190,3 +179,15 @@ class LogConfig(FOCABaseConfig):
     formatters: Optional[Dict[str, LogFormatterConfig]] = None
     handlers: Optional[Dict[str, LogHandlerConfig]] = None
     root: Optional[LogRootConfig] = None
+
+
+class Config(FOCABaseConfig):
+    server: ServerConfig = ServerConfig()
+    api: APIConfig = APIConfig()
+    security: SecurityConfig = SecurityConfig()
+    db: DBConfig = DBConfig()
+    jobs: JobsConfig = JobsConfig()
+    log: LogConfig = LogConfig()
+
+    class Config:
+        extra = 'allow'
