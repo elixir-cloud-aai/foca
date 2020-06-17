@@ -50,7 +50,7 @@ def foca(config: str
     # Register OpenAPI specs
     connexion_app = register_openapi(
         app=connexion_app,
-        specs=conf.foca.api
+        specs=conf.api
     )
 
     # Enable cross-origin resource sharing
