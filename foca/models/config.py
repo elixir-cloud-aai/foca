@@ -125,7 +125,7 @@ class AuthConfig(FOCABaseConfig):
     header_name: str = "Authorization"
     token_prefix: str = "Bearer"
     algorithms: List[str] = ["RS256"]
-    validation_methods: Optional[List[str]] = ["userinfo", "public_key"]
+    validation_methods: List[str] = ["userinfo", "public_key"]
     validation_checks: str = "all"
 
 
