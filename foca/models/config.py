@@ -111,8 +111,7 @@ custom-field': 'some_value'})
 
 
 class APIConfig(FOCABaseConfig):
-    specs: Optional[List[SpecConfig]] = None
-    # handle list defaults
+    specs: List[SpecConfig] = [SpecConfig()]
 
 
 class AuthConfig(FOCABaseConfig):
@@ -125,10 +124,9 @@ class AuthConfig(FOCABaseConfig):
     claim_key_id: str = "kid"
     header_name: str = "Authorization"
     token_prefix: str = "Bearer"
-    algorithms: Optional[List[str]] = None
-    validation_methods: Optional[List[str]] = None
+    algorithms: List[str] = ["RS256"]
+    validation_methods: Optional[List[str]] = ["userinfo", "public_key"]
     validation_checks: str = "all"
-    # handle list defaults
 
 
 class SecurityConfig(FOCABaseConfig):
@@ -139,7 +137,6 @@ class DBConfig(FOCABaseConfig):
     host: str = "mongodb"
     port: int = 27017
     name: str = "database"
-    # additional params present, not sure if needed for app setup
 
 
 class JobsConfig(FOCABaseConfig):
@@ -147,7 +144,6 @@ class JobsConfig(FOCABaseConfig):
     port: int = 5672
     result_backend: str = 'rpc://'
     include: Optional[List[str]] = None
-    # additional params present, not sure if needed for app setup
 
 
 class Config(FOCABaseConfig):

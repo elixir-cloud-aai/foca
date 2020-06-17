@@ -8,8 +8,8 @@ formatters:
 handlers:
     console:
         class: logging.StreamHandler
-        level: DEBUG
-        formatter: long
+        level: logging.DEBUG
+        formatter: standard
         stream: ext://sys.stderr
 root:
     level: INFO
