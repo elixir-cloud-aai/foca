@@ -27,6 +27,7 @@ def test_config_parser_invalid_config_file():
     """Test valid YAML parsing"""
     with pytest.raises(ValidationError):
         conf = ConfigParser(TEST_FILE_INVALID)
+        assert conf is not None
 
 
 def test_config_parser_invalid_file_path():
@@ -34,6 +35,3 @@ def test_config_parser_invalid_file_path():
     conf = ConfigParser(TEST_FILE)
     with pytest.raises(OSError):
         assert conf.parse_yaml("") is not None
-
-
-

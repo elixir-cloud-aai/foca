@@ -9,7 +9,7 @@ class ConfigParser():
 
     Args:
         config_file: Path to config file in YAML format.
-    
+
     Attributes:
         config_file: Path to config file in YAML format.
     """
