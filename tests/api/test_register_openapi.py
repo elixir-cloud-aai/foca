@@ -8,7 +8,8 @@ from connexion.exceptions import InvalidSpecification
 from pydantic import ValidationError
 from yaml import YAMLError
 
-from foca.api.register_openapi import (OpenAPIConfig, register_openapi)
+from foca.api.register_openapi import register_openapi
+from foca.models.config import SpecConfig
 
 DIR = pathlib.Path(__file__).parent.parent / "test_files"
 PATH_SPECS_2_YAML = str(DIR / "openapi_2_petstore.yaml")
@@ -49,34 +50,28 @@ SPEC_CONFIG = {
 }
 
 
-def test_OpenAPIConfig_class():
-    """Test OpenAPIConfig instantiation; full example"""
-    res = OpenAPIConfig(**SPEC_CONFIG)
+def test_SpecConfig_class():
+    """Test SpecConfig instantiation; full example"""
+    res = SpecConfig(**SPEC_CONFIG)
     assert res.path_out == SPEC_CONFIG['path_out']
 
 
-def test_OpenAPIConfig_class_minimal():
-    """Test OpenAPIConfig instantiation; minimal example"""
-    res = OpenAPIConfig(path=PATH_SPECS_2_YAML)
+def test_SpecConfig_class_minimal():
+    """Test SpecConfig instantiation; minimal example"""
+    res = SpecConfig(path=PATH_SPECS_2_YAML)
     assert res.path_out == PATH_SPECS_2_YAML_MODIFIED
 
 
-def test_OpenAPIConfig_class_missing_arg():
-    """Test OpenAPIConfig instantiation; argument missing."""
+def test_SpecConfig_class_extra_arg():
+    """Test SpecConfig instantiation; extra argument."""
     with pytest.raises(ValidationError):
-        OpenAPIConfig()
-
-
-def test_OpenAPIConfig_class_extra_arg():
-    """Test OpenAPIConfig instantiation; extra argument."""
-    with pytest.raises(ValidationError):
-        OpenAPIConfig(non_existing=PATH_SPECS_2_YAML)
+        SpecConfig(non_existing=PATH_SPECS_2_YAML)
 
 
 def test_register_openapi_spec_yaml_2():
     """Successfully register OpenAPI specs with Connexion app."""
     app = App(__name__)
-    spec_configs = [OpenAPIConfig(**SPEC_CONFIG)]
+    spec_configs = [SpecConfig(**SPEC_CONFIG)]
     res = register_openapi(app=app, specs=spec_configs)
     assert isinstance(res, App)
 
@@ -84,7 +79,7 @@ def test_register_openapi_spec_yaml_2():
 def test_register_openapi_spec_yaml_2_modified():
     """Successfully register modified OpenAPI specs with Connexion app."""
     app = App(__name__)
-    spec_configs = [OpenAPIConfig(path=PATH_SPECS_2_YAML_MODIFIED)]
+    spec_configs = [SpecConfig(path=PATH_SPECS_2_YAML_MODIFIED)]
     res = register_openapi(app=app, specs=spec_configs)
     assert isinstance(res, App)
 
@@ -94,8 +89,8 @@ def test_register_openapi_spec_yaml_3_and_json_2():
     app."""
     app = App(__name__)
     spec_configs = [
-        OpenAPIConfig(path=PATH_SPECS_3_YAML_MODIFIED),
-        OpenAPIConfig(
+        SpecConfig(path=PATH_SPECS_3_YAML_MODIFIED),
+        SpecConfig(
             path=PATH_SPECS_2_JSON,
             add_operation_fields=OPERATION_FIELDS,
         ),
@@ -107,8 +102,8 @@ def test_register_openapi_spec_yaml_3_and_json_2():
 def test_register_openapi_spec_invalid_yaml_json():
     """Registering OpenAPI specs fails because of invalid file format."""
     app = App(__name__)
-    spec_configs = [OpenAPIConfig(path=PATH_SPECS_INVALID_JSON)]
-    with pytest.raises(InvalidSpecification):
+    spec_configs = [SpecConfig(path=PATH_SPECS_INVALID_JSON)]
+    with pytest.raises(YAMLError):
         register_openapi(app=app, specs=spec_configs)
 
 
@@ -116,7 +111,7 @@ def test_register_openapi_spec_file_not_found():
     """Registering OpenAPI specs fails because the spec file is not available.
     """
     app = App(__name__)
-    spec_configs = [OpenAPIConfig(path=PATH_SPECS_NOT_EXIST)]
+    spec_configs = [SpecConfig(path=PATH_SPECS_NOT_EXIST)]
     with pytest.raises(OSError):
         register_openapi(app=app, specs=spec_configs)
 
@@ -124,7 +119,7 @@ def test_register_openapi_spec_file_not_found():
 def test_register_openapi_spec_no_operation_id():
     """Registering OpenAPI specs fails because of invalid OpenAPI format"""
     app = App(__name__)
-    spec_configs = [OpenAPIConfig(
+    spec_configs = [SpecConfig(
         path=PATH_SPECS_INVALID_OPENAPI,
         add_operation_fields=OPERATION_FIELDS,
     )]
@@ -137,7 +132,7 @@ def test_register_openapi_spec_cannot_serialize():
     serialized."""
     app = App(__name__)
     app = App(__name__)
-    spec_configs = [OpenAPIConfig(
+    spec_configs = [SpecConfig(
         path=PATH_SPECS_2_YAML_MODIFIED,
         add_operation_fields=OPERATION_FIELDS_NOT_SERIALIZABLE,
     )]
@@ -150,7 +145,7 @@ def test_register_openapi_spec_cannot_write():
     written.
     """
     app = App(__name__)
-    spec_configs = [OpenAPIConfig(
+    spec_configs = [SpecConfig(
         path=PATH_SPECS_2_YAML,
         path_out=PATH_SPECS_NOT_EXIST,
         add_operation_fields=OPERATION_FIELDS,
