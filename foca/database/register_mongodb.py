@@ -33,9 +33,9 @@ def register_mongodb(
             `flask_pymongo.wrappers.Collection.create_indexes`.
 
     Returns:
-        Flask application with updated config: config['database']['database'] contains the database object
-            - config['database']['collections'] contains a dictionary of
-                collection objects
+        Flask application with updated config: `config['database']['database']`
+            contains the database object; `config['database']['collections']`
+            contains a dictionary of collection objects.
     """
     config = app.config
 

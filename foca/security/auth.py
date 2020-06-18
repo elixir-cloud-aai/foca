@@ -285,7 +285,7 @@ def validate_jwt_via_userinfo_endpoint(
         service_document_field: Field in identity provider's service discovery
             endpoint response that points to the provider's `/userinfo`
             endpoint.
-    
+
     Returns:
         Dictionary of JWT claims, or an empty dictionary if claims could not
             be successfully decoded.
@@ -374,7 +374,7 @@ def validate_jwt_via_public_key(
         allow_expired: Allow/disallow expired JWTs. If `False`, a `401`
             authorization error is raised in response to a request containing
             an expired JWT.
-    
+
     Returns:
         Dictionary of JWT claims, or an empty dictionary if claims could not
             be successfully decoded.
@@ -610,7 +610,7 @@ def validate_jwt_via_endpoint(
         prefix: Prefix that the app expects to precede the JWT, separated by
             whitespace. Together, prefix and JWT constitute the value of
             the request header field specified by `--header-name`.
-    
+
     Returns: `None` if validation succeeds.
 
     Raises:
