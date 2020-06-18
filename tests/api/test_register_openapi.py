@@ -103,7 +103,7 @@ def test_register_openapi_spec_invalid_yaml_json():
     """Registering OpenAPI specs fails because of invalid file format."""
     app = App(__name__)
     spec_configs = [SpecConfig(path=PATH_SPECS_INVALID_JSON)]
-    with pytest.raises(InvalidSpecification):
+    with pytest.raises(YAMLError):
         register_openapi(app=app, specs=spec_configs)
 
 

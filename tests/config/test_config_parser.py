@@ -3,25 +3,37 @@ Tests for config_parser.py
 """
 
 import pytest
-from foca.config.config_parser import YAMLConfigParser
+
+from pydantic import ValidationError
+
+from foca.config.config_parser import ConfigParser
 from foca.models.config import Config
 
 
-TEST_FILE = "tests/test_files/conf_valid_full.yaml"
+TEST_FILE = "tests/test_files/conf_valid.yaml"
+TEST_FILE_INVALID = "tests/test_files/conf_invalid_log_level.yaml"
 TEST_DICT = {}
 TEST_CONFIG_INSTACE = Config()
 
 
-def test_yaml_class():
+def test_config_parser_valid_config_file():
+    """Test valid YAML parsing"""
+    conf = ConfigParser(TEST_FILE)
+    assert type(conf.config.dict()) == type(TEST_DICT)
+    assert type(conf.config) == type(TEST_CONFIG_INSTACE)
+
+
+def test_config_parser_invalid_config_file():
+    """Test valid YAML parsing"""
+    with pytest.raises(ValidationError):
+        conf = ConfigParser(TEST_FILE_INVALID)
+
+
+def test_config_parser_invalid_file_path():
     """Test yaml class, passing invalid YAML file path"""
-    conf = YAMLConfigParser(TEST_FILE)
-    with pytest.raises(Exception):
+    conf = ConfigParser(TEST_FILE)
+    with pytest.raises(OSError):
         assert conf.parse_yaml("") is not None
 
 
-def test_yaml_parser():
-    """Test valid YAML parsing"""
-    conf = YAMLConfigParser(TEST_FILE)
-    conf_dict = conf.parse_yaml(TEST_FILE)
-    assert type(conf_dict) == type(TEST_DICT)
-    assert type(conf.config) == type(TEST_CONFIG_INSTACE)
+
