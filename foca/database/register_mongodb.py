@@ -1,3 +1,5 @@
+"""Register MongoDB with a Flask app."""
+
 import os
 
 import logging
@@ -23,15 +25,17 @@ def register_mongodb(
 
     Collections can optionally be registered with custom indexes.
 
-    :param db: name of database to be registered
-    :param collections: mappings of collections to be registered; keys will be
+    Args:
+        app: Flask application.
+        db: Name of database to be registered.
+        collections: Mappings of collections to be registered; keys will be
             used as collection names, values are passed to
-            `flask_pymongo.wrappers.Collection.create_indexes`
+            `flask_pymongo.wrappers.Collection.create_indexes`.
 
-    :returns: Flask app object with updated config;
-            config['database']['database'] contains the database object;
-            config['database']['collections'] contains a dictionary of
-            collection objects
+    Returns:
+        Flask application with updated config: config['database']['database'] contains the database object
+            - config['database']['collections'] contains a dictionary of
+                collection objects
     """
     config = app.config
 
@@ -63,8 +67,20 @@ def register_mongodb(
 def create_mongo_client(
     app: Flask,
     config: Mapping,
-):
-    """Register MongoDB database with Flask app."""
+) -> PyMongo:
+    """Register MongoDB database with Flask app.
+
+    Optionally, basic authorization can be set by environment variables.
+
+    Args:
+        app: Flask application.
+        config: Mapping of configuration parameters with a key `database` and
+            a nested mapping of database configuration parameters, with at
+            least the keys `host`, `port` and database `name`.
+
+    Returns:
+        MongoDB client.
+    """
     if os.environ.get('MONGO_USERNAME') != '':
         auth = '{username}:{password}@'.format(
             username=os.environ.get('MONGO_USERNAME'),

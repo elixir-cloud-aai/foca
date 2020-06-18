@@ -1,3 +1,5 @@
+"""Parser for YAML-based app configuration."""
+
 import yaml
 from typing import Dict
 
