@@ -1,13 +1,19 @@
 """FOCA config models."""
 
 import os
-import logging
 from typing import (Dict, List, Optional)
 
-from pydantic import (BaseSettings, validator)
+from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
 
 
-class FOCABaseConfig(BaseSettings):
+def validate_log_level_choices(level: int) -> int:
+    choices = [0, 10, 20, 30, 40, 50, 60]
+    if level not in choices:
+        raise ValueError("illegal log level specified")
+    return level
+
+
+class FOCABaseConfig(BaseModel):
     # raise error if additional arg is passed
     class Config:
         extra = 'forbid'
@@ -26,6 +32,7 @@ class ServerConfig(FOCABaseConfig):
 class SpecConfig(FOCABaseConfig):
     """Model for configuration parameters for OpenAPI 2.x or 3.x specifications
     to be attached to a Connexion app.
+
     Args:
         path: Path to an OpenAPI 2.x or 3.x specification in YAML format.
         path_out: Output path for modified specification file. Ignored if specs
@@ -43,6 +50,7 @@ class SpecConfig(FOCABaseConfig):
             3, see https://swagger.io/specification/#operation-object.
         connexion: Keyword arguments passed through to the `add_api()` method
             in Connexion's `connexion.apps.flask_app` module.
+
     Attributes:
         path: Path to an OpenAPI 2.x or 3.x specification in YAML format.
         path_out: Output path for modified specification file. Ignored if specs
@@ -60,9 +68,11 @@ class SpecConfig(FOCABaseConfig):
             3, see https://swagger.io/specification/#operation-object.
         connexion: Keyword arguments passed through to the `add_api()` method
             in Connexion's `connexion.apps.flask_app` module.
+
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
+
     Example:
         >>> SpecConfig(
         ...     path="/path/to/my/specs.yaml",
@@ -86,10 +96,10 @@ class SpecConfig(FOCABaseConfig):
         ...         "x-some-other-custom-field": "some_value",
         ...     },
         ... )
-        OpenAPIConfig(path='/path/to/my/specs.yaml', path_out='/path/to/modifi\
-ed/specs.yaml', append=<list_iterator object at 0x7f12f0f56f10>, add_operation\
-_fields={'x-swagger-router-controller': 'controllers.my_specs', 'x-some-other-\
-custom-field': 'some_value'})
+        SpecConfig(path='/path/to/my/specs.yaml', path_out='/path/to/modified/\
+specs.yaml', append=<list_iterator object at 0x7f12f0f56f10>, add_operation_fi\
+elds={'x-swagger-router-controller': 'controllers.my_specs', 'x-some-other-cus\
+tom-field': 'some_value'})
     """
     path: str
     path_out: Optional[str] = None
@@ -99,20 +109,19 @@ custom-field': 'some_value'})
 
     # set default if no output file path provided
     @validator('path_out', always=True, allow_reuse=True)
-    def modify_default_out_path(cls, v, *, values):
+    def set_default_out_path(cls, v, *, values):  # pylint: disable=E0213
         """Set default output path for spec file if not supplied by user.
         """
-        try:
+        if 'path' in values and values['path'] is not None:
             return v or '.'.join([
                 os.path.splitext(values['path'])[0],
                 "modified.yaml"
             ])
-        except KeyError:
-            return v
+        return v
 
 
 class APIConfig(FOCABaseConfig):
-    specs: List[SpecConfig] = [SpecConfig()]
+    specs: List[SpecConfig] = []
 
 
 class AuthConfig(FOCABaseConfig):
@@ -148,45 +157,55 @@ class JobsConfig(FOCABaseConfig):
 
 
 class LogFormatterConfig(FOCABaseConfig):
-    class_handler: logging.Formatter = logging.Formatter
+    class_formatter: str = Field(
+        "logging.Formatter",
+        alias="class",
+    )
     style: str = "{"
     format: str = "[{asctime}: {levelname:<8}] {message} [{name}]"
 
 
 class LogHandlerConfig(FOCABaseConfig):
-    class_handler: logging.StreamHandler = logging.StreamHandler
-    level: int = logging.DEBUG
-    formatter: LogFormatterConfig = LogFormatterConfig()
+    class_handler: str = Field(
+        "logging.StreamHandler",
+        alias="class",
+    )
+    level: int = 20
+    formatter: str = "standard"
     stream: str = "ext://sys.stderr"
 
-    @validator('level', allow_reuse=True)
-    def check_allowed_values(cls, v):
-        allowed_vals = [0, 10, 20, 30, 40, 50, 60]
-        if v not in allowed_vals:
-            raise KeyError
-        else:
-            return v
+    _validate_level = validator('level', allow_reuse=True)(
+        validate_log_level_choices
+    )
 
 
 class LogRootConfig(FOCABaseConfig):
-    level: str = "INFO"
-    handlers: Optional[LogHandlerConfig()]
+    level: int = 10
+    handlers: Optional[List[str]] = ["console"]
+
+    _validate_level = validator('level', allow_reuse=True)(
+        validate_log_level_choices
+    )
 
 
 class LogConfig(FOCABaseConfig):
     version: int = 1
     disable_existing_loggers: bool = False
-    formatters: Optional[Dict[str, LogFormatterConfig]] = None
-    handlers: Optional[Dict[str, LogHandlerConfig]] = None
-    root: Optional[LogRootConfig] = None
+    formatters: Optional[Dict[str, LogFormatterConfig]] = {
+        "standard": LogFormatterConfig(),
+    }
+    handlers: Optional[Dict[str, LogHandlerConfig]] = {
+        "console": LogHandlerConfig(),
+    }
+    root: Optional[LogRootConfig] = LogRootConfig()
 
 
 class Config(FOCABaseConfig):
     server: ServerConfig = ServerConfig()
     api: APIConfig = APIConfig()
     security: SecurityConfig = SecurityConfig()
-    db: DBConfig = DBConfig()
-    jobs: JobsConfig = JobsConfig()
+    db: Optional[DBConfig] = None
+    jobs: Optional[JobsConfig] = None
     log: LogConfig = LogConfig()
 
     class Config:

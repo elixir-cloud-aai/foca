@@ -8,6 +8,7 @@ from connexion.exceptions import InvalidSpecification
 import yaml
 
 from foca.models.config import APIConfig
+from foca.config.config_parser import ConfigParser
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -29,26 +30,15 @@ def register_openapi(
         A Connexion app instance.
 
     Raises:
-        OSError: Specification file cannot be accessed.
+        OSError: File cannot be read from or written to.
         InvalidSpecification: Specification file is not valid OpenAPI 2.x or
             3.x.
-        yaml.YAMLError: Modified specification cannot be serialized.
+        yaml.YAMLError: YAML cannot be (de)serialized.
     """
     # Iterate over API specs
     for spec in specs:
         spec_modified = False
-        try:
-            with open(spec.path, 'r') as spec_file:
-                try:
-                    spec_parsed = yaml.safe_load(spec_file)
-                except yaml.parser.ParserError:
-                    raise InvalidSpecification(
-                        f"specification '{spec.path}' is not valid YAML"
-                    )
-        except OSError as e:
-            raise OSError(
-                f"specification file '{spec.path}' could not be read"
-            ) from e
+        spec_parsed = ConfigParser.parse_yaml(spec.path)
 
         # Add/replace root objects
         if spec.append is not None:

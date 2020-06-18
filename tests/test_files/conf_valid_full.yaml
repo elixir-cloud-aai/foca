@@ -60,9 +60,9 @@ log:
     handlers:
         console:
             class: logging.StreamHandler
-            level: 10
+            level: 20
             formatter: standard
             stream: ext://sys.stderr
     root:
-        level: INFO
+        level: 10
         handlers: [console]
