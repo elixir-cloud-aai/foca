@@ -1,4 +1,4 @@
-"""Decorator and utility functions for protecting access to endpoints."""
+"""Decorator and utility functions for securing access to endpoints."""
 
 from connexion.exceptions import Unauthorized
 from connexion import request
@@ -18,25 +18,79 @@ logger = logging.getLogger(__name__)
 
 def param_pass(
     required: bool = True,
+    add_key_to_claims: bool = False,
+    allow_expired: bool = False,
+    audience: Optional[Iterable[str]] = None,
+    claim_identity: str = "sub",
+    claim_issuer: str = "iss",
+    claim_key_id: str = "kid",
+    header_name: str = "Authorization",
+    token_prefix: str = "Bearer",
+    algorithms: Iterable[str] = ["RS256"],
     validation_methods: List[str] = ["userinfo", "public_key"],
     validation_checks: str = "all",
-    algorithms: Iterable[str] = ["RS256"],
-    token_prefix: str = "Bearer",
-    header_name: str = "Authorization",
-    claim_key_id: str = "kid",
-    claim_issuer: str = "iss",
-    claim_identity: str = "sub",
-    add_key_to_claims: bool = False,
-    audience: Optional[Iterable[str]] = None,
-    allow_expired: bool = False,
 ):
-    """The decorator protects an endpoint from being called without a valid
-    authorization token.
+    """Decorator for protecting an endpoint against access without a valid
+    JSON Web Token (JWT)-based authorization token.
+
+    Args:
+        required: Enable/disable JWT validation for endpoints decorated with
+            the `@jwt_validation` decorator defined in `foca.security.auth`.
+        add_key_to_claims: Whether to allow the application to add the identity
+            provider's corresponding JSON Web Key (JWK), in PEM format, to the
+            dictionary of claims when handling requests to
+            `@jwt_validation`-decorated endpoints.
+        allow_expired: Allow/disallow expired JWTs. If `False`, a `401`
+            authorization error is raised in response to a request containing
+            an expired JWT.
+        audience: List of audiences that the app identifies itself with. If
+            specified, JWTs that do not contain any of the specified audiences
+            are rejected. If `None`, audience validation is disabled.
+        claim_identity: The JWT claim used to identify the sender.
+        claim_issuer: The JWT claim used to identify the issuer.
+        claim_key_id: The JWT claim used to identify the JWK used when the JWT
+            was issued.
+        header_name: Name of the request header field at which the app is
+            expecting the JWT. Cf. `--token-prefix`.
+        token_prefix: Prefix that the app expects to precede the JWT, separated
+            by whitespace. Together, prefix and JWT constitute the value of
+            the request header field specified by `--header-name`.
+        algorithms: Lists the JWT-signing algorithms supported by the app.
+        validation_methods: Lists the methods to be used to validate a JWT.
+            Valid choices are `userinfo` and `public_key`. In the former case,
+            validation happens via an OpenID Connect-compliant identify
+            provider's `/userinfo` endpoint, in the latter via the identity
+            provider's JSON Web Key.
+        validation_checks: Specify how many of the `validation_methods` need
+            to pass before accepting a JWT. One of `any` and `all`. In the
+            former case, JWT validation succeeds after the first successful
+            validation check, in the latter case, JWT validation fails after
+            the first unsuccessful validation check.
     """
     def jwt_validation(fn: Callable) -> Callable:
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
+        """JWT validation decorator.
 
+        Args:
+            fn: The function to be decorated.
+
+        Returns:
+            The decorated function.
+        """
+        @wraps(fn)
+        def wrapper(*args, **kwargs) -> Callable:
+            """Wrapper for JSON Web Token (JWT) validation decorator.
+
+            Args:
+                args: positional arguments passed through from `param_pass`.
+                kwargs: keyword arguments passed through from `param_pass`.
+
+            Returns:
+                Wrapper function.
+
+            Raises:
+                connexion.exceptions.Unauthorized: Raised if JWT could not be
+                    successfully validated.
+            """
             # Check if authentication is enabled
             if required:
 
@@ -57,7 +111,7 @@ def param_pass(
                     )
                     raise Unauthorized
 
-                # Parse JWT token from HTTP header
+                # Parse JWT from HTTP header
                 token = parse_jwt_from_header(
                     header_name=header_name,
                     token_prefix=token_prefix,
@@ -151,6 +205,7 @@ def param_pass(
                 return fn(*args, **kwargs)
 
         return wrapper
+
     return jwt_validation
 
 
@@ -158,8 +213,22 @@ def parse_jwt_from_header(
     header_name: str = 'Authorization',
     token_prefix: str = 'Bearer',
 ) -> str:
-    """Parses authorization token from HTTP header."""
-    # TODO: Add custom errors
+    """Parse JSON Web Token (JWT) from request header.
+
+    Args:
+        header_name: Name of the request header field at which the app is
+            expecting the JWT. Cf. `--token-prefix`.
+        token_prefix: Prefix that the app expects to precede the JWT, separated
+            by whitespace. Together, prefix and JWT constitute the value of
+            the request header field specified by `--header-name`.
+
+    Returns:
+        JSON Web Token.
+
+    Raises:
+        connexion.exceptions.Unauthorized: Raised if JWT cannot be extracted
+            from request header.
+    """
     # Ensure that authorization header is present
     auth_header = request.headers.get(header_name, None)
     if not auth_header:
@@ -206,7 +275,21 @@ def validate_jwt_via_userinfo_endpoint(
     claim_issuer: str = 'iss',
     service_document_field: str = 'userinfo_endpoint',
 ) -> Mapping:
+    """Extract claims from a JSON Web Token (JWT) via an OpenID
+    Connect-compliant identity provider's `/userinfo` endpoint.
 
+    Args:
+        token: JSON Web Token.
+        algorithms: Lists the JWT-signing algorithms supported by the app.
+        claim_issuer: The JWT claim used to identify the issuer.
+        service_document_field: Field in identity provider's service discovery
+            endpoint response that points to the provider's `/userinfo`
+            endpoint.
+
+    Returns:
+        Dictionary of JWT claims, or an empty dictionary if claims could not
+            be successfully decoded.
+    """
     # Decode JWT
     try:
         claims = jwt.decode(
@@ -269,7 +352,33 @@ def validate_jwt_via_public_key(
     audience: Optional[Iterable[str]] = None,
     allow_expired: bool = False,
 ) -> Mapping:
+    """Extract claims from a JSON Web Token (JWT) with an OpenID
+    Connect-compliant identity provider's public key.
 
+    Args:
+        token: JSON Web Token.
+        algorithms: Lists the JWT-signing algorithms supported by the app.
+        claim_key_id: The JWT claim used to identify the JWK used when the JWT
+            was issued.
+        claim_issuer: The JWT claim used to identify the issuer.
+        service_document_field: Field in identity provider's service discovery
+            endpoint response that points to the provider's JSON Web Key set
+            endpoint.
+        add_key_to_claims: Whether to allow the application to add the identity
+            provider's corresponding JSON Web Key (JWK), in PEM format, to the
+            dictionary of claims when handling requests to
+            `@jwt_validation`-decorated endpoints.
+        audience: List of audiences that the app identifies itself with. If
+            specified, JWTs that do not contain any of the specified audiences
+            are rejected. If `None`, audience validation is disabled.
+        allow_expired: Allow/disallow expired JWTs. If `False`, a `401`
+            authorization error is raised in response to a request containing
+            an expired JWT.
+
+    Returns:
+        Dictionary of JWT claims, or an empty dictionary if claims could not
+            be successfully decoded.
+    """
     # Extract JWT claims
     try:
         claims = jwt.decode(
@@ -289,7 +398,7 @@ def validate_jwt_via_public_key(
         )
         return {}
 
-    # Extract JWT header claims
+    # Extract JWT Sheader claims
     try:
         header_claims = jwt.get_unverified_header(token)
     except Exception as e:
@@ -403,9 +512,14 @@ def validate_jwt_claims(
     claims: Mapping,
 ) -> bool:
     """
-    Validates the existence of JWT claims.
-    Returns False if any are missing,
-    otherwise returns True.
+    Validates the existence of one or more JWT claims.
+
+    Args:
+        *args: Claims whose existence in `claims` is to be verified.
+        claims: Available claims, as keys of a mapping.
+
+    Returns:
+        `False` as soon as a missing claim is encountered and `True` otherwise.
     """
     # Check for existence of required claims
     for claim in args:
@@ -427,9 +541,16 @@ def get_entry_from_idp_service_discovery_endpoint(
         entry: str,
 ) -> Optional[str]:
     """
-    Access the identity provider's service
-    discovery endpoint to retrieve the
-    value of the specified entry.
+    Retrieve specific entry from OpenID Connect-compliant identity provider's
+    service discovery endpoint.
+
+    Args:
+        issuer: Base of JSON Web Token (JWT) issuer.
+        entry: Entry to be retrieved.
+
+    Returns:
+        The desired entry, or `None` if either the service discovery endpoint
+        could not be reached, or the entry is not available.
     """
     # Build endpoint URL
     base_url = issuer.rstrip("/")
@@ -480,6 +601,20 @@ def validate_jwt_via_endpoint(
     """
     Returns True if a JWT-headed request to a specified URL yields the
     specified status code.
+
+    Args:
+        url: URL of identity provider's `/userinfo` endpoint.
+        token: JSON Web Token.
+        header_name: Name of the request header field at which the app is
+            expecting the JWT. Cf. `--token-prefix`.
+        prefix: Prefix that the app expects to precede the JWT, separated by
+            whitespace. Together, prefix and JWT constitute the value of
+            the request header field specified by `--header-name`.
+
+    Returns: `None` if validation succeeds.
+
+    Raises:
+        Exception: Raised if validation fails.
     """
     headers = {
         "{header_name}".format(
@@ -517,7 +652,16 @@ def get_public_keys(
     claim_key_id: str = 'kid',
 ) -> Mapping:
     """
-    Obtain the identity provider's list of public keys.
+    Obtain the identity provider's JSON Web Key (JWK) set.
+
+    Args:
+        url: Endpoint providing the identity providers JWK set.
+        claim_key_id: The JWT claim encoding a JWK identifier.
+
+    Returns:
+        A dictionary of JWK identifiers (keys) and public keys (values); in
+            case a connection to the identity provider could not be
+            established, an empty dictionary is returned.
     """
     # Get JWK sets from identity provider
     try:

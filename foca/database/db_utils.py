@@ -1,4 +1,4 @@
-"""Utility functions for MongoDB document insertion, updates and retrieval."""
+"""Utility functions for interacting with a MongoDB database."""
 
 from typing import (Any, Mapping, Optional)
 
@@ -7,8 +7,14 @@ from pymongo import collection as Collection
 
 
 def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
-    """Returns newest/latest object, stripped of the object id, or None if no
-    object exists: collection.
+    """Return newest document, stripped of the ObjectId.
+
+    Args:
+        collection: MongoDB collection from which the document is to be
+            retrieved.
+
+    Returns:
+        Newest document or `None`, if no document exists.
     """
     try:
         return collection.find(
@@ -20,7 +26,14 @@ def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
 
 
 def find_id_latest(collection: Collection) -> Optional[ObjectId]:
-    """Returns object id of newest/latest object, or None if no object exists.
+    """Return ObjectId of newest document.
+
+    Args:
+        collection: MongoDB collection from which the ObjectId of the newest
+            document is to be retrieved.
+
+    Returns:
+        ObjectId of newest document or `None`, if no document exists.
     """
     try:
         return collection.find().sort([('_id', -1)]).limit(1).next()['_id']
