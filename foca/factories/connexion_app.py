@@ -2,25 +2,25 @@
 
 from inspect import stack
 import logging
-from typing import (Mapping, Optional)
+from typing import Optional
 
 from connexion import App
 
 from foca.errors.errors import handle_bad_request
-from foca.config.config_parser import get_conf
+from foca.models.config import Config
 
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 
-def create_connexion_app(config: Optional[Mapping] = None) -> App:
-    """Creates and configure Connexion app."""
+def create_connexion_app(config: Optional[Config] = None) -> App:
+    """Create and configure Connexion app."""
     # Instantiate Connexion app
     app = App(__name__)
-    logger.info("Connexion app created from '{calling_module}'.".format(
-        calling_module=':'.join([stack()[1].filename, stack()[1].function])
-    ))
+
+    calling_module = ':'.join([stack()[1].filename, stack()[1].function])
+    logger.info(f"Connexion app created from '{calling_module}'.")
 
     # Workaround for adding a custom handler for `connexion.problem` responses
     # Responses from request and paramater validators are not raised and
@@ -47,27 +47,36 @@ def create_connexion_app(config: Optional[Mapping] = None) -> App:
 
 def __add_config_to_connexion_app(
     app: App,
-    config: Mapping
+    config: Config,
 ) -> App:
-    """Adds configuration to Flask app and replaces default Connexion and Flask
-    settings."""
-    # Replace Connexion app settings
-    app.host = get_conf(config, 'server', 'host')
-    app.port = get_conf(config, 'server', 'port')
-    app.debug = get_conf(config, 'server', 'debug')
+    """Replace default Connexion and Flask app settings and add FOCA- and user-
+    defined configuration parameters to Flask app.
 
-    # Replace Flask app settings
-    app.app.config['DEBUG'] = app.debug
-    app.app.config['ENV'] = get_conf(config, 'server', 'environment')
-    app.app.config['TESTING'] = get_conf(config, 'server', 'testing')
+    Args:
+        app: Connexion app.
+        config: App configuration.
 
-    # Log Flask config
+    Returns:
+        Connexion app.
+    """
+    conf = config.server
+
+    # replace Connexion app settings
+    app.host = conf.host
+    app.port = conf.port
+    app.debug = conf.debug
+
+    # replace Flask app settings
+    app.app.config['DEBUG'] = conf.debug
+    app.app.config['ENV'] = conf.environment
+    app.app.config['TESTING'] = conf.testing
+
     logger.debug('Flask app settings:')
     for (key, value) in app.app.config.items():
         logger.debug('* {}: {}'.format(key, value))
 
     # Add user configuration to Flask app config
-    app.app.config.update(config)
+    app.app.config['FOCA'] = config
 
     logger.info('Connexion app configured.')
     return app
