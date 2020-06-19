@@ -2,7 +2,7 @@
 
 from enum import Enum
 import os
-from typing import (Dict, List, Optional)
+from typing import (Dict, List, Optional, Mapping, Any,)
 
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
 
@@ -358,6 +358,50 @@ class SecurityConfig(FOCABaseConfig):
     auth: AuthConfig = AuthConfig()
 
 
+class CollectionConfig(FOCABaseConfig):
+    """Model for configuring collections in a MongoDB instance attached to a
+    Flask or Connexion app.
+
+    Args:
+        name: custom name to use for this index - if none is given,
+            a name will be generated.
+        unique: if True creates a uniqueness constraint on the index.
+        background: if True this index should be created in the background.
+        sparse: if True, omit from the index any documents that lack the
+            indexed field.
+        expireAfterSeconds: Used to create an expiring (TTL) collection.
+            MongoDB will automatically delete documents from this collection
+            after <int> seconds. The indexed field must be a UTC datetime or
+            the data will not expire.
+        partialFilterExpression: A document that specifies a filter for a
+            partial index. Requires server version >= 3.2.
+
+    Attributes:
+        name: custom name to use for this index - if none is given,
+            a name will be generated.
+        unique: if True creates a uniqueness constraint on the index.
+        background: if True this index should be created in the background.
+        sparse: if True, omit from the index any documents that lack the
+            indexed field.
+        expireAfterSeconds: Used to create an expiring (TTL) collection.
+            MongoDB will automatically delete documents from this collection
+            after <int> seconds. The indexed field must be a UTC datetime or
+            the data will not expire.
+        partialFilterExpression: A document that specifies a filter for a
+            partial index. Requires server version >= 3.2.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+    """
+    name: str = None
+    unique: bool
+    background: bool
+    sparse: bool
+    expireAfterSeconds: int
+    partialFilterExpression: Mapping[Any, Any]
+
+
 class DBConfig(FOCABaseConfig):
     """Model for configuring a MongoDB instance attached to a Flask or
     Connexion app.
@@ -366,11 +410,15 @@ class DBConfig(FOCABaseConfig):
         host: Host at which the database is exposed.
         port: Port at which the database is exposed.
         name: Database name.
+        collections: a :py:class: `foca.models.config.CollectionConfig()`
+            object
 
     Attributes:
         host: Host at which the database is exposed.
         port: Port at which the database is exposed.
         name: Database name.
+        collections: a :py:class: `foca.models.config.CollectionConfig()`
+            object
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -387,6 +435,7 @@ class DBConfig(FOCABaseConfig):
     host: str = "mongodb"
     port: int = 27017
     name: str = "database"
+    collections: Dict[str, CollectionConfig] = None
 
 
 class JobsConfig(FOCABaseConfig):
@@ -413,7 +462,7 @@ class JobsConfig(FOCABaseConfig):
         >>> JobsConfig(
         ...     host="rabbitmq",
         ...     port=5672,
-        ...     backend='rpc://,
+        ...     backend='rpc://,'
         ...     include=[],
         ... )
         JobsConfig(host="rabbitmq",port=5672,backend='rpc://,include=[])
