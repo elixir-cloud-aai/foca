@@ -40,7 +40,7 @@ def create_celery_app(app: Flask) -> Celery:
         """Create subclass of task that wraps task execution in application
         context.
         """
-        def __call__(self, *args, **kwargs):  
+        def __call__(self, *args, **kwargs):
             """Wrap task execution in application context."""
             with app.app_context():  # pragma: no cover
                 return self.run(*args, **kwargs)
