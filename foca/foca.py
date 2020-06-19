@@ -1,59 +1,70 @@
 """ Definition of an entry-point function for setting up and initializing a
 FOCA based microservice."""
 
+import logging
+from typing import Optional
+
 from connexion import App
+
 from foca.api.register_openapi import register_openapi
-from foca.config.config_parser import YAMLConfigParser
-from foca.config.log_config import configure_logging
+from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
 from foca.errors.errors import register_error_handlers
 from foca.factories.connexion_app import create_connexion_app
 from foca.factories.celery_app import create_celery_app
 from foca.security.cors import enable_cors
 
+# Get logger instance
+logger = logging.getLogger(__name__)
 
-def foca(config: str
-         ) -> App:
-    """ Initialization of a FOCA based microservice.
+
+def foca(config: Optional[str] = None) -> App:
+    """ Initialize a FOCA-based microservice.
 
     Args:
-        config: An absolute path to a YAML application configuration file that
-                follows the proper format. To properly structure the YAML file,
-                see :py:class:`foca.models.config.Config()`
+        config: Path to a YAML application configuration file. For required
+            YAML file structure, see :py:class:`foca.models.config.Config()`.
 
     Returns:
-        A Connexion app instance
-
-    Example:
-
-        app = foca('/path/to/config.yaml')
+        Connexion app instance.
     """
-
-    # Configure logger
-    configure_logging(config_var='FOCA_CONFIG_LOG')
-
     # Create a Config class instance for parameters validation
-    conf = YAMLConfigParser(config)
+    conf = ConfigParser(config).config
+    logger.info(f"Configuration file '{config}' parsed.")
 
     # Create Connexion app
-    connexion_app = create_connexion_app(conf.dict())
-
-    # Register MongoDB
-    connexion_app.app = register_mongodb(connexion_app.app)
+    cnx_app = create_connexion_app(conf)
+    logger.info(f"Connexion app created.")
 
     # Register error handlers
-    connexion_app = register_error_handlers(connexion_app)
+    connexion_app = register_error_handlers(cnx_app)
+    logger.info(f"Error handlers registered.")
+
+    # Register MongoDB
+    if conf.db:
+        cnx_app.app = register_mongodb(cnx_app.app)
+        logger.info(f"Database registered.")
+    else:
+        logger.info(f"No database support configured.")
 
     # Create Celery app and register background task monitoring service
-    create_celery_app(connexion_app.app)
+    if conf.jobs:
+        create_celery_app(connexion_app.app)
+        logger.info(f"Support for background tasks set up.")
+    else:
+        logger.info(f"No support for background tasks configured.")
 
     # Register OpenAPI specs
-    connexion_app = register_openapi(
-        app=connexion_app,
-        specs=conf.api
-    )
+    if conf.api.specs:
+        cnx_app = register_openapi(
+            app=cnx_app,
+            specs=conf.api.specs,
+        )
+    else:
+        logger.info(f"No OpenAPI specifications provided.")
 
     # Enable cross-origin resource sharing
     enable_cors(connexion_app.app)
+    logger.info(f"CORS enabled.")
 
     return connexion_app

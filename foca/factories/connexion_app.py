@@ -9,7 +9,6 @@ from connexion import App
 from foca.errors.errors import handle_bad_request
 from foca.models.config import Config
 
-
 # Get logger instance
 logger = logging.getLogger(__name__)
 

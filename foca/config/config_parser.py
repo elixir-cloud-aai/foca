@@ -1,7 +1,7 @@
 """Parser for YAML-based app configuration."""
 
 import yaml
-from typing import Dict
+from typing import (Dict, Optional)
 
 from foca.models.config import Config
 
@@ -16,9 +16,12 @@ class ConfigParser():
         config_file: Path to config file in YAML format.
     """
 
-    def __init__(self, config_file) -> None:
+    def __init__(self, config_file: Optional[str] = None) -> None:
         """Constructor method."""
-        self.config = Config(**self.parse_yaml(config_file))
+        if config_file:
+            self.config = Config(**self.parse_yaml(config_file))
+        else:
+            self.config = Config()
 
     @staticmethod
     def parse_yaml(conf: str) -> Dict:
