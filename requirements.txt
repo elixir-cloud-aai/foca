@@ -1,4 +1,5 @@
 addict==2.2.1
+celery==4.1.1
 connexion==2.7.0
 coverage==5.1
 coveralls==2.0.0

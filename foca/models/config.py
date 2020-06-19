@@ -396,13 +396,13 @@ class JobsConfig(FOCABaseConfig):
     Args:
         host: Host at which the broker is exposed.
         port: Port at which the broker is exposed.
-        result_backend: Backend used to store background task results.
+        backend: Backend used to store background task results.
         include: List of modules to import when workers start.
 
     Attributes:
         host: Host at which the broker is exposed.
         port: Port at which the broker is exposed.
-        result_backend: Backend used to store background task results.
+        backend: Backend used to store background task results.
         include: List of modules to import when workers start.
 
     Raises:
@@ -413,14 +413,14 @@ class JobsConfig(FOCABaseConfig):
         >>> JobsConfig(
         ...     host="rabbitmq",
         ...     port=5672,
-        ...     result_backend='rpc://,
+        ...     backend='rpc://,
         ...     include=[],
         ... )
-        JobsConfig(host="rabbitmq",port=5672,result_backend='rpc://,include=[])
+        JobsConfig(host="rabbitmq",port=5672,backend='rpc://,include=[])
     """
     host: str = "rabbitmq"
     port: int = 5672
-    result_backend: str = 'rpc://'
+    backend: str = 'rpc://'
     include: Optional[List[str]] = None
 
 

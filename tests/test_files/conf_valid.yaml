@@ -40,7 +40,7 @@ db:
 jobs:
     host: rabbitmq
     port: 5672
-    result_backend: 'rpc://'
+    backend: 'rpc://'
     include:
         - some.module
 
