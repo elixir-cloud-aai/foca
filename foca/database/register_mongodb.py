@@ -3,34 +3,23 @@
 import os
 
 import logging
-from typing import (Iterable, Mapping)
 
-from flask import Flask
+from connexion import App
 from flask_pymongo import PyMongo
-from pymongo.operations import IndexModel
+from typing import Mapping
 
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 
-def register_mongodb(
-    app: Flask,
-    db: str = "db",
-    collections: Mapping[str, Iterable[IndexModel]] = {},
-) -> Flask:
+def register_mongodb(app: App) -> App:
     """
     Instantiates a MongoDB database, initializes collections and adds the
-    database and collections to a Flask app.
-
-    Collections can optionally be registered with custom indexes.
+    database and collections to a Connexion app.
 
     Args:
-        app: Flask application.
-        db: Name of database to be registered.
-        collections: Mappings of collections to be registered; keys will be
-            used as collection names, values are passed to
-            `flask_pymongo.wrappers.Collection.create_indexes`.
+        app: Connexion app.
 
     Returns:
         Flask application with updated config: `config['database']['database']`
@@ -39,33 +28,36 @@ def register_mongodb(
     """
     config = app.config
 
-    # Instantiante PyMongo client
+    # Instantiate PyMongo client
     mongo = create_mongo_client(
         app=app,
         config=config,
     )
 
     # Add database
-    db = mongo.db[db]
+    # db = mongo.db[config['FOCA'].db.name]
 
     # Add database collections
     registered_collections = {}
-    for name, index_models in collections.items():
-        registered_collections[name] = mongo.db[name]
-        if index_models:
-            registered_collections[name].create_indexes(index_models)
-        logger.debug(f"Added database collection '{name}'.")
+    if config['FOCA'].db.collections is not None:
+        for name, index_models in config['FOCA'].db.collections.items():
+            registered_collections[name] = mongo.db[name]
+            if index_models:
+                registered_collections[name].create_indexes(index_models)
+            logger.debug(f"Added database collection '{name}'.")
+    else:
+        registered_collections = None
 
     # Add database and collections to app config
-    config['database']['database'] = db
-    config['database']['collections'] = registered_collections
+    # config['FOCA'].db.database = db
+    config['FOCA'].db.collections = registered_collections
     app.config = config
 
     return app
 
 
 def create_mongo_client(
-    app: Flask,
+    app: App,
     config: Mapping,
 ) -> PyMongo:
     """Register MongoDB database with Flask app.
@@ -90,9 +82,9 @@ def create_mongo_client(
         auth = ''
 
     app.config['MONGO_URI'] = 'mongodb://{auth}{host}:{port}/{dbname}'.format(
-        host=os.environ.get('MONGO_HOST', config['database']['host']),
-        port=os.environ.get('MONGO_PORT', config['database']['port']),
-        dbname=os.environ.get('MONGO_DBNAME', config['database']['name']),
+        host=os.environ.get('MONGO_HOST', config['FOCA'].db.host),
+        port=os.environ.get('MONGO_PORT', config['FOCA'].db.port),
+        dbname=os.environ.get('MONGO_DBNAME', config['FOCA'].db.name),
         auth=auth
     )
 
@@ -102,9 +94,9 @@ def create_mongo_client(
             "Registered database '{name}' at URI '{uri}':'{port}' with Flask "
             'application.'
         ).format(
-            name=os.environ.get('MONGO_DBNAME', config['database']['name']),
-            uri=os.environ.get('MONGO_HOST', config['database']['host']),
-            port=os.environ.get('MONGO_PORT', config['database']['port'])
+            name=os.environ.get('MONGO_DBNAME', config['FOCA'].db.name),
+            uri=os.environ.get('MONGO_HOST', config['FOCA'].db.host),
+            port=os.environ.get('MONGO_PORT', config['FOCA'].db.port)
         )
     )
     return mongo
