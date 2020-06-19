@@ -37,7 +37,7 @@ def foca(config: Optional[str] = None) -> App:
     logger.info(f"Connexion app created.")
 
     # Register error handlers
-    connexion_app = register_error_handlers(cnx_app)
+    cnx_app = register_error_handlers(cnx_app)
     logger.info(f"Error handlers registered.")
 
     # Register MongoDB
@@ -49,7 +49,7 @@ def foca(config: Optional[str] = None) -> App:
 
     # Create Celery app and register background task monitoring service
     if conf.jobs:
-        create_celery_app(connexion_app.app)
+        create_celery_app(cnx_app.app)
         logger.info(f"Support for background tasks set up.")
     else:
         logger.info(f"No support for background tasks configured.")
@@ -64,7 +64,7 @@ def foca(config: Optional[str] = None) -> App:
         logger.info(f"No OpenAPI specifications provided.")
 
     # Enable cross-origin resource sharing
-    enable_cors(connexion_app.app)
+    enable_cors(cnx_app.app)
     logger.info(f"CORS enabled.")
 
-    return connexion_app
+    return cnx_app

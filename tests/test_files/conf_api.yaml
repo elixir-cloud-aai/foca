@@ -1,0 +1,18 @@
+api:
+    specs:
+        - path: openapi_2_petstore.yaml
+          path_out: openapi_2_petstore.modified.yaml
+          append:
+              - securityDefinitions:
+                  jwt:
+                      type: apiKey
+                      name: Authorization
+                      in: header
+          add_operation_fields:
+            x-swagger-router-controller: controllers
+          connexion:
+              strict_validation: True
+              validate_responses: False
+              options:
+                swagger_ui: True
+                swagger_json: True

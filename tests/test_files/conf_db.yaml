@@ -1,0 +1,4 @@
+db:
+    host: mongodb
+    port: 27017
+    name: cwl-wes-db
