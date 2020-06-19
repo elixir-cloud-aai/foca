@@ -1,10 +1,9 @@
-"""Tests for `foca.py` module.
-"""
+"""Tests for `foca.py` module."""
+
 import pathlib
 import pytest
 
 from connexion import App
-from pydantic import ValidationError
 from yaml import YAMLError
 
 from foca.foca import foca
@@ -24,4 +23,3 @@ def test_foca_invalid_structure():
     """Test foca(); invalid configuration file structure."""
     with pytest.raises(YAMLError):
         foca(INVALID_CONF)
-
