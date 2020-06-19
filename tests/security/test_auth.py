@@ -27,7 +27,7 @@ MOCK_URL = "https://some-url-that-does-not.exist"
 
 def test_not_authorized():
     """Test for checking authorization requirement"""
-    @param_pass(authorization_required=False)
+    @param_pass(required=False)
     def mock_func():
         p = locals()
         return len(p)

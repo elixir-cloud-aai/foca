@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def param_pass(
-    authorization_required: bool = True,
+    required: bool = True,
     validation_methods: List[str] = ["userinfo", "public_key"],
     validation_checks: str = "all",
     algorithms: Iterable[str] = ["RS256"],
@@ -38,7 +38,7 @@ def param_pass(
         def wrapper(*args, **kwargs):
 
             # Check if authentication is enabled
-            if authorization_required:
+            if required:
 
                 # Ensure that at least one validation method was configured
                 if not len(validation_methods):
