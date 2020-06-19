@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def param_pass(
-    authorization_required: bool = True,
+    required: bool = True,
     validation_methods: List[str] = ["userinfo", "public_key"],
     validation_checks: str = "all",
     algorithms: Iterable[str] = ["RS256"],
@@ -30,8 +30,7 @@ def param_pass(
     audience: Optional[Iterable[str]] = None,
     allow_expired: bool = False,
 ):
-    """
-    **The decorator protects an endpoint from being called without a valid
+    """The decorator protects an endpoint from being called without a valid
     authorization token.
     """
     def jwt_validation(fn: Callable) -> Callable:
@@ -39,7 +38,7 @@ def param_pass(
         def wrapper(*args, **kwargs):
 
             # Check if authentication is enabled
-            if authorization_required:
+            if required:
 
                 # Ensure that at least one validation method was configured
                 if not len(validation_methods):
