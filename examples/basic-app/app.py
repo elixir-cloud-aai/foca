@@ -22,5 +22,5 @@ def showPetById(id):
 
 
 if __name__ == '__main__':
-    app = foca("conf_valid.yaml")
+    app = foca("config.yaml")
     app.run(port=8080)
