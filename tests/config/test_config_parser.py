@@ -13,14 +13,14 @@ from foca.models.config import Config
 TEST_FILE = "tests/test_files/conf_valid.yaml"
 TEST_FILE_INVALID = "tests/test_files/conf_invalid_log_level.yaml"
 TEST_DICT = {}
-TEST_CONFIG_INSTACE = Config()
+TEST_CONFIG_INSTANCE = Config()
 
 
 def test_config_parser_valid_config_file():
     """Test valid YAML parsing"""
     conf = ConfigParser(TEST_FILE)
     assert type(conf.config.dict()) == type(TEST_DICT)
-    assert type(conf.config) == type(TEST_CONFIG_INSTACE)
+    assert type(conf.config) == type(TEST_CONFIG_INSTANCE)
 
 
 def test_config_parser_invalid_config_file():
