@@ -2,7 +2,7 @@
 
 from enum import Enum
 import os
-from typing import (Dict, List, Optional, Mapping, Any,)
+from typing import (Dict, List, Optional, Mapping, Any, Union, Tuple, )
 
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
 
@@ -363,6 +363,10 @@ class CollectionConfig(FOCABaseConfig):
     Flask or Connexion app.
 
     Args:
+        key: Either a single key or a list of (key, direction) pairs. The
+            key(s) must be an instance of str, and the direction(s) must be one
+            of (ASCENDING, DESCENDING, GEO2D, GEOHAYSTACK, GEOSPHERE, HASHED,
+            TEXT).
         name: custom name to use for this index - if none is given,
             a name will be generated.
         unique: if True creates a uniqueness constraint on the index.
@@ -377,6 +381,10 @@ class CollectionConfig(FOCABaseConfig):
             partial index. Requires server version >= 3.2.
 
     Attributes:
+        key: Either a single key or a list of (key, direction) pairs. The
+            key(s) must be an instance of str, and the direction(s) must be one
+            of (ASCENDING, DESCENDING, GEO2D, GEOHAYSTACK, GEOSPHERE, HASHED,
+            TEXT).
         name: custom name to use for this index - if none is given,
             a name will be generated.
         unique: if True creates a uniqueness constraint on the index.
@@ -393,13 +401,25 @@ class CollectionConfig(FOCABaseConfig):
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
+
+    Example:
+        >>> CollectionConfig(
+        ...     key=[('my_id', DESCENDING)],
+        ...     unique=True,
+        ...     sparse=True,
+        ... )
     """
+    key: Union[str, List[Tuple[str, int]]] = None
     name: str = None
-    unique: bool
-    background: bool
-    sparse: bool
-    expireAfterSeconds: int
-    partialFilterExpression: Mapping[Any, Any]
+    unique: Optional[bool]
+    background: Optional[bool]
+    sparse: Optional[bool]
+    expireAfterSeconds: Optional[int]
+    partialFilterExpression: Optional[Mapping[Any, Any]]
+
+    class Config:
+        """Configuration for `pydantic` model class."""
+        extra = "allow"
 
 
 class DBConfig(FOCABaseConfig):
@@ -435,7 +455,10 @@ class DBConfig(FOCABaseConfig):
     host: str = "mongodb"
     port: int = 27017
     name: str = "database"
-    collections: Dict[str, CollectionConfig] = None
+    collections: Optional[Dict[str, CollectionConfig]] = None
+
+    class Config:
+        extra = "allow"
 
 
 class JobsConfig(FOCABaseConfig):
