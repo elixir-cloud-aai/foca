@@ -14,5 +14,5 @@ api:
         swagger_ui: true
       strict_validation: true
       validate_responses: false
-    path: C:\Users\liosi\Documents\GitHub\foca\tests\test_files\invalid_openapi_2.yaml
-    path_out: C:\Users\liosi\Documents\GitHub\foca\tests\test_files\openapi_2_petstore.modified.yaml
+    path: /home/kushagra/elixir/FOCA/foca/tests/test_files/invalid_openapi_2.yaml
+    path_out: /home/kushagra/elixir/FOCA/foca/tests/test_files/openapi_2_petstore.modified.yaml
