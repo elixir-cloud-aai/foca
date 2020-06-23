@@ -1,0 +1,9 @@
+db:
+    host: mongo
+    port: 27017
+    dbs:
+        my-db:
+            collections:
+                my-col-1:
+                    indexes: null
+

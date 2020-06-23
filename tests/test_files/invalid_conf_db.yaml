@@ -1,0 +1,4 @@
+db:
+    host: mongodb
+    port: some port
+    name: cwl-wes-db

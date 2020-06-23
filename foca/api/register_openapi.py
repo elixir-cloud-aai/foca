@@ -2,12 +2,13 @@
 """
 
 import logging
+from typing import List
 
 from connexion import App
 from connexion.exceptions import InvalidSpecification
 import yaml
 
-from foca.models.config import APIConfig
+from foca.models.config import SpecConfig
 from foca.config.config_parser import ConfigParser
 
 # Get logger instance
@@ -16,15 +17,15 @@ logger = logging.getLogger(__name__)
 
 def register_openapi(
         app: App,
-        specs: APIConfig,
+        specs: List[SpecConfig],
 ) -> App:
     """
     Register OpenAPI specs with Connexion app.
 
     Args:
         app: A Connexion app instance.
-        specs: An instance of `APIConfig` describing OpenAPI 2.x and/or 3.x
-            specifications to be registered with `app`.
+        specs: A sequence of `SpecConfig` config models describing OpenAPI 2.x
+            and/or 3.x specifications to be registered with `app`.
 
     Returns:
         A Connexion app instance.
@@ -35,9 +36,10 @@ def register_openapi(
             3.x.
         yaml.YAMLError: YAML cannot be (de)serialized.
     """
-    # Iterate over API specs
+    # Iterate over OpenAPI specs
     for spec in specs:
         spec_modified = False
+        logger.warning(spec)
         spec_parsed = ConfigParser.parse_yaml(spec.path)
 
         # Add/replace root objects

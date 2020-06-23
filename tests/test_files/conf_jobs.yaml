@@ -1,0 +1,6 @@
+jobs:
+    host: rabbitmq
+    port: 5672
+    backend: 'rpc://'
+    include:
+        - some.module

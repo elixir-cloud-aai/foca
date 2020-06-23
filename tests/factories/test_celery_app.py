@@ -13,7 +13,6 @@ CONFIG.jobs = JobsConfig()
 def test_create_celery_app():
     """Test Connexion app creation."""
     cnx_app = create_connexion_app(CONFIG)
-    print(CONFIG)
     cel_app = create_celery_app(cnx_app.app)
     assert isinstance(cel_app, Celery)
     assert cel_app.conf['FOCA'] == CONFIG
