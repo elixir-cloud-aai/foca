@@ -27,7 +27,7 @@ DB_DICT_DEF_COLL = {
         }
     }
 }
-DB_DICT_CUST_COLL= {
+DB_DICT_CUST_COLL = {
     'my_db': {
         'collections': {
             'my_collection': {

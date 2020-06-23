@@ -395,8 +395,6 @@ class IndexConfig(FOCABaseConfig):
         background: Whether the index shall be created in the background.
         sparse: Whether documents that lack the indexed field shall be omitted
             from the index.
-        key: Key denoting a field to be indexed.
-        direction: Sort order of field. 
 
     Attributes:
         keys: A list of key-direction tuples indicating the field to be indexed

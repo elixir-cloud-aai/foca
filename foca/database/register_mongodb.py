@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def register_mongodb(
     app: Flask,
     conf: MongoConfig,
-    ) -> MongoConfig:
+) -> MongoConfig:
     """
     Instantiates a MongoDB database, initializes collections and adds the
     database and collections to a Flask app.
