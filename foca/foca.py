@@ -50,7 +50,7 @@ def foca(config: Optional[str] = None) -> App:
     else:
         logger.info(f"No database support configured.")
 
-    # Create Celery app and register background task monitoring service
+    # Create Celery app
     if conf.jobs:
         create_celery_app(cnx_app.app)
         logger.info(f"Support for background tasks set up.")
