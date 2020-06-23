@@ -20,14 +20,13 @@ def test_config_parser_valid_config_file():
     """Test valid YAML parsing"""
     conf = ConfigParser(TEST_FILE)
     assert type(conf.config.dict()) == type(TEST_DICT)
-    assert type(conf.config) == type(TEST_CONFIG_INSTANCE)
+    assert isinstance(conf.config, type(TEST_CONFIG_INSTANCE))
 
 
 def test_config_parser_invalid_config_file():
     """Test valid YAML parsing"""
     with pytest.raises(ValidationError):
-        conf = ConfigParser(TEST_FILE_INVALID)
-        assert conf is not None
+        ConfigParser(TEST_FILE_INVALID)
 
 
 def test_config_parser_invalid_file_path():

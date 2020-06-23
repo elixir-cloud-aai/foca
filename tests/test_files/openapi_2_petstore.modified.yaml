@@ -103,9 +103,4 @@ produces:
 - application/json
 schemes:
 - http
-securityDefinitions:
-  jwt:
-    in: header
-    name: Authorization
-    type: apiKey
 swagger: '2.0'
