@@ -1,0 +1,18 @@
+api:
+  specs:
+  - add_operation_fields:
+      x-swagger-router-controller: controllers
+    append:
+    - securityDefinitions:
+        jwt:
+          in: header
+          name: Authorization
+          type: apiKey
+    connexion:
+      options:
+        swagger_json: true
+        swagger_ui: true
+      strict_validation: true
+      validate_responses: false
+    path: /home/uniqueg/Dropbox/repos/elixir-cloud-aai/foca/tests/test_files/invalid_openapi_2.yaml
+    path_out: /home/uniqueg/Dropbox/repos/elixir-cloud-aai/foca/tests/test_files/openapi_2_petstore.modified.yaml

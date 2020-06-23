@@ -1,0 +1,17 @@
+db:
+    # Any database parameters
+api=
+    # Any OpenAPI specifications
+jobs:
+    # Any Celery parameters for background jobs
+security:
+    # Any protected endpoints/security parameters
+server:
+    # Any general Flask/Connexion/Gunicorn parameters
+    # (e.g., host, port...)
+service_specific_section_1:
+  param_1: "my_param_1"
+  param_2: "my_param_2"
+service_specific_section_2:
+  param_1: "my_param_1"
+  param_2: "my_param_2"
