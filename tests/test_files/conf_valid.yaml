@@ -33,9 +33,13 @@ security:
         validation_checks: all
 
 db:
-    host: mongodb
+    host: mongo
     port: 27017
-    name: cwl-wes-db
+    dbs:
+        my_db:
+            collections:
+                my-col-1:
+                    indexes: null
 
 jobs:
     host: rabbitmq
