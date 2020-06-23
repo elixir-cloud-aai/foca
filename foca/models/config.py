@@ -2,9 +2,10 @@
 
 from enum import Enum
 import os
-from typing import (Dict, List, Optional)
+from typing import (Dict, List, Optional, Tuple)
 
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
+import pymongo
 
 
 def validate_log_level_choices(level: int) -> int:
@@ -37,6 +38,17 @@ class ValidationChecksEnum(Enum):
     pass."""
     all = "all"
     any = "any"
+
+
+class PymongoDirectionEnum(Enum):
+    """Supported directions for Pymongo indexes."""
+    ASCENDING = 1
+    DESCENDING = -1
+    GEO2D = "2d"
+    GEOHAYSTACK = "geoHaystack"
+    GEOSPHERE = "2dsphere"
+    HASHED = "hashed"
+    TEXT = "text"
 
 
 class FOCABaseConfig(BaseModel):
@@ -95,8 +107,8 @@ class ServerConfig(FOCABaseConfig):
         ...     testing=False,
         ...     use_reloader=True,
         ... )
-        ServerConfig(host="0.0.0.0",port=8080,debug=True,environment="developm\
-ent",testing=False,use_reloader=True)
+        ServerConfig(host='0.0.0.0', port=8080, debug=True, environment='devel\
+opment', testing=False, use_reloader=True)
     """
     host: str = "0.0.0.0"
     port: int = 8080
@@ -152,8 +164,8 @@ class SpecConfig(FOCABaseConfig):
 
     Example:
         >>> SpecConfig(
-        ...     path="/path/to/my/specs.yaml",
-        ...     path_out="/path/to/modified/specs.yaml",
+        ...     path="/path/to/specs.yaml",
+        ...     path_out="/path/to/specs.modified.yaml",
         ...     append=[
         ...         {
         ...             "security": {
@@ -173,10 +185,11 @@ class SpecConfig(FOCABaseConfig):
         ...         "x-some-other-custom-field": "some_value",
         ...     },
         ... )
-        SpecConfig(path='/path/to/my/specs.yaml', path_out='/path/to/modified/\
-specs.yaml', append=<list_iterator object at 0x7f12f0f56f10>, add_operation_fi\
-elds={'x-swagger-router-controller': 'controllers.my_specs', 'x-some-other-cus\
-tom-field': 'some_value'})
+        SpecConfig(path='/path/to/specs.yaml', path_out='/path/to/specs.modifi\
+ed.yaml', append=[{'security': {'jwt': {'type': 'apiKey', 'name': 'Authorizati\
+on', 'in': 'header'}}}, {'my_other_root_field': 'some_value'}], add_operation_\
+fields={'x-swagger-router-controller': 'controllers.my_specs', 'x-some-other-c\
+ustom-field': 'some_value'}, connexion=None)
     """
     path: str
     path_out: Optional[str] = None
@@ -214,10 +227,12 @@ class APIConfig(FOCABaseConfig):
             data type.
 
     Example:
-        >>> SpecConfig(
-        ...     spec=[SpecConfig],
+        >>> APIConfig(
+        ...     specs=[SpecConfig(path='/path/to/specs.yaml')],
         ... )
-        APIConfig(specs=[SpecConfig])
+        APIConfig(specs=[SpecConfig(path='/path/to/specs.yaml', path_out='/pat\
+h/to/specs.modified.yaml', append=None, add_operation_fields=None, connexion=N\
+one)])
     """
     specs: List[SpecConfig] = []
 
@@ -313,12 +328,13 @@ class AuthConfig(FOCABaseConfig):
         ...     validation_methods=["userinfo", "public_key"],
         ...     validation_checks="all",
         ... )
-        AuthConfig(required=False,add_key_to_claims=True,allow_expired=False,a\
-udience=None,claim_identity="sub",claim_issuer="iss",claim_key_id="kid",header\
-_name="Authorization",token_prefix="Bearer",algorithms=["RS256"],validation_me\
-thods=["userinfo", "public_key"],validation_checks="all")
+        AuthConfig(required=False, add_key_to_claims=True, allow_expired=False\
+, audience=None, claim_identity='sub', claim_issuer='iss', claim_key_id='kid',\
+ header_name='Authorization', token_prefix='Bearer', algorithms=['RS256'], val\
+idation_methods=[<ValidationMethodsEnum.userinfo: 'userinfo'>, <ValidationMeth\
+odsEnum.public_key: 'public_key'>], validation_checks=<ValidationChecksEnum.al\
+l: 'all'>)
     """
-
     required: bool = False
     add_key_to_claims: bool = True
     allow_expired: bool = False
@@ -351,26 +367,124 @@ class SecurityConfig(FOCABaseConfig):
 
     Example:
         >>> SecurityConfig(
-        ...     auth=AuthConfig(**kwargs),
+        ...     auth=AuthConfig(),
         ... )
-        SecurityConfig(auth=AuthConfig(**kwargs))
+        SecurityConfig(auth=AuthConfig(required=False, add_key_to_claims=True,\
+ allow_expired=False, audience=None, claim_identity='sub', claim_issuer='iss',\
+ claim_key_id='kid', header_name='Authorization', token_prefix='Bearer', algor\
+ithms=['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'userinf\
+o'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_checks=<Val\
+idationChecksEnum.all: 'all'>))
     """
     auth: AuthConfig = AuthConfig()
 
 
-class DBConfig(FOCABaseConfig):
-    """Model for configuring a MongoDB instance attached to a Flask or
-    Connexion app.
+class IndexConfig(FOCABaseConfig):
+    """Model for configuring indexes for a MongoDB collection.
 
     Args:
-        host: Host at which the database is exposed.
-        port: Port at which the database is exposed.
-        name: Database name.
+        keys: A list of key-direction tuples indicating the field to be indexed
+            and the sort order of that index. The sort order must be a valid
+            MongoDB index specifier, one of `pymongo.ASCENDING`,
+            `pymongo.DESCENDING`, `pymongo.GEO2D` etc. or their corresponding
+            values `1`, `-1`, `'2d'`, respectively; cf.:
+            https://api.mongodb.com/python/current/api/pymongo/collection.html
+        name: Custom name to use for the index. If `None` is provided, a name
+            will be generated.
+        unique: Whether a uniqueness constraint shall be created on the index.
+        background: Whether the index shall be created in the background.
+        sparse: Whether documents that lack the indexed field shall be omitted
+            from the index.
 
     Attributes:
-        host: Host at which the database is exposed.
-        port: Port at which the database is exposed.
-        name: Database name.
+        keys: A list of key-direction tuples indicating the field to be indexed
+            and the sort order of that index. The sort order must be a valid
+            MongoDB index specifier, one of `pymongo.ASCENDING`,
+            `pymongo.DESCENDING`, `pymongo.GEO2D` etc. or their corresponding
+            values `1`, `-1`, `'2d'`, respectively; cf.:
+            https://api.mongodb.com/python/current/api/pymongo/collection.html
+        name: Custom name to use for the index. If `None` is provided, a name
+            will be generated.
+        unique: Whether a uniqueness constraint shall be created on the index.
+        background: Whether the index shall be created in the background.
+        sparse: Whether documents that lack the indexed field shall be omitted
+            from the index.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Example:
+        >>> IndexConfig(
+        ...     keys=[('last_name', pymongo.DESCENDING)],
+        ...     unique=True,
+        ...     sparse=False,
+        ... )
+        IndexConfig(keys=[('last_name', -1)], name=None, unique=True, backgrou\
+nd=False, sparse=False)
+    """
+    keys: Optional[List[Tuple[str, PymongoDirectionEnum]]] = None
+    name: Optional[str] = None
+    unique: Optional[bool] = False
+    background: Optional[bool] = False
+    sparse: Optional[bool] = False
+
+    @validator('keys', always=True, allow_reuse=True)
+    def store_enum_value(cls, v):  # pylint: disable=E0213
+        """Store value of enumerator, rather than enumerator object."""
+        if not v:
+            return v
+        else:
+            new_v = []
+            for item in v:
+                tmp_list = list(item)
+                tmp_list[1] = tmp_list[1].value
+                new_v.append(tuple(tmp_list))
+            return new_v
+
+
+class CollectionConfig(FOCABaseConfig):
+    """Model for configuring a MongoDB collection.
+
+    Args:
+        indexes: An index configuration object.
+        client: Client connected to collection. Most likely populated through
+            the code, not during setup.
+
+    Attributes:
+        indexes: An index configuration object.
+        client: Client connected to collection. Most likely populated through
+            the code, not during setup.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Example:
+        >>> CollectionConfig(
+        ...     indexes=[IndexConfig(keys=[('last_name', 1)])],
+        ... )
+        CollectionConfig(indexes=[IndexConfig(keys=[('last_name', 1)], name=No\
+ne, unique=False, background=False, sparse=False)], client=None)
+    """
+    indexes: Optional[List[IndexConfig]] = None
+    client: Optional[pymongo.collection.Collection] = None
+
+
+class DBConfig(FOCABaseConfig):
+    """Model for configuring a MongoDB database.
+
+    Args:
+        collections: Mapping of collection names (keys) and configuration
+            objects (values).
+        client: Client connected to database. Most likely populated through the
+            code, not during setup.
+
+    Attributes:
+        collections: Mapping of collection names (keys) and configuration
+            objects (values).
+        client: Client connected to database. Most likely populated through the
+            code, not during setup.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -378,15 +492,50 @@ class DBConfig(FOCABaseConfig):
 
     Example:
         >>> DBConfig(
+        ...     collections={
+        ...         'my_collection': CollectionConfig(
+        ...             indexes=[IndexConfig(keys=[('last_name', 1)])],
+        ...         ),
+        ...     },
+        ... )
+        DBConfig(collections={'my_collection': CollectionConfig(indexes=[Index\
+Config(keys=[('last_name', 1)], name=None, unique=False, background=False, spa\
+rse=False)], client=None)}, client=None)
+    """
+    collections: Optional[Dict[str, CollectionConfig]] = None
+    client: Optional[pymongo.database.Database] = None
+
+
+class MongoConfig(FOCABaseConfig):
+    """Model for configuring a MongoDB instance attached to a Flask or
+    Connexion app.
+
+    Args:
+        host: Host at which the database is exposed.
+        port: Port at which the database is exposed.
+        dbs: Mapping of database names (keys) and configuration objects
+            (values).
+
+    Attributes:
+        host: Host at which the database is exposed.
+        port: Port at which the database is exposed.
+        dbs: Mapping of database names (keys) and configuration objects
+            (values).
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Example:
+        >>> MongoConfig(
         ...     host="mongodb",
         ...     port=27017,
-        ...     name="database",
         ... )
-        DBConfig(host="mongodb",port=27017,name="database")
+        MongoConfig(host='mongodb', port=27017, dbs=None)
     """
     host: str = "mongodb"
     port: int = 27017
-    name: str = "database"
+    dbs: Optional[Dict[str, DBConfig]] = None
 
 
 class JobsConfig(FOCABaseConfig):
@@ -413,10 +562,10 @@ class JobsConfig(FOCABaseConfig):
         >>> JobsConfig(
         ...     host="rabbitmq",
         ...     port=5672,
-        ...     backend='rpc://,
+        ...     backend='rpc://',
         ...     include=[],
         ... )
-        JobsConfig(host="rabbitmq",port=5672,backend='rpc://,include=[])
+        JobsConfig(host='rabbitmq', port=5672, backend='rpc://', include=[])
     """
     host: str = "rabbitmq"
     port: int = 5672
@@ -443,12 +592,11 @@ class LogFormatterConfig(FOCABaseConfig):
 
     Example:
         >>> LogFormatterConfig(
-        ...     class_formatter=Field("logging.Formatter",alias="class"),
         ...     style="{",
         ...     format="[{asctime}: {levelname:<8}] {message} [{name}]",
         ... )
-        LogFormatterConfig(class_formatter=Field("logging.Formatter",alias="cl\
-ass"),style="{",format="[{asctime}: {levelname:<8}] {message} [{name}]")
+        LogFormatterConfig(class_formatter='logging.Formatter', style='{', for\
+mat='[{asctime}: {levelname:<8}] {message} [{name}]')
     """
     class_formatter: str = Field(
         "logging.Formatter",
@@ -479,13 +627,12 @@ class LogHandlerConfig(FOCABaseConfig):
 
     Example:
         >>> LogHandlerConfig(
-        ...     class_handler=Field("logging.StreamHandler",alias="class"),
         ...     level=20,
         ...     formatter="standard",
         ...     stream="ext://sys.stderr",
         ... )
-        LogHandlerConfig(class_handler=Field("logging.StreamHandler",alias="cl\
-ass"),level=20,formatter="standard",stream="ext://sys.stderr")
+        LogHandlerConfig(class_handler='logging.StreamHandler', level=20, form\
+atter='standard', stream='ext://sys.stderr')
     """
     class_handler: str = Field(
         "logging.StreamHandler",
@@ -517,10 +664,10 @@ class LogRootConfig(FOCABaseConfig):
 
     Example:
         >>> LogRootConfig(
-        ...     level=10,
+        ...     level=logging.INFO,
         ...     handlers=["console"],
         ... )
-        LogRootConfig(level=10,handlers=["console"])
+        LogRootConfig(level=20, handlers=['console'])
     """
     level: int = 10
     handlers: Optional[List[str]] = ["console"]
@@ -573,9 +720,12 @@ class LogConfig(FOCABaseConfig):
         ...     },
         ...     root=LogRootConfig()
         ... )
-        LogConfig(version=1,disable_existing_loggers=False,formatters={"standa\
-rd": LogFormatterConfig()},handlers={"console": LogHandlerConfig()},root=LogRo\
-otConfig())
+        LogConfig(version=1, disable_existing_loggers=False, formatters={'stan\
+dard': LogFormatterConfig(class_formatter='logging.Formatter', style='{', form\
+at='[{asctime}: {levelname:<8}] {message} [{name}]')}, handlers={'console': Lo\
+gHandlerConfig(class_handler='logging.StreamHandler', level=20, formatter='sta\
+ndard', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['c\
+onsole']))
     """
     version: int = 1
     disable_existing_loggers: bool = False
@@ -612,20 +762,25 @@ class Config(FOCABaseConfig):
             data type.
 
     Example:
-        >>> DBConfig(
-        ...     server=ServerConfig(**kwargs),
-        ...     api=APIConfig(**kwargs),
-        ...     security=SecurityConfig(**kwargs),
-        ...     db=DBConfig(**kwargs),
-        ...     jobs=JobsConfig(**kwargs),
-        ...     log=LogConfig(**kwargs),
-        ... )
-        DBConfig(host="mongodb",port=27017,name="database")
+        >>> Config()
+        Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
+ronment='development', testing=False, use_reloader=True), api=APIConfig(specs=\
+[]), security=SecurityConfig(auth=AuthConfig(required=False, add_key_to_claims\
+=True, allow_expired=False, audience=None, claim_identity='sub', claim_issuer=\
+'iss', claim_key_id='kid', header_name='Authorization', token_prefix='Bearer',\
+ algorithms=['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'u\
+serinfo'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_check\
+s=<ValidationChecksEnum.all: 'all'>)), db=None, jobs=None, log=LogConfig(versi\
+on=1, disable_existing_loggers=False, formatters={'standard': LogFormatterConf\
+ig(class_formatter='logging.Formatter', style='{', format='[{asctime}: {leveln\
+ame:<8}] {message} [{name}]')}, handlers={'console': LogHandlerConfig(class_ha\
+ndler='logging.StreamHandler', level=20, formatter='standard', stream='ext://s\
+ys.stderr')}, root=LogRootConfig(level=10, handlers=['console'])))
     """
     server: ServerConfig = ServerConfig()
     api: APIConfig = APIConfig()
     security: SecurityConfig = SecurityConfig()
-    db: Optional[DBConfig] = None
+    db: Optional[MongoConfig] = None
     jobs: Optional[JobsConfig] = None
     log: LogConfig = LogConfig()
 
