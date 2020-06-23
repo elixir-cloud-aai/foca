@@ -1,0 +1,32 @@
+version: '3.6'
+services:
+
+  app:
+    image: examples/basic-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    links:
+      - mongodb
+      - rabbitmq
+    command: bash -c "cd /basic-app;python3 app.py"
+    ports:
+      - "7777:8080"
+
+  rabbitmq:
+    image: "rabbitmq:3-management"
+    hostname: "rabbitmq"
+    restart: unless-stopped
+    links:
+      - mongodb
+    ports:
+      - "5672:5672"
+
+  mongodb:
+    image: mongo:3.2
+    restart: unless-stopped
+    volumes:
+      - ../data/basic-app/db:/data/db
+    ports:
+      - "27017:27017"
