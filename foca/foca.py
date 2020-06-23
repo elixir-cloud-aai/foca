@@ -42,12 +42,15 @@ def foca(config: Optional[str] = None) -> App:
 
     # Register MongoDB
     if conf.db:
-        cnx_app.app = register_mongodb(cnx_app.app)
+        cnx_app.app.config['FOCA'].db = register_mongodb(
+            app=cnx_app.app,
+            conf=conf.db,
+        )
         logger.info(f"Database registered.")
     else:
         logger.info(f"No database support configured.")
 
-    # Create Celery app and register background task monitoring service
+    # Create Celery app
     if conf.jobs:
         create_celery_app(cnx_app.app)
         logger.info(f"Support for background tasks set up.")

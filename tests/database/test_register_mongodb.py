@@ -2,40 +2,55 @@
 
 from flask import Flask
 from flask_pymongo import PyMongo
-from pymongo import DESCENDING
-from pymongo.operations import IndexModel
 
 from foca.database.register_mongodb import (
     create_mongo_client,
     register_mongodb,
 )
+from foca.models.config import MongoConfig
 
-MONGO_CONFIG = {
-    "database": {
-        "host": "mongodb",
-        "port": "27017",
-        "name": "mock_db"
+MONGO_DICT_MIN = {
+    'host': 'mongodb',
+    'port': 27017,
+}
+DB_DICT_NO_COLL = {
+    'my_db': {
+        'collections': None
     }
 }
-DB_NAME = "my_database"
-COLL_NO_INDEXES = {
-    "coll_1": [],
-    "coll_2": [],
+DB_DICT_DEF_COLL = {
+    'my_db': {
+        'collections': {
+            'my_collection': {
+                'indexes': None,
+            }
+        }
+    }
 }
-INDEX_MODEL = IndexModel(
-    [('my_id', DESCENDING)],
-    unique=True,
-    sparse=True
-)
-COLL_WITH_INDEXES = {
-    "coll_index": [INDEX_MODEL],
+DB_DICT_CUST_COLL = {
+    'my_db': {
+        'collections': {
+            'my_collection': {
+                'indexes': [{
+                    'keys': [('indexed_field', 1)],
+                    'sparse': False
+                }]
+            }
+        }
+    }
 }
+MONGO_CONFIG_MINIMAL = MongoConfig(**MONGO_DICT_MIN, dbs=None)
+MONGO_CONFIG_NO_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_NO_COLL)
+MONGO_CONFIG_DEF_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_DEF_COLL)
+MONGO_CONFIG_CUST_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_CUST_COLL)
 
 
 def test_create_mongo_client():
     """When MONGO_USERNAME environement variable is NOT defined"""
     app = Flask(__name__)
-    res = create_mongo_client(app, MONGO_CONFIG)
+    res = create_mongo_client(
+        app=app,
+    )
     assert isinstance(res, PyMongo)
 
 
@@ -43,7 +58,7 @@ def test_create_mongo_client_auth(monkeypatch):
     """When MONGO_USERNAME environement variable IS defined"""
     monkeypatch.setenv("MONGO_USERNAME", "TestingUser")
     app = Flask(__name__)
-    res = create_mongo_client(app, MONGO_CONFIG)
+    res = create_mongo_client(app)
     assert isinstance(res, PyMongo)
 
 
@@ -51,44 +66,49 @@ def test_create_mongo_client_auth_empty(monkeypatch):
     """When MONGO_USERNAME environment variable IS defined BUT null"""
     monkeypatch.setenv("MONGO_USERNAME", "")
     app = Flask(__name__)
-    res = create_mongo_client(app, MONGO_CONFIG)
+    res = create_mongo_client(app)
     assert isinstance(res, PyMongo)
+
+
+def test_register_mongodb_no_database():
+    """Skip MongoDB client registration"""
+    app = Flask(__name__)
+    res = register_mongodb(
+        app=app,
+        conf=MONGO_CONFIG_MINIMAL,
+    )
+    assert isinstance(res, MongoConfig)
 
 
 def test_register_mongodb_no_collections():
     """Register MongoDB database without any collections"""
     app = Flask(__name__)
-    app.config.update(MONGO_CONFIG)
     res = register_mongodb(
         app=app,
-        db=DB_NAME,
+        conf=MONGO_CONFIG_NO_COLL,
     )
-    assert isinstance(res, Flask)
+    assert isinstance(res, MongoConfig)
 
 
-def test_register_mongodb_collections_with_default_index():
-    """Register MongoDB with collections and default indexes"""
+def test_register_mongodb_def_collections():
+    """Register MongoDB with collection and default index"""
     app = Flask(__name__)
-    app.config.update(MONGO_CONFIG)
     res = register_mongodb(
         app=app,
-        db=DB_NAME,
-        collections=COLL_NO_INDEXES,
+        conf=MONGO_CONFIG_DEF_COLL,
     )
-    assert isinstance(res, Flask)
+    assert isinstance(res, MongoConfig)
 
 
-def test_register_mongodb_collections_with_custom_index(monkeypatch):
+def test_register_mongodb_cust_collections(monkeypatch):
     """Register MongoDB with collections and custom indexes"""
     monkeypatch.setattr(
-        'pymongo.collection.Collection.create_indexes',
-        lambda *args: None,
+        'pymongo.collection.Collection.create_index',
+        lambda *args, **kwargs: None,
     )
     app = Flask(__name__)
-    app.config.update(MONGO_CONFIG)
     res = register_mongodb(
         app=app,
-        db=DB_NAME,
-        collections=COLL_WITH_INDEXES,
+        conf=MONGO_CONFIG_CUST_COLL,
     )
-    assert isinstance(res, Flask)
+    assert isinstance(res, MongoConfig)

@@ -1,4 +1,8 @@
 db:
-    host: mongodb
+    host: mongo
     port: 27017
-    name: cwl-wes-db
+    dbs:
+        my-db:
+            collections:
+                my-col-1:
+                    indexes: null
