@@ -1,11 +1,10 @@
 """Register MongoDB with a Flask app."""
 
 import logging
-import os
 
 from flask import Flask
 from flask_pymongo import PyMongo
-from foca.models.config import MongoConfig
+from foca.models.config import MongoConfig, DBSettings
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -35,9 +34,7 @@ def register_mongodb(
             # Instantiate PyMongo client
             mongo = create_mongo_client(
                 app=app,
-                host=conf.host,
-                port=conf.port,
-                db=db_name,
+                settings=conf.settings
             )
 
             # Add database
@@ -63,9 +60,7 @@ def register_mongodb(
 
 def create_mongo_client(
         app: Flask,
-        host: str = 'mongodb',
-        port: int = 27017,
-        db: str = 'database',
+        settings: DBSettings
 ) -> PyMongo:
     """Register MongoDB database with Flask app.
 
@@ -80,30 +75,30 @@ def create_mongo_client(
     Returns:
         Client for the MongoDB database specified by `host`, `port` and `db`.
     """
-    if os.environ.get('MONGO_USERNAME') != '':
-        auth = '{username}:{password}@'.format(
-            username=os.environ.get('MONGO_USERNAME'),
-            password=os.environ.get('MONGO_PASSWORD'),
+
+    if settings.username:
+        settings.auth = '{username}:{password}@'.format(
+            username=settings.username,
+            password=settings.password,
         )
     else:
-        auth = ''
+        settings.auth = ''
 
-    app.config['MONGO_URI'] = 'mongodb://{auth}{host}:{port}/{db}'.format(
-        host=os.environ.get('MONGO_HOST', host),
-        port=os.environ.get('MONGO_PORT', port),
-        db=os.environ.get('MONGO_DBNAME', db),
-        auth=auth
+    app.config['MONGO_URI'] = 'mongodb://{auth}{host}:{port}/{db_name}'.format(
+        **settings.dict()
     )
+
+    # Pop 'auth' from settings for compatibility with the logger string format
+    settings.dict().pop("auth")
 
     mongo = PyMongo(app)
     logger.info(
         (
-            "Registered database '{db}' at URI '{host}':'{port}' with Flask "
+            "Registered database '{db_name}' at URI '{host}':'{port}' with\
+            Flask "
             'application.'
         ).format(
-            db=os.environ.get('MONGO_DBNAME', db),
-            host=os.environ.get('MONGO_HOST', host),
-            port=os.environ.get('MONGO_PORT', port)
+            **settings.dict()
         )
     )
     return mongo

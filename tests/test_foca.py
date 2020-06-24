@@ -93,6 +93,7 @@ def test_foca_invalid_api():
     temp_file = create_temporary_copy(API_CONF, PATH_SPECS_INVALID_OPENAPI)
     with pytest.raises(InvalidSpecification):
         foca(temp_file)
+    os.remove(temp_file)
 
 
 def test_foca_db():

@@ -4,7 +4,11 @@ from enum import Enum
 import os
 from typing import (Dict, List, Optional, Tuple)
 
-from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
+from pydantic import (BaseModel,
+                      BaseSettings,
+                      Field,
+                      validator
+                      )  # pylint: disable=E0611
 import pymongo
 
 
@@ -506,6 +510,49 @@ rse=False)], client=None)}, client=None)
     client: Optional[pymongo.database.Database] = None
 
 
+class DBSettings(BaseSettings):
+    """Settings for MongoDB. Can be set explicitly, drawn from environment
+    variables, or get populated by the default values (in that priority order).
+    The respective environment variables names can be found in the `env`
+    parameter.
+
+    Args:
+        username: The username required for database access, in case
+        authorization is enabled.
+        password: The passwrod required for database access, in case
+        authorization is enabled.
+        host: Host at which the database is exposed.
+        port: Port at which the database is exposed.
+        db_name: The database name.
+
+    Attributes:
+        username: The username required for database access, in case
+        authorization is enabled.
+        password: The passwrod required for database access, in case
+        authorization is enabled.
+        host: Host at which the database is exposed.
+        port: Port at which the database is exposed.
+        db_name: The database name.
+
+    Example:
+        >>> DBSettings(
+        ...     host="mongodb_host",
+        ...     port=27018,
+        ...     db_name="example_database",
+        ... )
+        DBSettings(host='mongodb_host', port=27018, db_name='example_database')
+
+    """
+    username: Optional[str] = Field(None, env='MONGO_USERNAME')
+    password: Optional[str] = Field(None, env='MONGO_PASSWORD')
+    host: str = Field("mongodb", env='MONGO_HOST')
+    port: str = Field(27017, env='MONGO_PORT')
+    db_name: str = Field("database", env='MONGO_DBNAME')
+
+    class Config:
+        extra = "allow"
+
+
 class MongoConfig(FOCABaseConfig):
     """Model for configuring a MongoDB instance attached to a Flask or
     Connexion app.
@@ -528,13 +575,11 @@ class MongoConfig(FOCABaseConfig):
 
     Example:
         >>> MongoConfig(
-        ...     host="mongodb",
-        ...     port=27017,
+        ...     settings=DBSettings(host="mongodb_host", port=27018)
         ... )
-        MongoConfig(host='mongodb', port=27017, dbs=None)
+        MongoConfig(settings=DBSettings(host="mongodb_host", port=27018))
     """
-    host: str = "mongodb"
-    port: int = 27017
+    settings: DBSettings = DBSettings()
     dbs: Optional[Dict[str, DBConfig]] = None
 
 

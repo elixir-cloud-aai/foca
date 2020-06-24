@@ -1,6 +1,7 @@
 db:
-    host: mongo
-    port: 27017
+    settings:
+        host: mongo
+        port: 27017
     dbs:
         my-db:
             collections:

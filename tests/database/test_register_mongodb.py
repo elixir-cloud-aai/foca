@@ -7,11 +7,13 @@ from foca.database.register_mongodb import (
     create_mongo_client,
     register_mongodb,
 )
-from foca.models.config import MongoConfig
+from foca.models.config import MongoConfig, DBSettings
 
 MONGO_DICT_MIN = {
-    'host': 'mongodb',
-    'port': 27017,
+    'settings': {
+        'host': 'mongodb',
+        'port': 27017,
+    }
 }
 DB_DICT_NO_COLL = {
     'my_db': {
@@ -50,6 +52,7 @@ def test_create_mongo_client():
     app = Flask(__name__)
     res = create_mongo_client(
         app=app,
+        settings=DBSettings()
     )
     assert isinstance(res, PyMongo)
 
@@ -58,15 +61,20 @@ def test_create_mongo_client_auth(monkeypatch):
     """When MONGO_USERNAME environement variable IS defined"""
     monkeypatch.setenv("MONGO_USERNAME", "TestingUser")
     app = Flask(__name__)
-    res = create_mongo_client(app)
+    res = create_mongo_client(app=app,
+                              settings=DBSettings()
+                              )
     assert isinstance(res, PyMongo)
+    assert "TestingUser" in app.config['MONGO_URI']
 
 
 def test_create_mongo_client_auth_empty(monkeypatch):
     """When MONGO_USERNAME environment variable IS defined BUT null"""
     monkeypatch.setenv("MONGO_USERNAME", "")
     app = Flask(__name__)
-    res = create_mongo_client(app)
+    res = create_mongo_client(app=app,
+                              settings=DBSettings()
+                              )
     assert isinstance(res, PyMongo)
 
 
