@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+import logging
+from pathlib import Path
+import sys
 
 from foca.foca import foca
 
-PETS = {}
+logger = logging.getLogger(__name__)
 
+PETS = {}
 
 def listPets():
     return {"pets": [pet for pet in PETS.values()]}
@@ -22,5 +26,8 @@ def showPetById(id):
 
 
 if __name__ == '__main__':
-    app = foca("config.yaml")
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    config = str(Path(__file__).resolve().parent / "config.yaml")
+    app = foca(config)
     app.run(port=8080)
+    logger.warning("app running")

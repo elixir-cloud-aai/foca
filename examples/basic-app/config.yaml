@@ -42,7 +42,6 @@ jobs:
     port: 5672
     backend: 'rpc://'
 
-
 log:
     version: 1
     disable_existing_loggers: False
