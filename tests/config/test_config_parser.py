@@ -2,7 +2,8 @@
 Tests for config_parser.py
 """
 
-import pytest, pathlib
+import pytest
+import pathlib
 
 from pydantic import ValidationError
 
