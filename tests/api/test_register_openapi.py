@@ -12,8 +12,10 @@ from foca.api.register_openapi import register_openapi
 from foca.models.config import SpecConfig
 
 DIR = pathlib.Path(__file__).parent.parent / "test_files"
-#PATH_SPECS_2_YAML = str(DIR / "openapi_2_petstore.yaml")
-PATH_SPECS_2_YAML = "tests/test_files/openapi_2_petstore.yaml"
+PATH_SPECS_2_YAML = str(DIR / "openapi_2_petstore.yaml")
+PATH_SPECS_2_YAML_REL = str(
+    pathlib.Path("tests") / "test_files" / "openapi_2_petstore.yaml"
+)
 PATH_SPECS_2_YAML_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
 PATH_SPECS_2_JSON = str(DIR / "openapi_2_petstore.yaml")
 PATH_SPECS_3_YAML = str(DIR / "openapi_3_petstore.yaml")
@@ -27,7 +29,7 @@ OPERATION_FIELDS_NOT_SERIALIZABLE = {
     "x-swagger-router-controller": InvalidSpecification
 }
 SPEC_CONFIG = {
-    "path": PATH_SPECS_2_YAML,
+    "path": PATH_SPECS_2_YAML_REL,
     "path_out": PATH_SPECS_2_YAML_MODIFIED,
     "append": [
         {
