@@ -13,9 +13,6 @@ from foca.models.config import SpecConfig
 
 DIR = pathlib.Path(__file__).parent.parent / "test_files"
 PATH_SPECS_2_YAML = str(DIR / "openapi_2_petstore.yaml")
-PATH_SPECS_2_YAML_REL = str(
-    pathlib.Path("tests") / "test_files" / "openapi_2_petstore.yaml"
-)
 PATH_SPECS_2_YAML_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
 PATH_SPECS_2_JSON = str(DIR / "openapi_2_petstore.yaml")
 PATH_SPECS_3_YAML = str(DIR / "openapi_3_petstore.yaml")
@@ -23,13 +20,12 @@ PATH_SPECS_3_YAML_MODIFIED = str(DIR / "openapi_3_petstore.modified.yaml")
 PATH_SPECS_INVALID_JSON = str(DIR / "invalid.json")
 PATH_SPECS_INVALID_OPENAPI = str(DIR / "invalid_openapi_2.yaml")
 PATH_SPECS_NOT_EXIST = str(DIR / "does/not/exist.yaml")
-PATH_SPECS_NOT_EXIST_REL = str("does_not_exist.yaml")
 OPERATION_FIELDS = {"x-swagger-router-controller": "controllers"}
 OPERATION_FIELDS_NOT_SERIALIZABLE = {
     "x-swagger-router-controller": InvalidSpecification
 }
 SPEC_CONFIG = {
-    "path": PATH_SPECS_2_YAML_REL,
+    "path": PATH_SPECS_2_YAML,
     "path_out": PATH_SPECS_2_YAML_MODIFIED,
     "append": [
         {
@@ -116,16 +112,6 @@ def test_register_openapi_spec_file_not_found():
     """
     app = App(__name__)
     spec_configs = [SpecConfig(path=PATH_SPECS_NOT_EXIST)]
-    with pytest.raises(OSError):
-        register_openapi(app=app, specs=spec_configs)
-
-
-def test_register_openapi_spec_file_not_found_rel_path():
-    """Registering OpenAPI specs fails because the spec file, indicated as a
-    relative path is not available.
-    """
-    app = App(__name__)
-    spec_configs = [SpecConfig(path=PATH_SPECS_NOT_EXIST_REL)]
     with pytest.raises(OSError):
         register_openapi(app=app, specs=spec_configs)
 

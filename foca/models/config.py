@@ -1,6 +1,7 @@
 """FOCA config models."""
 
 from enum import Enum
+from pathlib import Path
 import os
 from typing import (Dict, List, Optional, Tuple)
 
@@ -197,16 +198,29 @@ ustom-field': 'some_value'}, connexion=None)
     add_operation_fields: Optional[Dict] = None
     connexion: Optional[Dict] = None
 
+    # resolve relative path
+    @validator('path', always=True, allow_reuse=True)
+    def set_abs_path(cls, v):  # pylint: disable=E0213
+        """Resolve path relative to caller's current working directory if no
+        absolute path provided.
+        """
+        if not Path(v).is_absolute():
+            return str(Path.cwd() / v)
+        return v
+
     # set default if no output file path provided
     @validator('path_out', always=True, allow_reuse=True)
     def set_default_out_path(cls, v, *, values):  # pylint: disable=E0213
         """Set default output path for spec file if not supplied by user.
         """
         if 'path' in values and values['path'] is not None:
-            return v or '.'.join([
-                os.path.splitext(values['path'])[0],
-                "modified.yaml"
-            ])
+            if not v:
+                return '.'.join([
+                    os.path.splitext(values['path'])[0],
+                    "modified.yaml"
+                ])
+            if not Path(v).is_absolute():
+                return str(Path.cwd() / v)
         return v
 
 
