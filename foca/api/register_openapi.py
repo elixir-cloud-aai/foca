@@ -2,7 +2,6 @@
 """
 
 import logging
-from pathlib import Path
 from typing import List
 
 from connexion import App
@@ -39,8 +38,6 @@ def register_openapi(
     """
     # Iterate over OpenAPI specs
     for spec in specs:
-        if not Path(spec.path).is_absolute():
-            spec.path = str(Path.cwd() / spec.path)
         spec_modified = False
         logger.warning(spec)
         spec_parsed = ConfigParser.parse_yaml(spec.path)
