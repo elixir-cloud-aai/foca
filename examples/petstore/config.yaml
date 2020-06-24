@@ -37,10 +37,14 @@ security:
           - public_key
         validation_checks: all
 
-# db:
-#     host: mongodb
-#     port: 27017
-#     name: cwl-wes-db
+db:
+    host: mongodb
+    port: 27017
+    dbs:
+        petstore:
+            collections:
+                pets:
+                    indexes: null
 
 jobs:
     host: rabbitmq

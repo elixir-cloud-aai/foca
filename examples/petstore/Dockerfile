@@ -2,9 +2,7 @@
 FROM elixircloud/foca:latest
 
 # Metadata
-LABEL base.image="elixircloud/foca:latest"
 LABEL software="Petstore application"
-LABEL software.version="0.1.0"
 LABEL software.description="Example application for FOCA microservice archetype"
 LABEL software.website="https://github.com/elixir-cloud-aai/foca"
 LABEL software.documentation="https://github.com/elixir-cloud-aai/foca"
