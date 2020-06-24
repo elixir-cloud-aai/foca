@@ -34,7 +34,7 @@ def register_error_handlers(app: App) -> App:
     app.add_error_handler(InternalServerError, __handle_internal_server_error)
     app.add_error_handler(NotFound, __handle_not_found)
     app.add_error_handler(Unauthorized, __handle_unauthorized)
-    logger.info('Registered custom exception handlers with Connexion app.')
+    logger.debug('Registered custom exception handlers with Connexion app.')
 
     # Return Connexion app instance
     return app

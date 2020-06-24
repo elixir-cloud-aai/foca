@@ -28,9 +28,13 @@ def foca(config: Optional[str] = None) -> App:
     Returns:
         Connexion app instance.
     """
-    # Create a Config class instance for parameters validation
-    conf = ConfigParser(config).config
-    logger.info(f"Configuration file '{config}' parsed.")
+    # Parse config parameters and format logging
+    conf = ConfigParser(config, format_logs=True).config
+    logger.info(f"Log formatting configured.")
+    if config:
+        logger.info(f"Configuration file '{config}' parsed.")
+    else:
+        logger.info(f"Default app configuration used.")
 
     # Create Connexion app
     cnx_app = create_connexion_app(conf)
@@ -39,6 +43,19 @@ def foca(config: Optional[str] = None) -> App:
     # Register error handlers
     cnx_app = register_error_handlers(cnx_app)
     logger.info(f"Error handlers registered.")
+
+    # Enable cross-origin resource sharing
+    enable_cors(cnx_app.app)
+    logger.info(f"CORS enabled.")
+
+    # Register OpenAPI specs
+    if conf.api.specs:
+        cnx_app = register_openapi(
+            app=cnx_app,
+            specs=conf.api.specs,
+        )
+    else:
+        logger.info(f"No OpenAPI specifications provided.")
 
     # Register MongoDB
     if conf.db:
@@ -56,18 +73,5 @@ def foca(config: Optional[str] = None) -> App:
         logger.info(f"Support for background tasks set up.")
     else:
         logger.info(f"No support for background tasks configured.")
-
-    # Register OpenAPI specs
-    if conf.api.specs:
-        cnx_app = register_openapi(
-            app=cnx_app,
-            specs=conf.api.specs,
-        )
-    else:
-        logger.info(f"No OpenAPI specifications provided.")
-
-    # Enable cross-origin resource sharing
-    enable_cors(cnx_app.app)
-    logger.info(f"CORS enabled.")
 
     return cnx_app
