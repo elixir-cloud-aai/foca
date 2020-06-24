@@ -27,7 +27,10 @@ RUN pip install \
     --no-warn-script-location \
     --prefix="/install" \
     -r requirements.txt && \
-    pip install https://github.com/elixir-cloud-aai/foca/archive/dev.zip
+    pip install \
+    --no-warn-script-location \
+    --prefix="/install" \
+    https://github.com/elixir-cloud-aai/foca/archive/dev.zip
 
 # Final image
 FROM base
