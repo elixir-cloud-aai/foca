@@ -10,9 +10,19 @@ api:
     specs:
         - path: petstore.yaml
           path_out: petstore.modified.yaml
-          append: null
+          append:
+            - securityDefinitions:
+                jwt:
+                in: header
+                name: Authorization
+                type: apiKey
+          connexion:
+            options:
+                swagger_json: true
+                swagger_ui: true
+            strict_validation: true
+            validate_responses: false
           add_operation_fields: null
-          connexion: null
 
 security:
     auth:

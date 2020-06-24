@@ -1,5 +1,5 @@
 ### BASE IMAGE ###
-FROM ../../Dockerfile as base
+FROM python:3.6-slim-stretch
 
 # Metadata
 LABEL base.image="python:3.6-slim-stretch"
@@ -12,5 +12,9 @@ LABEL software.license="https://spdx.org/licenses/Apache-2.0"
 LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
 LABEL maintainer.organisation="ELIXIR Cloud & AAI"
 
-# Build image
-FROM base as builder
+## Set working directory
+WORKDIR /app
+
+## Install Python dependencies
+RUN cd /app \
+  && pip install foca
