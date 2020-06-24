@@ -24,8 +24,10 @@ DB_CONFIG = {
     },
 }
 MONGO_CONFIG = {
-    'host': 'mongodb',
-    'port': 27017,
+    'settings': {
+        'host': 'mongodb',
+        'port': 27017,
+    },
     'dbs': {
         'wes': DB_CONFIG,
     },

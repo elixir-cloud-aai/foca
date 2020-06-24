@@ -33,8 +33,9 @@ security:
         validation_checks: all
 
 db:
-    host: mongo
-    port: 27017
+    settings:
+        host: mongo
+        port: 27017
     dbs:
         my_db:
             collections:

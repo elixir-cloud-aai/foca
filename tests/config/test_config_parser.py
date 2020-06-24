@@ -2,16 +2,16 @@
 Tests for config_parser.py
 """
 
-import pytest
+import pytest, pathlib
 
 from pydantic import ValidationError
 
 from foca.config.config_parser import ConfigParser
 from foca.models.config import Config
 
-
-TEST_FILE = "tests/test_files/conf_valid.yaml"
-TEST_FILE_INVALID = "tests/test_files/conf_invalid_log_level.yaml"
+DIR = pathlib.Path(__file__).parent.parent
+TEST_FILE = str(DIR / "test_files/conf_valid.yaml")
+TEST_FILE_INVALID = str(DIR / "test_files/conf_invalid_log_level.yaml")
 TEST_DICT = {}
 TEST_CONFIG_INSTANCE = Config()
 
