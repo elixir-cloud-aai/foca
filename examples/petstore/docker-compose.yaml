@@ -26,6 +26,6 @@ services:
     image: mongo:3.2
     restart: unless-stopped
     volumes:
-      - data/petstore/db:/data/db
+      - ./data/petstore/db:/data/db
     ports:
       - "27017:27017"
