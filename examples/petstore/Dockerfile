@@ -17,6 +17,3 @@ WORKDIR /app
 
 ## Copy app files
 COPY ./ /app
-
-# Install latest FOCA version
-RUN pip install https://github.com/elixir-cloud-aai/foca/archive/dev.zip
