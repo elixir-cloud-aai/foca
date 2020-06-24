@@ -8,6 +8,8 @@ import os
 from connexion import App
 from connexion.exceptions import InvalidSpecification
 from pydantic import ValidationError
+from pymongo.collection import Collection
+from pymongo.database import Database
 from yaml import safe_load, safe_dump, YAMLError
 
 from foca.foca import foca
@@ -96,6 +98,10 @@ def test_foca_invalid_api():
 def test_foca_db():
     """Ensure foca() returns a Connexion app instance; valid db field"""
     app = foca(VALID_DB_CONF)
+    my_db = app.app.config['FOCA'].db.dbs['my-db']
+    my_coll = my_db.collections['my-col-1']
+    assert isinstance(my_db.client, Database)
+    assert isinstance(my_coll.client, Collection)
     assert isinstance(app, App)
 
 
