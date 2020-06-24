@@ -19,7 +19,7 @@ def create_connexion_app(config: Optional[Config] = None) -> App:
     app = App(__name__)
 
     calling_module = ':'.join([stack()[1].filename, stack()[1].function])
-    logger.info(f"Connexion app created from '{calling_module}'.")
+    logger.debug(f"Connexion app created from '{calling_module}'.")
 
     # Workaround for adding a custom handler for `connexion.problem` responses
     # Responses from request and paramater validators are not raised and
@@ -77,5 +77,5 @@ def __add_config_to_connexion_app(
     # Add user configuration to Flask app config
     app.app.config['FOCA'] = config
 
-    logger.info('Connexion app configured.')
+    logger.debug('Connexion app configured.')
     return app
