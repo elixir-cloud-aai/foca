@@ -10,6 +10,6 @@ logger = logging.getLogger(__name__)
 if __name__ == '__main__':
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     config = str(Path(__file__).resolve().parent / "config.yaml")
-    app = foca(config)
+    app = foca("config.yaml")
     app.run(port=8080)
-    logger.warning("app running")
+    logger.info("Petstore is running...")

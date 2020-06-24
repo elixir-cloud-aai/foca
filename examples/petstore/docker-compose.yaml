@@ -2,7 +2,7 @@ version: '3.6'
 services:
 
   app:
-    image: examples/basic-app
+    image: elixircloud/foca-petstore:0.1.0
     build:
       context: .
       dockerfile: Dockerfile
@@ -10,13 +10,12 @@ services:
     links:
       - mongodb
       - rabbitmq
-    command: bash -c "cd /basic-app;python3 app.py"
+    command: bash -c "python app.py"
     ports:
-      - "7777:8080"
+      - "80:8080"
 
   rabbitmq:
-    image: "rabbitmq:3-management"
-    hostname: "rabbitmq"
+    image: rabbitmq:3-management
     restart: unless-stopped
     links:
       - mongodb
@@ -27,6 +26,6 @@ services:
     image: mongo:3.2
     restart: unless-stopped
     volumes:
-      - ../data/basic-app/db:/data/db
+      - data/petstore/db:/data/db
     ports:
       - "27017:27017"

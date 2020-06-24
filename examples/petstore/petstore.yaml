@@ -10,7 +10,7 @@ paths:
   /pets:
     get:
       summary: List all pets
-      operationId: app.listPets
+      operationId: listPets
       tags:
         - pets
       parameters:
