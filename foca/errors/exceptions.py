@@ -1,6 +1,7 @@
 """Define and register exceptions raised in app context with Connexion app."""
 
 import logging
+from typing import Type
 
 from connexion import App
 from connexion.exceptions import (
@@ -67,7 +68,7 @@ def register_exception_handler(app: App) -> App:
 
 
 # Custom exception handlers
-def handle_problem(exception: Exception) -> Response:
+def handle_problem(exception: Type[Exception]) -> Response:
     """Generic JSON problem handler.
 
     Args:
@@ -77,6 +78,8 @@ def handle_problem(exception: Exception) -> Response:
         JSON-formatted error response.
     """
     conf = current_app.config['FOCA'].exceptions
+    if not exception in conf.mapping:
+        exception = Exception
     status = conf.mapping[exception][conf.status_member]
     if conf.status_member not in conf.required_members:
         del conf.mapping[exception][conf.status_member]

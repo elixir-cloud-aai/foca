@@ -32,7 +32,7 @@ def create_connexion_app(config: Optional[Config] = None) -> App:
     #        response.status_code == 400 and
     #        response.data.decode('utf-8').find('"title":') is not None
     #    ):
-    #        response = handle_problem(BadRequest)  # type: ignore
+    #        response = handle_problem(BadRequest)
     #    return response
 
     # Configure Connexion app
