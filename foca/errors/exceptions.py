@@ -79,6 +79,7 @@ def handle_problem(exception: Type[Exception]) -> Response:
     """
     conf = current_app.config['FOCA'].exceptions
     if not exception in conf.mapping:
+        logger.warning("############################### HERE!")
         exception = Exception
     status = conf.mapping[exception][conf.status_member]
     if conf.status_member not in conf.required_members:
