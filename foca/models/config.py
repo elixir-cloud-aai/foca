@@ -1,9 +1,10 @@
 """FOCA config models."""
 
 from enum import Enum
+import importlib
 from pathlib import Path
 import os
-from typing import (Dict, List, Optional, Tuple)
+from typing import (Any, Dict, List, Optional, Tuple, Union)
 
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
 import pymongo
@@ -117,6 +118,154 @@ opment', testing=False, use_reloader=True)
     environment: str = "development"
     testing: bool = False
     use_reloader: bool = True
+
+
+class ExceptionConfig(FOCABaseConfig):
+    """Model for app context JSON exceptions to be registered with a Connexion
+    app.
+
+    Args:
+        required_members: JSON members required for all exceptions.
+        extension_members: Either a list of additionally allowed, optional
+            extension members, or a Boolean expression indicating whether
+            any (`True`) or no (`False`) additional members are allowed.
+        status_member: If the `required_members` contain a member for the HTTP
+            response code (e.g, `500`), provide the name of that member; if no
+            HTTP response code is to be included in the JSON response, provide
+            the name for _another_ member (e.g., `_status`), which is also
+            required for each exception, but which is only added as the HTTP
+            response code, *not* to the JSON response itself.
+        exceptions: Module containing a dictionary `exceptions` (as well as
+            any necessary imports), e.g., `my_app.exceptions`, with actual
+            exception classes as keys and a dictionary of JSON members (as per
+            `required_members` and `extension_members`) as values. At most one
+            exception may contain a dictionary key. To ensure that all
+            exceptions arising during the app context are handled, it is
+            advisable to add a catch-all exception `Exception`. If missing,
+            any exceptions not listed will *not* provoke a JSON response.
+        exceptions_dict: The actual referenced dictionary from `exceptions`,
+            populated by FOCA.
+
+    Attributes:
+        required_members: JSON members required for all exceptions.
+        extension_members: Either a list of additionally allowed, optional
+            extension members, or a Boolean expression indicating whether
+            any (`True`) or no (`False`) additional members are allowed.
+        status_member: If the `required_members` contain a member for the HTTP
+            response code (e.g, `500`), provide the name of that member; if no
+            HTTP response code is to be included in the JSON response, provide
+            the name for _another_ member (e.g., `_status`), which is also
+            required for each exception, but which is only added as the HTTP
+            response code, *not* to the JSON response itself.
+        exceptions: Module containing a dictionary `exceptions` (as well as
+            any necessary imports), e.g., `my_app.exceptions`, with actual
+            exception classes as keys and a dictionary of JSON members (as per
+            `required_members` and `extension_members`) as values. At most one
+            exception may contain a dictionary key. To ensure that all
+            exceptions arising during the app context are handled, it is
+            advisable to add a catch-all exception `Exception`. If missing,
+            any exceptions not listed will *not* provoke a JSON response.
+        exceptions_dict: The actual referenced dictionary from `exceptions`,
+            populated by FOCA.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Example:
+        >>> ExceptionConfig()
+        ExceptionConfig(required_members=['title', 'status'], extension_member\
+s=False, status_member='status', exceptions='foca.errors.exceptions', mapping=\
+{<class 'Exception'>: {'title': 'An unexpected error occurred.', 'status': 500\
+}, <class 'werkzeug.exceptions.InternalServerError'>: {'title': 'An unexpected\
+ error occurred.', 'status': 500}, <class 'werkzeug.exceptions.BadRequest'>: {\
+'title': 'The request is malformed.', 'status': 400}, <class 'connexion.except\
+ions.ExtraParameterProblem'>: {'title': 'The request is malformed.', 'status':\
+ 400}, <class 'werkzeug.exceptions.Forbidden'>: {'title': 'The requester is no\
+t authorized to perform this action.', 'status': 403}, <class 'werkzeug.except\
+ions.NotFound'>: {'title': 'The requested resource was not found.', 'status': \
+404}, <class 'werkzeug.exceptions.Unauthorized'>: {'title': 'The request is un\
+authorized.', 'status': 401}})
+    """
+    required_members: List[str] = ["title", "status"]
+    extension_members: Union[bool, List[str]] = False
+    status_member: str = "status"
+    exceptions: str = "foca.errors.exceptions"
+    mapping: Optional[Dict[str, Dict[str, Any]]] = None
+
+    # set mapping
+    @validator('mapping', always=True, allow_reuse=True)
+    def set_default_out_path(cls, v, *, values):  # pylint: disable=E0213
+        """Validate that exceptions dictionary exists and can be imported, that
+        all exceptions have all required members and no additional members
+        (unless specifically allowed) and replace default value for `field`
+        mapping to the contents of the exceptions dictionaryy.
+        """
+        # Ensure that all fields are available
+        if not (
+            'required_members' in values and
+            'extension_members' in values and
+            'status_member' in values and
+            'exceptions' in values
+        ):
+            raise ValueError
+        # Ensure that `exceptions` module can be imported
+        try:
+            mod = importlib.import_module(values['exceptions'])
+        except ModuleNotFoundError:
+            raise ValueError(
+                "Module referenced in field 'exceptions' could not be found."
+            )
+        # Ensure that `exceptions` module has attribute `exceptions`
+        try:
+            exc_dict = getattr(mod, 'exceptions')
+        except AttributeError:
+            raise AttributeError(
+                "Module referenced in field 'exceptions' does not have "
+                "attribute 'exceptions'."
+            )
+        # Ensure that `exceptions` attribute is a dictionary
+        if not isinstance(exc_dict, dict):
+            raise TypeError(
+                "Module referenced in field 'exceptions' is not a dictionary."
+            )
+        # Iterate over `exceptions` dictionary
+        for key, val in exc_dict.items():
+            # Ensure that values of `exceptions` dictionary are dictionaries
+            if not isinstance(val, dict):
+                raise TypeError(
+                    f"Exception '{key}' in 'exceptions' dictionary does not "
+                    "have member dictionary as its value."
+                )
+            # Ensure that all required members are available
+            req = set(values['required_members'] + [values['status_member']])
+            if not req <= val.keys():
+                raise ValueError(
+                    f"Exception '{key}' in 'exceptions' dictionary does not "
+                    "have all fields required by 'required_members' and "
+                    "'status_member'."
+                )
+            # Ensure that only required members are available if extension
+            # members are disallowed
+            if isinstance(values['extension_members'], bool) \
+                    and not values['extension_members']:
+                if not val.keys() >= req:
+                    raise ValueError(
+                        f"Exception '{key}' in 'exceptions' dictionary has "
+                        "extension members, but extension members are "
+                        "explicitly forbidden."
+                    )
+            # Ensure that available members are a subset of required and
+            # allowed extension members
+            elif isinstance(values['extension_members'], list):
+                allowed = set(list(req) + values['extension_members'])
+                if not val.keys() <= allowed:
+                    raise ValueError(
+                        f"Exception '{key}' in 'exceptions' dictionary has "
+                        "more fields than are allowed by 'required_members', "
+                        "'extension_members' and 'status_member'."
+                    )
+        return exc_dict
 
 
 class SpecConfig(FOCABaseConfig):
@@ -757,6 +906,7 @@ class Config(FOCABaseConfig):
 
     Args:
         server: Server config parameters.
+        exceptions: Exception handling parameters.
         api: OpenAPI specification config parameters.
         security: Security config parameters.
         db: Database config parameters.
@@ -765,6 +915,7 @@ class Config(FOCABaseConfig):
 
     Attributes:
         server: Server config parameters.
+        exceptions: Exception handling parameters.
         api: OpenAPI specification config parameters.
         security: Security config parameters.
         db: Database config parameters.
@@ -778,20 +929,33 @@ class Config(FOCABaseConfig):
     Example:
         >>> Config()
         Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
-ronment='development', testing=False, use_reloader=True), api=APIConfig(specs=\
-[]), security=SecurityConfig(auth=AuthConfig(required=False, add_key_to_claims\
-=True, allow_expired=False, audience=None, claim_identity='sub', claim_issuer=\
-'iss', claim_key_id='kid', header_name='Authorization', token_prefix='Bearer',\
- algorithms=['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'u\
-serinfo'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_check\
-s=<ValidationChecksEnum.all: 'all'>)), db=None, jobs=None, log=LogConfig(versi\
-on=1, disable_existing_loggers=False, formatters={'standard': LogFormatterConf\
-ig(class_formatter='logging.Formatter', style='{', format='[{asctime}: {leveln\
-ame:<8}] {message} [{name}]')}, handlers={'console': LogHandlerConfig(class_ha\
-ndler='logging.StreamHandler', level=20, formatter='standard', stream='ext://s\
-ys.stderr')}, root=LogRootConfig(level=10, handlers=['console'])))
+ronment='development', testing=False, use_reloader=True), exceptions=Exception\
+Config(required_members=['title', 'status'], extension_members=False, status_m\
+ember='status', exceptions='foca.errors.exceptions', mapping={<class 'Exceptio\
+n'>: {'title': 'An unexpected error occurred.', 'status': 500}, <class 'werkze\
+ug.exceptions.InternalServerError'>: {'title': 'An unexpected error occurred.'\
+, 'status': 500}, <class 'werkzeug.exceptions.BadRequest'>: {'title': 'The req\
+uest is malformed.', 'status': 400}, <class 'connexion.exceptions.ExtraParamet\
+erProblem'>: {'title': 'The request is malformed.', 'status': 400}, <class 'we\
+rkzeug.exceptions.Forbidden'>: {'title': 'The requester is not authorized to p\
+erform this action.', 'status': 403}, <class 'werkzeug.exceptions.NotFound'>: \
+{'title': 'The requested resource was not found.', 'status': 404}, <class 'wer\
+kzeug.exceptions.Unauthorized'>: {'title': 'The request is unauthorized.', 'st\
+atus': 401}}), api=APIConfig(specs=[]), security=SecurityConfig(auth=AuthConfi\
+g(required=False, add_key_to_claims=True, allow_expired=False, audience=None, \
+claim_identity='sub', claim_issuer='iss', claim_key_id='kid', header_name='Aut\
+horization', token_prefix='Bearer', algorithms=['RS256'], validation_methods=[\
+<ValidationMethodsEnum.userinfo: 'userinfo'>, <ValidationMethodsEnum.public_ke\
+y: 'public_key'>], validation_checks=<ValidationChecksEnum.all: 'all'>)), db=N\
+one, jobs=None, log=LogConfig(version=1, disable_existing_loggers=False, forma\
+tters={'standard': LogFormatterConfig(class_formatter='logging.Formatter', sty\
+le='{', format='[{asctime}: {levelname:<8}] {message} [{name}]')}, handlers={'\
+console': LogHandlerConfig(class_handler='logging.StreamHandler', level=20, fo\
+rmatter='standard', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, \
+handlers=['console'])))
     """
     server: ServerConfig = ServerConfig()
+    exceptions: ExceptionConfig = ExceptionConfig()
     api: APIConfig = APIConfig()
     security: SecurityConfig = SecurityConfig()
     db: Optional[MongoConfig] = None

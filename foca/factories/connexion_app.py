@@ -5,8 +5,9 @@ import logging
 from typing import Optional
 
 from connexion import App
+from werkzeug.exceptions import BadRequest
 
-from foca.errors.errors import handle_bad_request
+from foca.errors.exceptions import handle_problem
 from foca.models.config import Config
 
 # Get logger instance
@@ -25,14 +26,14 @@ def create_connexion_app(config: Optional[Config] = None) -> App:
     # Responses from request and paramater validators are not raised and
     # cannot be intercepted by `add_error_handler`; see here:
     # https://github.com/zalando/connexion/issues/138
-    @app.app.after_request
-    def _rewrite_bad_request(response):
-        if (
-            response.status_code == 400 and
-            response.data.decode('utf-8').find('"title":') is not None
-        ):
-            response = handle_bad_request(400)
-        return response
+    #@app.app.after_request
+    #def _rewrite_bad_request(response):
+    #    if (
+    #        response.status_code == 400 and
+    #        response.data.decode('utf-8').find('"title":') is not None
+    #    ):
+    #        response = handle_problem(BadRequest)  # type: ignore
+    #    return response
 
     # Configure Connexion app
     if config is not None:
