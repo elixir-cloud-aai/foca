@@ -4,7 +4,7 @@ import logging
 
 from flask import Flask
 from flask_pymongo import PyMongo
-from foca.models.config import MongoConfig, DBSettings
+from foca.models.config import MongoConfig
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def register_mongodb(
             # Instantiate PyMongo client
             mongo = create_mongo_client(
                 app=app,
-                settings=conf.settings
+                settings=conf
             )
 
             # Add database
@@ -60,7 +60,7 @@ def register_mongodb(
 
 def create_mongo_client(
         app: Flask,
-        settings: DBSettings
+        settings: MongoConfig
 ) -> PyMongo:
     """Register MongoDB database with Flask app.
 
@@ -68,12 +68,11 @@ def create_mongo_client(
 
     Args:
         app: Flask application object.
-        host: Host at which the MongoDB database is exposed.
-        port: Port at which the MongoDB database is exposed.
-        db: Name of the database to be accessed/created.
+        settings: An instance of the MongoConfig class
 
     Returns:
-        Client for the MongoDB database specified by `host`, `port` and `db`.
+        Client for the MongoDB database specified by `host`, `port` and `db`
+        attributes of the MongoConfig instance.
     """
 
     if settings.username:
@@ -85,11 +84,8 @@ def create_mongo_client(
         settings.auth = ''
 
     app.config['MONGO_URI'] = 'mongodb://{auth}{host}:{port}/{db_name}'.format(
-        **settings.dict()
+        **settings.dict(include={'auth', 'host', 'port', 'db_name'})
     )
-
-    # Pop 'auth' from settings for compatibility with the logger string format
-    settings.dict().pop("auth")
 
     mongo = PyMongo(app)
     logger.info(
@@ -98,7 +94,7 @@ def create_mongo_client(
             Flask "
             'application.'
         ).format(
-            **settings.dict()
+            **settings.dict(include={'host', 'port', 'db_name'})
         )
     )
     return mongo

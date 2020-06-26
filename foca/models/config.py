@@ -4,8 +4,7 @@ from enum import Enum
 import os
 from typing import (Dict, List, Optional, Tuple)
 
-from pydantic import (BaseModel,
-                      BaseSettings,
+from pydantic import (BaseSettings,
                       Field,
                       validator
                       )  # pylint: disable=E0611
@@ -55,7 +54,7 @@ class PymongoDirectionEnum(Enum):
     TEXT = "text"
 
 
-class FOCABaseConfig(BaseModel):
+class FOCABaseConfig(BaseSettings):
     """FOCA Base Settings for Config"""
 
     class Config:
@@ -510,62 +509,29 @@ rse=False)], client=None)}, client=None)
     client: Optional[pymongo.database.Database] = None
 
 
-class DBSettings(BaseSettings):
-    """Settings for MongoDB. Can be set explicitly, drawn from environment
-    variables, or get populated by the default values (in that priority order).
-    The respective environment variables names can be found in the `env`
-    parameter.
-
-    Args:
-        username: The username required for database access, in case
-        authorization is enabled.
-        password: The passwrod required for database access, in case
-        authorization is enabled.
-        host: Host at which the database is exposed.
-        port: Port at which the database is exposed.
-        db_name: The database name.
-
-    Attributes:
-        username: The username required for database access, in case
-        authorization is enabled.
-        password: The passwrod required for database access, in case
-        authorization is enabled.
-        host: Host at which the database is exposed.
-        port: Port at which the database is exposed.
-        db_name: The database name.
-
-    Example:
-        >>> DBSettings(
-        ...     host="mongodb_host",
-        ...     port=27018,
-        ...     db_name="example_database",
-        ... )
-        DBSettings(host='mongodb_host', port=27018, db_name='example_database')
-
-    """
-    username: Optional[str] = Field(None, env='MONGO_USERNAME')
-    password: Optional[str] = Field(None, env='MONGO_PASSWORD')
-    host: str = Field("mongodb", env='MONGO_HOST')
-    port: str = Field(27017, env='MONGO_PORT')
-    db_name: str = Field("database", env='MONGO_DBNAME')
-
-    class Config:
-        extra = "allow"
-
-
 class MongoConfig(FOCABaseConfig):
     """Model for configuring a MongoDB instance attached to a Flask or
     Connexion app.
 
     Args:
+        username: The username required for database access, in case
+        authorization is enabled.
+        password: The passwrod required for database access, in case
+        authorization is enabled.
         host: Host at which the database is exposed.
         port: Port at which the database is exposed.
+        db_name: The database name.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
 
     Attributes:
+        username: The username required for database access, in case
+        authorization is enabled.
+        password: The passwrod required for database access, in case
+        authorization is enabled.
         host: Host at which the database is exposed.
         port: Port at which the database is exposed.
+        db_name: The database name.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
 
@@ -575,12 +541,21 @@ class MongoConfig(FOCABaseConfig):
 
     Example:
         >>> MongoConfig(
-        ...     settings=DBSettings(host="mongodb_host", port=27018)
+        ...     host="mongodb_host",
+        ...     port=27018,
         ... )
-        MongoConfig(settings=DBSettings(host="mongodb_host", port=27018))
+        MongoConfig(host='mongodb_host', port=27018, dbs=None)
     """
-    settings: DBSettings = DBSettings()
+    username: Optional[str] = Field(default=None)
+    password: Optional[str] = Field(default=None)
+    host: str = Field(default="mongodb")
+    port: str = Field(default=27017)
+    db_name: str = Field(default="database")
     dbs: Optional[Dict[str, DBConfig]] = None
+
+    class Config:
+        env_prefix = 'MONGO_'
+        extra = 'allow'
 
 
 class JobsConfig(FOCABaseConfig):
@@ -645,10 +620,13 @@ mat='[{asctime}: {levelname:<8}] {message} [{name}]')
     """
     class_formatter: str = Field(
         "logging.Formatter",
-        alias="class",
+        env="CLASS",
     )
     style: str = "{"
     format: str = "[{asctime}: {levelname:<8}] {message} [{name}]"
+
+    class Config:
+        env_prefix = 'LOG_'
 
 
 class LogHandlerConfig(FOCABaseConfig):
@@ -681,7 +659,7 @@ atter='standard', stream='ext://sys.stderr')
     """
     class_handler: str = Field(
         "logging.StreamHandler",
-        alias="class",
+        env="CLASS",
     )
     level: int = 20
     formatter: str = "standard"
@@ -690,6 +668,9 @@ atter='standard', stream='ext://sys.stderr')
     _validate_level = validator('level', allow_reuse=True)(
         validate_log_level_choices
     )
+
+    class Config:
+        env_prefix = 'LOG_'
 
 
 class LogRootConfig(FOCABaseConfig):
