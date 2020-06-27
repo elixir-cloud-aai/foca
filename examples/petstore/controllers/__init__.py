@@ -1,5 +1,9 @@
 from pymongo import MongoClient
+import logging
 import json
+
+
+logger = logging.getLogger(__name__)
 
 
 db = MongoClient(host='mongodb', port=27017)
@@ -12,7 +16,9 @@ def findPets(limit=None, tags=None):
         if limit is None:
             records = db_collection.find(filter_dict).sort([('$natural', -1)])
         else:
-            records = db_collection.find(filter_dict).sort([('$natural', -1)]).limit(limit)
+            records = db_collection.find(filter_dict).sort(
+                [('$natural', -1)]
+                ).limit(limit)
 
         response_arr = []
         for doc in records:
@@ -24,11 +30,15 @@ def findPets(limit=None, tags=None):
             response_arr.append(record_result)
 
         return json.dumps(response_arr)
-    except:
+    except Exception as e:
+        logger.error(
+            "Original Error : {error}".format(error=e)
+        )
         return json.dumps({
             'code': 0,
             'message': 'Cannot view pets. Something went wrong.'
             })
+
 
 def addPet(pet):
     try:
@@ -44,7 +54,10 @@ def addPet(pet):
             "tag": pet['tag']
             })
         return findPets(limit=1)
-    except:
+    except Exception as e:
+        logger.error(
+            "Original Error : {error}".format(error=e)
+        )
         return json.dumps({
             'code': 0,
             'message': 'Cannot add pet, something went wrong.'
@@ -61,7 +74,10 @@ def findPetById(id):
             "tag": pet_record['tag'],
             "id": pet_record['pet_id']
             })
-    except:
+    except Exception as e:
+        logger.error(
+            "Original Error : {error}".format(error=e)
+        )
         return json.dumps({
             'code': 0,
             'message': 'Pet does not exists.'
@@ -72,7 +88,10 @@ def deletePet(id):
     try:
         db_collection.remove({"pet_id": id})
         return findPets()
-    except:
+    except Exception as e:
+        logger.error(
+            "Original Error : {error}".format(error=e)
+        )
         return json.dumps({
             'code': 0,
             'message': 'Cannot delete flat. Something went wrong.'
