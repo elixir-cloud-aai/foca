@@ -80,13 +80,13 @@ def create_mongo_client(
     Returns:
         Client for the MongoDB database specified by `host`, `port` and `db`.
     """
-    if os.environ.get('MONGO_USERNAME') != '':
+    auth = ''
+    user = os.environ.get('MONGO_USERNAME')
+    if user is not None and user != "":
         auth = '{username}:{password}@'.format(
             username=os.environ.get('MONGO_USERNAME'),
             password=os.environ.get('MONGO_PASSWORD'),
         )
-    else:
-        auth = ''
 
     app.config['MONGO_URI'] = 'mongodb://{auth}{host}:{port}/{db}'.format(
         host=os.environ.get('MONGO_HOST', host),
