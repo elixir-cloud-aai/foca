@@ -45,8 +45,9 @@ MONGO_CONFIG_DEF_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_DEF_COLL)
 MONGO_CONFIG_CUST_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_CUST_COLL)
 
 
-def test_create_mongo_client():
+def test_create_mongo_client(monkeypatch):
     """When MONGO_USERNAME environement variable is NOT defined"""
+    monkeypatch.setenv("MONGO_USERNAME", None)
     app = Flask(__name__)
     res = create_mongo_client(
         app=app,
@@ -63,8 +64,8 @@ def test_create_mongo_client_auth(monkeypatch):
 
 
 def test_create_mongo_client_auth_empty(monkeypatch):
-    """When MONGO_USERNAME environment variable IS defined BUT null"""
-    monkeypatch.setenv("MONGO_USERNAME", "")
+    """When MONGO_USERNAME environment variable IS defined but empty"""
+    monkeypatch.setenv("MONGO_USERNAME", '')
     app = Flask(__name__)
     res = create_mongo_client(app)
     assert isinstance(res, PyMongo)
