@@ -21,13 +21,13 @@ script:
   - coveralls
   - cd examples/petstore && docker-compose up --build -d
   - >
-    test $(curl -sL -w '%{http_code}' -X POST 'http://localhost/pets' -H 'accept: application/json' -H 'Content-Type: application/json' -d "{\"name\":\"karl\",\"tag\":\"frog\"}" -o /dev/null) = '200'
+    test $(curl -sL -w '%{http_code}' -X POST 'http://0.0.0.0:8080/pets' -H 'accept: application/json' -H 'Content-Type: application/json' -d "{\"name\":\"karl\",\"tag\":\"frog\"}" -o /dev/null) = '200'
   - >
-    test $(curl -sL -w '%{http_code}' -X GET 'http://localhost/pets' -H 'accept: application/json' -H 'Content-Type: application/json' -o /dev/null) = '200'
+    test $(curl -sL -w '%{http_code}' -X GET 'http://0.0.0.0:8080/pets' -H 'accept: application/json' -H 'Content-Type: application/json' -o /dev/null) = '200'
   - >
-    test $(curl -sL -w '%{http_code}' -X GET 'http://localhost/pets/1' -H 'accept: application/json' -H 'Content-Type: application/json' -o /dev/null) = '200'
+    test $(curl -sL -w '%{http_code}' -X GET 'http://0.0.0.0:8080/pets/1' -H 'accept: application/json' -H 'Content-Type: application/json' -o /dev/null) = '200'
   - >
-    test $(curl -sL -w '%{http_code}' -X DELETE 'http://localhost/pets/1' -H 'accept: application/json' -H 'Content-Type: application/json' -o /dev/null) = '204'
+    test $(curl -sL -w '%{http_code}' -X DELETE 'http://0.0.0.0:8080/pets/1' -H 'accept: application/json' -H 'Content-Type: application/json' -o /dev/null) = '204'
 
 
 jobs:
