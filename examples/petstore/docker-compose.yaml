@@ -12,7 +12,7 @@ services:
       - rabbitmq
     command: bash -c "python app.py"
     ports:
-      - "8080:8080"
+      - "7575:8080"
 
   rabbitmq:
     image: rabbitmq:3-management
