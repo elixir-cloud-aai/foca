@@ -12,7 +12,7 @@ services:
       - rabbitmq
     command: bash -c "python app.py"
     ports:
-      - "7575:8080"
+      - "80:8080"
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -20,7 +20,7 @@ services:
     links:
       - mongodb
     ports:
-      - "5472:5672"
+      - "5672:5672"
 
   mongodb:
     image: mongo:3.2
@@ -28,4 +28,4 @@ services:
     volumes:
       - ./data/petstore/db:/data/db
     ports:
-      - "24017:27017"
+      - "27017:27017"

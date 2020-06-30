@@ -20,7 +20,6 @@ script:
   - coverage run --source foca -m pytest
   - coveralls
   - cd examples/petstore && docker-compose up --build -d
-  - "curl -sL -w '%{http_code}' -X GET 'http://0.0.0.0:7575/pets' -H 'Accept: application/json'"
 
 jobs:
   include:
