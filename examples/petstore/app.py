@@ -11,5 +11,5 @@ if __name__ == '__main__':
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     config = str(Path(__file__).resolve().parent / "config.yaml")
     app = foca("config.yaml")
-    app.run(port=8080)
+    app.run(port=8080,host='0.0.0.0')
     logger.info("Petstore is running...")
