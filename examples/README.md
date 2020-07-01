@@ -14,14 +14,7 @@ A [petstore][res-petstore] based example application implemented using
 ## Description
 
 FOCA is a [Python package][res-foca] that enables fast development of
-OpenAPI-based HTTP API microservices in [Flask][res-flask]. It includes modules
-for:
-
-* configuration management
-* error handling
-* database interaction (currently [MongoDB][res-mongo-db])
-* [JWT][res-jwt] validation
-
+OpenAPI-based HTTP API microservices in [Flask][res-flask].
 We tried to create an example application that uses the underlying implementation of
 [FOCA][res-foca]. For this, we used the parsed the [configuration settings][res-config]
 via FOCA. Further the endpoint logic for the example app was defined based on the
