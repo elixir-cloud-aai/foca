@@ -29,11 +29,11 @@ def create_celery_app(app: Flask) -> Celery:
         include=conf.include,
     )
     calling_module = ':'.join([stack()[1].filename, stack()[1].function])
-    logger.info(f"Celery app created from '{calling_module}'.")
+    logger.debug(f"Celery app created from '{calling_module}'.")
 
     # Update Celery app configuration with Flask app configuration
     celery.conf['FOCA'] = app.config['FOCA']
-    logger.info('Celery app configured.')
+    logger.debug('Celery app configured.')
 
     class ContextTask(celery.Task):  # type: ignore
         # https://github.com/python/mypy/issues/4284)
