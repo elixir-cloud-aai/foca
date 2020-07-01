@@ -59,10 +59,13 @@ def findPetById(id):
             current_app.config['FOCA'].db.dbs['petstore']
             .collections['pets'].client
         )
-        return db_collection.find_one(
+        record = db_collection.find_one(
             {"id": id},
             {'_id': False},
         )
+        if not record:
+            raise NotFound
+        return record
     except Exception as e:
         logger.error(f"{type(e).__name__}: {e}")
         return error_response
