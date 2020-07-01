@@ -1,0 +1,70 @@
+server:
+    host: '0.0.0.0'
+    port: 8080
+    debug: True
+    environment: development
+    testing: False
+    use_reloader: True
+
+api:
+    specs:
+        - path: petstore.yaml
+          append: null
+          add_operation_fields:
+              x-openapi-router-controller: controllers
+          connexion:
+              strict_validation: True
+              validate_responses: False
+              options:
+                  swagger_ui: True
+                  serve_spec: True
+
+security:
+    auth:
+        required: False
+        add_key_to_claims: True
+        algorithms:
+          - RS256
+        allow_expired: False
+        audience: null
+        claim_identity: sub
+        claim_issuer: iss
+        claim_key_id: kid
+        header_name: Authorization
+        token_prefix: Bearer
+        validation_methods:
+          - userinfo
+          - public_key
+        validation_checks: all
+
+db:
+    host: mongodb
+    port: 27017
+    dbs:
+        petstore:
+            collections:
+                pets:
+                    indexes: null
+
+jobs:
+    host: rabbitmq
+    port: 5672
+    backend: 'rpc://'
+
+log:
+    version: 1
+    disable_existing_loggers: False
+    formatters:
+        standard:
+            class: logging.Formatter
+            style: "{"
+            format: "[{asctime}: {levelname:<8}] {message} [{name}]"
+    handlers:
+        console:
+            class: logging.StreamHandler
+            level: 20
+            formatter: standard
+            stream: ext://sys.stderr
+    root:
+        level: 10
+        handlers: [console]
