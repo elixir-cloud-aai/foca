@@ -157,12 +157,6 @@ guidelines][res-elixir-cloud-contributing] if you are interested to contribute.
 Please mind the [code of conduct][res-elixir-cloud-coc] for all interactions
 with the community.
 
-## Versioning
-
-The project adopts the [semantic versioning][res-semver] scheme for versioning.
-Currently the service is in beta stage, so the API may change without further
-notice.
-
 ## License
 
 This project is covered by the [Apache License 2.0][license-apache] also
@@ -189,13 +183,10 @@ question etc.
 [org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
 [res-elixir-cloud-coc]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md>
 [res-elixir-cloud-contributing]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CONTRIBUTING.md>
-[res-connexion]: <https://github.com/zalando/connexion>
 [res-flask]: <http://flask.pocoo.org/>
 [res-foca]: <https://pypi.org/project/foca/>
-[res-jwt]: <https://jwt.io>
 [res-mongo-db]: <https://www.mongodb.com/>
 [res-open-api]: <https://www.openapis.org/>
-[res-semver]: <https://semver.org/>
 [res-petstore]: <https://petstore.swagger.io/>
 [res-specs]: <https://github.com/elixir-cloud-aai/foca/blob/dev/examples/petstore/petstore.yaml>
 [res-config]: <https://github.com/elixir-cloud-aai/foca/blob/dev/examples/petstore/config.yaml>

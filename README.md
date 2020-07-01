@@ -18,10 +18,14 @@ FOCA is a [Python package][res-foca] that enables fast development of
 OpenAPI-based HTTP API microservices in [Flask][res-flask]. It includes modules
 for:
 
-* configuration management
-* error handling
-* database interaction (currently [MongoDB][res-mongo-db])
-* [JWT][res-jwt] validation
+* Configuration management
+* Error handling
+* Connexion factory
+* CORS support
+* OpenAPI 2.x/3.x spec regsitration
+* Endpoint protection / [JWT][res-jwt] validation
+* Database Interaction([MongoDB][res-mongo-db]))
+* Background tasks ([RabbitMQ][res-rabbitmq] & [Celery][res-celery])
 
 ## Usage
 
@@ -31,11 +35,14 @@ Install with `pip`:
 pip install foca
 ```
 
-Import in your code! For example:
-
-```bash
-from foca.config.config_parser import YAMLConfigParser
+Usage: Pass your configuration file through foca.
+```python
+from foca import foca
+app = foca("<Path to config.yaml file>")
 ```
+
+You can also check out the [example application][res-example] based on petstore
+specifications created using the FOCA for clearer understanding of the microservice.
 
 Check the [API docs][docs-api] to see what's in FOCA.
 
@@ -89,3 +96,6 @@ question etc.
 [res-mongo-db]: <https://www.mongodb.com/>
 [res-open-api]: <https://www.openapis.org/>
 [res-semver]: <https://semver.org/>
+[res-rabbitmq]: <https://www.rabbitmq.com/>
+[res-celery]: <http://celeryproject.org/>
+[res-example]: <https://github.com/elixir-cloud-aai/foca/tree/dev/examples>
