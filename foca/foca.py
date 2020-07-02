@@ -28,6 +28,7 @@ def foca(config: Optional[str] = None) -> App:
     Returns:
         Connexion app instance.
     """
+
     # Parse config parameters and format logging
     conf = ConfigParser(config, format_logs=True).config
     logger.info(f"Log formatting configured.")

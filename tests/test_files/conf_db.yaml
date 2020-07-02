@@ -6,4 +6,3 @@ db:
             collections:
                 my-col-1:
                     indexes: null
-
