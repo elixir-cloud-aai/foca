@@ -39,7 +39,6 @@ def register_openapi(
     # Iterate over OpenAPI specs
     for spec in specs:
         spec_modified = False
-        logger.warning(spec)
         spec_parsed = ConfigParser.parse_yaml(spec.path)
 
         # Add/replace root objects
