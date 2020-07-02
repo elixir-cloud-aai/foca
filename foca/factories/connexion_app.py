@@ -6,7 +6,6 @@ from typing import Optional
 
 from connexion import App
 
-from foca.errors.errors import handle_bad_request
 from foca.models.config import Config
 
 # Get logger instance
@@ -16,23 +15,13 @@ logger = logging.getLogger(__name__)
 def create_connexion_app(config: Optional[Config] = None) -> App:
     """Create and configure Connexion app."""
     # Instantiate Connexion app
-    app = App(__name__)
+    app = App(
+        __name__,
+        skip_error_handlers=True,
+    )
 
     calling_module = ':'.join([stack()[1].filename, stack()[1].function])
     logger.debug(f"Connexion app created from '{calling_module}'.")
-
-    # Workaround for adding a custom handler for `connexion.problem` responses
-    # Responses from request and paramater validators are not raised and
-    # cannot be intercepted by `add_error_handler`; see here:
-    # https://github.com/zalando/connexion/issues/138
-    @app.app.after_request
-    def _rewrite_bad_request(response):
-        if (
-            response.status_code == 400 and
-            response.data.decode('utf-8').find('"title":') is not None
-        ):
-            response = handle_bad_request(400)
-        return response
 
     # Configure Connexion app
     if config is not None:
