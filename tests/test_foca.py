@@ -80,19 +80,19 @@ def test_foca_invalid_jobs():
         foca(INVALID_JOBS_CONF)
 
 
+def test_foca_invalid_api():
+    """Test foca(); invalid api field (Invalid Connexion spec)"""
+    temp_file = create_temporary_copy(API_CONF, PATH_SPECS_INVALID_OPENAPI)
+    with pytest.raises(InvalidSpecification):
+        foca(temp_file)
+
+
 def test_foca_api():
     """Ensure foca() returns a Connexion app instance; valid api field"""
     temp_file = create_temporary_copy(API_CONF, PATH_SPECS_2_YAML)
     app = foca(temp_file)
     assert isinstance(app, App)
     os.remove(temp_file)
-
-
-def test_foca_invalid_api():
-    """Test foca(); invalid api field (Invalid Connexion spec)"""
-    temp_file = create_temporary_copy(API_CONF, PATH_SPECS_INVALID_OPENAPI)
-    with pytest.raises(InvalidSpecification):
-        foca(temp_file)
 
 
 def test_foca_db():
