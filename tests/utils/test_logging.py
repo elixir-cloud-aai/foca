@@ -1,6 +1,5 @@
 """Tests for the logging decorator"""
 
-import pytest
 import logging
 from foca.utils.logging import log_traffic
 from flask import Flask
