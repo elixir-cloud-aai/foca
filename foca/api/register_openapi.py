@@ -39,7 +39,12 @@ def register_openapi(
     # Iterate over OpenAPI specs
     for spec in specs:
         spec_modified = False
-        spec_parsed = ConfigParser.parse_yaml(spec.path)
+
+        # If two or more files are present, then spec_modified is True
+        if isinstance(spec.path, list) and len(spec.path) > 1:
+            spec_modified = True
+
+        spec_parsed = _mergeSpecs(spec.path)
 
         # Add/replace root objects
         if spec.append is not None:
@@ -88,3 +93,24 @@ def register_openapi(
         logger.info(f"API endpoints specified in '{spec.path_out}' added.")
 
     return app
+
+
+def _mergeSpecs(original, *args, **kwargs):
+    original_data = ConfigParser.parse_yaml(original)
+
+    for arg in args:
+        with open(arg):
+            to_merge = ConfigParser.parse_yaml(arg)
+        for key1 in to_merge:
+            print("item1: ", key1)
+            if key1 in original_data:
+                for key2 in to_merge[key1]:
+                    if key2 in original_data[key1]:
+                        original_data[key1][key2].update(to_merge[key1][key2])
+                        to_merge[key1][key2].update(original_data[key1][key2])
+                    else:
+                        original_data[key1].update(to_merge[key1])
+            else:
+                original_data[key1].update(to_merge[key1])
+
+    return original_data

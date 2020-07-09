@@ -485,7 +485,7 @@ on', 'in': 'header'}}}, {'my_other_root_field': 'some_value'}], add_operation_\
 fields={'x-swagger-router-controller': 'controllers.my_specs', 'x-some-other-c\
 ustom-field': 'some_value'}, connexion=None)
     """
-    path: str
+    path: Union[str, List[str]]
     path_out: Optional[str] = None
     append: Optional[List[Dict]] = None
     add_operation_fields: Optional[Dict] = None
