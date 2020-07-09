@@ -40,11 +40,15 @@ def register_openapi(
     for spec in specs:
         spec_modified = False
 
-        # If two or more files are present, then spec_modified is True
-        if isinstance(spec.path, list) and len(spec.path) > 1:
-            spec_modified = True
-
-        spec_parsed = _mergeSpecs(spec.path)
+        if isinstance(spec.path, list):
+            # If two or more files are present, then spec_modified is True
+            if len(spec.path) > 1:
+                spec_modified = True
+            # Passing type list as arguments
+            spec_parsed = _mergeSpecs(*spec.path)
+        else:
+            # If spec.path is a type str
+            spec_parsed = ConfigParser.parse_yaml(spec.path)
 
         # Add/replace root objects
         if spec.append is not None:
