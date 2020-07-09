@@ -485,36 +485,36 @@ on', 'in': 'header'}}}, {'my_other_root_field': 'some_value'}], add_operation_\
 fields={'x-swagger-router-controller': 'controllers.my_specs', 'x-some-other-c\
 ustom-field': 'some_value'}, connexion=None)
     """
-    path: Union[str, List[str]]
+    path: List[str]
     path_out: Optional[str] = None
     append: Optional[List[Dict]] = None
     add_operation_fields: Optional[Dict] = None
     connexion: Optional[Dict] = None
 
-    # resolve relative path
-    @validator('path', always=True, allow_reuse=True)
-    def set_abs_path(cls, v):  # pylint: disable=E0213
-        """Resolve path relative to caller's current working directory if no
-        absolute path provided.
-        """
-        if not Path(v).is_absolute():
-            return str(Path.cwd() / v)
-        return v
+    # # resolve relative path
+    # @validator('path', always=True, allow_reuse=True)
+    # def set_abs_path(cls, v):  # pylint: disable=E0213
+    #     """Resolve path relative to caller's current working directory if no
+    #     absolute path provided.
+    #     """
+    #     if not Path(v).is_absolute():
+    #         return str(Path.cwd() / v)
+    #     return v
 
-    # set default if no output file path provided
-    @validator('path_out', always=True, allow_reuse=True)
-    def set_default_out_path(cls, v, *, values):  # pylint: disable=E0213
-        """Set default output path for spec file if not supplied by user.
-        """
-        if 'path' in values and values['path'] is not None:
-            if not v:
-                return '.'.join([
-                    os.path.splitext(values['path'])[0],
-                    "modified.yaml"
-                ])
-            if not Path(v).is_absolute():
-                return str(Path.cwd() / v)
-        return v
+    # # set default if no output file path provided
+    # @validator('path_out', always=True, allow_reuse=True)
+    # def set_default_out_path(cls, v, *, values):  # pylint: disable=E0213
+    #     """Set default output path for spec file if not supplied by user.
+    #     """
+    #     if 'path' in values and values['path'] is not None:
+    #         if not v:
+    #             return '.'.join([
+    #                 os.path.splitext(values['path'])[0],
+    #                 "modified.yaml"
+    #             ])
+    #         if not Path(v).is_absolute():
+    #             return str(Path.cwd() / v)
+    #     return v
 
 
 class APIConfig(FOCABaseConfig):
