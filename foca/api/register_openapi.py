@@ -41,6 +41,7 @@ def register_openapi(
         spec_modified = False
         spec_parsed = dict()
         if isinstance(spec.path, list):
+            # if the list contains a single path, treat it as str
             if len(spec.path) == 1:
                 spec.path = str(spec.path[0])
             else:
@@ -99,13 +100,13 @@ def register_openapi(
 
 
 def _mergeSpecs(original, *args, **kwargs):
+    # first element of the list is the main file
     original_data = ConfigParser.parse_yaml(original)
 
     for arg in args:
         with open(arg):
             to_merge = ConfigParser.parse_yaml(arg)
         for key1 in to_merge:
-            print("item1: ", key1)
             if key1 in original_data:
                 for key2 in to_merge[key1]:
                     if key2 in original_data[key1]:

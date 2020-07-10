@@ -1,26 +1,25 @@
 paths:
-  /pets:
+  /pets/{id}:
     put:
       description: |
-        Returns all pets from the system that the user has access to.
+        Modifies the pet with a given id
       operationId: putPets
       parameters:
-        - name: tags
-          in: query
-          description: tags to filter by
-          required: false
-          style: form
-          schema:
-            type: array
-            items:
-              type: string
-        - name: limit
-          in: query
-          description: maximum number of results to return
-          required: false
+        - name: id
+          in: path
+          description: ID of pet to fetch
+          required: true
           schema:
             type: integer
-            format: int32
+            format: int64
+      requestBody:
+        description: Pet to add to the store
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: pet
+              $ref: '#/components/schemas/NewPet'
       responses:
         '200':
           description: pet response

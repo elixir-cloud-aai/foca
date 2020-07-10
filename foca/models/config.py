@@ -501,6 +501,7 @@ ustom-field': 'some_value'}, connexion=None)
             if not Path(v).is_absolute():
                 return str(Path.cwd() / v)
         else:
+            # modify each relaive part of the list
             v = [str(Path.cwd() / path)
                  for path in v if not Path(path).is_absolute()]
         return v
