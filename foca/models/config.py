@@ -501,20 +501,20 @@ ustom-field': 'some_value'}, connexion=None)
     #         return str(Path.cwd() / v)
     #     return v
 
-    # # set default if no output file path provided
-    # @validator('path_out', always=True, allow_reuse=True)
-    # def set_default_out_path(cls, v, *, values):  # pylint: disable=E0213
-    #     """Set default output path for spec file if not supplied by user.
-    #     """
-    #     if 'path' in values and values['path'] is not None:
-    #         if not v:
-    #             return '.'.join([
-    #                 os.path.splitext(values['path'])[0],
-    #                 "modified.yaml"
-    #             ])
-    #         if not Path(v).is_absolute():
-    #             return str(Path.cwd() / v)
-    #     return v
+    # set default if no output file path provided
+    @validator('path_out', always=True, allow_reuse=True)
+    def set_default_out_path(cls, v, *, values):  # pylint: disable=E0213
+        """Set default output path for spec file if not supplied by user.
+        """
+        if 'path' in values and values['path'] is not None:
+            if not v:
+                return '.'.join([
+                    os.path.splitext(values['path'])[0],
+                    "modified.yaml"
+                ])
+            if not Path(v).is_absolute():
+                return str(Path.cwd() / v)
+        return v
 
 
 class APIConfig(FOCABaseConfig):
