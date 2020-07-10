@@ -491,15 +491,20 @@ ustom-field': 'some_value'}, connexion=None)
     add_operation_fields: Optional[Dict] = None
     connexion: Optional[Dict] = None
 
-    # # resolve relative path
-    # @validator('path', always=True, allow_reuse=True)
-    # def set_abs_path(cls, v):  # pylint: disable=E0213
-    #     """Resolve path relative to caller's current working directory if no
-    #     absolute path provided.
-    #     """
-    #     if not Path(v).is_absolute():
-    #         return str(Path.cwd() / v)
-    #     return v
+    # resolve relative path
+    @validator('path', always=True, allow_reuse=True)
+    def set_abs_path(cls, v):  # pylint: disable=E0213
+        """Resolve path relative to caller's current working directory if no
+        absolute path provided.
+        """
+        if(isinstance(v, str)):
+            if not Path(v).is_absolute():
+                return str(Path.cwd() / v)
+        else:
+            for path in v:
+                if not Path(path).is_absolute():
+                    path = str(Path.cwd() / path)
+        return v
 
     # set default if no output file path provided
     @validator('path_out', always=True, allow_reuse=True)
@@ -508,10 +513,16 @@ ustom-field': 'some_value'}, connexion=None)
         """
         if 'path' in values and values['path'] is not None:
             if not v:
-                return '.'.join([
-                    os.path.splitext(values['path'])[0],
-                    "modified.yaml"
-                ])
+                if isinstance(values['path'], str):
+                    return '.'.join([
+                        os.path.splitext(values['path'])[0],
+                        "modified.yaml"
+                    ])
+                else:
+                    return '.'.join([
+                        os.path.splitext(values['path'][0])[0],
+                        "modified.yaml"
+                    ])
             if not Path(v).is_absolute():
                 return str(Path.cwd() / v)
         return v
