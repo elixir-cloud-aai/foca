@@ -29,6 +29,7 @@ def test_logging_decorator(caplog):
     with app.test_request_context(environ_base=REQ):
         mock_func()
     assert 'Incoming request' in caplog.text \
+        and 'Response to request' in caplog.text
 
 
 def test_logging_decorator_log_level(caplog):
@@ -54,7 +55,7 @@ def test_logging_decorator_req_only(caplog):
     with app.test_request_context(environ_base=REQ):
         mock_func()
     assert 'Incoming request' in caplog.text \
-           and 'Response to request' not in caplog.text
+        and 'Response to request' not in caplog.text
 
 
 def test_logging_decorator_res_only(caplog):
@@ -68,5 +69,4 @@ def test_logging_decorator_res_only(caplog):
     with app.test_request_context(environ_base=REQ):
         mock_func()
     assert 'Incoming request' not in caplog.text \
-           and 'Response to request' in caplog.text
-           and 'Response to request' in caplog.text
+        and 'Response to request' in caplog.text
