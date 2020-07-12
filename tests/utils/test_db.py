@@ -1,7 +1,8 @@
-from foca.utils.db import find_id_latest, find_one_latest
+"""Tests for the database utilties module."""
 
 import mongomock
 
+from foca.utils.db import find_id_latest, find_one_latest
 
 def test_find_one_latest():
     """Test that find_one_latest return recently added object without _id field

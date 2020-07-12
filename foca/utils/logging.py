@@ -1,32 +1,29 @@
-"""Decorator for logging requests and responses."""
+"""Utility functions for logging."""
 
 import logging
 from connexion import request
 from functools import wraps
-from typing import (Callable, Optional, )
+from typing import (Callable, Optional)
 
 logger = logging.getLogger(__name__)
 
 
-def log_traffic(_fn: Callable = None,
-                log_request: Optional[bool] = True,
-                log_response: Optional[bool] = True,
-                log_level: Optional[int] = 20,
-                ) -> Callable:
-    """Customizable decorator for logging requests and responses on
-    configurable log level.
+def log_traffic(
+    _fn: Optional[Callable] = None,
+    log_request: bool = True,
+    log_response: bool = True,
+    log_level: int = logging.INFO,
+) -> Callable:
+    """Decorator for logging service requests and responses.
 
     Args:
-        _fn: The function to be decorated (gets passed implicitly).
-        log_request: A boolean flag to set whether or not the request should
-            be logged. Set to 'True' by default.
-        log_response: A boolean flag to set whether or not the response should
-            be logged. Set to 'True' by default.
-        log_level: The numeric values of logging levels. See
+        log_request: Whether or not the request should be logged.
+        log_response: Whether or not the response should be logged.
+        log_level: Logging level, cf.
             https://docs.python.org/3/library/logging.html#logging-levels
 
     Returns:
-        The decorator function
+        The decorated function.
     """
 
     def decorator_log_traffic(fn):
@@ -49,25 +46,24 @@ def log_traffic(_fn: Callable = None,
             Returns:
                 Wrapper function.
             """
+            req = (
+                f"\"{request.environ['REQUEST_METHOD']} "
+                f"{request.environ['PATH_INFO']} "
+                f"{request.environ['SERVER_PROTOCOL']}\" from "
+                f"{request.environ['REMOTE_ADDR']}"
+            )
             if log_request:
-                logger.log(level=log_level,
-                           msg=f"Incoming request: "
-                               f"\"{request.environ['REQUEST_METHOD']} "
-                               f"{request.environ['PATH_INFO']} "
-                               f"{request.environ['SERVER_PROTOCOL']}\" from "
-                               f"{request.environ['REMOTE_ADDR']}"
-                           )
+                logger.log(
+                    level=log_level,
+                    msg=f"Incoming request: {req}",
+                )
 
             response = fn(*args, **kwargs)
             if log_response:
-                logger.log(level=log_level,
-                           msg=f"Response to request "
-                               f"\"{request.environ['REQUEST_METHOD']} "
-                               f"{request.environ['PATH_INFO']} "
-                               f"{request.environ['SERVER_PROTOCOL']}\" from "
-                               f"{request.environ['REMOTE_ADDR']}: "
-                               f"{response}"
-                           )
+                logger.log(
+                    level=log_level,
+                    msg=f"Response to request {req}: {response}",
+                )
             return response
 
         return wrapper
