@@ -15,6 +15,7 @@ DIR = pathlib.Path(__file__).parent.parent / "test_files"
 PATH_SPECS_2_YAML = str(DIR / "openapi_2_petstore.yaml")
 PATH_SPECS_2_YAML_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
 PATH_SPECS_2_JSON = str(DIR / "openapi_2_petstore.yaml")
+PATH_ADD_SPECS_2_YAML = str(DIR / "openapi_add.yaml")
 PATH_SPECS_3_YAML = str(DIR / "openapi_3_petstore.yaml")
 PATH_SPECS_3_YAML_MODIFIED = str(DIR / "openapi_3_petstore.modified.yaml")
 PATH_SPECS_INVALID_JSON = str(DIR / "invalid.json")
@@ -38,6 +39,46 @@ SPEC_CONFIG = {
             }
         },
     ],
+    "add_operation_fields": OPERATION_FIELDS,
+    "connexion": {
+        "strict_validation": True,
+        "validate_responses": False,
+        "options": {
+            "swagger_ui": True,
+            "swagger_json": True,
+        }
+    }
+}
+
+SPEC_CONFIG_2 = {
+    "path": [PATH_SPECS_2_YAML, PATH_ADD_SPECS_2_YAML],
+    "path_out": PATH_SPECS_2_YAML_MODIFIED,
+    "append": [
+        {
+            "securityDefinitions": {
+                "jwt": {
+                    "type": "apiKey",
+                    "name": "Authorization",
+                    "in": "header",
+                }
+            }
+        },
+    ],
+    "add_operation_fields": OPERATION_FIELDS,
+    "connexion": {
+        "strict_validation": True,
+        "validate_responses": False,
+        "options": {
+            "swagger_ui": True,
+            "swagger_json": True,
+        }
+    }
+}
+
+
+SPEC_CONFIG_3 = {
+    "path": [PATH_SPECS_2_YAML],
+    "path_out": PATH_SPECS_2_YAML_MODIFIED,
     "add_operation_fields": OPERATION_FIELDS,
     "connexion": {
         "strict_validation": True,
@@ -152,3 +193,19 @@ def test_register_openapi_spec_cannot_write():
     )]
     with pytest.raises(OSError):
         register_openapi(app=app, specs=spec_configs)
+
+
+def test_register_two_openapi_spec_yaml_2():
+    """Successfully register two or more OpenAPI specs with Connexion app."""
+    app = App(__name__)
+    spec_configs = [SpecConfig(**SPEC_CONFIG_2)]
+    res = register_openapi(app=app, specs=spec_configs)
+    assert isinstance(res, App)
+
+
+def test_list_single_openapi_spec_yaml_2():
+    """Successfully register a single openAPI spec in a list"""
+    app = App(__name__)
+    spec_configs = [SpecConfig(**SPEC_CONFIG_3)]
+    res = register_openapi(app=app, specs=spec_configs)
+    assert isinstance(res, App)

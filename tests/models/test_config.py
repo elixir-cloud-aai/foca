@@ -79,6 +79,9 @@ SPEC_CONFIG_REL_IN_NO_OUT = {
 SPEC_CONFIG_NO_IN = {
     'path_out': '/my/abs/out/path',
 }
+SPEC_CONFIG_LIST_NO_OUT = {
+    'path': ['path1', 'path2']
+}
 
 
 def test_config_empty():
@@ -344,3 +347,11 @@ def test_spec_config_no_in():
     """Test creation of the SpecConfig model with valid data."""
     with pytest.raises(ValidationError):
         SpecConfig(**SPEC_CONFIG_NO_IN)
+
+
+def test_spec_config_list_no_out():
+    """Test creation of SpecConfig model with valid list data in path"""
+    res = SpecConfig(**SPEC_CONFIG_LIST_NO_OUT)
+    assert isinstance(res, SpecConfig)
+    assert res.path_out is not None
+    assert Path(res.path_out).is_absolute()

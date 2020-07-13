@@ -1,36 +1,26 @@
 paths:
-  /pets/{id}:
+  /pets/{petId}:
     put:
-      description: Modifies the pet with the given id.
-      operationId: putPets
+      summary: Modifies the pet with the given id.
+      operationId: putPetsById
       parameters:
-        - name: id
+        - name: petId
           in: path
-          description: ID of pet to fetch
+          required: true
+          description: The id of the pet to retrieve
+          type: string
+        - in: body
+          name: bdy
+          description: updated content
           required: true
           schema:
-            type: integer
-            format: int64
-      requestBody:
-        description: Pet to add to the store
-        required: true
-        content:
-          application/json:
-            schema:
-              x-body-name: pet
-              $ref: '#/components/schemas/NewPet'
+            $ref: "#/definitions/Pets"
       responses:
-        '200':
-          description: pet response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Pet'
+        "200":
+          description: Expected response to a valid request
+          schema:
+            $ref: '#/definitions/Pets'
         default:
           description: unexpected error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          schema:
+            $ref: '#/definitions/Error'

@@ -502,8 +502,12 @@ ustom-field': 'some_value'}, connexion=None)
                 return str(Path.cwd() / v)
         else:
             # modify each relaive part of the list
-            v = [str(Path.cwd() / path)
-                 for path in v if not Path(path).is_absolute()]
+            v = [
+                str(Path.cwd() / path)
+                if not Path(path).is_absolute()
+                else path
+                for path in v
+                ]
         return v
 
     # set default if no output file path provided
