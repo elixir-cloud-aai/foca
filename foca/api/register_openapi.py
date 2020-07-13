@@ -1,5 +1,4 @@
-"""Register OpenAPI specs with a Connexion app instance.
-"""
+"""Register OpenAPI specs with a Connexion app instance."""
 
 import logging
 from typing import List
@@ -11,7 +10,6 @@ import yaml
 from foca.models.config import SpecConfig
 from foca.config.config_parser import ConfigParser
 
-# Get logger instance
 logger = logging.getLogger(__name__)
 
 
@@ -39,16 +37,13 @@ def register_openapi(
     # Iterate over OpenAPI specs
     for spec in specs:
         spec_modified = False
-        spec_parsed = dict()
-        if isinstance(spec.path, list):
-            # if the list contains a single path, treat it as str
-            if len(spec.path) == 1:
-                spec.path = str(spec.path[0])
-            else:
-                spec_modified = True
-                spec_parsed = _mergeSpecs(*spec.path)
-        else:
-            spec_parsed = ConfigParser.parse_yaml(spec.path)
+
+        # Parse & merge specs, if applicable
+        if isinstance(spec.path, str):
+            spec.path = [spec.path]
+        elif len(spec.path) > 1:
+            spec_modified = True
+        spec_parsed = ConfigParser.merge_yaml(*spec.path)
 
         # Add/replace root objects
         if spec.append is not None:
@@ -97,24 +92,3 @@ def register_openapi(
         logger.info(f"API endpoints specified in '{spec.path_out}' added.")
 
     return app
-
-
-def _mergeSpecs(original, *args, **kwargs):
-    # first element of the list is the main file
-    original_data = ConfigParser.parse_yaml(original)
-
-    for arg in args:
-        with open(arg):
-            to_merge = ConfigParser.parse_yaml(arg)
-        for key1 in to_merge:
-            if key1 in original_data:
-                for key2 in to_merge[key1]:
-                    if key2 in original_data[key1]:
-                        original_data[key1][key2].update(to_merge[key1][key2])
-                        to_merge[key1][key2].update(original_data[key1][key2])
-                    else:
-                        original_data[key1].update(to_merge[key1])
-            else:
-                original_data[key1].update(to_merge[key1])
-
-    return original_data

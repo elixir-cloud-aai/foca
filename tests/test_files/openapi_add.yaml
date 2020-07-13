@@ -1,8 +1,7 @@
 paths:
   /pets/{id}:
     put:
-      description: |
-        Modifies the pet with a given id
+      description: Modifies the pet with the given id.
       operationId: putPets
       parameters:
         - name: id

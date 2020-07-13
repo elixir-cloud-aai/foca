@@ -8,9 +8,7 @@ server:
 
 api:
     specs:
-        - path:
-            - petstore.yaml
-            - add.yaml
+        - path: petstore.yaml
           append: null
           add_operation_fields:
               x-openapi-router-controller: controllers
