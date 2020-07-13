@@ -1,4 +1,5 @@
-"""Register OpenAPI specs with a Connexion app instance."""
+"""Register OpenAPI specs with a Connexion app instance.
+"""
 
 import logging
 from typing import List
@@ -10,6 +11,7 @@ import yaml
 from foca.models.config import SpecConfig
 from foca.config.config_parser import ConfigParser
 
+# Get logger instance
 logger = logging.getLogger(__name__)
 
 

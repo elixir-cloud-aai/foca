@@ -417,7 +417,7 @@ class SpecConfig(FOCABaseConfig):
     to be attached to a Connexion app.
 
     Args:
-        path: A single path or list of paths to an OpenAPI 2.x or 3.x
+        path: A single path or list of paths to OpenAPI 2.x or 3.x
             specification in YAML format.
         path_out: Output path for modified specification file. Ignored if specs
             are not modified. If not specified, the original file path is
