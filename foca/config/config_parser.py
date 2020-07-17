@@ -88,8 +88,9 @@ class ConfigParser():
             *args: One or more paths to YAML files.
 
         Returns:
-            Parsed and merged dictionary of YAML file contents, or `None` if
-                no arguments have been supplied.
+            Dictionary of merged YAML file contents, or `None` if no arguments
+            have been supplied; if only a single YAML file path is provided, no
+            merging is done.
         """
         args_list = list(args)
         if not args_list:
