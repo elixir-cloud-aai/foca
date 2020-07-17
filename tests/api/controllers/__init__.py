@@ -8,3 +8,7 @@ def createPets():
 
 def showPetById():
     return{}
+
+
+def putPetsById():
+    return {}

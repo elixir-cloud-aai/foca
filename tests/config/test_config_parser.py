@@ -42,3 +42,10 @@ def test_config_parser_invalid_log_config():
     conf = ConfigParser(TEST_FILE_INVALID_LOG)
     assert type(conf.config.dict()) == type(TEST_DICT)
     assert isinstance(conf.config, type(TEST_CONFIG_INSTANCE))
+
+
+def test_merge_yaml_with_no_args():
+    """Test merge_yaml with no arguments"""
+    empty_list = []
+    res = ConfigParser.merge_yaml(*empty_list)
+    assert res is None

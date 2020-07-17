@@ -79,6 +79,9 @@ SPEC_CONFIG_REL_IN_NO_OUT = {
 SPEC_CONFIG_NO_IN = {
     'path_out': '/my/abs/out/path',
 }
+SPEC_CONFIG_LIST_NO_OUT = {
+    'path': ['path1', 'path2']
+}
 
 
 def test_config_empty():
@@ -289,7 +292,7 @@ def test_spec_config():
     """Test creation of the SpecConfig model with valid data."""
     res = SpecConfig(**SPEC_CONFIG)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -298,7 +301,7 @@ def test_spec_config_rel_in():
     """Test creation of the SpecConfig model with relative input file path."""
     res = SpecConfig(**SPEC_CONFIG_REL_IN)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -307,7 +310,7 @@ def test_spec_config_rel_out():
     """Test creation of the SpecConfig model with relative output file path."""
     res = SpecConfig(**SPEC_CONFIG_REL_OUT)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -317,7 +320,7 @@ def test_spec_config_rel_io():
     file paths."""
     res = SpecConfig(**SPEC_CONFIG_REL_IO)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -326,7 +329,7 @@ def test_spec_config_no_out():
     """Test creation of the SpecConfig model with valid data."""
     res = SpecConfig(**SPEC_CONFIG_NO_OUT)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -335,7 +338,7 @@ def test_spec_config_rel_in_no_out():
     """Test creation of the SpecConfig model with valid data."""
     res = SpecConfig(**SPEC_CONFIG_REL_IN_NO_OUT)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -344,3 +347,11 @@ def test_spec_config_no_in():
     """Test creation of the SpecConfig model with valid data."""
     with pytest.raises(ValidationError):
         SpecConfig(**SPEC_CONFIG_NO_IN)
+
+
+def test_spec_config_list_no_out():
+    """Test creation of SpecConfig model with valid list data in path"""
+    res = SpecConfig(**SPEC_CONFIG_LIST_NO_OUT)
+    assert isinstance(res, SpecConfig)
+    assert res.path_out is not None
+    assert Path(res.path_out).is_absolute()

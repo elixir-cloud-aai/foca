@@ -417,7 +417,8 @@ class SpecConfig(FOCABaseConfig):
     to be attached to a Connexion app.
 
     Args:
-        path: Path to an OpenAPI 2.x or 3.x specification in YAML format.
+        path: A single path or list of paths to OpenAPI 2.x or 3.x
+            specification in YAML format.
         path_out: Output path for modified specification file. Ignored if specs
             are not modified. If not specified, the original file path is
             stripped of the file extension and the suffix '.modified.yaml' is
@@ -435,7 +436,8 @@ class SpecConfig(FOCABaseConfig):
             in Connexion's `connexion.apps.flask_app` module.
 
     Attributes:
-        path: Path to an OpenAPI 2.x or 3.x specification in YAML format.
+        path: A single path or list of paths to OpenAPI 2.x or 3.x
+            specification in YAML format.
         path_out: Output path for modified specification file. Ignored if specs
             are not modified. If not specified, the original file path is
             stripped of the file extension and the suffix '.modified.yaml' is
@@ -457,6 +459,7 @@ class SpecConfig(FOCABaseConfig):
             data type.
 
     Example:
+        (1)
         >>> SpecConfig(
         ...     path="/path/to/specs.yaml",
         ...     path_out="/path/to/specs.modified.yaml",
@@ -484,8 +487,37 @@ ed.yaml', append=[{'security': {'jwt': {'type': 'apiKey', 'name': 'Authorizati\
 on', 'in': 'header'}}}, {'my_other_root_field': 'some_value'}], add_operation_\
 fields={'x-swagger-router-controller': 'controllers.my_specs', 'x-some-other-c\
 ustom-field': 'some_value'}, connexion=None)
+
+        (2)
+        >>> SpecConfig(
+        ...     path=["/path/to/specs.yaml", "/path/to/add_specs.yaml"],
+        ...     path_out="/path/to/specs.modified.yaml",
+        ...     append=[
+        ...         {
+        ...             "security": {
+        ...                 "jwt": {
+        ...                     "type": "apiKey",
+        ...                     "name": "Authorization",
+        ...                     "in": "header",
+        ...                 }
+        ...             }
+        ...         },
+        ...         {
+        ...             "my_other_root_field": "some_value",
+        ...         },
+        ...     ],
+        ...     add_operation_fields = {
+        ...         "x-swagger-router-controller": "controllers.my_specs",
+        ...         "x-some-other-custom-field": "some_value",
+        ...     },
+        ... )
+        SpecConfig(path=['/path/to/specs.yaml', '/path/to/add_specs.yaml'], pa\
+th_out='/path/to/specs.modified.yaml', append=[{'security': {'jwt': {'type': '\
+apiKey', 'name': 'Authorization', 'in': 'header'}}}, {'my_other_root_field': '\
+some_value'}], add_operation_fields={'x-swagger-router-controller': 'controlle\
+rs.my_specs', 'x-some-other-custom-field': 'some_value'}, connexion=None)
     """
-    path: str
+    path: Union[str, List[str]]
     path_out: Optional[str] = None
     append: Optional[List[Dict]] = None
     add_operation_fields: Optional[Dict] = None
@@ -497,8 +529,19 @@ ustom-field': 'some_value'}, connexion=None)
         """Resolve path relative to caller's current working directory if no
         absolute path provided.
         """
-        if not Path(v).is_absolute():
-            return str(Path.cwd() / v)
+        # if path is a str, convert it to list
+        if(isinstance(v, str)):
+            if not Path(v).is_absolute():
+                return [str(Path.cwd() / v)]
+            return [v]
+        else:
+            # modify each relaive part of the list
+            v = [
+                str(Path.cwd() / path)
+                if not Path(path).is_absolute()
+                else path
+                for path in v
+            ]
         return v
 
     # set default if no output file path provided
@@ -509,7 +552,7 @@ ustom-field': 'some_value'}, connexion=None)
         if 'path' in values and values['path'] is not None:
             if not v:
                 return '.'.join([
-                    os.path.splitext(values['path'])[0],
+                    os.path.splitext(values['path'][0])[0],
                     "modified.yaml"
                 ])
             if not Path(v).is_absolute():

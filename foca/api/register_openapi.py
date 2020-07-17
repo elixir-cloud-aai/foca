@@ -39,7 +39,12 @@ def register_openapi(
     # Iterate over OpenAPI specs
     for spec in specs:
         spec_modified = False
-        spec_parsed = ConfigParser.parse_yaml(spec.path)
+
+        spec_parsed = dict()
+
+        if len(spec.path) > 1:
+            spec_modified = True
+        spec_parsed = ConfigParser.merge_yaml(*spec.path)
 
         # Add/replace root objects
         if spec.append is not None:
@@ -75,7 +80,7 @@ def register_openapi(
                 ) from e
             spec_use = spec.path_out
         else:
-            spec_use = spec.path
+            spec_use = spec.path[0]
 
         # Attach specs to connexion App
         if spec.connexion is None:
