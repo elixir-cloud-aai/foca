@@ -48,7 +48,6 @@ def register_openapi(
         else:
             # if path contains a single path in the list
             spec_parsed = ConfigParser.parse_yaml(spec.path[0])
-            spec.path = str(spec.path[0])
 
         # Add/replace root objects
         if spec.append is not None:
@@ -84,7 +83,7 @@ def register_openapi(
                 ) from e
             spec_use = spec.path_out
         else:
-            spec_use = spec.path
+            spec_use = spec.path[0]
 
         # Attach specs to connexion App
         if spec.connexion is None:

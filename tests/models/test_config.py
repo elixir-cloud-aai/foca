@@ -292,7 +292,7 @@ def test_spec_config():
     """Test creation of the SpecConfig model with valid data."""
     res = SpecConfig(**SPEC_CONFIG)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -301,7 +301,7 @@ def test_spec_config_rel_in():
     """Test creation of the SpecConfig model with relative input file path."""
     res = SpecConfig(**SPEC_CONFIG_REL_IN)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -310,7 +310,7 @@ def test_spec_config_rel_out():
     """Test creation of the SpecConfig model with relative output file path."""
     res = SpecConfig(**SPEC_CONFIG_REL_OUT)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -320,7 +320,7 @@ def test_spec_config_rel_io():
     file paths."""
     res = SpecConfig(**SPEC_CONFIG_REL_IO)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -329,7 +329,7 @@ def test_spec_config_no_out():
     """Test creation of the SpecConfig model with valid data."""
     res = SpecConfig(**SPEC_CONFIG_NO_OUT)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
@@ -338,7 +338,7 @@ def test_spec_config_rel_in_no_out():
     """Test creation of the SpecConfig model with valid data."""
     res = SpecConfig(**SPEC_CONFIG_REL_IN_NO_OUT)
     assert isinstance(res, SpecConfig)
-    assert Path(res.path).is_absolute()
+    assert Path(res.path[0]).is_absolute()
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
 
