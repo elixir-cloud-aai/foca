@@ -530,7 +530,7 @@ rs.my_specs', 'x-some-other-custom-field': 'some_value'}, connexion=None)
         """
         if(isinstance(v, str)):
             if not Path(v).is_absolute():
-                return str(Path.cwd() / v)
+                return [str(Path.cwd() / v)]
         else:
             # modify each relaive part of the list
             v = [
@@ -548,16 +548,10 @@ rs.my_specs', 'x-some-other-custom-field': 'some_value'}, connexion=None)
         """
         if 'path' in values and values['path'] is not None:
             if not v:
-                if isinstance(values['path'], str):
-                    return '.'.join([
-                        os.path.splitext(values['path'])[0],
-                        "modified.yaml"
-                    ])
-                else:
-                    return '.'.join([
-                        os.path.splitext(values['path'][0])[0],
-                        "modified.yaml"
-                    ])
+                return '.'.join([
+                    os.path.splitext(values['path'][0])[0],
+                    "modified.yaml"
+                ])
             if not Path(v).is_absolute():
                 return str(Path.cwd() / v)
         return v

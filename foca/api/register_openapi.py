@@ -42,17 +42,13 @@ def register_openapi(
 
         spec_parsed = dict()
 
-        # Parse & merge specs, if applicable
-        if isinstance(spec.path, list):
-            if len(spec.path) > 1:
-                spec_modified = True
-                spec_parsed = ConfigParser.merge_yaml(*spec.path)
-            else:
-                # if path contains a single path in the list
-                spec_parsed = ConfigParser.parse_yaml(spec.path[0])
-                spec.path = str(spec.path[0])
+        if len(spec.path) > 1:
+            spec_modified = True
+            spec_parsed = ConfigParser.merge_yaml(*spec.path)
         else:
-            spec_parsed = ConfigParser.parse_yaml(spec.path)
+            # if path contains a single path in the list
+            spec_parsed = ConfigParser.parse_yaml(spec.path[0])
+            spec.path = str(spec.path[0])
 
         # Add/replace root objects
         if spec.append is not None:
