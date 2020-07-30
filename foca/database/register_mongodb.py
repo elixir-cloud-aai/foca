@@ -60,7 +60,7 @@ def register_mongodb(
                         for index in coll_conf.indexes:
                             if index.keys is not None:
                                 coll_conf.client.create_index(
-                                    index.keys, **index.optional)
+                                    index.keys, **index.options)
 
     return conf
 
