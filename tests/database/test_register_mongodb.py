@@ -32,7 +32,7 @@ DB_DICT_CUST_COLL = {
         'collections': {
             'my_collection': {
                 'indexes': [{
-                    'keys': [('indexed_field', 1)],
+                    'keys': {'indexed_field': 1},
                     'sparse': False
                 }]
             }

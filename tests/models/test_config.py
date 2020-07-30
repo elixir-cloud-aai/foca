@@ -33,7 +33,7 @@ MODULE_PATCH_NO_DICT = 'some.path.EXCEPTIONS_NO_DICT'
 MODULE_PATCH_NOT_NESTED = 'some.path.EXCEPTIONS_NOT_NESTED'
 MODULE_PATCH_NOT_EXC = 'some.path.EXCEPTIONS_NOT_EXC'
 INDEX_CONFIG = {
-    'keys': [('last_name', -1)],
+    'keys': {'last_name': -1},
     'name': 'indexLastName',
     'unique': True,
     'background': False,

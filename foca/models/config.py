@@ -733,7 +733,7 @@ class IndexConfig(FOCABaseConfig):
     """Model for configuring indexes for a MongoDB collection.
 
     Args:
-        keys: A list of key-direction tuples indicating the field to be indexed
+        keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
             MongoDB index specifier, one of `pymongo.ASCENDING`,
             `pymongo.DESCENDING`, `pymongo.GEO2D` etc. or their corresponding
@@ -747,7 +747,7 @@ class IndexConfig(FOCABaseConfig):
             from the index.
 
     Attributes:
-        keys: A list of key-direction tuples indicating the field to be indexed
+        keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
             MongoDB index specifier, one of `pymongo.ASCENDING`,
             `pymongo.DESCENDING`, `pymongo.GEO2D` etc. or their corresponding
@@ -766,12 +766,12 @@ class IndexConfig(FOCABaseConfig):
 
     Example:
         >>> IndexConfig(
-        ...     keys=[('last_name', pymongo.DESCENDING)],
+        ...     keys={'name': pymongo.DESCENDING, 'id': pymongo.ASCENDING},
         ...     unique=True,
         ...     sparse=False,
         ... )
-        IndexConfig(keys=[('last_name', -1)], name=None, unique=True, backgrou\
-nd=False, sparse=False)
+        IndexConfig(keys={'name': -1, 'id': 1}, name=None, unique=True, backgr\
+ound=False, sparse=False)
     """
     keys: Optional[Dict] = None
     name: Optional[str] = None
@@ -781,13 +781,13 @@ nd=False, sparse=False)
 
     @validator('keys', always=True, allow_reuse=True)
     def store_enum_value(cls, v):  # pylint: disable=E0213
-        """Store value of enumerator, rather than enumerator object."""
+        """Convert dict values of keys into list of tuples"""
         if not v:
             return v
         else:
             new_v = []
             for key, value in v.items():
-                tmp_list = [key, eval(value)]
+                tmp_list = [key, value]
                 tmp_tuple = tuple(tmp_list)
                 new_v.append(tmp_tuple)
             return new_v
