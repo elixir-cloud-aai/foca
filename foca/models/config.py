@@ -787,7 +787,7 @@ nd=False, sparse=False)
         else:
             new_v = []
             for key, value in v.items():
-                tmp_list = [key, eval(value).value]
+                tmp_list = [key, eval(value)]
                 tmp_tuple = tuple(tmp_list)
                 new_v.append(tmp_tuple)
             return new_v
