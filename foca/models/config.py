@@ -774,10 +774,11 @@ class IndexConfig(FOCABaseConfig):
 ound=False, sparse=False)
     """
     keys: Optional[Dict] = None
-    name: Optional[str] = None
-    unique: Optional[bool] = False
-    background: Optional[bool] = False
-    sparse: Optional[bool] = False
+    # name: Optional[str] = ""
+    # unique: Optional[bool] = False
+    # background: Optional[bool] = False
+    # sparse: Optional[bool] = False
+    options: Dict = dict()
 
     @validator('keys', always=True, allow_reuse=True)
     def store_enum_value(cls, v):  # pylint: disable=E0213
