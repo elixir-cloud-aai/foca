@@ -54,11 +54,16 @@ def register_mongodb(
 
                     # Add indices
                     if coll_conf.indexes is not None:
-                        logger.info("Index being created")
+                        logger.info(
+                            f"Index being created for \
+                            collection '{coll_name}'.")
                         for index in coll_conf.indexes:
                             if index.keys is not None:
                                 coll_conf.client.create_index(
-                                    index.keys, unique=index.unique)
+                                    index.keys, unique=index.unique,
+                                    sparse=index.sparse,
+                                    name=index.name,
+                                    background=index.background)
 
     return conf
 
