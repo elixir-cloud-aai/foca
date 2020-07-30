@@ -773,7 +773,7 @@ class IndexConfig(FOCABaseConfig):
         IndexConfig(keys=[('last_name', -1)], name=None, unique=True, backgrou\
 nd=False, sparse=False)
     """
-    keys: Optional[List[Tuple[str, PymongoDirectionEnum]]] = None
+    keys: Optional[Dict] = None
     name: Optional[str] = None
     unique: Optional[bool] = False
     background: Optional[bool] = False
@@ -786,10 +786,10 @@ nd=False, sparse=False)
             return v
         else:
             new_v = []
-            for item in v:
-                tmp_list = list(item)
-                tmp_list[1] = tmp_list[1].value
-                new_v.append(tuple(tmp_list))
+            for key, value in v.items():
+                tmp_list = [key, value.value]
+                tmp_tuple = tuple(tmp_list)
+                new_v.append(tmp_tuple)
             return new_v
 
 
