@@ -7,8 +7,6 @@ from flask import Flask
 from flask_pymongo import PyMongo
 from foca.models.config import MongoConfig
 
-from pymongo.errors import OperationFailure
-
 # Get logger instance
 logger = logging.getLogger(__name__)
 
