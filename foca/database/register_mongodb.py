@@ -7,6 +7,8 @@ from flask import Flask
 from flask_pymongo import PyMongo
 from foca.models.config import MongoConfig
 
+from pymongo.errors import OperationFailure
+
 # Get logger instance
 logger = logging.getLogger(__name__)
 
@@ -52,8 +54,10 @@ def register_mongodb(
                         f"Added database collection '{coll_name}'."
                     )
 
-                    # Add indices
+                    # Add indexes
                     if coll_conf.indexes is not None:
+                        # Remove already created indexes if any
+                        coll_conf.client.drop_indexes()
                         logger.info(
                             f"Index being created for \
                             collection '{coll_name}'.")
