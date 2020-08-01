@@ -735,30 +735,20 @@ class IndexConfig(FOCABaseConfig):
     Args:
         keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
-            MongoDB index specifier, one of `pymongo.ASCENDING`,
-            `pymongo.DESCENDING`, `pymongo.GEO2D` etc. or their corresponding
-            values `1`, `-1`, `'2d'`, respectively; cf.:
+            MongoDB index specifier, one of the corresponding values of
+            `pymongo.ASCENDING`,`pymongo.DESCENDING`, `pymongo.GEO2D` etc. cf.:
             https://api.mongodb.com/python/current/api/pymongo/collection.html
-        name: Custom name to use for the index. If `None` is provided, a name
-            will be generated.
-        unique: Whether a uniqueness constraint shall be created on the index.
-        background: Whether the index shall be created in the background.
-        sparse: Whether documents that lack the indexed field shall be omitted
-            from the index.
+        options: A dictionary of any additional index creation options. cf.:
+            https://api.mongodb.com/python/1.9/api/pymongo/collection.html
 
     Attributes:
         keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
-            MongoDB index specifier, one of `pymongo.ASCENDING`,
-            `pymongo.DESCENDING`, `pymongo.GEO2D` etc. or their corresponding
-            values `1`, `-1`, `'2d'`, respectively; cf.:
+            MongoDB index specifier, one of the corresponding values of
+            `pymongo.ASCENDING`,`pymongo.DESCENDING`, `pymongo.GEO2D` etc. cf.:
             https://api.mongodb.com/python/current/api/pymongo/collection.html
-        name: Custom name to use for the index. If `None` is provided, a name
-            will be generated.
-        unique: Whether a uniqueness constraint shall be created on the index.
-        background: Whether the index shall be created in the background.
-        sparse: Whether documents that lack the indexed field shall be omitted
-            from the index.
+        options: A dictionary of any additional index creation options. cf.:
+            https://api.mongodb.com/python/1.9/api/pymongo/collection.html
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -766,12 +756,11 @@ class IndexConfig(FOCABaseConfig):
 
     Example:
         >>> IndexConfig(
-        ...     keys={'name': pymongo.DESCENDING, 'id': pymongo.ASCENDING},
-        ...     unique=True,
-        ...     sparse=False,
+        ...     keys={'name': -1, 'id': 1},
+        ...     options={'unique': True, 'sparse': False}
         ... )
-        IndexConfig(keys={'name': -1, 'id': 1}, name=None, unique=True, backgr\
-ound=False, sparse=False)
+        IndexConfig(keys={'name': -1, 'id': 1}, options={'unique': True,
+            'sparse': False})
     """
     keys: Optional[Dict] = None
     options: Dict = dict()
