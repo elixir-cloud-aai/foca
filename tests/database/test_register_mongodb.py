@@ -107,6 +107,10 @@ def test_register_mongodb_cust_collections(monkeypatch):
         'pymongo.collection.Collection.create_index',
         lambda *args, **kwargs: None,
     )
+    monkeypatch.setattr(
+        'pymongo.collection.Collection.drop_indexes',
+        lambda *args, **kwargs: None,
+    )
     app = Flask(__name__)
     res = register_mongodb(
         app=app,
