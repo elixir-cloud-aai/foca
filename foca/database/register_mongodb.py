@@ -56,13 +56,13 @@ def register_mongodb(
                     if coll_conf.indexes is not None:
                         # Remove already created indexes if any
                         coll_conf.client.drop_indexes()
-                        logger.info(
-                            f"Index being created for \
-                            collection '{coll_name}'.")
                         for index in coll_conf.indexes:
                             if index.keys is not None:
                                 coll_conf.client.create_index(
                                     index.keys, **index.options)
+                        logger.info(
+                            f"Index being created for collection '\
+                                {coll_name}'.")
 
     return conf
 
