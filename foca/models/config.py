@@ -759,8 +759,8 @@ class IndexConfig(FOCABaseConfig):
         ...     keys={'name': -1, 'id': 1},
         ...     options={'unique': True, 'sparse': False}
         ... )
-        IndexConfig(keys={'name': -1, 'id': 1}, options={'unique': True,
-            'sparse': False})
+        IndexConfig(keys={'name': -1, 'id': 1}, options={'unique': True,'spars\
+e': False})
     """
     keys: Optional[Dict] = None
     options: Dict = dict()
@@ -798,10 +798,10 @@ class CollectionConfig(FOCABaseConfig):
 
     Example:
         >>> CollectionConfig(
-        ...     indexes=[IndexConfig(keys=[('last_name', 1)])],
+        ...     indexes=[IndexConfig(keys={'last_name', 1})],
         ... )
-        CollectionConfig(indexes=[IndexConfig(keys=[('last_name', 1)], name=No\
-ne, unique=False, background=False, sparse=False)], client=None)
+        CollectionConfig(indexes=[IndexConfig(keys={'last_name', 1}, options={\
+})], client=None)
     """
     indexes: Optional[List[IndexConfig]] = None
     client: Optional[pymongo.collection.Collection] = None
@@ -830,13 +830,12 @@ class DBConfig(FOCABaseConfig):
         >>> DBConfig(
         ...     collections={
         ...         'my_collection': CollectionConfig(
-        ...             indexes=[IndexConfig(keys=[('last_name', 1)])],
+        ...             indexes=[IndexConfig(keys={'last_name', 1})],
         ...         ),
         ...     },
         ... )
         DBConfig(collections={'my_collection': CollectionConfig(indexes=[Index\
-Config(keys=[('last_name', 1)], name=None, unique=False, background=False, spa\
-rse=False)], client=None)}, client=None)
+Config(keys={'last_name', 1}, options={})], client=None)}, client=None)
     """
     collections: Optional[Dict[str, CollectionConfig]] = None
     client: Optional[pymongo.database.Database] = None
