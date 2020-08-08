@@ -759,8 +759,8 @@ class IndexConfig(FOCABaseConfig):
         ...     keys={'name': -1, 'id': 1},
         ...     options={'unique': True, 'sparse': False}
         ... )
-        IndexConfig(keys={'name': -1, 'id': 1}, options={'unique': True,'spars\
-e': False})
+        IndexConfig(keys=[('name', -1), ('id', 1)], options={'unique': True, '\
+sparse': False})
     """
     keys: Optional[Dict] = None
     options: Dict = dict()
@@ -769,14 +769,9 @@ e': False})
     def store_enum_value(cls, v):  # pylint: disable=E0213
         """Convert dict values of keys into list of tuples"""
         if not v:
-            return v
+            return None
         else:
-            new_v = []
-            for key, value in v.items():
-                tmp_list = [key, value]
-                tmp_tuple = tuple(tmp_list)
-                new_v.append(tmp_tuple)
-            return new_v
+            return [tuple([key, val]) for key, val in v.items()]
 
 
 class CollectionConfig(FOCABaseConfig):
@@ -798,10 +793,10 @@ class CollectionConfig(FOCABaseConfig):
 
     Example:
         >>> CollectionConfig(
-        ...     indexes=[IndexConfig(keys={'last_name', 1})],
+        ...     indexes=[IndexConfig(keys={'last_name': 1})],
         ... )
-        CollectionConfig(indexes=[IndexConfig(keys={'last_name', 1}, options={\
-})], client=None)
+        CollectionConfig(indexes=[IndexConfig(keys=[('last_name', 1)], options\
+={})], client=None)}, client=None)
     """
     indexes: Optional[List[IndexConfig]] = None
     client: Optional[pymongo.collection.Collection] = None
@@ -830,12 +825,12 @@ class DBConfig(FOCABaseConfig):
         >>> DBConfig(
         ...     collections={
         ...         'my_collection': CollectionConfig(
-        ...             indexes=[IndexConfig(keys={'last_name', 1})],
+        ...             indexes=[IndexConfig(keys={'last_name': 1})],
         ...         ),
         ...     },
         ... )
         DBConfig(collections={'my_collection': CollectionConfig(indexes=[Index\
-Config(keys={'last_name', 1}, options={})], client=None)}, client=None)
+Config(keys=[('last_name', 1)], options={})], client=None)}, client=None)
     """
     collections: Optional[Dict[str, CollectionConfig]] = None
     client: Optional[pymongo.database.Database] = None

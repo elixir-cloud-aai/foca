@@ -61,8 +61,8 @@ def register_mongodb(
                                 coll_conf.client.create_index(
                                     index.keys, **index.options)
                         logger.info(
-                            f"Index being created for collection '\
-                                {coll_name}'.")
+                            f"Indexes created for collection '{coll_name}'."
+                        )
 
     return conf
 
