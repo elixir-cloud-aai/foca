@@ -32,8 +32,8 @@ DB_DICT_CUST_COLL = {
         'collections': {
             'my_collection': {
                 'indexes': [{
-                    'keys': [('indexed_field', 1)],
-                    'sparse': False
+                    'keys': {'indexed_field': 1},
+                    'options': {'sparse': False}
                 }]
             }
         }
@@ -105,6 +105,10 @@ def test_register_mongodb_cust_collections(monkeypatch):
     """Register MongoDB with collections and custom indexes"""
     monkeypatch.setattr(
         'pymongo.collection.Collection.create_index',
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        'pymongo.collection.Collection.drop_indexes',
         lambda *args, **kwargs: None,
     )
     app = Flask(__name__)

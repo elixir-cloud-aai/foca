@@ -7,7 +7,7 @@ import importlib
 import operator
 from pathlib import Path
 import os
-from typing import (Any, Dict, List, Optional, Tuple, Union)
+from typing import (Any, Dict, List, Optional, Union)
 
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
 import pymongo
@@ -733,32 +733,22 @@ class IndexConfig(FOCABaseConfig):
     """Model for configuring indexes for a MongoDB collection.
 
     Args:
-        keys: A list of key-direction tuples indicating the field to be indexed
+        keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
-            MongoDB index specifier, one of `pymongo.ASCENDING`,
-            `pymongo.DESCENDING`, `pymongo.GEO2D` etc. or their corresponding
-            values `1`, `-1`, `'2d'`, respectively; cf.:
+            MongoDB index specifier, one of the corresponding values of
+            `pymongo.ASCENDING`,`pymongo.DESCENDING`, `pymongo.GEO2D` etc. cf.:
             https://api.mongodb.com/python/current/api/pymongo/collection.html
-        name: Custom name to use for the index. If `None` is provided, a name
-            will be generated.
-        unique: Whether a uniqueness constraint shall be created on the index.
-        background: Whether the index shall be created in the background.
-        sparse: Whether documents that lack the indexed field shall be omitted
-            from the index.
+        options: A dictionary of any additional index creation options. cf.:
+            https://api.mongodb.com/python/1.9/api/pymongo/collection.html
 
     Attributes:
-        keys: A list of key-direction tuples indicating the field to be indexed
+        keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
-            MongoDB index specifier, one of `pymongo.ASCENDING`,
-            `pymongo.DESCENDING`, `pymongo.GEO2D` etc. or their corresponding
-            values `1`, `-1`, `'2d'`, respectively; cf.:
+            MongoDB index specifier, one of the corresponding values of
+            `pymongo.ASCENDING`,`pymongo.DESCENDING`, `pymongo.GEO2D` etc. cf.:
             https://api.mongodb.com/python/current/api/pymongo/collection.html
-        name: Custom name to use for the index. If `None` is provided, a name
-            will be generated.
-        unique: Whether a uniqueness constraint shall be created on the index.
-        background: Whether the index shall be created in the background.
-        sparse: Whether documents that lack the indexed field shall be omitted
-            from the index.
+        options: A dictionary of any additional index creation options. cf.:
+            https://api.mongodb.com/python/1.9/api/pymongo/collection.html
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -766,31 +756,22 @@ class IndexConfig(FOCABaseConfig):
 
     Example:
         >>> IndexConfig(
-        ...     keys=[('last_name', pymongo.DESCENDING)],
-        ...     unique=True,
-        ...     sparse=False,
+        ...     keys={'name': -1, 'id': 1},
+        ...     options={'unique': True, 'sparse': False}
         ... )
-        IndexConfig(keys=[('last_name', -1)], name=None, unique=True, backgrou\
-nd=False, sparse=False)
+        IndexConfig(keys=[('name', -1), ('id', 1)], options={'unique': True, '\
+sparse': False})
     """
-    keys: Optional[List[Tuple[str, PymongoDirectionEnum]]] = None
-    name: Optional[str] = None
-    unique: Optional[bool] = False
-    background: Optional[bool] = False
-    sparse: Optional[bool] = False
+    keys: Optional[Dict] = None
+    options: Dict = dict()
 
     @validator('keys', always=True, allow_reuse=True)
     def store_enum_value(cls, v):  # pylint: disable=E0213
-        """Store value of enumerator, rather than enumerator object."""
+        """Convert dict values of keys into list of tuples"""
         if not v:
-            return v
+            return None
         else:
-            new_v = []
-            for item in v:
-                tmp_list = list(item)
-                tmp_list[1] = tmp_list[1].value
-                new_v.append(tuple(tmp_list))
-            return new_v
+            return [tuple([key, val]) for key, val in v.items()]
 
 
 class CollectionConfig(FOCABaseConfig):
@@ -812,10 +793,10 @@ class CollectionConfig(FOCABaseConfig):
 
     Example:
         >>> CollectionConfig(
-        ...     indexes=[IndexConfig(keys=[('last_name', 1)])],
+        ...     indexes=[IndexConfig(keys={'last_name': 1})],
         ... )
-        CollectionConfig(indexes=[IndexConfig(keys=[('last_name', 1)], name=No\
-ne, unique=False, background=False, sparse=False)], client=None)
+        CollectionConfig(indexes=[IndexConfig(keys=[('last_name', 1)], options\
+={})], client=None)}, client=None)
     """
     indexes: Optional[List[IndexConfig]] = None
     client: Optional[pymongo.collection.Collection] = None
@@ -844,13 +825,12 @@ class DBConfig(FOCABaseConfig):
         >>> DBConfig(
         ...     collections={
         ...         'my_collection': CollectionConfig(
-        ...             indexes=[IndexConfig(keys=[('last_name', 1)])],
+        ...             indexes=[IndexConfig(keys={'last_name': 1})],
         ...         ),
         ...     },
         ... )
         DBConfig(collections={'my_collection': CollectionConfig(indexes=[Index\
-Config(keys=[('last_name', 1)], name=None, unique=False, background=False, spa\
-rse=False)], client=None)}, client=None)
+Config(keys=[('last_name', 1)], options={})], client=None)}, client=None)
     """
     collections: Optional[Dict[str, CollectionConfig]] = None
     client: Optional[pymongo.database.Database] = None
