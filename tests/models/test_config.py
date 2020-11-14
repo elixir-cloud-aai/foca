@@ -16,6 +16,7 @@ from foca.models.config import (
     SpecConfig,
 )
 
+DIR = Path(__file__).parent / "test_files"
 EXCEPTIONS_NO_DICT = []
 EXCEPTIONS_NOT_NESTED = {'a': 'b'}
 EXCEPTIONS_NOT_EXC = {'a': {'status': 400, 'title': 'Bad Request'}}
@@ -32,6 +33,9 @@ MODULE_WITHOUT_EXCEPTIONS = "foca.foca.exceptions"
 MODULE_PATCH_NO_DICT = 'some.path.EXCEPTIONS_NO_DICT'
 MODULE_PATCH_NOT_NESTED = 'some.path.EXCEPTIONS_NOT_NESTED'
 MODULE_PATCH_NOT_EXC = 'some.path.EXCEPTIONS_NOT_EXC'
+PATH = str(DIR / "openapi_2_petstore.yaml")
+PATH_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
+PATH_ADDITION = str(DIR / "openapi_2_petstore.addition.yaml")
 INDEX_CONFIG = {
     'keys': {'last_name': -1},
     'options': {
@@ -357,3 +361,27 @@ def test_spec_config_list_no_out():
     assert isinstance(res, SpecConfig)
     assert res.path_out is not None
     assert Path(res.path_out).is_absolute()
+
+
+def test_SpecConfig_full():
+    """Test SpecConfig instantiation; full example"""
+    res = SpecConfig(**SPEC_CONFIG)
+    assert res.path_out == SPEC_CONFIG['path_out']
+
+
+def test_SpecConfig_minimal():
+    """Test SpecConfig instantiation; minimal example"""
+    res = SpecConfig(path=PATH)
+    assert res.path_out == PATH_MODIFIED
+
+
+def test_SpecConfig_merge():
+    """Test SpecConfig instantiation; multiple config files"""
+    res = SpecConfig(path=[PATH, PATH_ADDITION])
+    assert res.path_out == PATH_MODIFIED
+
+
+def test_SpecConfig_extra_arg():
+    """Test SpecConfig instantiation; extra argument."""
+    with pytest.raises(ValidationError):
+        SpecConfig(non_existing=PATH)

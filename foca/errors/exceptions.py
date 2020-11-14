@@ -9,6 +9,7 @@ from connexion import App
 from connexion.exceptions import (
     ExtraParameterProblem,
     Forbidden,
+    OAuthProblem,
     Unauthorized,
 )
 from flask import (current_app, Response)
@@ -42,6 +43,10 @@ exceptions = {
         "status": 400,
     },
     Unauthorized: {
+        "title": "Unauthorized",
+        "status": 401,
+    },
+    OAuthProblem: {
         "title": "Unauthorized",
         "status": 401,
     },

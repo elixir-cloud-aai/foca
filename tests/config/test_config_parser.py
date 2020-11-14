@@ -2,6 +2,7 @@
 Tests for config_parser.py
 """
 
+from pathlib import Path
 import pytest
 
 from pydantic import ValidationError
@@ -9,7 +10,9 @@ from pydantic import ValidationError
 from foca.config.config_parser import ConfigParser
 from foca.models.config import Config
 
-
+DIR = Path(__file__).parent.parent / "test_files"
+PATH = str(DIR / "openapi_2_petstore.original.yaml")
+PATH_ADDITION = str(DIR / "openapi_2_petstore.addition.yaml")
 TEST_CONFIG_INSTANCE = Config()
 TEST_DICT = {}
 TEST_FILE = "tests/test_files/conf_valid.yaml"
@@ -49,3 +52,10 @@ def test_merge_yaml_with_no_args():
     empty_list = []
     res = ConfigParser.merge_yaml(*empty_list)
     assert res is None
+
+
+def test_merge_yaml_with_two_args():
+    """Test merge_yaml with no arguments"""
+    yaml_list = [PATH, PATH_ADDITION]
+    res = ConfigParser.merge_yaml(*yaml_list)
+    assert 'put' in res['paths']['/pets/{petId}']

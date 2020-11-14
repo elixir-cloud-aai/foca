@@ -12,11 +12,11 @@ api:
           path_out: my_specs.modified.yaml
           append: null
           add_operation_fields: null
+          disable_auth: False
           connexion: null
 
 security:
     auth:
-        required: False
         add_key_to_claims: True
         algorithms:
           - RS256
@@ -24,9 +24,6 @@ security:
         audience: null
         claim_identity: sub
         claim_issuer: iss
-        claim_key_id: kid
-        header_name: Authorization
-        token_prefix: Bearer
         validation_methods:
           - userinfo
           - public_key
