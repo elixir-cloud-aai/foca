@@ -47,7 +47,7 @@ MONGO_CONFIG_CUST_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_CUST_COLL)
 
 def test_create_mongo_client(monkeypatch):
     """When MONGO_USERNAME environement variable is NOT defined"""
-    monkeypatch.setenv("MONGO_USERNAME", None)
+    monkeypatch.setenv("MONGO_USERNAME", 'None')
     app = Flask(__name__)
     res = create_mongo_client(
         app=app,

@@ -261,14 +261,15 @@ num.oneline: 'oneline'>, mapping={<class 'Exception'>: {'title': 'Internal Ser\
 ver Error', 'status': 500}, <class 'werkzeug.exceptions.BadRequest'>: {'title'\
 : 'Bad Request', 'status': 400}, <class 'connexion.exceptions.ExtraParameterPr\
 oblem'>: {'title': 'Bad Request', 'status': 400}, <class 'werkzeug.exceptions.\
-Unauthorized'>: {'title': 'Unauthorized', 'status': 401}, <class 'werkzeug.exc\
-eptions.Forbidden'>: {'title': 'Forbidden', 'status': 403}, <class 'werkzeug.e\
-xceptions.NotFound'>: {'title': 'Not Found', 'status': 404}, <class 'werkzeug.\
-exceptions.InternalServerError'>: {'title': 'Internal Server Error', 'status':\
- 500}, <class 'werkzeug.exceptions.BadGateway'>: {'title': 'Bad Gateway', 'sta\
-tus': 502}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title': 'Servi\
-ce Unavailable', 'status': 502}, <class 'werkzeug.exceptions.GatewayTimeout'>:\
- {'title': 'Gateway Timeout', 'status': 504}})
+Unauthorized'>: {'title': 'Unauthorized', 'status': 401}, <class 'connexion.ex\
+ceptions.OAuthProblem'>: {'title': 'Unauthorized', 'status': 401}, <class 'wer\
+kzeug.exceptions.Forbidden'>: {'title': 'Forbidden', 'status': 403}, <class 'w\
+erkzeug.exceptions.NotFound'>: {'title': 'Not Found', 'status': 404}, <class '\
+werkzeug.exceptions.InternalServerError'>: {'title': 'Internal Server Error', \
+'status': 500}, <class 'werkzeug.exceptions.BadGateway'>: {'title': 'Bad Gatew\
+ay', 'status': 502}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title\
+': 'Service Unavailable', 'status': 502}, <class 'werkzeug.exceptions.GatewayT\
+imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
     """
     required_members: List[List[str]] = [["title"], ["status"]]
     extension_members: Union[bool, List[List[str]]] = False
@@ -424,14 +425,37 @@ class SpecConfig(FOCABaseConfig):
             stripped of the file extension and the suffix '.modified.yaml' is
             appended.
         append: Fields to be added/modified in the root of the specification
-            file. For OpenAPI 2, see https://swagger.io/specification/v2/. For
-            OpenAPI 3, see https://swagger.io/specification/.
-        add_operation_fields: Fields to be added/modified in the Operation
+            file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
+            For OpenAPI 3.x, see https://swagger.io/specification/.
+        add_operation_fields: Fields to be added/modified to/in the Operation
             Objects of each Path Info Object. An example use case for this is
             the addition or replacement of the `x-swagger-router-controller`
-            field. For OpenAPI 2, see
+            field. For OpenAPI 2.x, see
             https://swagger.io/specification/v2/#operation-object. For OpenAPI
-            3, see https://swagger.io/specification/#operation-object.
+            3.x, see https://swagger.io/specification/#operation-object. Note
+            that different operation fields for different Operation Objects are
+            currently not supported.
+        add_security_fields: Fields to be added/modified to/in each definition
+            or scheme in the `securityDefintions` (OpenAPI 2.x) or
+            `securitySchemes` (OpenAPI 3.x) objects. An example use case for
+            this is the addition or replacement of the `x-tokenInfoFunc` or
+            similar field. Cf.
+            https://connexion.readthedocs.io/en/latest/security.html. For
+            OpenAPI 2.x, see
+            https://swagger.io/specification/v2/#securityDefinitionsObject. For
+            OpenAPI 3.x, see
+            https://swagger.io/docs/specification/authentication/. Note that
+            different security fields for different security
+            definitions/schemes are currently not supported.
+        disable_auth: Disable JWT validation for endpoints configured to
+            require authorization as per the OpenAPI specifications. Has no
+            effect if relevant security definitions/schemes are not defined.
+            Setting is global. Use `security` property in OpenAPI specification
+            to define this behavior separately for each Operation Object and/or
+            security definition/scheme. For OpenAPI 2.x, see
+            https://swagger.io/specification/v2/#securityDefinitionsObject. For
+            OpenAPI 3.x, see
+            https://swagger.io/docs/specification/authentication/.
         connexion: Keyword arguments passed through to the `add_api()` method
             in Connexion's `connexion.apps.flask_app` module.
 
@@ -443,14 +467,37 @@ class SpecConfig(FOCABaseConfig):
             stripped of the file extension and the suffix '.modified.yaml' is
             appended.
         append: Fields to be added/modified in the root of the specification
-            file. For OpenAPI 2, see https://swagger.io/specification/v2/. For
-            OpenAPI 3, see https://swagger.io/specification/.
-        add_operation_fields: Fields to be added/modified in the Operation
+            file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
+            For OpenAPI 3.x, see https://swagger.io/specification/.
+        add_operation_fields: Fields to be added/modified to/in the Operation
             Objects of each Path Info Object. An example use case for this is
             the addition or replacement of the `x-swagger-router-controller`
-            field. For OpenAPI 2, see
+            field. For OpenAPI 2.x, see
             https://swagger.io/specification/v2/#operation-object. For OpenAPI
-            3, see https://swagger.io/specification/#operation-object.
+            3.x, see https://swagger.io/specification/#operation-object. Note
+            that different operation fields for different Operation Objects are
+            currently not supported.
+        add_security_fields: Fields to be added/modified to/in each definition
+            or scheme in the `securityDefintions` (OpenAPI 2.x) or
+            `securitySchemes` (OpenAPI 3.x) objects. An example use case for
+            this is the addition or replacement of the `x-tokenInfoFunc` or
+            similar field. Cf.
+            https://connexion.readthedocs.io/en/latest/security.html. For
+            OpenAPI 2.x, see
+            https://swagger.io/specification/v2/#securityDefinitionsObject. For
+            OpenAPI 3.x, see
+            https://swagger.io/docs/specification/authentication/. Note that
+            different security fields for different security
+            definitions/schemes are currently not supported.
+        disable_auth: Disable JWT validation for endpoints configured to
+            require authorization as per the OpenAPI specifications. Has no
+            effect if relevant security definitions/schemes are not defined.
+            Setting is global. Use `security` property in OpenAPI specification
+            to define this behavior separately for each Operation Object and/or
+            security definition/scheme. For OpenAPI 2.x, see
+            https://swagger.io/specification/v2/#securityDefinitionsObject. For
+            OpenAPI 3.x, see
+            https://swagger.io/docs/specification/authentication/.
         connexion: Keyword arguments passed through to the `add_api()` method
             in Connexion's `connexion.apps.flask_app` module.
 
@@ -460,33 +507,10 @@ class SpecConfig(FOCABaseConfig):
 
     Example:
         (1)
-        >>> SpecConfig(
-        ...     path="/path/to/specs.yaml",
-        ...     path_out="/path/to/specs.modified.yaml",
-        ...     append=[
-        ...         {
-        ...             "security": {
-        ...                 "jwt": {
-        ...                     "type": "apiKey",
-        ...                     "name": "Authorization",
-        ...                     "in": "header",
-        ...                 }
-        ...             }
-        ...         },
-        ...         {
-        ...             "my_other_root_field": "some_value",
-        ...         },
-        ...     ],
-        ...     add_operation_fields = {
-        ...         "x-swagger-router-controller": "controllers.my_specs",
-        ...         "x-some-other-custom-field": "some_value",
-        ...     },
-        ... )
-        SpecConfig(path='/path/to/specs.yaml', path_out='/path/to/specs.modifi\
-ed.yaml', append=[{'security': {'jwt': {'type': 'apiKey', 'name': 'Authorizati\
-on', 'in': 'header'}}}, {'my_other_root_field': 'some_value'}], add_operation_\
-fields={'x-swagger-router-controller': 'controllers.my_specs', 'x-some-other-c\
-ustom-field': 'some_value'}, connexion=None)
+        >>> SpecConfig(path="/my/path.yaml")
+        SpecConfig(path=['/my/path.yaml'], path_out='/my/path.modified.yaml', \
+append=None, add_operation_fields=None, add_security_fields=None, disable_auth\
+=False, connexion=None)
 
         (2)
         >>> SpecConfig(
@@ -510,17 +534,26 @@ ustom-field': 'some_value'}, connexion=None)
         ...         "x-swagger-router-controller": "controllers.my_specs",
         ...         "x-some-other-custom-field": "some_value",
         ...     },
+        ...     add_security_fields = {
+        ...         "x-apikeyInfoFunc": "security.auth.validate_token",
+        ...         "x-some-other-custom-field": "some_value",
+        ...     },
+        ...     disable_auth = False
         ... )
         SpecConfig(path=['/path/to/specs.yaml', '/path/to/add_specs.yaml'], pa\
 th_out='/path/to/specs.modified.yaml', append=[{'security': {'jwt': {'type': '\
 apiKey', 'name': 'Authorization', 'in': 'header'}}}, {'my_other_root_field': '\
 some_value'}], add_operation_fields={'x-swagger-router-controller': 'controlle\
-rs.my_specs', 'x-some-other-custom-field': 'some_value'}, connexion=None)
+rs.my_specs', 'x-some-other-custom-field': 'some_value'}, add_security_fields=\
+{'x-apikeyInfoFunc': 'security.auth.validate_token', 'x-some-other-custom-fiel\
+d': 'some_value'}, disable_auth=False, connexion=None)
     """
     path: Union[str, List[str]]
     path_out: Optional[str] = None
     append: Optional[List[Dict]] = None
     add_operation_fields: Optional[Dict] = None
+    add_security_fields: Optional[Dict] = None
+    disable_auth: bool = False
     connexion: Optional[Dict] = None
 
     # resolve relative path
@@ -592,8 +625,6 @@ class AuthConfig(FOCABaseConfig):
     authorization for the app.
 
     Args:
-        required: Enable/disable JWT validation for endpoints decorated with
-            the `@jwt_validation` decorator defined in `foca.security.auth`.
         add_key_to_claims: Whether to allow the application to add the identity
             provider's corresponding JSON Web Key (JWK), in PEM format, to the
             dictionary of claims when handling requests to
@@ -608,11 +639,6 @@ class AuthConfig(FOCABaseConfig):
         claim_issuer: The JWT claim used to identify the issuer.
         claim_key_id: The JWT claim used to identify the JWK used when the JWT
             was issued.
-        header_name: Name of the request header field at which the app is
-            expecting the JWT. Cf. `--token-prefix`.
-        token_prefix: Prefix that the app expects to precede the JWT, separated
-            by whitespace. Together, prefix and JWT constitute the value of
-            the request header field specified by `--header-name`.
         algorithms: Lists the JWT-signing algorithms supported by the app.
         validation_methods: Lists the methods to be used to validate a JWT.
             Valid choices are `userinfo` and `public_key`. In the former case,
@@ -626,8 +652,6 @@ class AuthConfig(FOCABaseConfig):
             the first unsuccessful validation check.
 
     Attributes:
-        required: Enable/disable JWT validation for endpoints decorated with
-            the `@jwt_validation` decorator defined in `foca.security.auth`.
         add_key_to_claims: Whether to allow the application to add the identity
             provider's corresponding JSON Web Key (JWK), in PEM format, to the
             dictionary of claims when handling requests to
@@ -640,13 +664,6 @@ class AuthConfig(FOCABaseConfig):
             are rejected. If `None`, audience validation is disabled.
         claim_identity: The JWT claim used to identify the sender.
         claim_issuer: The JWT claim used to identify the issuer.
-        claim_key_id: The JWT claim used to identify the JWK used when the JWT
-            was issued.
-        header_name: Name of the request header field at which the app is
-            expecting the JWT. Cf. `--token-prefix`.
-        token_prefix: Prefix that the app expects to precede the JWT, separated
-            by whitespace. Together, prefix and JWT constitute the value of
-            the request header field specified by `--header-name`.
         algorithms: Lists the JWT-signing algorithms supported by the app.
         validation_methods: Lists the methods to be used to validate a JWT.
             Valid choices are `userinfo` and `public_key`. In the former case,
@@ -665,25 +682,20 @@ class AuthConfig(FOCABaseConfig):
 
     Example:
         >>> AuthConfig(
-        ...     required=False,
         ...     add_key_to_claims=True,
         ...     allow_expired=False,
         ...     audience=None,
         ...     claim_identity="sub",
         ...     claim_issuer="iss",
-        ...     claim_key_id="kid",
-        ...     header_name="Authorization",
-        ...     token_prefix="Bearer",
         ...     algorithms=["RS256"],
         ...     validation_methods=["userinfo", "public_key"],
         ...     validation_checks="all",
         ... )
         AuthConfig(required=False, add_key_to_claims=True, allow_expired=False\
-, audience=None, claim_identity='sub', claim_issuer='iss', claim_key_id='kid',\
- header_name='Authorization', token_prefix='Bearer', algorithms=['RS256'], val\
-idation_methods=[<ValidationMethodsEnum.userinfo: 'userinfo'>, <ValidationMeth\
-odsEnum.public_key: 'public_key'>], validation_checks=<ValidationChecksEnum.al\
-l: 'all'>)
+, audience=None, claim_identity='sub', claim_issuer='iss', algorithms=['RS256'\
+], validation_methods=[<ValidationMethodsEnum.userinfo: 'userinfo'>, <Validati\
+onMethodsEnum.public_key: 'public_key'>], validation_checks=<ValidationChecksE\
+num.all: 'all'>)
     """
     required: bool = False
     add_key_to_claims: bool = True
@@ -691,9 +703,6 @@ l: 'all'>)
     audience: Optional[List[str]] = None
     claim_identity: str = "sub"
     claim_issuer: str = "iss"
-    claim_key_id: str = "kid"
-    header_name: str = "Authorization"
-    token_prefix: str = "Bearer"
     algorithms: List[str] = ["RS256"]
     validation_methods: List[ValidationMethodsEnum] = [
         ValidationMethodsEnum.userinfo,
@@ -721,10 +730,9 @@ class SecurityConfig(FOCABaseConfig):
         ... )
         SecurityConfig(auth=AuthConfig(required=False, add_key_to_claims=True,\
  allow_expired=False, audience=None, claim_identity='sub', claim_issuer='iss',\
- claim_key_id='kid', header_name='Authorization', token_prefix='Bearer', algor\
-ithms=['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'userinf\
-o'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_checks=<Val\
-idationChecksEnum.all: 'all'>))
+ algorithms=['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'u\
+serinfo'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_check\
+s=<ValidationChecksEnum.all: 'all'>))
     """
     auth: AuthConfig = AuthConfig()
 
@@ -1097,29 +1105,32 @@ class Config(FOCABaseConfig):
         >>> Config()
         Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
 ronment='development', testing=False, use_reloader=True), exceptions=Exception\
-Config(required_members=['title', 'status'], extension_members=False, status_m\
-ember='status', exceptions='foca.errors.exceptions', mapping={<class 'Exceptio\
-n'>: {'title': 'An unexpected error occurred.', 'status': 500}, <class 'werkze\
-ug.exceptions.InternalServerError'>: {'title': 'An unexpected error occurred.'\
-, 'status': 500}, <class 'werkzeug.exceptions.BadRequest'>: {'title': 'The req\
-uest is malformed.', 'status': 400}, <class 'connexion.exceptions.ExtraParamet\
-erProblem'>: {'title': 'The request is malformed.', 'status': 400}, <class 'we\
-rkzeug.exceptions.Forbidden'>: {'title': 'The requester is not authorized to p\
-erform this action.', 'status': 403}, <class 'werkzeug.exceptions.NotFound'>: \
-{'title': 'The requested resource was not found.', 'status': 404}, <class 'wer\
-kzeug.exceptions.Unauthorized'>: {'title': 'The request is unauthorized.', 'st\
-atus': 401}}), api=APIConfig(specs=[]), security=SecurityConfig(auth=AuthConfi\
-g(required=False, add_key_to_claims=True, allow_expired=False, audience=None, \
-claim_identity='sub', claim_issuer='iss', claim_key_id='kid', header_name='Aut\
-horization', token_prefix='Bearer', algorithms=['RS256'], validation_methods=[\
-<ValidationMethodsEnum.userinfo: 'userinfo'>, <ValidationMethodsEnum.public_ke\
-y: 'public_key'>], validation_checks=<ValidationChecksEnum.all: 'all'>)), db=N\
-one, jobs=None, log=LogConfig(version=1, disable_existing_loggers=False, forma\
-tters={'standard': LogFormatterConfig(class_formatter='logging.Formatter', sty\
-le='{', format='[{asctime}: {levelname:<8}] {message} [{name}]')}, handlers={'\
-console': LogHandlerConfig(class_handler='logging.StreamHandler', level=20, fo\
-rmatter='standard', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, \
-handlers=['console'])))
+Config(required_members=[['title'], ['status']], extension_members=False, stat\
+us_member=['status'], public_members=None, private_members=None, exceptions='f\
+oca.errors.exceptions.exceptions', logging=<ExceptionLoggingEnum.oneline: 'one\
+line'>, mapping={<class 'Exception'>: {'title': 'Internal Server Error', 'stat\
+us': 500}, <class 'werkzeug.exceptions.BadRequest'>: {'title': 'Bad Request', \
+'status': 400}, <class 'connexion.exceptions.ExtraParameterProblem'>: {'title'\
+: 'Bad Request', 'status': 400}, <class 'werkzeug.exceptions.Unauthorized'>: {\
+'title': 'Unauthorized', 'status': 401}, <class 'connexion.exceptions.OAuthPro\
+blem'>: {'title': 'Unauthorized', 'status': 401}, <class 'werkzeug.exceptions.\
+Forbidden'>: {'title': 'Forbidden', 'status': 403}, <class 'werkzeug.exception\
+s.NotFound'>: {'title': 'Not Found', 'status': 404}, <class 'werkzeug.exceptio\
+ns.InternalServerError'>: {'title': 'Internal Server Error', 'status': 500}, <\
+class 'werkzeug.exceptions.BadGateway'>: {'title': 'Bad Gateway', 'status': 50\
+2}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title': 'Service Unava\
+ilable', 'status': 502}, <class 'werkzeug.exceptions.GatewayTimeout'>: {'title\
+': 'Gateway Timeout', 'status': 504}}), api=APIConfig(specs=[]), security=Secu\
+rityConfig(auth=AuthConfig(required=False, add_key_to_claims=True, allow_expir\
+ed=False, audience=None, claim_identity='sub', claim_issuer='iss', algorithms=\
+['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'userinfo'>, <\
+ValidationMethodsEnum.public_key: 'public_key'>], validation_checks=<Validatio\
+nChecksEnum.all: 'all'>)), db=None, jobs=None, log=LogConfig(version=1, disabl\
+e_existing_loggers=False, formatters={'standard': LogFormatterConfig(class_for\
+matter='logging.Formatter', style='{', format='[{asctime}: {levelname:<8}] {me\
+ssage} [{name}]')}, handlers={'console': LogHandlerConfig(class_handler='loggi\
+ng.StreamHandler', level=20, formatter='standard', stream='ext://sys.stderr')}\
+, root=LogRootConfig(level=10, handlers=['console'])))
     """
     server: ServerConfig = ServerConfig()
     exceptions: ExceptionConfig = ExceptionConfig()
