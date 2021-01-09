@@ -19,14 +19,15 @@ def register_openapi(
 ) -> App:
     """Register OpenAPI specs with Connexion app.
 
-    :param app: A Connexion app instance.
+    :param app:  A Connexion app instance
     :type app: App
-    :param specs: A sequence of :class:`SpecConfig` config models describing OpenAPI
-        2.x and/or 3.x specifications to be registered with `app`.
-    :return: A Connexion app instance.
-    :rtype: list on :class:`SpecConfig`.
-    :raises OSError: File cannot be read from or written to.
-    :raises yaml.YAMLError: YAML cannot be (de)serialized.
+    :param specs: A sequence of :class:`SpecConfig` config models describing
+        OpenAPI 2.x and/or 3.x specifications to be registered with ``app``.
+    :type specs: List[SpecConfig]
+    :raises OSError: file cannot be read from or written to
+    :raises yaml.YAMLError: YAML cannot be (de)serialized
+    :return: Connexion app instance
+    :rtype: App
     """
     # Iterate over OpenAPI specs
     for spec in specs:

@@ -9,12 +9,11 @@ from pymongo import collection as Collection
 def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
     """Return newest document, stripped of the ObjectId.
 
-    Args:
-        collection: MongoDB collection from which the document is to be
-            retrieved.
-
-    Returns:
-        Newest document or `None`, if no document exists.
+    :param collection: MongoDB collection from which the document is to be
+        retrieved
+    :type collection: Collection
+    :return: newest document or `None`, if no document exists
+    :rtype: Optional[Mapping[Any, Any]]
     """
     try:
         return collection.find(
@@ -28,12 +27,12 @@ def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
 def find_id_latest(collection: Collection) -> Optional[ObjectId]:
     """Return ObjectId of newest document.
 
-    Args:
-        collection: MongoDB collection from which the ObjectId of the newest
-            document is to be retrieved.
-
-    Returns:
-        ObjectId of newest document or `None`, if no document exists.
+    :param collection: MongoDB collection from which the :class:`ObjectId` of
+        the newest document is to be retrieved
+    :type collection: Collection
+    :return: :class:`ObjectId` of newest document or `None`, if no document
+        exists
+    :rtype: Optional[ObjectId]
     """
     try:
         return collection.find().sort([('_id', -1)]).limit(1).next()['_id']
