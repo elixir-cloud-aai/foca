@@ -99,7 +99,7 @@ def exc_to_str(
     :param exc: The exception to convert to a string
     :type exc: BaseException
     :param delimiter: The delimiter used to join different lines of the
-        exception stack, defaults to ``"\n"``
+        exception stack, defaults to ``'\n'``
     :type delimiter: str, optional
     :return: String representation of exception
     :rtype: str
@@ -127,6 +127,7 @@ def log_exception(
     :type exc: BaseException
     :param format: ``'oneline'``, ``'minimal'``, or ``'regular'``,
         defaults to ``'oneline'``
+
         * ``'oneline'``: Exception, including traceback, is logged on a single
             line.
         * ``'minimal'``: Only the exception title and message are logged.
