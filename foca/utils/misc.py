@@ -10,18 +10,17 @@ def generate_id(
 ) -> str:
     """Generate random string based on allowed set of characters.
 
-    Args:
-        charset: A string of allowed characters or an expression evaluating to
-            a string of allowed characters.
-        length: Length of returned string.
-
-    Returns:
-        Random string of specified length and composed of defined set of
-        allowed characters.
-
-    Raises:
-        TypeError: Raised if 'charset' cannot be evaluated to a string or if
-            'length' is not a positive integer.
+    :param charset: A string of allowed characters or an expression evaluating
+        to a string of allowed characters, defaults to
+        ``''.join([string.ascii_letters, string.digits])``
+    :type charset: str, optional
+    :param length: Length of returned string, defaults to ``6``
+    :type length: int, optional
+    :raises TypeError: Raised if ``charset`` cannot be evaluated to a string or
+        if ``length`` is not a positive integer
+    :return: Random string of specified length and composed of defined set of
+        allowed characters
+    :rtype: str
     """
     try:
         charset = eval(charset)

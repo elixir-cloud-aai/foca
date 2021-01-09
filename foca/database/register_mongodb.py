@@ -23,8 +23,8 @@ def register_mongodb(
     :param conf: MongoDB configuration object
     :type conf: MongoConfig
     :return: Flask application with updated config:
-        `config['database']['database']` contains the database object;
-        `config['database']['collections']` contains a dictionary of
+        ``config['database']['database']`` contains the database object;
+        ``config['database']['collections']`` contains a dictionary of
         collection objects.
     :rtype: MongoConfig
     """
@@ -79,13 +79,13 @@ def create_mongo_client(
     :param app: Flask application object
     :type app: Flask
     :param host: Host at which the MongoDB database is exposed, defaults
-        to 'mongodb'
+        to ``'mongodb'``
     :type host: str, optional
     :param port: Port at which the MongoDB database is exposed, defaults
-        to 27017
+        to ``27017``
     :type port: int, optional
     :param db: Name of the database to be accessed/created, defaults to
-        'database'
+        ``'database'``
     :type db: str, optional
     :return: Client for the MongoDB database specified by `host`, `port`
         and `db`

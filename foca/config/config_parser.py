@@ -24,10 +24,10 @@ class ConfigParser():
         """Constructor method.
 
         :param config_file: Path to config file in YAML format, defaults
-            to `None`
+            to ``None``
         :type config_file: Optional[str], optional
         :param format_logs: Whether log formatting should be configured,
-            defaults to `True`
+            defaults to ``True``
         :type format_logs: bool, optional
         """
         if config_file:
@@ -81,7 +81,7 @@ class ConfigParser():
         Dict items are updated, not overwritten. For exact
         behavior cf. https://github.com/mewwts/addict.
 
-        :return: Dictionary of merged YAML file contents, or `None`
+        :return: Dictionary of merged YAML file contents, or ``None``
             if no arguments have been supplied; if only a single YAML
             file path is provided, no merging is done.
         :rtype: Optional[Dict]

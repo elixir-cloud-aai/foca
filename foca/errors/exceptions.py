@@ -80,11 +80,10 @@ exceptions = {
 def register_exception_handler(app: App) -> App:
     """Register generic JSON problem handler with Connexion app.
 
-    Args:
-        app: Connexion app.
-
-    Returns:
-        Connexion app with registered generic JSON problem handler.
+    :param app: Connexion app
+    :type app: App
+    :return: Connexion app with registered generic JSON problem handler
+    :rtype: App
     """
     app.add_error_handler(Exception, handle_problem)
     logger.debug("Registered generic JSON problem handler with Connexion app.")
@@ -97,13 +96,13 @@ def exc_to_str(
 ) -> str:
     """Convert exception, including traceback, to string representation.
 
-    Args:
-        exc: The exception to convert to a string.
-        delimiter: The delimiter used to join different lines of the exception
-            stack.
-
-    Returns:
-        String representation of exception.
+    :param exc: The exception to convert to a string
+    :type exc: BaseException
+    :param delimiter: The delimiter used to join different lines of the
+        exception stack, defaults to ``"\n"``
+    :type delimiter: str, optional
+    :return: String representation of exception
+    :rtype: str
     """
     exc_lines = format_exception(
         exc.__class__,
@@ -121,18 +120,19 @@ def log_exception(
     exc: BaseException,
     format: str = 'oneline',
 ) -> None:
-    """Log exception with indicated format.
+    """Log exception with indicated format. Requires a :class:`logging`
+    logger to be set up and configured.
 
-    Requires a `logging` logger to be set up and configured.
-
-    Args:
-        exc: The exception to log.
-        format: One of `oneline` (default), `minimal`, or `regular`.
-            * `oneline`: Exception, including traceback, is logged on a single
-                line.
-            * `minimal`: Only the exception title and message are logged.
-            * `regular`: The exception is logged with the entire traceback
-                stack, usually on multiple lines.
+    :param exc: The exception to log
+    :type exc: BaseException
+    :param format: ``'oneline'``, ``'minimal'``, or ``'regular'``,
+        defaults to ``'oneline'``
+        * ``'oneline'``: Exception, including traceback, is logged on a single
+            line.
+        * ``'minimal'``: Only the exception title and message are logged.
+        * ``'regular'``: The exception is logged with the entire traceback
+            stack, usually on multiple lines.
+    :type format: str, optional
     """
     exc_str = ''
     valid_formats = [
@@ -161,13 +161,13 @@ def subset_nested_dict(
 ) -> Dict:
     """Create subset of nested dictionary.
 
-    Args:
-        obj: A (nested) dictionary.
-        key_sequence: A sequence of keys, to be applied from outside to inside,
-            pointing to the key (and descendants) to keep.
-
-    Returns:
-        Subset of input dictionary.
+    :param obj: A (nested) dictionary
+    :type obj: Dict
+    :param key_sequence: A sequence of keys, to be applied from outside to
+        inside, pointing to the key (and descendants) to keep
+    :type key_sequence: List
+    :return: Subset of input dictionary
+    :rtype: Dict
     """
     filt = {}
     if len(key_sequence):
@@ -184,13 +184,13 @@ def exclude_key_nested_dict(
 ) -> Dict:
     """Exclude key from nested dictionary.
 
-    Args:
-        obj: A (nested) dictionary.
-        key_sequence: A sequence of keys, to be applied from outside to inside,
-            pointing to the key (and descendants) to delete.
-
-    Returns:
-        Dictionary minus the excluded key.
+    :param obj: A (nested) dictionary
+    :type obj: Dict
+    :param key_sequence: A sequence of keys, to be applied from outside to
+        inside, pointing to the key (and descendants) to delete
+    :type key_sequence: List
+    :return: Dictionary minus the excluded key
+    :rtype: Dict
     """
     if len(key_sequence):
         key = key_sequence.pop(0)
@@ -204,11 +204,10 @@ def exclude_key_nested_dict(
 def handle_problem(exception: Exception) -> Response:
     """Generic JSON problem handler.
 
-    Args:
-        exception: The raised exception.
-
-    Returns:
-        JSON-formatted error response.
+    :param exception: The raised exception
+    :type exception: Exception
+    :return: JSON-formatted error response
+    :rtype: Response
     """
     # Look up exception & get status code
     conf = current_app.config['FOCA'].exceptions

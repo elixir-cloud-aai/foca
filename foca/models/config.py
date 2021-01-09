@@ -14,17 +14,14 @@ import pymongo
 
 
 def validate_log_level_choices(level: int) -> int:
-    """Custom validation function for `pydantic` to ensure that a valid
+    """Custom validation function for ``pydantic`` to ensure that a valid
     logging level is configured.
 
-    Args:
-        level: Log level choice to be validated.
-
-    Returns:
-        Unmodified `level` value if validation succeeds.
-
-    Raises:
-        ValueError: Raised if validation fails.
+    :param level: Log level choice to be validated
+    :type level: int
+    :raises ValueError: Raised if validation fails
+    :return: Unmodified ``level`` value if validation succeeds
+    :rtype: int
     """
     choices = [0, 10, 20, 30, 40, 50]
     if level not in choices:
@@ -38,13 +35,13 @@ def get_by_path(
 ) -> Any:
     """Access a nested dictionary by sequence of keys.
 
-    Args:
-        obj: A (nested) dictionary.
-        key_sequence: A sequence of keys, to be applied from outside to inside,
-            pointing to the key (and descendants) to retrieve.
-
-    Returns:
-        Value of innermost key.
+    :param obj: A (nested) dictionary
+    :type obj: Dict
+    :param key_sequence: A sequence of keys, to be applied from outside to
+        inside, pointing to the key (and descendants) to retrieve
+    :type key_sequence: List[str]
+    :return: Value of innermost key
+    :rtype: Any
     """
     return reduce(operator.getitem, key_sequence, obj)  # type: ignore
 
@@ -65,7 +62,8 @@ class ValidationMethodsEnum(Enum):
 
 class ValidationChecksEnum(Enum):
     """Values indicating how many JWT validation methods are required to
-    pass."""
+    pass.
+    """
     all = "all"
     any = "any"
 
@@ -85,7 +83,7 @@ class FOCABaseConfig(BaseModel):
     """FOCA Base Settings for Config"""
 
     class Config:
-        """Configuration for `pydantic` model class."""
+        """Configuration for :class:``pydantic`` model class."""
         extra = 'forbid'
         arbitrary_types_allowed = True
 
@@ -1141,5 +1139,5 @@ ng.StreamHandler', level=20, formatter='standard', stream='ext://sys.stderr')}\
     log: LogConfig = LogConfig()
 
     class Config:
-        """Configuration for `pydantic` model class."""
+        """Configuration for :class:``pydantic`` model class."""
         extra = 'allow'

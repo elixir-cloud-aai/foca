@@ -18,15 +18,13 @@ logger = logging.getLogger(__name__)
 
 
 def validate_token(token: str) -> Dict:
-    """
-    Validate JSON Web Token (JWT) Bearer token.
+    """Validate JSON Web Token (JWT) Bearer token.
 
-    Returns:
-        Token information.
-
-    Raises:
-        connexion.exceptions.Unauthorized: Raised if JWT could not be
-            successfully validated.
+    :param token:  JSON Web Token (JWT)
+    :type token: str
+    :raises Unauthorized: Raised if JWT could not be successfully validated
+    :return: Token information
+    :rtype: Dict
     """
     # Set parameters defined by OpenID Connect specification
     # Cf. https://openid.net/specs/openid-connect-discovery-1_0.html
@@ -138,18 +136,20 @@ def validate_jwt_userinfo(
     """Validate JSON Web Token (JWT) via an OpenID Connect-compliant
     identity provider's user info endpoint.
 
-    Args:
-        token: JSON Web Token (JWT).
-        url: URL to OpenID Connect identity provider's user info endpoint.
-        header_name: Name of the request header field at which the service is
-            expecting the JWT. Cf. `prefix`.
-        prefix: Prefix that the app expects to precede the JWT, separated
-            by whitespace. Together, prefix and JWT constitute the value of
-            the request header field specified by `--header-name`.
-
-    Raises:
-        requests.exceptions.ConnectionError: Raised if the identity provider's
-            user info or configuration endpoints could not be reached.
+    :param token: JSON Web Token (JWT)
+    :type token: str
+    :param url: URL to OpenID Connect identity provider's user info endpoint
+    :type url: str
+    :param header_name: Name of the request header field at which the service
+        is expecting the JWT. Cf. ``prefix``, defaults to ``'Authorization'``
+    :type header_name: str, optional
+    :param prefix: Prefix that the app expects to precede the JWT, separated
+        by whitespace. Together, prefix and JWT constitute the value of the
+        request header field specified by ``--header-name``, defaults to
+        ``'Bearer'``
+    :type prefix: str, optional
+    :raises ConnectionError: Raised if the identity provider's user info or
+        configuration endpoints could not be reached
     """
     logger.debug(f"Issuer's user info endpoint URL: {url}")
     headers = {f"{header_name}": f"{prefix} {token}"}
@@ -173,30 +173,33 @@ def validate_jwt_public_key(
     """Validate JSON Web Token (JWT) via an OpenID Connect-compliant
     identity provider's public key.
 
-    Args:
-        token: JSON Web Token (JWT).
-        url: URL to OpenID Connect identity provider's public keys endpoint.
-        algorithms: Lists the JWT-signing algorithms supported by the app.
-        add_key_to_claims: Whether to allow the application to add the identity
-            provider's corresponding JSON Web Key (JWK), in PEM format, to the
-            dictionary of claims when handling requests to
-            `@jwt_validation`-decorated endpoints.
-        audience: List of audiences that the app identifies itself with. If
-            specified, JSON Web Tokens (JWT) that do not contain any of the
-            specified audiences are rejected. Set to `None` to disable audience
-            validation.
-        allow_expired: Allow/disallow expired JSON Web Tokens (JWT).
-        claim_key_id: The JSON Web Token (JWT) claim used to specify the
-            identifier of the JSON Web Key (JWK) used to issue that token.
-
-    Returns:
-        Dictionary of JWT claims, or an empty dictionary if claims could not
-            be successfully decoded.
-
-    Raises:
-        KeyError: Raised if used JSON Web Key (JWK) identifer was not found
-            among public JWK set.
-        Unauthorized: Raised if token could not be decoded.
+    :param token: JSON Web Token (JWT)
+    :type token: str
+    :param url: URL to OpenID Connect identity provider's public keys endpoint
+    :type url: str
+    :param algorithms: Lists the JWT-signing algorithms supported by the app,
+        defaults to ``['RS256']``
+    :type algorithms: Iterable[str], optional
+    :param add_key_to_claims: Whether to allow the application to add the
+        identity provider's corresponding JSON Web Key (JWK), in PEM format,
+        to the dictionary of claims when handling requests to
+        ``@jwt_validation``-decorated endpoints, defaults to ``True``
+    :type add_key_to_claims: bool, optional
+    :param audience: List of audiences that the app identifies itself with. If
+        specified, JSON Web Tokens (JWT) that do not contain any of the
+        specified audiences are rejected. Set to ``None`` to disable audience
+        validation, defaults to ``None``
+    :type audience: Optional[Iterable[str]], optional
+    :param allow_expired: Allow/disallow expired JSON Web Tokens (JWT),
+        defaults to ``False``
+    :type allow_expired: bool, optional
+    :param claim_key_id: The JSON Web Token (JWT) claim used to specify the
+        identifier of the JSON Web Key (JWK) used to issue that token, defaults
+        to ``'kid'``
+    :type claim_key_id: str, optional
+    :raises KeyError: Raised if used JSON Web Key (JWK) identifer was not found
+        among public JWK set
+    :raises Unauthorized: Raised if token could not be decoded
     """
     logger.debug(f"Issuer's JWK set endpoint URL: {url}")
 
@@ -286,19 +289,22 @@ def get_public_keys(
 ) -> Dict[str, RSAPublicKey]:
     """Obtain the identity provider's public JSON Web Key (JWK) set.
 
-    Args:
-        url: Endpoint providing the identity provider's JSON Web Key (JWK) set.
-        pem: Whether public JSON Web Keys (JWK) shall be returned in Privacy
-            Enhanced-Mail (PEM) format rather than as JSON dumps.
-        claim_key_id: The JWT claim encoding a JSON Web Key (JWK) identifier.
-        claim_keys: The JSON Web Key (JWK)
-
-    Returns:
-        JSON Web Key (JWK) public keys mapped to their identifiers.
-
-    Raises:
-        requests.exceptions.ConnectionError: Raised if the identity provider's
-            JWK set or configuration could not be reached.
+    :param url: Endpoint providing the identity provider's JSON Web Key (JWK)
+        set
+    :type url: str
+    :param pem: Whether public JSON Web Keys (JWK) shall be returned in
+        Privacy Enhanced-Mail (PEM) format rather than as JSON dumps, defaults
+        to ``False``
+    :type pem: bool, optional
+    :param claim_key_id: The JWT claim encoding a JSON Web Key (JWK)
+        identifier, defaults to ``'kid'``
+    :type claim_key_id: str, optional
+    :param claim_keys: The JSON Web Key (JWK), defaults to ``'keys'``
+    :type claim_keys: str, optional
+    :raises ConnectionError: Raised if the identity provider's JWK set or
+        configuration could not be reached
+    :return: JSON Web Key (JWK) public keys mapped to their identifiers
+    :rtype: Dict[str, RSAPublicKey]
     """
     # Get JWK sets from identity provider
     try:

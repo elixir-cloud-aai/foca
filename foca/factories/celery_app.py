@@ -13,11 +13,10 @@ logger = logging.getLogger(__name__)
 def create_celery_app(app: Flask) -> Celery:
     """Create and configure Celery app.
 
-    Args:
-        app: Flask application.
-
-    Returns:
-        Celery application.
+    :param app: Flask application
+    :type app: Flask
+    :return: Celery application
+    :rtype: Celery
     """
     conf = app.config['FOCA'].jobs
 
