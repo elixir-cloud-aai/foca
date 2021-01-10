@@ -110,6 +110,7 @@ class ServerConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> ServerConfig(
         ...     host="0.0.0.0",
@@ -165,26 +166,26 @@ class ExceptionConfig(FOCABaseConfig):
         during the app context are handled, it is strongly advised to add the
         catch-all exception ``Exception``. If missing, any exceptions not
         listed will only provoke an empty JSON response.
-    logging: Specifies if and how exception details should be logged. One of:
-
+    :var logging: Specifies if and how exception details should be logged. One
+        of:
             * ``oneline``: Exception, including traceback, is logged on a
-            single line.
+                single line.
             * ``minimal``: Only the exception title and message are logged on
-            a single line.
+                a single line.
             * ``regular``: The exception is logged with the entire traceback
-            stack, generally on multiple lines.
+                stack, generally on multiple lines.
             * ``none``: Exception details are not logged at all.
-
         Note that unless ``none`` is specified, a JSON representation of the
         error, as defined in ``exceptions``, and including _all_ members,
         unaffected by ``public_members`` and ``private_members`` filters, will
         be logged on an additional line.
-    mapping: The actual referenced dictionary from ``exceptions``, populated
-        by FOCA.
+    :var mapping: The actual referenced dictionary from ``exceptions``,
+        populated by FOCA.
 
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> ExceptionConfig()
         ExceptionConfig(required_members=[['title'], ['status']], extension_me\
@@ -388,12 +389,13 @@ class SpecConfig(FOCABaseConfig):
         https://swagger.io/specification/v2/#securityDefinitionsObject. For
         OpenAPI 3.x, see
         https://swagger.io/docs/specification/authentication/.
-    connexion: Keyword arguments passed through to the ``add_api()`` method
-        in Connexion's ``connexion.apps.flask_app`` module.
+    :var connexion: Keyword arguments passed through to the ``add_api()``
+        method in Connexion's ``connexion.apps.flask_app`` module.
 
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         (1)
         >>> SpecConfig(path="/my/path.yaml")
@@ -492,6 +494,7 @@ class APIConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> APIConfig(
         ...     specs=[SpecConfig(path='/path/to/specs.yaml')],
@@ -534,6 +537,7 @@ class AuthConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> AuthConfig(
         ...     add_key_to_claims=True,
@@ -573,6 +577,7 @@ class SecurityConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> SecurityConfig(
         ...     auth=AuthConfig(),
@@ -600,6 +605,7 @@ class IndexConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> IndexConfig(
         ...     keys={'name': -1, 'id': 1},
@@ -630,6 +636,7 @@ class CollectionConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> CollectionConfig(
         ...     indexes=[IndexConfig(keys={'last_name': 1})],
@@ -652,6 +659,7 @@ class DBConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> DBConfig(
         ...     collections={
@@ -679,6 +687,7 @@ class MongoConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> MongoConfig(
         ...     host="mongodb",
@@ -703,6 +712,7 @@ class JobsConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> JobsConfig(
         ...     host="rabbitmq",
@@ -728,6 +738,7 @@ class LogFormatterConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> LogFormatterConfig(
         ...     style="{",
@@ -755,6 +766,7 @@ class LogHandlerConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> LogHandlerConfig(
         ...     level=20,
@@ -786,6 +798,7 @@ class LogRootConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> LogRootConfig(
         ...     level=logging.INFO,
@@ -818,6 +831,7 @@ class LogConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> LogConfig(
         ...     version=1,
@@ -862,6 +876,7 @@ class Config(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
+    .. highlight:: python
     .. code-block:: python
         >>> Config()
         Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
