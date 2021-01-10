@@ -110,18 +110,18 @@ class ServerConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> ServerConfig(
-        ...     host="0.0.0.0",
-        ...     port=8080,
-        ...     debug=True,
-        ...     environment="development",
-        ...     testing=False,
-        ...     use_reloader=True,
-        ... )
-        ServerConfig(host='0.0.0.0', port=8080, debug=True, environment='devel\
-opment', testing=False, use_reloader=True)
+    :Example:
+
+    >>> ServerConfig(
+    ...     host="0.0.0.0",
+    ...     port=8080,
+    ...     debug=True,
+    ...     environment="development",
+    ...     testing=False,
+    ...     use_reloader=True,
+    ... )
+    ServerConfig(host='0.0.0.0', port=8080, debug=True, environment='developm\
+ent', testing=False, use_reloader=True)
     """
     host: str = "0.0.0.0"
     port: int = 8080
@@ -185,10 +185,10 @@ class ExceptionConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> ExceptionConfig()
-        ExceptionConfig(required_members=[['title'], ['status']], extension_me\
+    :Example:
+
+    >>> ExceptionConfig()
+    ExceptionConfig(required_members=[['title'], ['status']], extension_me\
 mbers=False, status_member=['status'], public_members=None, private_members=No\
 ne, exceptions='foca.errors.exceptions.exceptions', logging=<ExceptionLoggingE\
 num.oneline: 'oneline'>, mapping={<class 'Exception'>: {'title': 'Internal Ser\
@@ -395,43 +395,43 @@ class SpecConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        (1)
-        >>> SpecConfig(path="/my/path.yaml")
-        SpecConfig(path=['/my/path.yaml'], path_out='/my/path.modified.yaml', \
+    :Example:
+
+    (1)
+    >>> SpecConfig(path="/my/path.yaml")
+    SpecConfig(path=['/my/path.yaml'], path_out='/my/path.modified.yaml', \
 append=None, add_operation_fields=None, add_security_fields=None, disable_auth\
 =False, connexion=None)
 
-        (2)
-        >>> SpecConfig(
-        ...     path=["/path/to/specs.yaml", "/path/to/add_specs.yaml"],
-        ...     path_out="/path/to/specs.modified.yaml",
-        ...     append=[
-        ...         {
-        ...             "security": {
-        ...                 "jwt": {
-        ...                     "type": "apiKey",
-        ...                     "name": "Authorization",
-        ...                     "in": "header",
-        ...                 }
-        ...             }
-        ...         },
-        ...         {
-        ...             "my_other_root_field": "some_value",
-        ...         },
-        ...     ],
-        ...     add_operation_fields = {
-        ...         "x-swagger-router-controller": "controllers.my_specs",
-        ...         "x-some-other-custom-field": "some_value",
-        ...     },
-        ...     add_security_fields = {
-        ...         "x-apikeyInfoFunc": "security.auth.validate_token",
-        ...         "x-some-other-custom-field": "some_value",
-        ...     },
-        ...     disable_auth = False
-        ... )
-        SpecConfig(path=['/path/to/specs.yaml', '/path/to/add_specs.yaml'], pa\
+    (2)
+    >>> SpecConfig(
+    ...     path=["/path/to/specs.yaml", "/path/to/add_specs.yaml"],
+    ...     path_out="/path/to/specs.modified.yaml",
+    ...     append=[
+    ...         {
+    ...             "security": {
+    ...                 "jwt": {
+    ...                     "type": "apiKey",
+    ...                     "name": "Authorization",
+    ...                     "in": "header",
+    ...                 }
+    ...             }
+    ...         },
+    ...         {
+    ...             "my_other_root_field": "some_value",
+    ...         },
+    ...     ],
+    ...     add_operation_fields = {
+    ...         "x-swagger-router-controller": "controllers.my_specs",
+    ...         "x-some-other-custom-field": "some_value",
+    ...     },
+    ...     add_security_fields = {
+    ...         "x-apikeyInfoFunc": "security.auth.validate_token",
+    ...         "x-some-other-custom-field": "some_value",
+    ...     },
+    ...     disable_auth = False
+    ... )
+    SpecConfig(path=['/path/to/specs.yaml', '/path/to/add_specs.yaml'], pa\
 th_out='/path/to/specs.modified.yaml', append=[{'security': {'jwt': {'type': '\
 apiKey', 'name': 'Authorization', 'in': 'header'}}}, {'my_other_root_field': '\
 some_value'}], add_operation_fields={'x-swagger-router-controller': 'controlle\
@@ -494,12 +494,12 @@ class APIConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> APIConfig(
-        ...     specs=[SpecConfig(path='/path/to/specs.yaml')],
-        ... )
-        APIConfig(specs=[SpecConfig(path='/path/to/specs.yaml', path_out='/pat\
+    :Example:
+
+    >>> APIConfig(
+    ...     specs=[SpecConfig(path='/path/to/specs.yaml')],
+    ... )
+    APIConfig(specs=[SpecConfig(path='/path/to/specs.yaml', path_out='/pat\
 h/to/specs.modified.yaml', append=None, add_operation_fields=None, connexion=N\
 one)])
     """
@@ -537,19 +537,19 @@ class AuthConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> AuthConfig(
-        ...     add_key_to_claims=True,
-        ...     allow_expired=False,
-        ...     audience=None,
-        ...     claim_identity="sub",
-        ...     claim_issuer="iss",
-        ...     algorithms=["RS256"],
-        ...     validation_methods=["userinfo", "public_key"],
-        ...     validation_checks="all",
-        ... )
-        AuthConfig(required=False, add_key_to_claims=True, allow_expired=False\
+    :Example:
+
+    >>> AuthConfig(
+    ...     add_key_to_claims=True,
+    ...     allow_expired=False,
+    ...     audience=None,
+    ...     claim_identity="sub",
+    ...     claim_issuer="iss",
+    ...     algorithms=["RS256"],
+    ...     validation_methods=["userinfo", "public_key"],
+    ...     validation_checks="all",
+    ... )
+    AuthConfig(required=False, add_key_to_claims=True, allow_expired=False\
 , audience=None, claim_identity='sub', claim_issuer='iss', algorithms=['RS256'\
 ], validation_methods=[<ValidationMethodsEnum.userinfo: 'userinfo'>, <Validati\
 onMethodsEnum.public_key: 'public_key'>], validation_checks=<ValidationChecksE\
@@ -577,12 +577,12 @@ class SecurityConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> SecurityConfig(
-        ...     auth=AuthConfig(),
-        ... )
-        SecurityConfig(auth=AuthConfig(required=False, add_key_to_claims=True,\
+    :Example:
+
+    >>> SecurityConfig(
+    ...     auth=AuthConfig(),
+    ... )
+    SecurityConfig(auth=AuthConfig(required=False, add_key_to_claims=True,\
  allow_expired=False, audience=None, claim_identity='sub', claim_issuer='iss',\
  algorithms=['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'u\
 serinfo'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_check\
@@ -605,13 +605,13 @@ class IndexConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> IndexConfig(
-        ...     keys={'name': -1, 'id': 1},
-        ...     options={'unique': True, 'sparse': False}
-        ... )
-        IndexConfig(keys=[('name', -1), ('id', 1)], options={'unique': True, '\
+    :Example:
+
+    >>> IndexConfig(
+    ...     keys={'name': -1, 'id': 1},
+    ...     options={'unique': True, 'sparse': False}
+    ... )
+    IndexConfig(keys=[('name', -1), ('id', 1)], options={'unique': True, '\
 sparse': False})
     """
     keys: Optional[Dict] = None
@@ -636,12 +636,12 @@ class CollectionConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> CollectionConfig(
-        ...     indexes=[IndexConfig(keys={'last_name': 1})],
-        ... )
-        CollectionConfig(indexes=[IndexConfig(keys=[('last_name', 1)], options\
+    :Example:
+
+    >>> CollectionConfig(
+    ...     indexes=[IndexConfig(keys={'last_name': 1})],
+    ... )
+    CollectionConfig(indexes=[IndexConfig(keys=[('last_name', 1)], options\
 ={})], client=None)}, client=None)
     """
     indexes: Optional[List[IndexConfig]] = None
@@ -659,16 +659,16 @@ class DBConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> DBConfig(
-        ...     collections={
-        ...         'my_collection': CollectionConfig(
-        ...             indexes=[IndexConfig(keys={'last_name': 1})],
-        ...         ),
-        ...     },
-        ... )
-        DBConfig(collections={'my_collection': CollectionConfig(indexes=[Index\
+    :Example:
+
+    >>> DBConfig(
+    ...     collections={
+    ...         'my_collection': CollectionConfig(
+    ...             indexes=[IndexConfig(keys={'last_name': 1})],
+    ...         ),
+    ...     },
+    ... )
+    DBConfig(collections={'my_collection': CollectionConfig(indexes=[Index\
 Config(keys=[('last_name', 1)], options={})], client=None)}, client=None)
     """
     collections: Optional[Dict[str, CollectionConfig]] = None
@@ -687,13 +687,13 @@ class MongoConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> MongoConfig(
-        ...     host="mongodb",
-        ...     port=27017,
-        ... )
-        MongoConfig(host='mongodb', port=27017, dbs=None)
+    :Example:
+
+    >>> MongoConfig(
+    ...     host="mongodb",
+    ...     port=27017,
+    ... )
+    MongoConfig(host='mongodb', port=27017, dbs=None)
     """
     host: str = "mongodb"
     port: int = 27017
@@ -712,15 +712,15 @@ class JobsConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> JobsConfig(
-        ...     host="rabbitmq",
-        ...     port=5672,
-        ...     backend='rpc://',
-        ...     include=[],
-        ... )
-        JobsConfig(host='rabbitmq', port=5672, backend='rpc://', include=[])
+    :Example:
+
+    >>> JobsConfig(
+    ...     host="rabbitmq",
+    ...     port=5672,
+    ...     backend='rpc://',
+    ...     include=[],
+    ... )
+    JobsConfig(host='rabbitmq', port=5672, backend='rpc://', include=[])
     """
     host: str = "rabbitmq"
     port: int = 5672
@@ -738,13 +738,13 @@ class LogFormatterConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> LogFormatterConfig(
-        ...     style="{",
-        ...     format="[{asctime}: {levelname:<8}] {message} [{name}]",
-        ... )
-        LogFormatterConfig(class_formatter='logging.Formatter', style='{', for\
+    :Example:
+
+    >>> LogFormatterConfig(
+    ...     style="{",
+    ...     format="[{asctime}: {levelname:<8}] {message} [{name}]",
+    ... )
+    LogFormatterConfig(class_formatter='logging.Formatter', style='{', for\
 mat='[{asctime}: {levelname:<8}] {message} [{name}]')
     """
     class_formatter: str = Field(
@@ -766,14 +766,14 @@ class LogHandlerConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> LogHandlerConfig(
-        ...     level=20,
-        ...     formatter="standard",
-        ...     stream="ext://sys.stderr",
-        ... )
-        LogHandlerConfig(class_handler='logging.StreamHandler', level=20, form\
+    :Example:
+
+    >>> LogHandlerConfig(
+    ...     level=20,
+    ...     formatter="standard",
+    ...     stream="ext://sys.stderr",
+    ... )
+    LogHandlerConfig(class_handler='logging.StreamHandler', level=20, form\
 atter='standard', stream='ext://sys.stderr')
     """
     class_handler: str = Field(
@@ -798,13 +798,13 @@ class LogRootConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> LogRootConfig(
-        ...     level=logging.INFO,
-        ...     handlers=["console"],
-        ... )
-        LogRootConfig(level=20, handlers=['console'])
+    :Example:
+
+    >>> LogRootConfig(
+    ...     level=logging.INFO,
+    ...     handlers=["console"],
+    ... )
+    LogRootConfig(level=20, handlers=['console'])
     """
     level: int = 10
     handlers: Optional[List[str]] = ["console"]
@@ -831,20 +831,20 @@ class LogConfig(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> LogConfig(
-        ...     version=1,
-        ...     disable_existing_loggers=False,
-        ...     formatters={
-        ...         "standard": LogFormatterConfig()
-        ...     },
-        ...     handlers={
-        ...         "console": LogHandlerConfig()
-        ...     },
-        ...     root=LogRootConfig()
-        ... )
-        LogConfig(version=1, disable_existing_loggers=False, formatters={'stan\
+    :Example:
+
+    >>> LogConfig(
+    ...     version=1,
+    ...     disable_existing_loggers=False,
+    ...     formatters={
+    ...         "standard": LogFormatterConfig()
+    ...     },
+    ...     handlers={
+    ...         "console": LogHandlerConfig()
+    ...     },
+    ...     root=LogRootConfig()
+    ... )
+    LogConfig(version=1, disable_existing_loggers=False, formatters={'stan\
 dard': LogFormatterConfig(class_formatter='logging.Formatter', style='{', form\
 at='[{asctime}: {levelname:<8}] {message} [{name}]')}, handlers={'console': Lo\
 gHandlerConfig(class_handler='logging.StreamHandler', level=20, formatter='sta\
@@ -876,10 +876,10 @@ class Config(FOCABaseConfig):
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
 
-    .. highlight:: python
-    .. code-block:: python
-        >>> Config()
-        Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
+    :Example:
+
+    >>> Config()
+    Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
 ronment='development', testing=False, use_reloader=True), exceptions=Exception\
 Config(required_members=[['title'], ['status']], extension_members=False, stat\
 us_member=['status'], public_members=None, private_members=None, exceptions='f\
@@ -917,5 +917,5 @@ ng.StreamHandler', level=20, formatter='standard', stream='ext://sys.stderr')}\
     log: LogConfig = LogConfig()
 
     class Config:
-        """Configuration for :class:``pydantic`` model class."""
+        """Configuration for :class:`pydantic` model class."""
         extra = 'allow'
