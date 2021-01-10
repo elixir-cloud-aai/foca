@@ -126,13 +126,14 @@ def log_exception(
     :param exc: The exception to log
     :type exc: BaseException
     :param format: ``'oneline'``, ``'minimal'``, or ``'regular'``,
-        defaults to ``'oneline'``
+        defaults to ``'oneline'``:
 
-        * ``'oneline'`` - Exception, including traceback, is logged on a single
-            line.
-        * ``'minimal'`` - Only the exception title and message are logged.
-        * ``'regular'`` - The exception is logged with the entire traceback
-            stack, usually on multiple lines.
+            * :``'oneline'``: Exception, including traceback, is logged on a
+                single line.
+            * :``'minimal'``: Only the exception title and message are logged.
+            * :``'regular'``: The exception is logged with the entire traceback
+                stack, usually on multiple lines.
+
     :type format: str, optional
     """
     exc_str = ''

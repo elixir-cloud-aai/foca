@@ -158,7 +158,7 @@ class ExceptionConfig(FOCABaseConfig):
         classes as keys and a dictionary of JSON members (as per
         ``required_members`` and ``extension_members``) as values. Path should
         be a dot-separated path to the module containing the dictionary (which
-        needs to also contain imports for all listed expcetions), followed by
+        needs to also contain imports for all listed exceptions), followed by
         the name of the dictionary itself. For example, for
         ``myapp.errors.exc_dict``, the dictionary ``exc_dict`` would be
         attempted to be imported from module ``myapp.errors`` (must be
@@ -166,17 +166,18 @@ class ExceptionConfig(FOCABaseConfig):
         during the app context are handled, it is strongly advised to add the
         catch-all exception ``Exception``. If missing, any exceptions not
         listed will only provoke an empty JSON response.
-    :var logging: Specifies if and how exception details should be logged. One
-        of:
-            * ``oneline``: Exception, including traceback, is logged on a
+    :var logging: Specifies if and how exception details should be logged, one
+        of
+            * :``oneline``: Exception, including traceback, is logged on a
                 single line.
-            * ``minimal``: Only the exception title and message are logged on
+            * :``minimal``: Only the exception title and message are logged on
                 a single line.
-            * ``regular``: The exception is logged with the entire traceback
+            * :``regular``: The exception is logged with the entire traceback
                 stack, generally on multiple lines.
-            * ``none``: Exception details are not logged at all.
+            * :``none``: Exception details are not logged at all.
+
         Note that unless ``none`` is specified, a JSON representation of the
-        error, as defined in ``exceptions``, and including _all_ members,
+        error, as defined in ``exceptions``, and including ``_all_`` members,
         unaffected by ``public_members`` and ``private_members`` filters, will
         be logged on an additional line.
     :var mapping: The actual referenced dictionary from ``exceptions``,
@@ -397,13 +398,10 @@ class SpecConfig(FOCABaseConfig):
 
     :Example:
 
-    (1)
     >>> SpecConfig(path="/my/path.yaml")
     SpecConfig(path=['/my/path.yaml'], path_out='/my/path.modified.yaml', \
 append=None, add_operation_fields=None, add_security_fields=None, disable_auth\
 =False, connexion=None)
-
-    (2)
     >>> SpecConfig(
     ...     path=["/path/to/specs.yaml", "/path/to/add_specs.yaml"],
     ...     path_out="/path/to/specs.modified.yaml",
