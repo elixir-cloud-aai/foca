@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 
 class ConfigParser():
     """Parser for FOCA config files.
+
+    :var config_file: Path to config file in YAML format, defaults to ``None``
+    :type config_file: Optional[str], optional
+    :var format_logs: Whether log formatting should be configured, defaults to
+        ``True``
+    :type format_logs: bool, optional
     """
 
     def __init__(
@@ -22,13 +28,6 @@ class ConfigParser():
         format_logs: bool = True
     ) -> None:
         """Constructor method.
-
-        :param config_file: Path to config file in YAML format, defaults
-            to ``None``
-        :type config_file: Optional[str], optional
-        :param format_logs: Whether log formatting should be configured,
-            defaults to ``True``
-        :type format_logs: bool, optional
         """
         if config_file:
             self.config = Config(**self.parse_yaml(config_file))
