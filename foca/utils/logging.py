@@ -24,9 +24,9 @@ def log_traffic(
     :param log_response: Whether or not the response should be logged,
         defaults to ``True``
     :type log_response: bool, optional
-    :param log_level: Logging level, cf.
-        https://docs.python.org/3/library/logging.html#logging-levels, defaults
-        to ``logging.INFO``
+    :param log_level: Logging level, refer `here
+        <https://docs.python.org/3/library/logging.html#logging-levels>`_,
+        defaults to ``logging.INFO``
     :type log_level: int, optional
     :return: The decorated function
     :rtype: Callable

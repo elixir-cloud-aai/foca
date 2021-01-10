@@ -128,10 +128,10 @@ def log_exception(
     :param format: ``'oneline'``, ``'minimal'``, or ``'regular'``,
         defaults to ``'oneline'``:
 
-            * :``'oneline'``: Exception, including traceback, is logged on a
+            :``'oneline'``: Exception, including traceback, is logged on a
                 single line.
-            * :``'minimal'``: Only the exception title and message are logged.
-            * :``'regular'``: The exception is logged with the entire traceback
+            :``'minimal'``: Only the exception title and message are logged.
+            :``'regular'``: The exception is logged with the entire traceback
                 stack, usually on multiple lines.
 
     :type format: str, optional

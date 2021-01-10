@@ -78,7 +78,7 @@ class ConfigParser():
         """Parse and merge a set of YAML files. Merging is done
         iteratively, from the first, second to the nth argument.
         Dict items are updated, not overwritten. For exact
-        behavior cf. https://github.com/mewwts/addict.
+        behavior refer `this <https://github.com/mewwts/addict>`_.
 
         :return: Dictionary of merged YAML file contents, or ``None``
             if no arguments have been supplied; if only a single YAML

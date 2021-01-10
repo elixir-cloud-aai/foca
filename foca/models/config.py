@@ -167,14 +167,14 @@ class ExceptionConfig(FOCABaseConfig):
         catch-all exception ``Exception``. If missing, any exceptions not
         listed will only provoke an empty JSON response.
     :var logging: Specifies if and how exception details should be logged, one
-        of
-            * :``oneline``: Exception, including traceback, is logged on a
+        of:
+            :``oneline``: Exception, including traceback, is logged on a
                 single line.
-            * :``minimal``: Only the exception title and message are logged on
+            :``minimal``: Only the exception title and message are logged on
                 a single line.
-            * :``regular``: The exception is logged with the entire traceback
+            :``regular``: The exception is logged with the entire traceback
                 stack, generally on multiple lines.
-            * :``none``: Exception details are not logged at all.
+            :``none``: Exception details are not logged at all.
 
         Note that unless ``none`` is specified, a JSON representation of the
         error, as defined in ``exceptions``, and including ``_all_`` members,
@@ -359,26 +359,28 @@ class SpecConfig(FOCABaseConfig):
         stripped of the file extension and the suffix ``'.modified.yaml'`` is
         appended.
     :var append: Fields to be added/modified in the root of the specification
-        file. For OpenAPI 2.x, see https://swagger.io/specification/v2/. For
-        OpenAPI 3.x, see https://swagger.io/specification/.
+        file. For OpenAPI 2.x, refer
+        `this <https://swagger.io/specification/v2/>`_. For OpenAPI 3.x,
+        refer `this <https://swagger.io/specification/>`_.
     :var add_operation_fields: Fields to be added/modified to/in the Operation
         Objects of each Path Info Object. An example use case for this is the
         addition or replacement of the ``x-swagger-router-controller`` field.
-        For OpenAPI 2.x, see
-        https://swagger.io/specification/v2/#operation-object. For OpenAPI
-        3.x, see https://swagger.io/specification/#operation-object. Note that
+        For OpenAPI 2.x, refer `this
+        <https://swagger.io/specification/v2/#operation-object>`_. For OpenAPI
+        3.x, refer `this
+        <https://swagger.io/specification/#operation-object>`_. Note that
         different operation fields for different Operation Objects are
         currently not supported.
     :var add_security_fields: Fields to be added/modified to/in each definition
         or scheme in the ``securityDefintions`` (OpenAPI 2.x) or
         ``securitySchemes`` (OpenAPI 3.x) objects. An example use case for
         this is the addition or replacement of the ``x-tokenInfoFunc`` or
-        similar field. Cf.
-        https://connexion.readthedocs.io/en/latest/security.html. For
-        OpenAPI 2.x, see
-        https://swagger.io/specification/v2/#securityDefinitionsObject. For
-        OpenAPI 3.x, see
-        https://swagger.io/docs/specification/authentication/. Note that
+        similar field. Also refer `this
+        <https://connexion.readthedocs.io/en/latest/security.html>`_. For
+        OpenAPI 2.x, refer `this
+        <https://swagger.io/specification/v2/#securityDefinitionsObject>`_. For
+        OpenAPI 3.x, refer `this
+        <https://swagger.io/docs/specification/authentication/>`_. Note that
         different security fields for different security definitions/schemes
         are currently not supported.
     :var disable_auth: Disable JWT validation for endpoints configured to
@@ -386,10 +388,10 @@ class SpecConfig(FOCABaseConfig):
         effect if relevant security definitions/schemes are not defined.
         Setting is global. Use ``security`` property in OpenAPI specification
         to define this behavior separately for each Operation Object and/or
-        security definition/scheme. For OpenAPI 2.x, see
-        https://swagger.io/specification/v2/#securityDefinitionsObject. For
-        OpenAPI 3.x, see
-        https://swagger.io/docs/specification/authentication/.
+        security definition/scheme. For OpenAPI 2.x, refer `this
+        <https://swagger.io/specification/v2/#securityDefinitionsObject>`_. For
+        OpenAPI 3.x, refer `this
+        <https://swagger.io/docs/specification/authentication/>`_.
     :var connexion: Keyword arguments passed through to the ``add_api()``
         method in Connexion's ``connexion.apps.flask_app`` module.
 
@@ -595,10 +597,12 @@ class IndexConfig(FOCABaseConfig):
     :var keys: A key-direction dictionary indicating the field to be indexed
         and the sort order of that index. The sort order must be a valid
         MongoDB index specifier, one of the corresponding values of
-        ``pymongo.ASCENDING``,``pymongo.DESCENDING``, ``pymongo.GEO2D`` etc.
-        cf.:https://api.mongodb.com/python/current/api/pymongo/collection.html
-    :var options: A dictionary of any additional index creation options. cf.:
-        https://api.mongodb.com/python/1.9/api/pymongo/collection.html
+        ``pymongo.ASCENDING``, ``pymongo.DESCENDING``, ``pymongo.GEO2D`` etc.
+        For more info refer `this
+        <https://api.mongodb.com/python/current/api/pymongo/collection.html>`_.
+    :var options: A dictionary of any additional index creation options. For
+        more info refer `this
+        <https://api.mongodb.com/python/1.9/api/pymongo/collection.html>`_.
 
     :raises pydantic.ValidationError: The class was instantianted with an
         illegal data type.
