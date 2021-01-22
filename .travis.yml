@@ -22,7 +22,8 @@ script:
   - flake8
   - coverage run --source foca -m pytest
   - coveralls
-  - cd examples/petstore && docker-compose up --build -d
+  - cd examples/petstore && docker-compose up --build
+  - pytest ../../integration_tests.py
 
 jobs:
   include:
