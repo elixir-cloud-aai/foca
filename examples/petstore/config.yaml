@@ -29,9 +29,6 @@ security:
         audience: null
         claim_identity: sub
         claim_issuer: iss
-        claim_key_id: kid
-        header_name: Authorization
-        token_prefix: Bearer
         validation_methods:
           - userinfo
           - public_key

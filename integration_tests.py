@@ -6,7 +6,7 @@ class PetStore:
     Petstore Object containing useful functions and required url
     """
     def __init__(self):
-        self.url = "http://localhost/pets"
+        self.url = "http://localhost:80/pets"
 
     def generate_url(self, id):
         new_url = self.url + "/" + str(id)
