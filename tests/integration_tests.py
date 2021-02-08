@@ -34,7 +34,8 @@ def test_get_all_pets_request():
 
 def test_get_pet_by_id_request():
     """Test for `GET /pets/{id}` for successfully fetching a pet with a given
-    id."""
+    id.
+    """
     new_url = petstore.add_path_to_url("0")
     response = requests.get(new_url)
     assert response.status_code == 200
