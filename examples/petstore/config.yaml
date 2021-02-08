@@ -23,12 +23,12 @@ security:
     auth:
         required: False
         add_key_to_claims: True
-        algorithms:
-          - RS256
         allow_expired: False
         audience: null
         claim_identity: sub
         claim_issuer: iss
+        algorithms:
+          - RS256
         validation_methods:
           - userinfo
           - public_key

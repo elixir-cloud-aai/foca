@@ -637,8 +637,6 @@ class AuthConfig(FOCABaseConfig):
             are rejected. If `None`, audience validation is disabled.
         claim_identity: The JWT claim used to identify the sender.
         claim_issuer: The JWT claim used to identify the issuer.
-        claim_key_id: The JWT claim used to identify the JWK used when the JWT
-            was issued.
         algorithms: Lists the JWT-signing algorithms supported by the app.
         validation_methods: Lists the methods to be used to validate a JWT.
             Valid choices are `userinfo` and `public_key`. In the former case,
