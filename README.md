@@ -54,17 +54,17 @@ app = foca("path/to/my/app/config.yaml")  # returns a Connexion app instance
 
 (4) Start your [Flask][res-flask] app as usual.
 
-![Hint][img-hint] **Check out the [petstore example application][example]
-shipped with this repository to see FOCA in action!**
+![Hint][img-hint] _**Check out the [petstore example application][example]
+shipped with this repository to see FOCA in action!**_
 
 ## Configuration file
 
 In order to use FOCA functionalities, you must create a [YAML][res-yaml]
 configuration file that includes keyword sections reserved by FOCA.
 
-![Hint][img-hint] **In order to get you started writing your own app
+![Hint][img-hint] _**In order to get you started writing your own app
 configuration, you can copy the [**annotated template**][config-template]
-shipped with this repository and modify it.**
+shipped with this repository and modify it.**_
 
 For further information on the writing FOCA configuration files, read on.
 
@@ -177,7 +177,7 @@ question etc.
 [docs-models-log]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.LogConfig>
 [docs-models-security]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.SecurityConfig>
 [docs-models-server]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ServerConfig>
-[example]: examples/README.md
+[example]: examples/petstore/README.md
 [img-hint]: images/hint.svg
 [img-logo-banner]: images/logo-banner.svg
 [license]: LICENSE
