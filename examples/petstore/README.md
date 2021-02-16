@@ -65,7 +65,7 @@ Build and run services in detached/daemonized mode:
 docker-compose up -d --build
 ```
 
-> In case Docker complains about a port conflict, you will need to re-map the
+> In case Docker complains about port conflicts, you will need to re-map the
 > conflicting port(s) in the [Docker Compose config][app-docker-compose]. In
 > particular, for each of the services that failed to start because of a port
 > conflict, you will need to change the **first** of the two numbers listed
@@ -80,6 +80,8 @@ your browser, e.g.,:
 ```bash
 firefox http://localhost/ui  # or use your browser of choice
 ```
+
+> Mac users may need to replace `localhost` with `0.0.0.0`.
 
 ## Explore app
 
