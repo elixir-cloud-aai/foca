@@ -5,7 +5,9 @@ info:
   license:
     name: MIT
 servers:
-  - url: http://petstore.swagger.io/v1
+  - url: http://petstore.swagger.io/v2
+security:
+  - bearerAuth: []
 paths:
   /pets:
     get:
@@ -39,6 +41,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
     post:
       summary: Create a pet
       operationId: createPets
@@ -53,6 +57,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
   /pets/{petId}:
     get:
       summary: Info for a specific pet
@@ -80,6 +86,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   schemas:
     Pet:
       type: object

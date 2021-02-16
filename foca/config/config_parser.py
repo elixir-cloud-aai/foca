@@ -4,6 +4,7 @@ import logging
 from logging.config import dictConfig
 from typing import (Dict, Optional)
 
+from addict import Dict as Addict
 import yaml
 
 from foca.models.config import (Config, LogConfig)
@@ -74,3 +75,29 @@ class ConfigParser():
             raise OSError(
                 f"file '{conf}' could not be read"
             ) from e
+
+    @staticmethod
+    def merge_yaml(*args: str) -> Optional[Dict]:
+        """Parse and merge a set of YAML files.
+
+        Merging is done iteratively, from the first, second to the nth
+        argument. Dict items are updated, not overwritten. For exact behavior
+        cf. https://github.com/mewwts/addict.
+
+        Args:
+            *args: One or more paths to YAML files.
+
+        Returns:
+            Dictionary of merged YAML file contents, or `None` if no arguments
+            have been supplied; if only a single YAML file path is provided, no
+            merging is done.
+        """
+        args_list = list(args)
+        if not args_list:
+            return None
+        yaml_dict = Addict(ConfigParser.parse_yaml(args_list.pop(0)))
+
+        for arg in args_list:
+            yaml_dict.update(Addict(ConfigParser.parse_yaml(arg)))
+
+        return yaml_dict.to_dict()

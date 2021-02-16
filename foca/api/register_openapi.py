@@ -1,11 +1,9 @@
-"""Register OpenAPI specs with a Connexion app instance.
-"""
+"""Tests for modifying/registering OpenAPI specs."""
 
 import logging
 from typing import List
 
 from connexion import App
-from connexion.exceptions import InvalidSpecification
 import yaml
 
 from foca.models.config import SpecConfig
@@ -32,60 +30,81 @@ def register_openapi(
 
     Raises:
         OSError: File cannot be read from or written to.
-        InvalidSpecification: Specification file is not valid OpenAPI 2.x or
-            3.x.
         yaml.YAMLError: YAML cannot be (de)serialized.
     """
     # Iterate over OpenAPI specs
     for spec in specs:
-        spec_modified = False
-        logger.warning(spec)
-        spec_parsed = ConfigParser.parse_yaml(spec.path)
+
+        # Merge specs
+        spec_parsed = ConfigParser.merge_yaml(*spec.path)
+        logger.debug(f"Parsed spec: {spec.path}")
 
         # Add/replace root objects
         if spec.append is not None:
             for item in spec.append:
                 spec_parsed.update(item)
-            spec_modified = True
+            logger.debug(f"Appended spec: {spec.append}")
 
         # Add/replace fields to Operation Objects
         if spec.add_operation_fields is not None:
             for key, val in spec.add_operation_fields.items():
-                try:
-                    for path_item_object in spec_parsed['paths'].values():
-                        for operation_object in path_item_object.values():
-                            operation_object[key] = val
-                except KeyError:
-                    raise InvalidSpecification("invalid Operation Object")
-            spec_modified = True
+                for path_item_object in spec_parsed.get('paths', {}).values():
+                    for operation_object in path_item_object.values():
+                        operation_object[key] = val
+            logger.debug(
+                f"Added operation fields: {spec.add_operation_fields}"
+            )
+
+        # Add fields to security definitions/schemes
+        if not spec.disable_auth and spec.add_security_fields is not None:
+            for key, val in spec.add_security_fields.items():
+                # OpenAPI 2
+                sec_defs = spec_parsed.get('securityDefinitions', {})
+                for sec_def in sec_defs.values():
+                    sec_def[key] = val
+                # OpenAPI 3
+                sec_schemes = spec_parsed.get(
+                    'components', {'securitySchemes': {}}
+                ).get('securitySchemes', {})  # type: ignore
+                for sec_scheme in sec_schemes.values():
+                    sec_scheme[key] = val
+            logger.debug(f"Added security fields: {spec.add_security_fields}")
+
+        # Remove security definitions/schemes and fields
+        elif spec.disable_auth:
+            # Open API 2
+            spec_parsed.pop('securityDefinitions', None)
+            # Open API 3
+            spec_parsed.get('components', {}).pop('securitySchemes', None)
+            # Open API 2/3
+            spec_parsed.pop('security', None)
+            for path_item_object in spec_parsed.get('paths', {}).values():
+                for operation_object in path_item_object.values():
+                    operation_object.pop('security', None)
+            logger.debug("Removed security fields")
 
         # Write modified specs
-        if spec_modified:
-            try:
-                with open(spec.path_out, 'w') as out_file:  # type: ignore
-                    try:
-                        yaml.safe_dump(spec_parsed, out_file)
-                    except yaml.YAMLError as e:
-                        raise yaml.YAMLError(
-                            "could not encode modified specification"
-                        ) from e
-            except OSError as e:
-                raise OSError(
-                    "modified specification could not be written to file "
-                    f"'{spec.path_out}'"
-                ) from e
-            spec_use = spec.path_out
-        else:
-            spec_use = spec.path
+        try:
+            with open(spec.path_out, 'w') as out_file:  # type: ignore
+                yaml.safe_dump(spec_parsed, out_file)
+        except OSError as e:
+            raise OSError(
+                "Modified specification could not be written to file "
+                f"'{spec.path_out}'"
+            ) from e
+        except yaml.YAMLError as e:
+            raise yaml.YAMLError(
+                "Could not encode modified specification"
+            ) from e
+        logger.debug(f"Wrote specs to file: {spec.path_out}")
 
         # Attach specs to connexion App
-        if spec.connexion is None:
-            spec.connexion = {}
+        logger.debug(f"Modified specs: {spec_parsed}")
+        spec.connexion = {} if spec.connexion is None else spec.connexion
         app.add_api(
-            specification=spec_use,
-            **spec.dict()['connexion'],
+            specification=spec.path_out,
+            **spec.dict().get('connexion', {}),
         )
-
-        logger.info(f"API endpoints specified in '{spec.path_out}' added.")
+        logger.info(f"API endpoints added from spec: {spec.path_out}")
 
     return app

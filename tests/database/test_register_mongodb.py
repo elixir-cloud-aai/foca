@@ -32,8 +32,8 @@ DB_DICT_CUST_COLL = {
         'collections': {
             'my_collection': {
                 'indexes': [{
-                    'keys': [('indexed_field', 1)],
-                    'sparse': False
+                    'keys': {'indexed_field': 1},
+                    'options': {'sparse': False}
                 }]
             }
         }
@@ -47,7 +47,7 @@ MONGO_CONFIG_CUST_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_CUST_COLL)
 
 def test_create_mongo_client(monkeypatch):
     """When MONGO_USERNAME environement variable is NOT defined"""
-    monkeypatch.setenv("MONGO_USERNAME", None)
+    monkeypatch.setenv("MONGO_USERNAME", 'None')
     app = Flask(__name__)
     res = create_mongo_client(
         app=app,
@@ -105,6 +105,10 @@ def test_register_mongodb_cust_collections(monkeypatch):
     """Register MongoDB with collections and custom indexes"""
     monkeypatch.setattr(
         'pymongo.collection.Collection.create_index',
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        'pymongo.collection.Collection.drop_indexes',
         lambda *args, **kwargs: None,
     )
     app = Flask(__name__)

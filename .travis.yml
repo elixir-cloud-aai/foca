@@ -7,6 +7,9 @@ python:
   - "3.7"
   - "3.8"
 
+env:
+  - TRAVIS: true
+
 services:
 - docker
 
@@ -14,12 +17,21 @@ services:
 # this ensures that the pipeline is triggered for internal pushes,
 # PRs from forks and pushes to existing PRs from forks
 if: (type == push) OR (type == pull_request AND fork == true)
+branches:
+  only:
+    - master
+    - dev
 
 script:
   - flake8
   - coverage run --source foca -m pytest
   - coveralls
-  - cd examples/petstore && docker-compose up --build -d
+  - |
+    cd "${TRAVIS_BUILD_DIR}/examples/petstore" && \
+    docker-compose up --build -d && \
+    cd "${TRAVIS_BUILD_DIR}"
+  - sleep 10
+  - pytest "${TRAVIS_BUILD_DIR}/tests/integration_tests.py"
 
 jobs:
   include:
