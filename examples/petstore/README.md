@@ -65,6 +65,15 @@ Build and run services in detached/daemonized mode:
 docker-compose up -d --build
 ```
 
+> In case Docker complains about a port conflict, you will need to re-map the
+> conflicting port(s) in the [Docker Compose config][app-docker-compose]. In
+> particular, for each of the services that failed to start because of a port
+> conflict, you will need to change the **first** of the two numbers listed
+> below the corresponding `ports` keyword. Note that if you change the mapped
+> port for the `app` service you will need to manually append it to `localhost`
+> when you access the API (or the Swagger UI) in subsequent steps, like, e.g.,
+> so: `http://localhost:8080/`.
+
 That's it, you can now visit the application's [Swagger UI][res-swagger-ui] in
 your browser, e.g.,:
 
