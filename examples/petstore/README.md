@@ -1,6 +1,6 @@
 # FOCA-Petstore
 
-Dockerized [petstore][res-petstore] example application implemented using
+Dockerized [Petstore][res-petstore] example application implemented using
 [FOCA][res-foca].
 
 ## Description
@@ -14,7 +14,7 @@ FOCA makes sure that
 * the returned app instance contains all [configuration parameters][app-config]
 * FOCA configuration parameters are validated
 * requests and responses sent to/from the API endpoints configured in the
-  [petstore][app-specs] [OpenAPI][res-openapi] specification are validated
+  [Petstore][app-specs] [OpenAPI][res-openapi] specification are validated
 * a [MongoDB][res-mongo-db] collection to store pets in is registered with The
   app
 * [CORS][res-cors] is enabled
@@ -22,8 +22,8 @@ FOCA makes sure that
   problems)
 
 Apart from writing the configuration file, all that was left for us to do to
-set up this example app was to write a _very_ simple app [entrypoint
-file][app-entrypoint], implement the [endpoint controller
+set up this example app was to write a _very_ simple app [entry point
+module][app-entry-point], implement the [endpoint controller
 logic][app-controllers] and prepare the [`Dockerfile`][app-dockerfile] and
 [Docker Compose][res-docker-compose] [configuration][app-docker-compose] for
 easy shipping/installation!
@@ -122,8 +122,8 @@ of the following:
 
 * [FOCA configuration file][app-config]
 * [API specification][app-specs]
-* [Endpoint controller file][app-controllers]
-* [Application entrypoint][app-entrypoint]
+* [Endpoint controller module][app-controllers]
+* [Main application module][app-entrypoint]
 * [Dockerfile][app-dockerfile]
 * [Docker Compose configuration][app-docker-compose]
 

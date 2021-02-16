@@ -54,7 +54,7 @@ app = foca("path/to/my/app/config.yaml")  # returns a Connexion app instance
 
 (4) Start your [Flask][res-flask] app as usual.
 
-![Hint][img-hint] _**Check out the [petstore example application][example]
+![Hint][img-hint] _**Check out the [Petstore example application][example]
 shipped with this repository to see FOCA in action!**_
 
 ## Configuration file
@@ -123,7 +123,7 @@ context][res-flask-app-context] as attributes of `current_app.config['FOCA']`.
 ### More examples
 
 Apart from the [annotated template][config-template], you can also check
-out the [configuration file][config-petstore] of the [petstore app][example]
+out the [configuration file][config-petstore] of the [Petstore app][example]
 for another example.
 
 ![Hint][img-hint] _**Or why not explore [apps that already use
@@ -185,7 +185,7 @@ question etc.
 [license]: LICENSE
 [license-apache]: <https://www.apache.org/licenses/LICENSE-2.0>
 [org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
-[res-celery]: <http://celeryproject.org/>
+[res-celery]: <http://docs.celeryproject.org/>
 [res-connexion]: <https://github.com/zalando/connexion>
 [res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
 [res-elixir-cloud-coc]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md>
