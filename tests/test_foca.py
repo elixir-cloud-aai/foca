@@ -6,7 +6,6 @@ import shutil
 import os
 
 from connexion import App
-from connexion.exceptions import InvalidSpecification
 from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -15,7 +14,7 @@ from yaml import safe_load, safe_dump, YAMLError
 from foca.foca import foca
 
 DIR = pathlib.Path(__file__).parent / "test_files"
-PATH_SPECS_2_YAML = str(DIR / "openapi_2_petstore.yaml")
+PATH_SPECS_2_YAML_ORIGINAL = str(DIR / "openapi_2_petstore.original.yaml")
 PATH_SPECS_2_YAML_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
 PATH_SPECS_INVALID_OPENAPI = str(DIR / "invalid_openapi_2.yaml")
 EMPTY_CONF = str(DIR / "empty_conf.yaml")
@@ -80,16 +79,12 @@ def test_foca_invalid_jobs():
         foca(INVALID_JOBS_CONF)
 
 
-def test_foca_invalid_api():
-    """Test foca(); invalid api field (Invalid Connexion spec)"""
-    temp_file = create_temporary_copy(API_CONF, PATH_SPECS_INVALID_OPENAPI)
-    with pytest.raises(InvalidSpecification):
-        foca(temp_file)
-
-
 def test_foca_api():
     """Ensure foca() returns a Connexion app instance; valid api field"""
-    temp_file = create_temporary_copy(API_CONF, PATH_SPECS_2_YAML)
+    temp_file = create_temporary_copy(
+        API_CONF,
+        PATH_SPECS_2_YAML_ORIGINAL,
+    )
     app = foca(temp_file)
     assert isinstance(app, App)
     os.remove(temp_file)

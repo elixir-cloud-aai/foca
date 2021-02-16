@@ -1,0 +1,26 @@
+paths:
+  /pets/{petId}:
+    put:
+      summary: Modifies the pet with the given id.
+      operationId: putPetsById
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: The id of the pet to retrieve
+          type: string
+        - in: body
+          name: bdy
+          description: updated content
+          required: true
+          schema:
+            $ref: "#/definitions/Pets"
+      responses:
+        "200":
+          description: Expected response to a valid request
+          schema:
+            $ref: '#/definitions/Pets'
+        default:
+          description: unexpected error
+          schema:
+            $ref: '#/definitions/Error'

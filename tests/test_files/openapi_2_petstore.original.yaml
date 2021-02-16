@@ -12,6 +12,14 @@ consumes:
   - application/json
 produces:
   - application/json
+securityDefinitions:
+  authToken:
+    type: apiKey
+    name: Authorization
+    in: header
+security:
+  - {}
+  - authToken: []
 paths:
   /pets:
     get:
@@ -39,6 +47,9 @@ paths:
           description: unexpected error
           schema:
             $ref: '#/definitions/Error'
+      security:
+        - {}
+        - authToken: []
     post:
       summary: Create a pet
       operationId: createPets
@@ -51,6 +62,9 @@ paths:
           description: unexpected error
           schema:
             $ref: '#/definitions/Error'
+      security:
+        - {}
+        - authToken: []
   /pets/{petId}:
     get:
       summary: Info for a specific pet

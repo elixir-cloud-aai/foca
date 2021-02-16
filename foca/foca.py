@@ -9,7 +9,7 @@ from connexion import App
 from foca.api.register_openapi import register_openapi
 from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
-from foca.errors.errors import register_error_handlers
+from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.factories.celery_app import create_celery_app
 from foca.security.cors import enable_cors
@@ -42,8 +42,8 @@ def foca(config: Optional[str] = None) -> App:
     logger.info(f"Connexion app created.")
 
     # Register error handlers
-    cnx_app = register_error_handlers(cnx_app)
-    logger.info(f"Error handlers registered.")
+    cnx_app = register_exception_handler(cnx_app)
+    logger.info(f"Error handler registered.")
 
     # Enable cross-origin resource sharing
     enable_cors(cnx_app.app)
