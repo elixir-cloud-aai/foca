@@ -69,7 +69,7 @@ That's it, you can now visit the application's [Swagger UI][res-swagger-ui] in
 your browser, e.g.,:
 
 ```bash
-firefox http://localhost/ui
+firefox http://localhost/ui  # or use your browser of choice
 ```
 
 ## Explore app
