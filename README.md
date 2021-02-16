@@ -91,7 +91,9 @@ db:
 
 > This config would create a MongoDB database `myDb` with collection
 > `myCollection` in your database server. The collection would be indexed by
-> key `id`, which is required to be unique.
+> key `id`, which is required to be unique. To register another collection,
+> simply add another named `CollectionConfig` object as a child to
+> `collections`, e.g., `yourCollection`, with its own `indexes` etc.
 
 If you do _not_ want to register a database collection, you can simply omit
 that section, but note that once a section is included, it _MUST_ adhere
