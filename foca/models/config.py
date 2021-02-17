@@ -708,6 +708,22 @@ num.all: 'all'>)
     ]
     validation_checks: ValidationChecksEnum = ValidationChecksEnum.all
 
+class CORSConfig(FOCABaseConfig):
+    """Model for Cross Origin Resource Sharing configuration.
+
+    Args:
+        enabled: Enable/Disable the CORS for the microservice.
+
+    Attributes:
+        enabled: Enable/Disable the CORS for the microservice.
+
+    Example:
+        >>> CORSConfig(
+        ...     enabled=True,
+        ... )
+        CORSConfig(enabled=True)
+    """
+    enabled: bool = True
 
 class SecurityConfig(FOCABaseConfig):
     """Model for list the Security configuration.
@@ -733,6 +749,7 @@ serinfo'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_check\
 s=<ValidationChecksEnum.all: 'all'>))
     """
     auth: AuthConfig = AuthConfig()
+    cors: CORSConfig = CORSConfig()
 
 
 class IndexConfig(FOCABaseConfig):
