@@ -708,6 +708,7 @@ num.all: 'all'>)
     ]
     validation_checks: ValidationChecksEnum = ValidationChecksEnum.all
 
+
 class CORSConfig(FOCABaseConfig):
     """Model for Cross Origin Resource Sharing configuration.
 
@@ -724,6 +725,7 @@ class CORSConfig(FOCABaseConfig):
         CORSConfig(enabled=True)
     """
     enabled: bool = True
+
 
 class SecurityConfig(FOCABaseConfig):
     """Model for list the Security configuration.

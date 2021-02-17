@@ -46,11 +46,9 @@ def foca(config: Optional[str] = None) -> App:
     logger.info(f"Error handler registered.")
 
     # Enable cross-origin resource sharing
-    if(conf.security.cors.enabled == True):
+    if(conf.security.cors.enabled is True):
         enable_cors(cnx_app.app)
         logger.info(f"CORS enabled.")
-    else:
-        logger.info(f"CORS disabled")
 
     # Register OpenAPI specs
     if conf.api.specs:
