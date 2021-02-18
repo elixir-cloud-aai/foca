@@ -709,6 +709,24 @@ num.all: 'all'>)
     validation_checks: ValidationChecksEnum = ValidationChecksEnum.all
 
 
+class CORSConfig(FOCABaseConfig):
+    """Model for Cross Origin Resource Sharing (CORS) configuration.
+
+    Args:
+        enabled: Enable/disable the CORS for the application.
+
+    Attributes:
+        enabled: Enable/disable the CORS for the application.
+
+    Example:
+        >>> CORSConfig(
+        ...     enabled=True,
+        ... )
+        CORSConfig(enabled=True)
+    """
+    enabled: bool = True
+
+
 class SecurityConfig(FOCABaseConfig):
     """Model for list the Security configuration.
 
@@ -730,9 +748,10 @@ class SecurityConfig(FOCABaseConfig):
  allow_expired=False, audience=None, claim_identity='sub', claim_issuer='iss',\
  algorithms=['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'u\
 serinfo'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_check\
-s=<ValidationChecksEnum.all: 'all'>))
+s=<ValidationChecksEnum.all: 'all'>), cors=CORSConfig(enabled=True))
     """
     auth: AuthConfig = AuthConfig()
+    cors: CORSConfig = CORSConfig()
 
 
 class IndexConfig(FOCABaseConfig):
@@ -1123,12 +1142,13 @@ rityConfig(auth=AuthConfig(required=False, add_key_to_claims=True, allow_expir\
 ed=False, audience=None, claim_identity='sub', claim_issuer='iss', algorithms=\
 ['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'userinfo'>, <\
 ValidationMethodsEnum.public_key: 'public_key'>], validation_checks=<Validatio\
-nChecksEnum.all: 'all'>)), db=None, jobs=None, log=LogConfig(version=1, disabl\
-e_existing_loggers=False, formatters={'standard': LogFormatterConfig(class_for\
-matter='logging.Formatter', style='{', format='[{asctime}: {levelname:<8}] {me\
-ssage} [{name}]')}, handlers={'console': LogHandlerConfig(class_handler='loggi\
-ng.StreamHandler', level=20, formatter='standard', stream='ext://sys.stderr')}\
-, root=LogRootConfig(level=10, handlers=['console'])))
+nChecksEnum.all: 'all'>), cors=CORSConfig(enabled=True)), db=None, jobs=None, \
+log=LogConfig(version=1, disable_existing_loggers=False, formatters={'standard\
+': LogFormatterConfig(class_formatter='logging.Formatter', style='{', format='\
+[{asctime}: {levelname:<8}] {message} [{name}]')}, handlers={'console': LogHan\
+dlerConfig(class_handler='logging.StreamHandler', level=20, formatter='standar\
+d', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['conso\
+le'])))
     """
     server: ServerConfig = ServerConfig()
     exceptions: ExceptionConfig = ExceptionConfig()

@@ -26,6 +26,8 @@ INVALID_LOG_CONF = str(DIR / "conf_invalid_log_level.yaml")
 JOBS_CONF = str(DIR / "conf_jobs.yaml")
 INVALID_JOBS_CONF = str(DIR / "conf_invalid_jobs.yaml")
 API_CONF = str(DIR / "conf_api.yaml")
+VALID_CORS_DIS_CONF = str(DIR / "conf_valid_cors_disabled.yaml")
+VALID_CORS_ENA_CONF = str(DIR / "conf_valid_cors_enabled.yaml")
 
 
 def create_temporary_copy(path, CONF):
@@ -104,3 +106,15 @@ def test_foca_invalid_db():
     """Test foca(); invalid db field"""
     with pytest.raises(ValidationError):
         foca(INVALID_DB_CONF)
+
+
+def test_foca_CORS_enabled():
+    """Ensures CORS is enabled for Microservice"""
+    app = foca(VALID_CORS_ENA_CONF)
+    assert app.app.config['FOCA'].security.cors.enabled is True
+
+
+def test_foca_CORS_disabled():
+    """Ensures CORS is disabled if user explicitly mentions"""
+    app = foca(VALID_CORS_DIS_CONF)
+    assert app.app.config['FOCA'].security.cors.enabled is False

@@ -1,0 +1,15 @@
+security:
+    auth:
+        add_key_to_claims: True
+        algorithms:
+          - RS256
+        allow_expired: False
+        audience: null
+        claim_identity: sub
+        claim_issuer: iss
+        validation_methods:
+          - userinfo
+          - public_key
+        validation_checks: all
+    cors:
+      enabled: True
