@@ -16,18 +16,21 @@ ENV PACKAGES openssl git build-essential python3-dev curl jq
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
 # Install Python dependencies
-WORKDIR /app
-COPY ./requirements.txt .
+COPY requirements.txt setup.py README.md ./
 RUN pip install \
-    --no-warn-script-location \
-    --prefix="/install" \
-    -r requirements.txt && \
-    pip install \
-    --no-warn-script-location \
-    --prefix="/install" \
-    https://github.com/elixir-cloud-aai/foca/archive/dev.zip
+        --no-warn-script-location \
+        --prefix="/install" \
+        -r requirements.txt
+
+# Install FOCA
+COPY setup.py README.md ./
+COPY foca/ ./foca/
+RUN pip install . \
+        --no-warn-script-location \
+        --prefix="/install"
 
 # Final image
 FROM base

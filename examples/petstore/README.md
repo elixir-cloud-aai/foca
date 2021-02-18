@@ -139,6 +139,22 @@ of the following:
 * [Dockerfile][app-dockerfile]
 * [Docker Compose configuration][app-docker-compose]
 
+### Modifying FOCA
+
+In case you want to change FOCA itself and want the code changes to be
+reflected in the Petstore app, you will need to manually rebuild the FOCA
+container image like so:
+
+```bash
+docker build -t elixircloud/foca:latest .  # execute in the FOCA root directory
+```
+
+Then re-build and start the Petstore app as described before:
+
+```bash
+docker-compose up --build -d  # execute in _this_ directory
+```
+
 [app-config]: config.yaml
 [app-controllers]: controllers.py
 [app-dockerfile]: Dockerfile
