@@ -84,15 +84,6 @@ firefox http://localhost/ui  # or use your browser of choice
 
 > Mac users may need to replace `localhost` with `0.0.0.0`.
 
-> In the case you want to change your local foca image you first need to re-build the
-> local docker image of the foca image by command in root of foca directory.
-```bash
-docker build -t elixircloud/foca:latest .
-```
-> Then re-building your petstore app by command in root of petstore example directory.
-```bash
-docker-compose up --build
-```
 ## Explore app
 
 In the [Swagger UI][res-swagger-ui], you may use the `GET`/`POST` endpoints by
@@ -147,6 +138,22 @@ of the following:
 * [Main application module][app-entrypoint]
 * [Dockerfile][app-dockerfile]
 * [Docker Compose configuration][app-docker-compose]
+
+### Modifying FOCA
+
+In case you want to change FOCA itself and want the code changes to be
+reflected in the Petstore app, you will need to manually rebuild the FOCA
+container image like so:
+
+```bash
+docker build -t elixircloud/foca:latest .  # execute in the FOCA root directory
+```
+
+Then re-build and start the Petstore app as described before:
+
+```bash
+docker-compose up --build -d  # execute in _this_ directory
+```
 
 [app-config]: config.yaml
 [app-controllers]: controllers.py
