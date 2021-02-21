@@ -18,13 +18,13 @@ def validate_log_level_choices(level: int) -> int:
     logging level is configured.
 
     Args:
-        level: Log level choice to be validated.
-
-    Returns:
-        Unmodified `level` value if validation succeeds.
+        level (int): Log level choice to be validated.
 
     Raises:
         ValueError: Raised if validation fails.
+
+    Returns:
+        int: Unmodified ``level`` value if validation succeeds.
     """
     choices = [0, 10, 20, 30, 40, 50]
     if level not in choices:
@@ -39,12 +39,13 @@ def get_by_path(
     """Access a nested dictionary by sequence of keys.
 
     Args:
-        obj: A (nested) dictionary.
-        key_sequence: A sequence of keys, to be applied from outside to inside,
-            pointing to the key (and descendants) to retrieve.
+        obj (Dict): A (nested) dictionary.
+        key_sequence (List[str]): A sequence of keys, to be applied from
+            outside to inside, pointing to the key (and descendants) to
+            retrieve.
 
     Returns:
-        Value of innermost key.
+        Any: Value of innermost key.
     """
     return reduce(operator.getitem, key_sequence, obj)  # type: ignore
 
@@ -97,38 +98,24 @@ class ServerConfig(FOCABaseConfig):
     Args:
         host: Host at which the application is exposed.
         port: Port at which the application is exposed.
-        debug: Flag to run application in debug mode. If `True`, the
+        debug: Flag to run application in debug mode. If True, the
             application runs in debug mode and an interactive debugger will
             be shown for unhandled exceptions. See Flask documentation for more
             details.
         environment: Variable to specify the application environment variable.
             See Flask documentation for more details.
-        testing: Enable/disable testing mode. If `True`, exceptions are
+        testing: Enable/disable testing mode. If True, exceptions are
             propagated rather than handled by the the app’s error handlers.
-        use_reloader: Enable/disable the application reloader. If `debug=True`,
-            enabling this will allow the server to reload automatically on
-            code changes. See Flask documentation for more details.
-
-    Attributes:
-        host: Host at which the application is exposed.
-        port: Port at which the application is exposed.
-        debug: Flag to run application in debug mode. If `True`, the
-            application runs in debug mode and an interactive debugger will
-            be shown for unhandled exceptions. See Flask documentation for more
+        use_reloader: Enable/disable the application reloader. If
+            ``debug=True``, enabling this will allow the server to reload
+            automatically on code changes. See Flask documentation for more
             details.
-        environment: Variable to specify the application environment variable.
-            See Flask documentation for more details.
-        testing: Enable/disable testing mode. If `True`, exceptions are
-            propagated rather than handled by the the app’s error handlers.
-        use_reloader: Enable/disable the application reloader. If `debug=True`,
-            enabling this will allow the server to reload automatically on
-            code changes. See Flask documentation for more details.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> ServerConfig(
         ...     host="0.0.0.0",
         ...     port=8080,
@@ -155,21 +142,21 @@ class ExceptionConfig(FOCABaseConfig):
     Args:
         required_members: List of dictionary keys indicating which JSON members
             are required for all exceptions. *Must* contain a member that
-            represents the HTTP response code (cf. `status_member).
+            represents the HTTP response code (cf. `status_member`).
         extension_members: Either a list of additionally allowed, optional
             extension members, or a Boolean expression indicating whether
-            any (`True`) or no (`False`) additional members are allowed.
+            any (True) or no (False) additional members are allowed.
         status_member: Sequence of dictionary keys indicating the member that
-            represents the HTTP response code (e.g, `500`).
+            represents the HTTP response code (e.g, ``500``).
         public_members: Filter to restrict which exception members are to be
             included in the error response. Only members listed here, with each
             one specified as a sequence of keys, are included. Specify an empty
             list to prevent any members from being returned to the user. Set to
-            `None` to disable filtering. Note that only one of `public_members`
+            None to disable filtering. Note that only one of `public_members`
             and `private_members` filters can be active.
         private_members: Filter to restrict which exception members are to be
             included in the error response. Members listed here, with each one
-            specified as a sequence of keys, are excluded. Set to `None` to
+            specified as a sequence of keys, are excluded. Set to None to
             disable filtering. Note that only one of `public_members` and
             `private_members` filters can be active.
         exceptions: Path to dictionary containing the actual exception classes
@@ -177,74 +164,23 @@ class ExceptionConfig(FOCABaseConfig):
             and `extension_members`) as values. Path should be a dot-separated
             path to the module containing the dictionary (which needs to also
             contain imports for all listed expcetions), followed by the name of
-            the dictionary itself. For example, for `myapp.errors.exc_dict`,
-            the dictionary `exc_dict` would be attempted to be imported from
-            module `myapp.errors` (must be available in the Pythonpath). To
+            the dictionary itself. For example, for ``myapp.errors.exc_dict``,
+            the dictionary ``exc_dict`` would be attempted to be imported from
+            module ``myapp.errors`` (must be available in the Pythonpath). To
             ensure that all exceptions arising during the app context are
             handled, it is strongly advised to add the catch-all exception
-            `Exception`. If missing, any exceptions not listed will only
+            ``Exception``. If missing, any exceptions not listed will only
             provoke an empty JSON response.
         logging: Specifies if and how exception details should be logged. One
-            of:
-                * `oneline`: Exception, including traceback, is logged on a
-                single line.
-                * `minimal`: Only the exception title and message are logged on
-                a single line.
-                * `regular`: The exception is logged with the entire traceback
-                stack, generally on multiple lines.
-                * `none`: Exception details are not logged at all.
-            Note that unless `none` is specified, a JSON representation of the
-            error, as defined in `exceptions`, and including _all_ members,
-            unaffected by `public_members` and `private_members` filters, will
-            be logged on an additional line.
-        mapping: The actual referenced dictionary from `exceptions`, populated
-            by FOCA.
-
-    Attributes:
-        required_members: List of dictionary keys indicating which JSON members
-            are required for all exceptions. *Must* contain a member that
-            represents the HTTP response code (cf. `status_member).
-        extension_members: Either a list of additionally allowed, optional
-            extension members, or a Boolean expression indicating whether
-            any (`True`) or no (`False`) additional members are allowed.
-        status_member: Sequence of dictionary keys indicating the member that
-            represents the HTTP response code (e.g, `500`).
-        public_members: Filter to restrict which exception members are to be
-            included in the error response. Only members listed here, with each
-            one specified as a sequence of keys, are included. Specify an empty
-            list to prevent any members from being returned to the user. Set to
-            `None` to disable filtering. Note that only one of `public_members`
-            and `private_members` filters can be active.
-        private_members: Filter to restrict which exception members are to be
-            included in the error response. Members listed here, with each one
-            specified as a sequence of keys, are excluded. Set to `None` to
-            disable filtering. Note that only one of `public_members` and
-            `private_members` filters can be active.
-        exceptions: Path to dictionary containing the actual exception classes
-            as keys and a dictionary of JSON members (as per `required_members`
-            and `extension_members`) as values. Path should be a dot-separated
-            path to the module containing the dictionary (which needs to also
-            contain imports for all listed expcetions), followed by the name of
-            the dictionary itself. For example, for `myapp.errors.exc_dict`,
-            the dictionary `exc_dict` would be attempted to be imported from
-            module `myapp.errors` (must be available in the Pythonpath). To
-            ensure that all exceptions arising during the app context are
-            handled, it is strongly advised to add the catch-all exception
-            `Exception`. If missing, any exceptions not listed will only
-            provoke an empty JSON response.
-        logging: Specifies if and how exception details should be logged. One
-            of:
-                * `oneline`: Exception, including traceback, is logged on a
-                single line.
-                * `minimal`: Only the exception title and message are logged on
-                a single line.
-                * `regular`: The exception is logged with the entire traceback
-                stack, generally on multiple lines.
-                * `none`: Exception details are not logged at all.
-            Note that unless `none` is specified, a JSON representation of the
-            error, as defined in `exceptions`, and including _all_ members,
-            unaffected by `public_members` and `private_members` filters, will
-            be logged on an additional line.
+            of - ``oneline``: Exception, including traceback, is logged on a
+            single line, ``minimal``: Only the exception title and message are
+            logged on a single line, ``regular``: The exception is logged with
+            the entire traceback stack, generally on multiple lines, ``none``:
+            Exception details are not logged at all. Note that unless ``none``
+            is specified, a JSON representation of the error, as defined in
+            `exceptions`, and including _all_ members, unaffected by
+            `public_members` and `private_members` filters, will be logged on
+            an additional line.
         mapping: The actual referenced dictionary from `exceptions`, populated
             by FOCA.
 
@@ -252,7 +188,7 @@ class ExceptionConfig(FOCABaseConfig):
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> ExceptionConfig()
         ExceptionConfig(required_members=[['title'], ['status']], extension_me\
 mbers=False, status_member=['status'], public_members=None, private_members=No\
@@ -429,15 +365,15 @@ class SpecConfig(FOCABaseConfig):
             For OpenAPI 3.x, see https://swagger.io/specification/.
         add_operation_fields: Fields to be added/modified to/in the Operation
             Objects of each Path Info Object. An example use case for this is
-            the addition or replacement of the `x-swagger-router-controller`
+            the addition or replacement of the ``x-swagger-router-controller``
             field. For OpenAPI 2.x, see
             https://swagger.io/specification/v2/#operation-object. For OpenAPI
             3.x, see https://swagger.io/specification/#operation-object. Note
             that different operation fields for different Operation Objects are
             currently not supported.
         add_security_fields: Fields to be added/modified to/in each definition
-            or scheme in the `securityDefintions` (OpenAPI 2.x) or
-            `securitySchemes` (OpenAPI 3.x) objects. An example use case for
+            or scheme in the ``securityDefintions`` (OpenAPI 2.x) or
+            ``securitySchemes`` (OpenAPI 3.x) objects. An example use case for
             this is the addition or replacement of the `x-tokenInfoFunc` or
             similar field. Cf.
             https://connexion.readthedocs.io/en/latest/security.html. For
@@ -457,62 +393,18 @@ class SpecConfig(FOCABaseConfig):
             OpenAPI 3.x, see
             https://swagger.io/docs/specification/authentication/.
         connexion: Keyword arguments passed through to the `add_api()` method
-            in Connexion's `connexion.apps.flask_app` module.
-
-    Attributes:
-        path: A single path or list of paths to OpenAPI 2.x or 3.x
-            specification in YAML format.
-        path_out: Output path for modified specification file. Ignored if specs
-            are not modified. If not specified, the original file path is
-            stripped of the file extension and the suffix '.modified.yaml' is
-            appended.
-        append: Fields to be added/modified in the root of the specification
-            file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
-            For OpenAPI 3.x, see https://swagger.io/specification/.
-        add_operation_fields: Fields to be added/modified to/in the Operation
-            Objects of each Path Info Object. An example use case for this is
-            the addition or replacement of the `x-swagger-router-controller`
-            field. For OpenAPI 2.x, see
-            https://swagger.io/specification/v2/#operation-object. For OpenAPI
-            3.x, see https://swagger.io/specification/#operation-object. Note
-            that different operation fields for different Operation Objects are
-            currently not supported.
-        add_security_fields: Fields to be added/modified to/in each definition
-            or scheme in the `securityDefintions` (OpenAPI 2.x) or
-            `securitySchemes` (OpenAPI 3.x) objects. An example use case for
-            this is the addition or replacement of the `x-tokenInfoFunc` or
-            similar field. Cf.
-            https://connexion.readthedocs.io/en/latest/security.html. For
-            OpenAPI 2.x, see
-            https://swagger.io/specification/v2/#securityDefinitionsObject. For
-            OpenAPI 3.x, see
-            https://swagger.io/docs/specification/authentication/. Note that
-            different security fields for different security
-            definitions/schemes are currently not supported.
-        disable_auth: Disable JWT validation for endpoints configured to
-            require authorization as per the OpenAPI specifications. Has no
-            effect if relevant security definitions/schemes are not defined.
-            Setting is global. Use `security` property in OpenAPI specification
-            to define this behavior separately for each Operation Object and/or
-            security definition/scheme. For OpenAPI 2.x, see
-            https://swagger.io/specification/v2/#securityDefinitionsObject. For
-            OpenAPI 3.x, see
-            https://swagger.io/docs/specification/authentication/.
-        connexion: Keyword arguments passed through to the `add_api()` method
-            in Connexion's `connexion.apps.flask_app` module.
+            in Connexion's ``connexion.apps.flask_app`` module.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
-        (1)
+    Examples:
         >>> SpecConfig(path="/my/path.yaml")
         SpecConfig(path=['/my/path.yaml'], path_out='/my/path.modified.yaml', \
 append=None, add_operation_fields=None, add_security_fields=None, disable_auth\
 =False, connexion=None)
 
-        (2)
         >>> SpecConfig(
         ...     path=["/path/to/specs.yaml", "/path/to/add_specs.yaml"],
         ...     path_out="/path/to/specs.modified.yaml",
@@ -601,15 +493,11 @@ class APIConfig(FOCABaseConfig):
         spec: List of configuration parameters for OpenAPI 2.x or 3.x
             specifications to be attached to a Connexion app.
 
-    Attributes:
-        spec: List of configuration parameters for OpenAPI 2.x or 3.x
-            specifications to be attached to a Connexion app.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> APIConfig(
         ...     specs=[SpecConfig(path='/path/to/specs.yaml')],
         ... )
@@ -628,13 +516,13 @@ class AuthConfig(FOCABaseConfig):
         add_key_to_claims: Whether to allow the application to add the identity
             provider's corresponding JSON Web Key (JWK), in PEM format, to the
             dictionary of claims when handling requests to
-            `@jwt_validation`-decorated endpoints.
-        allow_expired: Allow/disallow expired JWTs. If `False`, a `401`
+            ``@jwt_validation``-decorated endpoints.
+        allow_expired: Allow/disallow expired JWTs. If False, a ``401``
             authorization error is raised in response to a request containing
             an expired JWT.
         audience: List of audiences that the app identifies itself with. If
             specified, JWTs that do not contain any of the specified audiences
-            are rejected. If `None`, audience validation is disabled.
+            are rejected. If None, audience validation is disabled.
         claim_identity: The JWT claim used to identify the sender.
         claim_issuer: The JWT claim used to identify the issuer.
         algorithms: Lists the JWT-signing algorithms supported by the app.
@@ -644,32 +532,7 @@ class AuthConfig(FOCABaseConfig):
             provider's `/userinfo` endpoint, in the latter via the identity
             provider's JSON Web Key.
         validation_checks: Specify how many of the `validation_methods` need
-            to pass before accepting a JWT. One of `any` and `all`. In the
-            former case, JWT validation succeeds after the first successful
-            validation check, in the latter case, JWT validation fails after
-            the first unsuccessful validation check.
-
-    Attributes:
-        add_key_to_claims: Whether to allow the application to add the identity
-            provider's corresponding JSON Web Key (JWK), in PEM format, to the
-            dictionary of claims when handling requests to
-            `@jwt_validation`-decorated endpoints.
-        allow_expired: Allow/disallow expired JWTs. If `False`, a `401`
-            authorization error is raised in response to a request containing
-            an expired JWT.
-        audience: List of audiences that the app identifies itself with. If
-            specified, JWTs that do not contain any of the specified audiences
-            are rejected. If `None`, audience validation is disabled.
-        claim_identity: The JWT claim used to identify the sender.
-        claim_issuer: The JWT claim used to identify the issuer.
-        algorithms: Lists the JWT-signing algorithms supported by the app.
-        validation_methods: Lists the methods to be used to validate a JWT.
-            Valid choices are `userinfo` and `public_key`. In the former case,
-            validation happens via an OpenID Connect-compliant identify
-            provider's `/userinfo` endpoint, in the latter via the identity
-            provider's JSON Web Key.
-        validation_checks: Specify how many of the `validation_methods` need
-            to pass before accepting a JWT. One of `any` and `all`. In the
+            to pass before accepting a JWT. One of ``any`` and ``all``. In the
             former case, JWT validation succeeds after the first successful
             validation check, in the latter case, JWT validation fails after
             the first unsuccessful validation check.
@@ -678,7 +541,7 @@ class AuthConfig(FOCABaseConfig):
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> AuthConfig(
         ...     add_key_to_claims=True,
         ...     allow_expired=False,
@@ -715,10 +578,7 @@ class CORSConfig(FOCABaseConfig):
     Args:
         enabled: Enable/disable the CORS for the application.
 
-    Attributes:
-        enabled: Enable/disable the CORS for the application.
-
-    Example:
+    Examples:
         >>> CORSConfig(
         ...     enabled=True,
         ... )
@@ -733,14 +593,11 @@ class SecurityConfig(FOCABaseConfig):
     Args:
         auth: Config parameters for JSON Web Token (JWT) validation.
 
-    Attributes:
-        auth: Config parameters for JSON Web Token (JWT) validation.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> SecurityConfig(
         ...     auth=AuthConfig(),
         ... )
@@ -761,16 +618,8 @@ class IndexConfig(FOCABaseConfig):
         keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
             MongoDB index specifier, one of the corresponding values of
-            `pymongo.ASCENDING`,`pymongo.DESCENDING`, `pymongo.GEO2D` etc. cf.:
-            https://api.mongodb.com/python/current/api/pymongo/collection.html
-        options: A dictionary of any additional index creation options. cf.:
-            https://api.mongodb.com/python/1.9/api/pymongo/collection.html
-
-    Attributes:
-        keys: A key-direction dictionary indicating the field to be indexed
-            and the sort order of that index. The sort order must be a valid
-            MongoDB index specifier, one of the corresponding values of
-            `pymongo.ASCENDING`,`pymongo.DESCENDING`, `pymongo.GEO2D` etc. cf.:
+            ``pymongo.ASCENDING``,``pymongo.DESCENDING``, ``pymongo.GEO2D``
+            etc. cf.:
             https://api.mongodb.com/python/current/api/pymongo/collection.html
         options: A dictionary of any additional index creation options. cf.:
             https://api.mongodb.com/python/1.9/api/pymongo/collection.html
@@ -779,7 +628,7 @@ class IndexConfig(FOCABaseConfig):
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> IndexConfig(
         ...     keys={'name': -1, 'id': 1},
         ...     options={'unique': True, 'sparse': False}
@@ -792,7 +641,7 @@ sparse': False})
 
     @validator('keys', always=True, allow_reuse=True)
     def store_enum_value(cls, v):  # pylint: disable=E0213
-        """Convert dict values of keys into list of tuples"""
+        """Convert dict values of keys into list of tuples."""
         if not v:
             return None
         else:
@@ -807,16 +656,11 @@ class CollectionConfig(FOCABaseConfig):
         client: Client connected to collection. Most likely populated through
             the code, not during setup.
 
-    Attributes:
-        indexes: An index configuration object.
-        client: Client connected to collection. Most likely populated through
-            the code, not during setup.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> CollectionConfig(
         ...     indexes=[IndexConfig(keys={'last_name': 1})],
         ... )
@@ -836,17 +680,11 @@ class DBConfig(FOCABaseConfig):
         client: Client connected to database. Most likely populated through the
             code, not during setup.
 
-    Attributes:
-        collections: Mapping of collection names (keys) and configuration
-            objects (values).
-        client: Client connected to database. Most likely populated through the
-            code, not during setup.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> DBConfig(
         ...     collections={
         ...         'my_collection': CollectionConfig(
@@ -871,17 +709,11 @@ class MongoConfig(FOCABaseConfig):
         dbs: Mapping of database names (keys) and configuration objects
             (values).
 
-    Attributes:
-        host: Host at which the database is exposed.
-        port: Port at which the database is exposed.
-        dbs: Mapping of database names (keys) and configuration objects
-            (values).
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> MongoConfig(
         ...     host="mongodb",
         ...     port=27017,
@@ -903,17 +735,11 @@ class JobsConfig(FOCABaseConfig):
         backend: Backend used to store background task results.
         include: List of modules to import when workers start.
 
-    Attributes:
-        host: Host at which the broker is exposed.
-        port: Port at which the broker is exposed.
-        backend: Backend used to store background task results.
-        include: List of modules to import when workers start.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> JobsConfig(
         ...     host="rabbitmq",
         ...     port=5672,
@@ -936,16 +762,11 @@ class LogFormatterConfig(FOCABaseConfig):
         style: Determines how the format string will be merged with its data.
         format: Format string any log messages.
 
-    Attributes:
-        class: Name of logging formatter class.
-        style: Determines how the format string will be merged with its data.
-        format: Format string any log messages.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> LogFormatterConfig(
         ...     style="{",
         ...     format="[{asctime}: {levelname:<8}] {message} [{name}]",
@@ -970,17 +791,11 @@ class LogHandlerConfig(FOCABaseConfig):
         formatter: Name of logging formatter.
         stream: Devide to which log is streamed.
 
-    Attributes:
-        class: Name of logging handler class.
-        level: Numeric value of logging level.
-        formatter: Name of logging formatter.
-        stream: Devide to which log is streamed.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> LogHandlerConfig(
         ...     level=20,
         ...     formatter="standard",
@@ -1009,15 +824,11 @@ class LogRootConfig(FOCABaseConfig):
         level: Numeric value of logging level.
         handlers: List of logging handlers by name.
 
-    Attributes:
-        level: Numeric value of logging level.
-        handlers: List of logging handlers by name.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> LogRootConfig(
         ...     level=logging.INFO,
         ...     handlers=["console"],
@@ -1047,23 +858,11 @@ class LogConfig(FOCABaseConfig):
             parameters.
         root: Configuration of the root logger.
 
-    Attributes:
-        version: Represents current schema version.
-        disable_existing_loggers: Whether any existing non-root loggers are to
-            be disabled.
-        formatters: A dictionary of logging formatters, where keys represent
-            formatter names and values represent the corresponding
-            configuration parameters.
-        handlers: A dictionary of logging handlers, where keys represent
-            handler names and values represent the corresponding configuration
-            parameters.
-        root: Configuration of the root logger.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> LogConfig(
         ...     version=1,
         ...     disable_existing_loggers=False,
@@ -1105,20 +904,11 @@ class Config(FOCABaseConfig):
         jobs: Background job config parameters.
         log: Logger config parameters.
 
-    Attributes:
-        server: Server config parameters.
-        exceptions: Exception handling parameters.
-        api: OpenAPI specification config parameters.
-        security: Security config parameters.
-        db: Database config parameters.
-        jobs: Background job config parameters.
-        log: Logger config parameters.
-
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
-    Example:
+    Examples:
         >>> Config()
         Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
 ronment='development', testing=False, use_reloader=True), exceptions=Exception\

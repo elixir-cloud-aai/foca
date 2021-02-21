@@ -18,15 +18,16 @@ logger = logging.getLogger(__name__)
 
 
 def validate_token(token: str) -> Dict:
-    """
-    Validate JSON Web Token (JWT) Bearer token.
+    """Validate JSON Web Token (JWT) Bearer token.
 
-    Returns:
-        Token information.
+    Args:
+        token (str): JSON Web Token to be validated.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if JWT could not be
-            successfully validated.
+        Unauthorized: Raised if JWT could not be successfully validated.
+
+    Returns:
+        Dict: Token information.
     """
     # Set parameters defined by OpenID Connect specification
     # Cf. https://openid.net/specs/openid-connect-discovery-1_0.html
@@ -139,17 +140,20 @@ def validate_jwt_userinfo(
     identity provider's user info endpoint.
 
     Args:
-        token: JSON Web Token (JWT).
-        url: URL to OpenID Connect identity provider's user info endpoint.
-        header_name: Name of the request header field at which the service is
-            expecting the JWT. Cf. `prefix`.
-        prefix: Prefix that the app expects to precede the JWT, separated
-            by whitespace. Together, prefix and JWT constitute the value of
-            the request header field specified by `--header-name`.
+        token (str): JSON Web Token (JWT).
+        url (str): URL to OpenID Connect identity provider's user info
+            endpoint.
+        header_name (str, optional): Name of the request header field at which
+            the service is expecting the JWT. Cf. `prefix`. Defaults to
+            'Authorization'.
+        prefix (str, optional): Prefix that the app expects to precede the
+            JWT, separated by whitespace. Together, prefix and JWT constitute
+            the value of the request header field specified by
+            ``--header-name``. Defaults to 'Bearer'.
 
     Raises:
-        requests.exceptions.ConnectionError: Raised if the identity provider's
-            user info or configuration endpoints could not be reached.
+        ConnectionError: Raised if the identity provider's user info or
+        configuration endpoints could not be reached.
     """
     logger.debug(f"Issuer's user info endpoint URL: {url}")
     headers = {f"{header_name}": f"{prefix} {token}"}
@@ -174,24 +178,25 @@ def validate_jwt_public_key(
     identity provider's public key.
 
     Args:
-        token: JSON Web Token (JWT).
-        url: URL to OpenID Connect identity provider's public keys endpoint.
-        algorithms: Lists the JWT-signing algorithms supported by the app.
-        add_key_to_claims: Whether to allow the application to add the identity
-            provider's corresponding JSON Web Key (JWK), in PEM format, to the
-            dictionary of claims when handling requests to
-            `@jwt_validation`-decorated endpoints.
-        audience: List of audiences that the app identifies itself with. If
-            specified, JSON Web Tokens (JWT) that do not contain any of the
-            specified audiences are rejected. Set to `None` to disable audience
-            validation.
-        allow_expired: Allow/disallow expired JSON Web Tokens (JWT).
-        claim_key_id: The JSON Web Token (JWT) claim used to specify the
-            identifier of the JSON Web Key (JWK) used to issue that token.
-
-    Returns:
-        Dictionary of JWT claims, or an empty dictionary if claims could not
-            be successfully decoded.
+        token (str): JSON Web Token (JWT).
+        url (str): URL to OpenID Connect identity provider's public keys
+            endpoint.
+        algorithms (Iterable[str], optional): Lists the JWT-signing algorithms
+            supported by the app. Defaults to ['RS256'].
+        add_key_to_claims (bool, optional): Whether to allow the application
+            to add the identity provider's corresponding JSON Web Key (JWK),
+            in PEM format, to the dictionary of claims when handling requests
+            to ``@jwt_validation``-decorated endpoints. Defaults to True.
+        audience (Optional[Iterable[str]], optional): List of audiences that
+            the app identifies itself with. If specified, JSON Web Tokens
+            (JWT) that do not contain any of the specified audiences are
+            rejected. Set to None to disable audience validation. Defaults to
+            None.
+        allow_expired (bool, optional): Allow/disallow expired JSON Web Tokens
+            (JWT). Defaults to False.
+        claim_key_id (str, optional): The JSON Web Token (JWT) claim used to
+            specify the identifier of the JSON Web Key (JWK) used to issue
+            that token. Defaults to 'kid'.
 
     Raises:
         KeyError: Raised if used JSON Web Key (JWK) identifer was not found
@@ -287,18 +292,23 @@ def get_public_keys(
     """Obtain the identity provider's public JSON Web Key (JWK) set.
 
     Args:
-        url: Endpoint providing the identity provider's JSON Web Key (JWK) set.
-        pem: Whether public JSON Web Keys (JWK) shall be returned in Privacy
-            Enhanced-Mail (PEM) format rather than as JSON dumps.
-        claim_key_id: The JWT claim encoding a JSON Web Key (JWK) identifier.
-        claim_keys: The JSON Web Key (JWK)
-
-    Returns:
-        JSON Web Key (JWK) public keys mapped to their identifiers.
+        url (str): Endpoint providing the identity provider's JSON Web Key
+            (JWK) set.
+        pem (bool, optional): Whether public JSON Web Keys (JWK) shall be
+            returned in Privacy Enhanced-Mail (PEM) format rather than as JSON
+            dumps. Defaults to False.
+        claim_key_id (str, optional): The JWT claim encoding a JSON Web Key
+            (JWK) identifier. Defaults to 'kid'.
+        claim_keys (str, optional): The JSON Web Key (JWK). Defaults to
+            'keys'.
 
     Raises:
-        requests.exceptions.ConnectionError: Raised if the identity provider's
-            JWK set or configuration could not be reached.
+        ConnectionError: Raised if the identity provider's JWK set or
+            configuration could not be reached.
+
+    Returns:
+        Dict[str, RSAPublicKey]: JSON Web Key (JWK) public keys mapped to
+        their identifiers.
     """
     # Get JWK sets from identity provider
     try:

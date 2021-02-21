@@ -81,10 +81,10 @@ def register_exception_handler(app: App) -> App:
     """Register generic JSON problem handler with Connexion app.
 
     Args:
-        app: Connexion app.
+        app (App): Connexion app.
 
     Returns:
-        Connexion app with registered generic JSON problem handler.
+        App: Connexion app with registered generic JSON problem handler.
     """
     app.add_error_handler(Exception, handle_problem)
     logger.debug("Registered generic JSON problem handler with Connexion app.")
@@ -98,12 +98,12 @@ def exc_to_str(
     """Convert exception, including traceback, to string representation.
 
     Args:
-        exc: The exception to convert to a string.
-        delimiter: The delimiter used to join different lines of the exception
-            stack.
+        exc (BaseException): The exception to convert to a string.
+        delimiter (str, optional): The delimiter used to join different lines
+            of the exception stack. Defaults to "\\n".
 
     Returns:
-        String representation of exception.
+        str: String representation of exception. 
     """
     exc_lines = format_exception(
         exc.__class__,
@@ -123,16 +123,17 @@ def log_exception(
 ) -> None:
     """Log exception with indicated format.
 
-    Requires a `logging` logger to be set up and configured.
+    Note:
+        Requires a `logging` logger to be set up and configured.
 
     Args:
-        exc: The exception to log.
-        format: One of `oneline` (default), `minimal`, or `regular`.
-            * `oneline`: Exception, including traceback, is logged on a single
-                line.
-            * `minimal`: Only the exception title and message are logged.
-            * `regular`: The exception is logged with the entire traceback
-                stack, usually on multiple lines.
+        exc (BaseException): The exception to log.
+        format (str, optional): One of 'oneline' (default), 'minimal', or
+            'regular'. Defaults to 'oneline'. ``oneline``: Exception,
+            including traceback, is logged on a single line. ``minimal``:
+            Only the exception title and message are logged. ``regular``:
+            The exception is logged with the entire traceback stack, usually
+            on multiple lines.
     """
     exc_str = ''
     valid_formats = [
@@ -162,12 +163,12 @@ def subset_nested_dict(
     """Create subset of nested dictionary.
 
     Args:
-        obj: A (nested) dictionary.
-        key_sequence: A sequence of keys, to be applied from outside to inside,
-            pointing to the key (and descendants) to keep.
+        obj (Dict): A (nested) dictionary.
+        key_sequence (List): A sequence of keys, to be applied from outside to
+            inside, pointing to the key (and descendants) to keep.
 
     Returns:
-        Subset of input dictionary.
+        Dict: Subset of input dictionary.
     """
     filt = {}
     if len(key_sequence):
@@ -185,12 +186,12 @@ def exclude_key_nested_dict(
     """Exclude key from nested dictionary.
 
     Args:
-        obj: A (nested) dictionary.
-        key_sequence: A sequence of keys, to be applied from outside to inside,
-            pointing to the key (and descendants) to delete.
+        obj (Dict): A (nested) dictionary.
+        key_sequence (List): A sequence of keys, to be applied from outside to
+            inside, pointing to the key (and descendants) to delete.
 
     Returns:
-        Dictionary minus the excluded key.
+        Dict: Dictionary minus the excluded key.
     """
     if len(key_sequence):
         key = key_sequence.pop(0)
@@ -205,10 +206,10 @@ def handle_problem(exception: Exception) -> Response:
     """Generic JSON problem handler.
 
     Args:
-        exception: The raised exception.
+        exception (Exception): The raised exception.
 
     Returns:
-        JSON-formatted error response.
+        Response: JSON-formatted error response.
     """
     # Look up exception & get status code
     conf = current_app.config['FOCA'].exceptions

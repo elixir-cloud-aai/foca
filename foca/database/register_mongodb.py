@@ -15,18 +15,18 @@ def register_mongodb(
     app: Flask,
     conf: MongoConfig,
 ) -> MongoConfig:
-    """
-    Instantiates a MongoDB database, initializes collections and adds the
+    """Instantiates a MongoDB database, initializes collections and adds the
     database and collections to a Flask app.
 
     Args:
-        app: Flask application object.
-        conf: MongoDB configuration object.
+        app (Flask): Flask application object.
+        conf (MongoConfig): MongoDB configuration object.
 
     Returns:
-        Flask application with updated config: `config['database']['database']`
-            contains the database object; `config['database']['collections']`
-            contains a dictionary of collection objects.
+        MongoConfig: Flask application with updated config:
+        ``config['database']['database']`` contains the database object;
+        ``config['database']['collections']`` contains a dictionary of
+        collection objects.
     """
     # Iterate over databases
     if conf.dbs is not None:
@@ -75,16 +75,21 @@ def create_mongo_client(
 ) -> PyMongo:
     """Register MongoDB database with Flask app.
 
-    Optionally, basic authorization can be set by environment variables.
+    Note:
+        Optionally, basic authorization can be set by environment variables.
 
     Args:
-        app: Flask application object.
-        host: Host at which the MongoDB database is exposed.
-        port: Port at which the MongoDB database is exposed.
-        db: Name of the database to be accessed/created.
+        app (Flask): Flask application object.
+        host (str, optional): Host at which the MongoDB database is exposed.
+            Defaults to 'mongodb'.
+        port (int, optional): Port at which the MongoDB database is exposed.
+            Defaults to 27017.
+        db (str, optional): Name of the database to be accessed/created.
+            Defaults to 'database'.
 
     Returns:
-        Client for the MongoDB database specified by `host`, `port` and `db`.
+        PyMongo: Client for the MongoDB database specified by `host`, `port`
+        and `db`.
     """
     auth = ''
     user = os.environ.get('MONGO_USERNAME')

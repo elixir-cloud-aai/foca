@@ -14,14 +14,6 @@ logger = logging.getLogger(__name__)
 
 class ConfigParser():
     """Parser for FOCA config files.
-
-    Args:
-        config_file: Path to config file in YAML format.
-        format_logs: Whether log formatting should be configured.
-
-    Attributes:
-        config_file: Path to config file in YAML format.
-        format_logs: Whether log formatting should be configured.
     """
 
     def __init__(
@@ -29,7 +21,14 @@ class ConfigParser():
         config_file: Optional[str] = None,
         format_logs: bool = True
     ) -> None:
-        """Constructor method."""
+        """Initialiser method for `ConfigParser` class.
+
+        Args:
+            config_file (Optional[str], optional): Path to config file in YAML
+                format. Defaults to None.
+            format_logs (bool, optional): Whether log formatting should be
+                configured. Defaults to True.
+        """
         if config_file:
             self.config = Config(**self.parse_yaml(config_file))
         else:
@@ -54,14 +53,14 @@ class ConfigParser():
         """Load YAML file.
 
         Args:
-            conf: Path to YAML file.
-
-        Returns:
-            Dictionary of YAML file contents.
+            conf (str): Path to YAML file.
 
         Raises:
-            OSError: file cannot be accessed.
-            yaml.YAMLError: file cannot not be parsed.
+            yaml.YAMLError: File cannot be accessed.
+            OSError: File cannot be parsed.
+
+        Returns:
+            Dict: Dictionary of YAML file contents.
         """
         try:
             with open(conf) as config_file:
@@ -80,17 +79,18 @@ class ConfigParser():
     def merge_yaml(*args: str) -> Optional[Dict]:
         """Parse and merge a set of YAML files.
 
-        Merging is done iteratively, from the first, second to the nth
-        argument. Dict items are updated, not overwritten. For exact behavior
-        cf. https://github.com/mewwts/addict.
+        Note:
+            Merging is done iteratively, from the first, second to the nth
+            argument. Dict items are updated, not overwritten. For exact
+            behavior cf. https://github.com/mewwts/addict.
 
         Args:
             *args: One or more paths to YAML files.
 
         Returns:
-            Dictionary of merged YAML file contents, or `None` if no arguments
-            have been supplied; if only a single YAML file path is provided, no
-            merging is done.
+            Optional[Dict]: Dictionary of merged YAML file contents, or None
+            if no arguments have been supplied; if only a single YAML file
+            path is provided, no merging is done.
         """
         args_list = list(args)
         if not args_list:

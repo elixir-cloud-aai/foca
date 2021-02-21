@@ -14,10 +14,10 @@ def create_celery_app(app: Flask) -> Celery:
     """Create and configure Celery app.
 
     Args:
-        app: Flask application.
+        app (Flask): Flask application.
 
     Returns:
-        Celery application.
+        Celery: Celery application.
     """
     conf = app.config['FOCA'].jobs
 

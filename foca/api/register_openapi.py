@@ -17,20 +17,20 @@ def register_openapi(
         app: App,
         specs: List[SpecConfig],
 ) -> App:
-    """
-    Register OpenAPI specs with Connexion app.
+    """Register OpenAPI specs with Connexion app.
 
     Args:
-        app: A Connexion app instance.
-        specs: A sequence of `SpecConfig` config models describing OpenAPI 2.x
-            and/or 3.x specifications to be registered with `app`.
-
-    Returns:
-        A Connexion app instance.
+        app (App): A Connexion app instance.
+        specs (List[SpecConfig]): A sequence of `SpecConfig` config models
+            describing OpenAPI 2.x and/or 3.x specifications to be registered
+            with `app`.
 
     Raises:
         OSError: File cannot be read from or written to.
         yaml.YAMLError: YAML cannot be (de)serialized.
+
+    Returns:
+        App: A Connexion app instance.
     """
     # Iterate over OpenAPI specs
     for spec in specs:

@@ -13,7 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 def create_connexion_app(config: Optional[Config] = None) -> App:
-    """Create and configure Connexion app."""
+    """Create and configure Connexion app.
+
+    Args:
+        config (Optional[Config], optional): Configuration object. Defaults to
+            None.
+
+    Returns:
+        App: Configured connexion app.
+    """
     # Instantiate Connexion app
     app = App(
         __name__,
@@ -41,11 +49,11 @@ def __add_config_to_connexion_app(
     defined configuration parameters to Flask app.
 
     Args:
-        app: Connexion app.
-        config: App configuration.
+        app (App): Connexion app.
+        config (Config): App configuration.
 
     Returns:
-        Connexion app.
+        App: Connexion app.
     """
     conf = config.server
 

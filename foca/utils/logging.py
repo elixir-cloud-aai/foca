@@ -17,34 +17,39 @@ def log_traffic(
     """Decorator for logging service requests and responses.
 
     Args:
-        log_request: Whether or not the request should be logged.
-        log_response: Whether or not the response should be logged.
-        log_level: Logging level, cf.
-            https://docs.python.org/3/library/logging.html#logging-levels
+        _fn (Optional[Callable], optional): Function to be decorated. Defaults
+            to None.
+        log_request (bool, optional): Whether or not the request should be
+            logged. Defaults to True.
+        log_response (bool, optional): Whether or not the response should be
+            logged. Defaults to True.
+        log_level (int, optional): Logging level, cf.
+            https://docs.python.org/3/library/logging.html#logging-levels.
+            Defaults to logging.INFO.
 
     Returns:
-        The decorated function.
+        Callable: The decorated function.
     """
 
     def decorator_log_traffic(fn):
         """Logging decorator. Used to facilitate optional decorator arguments.
 
         Args:
-            fn: The function to be decorated.
+            fn (function): The function to be decorated.
 
         Returns:
-            The response returned from the input function.
+            [type]: The response returned from the input function.
         """
         @wraps(fn)
         def wrapper(*args, **kwargs):
             """Wrapper for logging decorator.
 
             Args:
-                args: positional arguments passed through from `log_traffic`.
-                kwargs: keyword arguments passed through from `log_traffic`.
+                *args: Positional arguments passed through from ``log_traffic``.
+                **kwargs: Keyword arguments passed through from ``log_traffic``.
 
             Returns:
-                Wrapper function.
+                [type]: Wrapper function.
             """
             req = (
                 f"\"{request.environ['REQUEST_METHOD']} "
