@@ -55,3 +55,9 @@ jobs:
         - docker push "${DOCKER_REPO_NAME}:${DOCKER_TAG}"
         - if [ "$TRAVIS_BRANCH" = "dev" ]; then docker push "${DOCKER_REPO_NAME}:latest"; fi
         - rm ${HOME}/.docker/config.json  # delete token
+
+after_success:
+- git config --global user.name "semantic-release (via TravisCI)"
+- git config --global user.email "semantic-release@travis"
+- pip install python-semantic-release==7.15.0
+- semantic-release publish -v DEBUG
