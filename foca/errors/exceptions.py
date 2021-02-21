@@ -103,7 +103,7 @@ def exc_to_str(
             of the exception stack. Defaults to "\\n".
 
     Returns:
-        str: String representation of exception. 
+        str: String representation of exception.
     """
     exc_lines = format_exception(
         exc.__class__,

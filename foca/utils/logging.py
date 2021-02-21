@@ -45,8 +45,10 @@ def log_traffic(
             """Wrapper for logging decorator.
 
             Args:
-                *args: Positional arguments passed through from ``log_traffic``.
-                **kwargs: Keyword arguments passed through from ``log_traffic``.
+                *args: Positional arguments passed through from
+                    ``log_traffic``.
+                **kwargs: Keyword arguments passed through from
+                    ``log_traffic``.
 
             Returns:
                 [type]: Wrapper function.
