@@ -1,111 +1,114 @@
-openapi: "3.0.0"
+components:
+  schemas:
+    Error:
+      properties:
+        code:
+          format: int32
+          type: integer
+        message:
+          type: string
+      required:
+      - code
+      - message
+      type: object
+    Pet:
+      properties:
+        id:
+          format: int64
+          type: integer
+        name:
+          type: string
+        tag:
+          type: string
+      required:
+      - id
+      - name
+      type: object
+    Pets:
+      items:
+        $ref: '#/components/schemas/Pet'
+      type: array
 info:
-  version: 1.0.0
-  title: Swagger Petstore
   license:
     name: MIT
-servers:
-  - url: http://petstore.swagger.io/v2
+  title: Swagger Petstore
+  version: 1.0.0
+openapi: 3.0.0
 paths:
   /pets:
     get:
-      summary: List all pets
-      operationId: controllers.listPets
-      tags:
-        - pets
+      operationId: listPets
       parameters:
-        - name: limit
-          in: query
-          description: How many items to return at one time (max 100)
-          required: false
-          schema:
-            type: integer
-            format: int32
+      - description: How many items to return at one time (max 100)
+        in: query
+        name: limit
+        required: false
+        schema:
+          format: int32
+          type: integer
       responses:
         '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pets'
           description: A paged array of pets
           headers:
             x-next:
               description: A link to the next page of responses
               schema:
                 type: string
-          content:
-            application/json:    
-              schema:
-                $ref: "#/components/schemas/Pets"
         default:
-          description: unexpected error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-    post:
-      summary: Create a pet
-      operationId: controllers.createPets
+                $ref: '#/components/schemas/Error'
+          description: unexpected error
+      summary: List all pets
       tags:
-        - pets
+      - pets
+      x-openapi-router-controller: controllers
+    post:
+      operationId: createPets
       responses:
         '201':
           description: Null response
         default:
-          description: unexpected error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: '#/components/schemas/Error'
+          description: unexpected error
+      summary: Create a pet
+      tags:
+      - pets
+      x-openapi-router-controller: controllers
   /pets/{petId}:
     get:
-      summary: Info for a specific pet
-      operationId: controllers.showPetById
-      tags:
-        - pets
+      operationId: showPetById
       parameters:
-        - name: petId
-          in: path
-          required: true
-          description: The id of the pet to retrieve
-          schema:
-            type: string
+      - description: The id of the pet to retrieve
+        in: path
+        name: petId
+        required: true
+        schema:
+          type: string
       responses:
         '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
           description: Expected response to a valid request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Pet"
         default:
-          description: unexpected error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-components:
-  schemas:
-    Pet:
-      type: object
-      required:
-        - id
-        - name
-      properties:
-        id:
-          type: integer
-          format: int64
-        name:
-          type: string
-        tag:
-          type: string
-    Pets:
-      type: array
-      items:
-        $ref: "#/components/schemas/Pet"
-    Error:
-      type: object
-      required:
-        - code
-        - message
-      properties:
-        code:
-          type: integer
-          format: int32
-        message:
-          type: string
+                $ref: '#/components/schemas/Error'
+          description: unexpected error
+      summary: Info for a specific pet
+      tags:
+      - pets
+      x-openapi-router-controller: controllers
+servers:
+- url: http://petstore.swagger.io/v2

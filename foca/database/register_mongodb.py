@@ -52,11 +52,17 @@ def register_mongodb(
                         f"Added database collection '{coll_name}'."
                     )
 
-                    # Add indices
+                    # Add indexes
                     if coll_conf.indexes is not None:
+                        # Remove already created indexes if any
+                        coll_conf.client.drop_indexes()
                         for index in coll_conf.indexes:
                             if index.keys is not None:
-                                coll_conf.client.create_index(**index.dict())
+                                coll_conf.client.create_index(
+                                    index.keys, **index.options)
+                        logger.info(
+                            f"Indexes created for collection '{coll_name}'."
+                        )
 
     return conf
 
@@ -80,13 +86,13 @@ def create_mongo_client(
     Returns:
         Client for the MongoDB database specified by `host`, `port` and `db`.
     """
-    if os.environ.get('MONGO_USERNAME') != '':
+    auth = ''
+    user = os.environ.get('MONGO_USERNAME')
+    if user is not None and user != "":
         auth = '{username}:{password}@'.format(
             username=os.environ.get('MONGO_USERNAME'),
             password=os.environ.get('MONGO_PASSWORD'),
         )
-    else:
-        auth = ''
 
     app.config['MONGO_URI'] = 'mongodb://{auth}{host}:{port}/{db}'.format(
         host=os.environ.get('MONGO_HOST', host),

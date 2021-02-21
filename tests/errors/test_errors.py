@@ -1,81 +1,152 @@
 """
-Tests for errors.py
+Tests for exceptions.py
 """
 
-from foca.errors.errors import (
-    __handle_internal_server_error,
-    __handle_not_found,
-    __handle_forbidden,
-    __handle_unauthorized,
-    handle_bad_request,
-    register_error_handlers,
-)
+from copy import deepcopy
 import json
-from unittest.mock import MagicMock
+
+from flask import (Flask, Response)
+from connexion import App
+import pytest
+
+from foca.errors.exceptions import (
+    exc_to_str,
+    exclude_key_nested_dict,
+    handle_problem,
+    log_exception,
+    register_exception_handler,
+    subset_nested_dict,
+)
+from foca.models.config import Config
+
+EXCEPTION_INSTANCE = Exception()
+INVALID_LOG_FORMAT = 'unknown_log_format'
+TEST_DICT = {
+    "title": "MyException",
+    "details": {
+        "code": 400,
+        "description": "Some exception",
+    },
+    "status": 400,
+}
+TEST_KEYS = ['details', 'code']
+EXPECTED_SUBSET_RESULT = {
+    "details": {
+        "code": 400,
+    },
+}
+EXPECTED_EXCLUDE_RESULT = {
+    "title": "MyException",
+    "details": {
+        "description": "Some exception",
+    },
+    "status": 400,
+}
+PUBLIC_MEMBERS = [['title']]
+PRIVATE_MEMBERS = [['status']]
 
 
-def test_bad_request():
-    """Test for functioning of custom handler for BadRequest error"""
-    error = handle_bad_request(Exception)
-    assert error.status == '400 BAD REQUEST'
-    assert error.mimetype == "application/problem+json"
-    response = json.loads(error.data.decode('utf-8'))
-    assert response == {
-        "msg": "The request is malformed.",
-        "status_code": "400"
-        }
+class UnknownException(Exception):
+    pass
 
 
-def test_forbidden():
-    """Test for functioning of custom handler for Forbidden error"""
-    error = __handle_forbidden(Exception)
-    assert error.status == '403 FORBIDDEN'
-    assert error.mimetype == "application/problem+json"
-    response = json.loads(error.data.decode('utf-8'))
-    assert response == {
-        "msg": "The requester is not authorized to perform this action.",
-        "status_code": "403"
-        }
+def test_register_exception_handler():
+    """Test exception handler registration with Connexion app."""
+    app = App(__name__)
+    ret = register_exception_handler(app)
+    assert isinstance(ret, App)
 
 
-def test_internal_server_error():
-    """Test for functioning of custom handler for InternalServerError"""
-    error = __handle_internal_server_error(Exception)
-    assert error.status == '500 INTERNAL SERVER ERROR'
-    assert error.mimetype == "application/problem+json"
-    response = json.loads(error.data.decode('utf-8'))
-    assert response == {
-        "msg": "An unexpected error occurred.",
-        "status_code": "500"
-        }
+def test_exc_to_str():
+    """Test exception reformatter function."""
+    res = exc_to_str(exc=EXCEPTION_INSTANCE)
+    assert isinstance(res, str)
 
 
-def test_not_found():
-    """Test for functioning of custom handler for NotFound error"""
-    error = __handle_not_found(Exception)
-    assert error.status == '404 NOT FOUND'
-    assert error.mimetype == "application/problem+json"
-    response = json.loads(error.data.decode('utf-8'))
-    assert response == {
-        "msg": "The requested resource was not found.",
-        "status_code": "404"
-        }
+@pytest.mark.parametrize("format", ['oneline', 'minimal', 'regular'])
+def test_log_exception(caplog, format):
+    """Test exception reformatter function."""
+    log_exception(
+        exc=EXCEPTION_INSTANCE,
+        format=format,
+    )
+    assert "Exception" in caplog.text
 
 
-def test_unauthorized():
-    """Test for functioning of custom handler for Unauthorized error"""
-    error = __handle_unauthorized(Exception)
-    assert error.status == '401 UNAUTHORIZED'
-    assert error.mimetype == "application/problem+json"
-    response = json.loads(error.data.decode('utf-8'))
-    assert response == {
-        "msg": "The request is unauthorized.",
-        "status_code": "401"
-        }
+def test_log_exception_invalid_format(caplog):
+    """Test exception reformatter function with invalid format argument."""
+    log_exception(
+        exc=EXCEPTION_INSTANCE,
+        format=INVALID_LOG_FORMAT,
+    )
+    assert "logging is misconfigured" in caplog.text
 
 
-def test_register_error_handlers(monkeypatch):
-    test_app = MagicMock(name='App')
-    monkeypatch.setattr('foca.errors.errors.App', test_app)
-    test_app = register_error_handlers(test_app)
-    assert type(test_app) == type(test_app)
+def test_subset_nested_dict():
+    """Test nested dictionary subsetting function."""
+    res = subset_nested_dict(
+        obj=TEST_DICT,
+        key_sequence=deepcopy(TEST_KEYS)
+    )
+    assert res == EXPECTED_SUBSET_RESULT
+
+
+def test_exclude_key_nested_dict():
+    """Test function to exclude a key from a nested dictionary."""
+    res = exclude_key_nested_dict(
+        obj=TEST_DICT,
+        key_sequence=deepcopy(TEST_KEYS)
+    )
+    assert res == EXPECTED_EXCLUDE_RESULT
+
+
+def test_handle_problem():
+    """Test problem handler with instance of custom, unlisted error."""
+    app = Flask(__name__)
+    app.config['FOCA'] = Config()
+    EXPECTED_RESPONSE = app.config['FOCA'].exceptions.mapping[Exception]
+    with app.app_context():
+        res = handle_problem(UnknownException())
+        assert isinstance(res, Response)
+        assert res.status == '500 INTERNAL SERVER ERROR'
+        assert res.mimetype == "application/problem+json"
+        response = json.loads(res.data.decode('utf-8'))
+        assert response == EXPECTED_RESPONSE
+
+
+def test_handle_problem_no_fallback_exception():
+    """Test problem handler; unlisted error without fallback."""
+    app = Flask(__name__)
+    app.config['FOCA'] = Config()
+    del app.config['FOCA'].exceptions.mapping[Exception]
+    with app.app_context():
+        res = handle_problem(UnknownException())
+        assert isinstance(res, Response)
+        assert res.status == '500 INTERNAL SERVER ERROR'
+        assert res.mimetype == "application/problem+json"
+        response = res.data.decode("utf-8")
+        assert response == ""
+
+
+def test_handle_problem_with_public_members():
+    """Test problem handler with public members."""
+    app = Flask(__name__)
+    app.config['FOCA'] = Config()
+    app.config['FOCA'].exceptions.public_members = PUBLIC_MEMBERS
+    with app.app_context():
+        res = handle_problem(UnknownException())
+        assert isinstance(res, Response)
+        assert res.status == '500 INTERNAL SERVER ERROR'
+        assert res.mimetype == "application/problem+json"
+
+
+def test_handle_problem_with_private_members():
+    """Test problem handler with private members."""
+    app = Flask(__name__)
+    app.config['FOCA'] = Config()
+    app.config['FOCA'].exceptions.private_members = PRIVATE_MEMBERS
+    with app.app_context():
+        res = handle_problem(UnknownException())
+        assert isinstance(res, Response)
+        assert res.status == '500 INTERNAL SERVER ERROR'
+        assert res.mimetype == "application/problem+json"

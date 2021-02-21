@@ -1,295 +1,57 @@
-"""Decorator and utility functions for securing access to endpoints."""
+"""Functions for validating JWT Bearer tokens."""
 
 from connexion.exceptions import Unauthorized
-from connexion import request
-from functools import wraps
 import logging
-from typing import (Callable, Iterable, List, Mapping, Optional)
+from typing import (Dict, Iterable, List, Optional)
 
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
+from flask import current_app
 import jwt
 from jwt.exceptions import InvalidKeyError
 import requests
+from requests.exceptions import ConnectionError
 import json
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 
-def param_pass(
-    required: bool = True,
-    add_key_to_claims: bool = False,
-    allow_expired: bool = False,
-    audience: Optional[Iterable[str]] = None,
-    claim_identity: str = "sub",
-    claim_issuer: str = "iss",
-    claim_key_id: str = "kid",
-    header_name: str = "Authorization",
-    token_prefix: str = "Bearer",
-    algorithms: Iterable[str] = ["RS256"],
-    validation_methods: List[str] = ["userinfo", "public_key"],
-    validation_checks: str = "all",
-):
-    """Decorator for protecting an endpoint against access without a valid
-    JSON Web Token (JWT)-based authorization token.
-
-    Args:
-        required: Enable/disable JWT validation for endpoints decorated with
-            the `@jwt_validation` decorator defined in `foca.security.auth`.
-        add_key_to_claims: Whether to allow the application to add the identity
-            provider's corresponding JSON Web Key (JWK), in PEM format, to the
-            dictionary of claims when handling requests to
-            `@jwt_validation`-decorated endpoints.
-        allow_expired: Allow/disallow expired JWTs. If `False`, a `401`
-            authorization error is raised in response to a request containing
-            an expired JWT.
-        audience: List of audiences that the app identifies itself with. If
-            specified, JWTs that do not contain any of the specified audiences
-            are rejected. If `None`, audience validation is disabled.
-        claim_identity: The JWT claim used to identify the sender.
-        claim_issuer: The JWT claim used to identify the issuer.
-        claim_key_id: The JWT claim used to identify the JWK used when the JWT
-            was issued.
-        header_name: Name of the request header field at which the app is
-            expecting the JWT. Cf. `--token-prefix`.
-        token_prefix: Prefix that the app expects to precede the JWT, separated
-            by whitespace. Together, prefix and JWT constitute the value of
-            the request header field specified by `--header-name`.
-        algorithms: Lists the JWT-signing algorithms supported by the app.
-        validation_methods: Lists the methods to be used to validate a JWT.
-            Valid choices are `userinfo` and `public_key`. In the former case,
-            validation happens via an OpenID Connect-compliant identify
-            provider's `/userinfo` endpoint, in the latter via the identity
-            provider's JSON Web Key.
-        validation_checks: Specify how many of the `validation_methods` need
-            to pass before accepting a JWT. One of `any` and `all`. In the
-            former case, JWT validation succeeds after the first successful
-            validation check, in the latter case, JWT validation fails after
-            the first unsuccessful validation check.
+def validate_token(token: str) -> Dict:
     """
-    def jwt_validation(fn: Callable) -> Callable:
-        """JWT validation decorator.
-
-        Args:
-            fn: The function to be decorated.
-
-        Returns:
-            The decorated function.
-        """
-        @wraps(fn)
-        def wrapper(*args, **kwargs) -> Callable:
-            """Wrapper for JSON Web Token (JWT) validation decorator.
-
-            Args:
-                args: positional arguments passed through from `param_pass`.
-                kwargs: keyword arguments passed through from `param_pass`.
-
-            Returns:
-                Wrapper function.
-
-            Raises:
-                connexion.exceptions.Unauthorized: Raised if JWT could not be
-                    successfully validated.
-            """
-            # Check if authentication is enabled
-            if required:
-
-                # Ensure that at least one validation method was configured
-                if not len(validation_methods):
-                    logger.error("No JWT validation methods configured.")
-                    raise Unauthorized
-
-                # Ensure that a valid validation checks argument was configured
-                if validation_checks not in ['all', 'any']:
-                    logger.error(
-                        (
-                            "Illegal argument '{validation_checks}"
-                            "passed to configuration paramater"
-                            "'validation_checks'. Allowed "
-                            "values: 'any', 'all'"
-                        )
-                    )
-                    raise Unauthorized
-
-                # Parse JWT from HTTP header
-                token = parse_jwt_from_header(
-                    header_name=header_name,
-                    token_prefix=token_prefix,
-                )
-
-                # Initialize claims
-                claims = {}
-
-                # Validate JWT via /userinfo endpoint
-                if 'userinfo' in validation_methods:
-                    if not (claims and validation_checks == 'any'):
-                        logger.debug(
-                            (
-                                "Validating JWT via identity provider's "
-                                "'/userinfo' endpoint..."
-                            )
-                        )
-                        claims = validate_jwt_via_userinfo_endpoint(
-                            token=token,
-                            algorithms=algorithms,
-                            claim_issuer=claim_issuer,
-                        )
-                        if not claims and validation_checks == 'all':
-                            logger.error(
-                                (
-                                    "Insufficient number of JWT "
-                                    "validation checks passed."
-                                )
-                            )
-                            raise Unauthorized
-
-                # Validate JWT via public key
-                if 'public_key' in validation_methods:
-                    if not (claims and validation_checks == 'any'):
-                        logger.debug(
-                            (
-                                "Validating JWT via identity provider's"
-                                "public key..."
-                            )
-                        )
-                        claims = validate_jwt_via_public_key(
-                            token=token,
-                            algorithms=algorithms,
-                            claim_key_id=claim_key_id,
-                            claim_issuer=claim_issuer,
-                            add_key_to_claims=add_key_to_claims,
-                            audience=audience,
-                            allow_expired=allow_expired,
-                        )
-                        if not claims and validation_checks == 'all':
-                            logger.error(
-                                (
-                                    "Insufficient number of JWT"
-                                    "validation checks passed."
-                                )
-                            )
-                            raise Unauthorized
-
-                # Check whether enough validation checks passed
-                if not claims:
-                    logger.error(
-                        (
-                            "No JWT validation checks passed."
-                        )
-                    )
-                    raise Unauthorized
-
-                # Ensure that specified identity claim is available
-                if not validate_jwt_claims(
-                    claim_identity,
-                    claims=claims,
-                ):
-                    raise Unauthorized
-
-                # Log result
-                logger.debug(
-                    "Access granted."
-                )
-
-                # Return wrapped function with token data
-                return fn(
-                    jwt=token,
-                    claims=claims,
-                    user_id=claims[claim_identity],
-                    *args,
-                    **kwargs
-                )
-
-            # Return wrapped function without token data
-            else:
-                return fn(*args, **kwargs)
-
-        return wrapper
-
-    return jwt_validation
-
-
-def parse_jwt_from_header(
-    header_name: str = 'Authorization',
-    token_prefix: str = 'Bearer',
-) -> str:
-    """Parse JSON Web Token (JWT) from request header.
-
-    Args:
-        header_name: Name of the request header field at which the app is
-            expecting the JWT. Cf. `--token-prefix`.
-        token_prefix: Prefix that the app expects to precede the JWT, separated
-            by whitespace. Together, prefix and JWT constitute the value of
-            the request header field specified by `--header-name`.
+    Validate JSON Web Token (JWT) Bearer token.
 
     Returns:
-        JSON Web Token.
+        Token information.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if JWT cannot be extracted
-            from request header.
+        connexion.exceptions.Unauthorized: Raised if JWT could not be
+            successfully validated.
     """
-    # Ensure that authorization header is present
-    auth_header = request.headers.get(header_name, None)
-    if not auth_header:
-        logger.error(
-            "No HTTP header with name"
-            "'{header_name}' found.".format(header_name=header_name,)
+    # Set parameters defined by OpenID Connect specification
+    # Cf. https://openid.net/specs/openid-connect-discovery-1_0.html
+    oidc_suffix_config: str = ".well-known/openid-configuration"
+    oidc_config_claim_userinfo: str = 'userinfo_endpoint'
+    oidc_config_claim_public_keys: str = 'jwks_uri'
+
+    # Fetch security parameters
+    conf = current_app.config['FOCA'].security.auth
+    add_key_to_claims: bool = conf.add_key_to_claims
+    allow_expired: bool = conf.allow_expired
+    audience: Optional[Iterable[str]] = conf.audience
+    claim_identity: str = conf.claim_identity
+    claim_issuer: str = conf.claim_issuer
+    algorithms: Iterable[str] = conf.algorithms
+    validation_methods: List[str] = [e.value for e in conf.validation_methods]
+    validation_checks: str = conf.validation_checks.value
+
+    # Ensure that validation methods are configured
+    if not len(validation_methods):
+        raise Unauthorized(
+            "Authentication is enabled, but no JWT validation methods "
+            "configured"
         )
-        raise Unauthorized
 
-    # Ensure that authorization header is formatted correctly
-    try:
-        (prefix, token) = auth_header.split()
-    except ValueError as e:
-        logger.error(
-            (
-                "Authentication header is malformed."
-                "Original error message: "
-                "{type}: {msg}"
-            ).format(
-                type=type(e).__name__,
-                msg=e,
-            )
-        )
-        raise Unauthorized
-
-    if prefix != token_prefix:
-        logger.error(
-            (
-                "Expected token prefix in authentication header is "
-                "'{token_prefix}', but '{prefix}' was found."
-            ).format(
-                token_prefix=token_prefix,
-                prefix=prefix,
-            )
-        )
-        raise Unauthorized
-
-    return token
-
-
-def validate_jwt_via_userinfo_endpoint(
-    token: str,
-    algorithms: Iterable[str] = ['RS256'],
-    claim_issuer: str = 'iss',
-    service_document_field: str = 'userinfo_endpoint',
-) -> Mapping:
-    """Extract claims from a JSON Web Token (JWT) via an OpenID
-    Connect-compliant identity provider's `/userinfo` endpoint.
-
-    Args:
-        token: JSON Web Token.
-        algorithms: Lists the JWT-signing algorithms supported by the app.
-        claim_issuer: The JWT claim used to identify the issuer.
-        service_document_field: Field in identity provider's service discovery
-            endpoint response that points to the provider's `/userinfo`
-            endpoint.
-
-    Returns:
-        Dictionary of JWT claims, or an empty dictionary if claims could not
-            be successfully decoded.
-    """
     # Decode JWT
     try:
         claims = jwt.decode(
@@ -298,149 +60,174 @@ def validate_jwt_via_userinfo_endpoint(
             algorithms=algorithms,
         )
     except Exception as e:
-        logger.warning(
-            (
-                "JWT could not be decoded. Original error message: "
-                "{type}: {msg}"
-            ).format(
-                type=type(e).__name__,
-                msg=e,
-            )
-        )
-        return {}
+        raise Unauthorized("JWT could not be decoded") from e
+    logger.debug(f"Decoded claims: {claims}")
 
     # Verify existence of issuer claim
-    if not validate_jwt_claims(
-        claim_issuer,
-        claims=claims,
-    ):
-        return {}
+    if claim_issuer not in claims:
+        raise Unauthorized(
+            f"Required identity claim not available: {claim_identity}"
+        )
 
-    # Get /userinfo endpoint URL
-    url = get_entry_from_idp_service_discovery_endpoint(
-        issuer=claims[claim_issuer],
-        entry=service_document_field,
-    )
+    # Get OIDC configuration
+    url = f"{claims[claim_issuer].rstrip('/')}/{oidc_suffix_config}"
+    logger.debug(f"Issuer's configuration URL: {url}")
+    try:
+        oidc_config = requests.get(url)
+        oidc_config.raise_for_status()
+    except Exception as e:
+        raise Unauthorized(
+            "Could not fetch issuer's configuration from: {url}"
+        ) from e
 
-    # Validate JWT via /userinfo endpoint
-    if url:
-        logger.debug(f"Issuer's '/userinfo' endpoint URL: {url}")
+    # Validate token
+    passed_any = False
+    for method in validation_methods:
+        logger.debug(f"Validating JWT via method: {method}")
         try:
-            validate_jwt_via_endpoint(
-                url=url,
-                token=token,
-            )
-        except Exception:
-            return {}
-    else:
-        return {}
+            if method == 'userinfo':
+                validate_jwt_userinfo(
+                    token=token,
+                    url=oidc_config.json()[oidc_config_claim_userinfo],
+                )
+            if method == 'public_key':
+                validate_jwt_public_key(
+                    token=token,
+                    url=oidc_config.json()[oidc_config_claim_public_keys],
+                    algorithms=algorithms,
+                    add_key_to_claims=add_key_to_claims,
+                    audience=audience,
+                    allow_expired=allow_expired,
+                )
+        except Exception as e:
+            if validation_checks == 'all':
+                raise Unauthorized(
+                    "Insufficient number of JWT validation checks passed"
+                ) from e
+            continue
+        passed_any = True
+        if validation_checks == 'any':
+            break
+    if not passed_any:
+        raise Unauthorized("No JWT validation checks passed")
 
-    # Log success and return claims
-    logger.debug(
-        f"Claims decoded: {claims}"
-    )
-    return claims
+    # Verify existence of specified identity claim
+    if claim_identity not in claims:
+        raise Unauthorized(
+            f"Required identity claim '{claim_identity} not available"
+        )
+
+    # Log result
+    logger.debug(f"Access granted to user: {claims[claim_identity]}")
+
+    # Return token info
+    return {
+        'jwt': token,
+        'claims': claims,
+        'user_id': claims[claim_identity],
+        'scope': claims.get('scope', ""),
+    }
 
 
-def validate_jwt_via_public_key(
+def validate_jwt_userinfo(
     token: str,
+    url: str,
+    header_name: str = 'Authorization',
+    prefix: str = 'Bearer',
+) -> None:
+    """Validate JSON Web Token (JWT) via an OpenID Connect-compliant
+    identity provider's user info endpoint.
+
+    Args:
+        token: JSON Web Token (JWT).
+        url: URL to OpenID Connect identity provider's user info endpoint.
+        header_name: Name of the request header field at which the service is
+            expecting the JWT. Cf. `prefix`.
+        prefix: Prefix that the app expects to precede the JWT, separated
+            by whitespace. Together, prefix and JWT constitute the value of
+            the request header field specified by `--header-name`.
+
+    Raises:
+        requests.exceptions.ConnectionError: Raised if the identity provider's
+            user info or configuration endpoints could not be reached.
+    """
+    logger.debug(f"Issuer's user info endpoint URL: {url}")
+    headers = {f"{header_name}": f"{prefix} {token}"}
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+    except Exception as e:
+        raise ConnectionError(f"Could not connect to endpoint '{url}'") from e
+    logger.debug("Validation via user info endpoint succeeded")
+
+
+def validate_jwt_public_key(
+    token: str,
+    url: str,
     algorithms: Iterable[str] = ['RS256'],
-    claim_key_id: str = 'kid',
-    claim_issuer: str = 'iss',
-    service_document_field: str = 'jwks_uri',
     add_key_to_claims: bool = True,
     audience: Optional[Iterable[str]] = None,
     allow_expired: bool = False,
-) -> Mapping:
-    """Extract claims from a JSON Web Token (JWT) with an OpenID
-    Connect-compliant identity provider's public key.
+    claim_key_id: str = 'kid',
+) -> None:
+    """Validate JSON Web Token (JWT) via an OpenID Connect-compliant
+    identity provider's public key.
 
     Args:
-        token: JSON Web Token.
+        token: JSON Web Token (JWT).
+        url: URL to OpenID Connect identity provider's public keys endpoint.
         algorithms: Lists the JWT-signing algorithms supported by the app.
-        claim_key_id: The JWT claim used to identify the JWK used when the JWT
-            was issued.
-        claim_issuer: The JWT claim used to identify the issuer.
-        service_document_field: Field in identity provider's service discovery
-            endpoint response that points to the provider's JSON Web Key set
-            endpoint.
         add_key_to_claims: Whether to allow the application to add the identity
             provider's corresponding JSON Web Key (JWK), in PEM format, to the
             dictionary of claims when handling requests to
             `@jwt_validation`-decorated endpoints.
         audience: List of audiences that the app identifies itself with. If
-            specified, JWTs that do not contain any of the specified audiences
-            are rejected. If `None`, audience validation is disabled.
-        allow_expired: Allow/disallow expired JWTs. If `False`, a `401`
-            authorization error is raised in response to a request containing
-            an expired JWT.
+            specified, JSON Web Tokens (JWT) that do not contain any of the
+            specified audiences are rejected. Set to `None` to disable audience
+            validation.
+        allow_expired: Allow/disallow expired JSON Web Tokens (JWT).
+        claim_key_id: The JSON Web Token (JWT) claim used to specify the
+            identifier of the JSON Web Key (JWK) used to issue that token.
 
     Returns:
         Dictionary of JWT claims, or an empty dictionary if claims could not
             be successfully decoded.
+
+    Raises:
+        KeyError: Raised if used JSON Web Key (JWK) identifer was not found
+            among public JWK set.
+        Unauthorized: Raised if token could not be decoded.
     """
-    # Extract JWT claims
-    try:
-        claims = jwt.decode(
-            jwt=token,
-            verify=False,
-            algorithms=algorithms,
-        )
-    except Exception as e:
-        logger.error(
-            (
-                "JWT could not be decoded. Original error message:"
-                "{type}: {msg}"
-            ).format(
-                type=type(e).__name__,
-                msg=e,
-            )
-        )
-        return {}
-
-    # Extract JWT Sheader claims
-    try:
-        header_claims = jwt.get_unverified_header(token)
-    except Exception as e:
-        logger.error(
-            "Could not extract JWT header claims. Original error message: "
-            f"{type(e).__name__}: {e}"
-        )
-        return {}
-
-    # Get JWK set endpoint URL
-    url = get_entry_from_idp_service_discovery_endpoint(
-        issuer=claims[claim_issuer],
-        entry=service_document_field,
-    )
+    logger.debug(f"Issuer's JWK set endpoint URL: {url}")
 
     # Obtain identity provider's public keys
-    if url:
-        logger.debug(f"Issuer's JWK set endpoint URL: {url}")
-        public_keys = get_public_keys(
-            url=url,
-            claim_key_id=claim_key_id,
-        )
-    else:
-        return {}
+    public_keys = get_public_keys(
+        url=url,
+        pem=False,
+        claim_key_id=claim_key_id,
+    )
 
-    # If currently used public key is specified, verify that it exists and
-    # remove all other keys
-    if claim_key_id in header_claims:
-        if header_claims[claim_key_id] in public_keys:
-            public_keys = {
-                header_claims[claim_key_id]:
-                    public_keys[header_claims[claim_key_id]]
-            }
-        else:
-            logger.error(
-                "JWT key ID not found among issuer's JWKs."
-            )
-            return {}
-    else:
-        logger.debug(
-            "JWT key ID not specified. Trying all available JWKs..."
-        )
+    # Extract JWT header claims, if available
+    try:
+        header_claims = jwt.get_unverified_header(token)
+        logger.debug(f"Decoded header claims: {header_claims}")
+    except Exception:
+        logger.debug("Could not extract JWT header claims")
+        header_claims = {}
+
+    # Set used JWK identifier, if available
+    try:
+        jwk_id = header_claims[claim_key_id]
+    except KeyError:
+        logger.debug("JWT key ID not specified, trying all available JWKs")
+        jwk_id = False
+
+    # Verify that used JWK exists and remove all other JWKs
+    if jwk_id:
+        try:
+            public_keys = {jwk_id: public_keys[jwk_id]}
+        except KeyError:
+            raise KeyError("JWT key ID not found among issuer's JWKs")
 
     # Set validations
     validation_options = {}
@@ -450,15 +237,10 @@ def validate_jwt_via_public_key(
         validation_options['verify_exp'] = False
 
     # Try public keys one after the other
-    pem = ''
+    used_key = {}
     claims = {}
     for key in public_keys.values():
-
-        # Get PEM representation of key
-        pem = key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        ).decode('utf-8').encode('unicode_escape').decode('utf-8')
+        used_key = key
 
         # Decode JWT and validate via public key
         try:
@@ -473,17 +255,12 @@ def validate_jwt_via_public_key(
         # Wrong or faulty key was used; try next one
         except InvalidKeyError as e:
             logger.debug(
-                "JWT could not be decoded with current JWK:\n"
-                f"{pem}\n"
-                f"Original error message: {type(e).__name__}: {e}"
-            )
-        # Key seems okay but token seems invalid
-        except Exception as e:
-            logger.error(
-                "JWT could not be validated. Original error message: "
+                "JWT could not be decoded with current JWK '{key}': "
                 f"{type(e).__name__}: {e}"
             )
-            return {}
+        # Key seems okay but token is invalid
+        except Exception as e:
+            raise Unauthorized("JWT could not be validated") from e
 
         # Do not try other keys if token was decoded
         if claims:
@@ -491,202 +268,69 @@ def validate_jwt_via_public_key(
 
     # Verify that token was decoded
     if not claims:
-        logger.error(
-            "JWT could not be validated with any of the issuer's JWKs."
-        )
-        return {}
+        raise Unauthorized("JWT could not be validated with issuer's JWKs")
 
     # Add public key to claims
     if add_key_to_claims:
-        claims['public_key'] = pem
+        claims['public_key'] = used_key
 
     # Log success and return claims
-    logger.debug(
-        f"Claims decoded: {claims}"
-    )
-    return claims
-
-
-def validate_jwt_claims(
-    *args: str,
-    claims: Mapping,
-) -> bool:
-    """
-    Validates the existence of one or more JWT claims.
-
-    Args:
-        *args: Claims whose existence in `claims` is to be verified.
-        claims: Available claims, as keys of a mapping.
-
-    Returns:
-        `False` as soon as a missing claim is encountered and `True` otherwise.
-    """
-    # Check for existence of required claims
-    for claim in args:
-        if claim not in claims:
-            logger.warning(
-                (
-                    "Required claim '{claim}' not found in JWT."
-                ).format(
-                    claim=claim,
-                )
-            )
-            return False
-    else:
-        return True
-
-
-def get_entry_from_idp_service_discovery_endpoint(
-        issuer: str,
-        entry: str,
-) -> Optional[str]:
-    """
-    Retrieve specific entry from OpenID Connect-compliant identity provider's
-    service discovery endpoint.
-
-    Args:
-        issuer: Base of JSON Web Token (JWT) issuer.
-        entry: Entry to be retrieved.
-
-    Returns:
-        The desired entry, or `None` if either the service discovery endpoint
-        could not be reached, or the entry is not available.
-    """
-    # Build endpoint URL
-    base_url = issuer.rstrip("/")
-    url = "{base_url}/.well-known/openid-configuration".format(
-        base_url=base_url
-    )
-
-    # Send GET request to service discovery endpoint
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-    except Exception as e:
-        logger.warning(
-            (
-                "Could not connect to endpoint '{url}'. Original error "
-                "message: {type}: {msg}"
-            ).format(
-                url=url,
-                type=type(e).__name__,
-                msg=e,
-            )
-        )
-        return None
-
-    # Return entry or None
-    if entry not in response.json():
-        logger.warning(
-            (
-                "Required entry '{entry}' not found in "
-                "identity provider's documentation accessed "
-                "at endpoint '{url}'."
-            ).format(
-                entry=entry,
-                url=url,
-            )
-        )
-        return None
-    else:
-        return response.json()[entry]
-
-
-def validate_jwt_via_endpoint(
-    url: str,
-    token: str,
-    header_name: str = 'Authorization',
-    prefix: str = 'Bearer'
-) -> None:
-    """
-    Returns True if a JWT-headed request to a specified URL yields the
-    specified status code.
-
-    Args:
-        url: URL of identity provider's `/userinfo` endpoint.
-        token: JSON Web Token.
-        header_name: Name of the request header field at which the app is
-            expecting the JWT. Cf. `--token-prefix`.
-        prefix: Prefix that the app expects to precede the JWT, separated by
-            whitespace. Together, prefix and JWT constitute the value of
-            the request header field specified by `--header-name`.
-
-    Returns: `None` if validation succeeds.
-
-    Raises:
-        Exception: Raised if validation fails.
-    """
-    headers = {
-        "{header_name}".format(
-            header_name=header_name
-        ): "{prefix} {token}".format(
-            header_name=header_name,
-            prefix=prefix,
-            token=token,
-        )
-    }
-    try:
-        response = requests.get(
-            url,
-            headers=headers,
-        )
-        response.raise_for_status()
-    except Exception as e:
-        logger.warning(
-            (
-                "Could not connect to endpoint '{url}'. Original error "
-                "message: {type}: {msg}"
-            ).format(
-                url=url,
-                type=type(e).__name__,
-                msg=e,
-            )
-        )
-        raise
-
-    return None
+    logger.debug("Validation via issuer's public keys succeeded")
 
 
 def get_public_keys(
     url: str,
+    pem: bool = False,
     claim_key_id: str = 'kid',
-) -> Mapping:
-    """
-    Obtain the identity provider's JSON Web Key (JWK) set.
+    claim_keys: str = 'keys',
+) -> Dict[str, RSAPublicKey]:
+    """Obtain the identity provider's public JSON Web Key (JWK) set.
 
     Args:
-        url: Endpoint providing the identity providers JWK set.
-        claim_key_id: The JWT claim encoding a JWK identifier.
+        url: Endpoint providing the identity provider's JSON Web Key (JWK) set.
+        pem: Whether public JSON Web Keys (JWK) shall be returned in Privacy
+            Enhanced-Mail (PEM) format rather than as JSON dumps.
+        claim_key_id: The JWT claim encoding a JSON Web Key (JWK) identifier.
+        claim_keys: The JSON Web Key (JWK)
 
     Returns:
-        A dictionary of JWK identifiers (keys) and public keys (values); in
-            case a connection to the identity provider could not be
-            established, an empty dictionary is returned.
+        JSON Web Key (JWK) public keys mapped to their identifiers.
+
+    Raises:
+        requests.exceptions.ConnectionError: Raised if the identity provider's
+            JWK set or configuration could not be reached.
     """
     # Get JWK sets from identity provider
     try:
         response = requests.get(url)
         response.raise_for_status()
     except Exception as e:
-        logger.warning(
-            (
-                "Could not connect to endpoint '{url}'. Original error "
-                "message: {type}: {msg}"
-            ).format(
-                url=url,
-                type=type(e).__name__,
-                msg=e,
-            )
-        )
-        return {}
+        raise ConnectionError(f"Could not connect to endpoint '{url}'") from e
 
-    # Iterate over all JWK sets and store public keys in dictionary
+    # Iterate over JWK set and store public keys in dictionary
     public_keys = {}
-    for jwk in response.json()['keys']:
-        token_algo = jwt.algorithms.RSAAlgorithm
-        public_keys[jwk[claim_key_id]] = token_algo.from_jwk(
-            json.dumps(jwk)
-        )
+    for jwk in response.json().get(claim_keys, []):
+        try:
+            key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
+
+            # Ensure key is public
+            if not isinstance(key, RSAPublicKey):
+                logger.warning(f"JSON Web Key '{jwk}' is not public.")
+                continue
+
+            # Convert to PEM if requested
+            if pem:
+                key = key.public_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                ).decode('utf-8').encode('unicode_escape').decode('utf-8')
+
+            public_keys[jwk[claim_key_id]] = key
+        except Exception as e:
+            logger.warning(
+                f"JSON Web Key '{jwk}' could not be processed: "
+                f"{type(e).__name__}: {e}"
+            )
 
     # Return dictionary of public keys
     return public_keys

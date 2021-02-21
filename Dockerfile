@@ -1,12 +1,9 @@
 FROM python:3.6-slim-stretch as base
 
 # Metadata
-LABEL base.image="python:3.6-slim-stretch"
 LABEL software="FOCA"
-LABEL software.version="0.2.0"
 LABEL software.description="Kickstart OpenAPI-based microservice development with Flask & Connexion"
 LABEL software.website="https://github.com/elixir-cloud-aai/foca"
-LABEL software.documentation="https://github.com/elixir-cloud-aai/foca"
 LABEL software.license="https://spdx.org/licenses/Apache-2.0"
 LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
 LABEL maintainer.organisation="ELIXIR Cloud & AAI"
@@ -19,18 +16,21 @@ ENV PACKAGES openssl git build-essential python3-dev curl jq
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
 # Install Python dependencies
-WORKDIR /app
-COPY ./requirements.txt .
+COPY requirements.txt setup.py README.md ./
 RUN pip install \
-    --no-warn-script-location \
-    --prefix="/install" \
-    -r requirements.txt && \
-    pip install \
-    --no-warn-script-location \
-    --prefix="/install" \
-    https://github.com/elixir-cloud-aai/foca/archive/dev.zip
+        --no-warn-script-location \
+        --prefix="/install" \
+        -r requirements.txt
+
+# Install FOCA
+COPY setup.py README.md ./
+COPY foca/ ./foca/
+RUN pip install . \
+        --no-warn-script-location \
+        --prefix="/install"
 
 # Final image
 FROM base

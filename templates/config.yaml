@@ -1,0 +1,106 @@
+# FOCA CONFIGURATION
+
+# Available in app context as attributes of `current_app.config['FOCA']`
+# Automatically validated via FOCA
+# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html
+
+# SERVER CONFIGURATION
+# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ServerConfig
+server:
+  host: '0.0.0.0'
+  port: 8080
+  debug: True
+  environment: development
+  testing: False
+  use_reloader: False
+
+# EXCEPTION CONFIGURATION
+# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ExceptionConfig
+exceptions:
+  required_members: [['msg'], ['status']]
+  status_member: ['status']
+  exceptions: my_app.exceptions.exceptions
+
+# SECURITY CONFIGURATION
+# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.SecurityConfig
+security:
+  auth:
+    add_key_to_claims: True
+    algorithms:
+      - RS256
+    allow_expired: False
+    audience: null
+    validation_methods:
+      - userinfo
+      - public_key
+    validation_checks: any
+
+# API CONFIGURATION
+# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.APIConfig
+api:
+  specs:
+    - path:
+        - path/to/my/openapi/specs.yaml
+      add_operation_fields:
+        x-openapi-router-controller: myapi.controllers
+      add_security_fields:
+        x-bearerInfoFunc: app.validate_token
+      disable_auth: False
+      connexion:
+        strict_validation: True
+        validate_responses: True
+        options:
+          swagger_ui: True
+          serve_spec: True
+
+# DATABASE CONFIGURATION
+# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.DBConfig
+db:
+  host: mongodb
+  port: 27017
+  dbs:
+    myDb:
+      collections:
+        myCollection:
+          indexes:
+            - keys:
+                id: 1
+              options:
+                'unique': True
+
+# WORKER CONFIGURATION
+# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.JobsConfig
+jobs:
+  host: rabbitmq
+  port: 5672
+  backend: 'rpc://'
+  include:
+    - my_app.tasks.my_task_1
+    - my_app.tasks.my_task_2
+
+# LOGGING CONFIGURATION
+# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.LogConfig
+log:
+  version: 1
+  disable_existing_loggers: False
+  formatters:
+    standard:
+      class: logging.Formatter
+      style: "{"
+      format: "[{asctime}: {levelname:<8}] {message} [{name}]"
+  handlers:
+    console:
+      class: logging.StreamHandler
+      level: 20
+      formatter: standard
+      stream: ext://sys.stderr
+  root:
+    level: 10
+    handlers: [console]
+
+
+# CUSTOM APP CONFIGURATION
+
+# Available in app context as attributes of `current_app.config['FOCA']`
+# NOT VALIDATED VIA FOCA; if desired, validate parameters in app
+my_custom_param: 'some_value'

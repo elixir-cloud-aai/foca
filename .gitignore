@@ -325,3 +325,6 @@ pip-selfcheck.json
 
 # Custom additions
 .vscode
+examples/petstore/petstore.modified.yaml
+examples/petstore/data/
+*.modified.yaml
