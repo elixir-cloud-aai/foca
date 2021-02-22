@@ -111,6 +111,22 @@ class ServerConfig(FOCABaseConfig):
             automatically on code changes. See Flask documentation for more
             details.
 
+    Attributes:
+        host: Host at which the application is exposed.
+        port: Port at which the application is exposed.
+        debug: Flag to run application in debug mode. If True, the
+            application runs in debug mode and an interactive debugger will
+            be shown for unhandled exceptions. See Flask documentation for more
+            details.
+        environment: Variable to specify the application environment variable.
+            See Flask documentation for more details.
+        testing: Enable/disable testing mode. If True, exceptions are
+            propagated rather than handled by the the app’s error handlers.
+        use_reloader: Enable/disable the application reloader. If
+            ``debug=True``, enabling this will allow the server to reload
+            automatically on code changes. See Flask documentation for more
+            details.
+
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
@@ -140,6 +156,51 @@ class ExceptionConfig(FOCABaseConfig):
     app.
 
     Args:
+        required_members: List of dictionary keys indicating which JSON members
+            are required for all exceptions. *Must* contain a member that
+            represents the HTTP response code (cf. `status_member`).
+        extension_members: Either a list of additionally allowed, optional
+            extension members, or a Boolean expression indicating whether
+            any (True) or no (False) additional members are allowed.
+        status_member: Sequence of dictionary keys indicating the member that
+            represents the HTTP response code (e.g, ``500``).
+        public_members: Filter to restrict which exception members are to be
+            included in the error response. Only members listed here, with each
+            one specified as a sequence of keys, are included. Specify an empty
+            list to prevent any members from being returned to the user. Set to
+            None to disable filtering. Note that only one of `public_members`
+            and `private_members` filters can be active.
+        private_members: Filter to restrict which exception members are to be
+            included in the error response. Members listed here, with each one
+            specified as a sequence of keys, are excluded. Set to None to
+            disable filtering. Note that only one of `public_members` and
+            `private_members` filters can be active.
+        exceptions: Path to dictionary containing the actual exception classes
+            as keys and a dictionary of JSON members (as per `required_members`
+            and `extension_members`) as values. Path should be a dot-separated
+            path to the module containing the dictionary (which needs to also
+            contain imports for all listed expcetions), followed by the name of
+            the dictionary itself. For example, for ``myapp.errors.exc_dict``,
+            the dictionary ``exc_dict`` would be attempted to be imported from
+            module ``myapp.errors`` (must be available in the Pythonpath). To
+            ensure that all exceptions arising during the app context are
+            handled, it is strongly advised to add the catch-all exception
+            ``Exception``. If missing, any exceptions not listed will only
+            provoke an empty JSON response.
+        logging: Specifies if and how exception details should be logged. One
+            of - ``oneline``: Exception, including traceback, is logged on a
+            single line, ``minimal``: Only the exception title and message are
+            logged on a single line, ``regular``: The exception is logged with
+            the entire traceback stack, generally on multiple lines, ``none``:
+            Exception details are not logged at all. Note that unless ``none``
+            is specified, a JSON representation of the error, as defined in
+            `exceptions`, and including _all_ members, unaffected by
+            `public_members` and `private_members` filters, will be logged on
+            an additional line.
+        mapping: The actual referenced dictionary from `exceptions`, populated
+            by FOCA.
+
+    Attributes:
         required_members: List of dictionary keys indicating which JSON members
             are required for all exceptions. *Must* contain a member that
             represents the HTTP response code (cf. `status_member`).
@@ -395,6 +456,48 @@ class SpecConfig(FOCABaseConfig):
         connexion: Keyword arguments passed through to the `add_api()` method
             in Connexion's ``connexion.apps.flask_app`` module.
 
+    Attributes:
+        path: A single path or list of paths to OpenAPI 2.x or 3.x
+            specification in YAML format.
+        path_out: Output path for modified specification file. Ignored if specs
+            are not modified. If not specified, the original file path is
+            stripped of the file extension and the suffix '.modified.yaml' is
+            appended.
+        append: Fields to be added/modified in the root of the specification
+            file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
+            For OpenAPI 3.x, see https://swagger.io/specification/.
+        add_operation_fields: Fields to be added/modified to/in the Operation
+            Objects of each Path Info Object. An example use case for this is
+            the addition or replacement of the ``x-swagger-router-controller``
+            field. For OpenAPI 2.x, see
+            https://swagger.io/specification/v2/#operation-object. For OpenAPI
+            3.x, see https://swagger.io/specification/#operation-object. Note
+            that different operation fields for different Operation Objects are
+            currently not supported.
+        add_security_fields: Fields to be added/modified to/in each definition
+            or scheme in the ``securityDefintions`` (OpenAPI 2.x) or
+            ``securitySchemes`` (OpenAPI 3.x) objects. An example use case for
+            this is the addition or replacement of the `x-tokenInfoFunc` or
+            similar field. Cf.
+            https://connexion.readthedocs.io/en/latest/security.html. For
+            OpenAPI 2.x, see
+            https://swagger.io/specification/v2/#securityDefinitionsObject. For
+            OpenAPI 3.x, see
+            https://swagger.io/docs/specification/authentication/. Note that
+            different security fields for different security
+            definitions/schemes are currently not supported.
+        disable_auth: Disable JWT validation for endpoints configured to
+            require authorization as per the OpenAPI specifications. Has no
+            effect if relevant security definitions/schemes are not defined.
+            Setting is global. Use `security` property in OpenAPI specification
+            to define this behavior separately for each Operation Object and/or
+            security definition/scheme. For OpenAPI 2.x, see
+            https://swagger.io/specification/v2/#securityDefinitionsObject. For
+            OpenAPI 3.x, see
+            https://swagger.io/docs/specification/authentication/.
+        connexion: Keyword arguments passed through to the `add_api()` method
+            in Connexion's ``connexion.apps.flask_app`` module.
+
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
@@ -493,6 +596,10 @@ class APIConfig(FOCABaseConfig):
         spec: List of configuration parameters for OpenAPI 2.x or 3.x
             specifications to be attached to a Connexion app.
 
+    Attributes:
+        spec: List of configuration parameters for OpenAPI 2.x or 3.x
+            specifications to be attached to a Connexion app.
+
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
@@ -513,6 +620,31 @@ class AuthConfig(FOCABaseConfig):
     authorization for the app.
 
     Args:
+        add_key_to_claims: Whether to allow the application to add the identity
+            provider's corresponding JSON Web Key (JWK), in PEM format, to the
+            dictionary of claims when handling requests to
+            ``@jwt_validation``-decorated endpoints.
+        allow_expired: Allow/disallow expired JWTs. If False, a ``401``
+            authorization error is raised in response to a request containing
+            an expired JWT.
+        audience: List of audiences that the app identifies itself with. If
+            specified, JWTs that do not contain any of the specified audiences
+            are rejected. If None, audience validation is disabled.
+        claim_identity: The JWT claim used to identify the sender.
+        claim_issuer: The JWT claim used to identify the issuer.
+        algorithms: Lists the JWT-signing algorithms supported by the app.
+        validation_methods: Lists the methods to be used to validate a JWT.
+            Valid choices are `userinfo` and `public_key`. In the former case,
+            validation happens via an OpenID Connect-compliant identify
+            provider's `/userinfo` endpoint, in the latter via the identity
+            provider's JSON Web Key.
+        validation_checks: Specify how many of the `validation_methods` need
+            to pass before accepting a JWT. One of ``any`` and ``all``. In the
+            former case, JWT validation succeeds after the first successful
+            validation check, in the latter case, JWT validation fails after
+            the first unsuccessful validation check.
+
+    Attributes:
         add_key_to_claims: Whether to allow the application to add the identity
             provider's corresponding JSON Web Key (JWK), in PEM format, to the
             dictionary of claims when handling requests to
@@ -578,6 +710,9 @@ class CORSConfig(FOCABaseConfig):
     Args:
         enabled: Enable/disable the CORS for the application.
 
+    Attributes:
+        enabled: Enable/disable the CORS for the application.
+
     Examples:
         >>> CORSConfig(
         ...     enabled=True,
@@ -591,6 +726,9 @@ class SecurityConfig(FOCABaseConfig):
     """Model for list the Security configuration.
 
     Args:
+        auth: Config parameters for JSON Web Token (JWT) validation.
+
+    Attributes:
         auth: Config parameters for JSON Web Token (JWT) validation.
 
     Raises:
@@ -615,6 +753,16 @@ class IndexConfig(FOCABaseConfig):
     """Model for configuring indexes for a MongoDB collection.
 
     Args:
+        keys: A key-direction dictionary indicating the field to be indexed
+            and the sort order of that index. The sort order must be a valid
+            MongoDB index specifier, one of the corresponding values of
+            ``pymongo.ASCENDING``,``pymongo.DESCENDING``, ``pymongo.GEO2D``
+            etc. cf.:
+            https://api.mongodb.com/python/current/api/pymongo/collection.html
+        options: A dictionary of any additional index creation options. cf.:
+            https://api.mongodb.com/python/1.9/api/pymongo/collection.html
+
+    Attributes:
         keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
             MongoDB index specifier, one of the corresponding values of
@@ -656,6 +804,11 @@ class CollectionConfig(FOCABaseConfig):
         client: Client connected to collection. Most likely populated through
             the code, not during setup.
 
+    Attributes:
+        indexes: An index configuration object.
+        client: Client connected to collection. Most likely populated through
+            the code, not during setup.
+
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
@@ -675,6 +828,12 @@ class DBConfig(FOCABaseConfig):
     """Model for configuring a MongoDB database.
 
     Args:
+        collections: Mapping of collection names (keys) and configuration
+            objects (values).
+        client: Client connected to database. Most likely populated through the
+            code, not during setup.
+
+    Attributes:
         collections: Mapping of collection names (keys) and configuration
             objects (values).
         client: Client connected to database. Most likely populated through the
@@ -709,6 +868,12 @@ class MongoConfig(FOCABaseConfig):
         dbs: Mapping of database names (keys) and configuration objects
             (values).
 
+    Attributes:
+        host: Host at which the database is exposed.
+        port: Port at which the database is exposed.
+        dbs: Mapping of database names (keys) and configuration objects
+            (values).
+
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
@@ -734,6 +899,13 @@ class JobsConfig(FOCABaseConfig):
         port: Port at which the broker is exposed.
         backend: Backend used to store background task results.
         include: List of modules to import when workers start.
+
+    Attributes:
+        host: Host at which the broker is exposed.
+        port: Port at which the broker is exposed.
+        backend: Backend used to store background task results.
+        include: List of modules to import when workers start.
+
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -762,6 +934,11 @@ class LogFormatterConfig(FOCABaseConfig):
         style: Determines how the format string will be merged with its data.
         format: Format string any log messages.
 
+    Attributes:
+        class: Name of logging formatter class.
+        style: Determines how the format string will be merged with its data.
+        format: Format string any log messages.
+
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
@@ -786,6 +963,12 @@ class LogHandlerConfig(FOCABaseConfig):
     """Model for passing logging handler parameters to configuring app logging.
 
     Args:
+        class: Name of logging handler class.
+        level: Numeric value of logging level.
+        formatter: Name of logging formatter.
+        stream: Devide to which log is streamed.
+
+    Attributes:
         class: Name of logging handler class.
         level: Numeric value of logging level.
         formatter: Name of logging formatter.
@@ -824,6 +1007,10 @@ class LogRootConfig(FOCABaseConfig):
         level: Numeric value of logging level.
         handlers: List of logging handlers by name.
 
+    Attributes:
+        level: Numeric value of logging level.
+        handlers: List of logging handlers by name.
+
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
@@ -847,6 +1034,18 @@ class LogConfig(FOCABaseConfig):
     """Model for passing parameters for configuring app logging.
 
     Args:
+        version: Schema version.
+        disable_existing_loggers: Whether any existing non-root loggers are to
+            be disabled.
+        formatters: A dictionary of logging formatters, where keys represent
+            formatter names and values represent the corresponding
+            configuration parameters.
+        handlers: A dictionary of logging handlers, where keys represent
+            handler names and values represent the corresponding configuration
+            parameters.
+        root: Configuration of the root logger.
+
+    Attributes:
         version: Schema version.
         disable_existing_loggers: Whether any existing non-root loggers are to
             be disabled.
@@ -896,6 +1095,15 @@ class Config(FOCABaseConfig):
     """Model for all app configuration parameters.
 
     Args:
+        server: Server config parameters.
+        exceptions: Exception handling parameters.
+        api: OpenAPI specification config parameters.
+        security: Security config parameters.
+        db: Database config parameters.
+        jobs: Background job config parameters.
+        log: Logger config parameters.
+
+    Attributes:
         server: Server config parameters.
         exceptions: Exception handling parameters.
         api: OpenAPI specification config parameters.
