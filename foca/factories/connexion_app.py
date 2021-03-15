@@ -13,7 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 def create_connexion_app(config: Optional[Config] = None) -> App:
-    """Create and configure Connexion app."""
+    """Create and configure Connexion app.
+
+
+    Args:
+        config: App configuration.
+
+    Returns:
+        Connexion app.
+    """
     # Instantiate Connexion app
     app = App(
         __name__,

@@ -185,18 +185,15 @@ class ExceptionConfig(FOCABaseConfig):
             `Exception`. If missing, any exceptions not listed will only
             provoke an empty JSON response.
         logging: Specifies if and how exception details should be logged. One
-            of:
-                * `oneline`: Exception, including traceback, is logged on a
-                single line.
-                * `minimal`: Only the exception title and message are logged on
-                a single line.
-                * `regular`: The exception is logged with the entire traceback
-                stack, generally on multiple lines.
-                * `none`: Exception details are not logged at all.
-            Note that unless `none` is specified, a JSON representation of the
-            error, as defined in `exceptions`, and including _all_ members,
-            unaffected by `public_members` and `private_members` filters, will
-            be logged on an additional line.
+            of; ``oneline``: Exception, including traceback, is logged on a
+            single line. ``minimal``: Only the exception title and message are
+            logged on a single line. ``regular``: The exception is logged with
+            the entire traceback stack, generally on multiple lines. ``none``:
+            Exception details are not logged at all. Note that unless ``none``
+            is specified, a JSON representation of the error, as defined in
+            `exceptions`, and including _all_ members, unaffected by
+            `public_members` and `private_members` filters, will be logged on
+            an additional line.
         mapping: The actual referenced dictionary from `exceptions`, populated
             by FOCA.
 
@@ -286,7 +283,7 @@ imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
         """Validate that exceptions dictionary exists and can be imported, that
         all exceptions have all required members and no additional members
         (unless specifically allowed) and replace default value for `field`
-        mapping to the contents of the exceptions dictionaryy.
+        mapping to the contents of the exceptions dictionary.
         """
         # Set allowed members
         limited_members = False
@@ -422,7 +419,7 @@ class SpecConfig(FOCABaseConfig):
             specification in YAML format.
         path_out: Output path for modified specification file. Ignored if specs
             are not modified. If not specified, the original file path is
-            stripped of the file extension and the suffix '.modified.yaml' is
+            stripped of the file extension and the suffix `.modified.yaml` is
             appended.
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
@@ -464,7 +461,7 @@ class SpecConfig(FOCABaseConfig):
             specification in YAML format.
         path_out: Output path for modified specification file. Ignored if specs
             are not modified. If not specified, the original file path is
-            stripped of the file extension and the suffix '.modified.yaml' is
+            stripped of the file extension and the suffix `.modified.yaml` is
             appended.
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
@@ -506,13 +503,12 @@ class SpecConfig(FOCABaseConfig):
             data type.
 
     Example:
-        (1)
+
         >>> SpecConfig(path="/my/path.yaml")
         SpecConfig(path=['/my/path.yaml'], path_out='/my/path.modified.yaml', \
 append=None, add_operation_fields=None, add_security_fields=None, disable_auth\
 =False, connexion=None)
 
-        (2)
         >>> SpecConfig(
         ...     path=["/path/to/specs.yaml", "/path/to/add_specs.yaml"],
         ...     path_out="/path/to/specs.modified.yaml",
@@ -761,7 +757,8 @@ class IndexConfig(FOCABaseConfig):
         keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
             MongoDB index specifier, one of the corresponding values of
-            `pymongo.ASCENDING`,`pymongo.DESCENDING`, `pymongo.GEO2D` etc. cf.:
+            `pymongo.ASCENDING`, `pymongo.DESCENDING`, `pymongo.GEO2D` etc.
+            cf.:
             https://api.mongodb.com/python/current/api/pymongo/collection.html
         options: A dictionary of any additional index creation options. cf.:
             https://api.mongodb.com/python/1.9/api/pymongo/collection.html
@@ -770,7 +767,8 @@ class IndexConfig(FOCABaseConfig):
         keys: A key-direction dictionary indicating the field to be indexed
             and the sort order of that index. The sort order must be a valid
             MongoDB index specifier, one of the corresponding values of
-            `pymongo.ASCENDING`,`pymongo.DESCENDING`, `pymongo.GEO2D` etc. cf.:
+            `pymongo.ASCENDING`, `pymongo.DESCENDING`, `pymongo.GEO2D` etc.
+            cf.:
             https://api.mongodb.com/python/current/api/pymongo/collection.html
         options: A dictionary of any additional index creation options. cf.:
             https://api.mongodb.com/python/1.9/api/pymongo/collection.html

@@ -191,7 +191,7 @@ def validate_jwt_public_key(
 
     Returns:
         Dictionary of JWT claims, or an empty dictionary if claims could not
-            be successfully decoded.
+        be successfully decoded.
 
     Raises:
         KeyError: Raised if used JSON Web Key (JWK) identifer was not found

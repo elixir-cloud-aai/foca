@@ -127,12 +127,12 @@ def log_exception(
 
     Args:
         exc: The exception to log.
-        format: One of `oneline` (default), `minimal`, or `regular`.
-            * `oneline`: Exception, including traceback, is logged on a single
-                line.
-            * `minimal`: Only the exception title and message are logged.
-            * `regular`: The exception is logged with the entire traceback
-                stack, usually on multiple lines.
+        format: One of ``oneline`` (default), ``minimal``, or
+            ``regular``. ``oneline``: Exception, including traceback,
+            is logged on a single line. ``minimal``: Only the exception
+            title and message are logged. ``regular``: The exception is
+            logged with the entire traceback stack, usually on multiple
+            lines.
     """
     exc_str = ''
     valid_formats = [

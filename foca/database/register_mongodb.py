@@ -24,9 +24,10 @@ def register_mongodb(
         conf: MongoDB configuration object.
 
     Returns:
-        Flask application with updated config: `config['database']['database']`
-            contains the database object; `config['database']['collections']`
-            contains a dictionary of collection objects.
+        Flask application with updated config
+        ``config['database']['database']`` contains the database object;
+        ``config['database']['collections']`` contains a dictionary of
+        collection objects.
     """
     # Iterate over databases
     if conf.dbs is not None:

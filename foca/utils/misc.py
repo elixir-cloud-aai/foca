@@ -20,8 +20,8 @@ def generate_id(
         allowed characters.
 
     Raises:
-        TypeError: Raised if 'charset' cannot be evaluated to a string or if
-            'length' is not a positive integer.
+        TypeError: Raised if `charset` cannot be evaluated to a string or if
+            `length` is not a positive integer.
     """
     try:
         charset = eval(charset)
