@@ -26,7 +26,7 @@ def log_traffic(
         The decorated function.
     """
 
-    def decorator_log_traffic(fn):
+    def _decorator_log_traffic(fn):
         """Logging decorator. Used to facilitate optional decorator arguments.
 
         Args:
@@ -36,7 +36,7 @@ def log_traffic(
             The response returned from the input function.
         """
         @wraps(fn)
-        def wrapper(*args, **kwargs):
+        def _wrapper(*args, **kwargs):
             """Wrapper for logging decorator.
 
             Args:
@@ -66,9 +66,9 @@ def log_traffic(
                 )
             return response
 
-        return wrapper
+        return _wrapper
 
     if _fn is None:
-        return decorator_log_traffic
+        return _decorator_log_traffic
     else:
-        return decorator_log_traffic(_fn)
+        return _decorator_log_traffic(_fn)

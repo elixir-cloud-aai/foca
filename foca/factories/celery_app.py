@@ -1,4 +1,4 @@
-"""Factory for creating Celery app instances based on Flask apps."""
+"""Factory for creating and configuring Celery application instances."""
 
 from inspect import stack
 import logging
@@ -11,13 +11,13 @@ logger = logging.getLogger(__name__)
 
 
 def create_celery_app(app: Flask) -> Celery:
-    """Create and configure Celery app.
+    """Create and configure Celery application instance.
 
     Args:
-        app: Flask application.
+        app: Flask application instance.
 
     Returns:
-        Celery application.
+        Celery application instance.
     """
     conf = app.config['FOCA'].jobs
 

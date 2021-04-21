@@ -4,7 +4,7 @@ from flask import Flask
 from flask_pymongo import PyMongo
 
 from foca.database.register_mongodb import (
-    create_mongo_client,
+    _create_mongo_client,
     register_mongodb,
 )
 from foca.models.config import MongoConfig
@@ -45,29 +45,29 @@ MONGO_CONFIG_DEF_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_DEF_COLL)
 MONGO_CONFIG_CUST_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_CUST_COLL)
 
 
-def test_create_mongo_client(monkeypatch):
+def test__create_mongo_client(monkeypatch):
     """When MONGO_USERNAME environement variable is NOT defined"""
     monkeypatch.setenv("MONGO_USERNAME", 'None')
     app = Flask(__name__)
-    res = create_mongo_client(
+    res = _create_mongo_client(
         app=app,
     )
     assert isinstance(res, PyMongo)
 
 
-def test_create_mongo_client_auth(monkeypatch):
+def test__create_mongo_client_auth(monkeypatch):
     """When MONGO_USERNAME environement variable IS defined"""
     monkeypatch.setenv("MONGO_USERNAME", "TestingUser")
     app = Flask(__name__)
-    res = create_mongo_client(app)
+    res = _create_mongo_client(app)
     assert isinstance(res, PyMongo)
 
 
-def test_create_mongo_client_auth_empty(monkeypatch):
+def test__create_mongo_client_auth_empty(monkeypatch):
     """When MONGO_USERNAME environment variable IS defined but empty"""
     monkeypatch.setenv("MONGO_USERNAME", '')
     app = Flask(__name__)
-    res = create_mongo_client(app)
+    res = _create_mongo_client(app)
     assert isinstance(res, PyMongo)
 
 

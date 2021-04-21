@@ -15,7 +15,7 @@ def register_mongodb(
     app: Flask,
     conf: MongoConfig,
 ) -> MongoConfig:
-    """Register MongoDB database and collections with Flask application
+    """Register MongoDB databases and collections with Flask application
     instance.
 
     Args:
@@ -24,7 +24,7 @@ def register_mongodb(
             databases and collections to be registered with `app`.
 
     Returns:
-        Flask application instance with registered MongoDB database and
+        Flask application instance with registered MongoDB databases and
         collections.
     """
     # Iterate over databases
@@ -32,7 +32,7 @@ def register_mongodb(
         for db_name, db_conf in conf.dbs.items():
 
             # Instantiate PyMongo client
-            mongo = create_mongo_client(
+            mongo = _create_mongo_client(
                 app=app,
                 host=conf.host,
                 port=conf.port,
@@ -66,15 +66,13 @@ def register_mongodb(
     return conf
 
 
-def create_mongo_client(
+def _create_mongo_client(
         app: Flask,
         host: str = 'mongodb',
         port: int = 27017,
         db: str = 'database',
 ) -> PyMongo:
     """Create MongoDB client for Flask application instance.
-
-    Optionally, basic authorization can be set by environment variables.
 
     Args:
         app: Flask application instance.

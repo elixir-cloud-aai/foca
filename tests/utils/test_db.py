@@ -7,7 +7,8 @@ from foca.utils.db import find_id_latest, find_one_latest
 
 def test_find_one_latest():
     """Test that find_one_latest return recently added object without _id
-    field."""
+    field.
+    """
     collection = mongomock.MongoClient().db.collection
     obj1 = {'_id': 1, 'name': 'first'}
     obj2 = {'_id': 2, 'name': 'seond'}
