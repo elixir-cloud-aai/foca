@@ -7,14 +7,14 @@ from pymongo import collection as Collection
 
 
 def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
-    """Return newest document, stripped of the ObjectId.
+    """Return newest document, stripped of `ObjectId`.
 
     Args:
         collection: MongoDB collection from which the document is to be
             retrieved.
 
     Returns:
-        Newest document or `None`, if no document exists.
+        Newest document or ``None``, if no document exists.
     """
     try:
         return collection.find(
@@ -26,14 +26,14 @@ def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
 
 
 def find_id_latest(collection: Collection) -> Optional[ObjectId]:
-    """Return ObjectId of newest document.
+    """Return `ObjectId` of newest document.
 
     Args:
-        collection: MongoDB collection from which the ObjectId of the newest
-            document is to be retrieved.
+        collection: MongoDB collection from which `ObjectId` is to be
+            retrieved.
 
     Returns:
-        ObjectId of newest document or `None`, if no document exists.
+        `ObjectId` of newest document or ``None``, if no document exists.
     """
     try:
         return collection.find().sort([('_id', -1)]).limit(1).next()['_id']

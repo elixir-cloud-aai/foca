@@ -21,11 +21,11 @@ def foca(config: Optional[str] = None) -> App:
     """Set up and initialize FOCA-based microservice.
 
     Args:
-        config: Path to application configuration file in YAML format. See
+        config: Path to application configuration file in YAML format. Cf.
             :py:class:`foca.models.config.Config` for required file structure.
 
     Returns:
-        Connexion app instance.
+        Connexion application instance.
     """
 
     # Parse config parameters and format logging

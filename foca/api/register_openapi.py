@@ -18,16 +18,16 @@ def register_openapi(
         specs: List[SpecConfig],
 ) -> App:
     """
-    Register OpenAPI specifications with Connexion app.
+    Register OpenAPI specifications with Connexion application.
 
     Args:
-        app: Connexion app instance.
+        app: Connexion application instance.
         specs: Sequence of :py:class:`foca.models.config.SpecConfig` instances
             describing OpenAPI 2.x and/or 3.x specifications to be registered
             with `app`.
 
     Returns:
-        Connexion app instance.
+        Connexion application instance.
 
     Raises:
         OSError: Modified specification cannot be written.

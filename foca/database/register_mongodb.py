@@ -15,19 +15,19 @@ def register_mongodb(
     app: Flask,
     conf: MongoConfig,
 ) -> MongoConfig:
-    """
-    Instantiates a MongoDB database, initializes collections and adds the
-    database and collections to a Flask app.
+    """Instantiate MongoDB database, initialize collections and add database
+    and collections to Flask application configuration.
+
+    In the updudated configuration, ``config['database']['database']`` contains
+    the database object and ``config['database']['collections']`` contains a
+    dictionary of collection objects.
 
     Args:
-        app: Flask application object.
-        conf: MongoDB configuration object.
+        app: Flask application instance.
+        conf: MongoDB configuration instance.
 
     Returns:
-        Flask application with updated config
-        ``config['database']['database']`` contains the database object;
-        ``config['database']['collections']`` contains a dictionary of
-        collection objects.
+        Flask application instance with updated configuration.
     """
     # Iterate over databases
     if conf.dbs is not None:
@@ -74,18 +74,18 @@ def create_mongo_client(
         port: int = 27017,
         db: str = 'database',
 ) -> PyMongo:
-    """Register MongoDB database with Flask app.
+    """Register MongoDB database with Flask application instance.
 
     Optionally, basic authorization can be set by environment variables.
 
     Args:
-        app: Flask application object.
-        host: Host at which the MongoDB database is exposed.
-        port: Port at which the MongoDB database is exposed.
-        db: Name of the database to be accessed/created.
+        app: Flask application instance.
+        host: Host at which MongoDB database is exposed.
+        port: Port at which MongoDB database is exposed.
+        db: Name of database to be accessed/created.
 
     Returns:
-        Client for the MongoDB database specified by `host`, `port` and `db`.
+        Client for the MongoDB database specified by 'host', `port` and `db`.
     """
     auth = ''
     user = os.environ.get('MONGO_USERNAME')
