@@ -1,4 +1,4 @@
-"""Register MongoDB with a Flask app."""
+"""Register MongoDB database and collections."""
 
 import logging
 import os
@@ -15,19 +15,17 @@ def register_mongodb(
     app: Flask,
     conf: MongoConfig,
 ) -> MongoConfig:
-    """Instantiate MongoDB database, initialize collections and add database
-    and collections to Flask application configuration.
-
-    In the updudated configuration, ``config['database']['database']`` contains
-    the database object and ``config['database']['collections']`` contains a
-    dictionary of collection objects.
+    """Register MongoDB database and collections with Flask application
+    instance.
 
     Args:
         app: Flask application instance.
-        conf: MongoDB configuration instance.
+        conf: :py:class:`foca.models.config.MongoConfig` instance describing
+            databases and collections to be registered with `app`.
 
     Returns:
-        Flask application instance with updated configuration.
+        Flask application instance with registered MongoDB database and
+        collections.
     """
     # Iterate over databases
     if conf.dbs is not None:
@@ -74,7 +72,7 @@ def create_mongo_client(
         port: int = 27017,
         db: str = 'database',
 ) -> PyMongo:
-    """Register MongoDB database with Flask application instance.
+    """Create MongoDB client for Flask application instance.
 
     Optionally, basic authorization can be set by environment variables.
 
@@ -85,7 +83,7 @@ def create_mongo_client(
         db: Name of database to be accessed/created.
 
     Returns:
-        Client for the MongoDB database specified by 'host', `port` and `db`.
+        MongoDB client for Flask application instance.
     """
     auth = ''
     user = os.environ.get('MONGO_USERNAME')

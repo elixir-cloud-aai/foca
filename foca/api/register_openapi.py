@@ -18,7 +18,7 @@ def register_openapi(
         specs: List[SpecConfig],
 ) -> App:
     """
-    Register OpenAPI specifications with Connexion application.
+    Register OpenAPI specifications with Connexion application instance.
 
     Args:
         app: Connexion application instance.
@@ -27,7 +27,7 @@ def register_openapi(
             with `app`.
 
     Returns:
-        Connexion application instance.
+        Connexion application instance with registered OpenAPI specifications.
 
     Raises:
         OSError: Modified specification cannot be written.
