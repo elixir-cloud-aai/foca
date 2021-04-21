@@ -1,5 +1,4 @@
-""" Definition of an entry-point function for setting up and initializing a
-FOCA based microservice."""
+"""Entry-point for setting up and initializing a FOCA-based microservice."""
 
 import logging
 from typing import Optional
@@ -19,11 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 def foca(config: Optional[str] = None) -> App:
-    """ Initialize a FOCA-based microservice.
+    """Initialize FOCA-based microservice.
 
     Args:
-        config: Path to a YAML application configuration file. For required
-            YAML file structure, see :py:class:`foca.models.config.Config()`.
+        config: Path to YAML application configuration file. See
+        :py:class:`foca.models.config.Config` for required file structure.
 
     Returns:
         Connexion app instance.
