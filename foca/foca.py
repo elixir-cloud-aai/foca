@@ -18,14 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 def foca(config: Optional[str] = None) -> App:
-    """Initialize FOCA-based microservice.
+    """Set up and initialize FOCA-based microservice.
 
     Args:
-        config: Path to YAML application configuration file. See
+        config: Path to application configuration file in YAML format. See
         :py:class:`foca.models.config.Config` for required file structure.
 
     Returns:
-        Connexion app instance.
+        `Connexion <https://connexion.readthedocs.io/en/latest/index.html>`_
+        app instance.
     """
 
     # Parse config parameters and format logging

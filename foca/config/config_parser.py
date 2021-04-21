@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigParser():
-    """Parser for FOCA config files.
+    """Parse FOCA config files.
 
     Args:
         config_file: Path to config file in YAML format.
@@ -51,17 +51,17 @@ class ConfigParser():
 
     @staticmethod
     def parse_yaml(conf: str) -> Dict:
-        """Load YAML file.
+        """Parse YAML file.
 
         Args:
             conf: Path to YAML file.
 
         Returns:
-            Dictionary of YAML file contents.
+            Dictionary of `conf` contents.
 
         Raises:
-            OSError: file cannot be accessed.
-            yaml.YAMLError: file cannot not be parsed.
+            :py:exc:`OSError`: file cannot be accessed.
+            :py:exc:`yaml.YAMLError`: file cannot not be parsed.
         """
         try:
             with open(conf) as config_file:
