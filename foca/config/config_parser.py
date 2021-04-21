@@ -35,10 +35,10 @@ class ConfigParser():
         else:
             self.config = Config()
         if format_logs:
-            self.configure_logging()
+            self._configure_logging()
         logger.debug(f"Parsed config: {self.config.dict(by_alias=True)}")
 
-    def configure_logging(self) -> None:
+    def _configure_logging(self) -> None:
         """Configure logging."""
         try:
             dictConfig(self.config.log.dict(by_alias=True))
