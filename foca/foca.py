@@ -1,4 +1,4 @@
-"""Entry-point for setting up and initializing a FOCA-based microservice."""
+"""Entry point for setting up and initializing a FOCA-based microservice."""
 
 import logging
 from typing import Optional
@@ -25,8 +25,7 @@ def foca(config: Optional[str] = None) -> App:
         :py:class:`foca.models.config.Config` for required file structure.
 
     Returns:
-        `Connexion <https://connexion.readthedocs.io/en/latest/index.html>`_
-        app instance.
+        Connexion app instance.
     """
 
     # Parse config parameters and format logging

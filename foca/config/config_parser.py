@@ -60,8 +60,8 @@ class ConfigParser():
             Dictionary of `conf` contents.
 
         Raises:
-            :py:exc:`OSError`: file cannot be accessed.
-            :py:exc:`yaml.YAMLError`: file cannot not be parsed.
+            OSError: File cannot be accessed.
+            yaml.YAMLError: File contents cannot be parsed.
         """
         try:
             with open(conf) as config_file:

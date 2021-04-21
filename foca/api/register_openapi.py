@@ -18,23 +18,20 @@ def register_openapi(
         specs: List[SpecConfig],
 ) -> App:
     """
-    Register OpenAPI specifications with `Connexion
-    <https://connexion.readthedocs.io/en/latest/index.html>`_ app.
+    Register OpenAPI specifications with Connexion app.
 
     Args:
-        app: `Connexion <https://connexion.readthedocs.io/en/latest/index.html>`_ app
-            instance.
-        specs: A sequence of py:class:`foca.models.config.SpecConfig` models
+        app: Connexion app instance.
+        specs: Sequence of :py:class:`foca.models.config.SpecConfig` instances
             describing OpenAPI 2.x and/or 3.x specifications to be registered
             with `app`.
 
     Returns:
-        `Connexion <https://connexion.readthedocs.io/en/latest/index.html>`_
-        app instance.
+        Connexion app instance.
 
     Raises:
-        OSError: File cannot be read from or written to.
-        yaml.YAMLError: YAML cannot be (de)serialized.
+        OSError: Modified specification cannot be written.
+        yaml.YAMLError: Modified specification cannot be serialized.
     """
     # Iterate over OpenAPI specs
     for spec in specs:
