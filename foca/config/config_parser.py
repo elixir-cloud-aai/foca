@@ -80,9 +80,9 @@ class ConfigParser():
     def merge_yaml(*args: str) -> Optional[Dict]:
         """Parse and merge a set of YAML files.
 
-        Merging is done iteratively, from the first, second to the nth
-        argument. Dict items are updated, not overwritten. For exact behavior
-        cf. https://github.com/mewwts/addict.
+        Merging is done iteratively, from the first, second to the n-th
+        argument. Dictionary items are updated, not overwritten. For exact
+        behavior cf. https://github.com/mewwts/addict.
 
         Args:
             *args: One or more paths to YAML files.

@@ -22,7 +22,7 @@ def foca(config: Optional[str] = None) -> App:
 
     Args:
         config: Path to application configuration file in YAML format. See
-        :py:class:`foca.models.config.Config` for required file structure.
+            :py:class:`foca.models.config.Config` for required file structure.
 
     Returns:
         Connexion app instance.
