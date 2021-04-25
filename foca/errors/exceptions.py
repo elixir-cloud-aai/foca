@@ -23,7 +23,7 @@ from werkzeug.exceptions import (
     ServiceUnavailable,
 )
 
-from foca.models.config import get_by_path
+from foca.models.config import _get_by_path
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -216,7 +216,7 @@ def _problem_handler_json(exception: Exception) -> Response:
     if exc not in conf.mapping:
         exc = Exception
     try:
-        status = int(get_by_path(
+        status = int(_get_by_path(
             obj=conf.mapping[exc],
             key_sequence=conf.status_member,
         ))
