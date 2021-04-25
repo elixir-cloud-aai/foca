@@ -1,4 +1,4 @@
-"""Register MongoDB with a Flask app."""
+"""Register MongoDB database and collections."""
 
 import logging
 import os
@@ -15,25 +15,24 @@ def register_mongodb(
     app: Flask,
     conf: MongoConfig,
 ) -> MongoConfig:
-    """
-    Instantiates a MongoDB database, initializes collections and adds the
-    database and collections to a Flask app.
+    """Register MongoDB databases and collections with Flask application
+    instance.
 
     Args:
-        app: Flask application object.
-        conf: MongoDB configuration object.
+        app: Flask application instance.
+        conf: :py:class:`foca.models.config.MongoConfig` instance describing
+            databases and collections to be registered with `app`.
 
     Returns:
-        Flask application with updated config: `config['database']['database']`
-            contains the database object; `config['database']['collections']`
-            contains a dictionary of collection objects.
+        Flask application instance with registered MongoDB databases and
+        collections.
     """
     # Iterate over databases
     if conf.dbs is not None:
         for db_name, db_conf in conf.dbs.items():
 
             # Instantiate PyMongo client
-            mongo = create_mongo_client(
+            mongo = _create_mongo_client(
                 app=app,
                 host=conf.host,
                 port=conf.port,
@@ -67,24 +66,22 @@ def register_mongodb(
     return conf
 
 
-def create_mongo_client(
+def _create_mongo_client(
         app: Flask,
         host: str = 'mongodb',
         port: int = 27017,
         db: str = 'database',
 ) -> PyMongo:
-    """Register MongoDB database with Flask app.
-
-    Optionally, basic authorization can be set by environment variables.
+    """Create MongoDB client for Flask application instance.
 
     Args:
-        app: Flask application object.
-        host: Host at which the MongoDB database is exposed.
-        port: Port at which the MongoDB database is exposed.
-        db: Name of the database to be accessed/created.
+        app: Flask application instance.
+        host: Host at which MongoDB database is exposed.
+        port: Port at which MongoDB database is exposed.
+        db: Name of database to be accessed/created.
 
     Returns:
-        Client for the MongoDB database specified by `host`, `port` and `db`.
+        MongoDB client for Flask application instance.
     """
     auth = ''
     user = os.environ.get('MONGO_USERNAME')

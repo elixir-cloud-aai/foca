@@ -11,9 +11,9 @@ from requests.exceptions import ConnectionError
 
 from foca.models.config import (Config, ValidationChecksEnum)
 from foca.security.auth import (
-    get_public_keys,
-    validate_jwt_userinfo,
-    validate_jwt_public_key,
+    _get_public_keys,
+    _validate_jwt_userinfo,
+    _validate_jwt_public_key,
     validate_token,
 )
 
@@ -136,11 +136,11 @@ class TestValidateToken:
         }
         monkeypatch.setattr('requests.get', request)
         monkeypatch.setattr(
-            'foca.security.auth.validate_jwt_userinfo',
+            'foca.security.auth._validate_jwt_userinfo',
             lambda **kwargs: None,
         )
         monkeypatch.setattr(
-            'foca.security.auth.validate_jwt_public_key',
+            'foca.security.auth._validate_jwt_public_key',
             lambda **kwargs: None,
         )
         with app.app_context():
@@ -161,7 +161,7 @@ class TestValidateToken:
         }
         monkeypatch.setattr('requests.get', request)
         monkeypatch.setattr(
-            'foca.security.auth.validate_jwt_userinfo',
+            'foca.security.auth._validate_jwt_userinfo',
             lambda **kwargs: None,
         )
         with app.app_context():
@@ -225,11 +225,11 @@ class TestValidateToken:
         }
         monkeypatch.setattr('requests.get', request)
         monkeypatch.setattr(
-            'foca.security.auth.validate_jwt_userinfo',
+            'foca.security.auth._validate_jwt_userinfo',
             lambda **kwargs: None,
         )
         monkeypatch.setattr(
-            'foca.security.auth.validate_jwt_public_key',
+            'foca.security.auth._validate_jwt_public_key',
             lambda **kwargs: None,
         )
         with app.app_context():
@@ -249,11 +249,11 @@ class TestValidateToken:
         }
         monkeypatch.setattr('requests.get', request)
         monkeypatch.setattr(
-            'foca.security.auth.validate_jwt_userinfo',
+            'foca.security.auth._validate_jwt_userinfo',
             lambda **kwargs: _raise(ConnectionError),
         )
         monkeypatch.setattr(
-            'foca.security.auth.validate_jwt_public_key',
+            'foca.security.auth._validate_jwt_public_key',
             lambda **kwargs: _raise(Unauthorized),
         )
         with app.app_context():
@@ -275,11 +275,11 @@ class TestValidateToken:
         }
         monkeypatch.setattr('requests.get', request)
         monkeypatch.setattr(
-            'foca.security.auth.validate_jwt_userinfo',
+            'foca.security.auth._validate_jwt_userinfo',
             lambda **kwargs: _raise(ConnectionError),
         )
         monkeypatch.setattr(
-            'foca.security.auth.validate_jwt_public_key',
+            'foca.security.auth._validate_jwt_public_key',
             lambda **kwargs: _raise(Unauthorized),
         )
         with app.app_context():
@@ -288,7 +288,7 @@ class TestValidateToken:
 
 
 class TestValidateJwtUserinfo:
-    """Tests for `validate_jwt_userinfo()`."""
+    """Tests for `_validate_jwt_userinfo()`."""
 
     def test_success(self, monkeypatch):
         """Test for validating a token successfully."""
@@ -296,7 +296,7 @@ class TestValidateJwtUserinfo:
         request.status_code = 200
         request.return_value.json.return_value = {}
         monkeypatch.setattr('requests.get', request)
-        res = validate_jwt_userinfo(
+        res = _validate_jwt_userinfo(
             token=MOCK_TOKEN,
             url=MOCK_URL,
         )
@@ -309,26 +309,26 @@ class TestValidateJwtUserinfo:
             lambda **kwargs: _raise(ConnectionError)
         )
         with pytest.raises(ConnectionError):
-            validate_jwt_userinfo(
+            _validate_jwt_userinfo(
                 token=MOCK_TOKEN,
                 url=MOCK_URL,
             )
 
 
 class TestValidateJwtPublicKey:
-    """Tests for `validate_jwt_public_key()`."""
+    """Tests for `_validate_jwt_public_key()`."""
 
     def test_success(self, monkeypatch):
         """Test for validating a token successfully."""
         monkeypatch.setattr(
-            'foca.security.auth.get_public_keys',
+            'foca.security.auth._get_public_keys',
             lambda **kwargs: MOCK_KEYS,
         )
         monkeypatch.setattr(
             'jwt.decode',
             lambda *args, **kwargs: MOCK_CLAIMS,
         )
-        res = validate_jwt_public_key(
+        res = _validate_jwt_public_key(
             token=MOCK_TOKEN,
             url=MOCK_URL,
             allow_expired=True,
@@ -338,7 +338,7 @@ class TestValidateJwtPublicKey:
     def test_InvalidKeyError(self, monkeypatch):
         """Test for invalid key."""
         monkeypatch.setattr(
-            'foca.security.auth.get_public_keys',
+            'foca.security.auth._get_public_keys',
             lambda **kwargs: MOCK_KEYS,
         )
         monkeypatch.setattr(
@@ -346,7 +346,7 @@ class TestValidateJwtPublicKey:
             lambda **kwargs: _raise(InvalidKeyError),
         )
         with pytest.raises(Unauthorized):
-            validate_jwt_public_key(
+            _validate_jwt_public_key(
                 token=MOCK_TOKEN,
                 url=MOCK_URL,
             )
@@ -354,7 +354,7 @@ class TestValidateJwtPublicKey:
     def test_InvalidTokenError(self, monkeypatch):
         """Test for invalid token."""
         monkeypatch.setattr(
-            'foca.security.auth.get_public_keys',
+            'foca.security.auth._get_public_keys',
             lambda **kwargs: MOCK_KEYS,
         )
         monkeypatch.setattr(
@@ -362,7 +362,7 @@ class TestValidateJwtPublicKey:
             lambda **kwargs: _raise(InvalidTokenError),
         )
         with pytest.raises(Unauthorized):
-            validate_jwt_public_key(
+            _validate_jwt_public_key(
                 token=MOCK_TOKEN,
                 url=MOCK_URL,
             )
@@ -370,11 +370,11 @@ class TestValidateJwtPublicKey:
     def test_no_header_claims(self, monkeypatch):
         """Test for token without header claims."""
         monkeypatch.setattr(
-            'foca.security.auth.get_public_keys',
+            'foca.security.auth._get_public_keys',
             lambda **kwargs: MOCK_KEYS,
         )
         with pytest.raises(Unauthorized):
-            validate_jwt_public_key(
+            _validate_jwt_public_key(
                 token=MOCK_TOKEN_INVALID,
                 url=MOCK_URL,
             )
@@ -382,18 +382,18 @@ class TestValidateJwtPublicKey:
     def test_kid_mismatch(self, monkeypatch):
         """Test for token and JWK set with mismatching JWK identifiers."""
         monkeypatch.setattr(
-            'foca.security.auth.get_public_keys',
+            'foca.security.auth._get_public_keys',
             lambda **kwargs: MOCK_KEYS,
         )
         with pytest.raises(KeyError):
-            validate_jwt_public_key(
+            _validate_jwt_public_key(
                 token=MOCK_TOKEN_HEADER_KID,
                 url=MOCK_URL,
             )
 
 
 class TestGetPublicKeys:
-    """Tests for `get_public_keys()`."""
+    """Tests for `_get_public_keys()`."""
 
     def test_success(self, monkeypatch):
         """Test for successfully fetching keys."""
@@ -402,7 +402,7 @@ class TestGetPublicKeys:
         request.status_code = 200
         request.return_value.json.return_value = mock_jwk_set
         monkeypatch.setattr('requests.get', request)
-        res = get_public_keys(url=MOCK_URL, pem=True)
+        res = _get_public_keys(url=MOCK_URL, pem=True)
         assert MOCK_JWK['kid'] in res
 
     def test_ConnectionError(self, monkeypatch):
@@ -412,7 +412,7 @@ class TestGetPublicKeys:
             lambda **kwargs: _raise(ConnectionError)
         )
         with pytest.raises(ConnectionError):
-            get_public_keys(url=MOCK_URL)
+            _get_public_keys(url=MOCK_URL)
 
     def test_non_public_key(self, monkeypatch):
         """Test for non-public keys."""
@@ -421,5 +421,5 @@ class TestGetPublicKeys:
         request.status_code = 200
         request.return_value.json.return_value = mock_jwk_set
         monkeypatch.setattr('requests.get', request)
-        res = get_public_keys(url=MOCK_URL)
+        res = _get_public_keys(url=MOCK_URL)
         assert res == {}

@@ -1,5 +1,4 @@
-"""Resources for enabling cross-origin resource sharing (CORS) for a Flask
-app."""
+"""Resources for cross-origin resource sharing (CORS)."""
 
 import logging
 from flask import Flask
@@ -11,10 +10,11 @@ logger = logging.getLogger(__name__)
 
 
 def enable_cors(app: Flask) -> None:
-    """Enables cross-origin resource sharing for Flask app.
+    """Enables cross-origin resource sharing (CORS) for Flask application
+    instance.
 
     Args:
-        app: Flask application.
+        app: Flask application instance.
     """
     CORS(app)
     logger.debug('Enabled CORS for Flask app.')

@@ -1,4 +1,4 @@
-"""Factory for creating and configuring Connexion app instances."""
+"""Factory for creating and configuring Connexion application instances."""
 
 from inspect import stack
 import logging
@@ -13,7 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 def create_connexion_app(config: Optional[Config] = None) -> App:
-    """Create and configure Connexion app."""
+    """Create and configure Connexion application instance.
+
+    Args:
+        config: Application configuration.
+
+    Returns:
+        Connexion application instance.
+    """
     # Instantiate Connexion app
     app = App(
         __name__,
@@ -37,15 +44,15 @@ def __add_config_to_connexion_app(
     app: App,
     config: Config,
 ) -> App:
-    """Replace default Connexion and Flask app settings and add FOCA- and user-
-    defined configuration parameters to Flask app.
+    """Replace default Flask and Connexion settings with FOCA configuration
+    parameters.
 
     Args:
-        app: Connexion app.
-        config: App configuration.
+        app: Connexion application instance.
+        config: Application configuration.
 
     Returns:
-        Connexion app.
+        Connexion application instance with updated configuration.
     """
     conf = config.server
 
