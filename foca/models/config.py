@@ -106,7 +106,7 @@ class PymongoDirectionEnum(Enum):
         HASHED: Index specifier for a hashed index.
         TEXT: Index specifier for a text index.
     """
-    ASCENDING = 1  # doc: Ascending sort order.
+    ASCENDING = 1
     DESCENDING = -1
     GEO2D = "2d"
     GEOHAYSTACK = "geoHaystack"
