@@ -93,9 +93,9 @@ class ValidationChecksEnum(Enum):
 
 class PymongoDirectionEnum(Enum):
     """Enumerator for supported Pymongo index directions.
-    
+
     Cf.
-    https://pymongo.readthedocs.io/en/3.10.1/api/pymongo/collection.html#pymongo.collection.Collection.create_index 
+    https://pymongo.readthedocs.io/en/3.10.1/api/pymongo/collection.html#pymongo.collection.Collection.create_index
 
     Attributes:
         ASCENDING: Ascending sort order.
