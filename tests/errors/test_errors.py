@@ -10,12 +10,12 @@ from connexion import App
 import pytest
 
 from foca.errors.exceptions import (
-    exc_to_str,
-    exclude_key_nested_dict,
-    handle_problem,
-    log_exception,
+    _exc_to_str,
+    _exclude_key_nested_dict,
+    _problem_handler_json,
+    _log_exception,
     register_exception_handler,
-    subset_nested_dict,
+    _subset_nested_dict,
 )
 from foca.models.config import Config
 
@@ -57,56 +57,56 @@ def test_register_exception_handler():
     assert isinstance(ret, App)
 
 
-def test_exc_to_str():
+def test__exc_to_str():
     """Test exception reformatter function."""
-    res = exc_to_str(exc=EXCEPTION_INSTANCE)
+    res = _exc_to_str(exc=EXCEPTION_INSTANCE)
     assert isinstance(res, str)
 
 
 @pytest.mark.parametrize("format", ['oneline', 'minimal', 'regular'])
-def test_log_exception(caplog, format):
+def test__log_exception(caplog, format):
     """Test exception reformatter function."""
-    log_exception(
+    _log_exception(
         exc=EXCEPTION_INSTANCE,
         format=format,
     )
     assert "Exception" in caplog.text
 
 
-def test_log_exception_invalid_format(caplog):
+def test__log_exception_invalid_format(caplog):
     """Test exception reformatter function with invalid format argument."""
-    log_exception(
+    _log_exception(
         exc=EXCEPTION_INSTANCE,
         format=INVALID_LOG_FORMAT,
     )
     assert "logging is misconfigured" in caplog.text
 
 
-def test_subset_nested_dict():
+def test__subset_nested_dict():
     """Test nested dictionary subsetting function."""
-    res = subset_nested_dict(
+    res = _subset_nested_dict(
         obj=TEST_DICT,
         key_sequence=deepcopy(TEST_KEYS)
     )
     assert res == EXPECTED_SUBSET_RESULT
 
 
-def test_exclude_key_nested_dict():
+def test__exclude_key_nested_dict():
     """Test function to exclude a key from a nested dictionary."""
-    res = exclude_key_nested_dict(
+    res = _exclude_key_nested_dict(
         obj=TEST_DICT,
         key_sequence=deepcopy(TEST_KEYS)
     )
     assert res == EXPECTED_EXCLUDE_RESULT
 
 
-def test_handle_problem():
+def test__problem_handler_json():
     """Test problem handler with instance of custom, unlisted error."""
     app = Flask(__name__)
     app.config['FOCA'] = Config()
     EXPECTED_RESPONSE = app.config['FOCA'].exceptions.mapping[Exception]
     with app.app_context():
-        res = handle_problem(UnknownException())
+        res = _problem_handler_json(UnknownException())
         assert isinstance(res, Response)
         assert res.status == '500 INTERNAL SERVER ERROR'
         assert res.mimetype == "application/problem+json"
@@ -114,13 +114,13 @@ def test_handle_problem():
         assert response == EXPECTED_RESPONSE
 
 
-def test_handle_problem_no_fallback_exception():
+def test__problem_handler_json_no_fallback_exception():
     """Test problem handler; unlisted error without fallback."""
     app = Flask(__name__)
     app.config['FOCA'] = Config()
     del app.config['FOCA'].exceptions.mapping[Exception]
     with app.app_context():
-        res = handle_problem(UnknownException())
+        res = _problem_handler_json(UnknownException())
         assert isinstance(res, Response)
         assert res.status == '500 INTERNAL SERVER ERROR'
         assert res.mimetype == "application/problem+json"
@@ -128,25 +128,25 @@ def test_handle_problem_no_fallback_exception():
         assert response == ""
 
 
-def test_handle_problem_with_public_members():
+def test__problem_handler_json_with_public_members():
     """Test problem handler with public members."""
     app = Flask(__name__)
     app.config['FOCA'] = Config()
     app.config['FOCA'].exceptions.public_members = PUBLIC_MEMBERS
     with app.app_context():
-        res = handle_problem(UnknownException())
+        res = _problem_handler_json(UnknownException())
         assert isinstance(res, Response)
         assert res.status == '500 INTERNAL SERVER ERROR'
         assert res.mimetype == "application/problem+json"
 
 
-def test_handle_problem_with_private_members():
+def test__problem_handler_json_with_private_members():
     """Test problem handler with private members."""
     app = Flask(__name__)
     app.config['FOCA'] = Config()
     app.config['FOCA'].exceptions.private_members = PRIVATE_MEMBERS
     with app.app_context():
-        res = handle_problem(UnknownException())
+        res = _problem_handler_json(UnknownException())
         assert isinstance(res, Response)
         assert res.status == '500 INTERNAL SERVER ERROR'
         assert res.mimetype == "application/problem+json"

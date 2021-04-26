@@ -8,7 +8,7 @@ def generate_id(
     charset: str = ''.join([string.ascii_letters, string.digits]),
     length: int = 6
 ) -> str:
-    """Generate random string based on allowed set of characters.
+    """Generate random string composed of specified character set.
 
     Args:
         charset: A string of allowed characters or an expression evaluating to
@@ -16,12 +16,12 @@ def generate_id(
         length: Length of returned string.
 
     Returns:
-        Random string of specified length and composed of defined set of
-        allowed characters.
+        Random string of specified length and composed of specified character
+        set.
 
     Raises:
-        TypeError: Raised if 'charset' cannot be evaluated to a string or if
-            'length' is not a positive integer.
+        TypeError: Raised if `charset` cannot be evaluated to a string or if
+            `length` is not a positive integer.
     """
     try:
         charset = eval(charset)

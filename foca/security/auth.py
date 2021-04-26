@@ -22,7 +22,7 @@ def validate_token(token: str) -> Dict:
     Validate JSON Web Token (JWT) Bearer token.
 
     Returns:
-        Token information.
+        Token claims.
 
     Raises:
         connexion.exceptions.Unauthorized: Raised if JWT could not be
@@ -86,14 +86,14 @@ def validate_token(token: str) -> Dict:
         logger.debug(f"Validating JWT via method: {method}")
         try:
             if method == 'userinfo':
-                validate_jwt_userinfo(
-                    token=token,
+                _validate_jwt_userinfo(
                     url=oidc_config.json()[oidc_config_claim_userinfo],
+                    token=token,
                 )
             if method == 'public_key':
-                validate_jwt_public_key(
-                    token=token,
+                _validate_jwt_public_key(
                     url=oidc_config.json()[oidc_config_claim_public_keys],
+                    token=token,
                     algorithms=algorithms,
                     add_key_to_claims=add_key_to_claims,
                     audience=audience,
@@ -129,7 +129,7 @@ def validate_token(token: str) -> Dict:
     }
 
 
-def validate_jwt_userinfo(
+def _validate_jwt_userinfo(
     token: str,
     url: str,
     header_name: str = 'Authorization',
@@ -139,13 +139,14 @@ def validate_jwt_userinfo(
     identity provider's user info endpoint.
 
     Args:
-        token: JSON Web Token (JWT).
         url: URL to OpenID Connect identity provider's user info endpoint.
         header_name: Name of the request header field at which the service is
             expecting the JWT. Cf. `prefix`.
+        token: JSON Web Token (JWT).
         prefix: Prefix that the app expects to precede the JWT, separated
-            by whitespace. Together, prefix and JWT constitute the value of
-            the request header field specified by `--header-name`.
+            by whitespace. Together, `prefix` and `token`, separated by
+            whitespace, constitute the value of the request header field
+            specified by `header-name`.
 
     Raises:
         requests.exceptions.ConnectionError: Raised if the identity provider's
@@ -161,7 +162,7 @@ def validate_jwt_userinfo(
     logger.debug("Validation via user info endpoint succeeded")
 
 
-def validate_jwt_public_key(
+def _validate_jwt_public_key(
     token: str,
     url: str,
     algorithms: Iterable[str] = ['RS256'],
@@ -174,24 +175,23 @@ def validate_jwt_public_key(
     identity provider's public key.
 
     Args:
-        token: JSON Web Token (JWT).
         url: URL to OpenID Connect identity provider's public keys endpoint.
+        token: JSON Web Token (JWT).
         algorithms: Lists the JWT-signing algorithms supported by the app.
         add_key_to_claims: Whether to allow the application to add the identity
             provider's corresponding JSON Web Key (JWK), in PEM format, to the
-            dictionary of claims when handling requests to
-            `@jwt_validation`-decorated endpoints.
+            dictionary of claims.
         audience: List of audiences that the app identifies itself with. If
             specified, JSON Web Tokens (JWT) that do not contain any of the
-            specified audiences are rejected. Set to `None` to disable audience
-            validation.
+            specified audiences are rejected. Set to ``None`` to disable
+            audience validation.
         allow_expired: Allow/disallow expired JSON Web Tokens (JWT).
         claim_key_id: The JSON Web Token (JWT) claim used to specify the
             identifier of the JSON Web Key (JWK) used to issue that token.
 
     Returns:
-        Dictionary of JWT claims, or an empty dictionary if claims could not
-            be successfully decoded.
+        Dictionary of JWT claims, or an empty dictionary, if claims could not
+        be successfully decoded.
 
     Raises:
         KeyError: Raised if used JSON Web Key (JWK) identifer was not found
@@ -201,7 +201,7 @@ def validate_jwt_public_key(
     logger.debug(f"Issuer's JWK set endpoint URL: {url}")
 
     # Obtain identity provider's public keys
-    public_keys = get_public_keys(
+    public_keys = _get_public_keys(
         url=url,
         pem=False,
         claim_key_id=claim_key_id,
@@ -278,7 +278,7 @@ def validate_jwt_public_key(
     logger.debug("Validation via issuer's public keys succeeded")
 
 
-def get_public_keys(
+def _get_public_keys(
     url: str,
     pem: bool = False,
     claim_key_id: str = 'kid',
@@ -291,14 +291,14 @@ def get_public_keys(
         pem: Whether public JSON Web Keys (JWK) shall be returned in Privacy
             Enhanced-Mail (PEM) format rather than as JSON dumps.
         claim_key_id: The JWT claim encoding a JSON Web Key (JWK) identifier.
-        claim_keys: The JSON Web Key (JWK)
+        claim_keys: The JSON Web Key (JWK).
 
     Returns:
         JSON Web Key (JWK) public keys mapped to their identifiers.
 
     Raises:
         requests.exceptions.ConnectionError: Raised if the identity provider's
-            JWK set or configuration could not be reached.
+            JWK endpoint could not be reached.
     """
     # Get JWK sets from identity provider
     try:

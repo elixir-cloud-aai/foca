@@ -23,7 +23,7 @@ from werkzeug.exceptions import (
     ServiceUnavailable,
 )
 
-from foca.models.config import get_by_path
+from foca.models.config import _get_by_path
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -78,20 +78,22 @@ exceptions = {
 
 
 def register_exception_handler(app: App) -> App:
-    """Register generic JSON problem handler with Connexion app.
+    """Register generic JSON problem handler with Connexion application
+    instance.
 
     Args:
-        app: Connexion app.
+        app: Connexion application instance.
 
     Returns:
-        Connexion app with registered generic JSON problem handler.
+        Connexion application instance with registered generic JSON problem
+        handler.
     """
-    app.add_error_handler(Exception, handle_problem)
+    app.add_error_handler(Exception, _problem_handler_json)
     logger.debug("Registered generic JSON problem handler with Connexion app.")
     return app
 
 
-def exc_to_str(
+def _exc_to_str(
     exc: BaseException,
     delimiter: str = "\\n",
 ) -> str:
@@ -117,7 +119,7 @@ def exc_to_str(
     return delimiter.join(exc_split)
 
 
-def log_exception(
+def _log_exception(
     exc: BaseException,
     format: str = 'oneline',
 ) -> None:
@@ -127,12 +129,10 @@ def log_exception(
 
     Args:
         exc: The exception to log.
-        format: One of `oneline` (default), `minimal`, or `regular`.
-            * `oneline`: Exception, including traceback, is logged on a single
-                line.
-            * `minimal`: Only the exception title and message are logged.
-            * `regular`: The exception is logged with the entire traceback
-                stack, usually on multiple lines.
+        format: One of ``oneline`` (exception, including traceback logged to
+            single line), ``minimal`` (log only exception title and message),
+            or ``regular`` (exception logged with entire trace stack, typically
+            across multiple lines).
     """
     exc_str = ''
     valid_formats = [
@@ -142,11 +142,11 @@ def log_exception(
     ]
     if format in valid_formats:
         if format == "oneline":
-            exc_str = exc_to_str(exc=exc)
+            exc_str = _exc_to_str(exc=exc)
         elif format == "minimal":
             exc_str = f"{type(exc).__name__}: {str(exc)}"
         else:
-            exc_str = exc_to_str(
+            exc_str = _exc_to_str(
                 exc=exc,
                 delimiter='\n'
             )
@@ -155,57 +155,57 @@ def log_exception(
         logger.error("Error logging is misconfigured.")
 
 
-def subset_nested_dict(
+def _subset_nested_dict(
     obj: Dict,
     key_sequence: List,
 ) -> Dict:
-    """Create subset of nested dictionary.
+    """Subset nested dictionary.
 
     Args:
-        obj: A (nested) dictionary.
-        key_sequence: A sequence of keys, to be applied from outside to inside,
+        obj: (Nested) dictionary.
+        key_sequence: Sequence of keys, to be applied from outside to inside,
             pointing to the key (and descendants) to keep.
 
     Returns:
-        Subset of input dictionary.
+        Subset of `obj`.
     """
     filt = {}
     if len(key_sequence):
         key = key_sequence.pop(0)
         filt[key] = obj[key]
         if len(key_sequence):
-            filt[key] = subset_nested_dict(filt[key], key_sequence)
+            filt[key] = _subset_nested_dict(filt[key], key_sequence)
     return filt
 
 
-def exclude_key_nested_dict(
+def _exclude_key_nested_dict(
     obj: Dict,
     key_sequence: List,
 ) -> Dict:
     """Exclude key from nested dictionary.
 
     Args:
-        obj: A (nested) dictionary.
-        key_sequence: A sequence of keys, to be applied from outside to inside,
+        obj: (Nested) dictionary.
+        key_sequence: Sequence of keys, to be applied from outside to inside,
             pointing to the key (and descendants) to delete.
 
     Returns:
-        Dictionary minus the excluded key.
+        `obj` stripped of excluded key.
     """
     if len(key_sequence):
         key = key_sequence.pop(0)
         if len(key_sequence):
-            exclude_key_nested_dict(obj[key], key_sequence)
+            _exclude_key_nested_dict(obj[key], key_sequence)
         else:
             del obj[key]
     return obj
 
 
-def handle_problem(exception: Exception) -> Response:
+def _problem_handler_json(exception: Exception) -> Response:
     """Generic JSON problem handler.
 
     Args:
-        exception: The raised exception.
+        exception: Raised exception.
 
     Returns:
         JSON-formatted error response.
@@ -216,13 +216,13 @@ def handle_problem(exception: Exception) -> Response:
     if exc not in conf.mapping:
         exc = Exception
     try:
-        status = int(get_by_path(
+        status = int(_get_by_path(
             obj=conf.mapping[exc],
             key_sequence=conf.status_member,
         ))
     except KeyError:
         if conf.logging.value != "none":
-            log_exception(
+            _log_exception(
                 exc=exception,
                 format=conf.logging.value
             )
@@ -233,7 +233,7 @@ def handle_problem(exception: Exception) -> Response:
     # Log exception JSON & traceback
     if conf.logging.value != "none":
         logger.error(conf.mapping[exc])
-        log_exception(
+        _log_exception(
             exc=exception,
             format=conf.logging.value
         )
@@ -242,13 +242,13 @@ def handle_problem(exception: Exception) -> Response:
     if conf.public_members is not None:
         keep = {}
         for member in deepcopy(conf.public_members):
-            keep.update(subset_nested_dict(
+            keep.update(_subset_nested_dict(
                 obj=conf.mapping[exc],
                 key_sequence=member,
             ))
     elif conf.private_members is not None:
         for member in deepcopy(conf.private_members):
-            keep.update(exclude_key_nested_dict(
+            keep.update(_exclude_key_nested_dict(
                 obj=keep,
                 key_sequence=member,
             ))

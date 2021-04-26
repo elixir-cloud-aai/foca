@@ -1,4 +1,4 @@
-"""Tests for modifying/registering OpenAPI specs."""
+"""Register and modify OpenAPI specifications."""
 
 import logging
 from typing import List
@@ -18,19 +18,20 @@ def register_openapi(
         specs: List[SpecConfig],
 ) -> App:
     """
-    Register OpenAPI specs with Connexion app.
+    Register OpenAPI specifications with Connexion application instance.
 
     Args:
-        app: A Connexion app instance.
-        specs: A sequence of `SpecConfig` config models describing OpenAPI 2.x
-            and/or 3.x specifications to be registered with `app`.
+        app: Connexion application instance.
+        specs: Sequence of :py:class:`foca.models.config.SpecConfig` instances
+            describing OpenAPI 2.x and/or 3.x specifications to be registered
+            with `app`.
 
     Returns:
-        A Connexion app instance.
+        Connexion application instance with registered OpenAPI specifications.
 
     Raises:
-        OSError: File cannot be read from or written to.
-        yaml.YAMLError: YAML cannot be (de)serialized.
+        OSError: Modified specification cannot be written.
+        yaml.YAMLError: Modified specification cannot be serialized.
     """
     # Iterate over OpenAPI specs
     for spec in specs:

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigParser():
-    """Parser for FOCA config files.
+    """Parse FOCA config files.
 
     Args:
         config_file: Path to config file in YAML format.
@@ -35,10 +35,10 @@ class ConfigParser():
         else:
             self.config = Config()
         if format_logs:
-            self.configure_logging()
+            self._configure_logging()
         logger.debug(f"Parsed config: {self.config.dict(by_alias=True)}")
 
-    def configure_logging(self) -> None:
+    def _configure_logging(self) -> None:
         """Configure logging."""
         try:
             dictConfig(self.config.log.dict(by_alias=True))
@@ -51,17 +51,17 @@ class ConfigParser():
 
     @staticmethod
     def parse_yaml(conf: str) -> Dict:
-        """Load YAML file.
+        """Parse YAML file.
 
         Args:
             conf: Path to YAML file.
 
         Returns:
-            Dictionary of YAML file contents.
+            Dictionary of `conf` contents.
 
         Raises:
-            OSError: file cannot be accessed.
-            yaml.YAMLError: file cannot not be parsed.
+            OSError: File cannot be accessed.
+            yaml.YAMLError: File contents cannot be parsed.
         """
         try:
             with open(conf) as config_file:
@@ -80,17 +80,17 @@ class ConfigParser():
     def merge_yaml(*args: str) -> Optional[Dict]:
         """Parse and merge a set of YAML files.
 
-        Merging is done iteratively, from the first, second to the nth
-        argument. Dict items are updated, not overwritten. For exact behavior
-        cf. https://github.com/mewwts/addict.
+        Merging is done iteratively, from the first, second to the n-th
+        argument. Dictionary items are updated, not overwritten. For exact
+        behavior cf. https://github.com/mewwts/addict.
 
         Args:
             *args: One or more paths to YAML files.
 
         Returns:
-            Dictionary of merged YAML file contents, or `None` if no arguments
-            have been supplied; if only a single YAML file path is provided, no
-            merging is done.
+            Dictionary of merged YAML file contents, or ``None`` if no
+            arguments have been supplied; if only a single YAML file path is
+            provided, no merging is done.
         """
         args_list = list(args)
         if not args_list:
