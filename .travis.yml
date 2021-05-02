@@ -19,6 +19,11 @@ services:
 if: (type == push) OR (type == pull_request AND fork == true)
 
 script:
+  # install dependencies; not using `install` directive as this
+  # would apply to the job matrix, too, which is not desired
+  - pip install -r requirements.txt
+  - pip install -r requirements_dev.txt
+  # run tests
   - flake8
   - coverage run --source foca -m pytest
   - coveralls
@@ -59,5 +64,4 @@ jobs:
 after_success:
 - git config --global user.name "semantic-release (via TravisCI)"
 - git config --global user.email "semantic-release@travis"
-- pip install python-semantic-release==7.15.0
 - semantic-release publish -v DEBUG

@@ -37,11 +37,11 @@ Check the [API docs][badge-url-docs] for further details.
 ## Usage
 
 (1) Install the [FOCA package][badge-url-pypi] with `pip`:
-  
-  ```bash
-  pip install foca
-  ```
-  
+
+```bash
+pip install foca
+```
+
 (2) Create a [configuration file](#configuration-file).
 
 (3) Import the FOCA main function `foca()` and pass your config:
