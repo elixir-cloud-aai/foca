@@ -5,7 +5,7 @@ Flask==1.1.2
 Flask-Cors==3.0.8
 Flask-PyMongo==2.3.0
 mongomock==3.19.0
-pydantic==1.8.1
+pydantic==1.8.2
 PyJWT==1.7.1
 pymongo==3.10.1
 PyYAML==5.4
