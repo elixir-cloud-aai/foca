@@ -68,7 +68,65 @@ shipped with this repository and modify it.**_
 
 For further information on the writing FOCA configuration files, read on.
 
-### Editing your configuration file
+### Writing your configuration file
+
+FOCA provides support to adhere to multiple application configurations.
+Keywords reserved by FOCA include the following (exhaustive; follow links to
+corresponding models):
+
+* [`api`][docs-models-api]
+* [`db`][docs-models-db]
+* [`exceptions`][docs-models-exceptions]
+* [`jobs`][docs-models-jobs]
+* [`log`][docs-models-log]
+* [`security`][docs-models-security]
+* [`server`][docs-models-server]
+
+Any values passed to reserved keywords are automatically validated and a
+corresponding informative exception will be raised whenever a value does not
+adhere to the corresponding model.
+
+Any top-level sections that are _not_ listed above will simply be passed to the
+app instance returned by the `foca()` function. All configuration parameters,
+reserved by FOCA _and_ any custom ones, will be available in the [application
+context][res-flask-app-context] as attributes of `current_app.config['FOCA']`.
+If you do _not_ want to register a section, you can simply omit it, but note
+that once a section is included, it _MUST_ adhere to the corresponding model
+described in the [API documentation][docs-models].
+
+#### Writing API Configuration
+
+This configuration is utilised to specify the OpenAPI specification of your
+application.
+
+```yaml
+api:
+  specs:
+    - path:
+        - path/to/my/openapi/specs.yaml
+      add_operation_fields:
+        x-openapi-router-controller: myapi.controllers
+      add_security_fields:
+        x-bearerInfoFunc: app.validate_token
+      disable_auth: False
+      connexion:
+        strict_validation: True
+        validate_responses: True
+        options:
+          swagger_ui: True
+          serve_spec: True
+```
+
+> This config would introduce your OpenAPI specifications elaborated under the
+> `path/to/my/openapi/specs.yaml` file. FOCA supports multiple specification
+> paths. Hence, if you have more than one specification file, you may simple
+> add `path/to/my/second/openapi/specs.yaml` under the `path` list. The
+> `x-openapi-router-controller` represents the path to corresponding API
+> request controllers. Support to introduce a token validator can also be
+> found under `add_security_fields`. You may also enable and disable auth,
+> swagger etc.
+
+#### Writing Database Configuration
 
 For example, if you want to register a [MongoDB][res-mongo-db] database
 collection, your configuration file must include the top-level `database`
@@ -95,30 +153,130 @@ db:
 > simply add another named `CollectionConfig` object as a child to
 > `collections`, e.g., `yourCollection`, with its own `indexes` etc.
 
-If you do _not_ want to register a database collection, you can simply omit
-that section, but note that once a section is included, it _MUST_ adhere
-to the corresponding model described in the [API
-documentation][docs-models].
+#### Writing Exceptions Configuration
 
-Keywords reserved by FOCA include the following (exhaustive; follow links to
-corresponding models):
+FOCA provides support to add configurable exception handlers. Basic config
+can be found in the below, for possible extensions refer the
+[`exceptions`][docs-models-exceptions] docs.
 
-* [`api`][docs-models-api]
-* [`db`][docs-models-db]
-* [`exceptions`][docs-models-exceptions]
-* [`jobs`][docs-models-jobs]
-* [`log`][docs-models-log]
-* [`security`][docs-models-security]
-* [`server`][docs-models-server]
+```yaml
+exceptions:
+  required_members: [['msg'], ['status']]
+  status_member: ['status']
+  exceptions: my_app.exceptions.exceptions
+```
 
-Any values passed to reserved keywords are automatically validated and a
-corresponding informative exception will be raised whenever a value does not
-adhere to the corresponding model.
+> This config would attach the configured exceptions defined in the
+> `my_app.exceptions.exceptions` file. Every error response will have be
+> characterized by a `msg` and `status`, while `status` will represent the
+> API response status. You may configure list of `public_members` and
+> `private_members`. Non required/optional can be added under the
+> `extension_members` list.
 
-Any top-level sections that are _not_ listed above will simply be passed to the
-app instance returned by the `foca()` function. All configuration parameters,
-reserved by FOCA _and_ any custom ones, will be available in the [application
-context][res-flask-app-context] as attributes of `current_app.config['FOCA']`.
+#### Writing Jobs Configuration
+
+You may add your `celery` and `rabbitmq` broker configurations for runing
+specific tasks required tasks to be attached to your application. For example,
+following represents the broker instance and attached task definition.
+
+```yaml
+jobs:
+  host: rabbitmq
+  port: 5672
+  backend: 'rpc://'
+  include:
+    - my_app.tasks.my_task_1
+    - my_app.tasks.my_task_2
+```
+
+> This config attaches the `rabbitmq` broker host running on port `5672` with
+> two tasks viz., `my_task_1` and `my_task_2`. Similary the `host` and `port`
+> for `celery` can also be introduced.
+
+#### Writing Log Configuration
+
+You can also configure error/info logging for you application by properly
+defining log handlers and log formatters.
+
+```yaml
+log:
+  version: 1
+  disable_existing_loggers: False
+  formatters:
+    standard:
+      class: logging.Formatter
+      style: "{"
+      format: "[{asctime}: {levelname:<8}] {message} [{name}]"
+  handlers:
+    console:
+      class: logging.StreamHandler
+      level: 20
+      formatter: standard
+      stream: ext://sys.stderr
+  root:
+    level: 10
+    handlers: [console]
+```
+
+> This config would configure the application logging as per the above defined
+> formatter and handler objects.
+
+#### Writing Security Configuration
+
+A layer of security authentication can also be added as a part of the application
+configuration. `auth` and `cors` can be altered here.
+
+```yaml
+security:
+  auth:
+    add_key_to_claims: True
+    algorithms:
+      - RS256
+    allow_expired: False
+    audience: null
+    validation_methods:
+      - userinfo
+      - public_key
+    validation_checks: any
+  cors:
+    enabled: True
+```
+
+> This config specify the auth params including `algorithms`,
+> `validation_methods` and `validation_checks`. The allowed enum values are
+> mentioned under the [`security`][docs-models-security] docs. Further the
+> `CORS` enable support can also be set at the config level.
+
+#### Writing Server Configuration
+
+For example, if you want to register a given server environment for your
+application, your configuration file must include the top-level `server`
+keyword section, e.g.:
+
+```yaml
+server:
+  host: '0.0.0.0'
+  port: 8080
+  debug: True
+  environment: development
+  testing: False
+  use_reloader: False
+```
+
+> This config would create an application server hosted at `0.0.0.0` and port
+>`8080` with debugger on. You may further change the other server variables as
+> per requirement.
+
+#### Writing Additional Configurations
+
+FOCA provides support to add additional config parameters. The can be added
+under the configuration file. There params will be available in app context as
+attributes of `current_app.config['FOCA']` but are **NOT VALIDATED VIA FOCA**.
+If desired, custom validations can be added at application level.
+
+```yaml
+my_custom_param: 'some_value'
+```
 
 ### More examples
 
@@ -128,6 +286,28 @@ for another example.
 
 ![Hint][img-hint] _**Or why not explore [apps that already use
 FOCA][res-using-foca]?**_
+
+## Extended Support and Usage of FOCA
+
+### Accessing FOCA- and app-specific params withing app
+
+Once the application is created using `foca`, one can easily access the config
+variables inside the [application context][res-flask-app-context].
+
+```python
+from flask import current_app
+
+app_config = current_app.config["FOCA"]
+
+db = app_config.db
+api = app_config.api
+server = app_config.server
+exceptions = app_config.exceptions
+security = app_config.security
+jobs = app_config.jobs
+log = app_config.log
+app_specific_param = current_app.config["app_specific_param"]
+```
 
 ## Contributing
 
