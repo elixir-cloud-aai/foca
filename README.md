@@ -309,6 +309,62 @@ log = app_config.log
 app_specific_param = current_app.config["app_specific_param"]
 ```
 
+### Utility/Helper function support
+
+#### Database Utilities
+
+FOCA provides support for the following basic database controllers.
+
+* Fetch latest object given the db `collection`.
+
+```python
+from foca.utils.db import find_one_latest
+
+latest_object = find_one_latest("your_db_collection_instance")
+```
+
+* Fetch latest object identifier (`id`) given the db `collection`.
+
+```python
+from foca.utils.db import find_id_latest
+
+latest_object_id = find_id_latest("your_db_collection_instance")
+```
+
+#### Logging Utilities
+
+FOCA provides support for developing endpoints in a manner such that logging requests
+and responses can be manually changed at individual endpoint level, thus providing
+granularity to the end user.
+
+```python
+from foca.utils.logging import log_traffic
+
+@log_traffic(log_request=True, log_response=True, log_level=2)
+def your_controller():
+    pass
+```
+
+> The above decorater will log both request and response with the given `log_level=2`
+> specification,
+
+#### Other helpers
+
+FOCA provides support for some common functions that can be utilised by the end user.
+Currently only one helper to generate a random object identifier is provided as a part
+of the package.
+
+```python
+import string
+
+from foca.utils.misc import generate_id
+
+obj_id = generate_id(charset=string.digits, length=6)
+```
+
+> The above function processes and returns a random `obj_id` of length `6` and with
+> characters consisting of digits (`string.digits`).
+
 ## Contributing
 
 This project is a community effort and lives off your contributions, be it in
