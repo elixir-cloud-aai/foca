@@ -14,7 +14,7 @@ services:
       - "80:8080"
 
   mongodb:
-    image: mongo:3.2
+    image: mongo:latest
     restart: unless-stopped
     volumes:
       - ./data/petstore/db:/data/db

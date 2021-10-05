@@ -3,6 +3,23 @@ import logging
 from flask import (current_app, make_response)
 from werkzeug.exceptions import NotFound
 
+from flask import Flask
+from flask_authz import CasbinEnforcer
+import casbin_pymongo_adapter
+
+
+app = Flask(__name__)
+# Set up Casbin model config
+app.config['CASBIN_MODEL'] = 'casbinmodel.conf'
+# Set headers where owner for enforcement policy should be located
+app.config['CASBIN_OWNER_HEADERS'] = {'X-User', 'X-Group'}
+# Add User Audit Logging with user name associated to log
+# i.e. `[2020-11-10 12:55:06,060] ERROR in casbin_enforcer: Unauthorized attempt: method: GET resource: /api/v1/item by user: janedoe@example.com`
+app.config['CASBIN_USER_NAME_HEADERS'] = {'X-User'}
+# Set up Casbin Adapter
+adapter = casbin_pymongo_adapter.Adapter('mongodb://localhost:27017/', "policies")
+casbin_enforcer = CasbinEnforcer(app, adapter)
+
 logger = logging.getLogger(__name__)
 
 error_response = {
@@ -11,8 +28,10 @@ error_response = {
 }
 
 
+@casbin_enforcer.enforcer
 def findPets(limit=None, tags=None):
     try:
+        print("hiii")
         db_collection = (
             current_app.config['FOCA'].db.dbs['petstore']
             .collections['pets'].client
