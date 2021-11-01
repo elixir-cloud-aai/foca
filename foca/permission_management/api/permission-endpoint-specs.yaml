@@ -1,0 +1,215 @@
+openapi: 3.0.2
+info:
+  title: 'FOCA permission control API specification'
+  description: 'CRUD and List Operations for managing permission.'
+  version: 1.0.0
+  license:
+    name: 'Apache 2.0'
+    url: 'https://raw.githubusercontent.com/ga4gh-discovery/ga4gh-service-info/develop/LICENSE'
+  contact:
+    name: 'GA4GH Discovery Networks Team'
+    email: 'ga4gh-discovery-networks@ga4gh.org'
+
+paths:
+  "/permissions":
+    post:
+      summary: Create a specific permission.
+      operationId: postPermission
+      description: This endpoint is used to create a new permission.
+      tags:
+        - permission
+      requestBody:
+        description: Permission (meta)data to update.
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: tool
+              $ref: "#/components/schemas/Permission"
+      responses:
+        "200":
+          description: Permission was successfully updated.
+          content:
+            schema:
+                description: Permission identifier.
+                type: string
+        "400":
+          description: The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: An unexpected error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      summary: List permissions
+      operationId: getAllPermissions
+      description: Returns all permissions existing on the system.
+      tags:
+        - permission
+      responses:
+        "200":
+          description: An array of tool versions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+  "/permissions/{id}":
+    get:
+      summary: Fetch one specific permission.
+      operationId: getPermission
+      description: This endpoint returns one specific permission.
+      tags:
+        - permission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A unique identifier of the permission.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A Permission.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Permission'
+        "404":
+          description: The permission cannot be found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: Update a specific permission.
+      description: This endpoint updates a specific permission.
+      operationId: putPermission
+      tags:
+        - permission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A unique identifier of the permission.
+          schema:
+            type: string
+      requestBody:
+        description: Permission (meta)data to update.
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: tool
+              $ref: "#/components/schemas/Permission"
+      responses:
+        "200":
+          description: Permission was successfully updated.
+          content:
+            schema:
+                description: Permission identifier.
+                type: string
+        "400":
+          description: The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: An unexpected error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    Permission:
+      description: Permission model.
+      type: object
+      required:
+        - id
+        - sec
+        - ptype
+        - rule
+      properties:
+        id:
+          type: string
+          description: Unique id of the permission.
+        sec:
+          type: string
+          description: Section name.
+        ptype:
+          type: string
+          description: Policy type.
+        rule:
+          $ref: '#/components/schemas/Rule'
+    Rule:
+      description: Rule definition.
+      type: object
+      properties:
+        v0:
+          type: string
+          description: Param 0.
+        v1:
+          type: string
+          description: Param 1.
+        v2:
+          type: string
+          description: Param 2.
+        v3:
+          type: string
+          description: Param 3.
+        v4:
+          type: string
+          description: Param 4.
+        v5:
+          type: string
+          description: Param 5.
+    Error:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: integer
+          format: int32
+          default: 500
+        message:
+          type: string
+          default: Internal Server Error
