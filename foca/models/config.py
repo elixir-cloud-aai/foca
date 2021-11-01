@@ -1094,6 +1094,45 @@ onsole']))
     root: Optional[LogRootConfig] = LogRootConfig()
 
 
+class AccessConfig(FOCABaseConfig):
+    """Model for setting access control configuration.
+
+    Args:
+        enable: Flag to enable/disable access control.
+        path_out: Policy file based on `pycasbin` specification.
+
+    Attributes:
+        enable: Flag to enable/disable access control.
+        path_out: Policy file based on `pycasbin` specification.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Example:
+        >>> AccessConfig(
+        ...     enable=True,
+        ...     path_out="/path/to/policy.conf",
+        ... )
+        AccessConfig(enable=True, path_out="/path/to/policy.conf")
+    """
+    enable: bool = False
+    policy_path: Optional[str] = None
+
+    #TODO: add check for a valid conf file
+    #TODO: should we support multiple conf files?
+
+    # resolve relative path
+    @validator('policy_path', always=True, allow_reuse=True)
+    def set_abs_path(cls, v):  # pylint: disable=E0213
+        """Resolve path relative to caller's current working directory if no
+        absolute path provided.
+        """
+        if not Path(v).is_absolute():
+            return [str(Path.cwd() / v)]
+        return v
+
+
 class Config(FOCABaseConfig):
     """Model for all app configuration parameters.
 
@@ -1158,6 +1197,7 @@ le'])))
     db: Optional[MongoConfig] = None
     jobs: Optional[JobsConfig] = None
     log: LogConfig = LogConfig()
+    access: AccessConfig = AccessConfig()
 
     class Config:
         """Configuration for Pydantic model class."""

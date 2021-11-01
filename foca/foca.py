@@ -12,6 +12,7 @@ from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.factories.celery_app import create_celery_app
 from foca.security.cors import enable_cors
+from foca.permission_management.config_utils import _create_permission_config
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -35,6 +36,9 @@ def foca(config: Optional[str] = None) -> App:
         logger.info(f"Configuration file '{config}' parsed.")
     else:
         logger.info(f"Default app configuration used.")
+
+    # Add permission specs
+    conf = _create_permission_config(conf)
 
     # Create Connexion app
     cnx_app = create_connexion_app(conf)
