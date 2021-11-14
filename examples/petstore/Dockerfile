@@ -1,5 +1,5 @@
 ### BASE IMAGE ###
-FROM elixircloud/foca:latest
+FROM foca-petstore-root:latest
 
 # Metadata
 LABEL software="Petstore application"

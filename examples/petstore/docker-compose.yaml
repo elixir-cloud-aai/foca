@@ -1,8 +1,14 @@
 version: '3.6'
 services:
-
+  foca-petstore-root:
+    build:
+      context: ../../
+      dockerfile: docker/Dockerfile_py3.9
+    image: foca-petstore-root:latest
   app:
-    image: elixircloud/foca-petstore:0.1.0
+    image: elixircloud/foca-petstore:latest
+    depends_on:
+      - foca-petstore-root
     build:
       context: .
       dockerfile: Dockerfile
