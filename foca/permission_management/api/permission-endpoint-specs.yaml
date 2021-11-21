@@ -13,7 +13,7 @@ paths:
   '/permissions':
     post:
       summary: Create a specific permission.
-      operationId: postPermission
+      operationId: foca.permission_management.permission_server.postPermission
       description: This endpoint is used to create a new permission.
       tags:
         - permission
@@ -59,7 +59,7 @@ paths:
                 $ref: '#/components/schemas/Error'
     get:
       summary: List permissions
-      operationId: getAllPermissions
+      operationId: foca.permission_management.permission_server.getAllPermissions
       description: Returns all permissions existing on the system.
       tags:
         - permission
@@ -75,7 +75,7 @@ paths:
   '/permissions/{id}':
     get:
       summary: Fetch one specific permission.
-      operationId: getPermission
+      operationId: foca.permission_management.permission_server.getPermission
       description: This endpoint returns one specific permission.
       tags:
         - permission
@@ -108,7 +108,7 @@ paths:
     put:
       summary: Update a specific permission.
       description: This endpoint updates a specific permission.
-      operationId: putPermission
+      operationId: foca.permission_management.permission_server.putPermission
       tags:
         - permission
       parameters:

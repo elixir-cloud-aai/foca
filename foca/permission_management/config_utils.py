@@ -41,7 +41,7 @@ def _register_permission_specs(
     spec = SpecConfig(
         path=str(resource_filename("foca.permission_management", "api/permission-endpoint-specs.yaml")),
         add_operation_fields={
-            "x-openapi-router-controller": "foca.permission_management.controllers"
+            "x-openapi-router-controller": "foca.permission_management.permission_server"
         },
         connexion={
             "strict_validation": True,
