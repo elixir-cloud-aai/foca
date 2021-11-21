@@ -1118,19 +1118,13 @@ class AccessConfig(FOCABaseConfig):
     """
     enable: bool = False
     policy_path: Optional[str] = None
+    owner_headers: Optional[set] = {'X-User', 'X-Group'}
+    user_headers: Optional[set] = {'X-User'}
 
     #TODO: add check for a valid conf file
     #TODO: should we support multiple conf files?
 
     # resolve relative path
-    @validator('policy_path', always=True, allow_reuse=True)
-    def set_abs_path(cls, v):  # pylint: disable=E0213
-        """Resolve path relative to caller's current working directory if no
-        absolute path provided.
-        """
-        if not Path(v).is_absolute():
-            return [str(Path.cwd() / v)]
-        return v
 
 
 class Config(FOCABaseConfig):

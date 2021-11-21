@@ -12,7 +12,7 @@ from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.factories.celery_app import create_celery_app
 from foca.security.cors import enable_cors
-from foca.permission_management.config_utils import _create_permission_config, _register_permission_specs
+from foca.permission_management.config_utils import _create_permission_config, _register_permission_specs, _register_casbin_enforcer
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -76,6 +76,18 @@ def foca(config: Optional[str] = None) -> App:
         logger.info(f"Database registered.")
     else:
         logger.info(f"No database support configured.")
+
+    # Register permission management and casbin enforcer
+    if conf.access and conf.access.enable:
+        cnx_app = _register_casbin_enforcer(
+            app=cnx_app,
+            policy_path=conf.access.policy_path,
+            owner_headers=conf.access.owner_headers,
+            user_headers=conf.access.user_headers,
+            db_name="access_db",
+            db_host=conf.db.host,
+            db_port=conf.db.port
+        )
 
     # Create Celery app
     if conf.jobs:
