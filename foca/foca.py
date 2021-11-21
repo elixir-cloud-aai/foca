@@ -12,7 +12,7 @@ from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.factories.celery_app import create_celery_app
 from foca.security.cors import enable_cors
-from foca.permission_management.config_utils import _create_permission_config
+from foca.permission_management.config_utils import _create_permission_config, _register_permission_specs
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -63,6 +63,9 @@ def foca(config: Optional[str] = None) -> App:
         )
     else:
         logger.info(f"No OpenAPI specifications provided.")
+        
+    if conf.access and conf.access.enable:
+        cnx_app = _register_permission_specs(cnx_app)
 
     # Register MongoDB
     if conf.db:

@@ -9,9 +9,8 @@ info:
   contact:
     name: 'GA4GH Discovery Networks Team'
     email: 'ga4gh-discovery-networks@ga4gh.org'
-
 paths:
-  "/permissions":
+  '/permissions':
     post:
       summary: Create a specific permission.
       operationId: postPermission
@@ -19,44 +18,45 @@ paths:
       tags:
         - permission
       requestBody:
-        description: Permission (meta)data to update.
+        description: Permission (meta)data to create.
         required: true
         content:
           application/json:
             schema:
-              x-body-name: tool
-              $ref: "#/components/schemas/Permission"
+              x-body-name: permission
+              $ref: '#/components/schemas/Permission'
       responses:
-        "200":
-          description: Permission was successfully updated.
+        '200':
+          description: Permission was successfully created.
           content:
-            schema:
+            application/json:
+              schema:
                 description: Permission identifier.
                 type: string
-        "400":
+        '400':
           description: The request is malformed.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-        "401":
+                $ref: '#/components/schemas/Error'
+        '401':
           description: The request is unauthorized.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-        "403":
+                $ref: '#/components/schemas/Error'
+        '403':
           description: The requester is not authorized to perform this action.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-        "500":
+                $ref: '#/components/schemas/Error'
+        '500':
           description: An unexpected error occurred.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: '#/components/schemas/Error'
     get:
       summary: List permissions
       operationId: getAllPermissions
@@ -64,15 +64,15 @@ paths:
       tags:
         - permission
       responses:
-        "200":
-          description: An array of tool versions.
+        '200':
+          description: An array of permission objects.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Permission"
-  "/permissions/{id}":
+                  $ref: '#/components/schemas/Permission'
+  '/permissions/{id}':
     get:
       summary: Fetch one specific permission.
       operationId: getPermission
@@ -87,24 +87,24 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           description: A Permission.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Permission'
-        "404":
+        '404':
           description: The permission cannot be found.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-        "403":
+                $ref: '#/components/schemas/Error'
+        '403':
           description: The requester is not authorized to perform this action.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: '#/components/schemas/Error'
     put:
       summary: Update a specific permission.
       description: This endpoint updates a specific permission.
@@ -124,39 +124,42 @@ paths:
         content:
           application/json:
             schema:
-              x-body-name: tool
-              $ref: "#/components/schemas/Permission"
+              x-body-name: permission
+              $ref: '#/components/schemas/Permission'
       responses:
-        "200":
+        '200':
           description: Permission was successfully updated.
           content:
-            schema:
+            application/json:
+              schema:
                 description: Permission identifier.
                 type: string
-        "400":
+        '400':
           description: The request is malformed.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-        "401":
+                $ref: '#/components/schemas/Error'
+        '401':
           description: The request is unauthorized.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-        "403":
+                $ref: '#/components/schemas/Error'
+        '403':
           description: The requester is not authorized to perform this action.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-        "500":
+                $ref: '#/components/schemas/Error'
+        '500':
           description: An unexpected error occurred.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: '#/components/schemas/Error'
+servers:
+  - url: /admin/permission-management
 components:
   schemas:
     Permission:

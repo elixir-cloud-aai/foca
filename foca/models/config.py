@@ -1197,7 +1197,7 @@ le'])))
     db: Optional[MongoConfig] = None
     jobs: Optional[JobsConfig] = None
     log: LogConfig = LogConfig()
-    access: AccessConfig = AccessConfig()
+    access: Optional[AccessConfig] = None
 
     class Config:
         """Configuration for Pydantic model class."""

@@ -42,3 +42,7 @@ db:
             collections:
                 pets:
                     indexes: null
+
+access:
+    enable: true
+    policy_path: petstore_policies.conf

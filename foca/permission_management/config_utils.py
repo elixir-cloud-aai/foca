@@ -1,5 +1,14 @@
 """Methods to manage permission management configuration"""
-from foca.models.config import Config, DBConfig
+
+import logging
+from pkg_resources import resource_filename
+from connexion import App
+
+from foca import api
+from foca.models.config import Config, DBConfig, SpecConfig
+
+logger = logging.getLogger(__name__)
+
 
 def _create_permission_config(config: Config) -> Config:
     """Check and update FOCA configuration for permission management.
@@ -21,6 +30,31 @@ def _create_permission_config(config: Config) -> Config:
                 else:
                     # TODO: add check so user cannot enter access_db as the db name.
                     config.db.dbs['access_db'] = DBConfig(collections=None, client=None)
-        # if config.api.specs:
 
     return config
+
+
+def _register_permission_specs(
+    app: App
+):
+    logger.info(f"{resource_filename('foca.permission_management', 'api/permission-endpoint-specs.yaml')}")
+    spec = SpecConfig(
+        path=str(resource_filename("foca.permission_management", "api/permission-endpoint-specs.yaml")),
+        add_operation_fields={
+            "x-openapi-router-controller": "foca.permission_management.controllers"
+        },
+        connexion={
+            "strict_validation": True,
+            "validate_responses": False,
+            "options": {
+                "swagger_ui": True,
+                "serve_spec": True
+            }
+        }
+    )
+    
+    app.add_api(
+        specification=spec.path[0],
+        **spec.dict().get('connexion', {}),
+    )
+    return app
