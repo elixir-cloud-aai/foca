@@ -5,6 +5,7 @@ services:
       context: ../../
       dockerfile: docker/Dockerfile_py3.9
     image: foca-petstore-root:latest
+  
   app:
     image: elixircloud/foca-petstore:latest
     depends_on:
