@@ -158,6 +158,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a permission.
+      description: Delete an existing permission object.
+      operationId: foca.permission_management.permission_server.deletePermission
+      tags:
+        - permission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A unique identifier of the permission.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The permission was successfully deleted.
+          content:
+            application/json:
+              schema:
+                description: Identifier of deleted permission.
+                type: string
+        '400':
+          description: The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The requested permission was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 servers:
   - url: /admin/permission-management
 components:

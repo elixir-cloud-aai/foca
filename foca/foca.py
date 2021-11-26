@@ -66,6 +66,9 @@ def foca(config: Optional[str] = None) -> App:
         
     if conf.access and conf.access.enable:
         cnx_app = _register_permission_specs(cnx_app)
+        logger.info(f"Permission management specs registered.")
+    else:
+        logger.info(f"No access specifications provided.")
 
     # Register MongoDB
     if conf.db:
@@ -88,6 +91,7 @@ def foca(config: Optional[str] = None) -> App:
             db_host=conf.db.host,
             db_port=conf.db.port
         )
+        logger.info(f"Casbin enforcer registered.")
 
     # Create Celery app
     if conf.jobs:

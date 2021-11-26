@@ -33,6 +33,7 @@ def _create_permission_config(
                 else:
                     # TODO: add check so user cannot enter access_db as the db name.
                     config.db.dbs['access_db'] = DBConfig(collections=None, client=None)
+                logger.info(f"Permission db registered.")
 
     return config
 
@@ -40,6 +41,14 @@ def _create_permission_config(
 def _register_permission_specs(
     app: App
 ):
+    """Register open api specs for permission management.
+
+    Args:
+        app: Connexion app.
+
+    Returns:
+        Connexion app with updated permission specifications.
+    """
     spec = SpecConfig(
         path=str(resource_filename("foca.permission_management", "api/permission-endpoint-specs.yaml")),
         add_operation_fields={
@@ -71,14 +80,32 @@ def _register_casbin_enforcer(
     db_host: str,
     db_port: int
 ) -> App:
-    # Set up Casbin model config
+    """Method to add casbin permission enforcer.
+
+    Args:
+        app: Connexion app.
+        policy_path: Casbin user policy file path.
+        owner_headers: Owner headers identifiers.
+        user_headers: User headers identifiers.
+        db_name: Permission db name.
+        db_host: Permission db host.
+        db_port: Permission db port.
+
+    Returns:
+        Update app with casbin configuration.
+    """
+    logger.info("Setting casbin policies.")
     app.app.config['CASBIN_MODEL'] = policy_path
-    # Set headers where owner for enforcement policy should be located
+    
+    logger.info("Setting headers where owner for enforcement policy should be located.")
     app.app.config['CASBIN_OWNER_HEADERS'] = owner_headers
-    # Set headers for user name
+    
+    logger.info("Setting headers for user name.")
     app.app.config['CASBIN_USER_NAME_HEADERS'] = user_headers
-    # Set up Casbin Adapter
+    
+    logger.info("Setting up casbin enforcer.")
     adapter = casbin_pymongo_adapter.Adapter(f"mongodb://{db_host}:{db_port}/", db_name)
     casbin_enforcer = CasbinEnforcer(app.app, adapter)
+    
     app.app.config['casbin_enforcer'] = casbin_enforcer
     return app

@@ -58,4 +58,23 @@ def getPermission(
     Returns:
         Permission data for the given id.
     """
+    db_coll_permission = (
+        current_app.config['FOCA'].db.dbs['access_db']
+        .collections['tools'].client
+    )
     return {}
+
+
+@log_traffic
+def deletePermission(
+    id: str,
+) -> str:
+    """Method to delete a particular permission.
+
+    Args:
+        id: Permission identifier.
+
+    Returns:
+        Delete permission identifier.
+    """
+    return ""
