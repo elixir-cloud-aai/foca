@@ -63,6 +63,14 @@ paths:
       description: Returns all permissions existing on the system.
       tags:
         - permission
+      parameters:
+        - name: limit
+          in: query
+          description: maximum number of results to return
+          required: false
+          schema:
+            type: integer
+            format: int32
       responses:
         '200':
           description: An array of permission objects.
@@ -217,7 +225,6 @@ components:
       description: Permission model.
       type: object
       required:
-        - id
         - sec
         - ptype
         - rule
@@ -228,6 +235,7 @@ components:
         sec:
           type: string
           description: Section name.
+          enum: ["p", "g"]
         ptype:
           type: string
           description: Policy type.

@@ -30,7 +30,6 @@ def register_mongodb(
     # Iterate over databases
     if conf.dbs is not None:
         for db_name, db_conf in conf.dbs.items():
-
             # Instantiate PyMongo client
             mongo = _create_mongo_client(
                 app=app,

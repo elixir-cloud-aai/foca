@@ -13,6 +13,7 @@ from foca.factories.connexion_app import create_connexion_app
 from foca.factories.celery_app import create_celery_app
 from foca.security.cors import enable_cors
 from foca.permission_management.config_utils import _create_permission_config, _register_permission_specs, _register_casbin_enforcer
+from foca.permission_management.constants import PERMISSION_DB_NAME, PERMISSION_DB_COLLECTION_NAME
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -87,7 +88,8 @@ def foca(config: Optional[str] = None) -> App:
             policy_path=conf.access.policy_path,
             owner_headers=conf.access.owner_headers,
             user_headers=conf.access.user_headers,
-            db_name="access_db",
+            db_name=PERMISSION_DB_NAME,
+            collection_name=PERMISSION_DB_COLLECTION_NAME,
             db_host=conf.db.host,
             db_port=conf.db.port
         )
