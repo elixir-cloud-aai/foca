@@ -43,6 +43,6 @@ db:
                 pets:
                     indexes: null
 
-access:
-    enable: true
-    policy_path: petstore_policies.conf
+access_control:
+    use_default_db_config: True
+    use_default_api_specs: True

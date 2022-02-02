@@ -3,8 +3,9 @@ services:
   foca-petstore-root:
     build:
       context: ../../
-      dockerfile: docker/Dockerfile_py3.9
+      dockerfile: docker/Dockerfile_py3.7
     image: foca-petstore-root:latest
+    restart: "no"
   
   app:
     image: elixircloud/foca-petstore:latest

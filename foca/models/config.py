@@ -12,6 +12,8 @@ from typing import (Any, Dict, List, Optional, Union)
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
 import pymongo
 
+from foca.access_control.constants import DEFAULT_POLICY_PATH
+
 
 def _validate_log_level_choices(level: int) -> int:
     """Custom validation function for Pydantic to ensure that a valid
@@ -1094,37 +1096,91 @@ onsole']))
     root: Optional[LogRootConfig] = LogRootConfig()
 
 
-class AccessConfig(FOCABaseConfig):
+class AccessControlConfig(FOCABaseConfig):
     """Model for setting access control configuration.
+    For exact behaviour cf. https://github.com/casbin/pycasbin.
 
     Args:
-        enable: Flag to enable/disable access control.
-        path_out: Policy file based on `pycasbin` specification.
+        use_default_db_config: Flag to check if default database settings are
+            enabled.
+        use_default_api_specs: Flag to check if default API specs are utilized.
+        api_specs_path: Path to API spec definition.
+        api_spec_controller_path: Path to API spec controller.
+        db_name: Access control database name.
+        collection_name: Access control collection name.
+        policy_path: Path to access control model configuration file.
+        owner_headers: Owner (Admin) specific header property requirements
+            for casbin.
+        user_headers: User specific header property requirements for casbin.
 
     Attributes:
-        enable: Flag to enable/disable access control.
-        path_out: Policy file based on `pycasbin` specification.
+        use_default_db_config: Flag to check if default database settings are
+            enabled.
+        use_default_api_specs: Flag to check if default API specs are utilized.
+        api_specs_path: Path to API spec definition.
+        api_spec_controller_path: Path to API spec controller.
+        db_name: Access control database name.
+        collection_name: Access control collection name.
+        policy_path: Path to access control model configuration file.
+        owner_headers: Owner (Admin) specific header property requirements
+            for casbin.
+        user_headers: User specific header property requirements for casbin.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type.
 
     Example:
-        >>> AccessConfig(
-        ...     enable=True,
-        ...     path_out="/path/to/policy.conf",
+        >>> AccessControlConfig(
+        ...     use_default_db_config=False,
+        ...     use_default_api_specs=False,
+        ...     api_specs_path="/path/to/spec.yaml",
+        ...     api_spec_controller_path="/path/to/spec_server.py",
+        ...     db_name="access_control_db",
+        ...     collection_name="access_control_collection",
+        ...     policy_path="/path/to/policy.conf",
+        ...     owner_headers={'X-User', 'X-Group'},
+        ...     user_headers={'X-User'}
         ... )
-        AccessConfig(enable=True, path_out="/path/to/policy.conf")
+        AccessControlConfig(use_default_db_config=False, use_default_api_specs\
+=False,api_specs_path="/path/to/access_control_spec.yaml", api_spec_co\
+ntroller_path="/path/to/access_control_spec_server.py", db_name="access_contro\
+l_db", collection_name="access_control_collection", policy_path="/path/to/poli\
+cy.conf", owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     """
-    enable: bool = False
-    policy_path: Optional[str] = None
-    owner_headers: Optional[set] = {'X-User', 'X-Group'}
-    user_headers: Optional[set] = {'X-User'}
+    use_default_db_config: bool = True
+    use_default_api_specs: bool = True
+    api_specs_path: Optional[str] = None
+    api_spec_controller_path: Optional[str] = None
+    db_name: Optional[str] = None
+    collection_name: Optional[str] = None
+    policy_path: Optional[str] = DEFAULT_POLICY_PATH
+    owner_headers: Optional[set] = None
+    user_headers: Optional[set] = None
 
-    #TODO: add check for a valid conf file
-    #TODO: should we support multiple conf files?
+    # resolve db config
+    @validator('use_default_db_config', always=True, allow_reuse=True)
+    def validate_use_default_db_config(cls, v, *, values):
+        if v is False:
+            if (
+                values.get("db_name", None) is None or
+                values.get("collection_name", None) is None
+            ):
+                raise ValueError(
+                    "Access control database config not provided."
+                )
+        return v
 
-    # resolve relative path
+    # resolve api spec
+    @validator('use_default_api_specs', always=True, allow_reuse=True)
+    def validate_use_default_api_specs(cls, v, *, values):
+        if v is False:
+            if (
+                values.get("api_specs_path", None) is None or
+                values.get("api_spec_controller_path", None) is None
+            ):
+                raise ValueError("Access control specs config not provided.")
+        return v
 
 
 class Config(FOCABaseConfig):
@@ -1138,6 +1194,7 @@ class Config(FOCABaseConfig):
         db: Database config parameters.
         jobs: Background job config parameters.
         log: Logger config parameters.
+        access_control: Access control config parameters.
 
     Attributes:
         server: Server config parameters.
@@ -1147,6 +1204,7 @@ class Config(FOCABaseConfig):
         db: Database config parameters.
         jobs: Background job config parameters.
         log: Logger config parameters.
+        access_control: Access control config parameters.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -1182,7 +1240,12 @@ log=LogConfig(version=1, disable_existing_loggers=False, formatters={'standard\
 [{asctime}: {levelname:<8}] {message} [{name}]')}, handlers={'console': LogHan\
 dlerConfig(class_handler='logging.StreamHandler', level=20, formatter='standar\
 d', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['conso\
-le'])))
+le'])), access_control=AccessControlConfig(use_default_db_config=False, use_de\
+fault_api_specs=False,default_api_specs_path="/path/to/access_control_spec.yam\
+l", api_spec_controller_path="/path/to/access_control_spec_server.py", db_name\
+="access_control_db", collection_name="access_control_collection", policy_path\
+="/path/to/policy.conf", owner_headers={'X-User', 'X-Group'}, user_headers={'X\
+-User'}))
     """
     server: ServerConfig = ServerConfig()
     exceptions: ExceptionConfig = ExceptionConfig()
@@ -1191,7 +1254,7 @@ le'])))
     db: Optional[MongoConfig] = None
     jobs: Optional[JobsConfig] = None
     log: LogConfig = LogConfig()
-    access: Optional[AccessConfig] = None
+    access_control: AccessControlConfig = AccessControlConfig()
 
     class Config:
         """Configuration for Pydantic model class."""

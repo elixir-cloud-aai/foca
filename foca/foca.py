@@ -5,6 +5,13 @@ from typing import Optional
 
 from connexion import App
 
+from foca.access_control.register_access_control import register_access_control
+from foca.access_control.constants import (
+    DEFAULT_API_SPEC_PATH,
+    DEFAULT_SPEC_CONTROLLER,
+    DEFAULT_PERMISSION_DB_NAME,
+    DEFAULT_PERMISSION_DB_COLLECTION_NAME,
+)
 from foca.api.register_openapi import register_openapi
 from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
@@ -12,8 +19,6 @@ from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.factories.celery_app import create_celery_app
 from foca.security.cors import enable_cors
-from foca.permission_management.config_utils import _create_permission_config, _register_permission_specs, _register_casbin_enforcer
-from foca.permission_management.constants import PERMISSION_DB_NAME, PERMISSION_DB_COLLECTION_NAME
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -38,9 +43,6 @@ def foca(config: Optional[str] = None) -> App:
     else:
         logger.info(f"Default app configuration used.")
 
-    # Add permission specs
-    conf = _create_permission_config(conf)
-
     # Create Connexion app
     cnx_app = create_connexion_app(conf)
     logger.info(f"Connexion app created.")
@@ -64,12 +66,6 @@ def foca(config: Optional[str] = None) -> App:
         )
     else:
         logger.info(f"No OpenAPI specifications provided.")
-        
-    if conf.access and conf.access.enable:
-        cnx_app = _register_permission_specs(cnx_app)
-        logger.info(f"Permission management specs registered.")
-    else:
-        logger.info(f"No access specifications provided.")
 
     # Register MongoDB
     if conf.db:
@@ -82,18 +78,21 @@ def foca(config: Optional[str] = None) -> App:
         logger.info(f"No database support configured.")
 
     # Register permission management and casbin enforcer
-    if conf.access and conf.access.enable:
-        cnx_app = _register_casbin_enforcer(
-            app=cnx_app,
-            policy_path=conf.access.policy_path,
-            owner_headers=conf.access.owner_headers,
-            user_headers=conf.access.user_headers,
-            db_name=PERMISSION_DB_NAME,
-            collection_name=PERMISSION_DB_COLLECTION_NAME,
-            db_host=conf.db.host,
-            db_port=conf.db.port
+    if conf.access_control.use_default_api_specs:
+        conf.access_control.api_specs_path = DEFAULT_API_SPEC_PATH
+        conf.access_control.api_spec_controller_path = DEFAULT_SPEC_CONTROLLER
+
+    if conf.access_control.use_default_db_config:
+        conf.access_control.db_name = DEFAULT_PERMISSION_DB_NAME
+        conf.access_control.collection_name = (
+            DEFAULT_PERMISSION_DB_COLLECTION_NAME
         )
-        logger.info(f"Casbin enforcer registered.")
+
+    cnx_app = register_access_control(
+        cnx_app=cnx_app,
+        mongo_config=conf.db,
+        access_control_config=conf.access_control
+    )
 
     # Create Celery app
     if conf.jobs:

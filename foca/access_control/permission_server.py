@@ -2,14 +2,14 @@
 
 import logging
 
-from typing import Dict, List
-from bson.objectid import ObjectId
+from typing import (Dict, List)
 
-from flask import request, current_app
+from bson.objectid import ObjectId
+from flask import (request, current_app)
 
 from foca.utils.logging import log_traffic
-from foca.permission_management.constants import PERMISSION_DB_COLLECTION_NAME, PERMISSION_DB_NAME
-from werkzeug.exceptions import InternalServerError, NotFound
+from foca.access_control.foca_casbin_adapter.adapter import Adapter
+from werkzeug.exceptions import (InternalServerError, NotFound)
 
 logger = logging.getLogger(__name__)
 
@@ -23,24 +23,31 @@ def postPermission() -> str:
     """
     try:
         request_json = request.json
-        db_coll_permission = (
-            current_app.config['FOCA'].db.dbs[PERMISSION_DB_NAME]
-            .collections[PERMISSION_DB_COLLECTION_NAME].client
+
+        access_control_config = current_app.config['FOCA'].access_control
+        mongo_config = current_app.config['FOCA'].db
+
+        access_control_adapter = Adapter(
+            uri=f"mongodb://{mongo_config.host}:{mongo_config.port}/",
+            dbname=access_control_config.db_name,
+            collection=access_control_config.collection_name
         )
-        
+
         rule = request_json.get("rule", {})
-        permission_data = {
-            "ptype": request_json.get("ptype", None) if request_json.get("ptype", None) else None,
-            "v0": rule.get("v0", None) if rule.get("v0", None) else None,
-            "v1": rule.get("v1", None) if rule.get("v1", None) else None,
-            "v2": rule.get("v2", None) if rule.get("v2", None) else None,
-            "v3": rule.get("v3", None) if rule.get("v3", None) else None,
-            "v4": rule.get("v4", None) if rule.get("v4", None) else None,
-            "v5": rule.get("v5", None) if rule.get("v5", None) else None
-        }
-        permission = db_coll_permission.insert_one(document=permission_data)
-        logger.info("Policy added.")
-        return str(permission.inserted_id)
+        permission_data = [
+            rule.get("v0", None),
+            rule.get("v1", None),
+            rule.get("v2", None),
+            rule.get("v3", None),
+            rule.get("v4", None),
+            rule.get("v5", None)
+        ]
+        access_control_adapter.save_policy_line(
+            ptype=request_json.get("policy_type", None),
+            rule=permission_data
+        )
+        logger.info("New policy added.")
+        return "added"
     except Exception as e:
         logger.error(f"{type(e).__name__}: {e}")
         raise InternalServerError
@@ -60,20 +67,21 @@ def putPermission(
     """
     try:
         request_json = request.json
+        access_control_config = current_app.config['FOCA'].access_control
         db_coll_permission = (
-            current_app.config['FOCA'].db.dbs[PERMISSION_DB_NAME]
-            .collections[PERMISSION_DB_COLLECTION_NAME].client
+            current_app.config['FOCA'].db.dbs[access_control_config.db_name]
+            .collections[access_control_config.collection_name].client
         )
-        
+
         rule = request_json.get("rule", {})
         permission_data = {
-            "ptype": request_json.get("ptype", None) if request_json.get("ptype", None) else None,
-            "v0": rule.get("v0", None) if rule.get("v0", None) else None,
-            "v1": rule.get("v1", None) if rule.get("v1", None) else None,
-            "v2": rule.get("v2", None) if rule.get("v2", None) else None,
-            "v3": rule.get("v3", None) if rule.get("v3", None) else None,
-            "v4": rule.get("v4", None) if rule.get("v4", None) else None,
-            "v5": rule.get("v5", None) if rule.get("v5", None) else None
+            "ptype": request_json.get("policy_type", None),
+            "v0": rule.get("v0", None),
+            "v1": rule.get("v1", None),
+            "v2": rule.get("v2", None),
+            "v3": rule.get("v3", None),
+            "v4": rule.get("v4", None),
+            "v5": rule.get("v5", None)
         }
         db_coll_permission.replace_one(
             filter={"_id": ObjectId(id)},
@@ -96,10 +104,12 @@ def getAllPermissions(limit=None) -> List[Dict]:
     Returns:
         List of permission dicts.
     """
+    access_control_config = current_app.config['FOCA'].access_control
     db_coll_permission = (
-        current_app.config['FOCA'].db.dbs[PERMISSION_DB_NAME]
-        .collections[PERMISSION_DB_COLLECTION_NAME].client
+        current_app.config['FOCA'].db.dbs[access_control_config.db_name]
+        .collections[access_control_config.collection_name].client
     )
+
     if not limit:
         limit = 0
     permissions = db_coll_permission.find(
@@ -121,10 +131,12 @@ def getPermission(
     Returns:
         Permission data for the given id.
     """
+    access_control_config = current_app.config['FOCA'].access_control
     db_coll_permission = (
-        current_app.config['FOCA'].db.dbs[PERMISSION_DB_NAME]
-        .collections[PERMISSION_DB_COLLECTION_NAME].client
+        current_app.config['FOCA'].db.dbs[access_control_config.db_name]
+        .collections[access_control_config.collection_name].client
     )
+
     permission = db_coll_permission.find_one(
         filter={"_id": ObjectId(id)},
         projection={'_id': False}
@@ -148,10 +160,12 @@ def deletePermission(
     Returns:
         Delete permission identifier.
     """
+    access_control_config = current_app.config['FOCA'].access_control
     db_coll_permission = (
-        current_app.config['FOCA'].db.dbs[PERMISSION_DB_NAME]
-        .collections[PERMISSION_DB_COLLECTION_NAME].client
+        current_app.config['FOCA'].db.dbs[access_control_config.db_name]
+        .collections[access_control_config.collection_name].client
     )
+
     del_obj_permission = db_coll_permission.delete_one({'_id': ObjectId(id)})
 
     if del_obj_permission.deleted_count:
