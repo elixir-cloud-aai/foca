@@ -1,8 +1,8 @@
 addict==2.2.1
 celery==4.1.1
 connexion==2.7.0
-Flask==1.1.2
-flask-authz==2.4.0
+Flask==1.1.4
+flask-authz==2.5.0
 Flask-Cors==3.0.9
 Flask-PyMongo==2.3.0
 mongomock==3.19.0
