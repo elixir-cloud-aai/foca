@@ -7,7 +7,6 @@ from connexion import App
 
 from foca.access_control.register_access_control import register_access_control
 from foca.access_control.constants import (
-    DEFAULT_API_SPEC_PATH,
     DEFAULT_SPEC_CONTROLLER,
     DEFAULT_PERMISSION_DB_NAME,
     DEFAULT_PERMISSION_DB_COLLECTION_NAME,
@@ -78,12 +77,16 @@ def foca(config: Optional[str] = None) -> App:
         logger.info(f"No database support configured.")
 
     # Register permission management and casbin enforcer
-    if conf.access_control.use_default_api_specs:
-        conf.access_control.api_specs_path = DEFAULT_API_SPEC_PATH
-        conf.access_control.api_spec_controller_path = DEFAULT_SPEC_CONTROLLER
+    if (
+        conf.access_control.api_specs is None or
+        conf.access_control.api_controllers is None
+    ):
+        conf.access_control.api_controllers = DEFAULT_SPEC_CONTROLLER
 
-    if conf.access_control.use_default_db_config:
+    if conf.access_control.db_name is None:
         conf.access_control.db_name = DEFAULT_PERMISSION_DB_NAME
+
+    if conf.access_control.collection_name is None:
         conf.access_control.collection_name = (
             DEFAULT_PERMISSION_DB_COLLECTION_NAME
         )

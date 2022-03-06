@@ -1101,27 +1101,25 @@ class AccessControlConfig(FOCABaseConfig):
     For exact behaviour cf. https://github.com/casbin/pycasbin.
 
     Args:
-        use_default_db_config: Flag to check if default database settings are
-            enabled.
-        use_default_api_specs: Flag to check if default API specs are utilized.
-        api_specs_path: Path to API spec definition.
-        api_spec_controller_path: Path to API spec controller.
-        db_name: Access control database name.
-        collection_name: Access control collection name.
-        policy_path: Path to access control model configuration file.
+        api_specs: Path to API spec definition. If None, the use default
+            specs.
+        api_controllers: Path to API spec controller. If None, the use default
+            specs.
+        db_name: Access control database name. If None, the use default specs.
+        collection_name: Access control collection name. If None, the use
+            default specs.
+        policies: Path to access control model configuration file. If None,
+            the use default specs.
         owner_headers: Owner (Admin) specific header property requirements
             for casbin.
         user_headers: User specific header property requirements for casbin.
 
     Attributes:
-        use_default_db_config: Flag to check if default database settings are
-            enabled.
-        use_default_api_specs: Flag to check if default API specs are utilized.
-        api_specs_path: Path to API spec definition.
-        api_spec_controller_path: Path to API spec controller.
+        api_specs: Path to API spec definition.
+        api_controllers: Path to API spec controller.
         db_name: Access control database name.
         collection_name: Access control collection name.
-        policy_path: Path to access control model configuration file.
+        policies: Path to access control model configuration file.
         owner_headers: Owner (Admin) specific header property requirements
             for casbin.
         user_headers: User specific header property requirements for casbin.
@@ -1132,55 +1130,26 @@ class AccessControlConfig(FOCABaseConfig):
 
     Example:
         >>> AccessControlConfig(
-        ...     use_default_db_config=False,
-        ...     use_default_api_specs=False,
-        ...     api_specs_path="/path/to/spec.yaml",
-        ...     api_spec_controller_path="/path/to/spec_server.py",
+        ...     api_specs="/path/to/spec.yaml",
+        ...     api_controllers="/path/to/spec_server.py",
         ...     db_name="access_control_db",
         ...     collection_name="access_control_collection",
-        ...     policy_path="/path/to/policy.conf",
+        ...     policies="/path/to/policy.conf",
         ...     owner_headers={'X-User', 'X-Group'},
         ...     user_headers={'X-User'}
         ... )
-        AccessControlConfig(use_default_db_config=False, use_default_api_specs\
-=False,api_specs_path="/path/to/access_control_spec.yaml", api_spec_co\
-ntroller_path="/path/to/access_control_spec_server.py", db_name="access_contro\
-l_db", collection_name="access_control_collection", policy_path="/path/to/poli\
-cy.conf", owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
+        AccessControlConfig(api_specs="/path/to/access_control_spec.yaml",api_\
+controllers="/path/to/access_control_spec_server.py", db_name="access_control_\
+db", collection_name="access_control_collection", policies="/path/to/policy.co\
+nf", owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     """
-    use_default_db_config: bool = True
-    use_default_api_specs: bool = True
-    api_specs_path: Optional[str] = None
-    api_spec_controller_path: Optional[str] = None
+    api_specs: Optional[str] = None
+    api_controllers: Optional[str] = None
     db_name: Optional[str] = None
     collection_name: Optional[str] = None
-    policy_path: Optional[str] = DEFAULT_POLICY_PATH
+    policies: Optional[str] = DEFAULT_POLICY_PATH
     owner_headers: Optional[set] = None
     user_headers: Optional[set] = None
-
-    # resolve db config
-    @validator('use_default_db_config', always=True, allow_reuse=True)
-    def validate_use_default_db_config(cls, v, *, values):
-        if v is False:
-            if (
-                values.get("db_name", None) is None or
-                values.get("collection_name", None) is None
-            ):
-                raise ValueError(
-                    "Access control database config not provided."
-                )
-        return v
-
-    # resolve api spec
-    @validator('use_default_api_specs', always=True, allow_reuse=True)
-    def validate_use_default_api_specs(cls, v, *, values):
-        if v is False:
-            if (
-                values.get("api_specs_path", None) is None or
-                values.get("api_spec_controller_path", None) is None
-            ):
-                raise ValueError("Access control specs config not provided.")
-        return v
 
 
 class Config(FOCABaseConfig):
@@ -1240,12 +1209,11 @@ log=LogConfig(version=1, disable_existing_loggers=False, formatters={'standard\
 [{asctime}: {levelname:<8}] {message} [{name}]')}, handlers={'console': LogHan\
 dlerConfig(class_handler='logging.StreamHandler', level=20, formatter='standar\
 d', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['conso\
-le'])), access_control=AccessControlConfig(use_default_db_config=False, use_de\
-fault_api_specs=False,default_api_specs_path="/path/to/access_control_spec.yam\
-l", api_spec_controller_path="/path/to/access_control_spec_server.py", db_name\
-="access_control_db", collection_name="access_control_collection", policy_path\
-="/path/to/policy.conf", owner_headers={'X-User', 'X-Group'}, user_headers={'X\
--User'}))
+le'])), access_control=AccessControlConfig(api_specs="/path/to/access_control_\
+spec.yaml", api_controllers="/path/to/access_control_spec_server.py", db_name=\
+"access_control_db", collection_name="access_control_collection", policies="/p\
+ath/to/policy.conf", owner_headers={'X-User', 'X-Group'}, user_headers={'X-Use\
+r'}))
     """
     server: ServerConfig = ServerConfig()
     exceptions: ExceptionConfig = ExceptionConfig()

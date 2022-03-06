@@ -14,7 +14,10 @@ from foca.models.config import (
 )
 from foca.database.register_mongodb import add_new_database
 from foca.access_control.foca_casbin_adapter.adapter import Adapter
-from foca.access_control.constants import ACCESS_CONTROL_BASE_PATH
+from foca.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH,
+    DEFAULT_API_SPEC_PATH
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,18 +98,18 @@ def register_permission_specs(
         Connexion app with updated permission specifications.
     """
     # Check if default, get package path variables for specs.
-    if access_control_config.use_default_api_specs:
+    if access_control_config.api_specs is None:
         spec_path = str(resource_filename(
-            ACCESS_CONTROL_BASE_PATH, access_control_config.api_specs_path
+            ACCESS_CONTROL_BASE_PATH, DEFAULT_API_SPEC_PATH
         ))
     else:
-        spec_path = access_control_config.api_specs_path
+        spec_path = access_control_config.api_specs
 
     spec = SpecConfig(
         path=spec_path,
         add_operation_fields={
             "x-openapi-router-controller": (
-                access_control_config.api_spec_controller_path
+                access_control_config.api_controllers
             )
         },
         connexion={
@@ -145,12 +148,12 @@ def register_casbin_enforcer(
         Connexion application instance with registered casbin configuration.
     """
     # Check if default, get package path variables for policies.
-    if access_control_config.use_default_api_specs:
+    if access_control_config.api_specs is None:
         policy_path = str(resource_filename(
-            ACCESS_CONTROL_BASE_PATH, access_control_config.policy_path
+            ACCESS_CONTROL_BASE_PATH, access_control_config.policies
         ))
     else:
-        policy_path = access_control_config.policy_path
+        policy_path = access_control_config.policies
 
     logger.info("Setting casbin policies.")
     app.app.config['CASBIN_MODEL'] = policy_path
