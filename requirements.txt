@@ -1,5 +1,5 @@
 addict==2.2.1
-celery==4.1.1
+celery==5.2.2
 connexion==2.11.2
 Flask==2.0.3
 flask-authz==2.5.0
