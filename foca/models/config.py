@@ -650,6 +650,8 @@ class AuthConfig(FOCABaseConfig):
     authorization for the app.
 
     Args:
+        required: Boolean to define the auth configuration for the app.
+            Defaults to true.
         add_key_to_claims: Whether to allow the application to add the identity
             provider's corresponding JSON Web Key (JWK), in PEM format, to the
             dictionary of claims.
@@ -667,6 +669,7 @@ class AuthConfig(FOCABaseConfig):
             to pass before accepting a JWT.
 
     Attributes:
+        required: Boolean to define the auth configuration for the app.
         add_key_to_claims: Whether to allow the application to add the identity
             provider's corresponding JSON Web Key (JWK), in PEM format, to the
             dictionary of claims.
@@ -689,6 +692,7 @@ class AuthConfig(FOCABaseConfig):
 
     Example:
         >>> AuthConfig(
+        ...     required=False,
         ...     add_key_to_claims=True,
         ...     allow_expired=False,
         ...     audience=None,
@@ -704,7 +708,7 @@ class AuthConfig(FOCABaseConfig):
 onMethodsEnum.public_key: 'public_key'>], validation_checks=<ValidationChecksE\
 num.all: 'all'>)
     """
-    required: bool = False
+    required: bool = True
     add_key_to_claims: bool = True
     allow_expired: bool = False
     audience: Optional[List[str]] = None
