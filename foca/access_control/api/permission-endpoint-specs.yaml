@@ -283,6 +283,15 @@ components:
           description: This defines the policy type of the permission (rule) definition.
         rule:
           $ref: '#/components/schemas/Rule'
+      example:
+        value:
+          identifier: 'abc123'
+          rule_section: 'p'
+          policy_type: 'p1'
+          rule:
+            v0: alice
+            v1: data1
+            v2: read
     Rule:
       description: Rule definition. These will be utilised as per the policy conf structure.
       type: object
@@ -305,6 +314,11 @@ components:
         v5:
           type: string
           description: Param 5.
+      example:
+         value:
+          v0: alice
+          v1: data1
+          v2: read
     Error:
       type: object
       required:
