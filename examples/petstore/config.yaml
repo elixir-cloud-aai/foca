@@ -42,7 +42,3 @@ db:
             collections:
                 pets:
                     indexes: null
-
-access_control:
-    use_default_db_config: True
-    use_default_api_specs: True
