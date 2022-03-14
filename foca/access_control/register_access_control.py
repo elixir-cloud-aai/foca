@@ -69,13 +69,14 @@ def register_access_control(
     )
 
     # Register access control api specs and corresponding controller.
-    cnx_app = register_permission_specs(
-        app=cnx_app,
-        access_control_config=access_control_config
-    )
     cnx_app = register_casbin_enforcer(
         app=cnx_app,
         mongo_config=mongo_config,
+        access_control_config=access_control_config
+    )
+
+    cnx_app = register_permission_specs(
+        app=cnx_app,
         access_control_config=access_control_config
     )
 
