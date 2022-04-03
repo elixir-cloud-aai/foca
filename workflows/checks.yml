@@ -41,3 +41,10 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: true
           verbose: true
+      - name: Run tests on petstore app
+        run: |
+          cd ./examples/petstore
+          docker-compose up --build -d
+          cd ../..
+          sleep 10
+          pytest ./tests/integration_tests.py
