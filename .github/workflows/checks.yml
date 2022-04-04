@@ -65,11 +65,12 @@ jobs:
           docker_org: ${{ secrets.DOCKER_ORG }}
           repo_name: ${{ github.event.repository.name }}
         run: |
-          export branch=${GITHUB_REF#refs/heads/}
-          if [ ${branch} = "dev" ]; then
+          echo "::set-output name=branch_name::$(echo \
+            ${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}})"
+          if [ ${branch_name} = "dev" ]; then
               export tag="$(date '+%Y%m%d')"
           else
-              export tag=${branch}
+              export tag=${branch_name}
           fi
           if [${{ matrix.python-version-tag[1] }} = "latest"]; then
               export tag=${{ matrix.python-version-tag[1] }}
@@ -81,7 +82,7 @@ jobs:
           docker tag ${docker_org}/${repo_name} ${docker_org}/${repo_name}:${tag}
           echo $docker_password | docker login -u $docker_username --password-stdin
           if [${tag} = "latest"] then;
-              if [${branch} = "dev"] then;
+              if [${branch_name} = "dev"] then;
                   docker push ${docker_org}/${repo_name}:${tag}
               fi
           else
