@@ -64,8 +64,8 @@ jobs:
           docker_password: ${{ secrets.DOCKER_PASSWORD }}
           docker_org: ${{ secrets.DOCKER_ORG }}
           repo_name: ${{ github.event.repository.name }}
-          branch: ${GITHUB_REF##*/}
         run: |
+          branch=${GITHUB_REF#refs/heads/}
           if [ ${branch} = "dev" ]; then
               export tag="$(date '+%Y%m%d')"
           else
