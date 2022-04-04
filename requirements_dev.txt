@@ -1,5 +1,4 @@
 coverage==6.3.2
-coveralls==3.3.1
 flake8==4.0.1
 mongomock==4.0.0
 pylint==2.13.2
