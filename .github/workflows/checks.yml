@@ -6,6 +6,8 @@ name: Python package
 on:
   push:
     branches: [ dev ]
+    tags:
+      - '*'
   pull_request:
     branches: [ dev ]
 
@@ -51,33 +53,18 @@ jobs:
 
   DockerHub:
     runs-on: ubuntu-latest
-    name: Build & Publish image to DockerHub
-    env:
-      docker_username: ${{secrets.DOCKER_USERNAME}}
-      docker_password: ${{secrets.DOCKER_PASSWORD}}
-      docker_org: elixircloud
-      repo_name: foca
-      docker_tag: ${GITHUB_REF##*/}
-    strategy:
-      fail-fast: true
-      matrix:
-        python-version: ["3.7", "3.8", "3.9"]
-
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v2
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
-        with:
-          username: ${docker_username}
-          password: ${docker_password}
-      - name: Build and push
-        uses: docker/build-push-action@v2
-        with:
-          context: ./docker/Dockerfile_py${{ matrix.python-version }}
-          push: true
-          tags: ${docker_org}/${repo_name}:${docker_tag}-py${{ matrix.python-version }}
+      - name: Build & Publish image to DockerHub
+        env:
+          docker_username: ${{ secrets.DOCKER_USERNAME }}
+          docker_password: ${{ secrets.DOCKER_PASSWORD }}
+          docker_org: ${{ secrets.DOCKER_ORG }}
+          repo_name: ${{ github.event.repository.name }}
+        run: |
+          tag=${GITHUB_REF##*/}
+          docker build -t angrymaciek/${repo_name}:latest .
+          docker tag ${docker_org}/${repo_name} ${docker_org}/${repo_name}:${tag}
+          echo $docker_password | docker login -u $docker_username --password-stdin
+          docker push ${docker_org}/${repo_name}:${tag}
