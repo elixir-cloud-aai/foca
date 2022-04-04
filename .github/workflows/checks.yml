@@ -64,15 +64,26 @@ jobs:
           docker_password: ${{ secrets.DOCKER_PASSWORD }}
           docker_org: ${{ secrets.DOCKER_ORG }}
           repo_name: ${{ github.event.repository.name }}
+          branch: ${GITHUB_REF#refs/heads/}
         run: |
-          if [ ${repo_name} = "dev" ]; then
+          if [ ${branch} = "dev" ]; then
               export tag="$(date '+%Y%m%d')"
           else
-              export tag=${GITHUB_HEAD_REF##*/}
+              export tag=${branch}
           fi
-          export tag=${tag}-py${{ matrix.python-version-tag[1] }}
+          if [${{ matrix.python-version-tag[1] }} = "latest"]; then
+              export tag=${{ matrix.python-version-tag[1] }}
+          else
+              export tag=${tag}-py${{ matrix.python-version-tag[1] }}
+          fi
           docker build . -t ${docker_org}/${repo_name}:latest \
             -f docker/Dockerfile_py${{ matrix.python-version-tag[0] }}
           docker tag ${docker_org}/${repo_name} ${docker_org}/${repo_name}:${tag}
           echo $docker_password | docker login -u $docker_username --password-stdin
-          docker push ${docker_org}/${repo_name}:${tag}
+          if [${tag} = "latest"] then;
+              if [${branch} = "dev"] then;
+                  docker push ${docker_org}/${repo_name}:${tag}
+              fi
+          else
+             docker push ${docker_org}/${repo_name}:${tag}
+          fi 
