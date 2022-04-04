@@ -56,7 +56,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version: ["3.7", "3.8", "3.9"]
+        python-version-tag: [["3.7", "3.7"], ["3.8", "3.8"], ["3.9", "3.9"], ["3.9", "latest"]]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v2
@@ -67,9 +67,9 @@ jobs:
           docker_org: ${{ secrets.DOCKER_ORG }}
           repo_name: ${{ github.event.repository.name }}
         run: |
-          tag=${GITHUB_REF##*/}-py${{ matrix.python-version }}
+          tag=${GITHUB_REF##*/}-py${{ matrix.python-version[1] }}
           docker build . -t ${docker_org}/${repo_name}:latest \
-            -f docker/Dockerfile_py${{ matrix.python-version }}
+            -f docker/Dockerfile_py${{ matrix.python-version[0] }}
           docker tag ${docker_org}/${repo_name} ${docker_org}/${repo_name}:${tag}
           echo $docker_password | docker login -u $docker_username --password-stdin
           docker push ${docker_org}/${repo_name}:${tag}
