@@ -7,7 +7,7 @@ on:
   push:
     branches: [ dev ]
     tags:
-      - '*'
+      - '**'
   pull_request:
     branches: [ dev ]
 
@@ -66,8 +66,15 @@ jobs:
           docker_password: ${{ secrets.DOCKER_PASSWORD }}
           docker_org: ${{ secrets.DOCKER_ORG }}
           repo_name: ${{ github.event.repository.name }}
+      - name: Set Base Repository Tag
         run: |
-          tag=${GITHUB_HEAD_REF##*/}-py${{ matrix.python-version-tag[1] }}
+          if [ ${repo_name} = "dev" ]; then
+              export tag="$(date '+%Y%m%d')"
+          else
+              export tag=${GITHUB_HEAD_REF##*/}
+          fi
+          export tag=${tag}-py${{ matrix.python-version-tag[1] }}
+        run: |
           docker build . -t ${docker_org}/${repo_name}:latest \
             -f docker/Dockerfile_py${{ matrix.python-version-tag[0] }}
           docker tag ${docker_org}/${repo_name} ${docker_org}/${repo_name}:${tag}
