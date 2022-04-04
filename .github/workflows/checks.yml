@@ -66,7 +66,7 @@ jobs:
           repo_name: ${{ github.event.repository.name }}
         run: |
           export branch_name=${GITHUB_HEAD_REF##*/}
-          if [ ${branch_name} = "dev" ]; then
+          if [ "$branch_name" = "dev" ]; then
               export tag="$(date '+%Y%m%d')"
           else
               export tag=${branch_name}
@@ -80,13 +80,11 @@ jobs:
             -f docker/Dockerfile_py${{ matrix.python-version-tag[0] }}
           docker tag ${docker_org}/${repo_name} ${docker_org}/${repo_name}:${tag}
           echo $docker_password | docker login -u $docker_username --password-stdin
-          if [${tag} = "latest"]; then
-              if [${branch_name} = "dev"]; then
-                  echo "hereee"
+          if ["$tag" = "latest"]; then
+              if ["$branch_name" = "dev"]; then
                   docker push ${docker_org}/${repo_name}:${tag}
               fi
           else
              docker push ${docker_org}/${repo_name}:${tag}
           fi
-          export ${HOME}
           rm ${HOME}/.docker/config.json
