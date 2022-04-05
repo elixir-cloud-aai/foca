@@ -10,7 +10,7 @@ on:
     branches: [ dev ]
 
 jobs:
-  test:
+  Test:
     name: Run linting and unit tests
     runs-on: ubuntu-latest
     strategy:
@@ -49,12 +49,13 @@ jobs:
           sleep 10
           pytest ./tests/integration_tests.py
 
-  DockerHub:
+  Docker:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
         python-version-tag: [["3.7", "3.7"], ["3.8", "3.8"], ["3.9", "3.9"], ["3.9", "latest"]]
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v2
@@ -88,3 +89,19 @@ jobs:
              docker push ${docker_org}/${repo_name}:${tag}
           fi
           rm ${HOME}/.docker/config.json
+
+  Release:
+    needs: [Test, Docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/setup-python@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Semantic Release
+        run: |
+          pip install python-semantic-release
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          semantic-release publish
