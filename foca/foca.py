@@ -30,26 +30,26 @@ def foca(config: Optional[str] = None) -> App:
 
     # Parse config parameters and format logging
     conf = ConfigParser(config, format_logs=True).config
-    logger.info(f"Log formatting configured.")
+    logger.info("Log formatting configured.")
     if config:
         logger.info(f"Configuration file '{config}' parsed.")
     else:
-        logger.info(f"Default app configuration used.")
+        logger.info("Default app configuration used.")
 
     # Create Connexion app
     cnx_app = create_connexion_app(conf)
-    logger.info(f"Connexion app created.")
+    logger.info("Connexion app created.")
 
     # Register error handlers
     cnx_app = register_exception_handler(cnx_app)
-    logger.info(f"Error handler registered.")
+    logger.info("Error handler registered.")
 
     # Enable cross-origin resource sharing
     if(conf.security.cors.enabled is True):
         enable_cors(cnx_app.app)
-        logger.info(f"CORS enabled.")
+        logger.info("CORS enabled.")
     else:
-        logger.info(f"CORS not enabled.")
+        logger.info("CORS not enabled.")
 
     # Register OpenAPI specs
     if conf.api.specs:
@@ -58,7 +58,7 @@ def foca(config: Optional[str] = None) -> App:
             specs=conf.api.specs,
         )
     else:
-        logger.info(f"No OpenAPI specifications provided.")
+        logger.info("No OpenAPI specifications provided.")
 
     # Register MongoDB
     if conf.db:
@@ -66,15 +66,15 @@ def foca(config: Optional[str] = None) -> App:
             app=cnx_app.app,
             conf=conf.db,
         )
-        logger.info(f"Database registered.")
+        logger.info("Database registered.")
     else:
-        logger.info(f"No database support configured.")
+        logger.info("No database support configured.")
 
     # Create Celery app
     if conf.jobs:
         create_celery_app(cnx_app.app)
-        logger.info(f"Support for background tasks set up.")
+        logger.info("Support for background tasks set up.")
     else:
-        logger.info(f"No support for background tasks configured.")
+        logger.info("No support for background tasks configured.")
 
     return cnx_app
