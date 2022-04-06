@@ -89,20 +89,3 @@ jobs:
              docker push ${docker_org}/${repo_name}:${tag}
           fi
           rm ${HOME}/.docker/config.json
-
-  Release:
-    needs: [Test, Docker]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/setup-python@v2
-      - name: Checkout code
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - name: Semantic Release
-        run: |
-          pip install python-semantic-release
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          semantic-release publish
