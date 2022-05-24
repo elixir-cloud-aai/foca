@@ -81,6 +81,7 @@ jobs:
           cat /home/runner/work/_temp/*.sh
           if [[ "${{ matrix.python-version-tag[1] }}" == "latest" ]]; then
               export on_latest=TRUE
+          fi
           if [[ "$GITHUB_REF_NAME" == "$default_branch" ]]; then
               export tag=$(date '+%Y%m%d')
               export on_default=TRUE
