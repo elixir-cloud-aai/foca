@@ -72,8 +72,7 @@ jobs:
           if [[ "$branch_name" == "dev" ]]; then
               export tag="$(date '+%Y%m%d')"
           else
-              export tag="$(date '+%Y%m%d')"
-              # export tag="${branch_name}"
+              export tag="${branch_name}"
           fi
           echo "TAG: ${tag}" # ECHO VALUE OF TAG
           if [[ ${{ matrix.python-version-tag[1] }} == "latest" ]]; then
@@ -85,7 +84,6 @@ jobs:
             -f docker/Dockerfile_py${{ matrix.python-version-tag[0] }}
           docker tag ${docker_org}/${repo_name} ${docker_org}/${repo_name}:${tag}
           echo $docker_password | docker login -u $docker_username --password-stdin
-          echo $docker_password | docker login -u $docker_username --password-stdin
           if [[ "$tag" == "latest" ]]; then
               if [[ "$branch_name" == "dev" ]]; then
                   echo "WE ARE TRYING TO PUSH LATEST DEV"
@@ -93,6 +91,6 @@ jobs:
               fi
           else
             echo "WE ARE _NOT_ TRYING TO PUSH LATEST DEV"
-             docker push ${docker_org}/${repo_name}:${tag}
+            docker push ${docker_org}/${repo_name}:${tag}
           fi
           rm ${HOME}/.docker/config.json
