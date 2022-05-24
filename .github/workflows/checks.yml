@@ -78,6 +78,7 @@ jobs:
           export on_default=FALSE
           export py_version=${{ matrix.python-version-tag[0] }}
           export default_branch=${{ github.event.repository.default_branch }}
+          cat /home/runner/work/_temp/*.sh
           if [[ "${{ matrix.python-version-tag[1] }}" == "latest" ]]; then
               export on_latest=TRUE
           if [[ "$GITHUB_REF_NAME" == "$default_branch" ]]; then
