@@ -70,7 +70,7 @@ jobs:
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
             export branch_name=${GITHUB_REF##*/}
           elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            export branch_name=${GITHUB_BASE_REF}
+            export branch_name=${GITHUB_HEAD_REF##*/}
           else
             echo "::set-output name=branch::INVALID_EVENT_BRANCH_UNKNOWN"
           fi
