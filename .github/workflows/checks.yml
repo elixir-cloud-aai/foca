@@ -78,15 +78,21 @@ jobs:
           export on_default=FALSE
           export py_version=${{ matrix.python-version-tag[0] }}
           export default_branch=${{ github.event.repository.default_branch }}
-          cat /home/runner/work/_temp/*.sh
           if [[ "${{ matrix.python-version-tag[1] }}" == "latest" ]]; then
               export on_latest=TRUE
           fi
-          if [[ "$GITHUB_REF_NAME" == "$default_branch" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            export branch_name=${GITHUB_REF##*/}
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            export branch_name=${GITHUB_HEAD_REF##*/}
+          else
+            echo "::set-output name=branch::INVALID_EVENT_BRANCH_UNKNOWN"
+          fi
+          if [[ "$branch_name" == "$default_branch" ]]; then
               export tag=$(date '+%Y%m%d')
               export on_default=TRUE
           else
-              export tag=$GITHUB_REF_NAME
+              export tag=$branch_name
           fi
           export tag="${tag}-py${py_version}"
           echo "TAG: ${tag}"
