@@ -86,7 +86,7 @@ jobs:
               export tag=$(date '+%Y%m%d')
               export on_default=TRUE
           else
-              export tag=$${GITHUB_REF_NAME}
+              export tag=$GITHUB_REF_NAME
           fi
           export tag="${tag}-py${py_version}"
           echo "TAG: ${tag}"
