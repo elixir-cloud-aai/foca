@@ -72,7 +72,8 @@ jobs:
           if [[ "$branch_name" == "dev" ]]; then
               export tag="$(date '+%Y%m%d')"
           else
-              export tag="${branch_name}"
+              export tag="$(date '+%Y%m%d')"
+              # export tag="${branch_name}"
           fi
           echo "TAG: ${tag}" # ECHO VALUE OF TAG
           if [[ ${{ matrix.python-version-tag[1] }} == "latest" ]]; then
