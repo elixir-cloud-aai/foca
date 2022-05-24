@@ -74,6 +74,9 @@ jobs:
           repo_name: ${{ github.event.repository.name }}
         run: |
           set -x
+          echo $GITHUB_REF_NAME
+          echo "::set-output name=branch::INVALID_EVENT_BRANCH_UNKNOWN"
+          echo $GITHUB_REF_NAME
           export on_latest=FALSE
           export on_default=FALSE
           export py_version=${{ matrix.python-version-tag[0] }}
