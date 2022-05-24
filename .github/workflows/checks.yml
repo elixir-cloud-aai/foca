@@ -102,4 +102,5 @@ jobs:
                   ${docker_org}/${repo_name} \
                   ${docker_org}/${repo_name}:latest
               docker push ${docker_org}/${repo_name}:latest
+          fi
           rm ${HOME}/.docker/config.json
