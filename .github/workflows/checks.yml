@@ -74,9 +74,6 @@ jobs:
           repo_name: ${{ github.event.repository.name }}
         run: |
           set -x
-          echo $GITHUB_REF_NAME
-          echo "::set-output name=branch::INVALID_EVENT_BRANCH_UNKNOWN"
-          echo $GITHUB_REF_NAME
           export on_latest=FALSE
           export on_default=FALSE
           export py_version=${{ matrix.python-version-tag[0] }}
@@ -89,7 +86,7 @@ jobs:
           elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             export branch_name=${GITHUB_HEAD_REF##*/}
           else
-            echo "::set-output name=branch::INVALID_EVENT_BRANCH_UNKNOWN"
+            export branch_name=INVALID_EVENT_BRANCH_UNKNOWN
           fi
           if [[ "$branch_name" == "$default_branch" ]]; then
               export tag=$(date '+%Y%m%d')
