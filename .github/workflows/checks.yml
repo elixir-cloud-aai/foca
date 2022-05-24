@@ -86,7 +86,6 @@ jobs:
           branch_name: ${{ Branch.outputs.extract_branch }}
         run: |
           set -x # THIS SHOULD ECHO ALL COMMANDS AS THEY ARE EXECUTED
-          export branch_name=${GITHUB_HEAD_REF##*/}
           echo "BRANCH NAME: ${branch_name}" 
           if [[ "$branch_name" == "dev" ]]; then
               export tag="$(date '+%Y%m%d')"
