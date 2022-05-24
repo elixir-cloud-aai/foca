@@ -1,5 +1,7 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+# This workflow will build the project with multiple Python versions, lint, run
+# tests, and build and push Docker images.
+# For more information see:
+# https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
 
 name: Python package
 
@@ -16,7 +18,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: ["3.7", "3.8", "3.9"]
 
     steps:
       - uses: actions/checkout@v2
@@ -54,7 +56,12 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version-tag: [["3.7", "3.7"], ["3.8", "3.8"], ["3.9", "3.9"], ["3.9", "latest"]]
+        python-version-tag: [
+          ["3.7", ""],
+          ["3.8", ""],
+          ["3.9", ""],
+          ["3.9", "latest"]
+        ]
 
     steps:
       - name: Checkout Repository
@@ -66,26 +73,31 @@ jobs:
           docker_org: ${{ secrets.DOCKER_ORG }}
           repo_name: ${{ github.event.repository.name }}
         run: |
-          export branch_name=${GITHUB_HEAD_REF##*/}
-          if [[ "$branch_name" == "dev" ]]; then
-              export tag="$(date '+%Y%m%d')"
+          set -x
+          export on_latest=FALSE
+          export on_default=FALSE
+          export py_version=${{ matrix.python-version-tag[0] }}
+          export default_branch=${{ github.event.repository.default_branch }}"
+          if [[ "${{ matrix.python-version-tag[1]" = "latest" ]]; then
+              export on_latest=TRUE
+          if [[ "$GITHUB_REF_NAME" == "$default_branch" ]]; then
+              export tag=$(date '+%Y%m%d')
+              export on_default=TRUE
           else
-              export tag=${branch_name}
+              export tag=$${GITHUB_REF_NAME}
           fi
-          if [[ ${{ matrix.python-version-tag[1] }} == "latest" ]]; then
-              export tag=${{ matrix.python-version-tag[1] }}
-          else
-              export tag=${tag}-py${{ matrix.python-version-tag[1] }}
-          fi
-          docker build . -t ${docker_org}/${repo_name}:latest \
-            -f docker/Dockerfile_py${{ matrix.python-version-tag[0] }}
-          docker tag ${docker_org}/${repo_name} ${docker_org}/${repo_name}:${tag}
-          echo $docker_password | docker login -u $docker_username --password-stdin
-          if [[ "$tag" == "latest" ]]; then
-              if [[ "$branch_name" == "dev" ]]; then
-                  docker push ${docker_org}/${repo_name}:${tag}
-              fi
-          else
-             docker push ${docker_org}/${repo_name}:${tag}
-          fi
+          export tag="${tag}-py${py_version}"
+          echo "TAG: ${tag}"
+          docker build . \
+              -t ${docker_org}/${repo_name}:${tag} \
+              -f docker/Dockerfile_py${py_version}
+          echo $docker_password | \
+              docker login -u $docker_username --password-stdin
+          docker push ${docker_org}/${repo_name}:${tag}
+          # if on default branch, we also want to update the "latest" tag
+          if [[ "$on_latest" = "TRUE" && "$on_default" == "TRUE" ]]; then
+              docker tag \
+                  ${docker_org}/${repo_name} \
+                  ${docker_org}/${repo_name}:latest
+              docker push ${docker_org}/${repo_name}:latest
           rm ${HOME}/.docker/config.json
