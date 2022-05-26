@@ -1,0 +1,112 @@
+# This workflow will build the project with multiple Python versions, lint, run
+# tests, and build and push Docker images.
+# For more information see:
+# https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Python package
+
+on:
+  push:
+    branches: [ dev ]
+  pull_request:
+    branches: [ dev ]
+
+jobs:
+  Test:
+    name: Run linting and unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        python-version: ["3.7", "3.8", "3.9", "3.10"]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install requirements
+        run: |
+          pip install -e .
+          pip install -r requirements_dev.txt
+      - name: Lint with flake8
+        run: flake8
+      - name: Calculate unit test coverage
+        run: |
+          coverage run --source foca -m pytest
+          coverage xml
+      - name: Submit Report to Codecov
+        uses: codecov/codecov-action@v2
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: true
+          verbose: true
+      - name: Run tests on petstore app
+        run: |
+          cd ./examples/petstore
+          docker-compose up --build -d
+          cd ../..
+          sleep 10
+          pytest ./tests/integration_tests.py
+
+  Docker:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        python-version-tag: [
+          ["3.7", ""],
+          ["3.8", ""],
+          ["3.9", ""],
+          ["3.10", "latest"]
+        ]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+      - name: Build & Publish image to DockerHub
+        env:
+          docker_username: ${{ secrets.DOCKER_USERNAME }}
+          docker_password: ${{ secrets.DOCKER_PASSWORD }}
+          docker_org: ${{ secrets.DOCKER_ORG }}
+          repo_name: ${{ github.event.repository.name }}
+        run: |
+          set -x
+          export on_latest=FALSE
+          export on_default=FALSE
+          export py_version=${{ matrix.python-version-tag[0] }}
+          export default_branch=${{ github.event.repository.default_branch }}
+          if [[ "${{ matrix.python-version-tag[1] }}" == "latest" ]]; then
+              export on_latest=TRUE
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            export branch_name=${GITHUB_REF##*/}
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            export branch_name=${GITHUB_HEAD_REF##*/}
+          else
+            export branch_name=INVALID_EVENT_BRANCH_UNKNOWN
+          fi
+          if [[ "$branch_name" == "$default_branch" ]]; then
+              export tag=$(date '+%Y%m%d')
+              export on_default=TRUE
+          else
+              export tag=$branch_name
+          fi
+          export tag="${tag}-py${py_version}"
+          echo "TAG: ${tag}"
+          docker build . \
+              -t ${docker_org}/${repo_name}:${tag} \
+              -f docker/Dockerfile_py${py_version}
+          echo $docker_password | \
+              docker login -u $docker_username --password-stdin
+          docker push ${docker_org}/${repo_name}:${tag}
+          # if on default branch, we also want to update the "latest" tag
+          if [[ "$on_latest" = "TRUE" && "$on_default" == "TRUE" ]]; then
+              docker tag \
+                  ${docker_org}/${repo_name}:${tag} \
+                  ${docker_org}/${repo_name}:latest
+              docker push ${docker_org}/${repo_name}:latest
+          fi
+          rm ${HOME}/.docker/config.json

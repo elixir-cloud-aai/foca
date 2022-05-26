@@ -19,14 +19,14 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Install Python dependencies
-COPY requirements.txt README.md ./
+COPY requirements.txt ./
 RUN pip install \
         --no-warn-script-location \
         --prefix="/install" \
         -r requirements.txt
 
 # Install FOCA
-COPY setup.py ./
+COPY setup.py README.md ./
 COPY foca/ ./foca/
 RUN pip install . \
         --no-warn-script-location \

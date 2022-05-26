@@ -1,4 +1,4 @@
-FROM python:3.6-slim-stretch as base
+FROM python:3.10-slim-buster as base
 
 # Metadata
 LABEL software="FOCA"

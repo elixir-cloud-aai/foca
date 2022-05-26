@@ -40,10 +40,10 @@ setup(
         "Intended Audience :: System Administrators",
         "License :: OSI Approved :: Apache Software License",
         "Natural Language :: English",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Topic :: Internet :: WWW/HTTP",
         "Topic :: System :: Systems Administration",
         "Topic :: Utilities",
@@ -63,6 +63,6 @@ setup(
     package_data={"foca.access_control.api": ["*.yaml", "*.conf"]},
     setup_requires=[
         "setuptools_git==1.2",
-        "twine==3.1.1"
+        "twine==3.8.0"
     ],
 )
