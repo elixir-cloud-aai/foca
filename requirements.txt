@@ -7,7 +7,7 @@ flask-authz==2.5.0
 Flask-Cors==3.0.9
 Flask-PyMongo==2.3.0
 pydantic==1.8.2
-pyjwt==2.0.1
+PyJWT==2.4.0
 pymongo==3.10.1
 PyYAML==5.4
 requests==2.27.1
