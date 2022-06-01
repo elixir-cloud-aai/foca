@@ -56,8 +56,8 @@ def validate_token(token: str) -> Dict:
     try:
         claims = jwt.decode(
             jwt=token,
-            verify=False,
             algorithms=algorithms,
+            options={"verify_signature": False}
         )
     except Exception as e:
         raise Unauthorized("JWT could not be decoded") from e
