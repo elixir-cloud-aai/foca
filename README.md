@@ -46,7 +46,8 @@ Check the [API docs][badge-url-docs] for further details.
   * [Configuring logging](#configuring-logging)
   * [Configuring security](#configuring-security)
   * [Configuring the server](#configuring-the-server)
-  * [Custom configuration](#cusomt-configuration)
+  * [Configuring Access Control] (#configuring-access-control)
+  * [Custom configuration](#custom-configuration)
   * [Accessing configuration parameters](#accessing-configuration-parameters)
 * [Utilities](#utilities)
   * [Database utilities](#database-utilities)
@@ -348,6 +349,33 @@ server:
 >  
 > Cf. the [API model][docs-models-server] for further options and details.
 
+### Configuring Access Control
+
+FOCA allows you to restrict your application configuration using access
+control. To modify defaults, include the top-level `access_control`
+keyword section in your app configuration file:
+
+```yaml
+access_control:
+  api_specs: 'path/to/your/access/control/specs'
+  api_controllers: 'path/to/your/access/control/spec/controllers'
+  db_name: access_control_db_name
+  collection_name: access_control_collection_name
+  model: access_control_model_definition
+  owner_headers: admin_identification_properties
+  user_headers: user_identification_properties
+```
+
+> This config would create an application with access control defined as per
+> `model` provided. The corresponding permission models could be accessed and
+> altered by the user with admin permissions on the swagger panel specified
+> under api specs.
+>  
+> Cf. the [API model][docs-models-access-control] for further options and details.
+
+**Note:** A detail explaination of access control implementation can be found under
+Cf. [Access Control Model][foca-access-control]
+
 ### Custom configuration
 
 Apart from the reserved keyword sections listed above, you are free to include
@@ -502,6 +530,7 @@ question etc.
 [badge-url-pypi]: <https://pypi.python.org/pypi/foca>
 [config-template]: templates/config.yaml
 [config-petstore]: examples/petstore/config.yaml
+[foca-access-control]: foca/access_control/README.md
 [docs-models]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html>
 [docs-models-api]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.APIConfig>
 [docs-models-db]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.DBConfig>
@@ -510,6 +539,7 @@ question etc.
 [docs-models-log]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.LogConfig>
 [docs-models-security]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.SecurityConfig>
 [docs-models-server]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ServerConfig>
+[docs-models-access-control]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.AccessControlConfig>
 [example]: examples/petstore/README.md
 [img-hint]: images/hint.svg
 [img-logo-banner]: images/logo-banner.svg

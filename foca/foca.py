@@ -8,8 +8,8 @@ from connexion import App
 from foca.access_control.register_access_control import register_access_control
 from foca.access_control.constants import (
     DEFAULT_SPEC_CONTROLLER,
-    DEFAULT_PERMISSION_DB_NAME,
-    DEFAULT_PERMISSION_DB_COLLECTION_NAME,
+    DEFAULT_ACCESS_CONTROL_DB_NAME,
+    DEFAULT_ACESS_CONTROL_COLLECTION_NAME,
 )
 from foca.api.register_openapi import register_openapi
 from foca.config.config_parser import ConfigParser
@@ -84,11 +84,11 @@ def foca(config: Optional[str] = None) -> App:
         conf.access_control.api_controllers = DEFAULT_SPEC_CONTROLLER
 
     if conf.access_control.db_name is None:
-        conf.access_control.db_name = DEFAULT_PERMISSION_DB_NAME
+        conf.access_control.db_name = DEFAULT_ACCESS_CONTROL_DB_NAME
 
     if conf.access_control.collection_name is None:
         conf.access_control.collection_name = (
-            DEFAULT_PERMISSION_DB_COLLECTION_NAME
+            DEFAULT_ACESS_CONTROL_COLLECTION_NAME
         )
 
     cnx_app = register_access_control(
