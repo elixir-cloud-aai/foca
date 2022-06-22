@@ -212,7 +212,7 @@ class ExceptionConfig(FOCABaseConfig):
             as keys and a dictionary of JSON members (as per `required_members`
             and `extension_members`) as values. Path should be a dot-separated
             path to the module containing the dictionary (which needs to also
-            contain imports for all listed expcetions), followed by the name of
+            contain imports for all listed exceptions), followed by the name of
             the dictionary itself. For example, for ``myapp.errors.exc_dict``,
             the dictionary ``exc_dict`` would be attempted to be imported from
             module ``myapp.errors`` (must be available in the Pythonpath). To
@@ -253,7 +253,7 @@ class ExceptionConfig(FOCABaseConfig):
             as keys and a dictionary of JSON members (as per `required_members`
             and `extension_members`) as values. Path should be a dot-separated
             path to the module containing the dictionary (which needs to also
-            contain imports for all listed expcetions), followed by the name of
+            contain imports for all listed exceptions), followed by the name of
             the dictionary itself. For example, for ``myapp.errors.exc_dict``,
             the dictionary ``exc_dict`` would be attempted to be imported from
             module ``myapp.errors`` (must be available in the Pythonpath). To

@@ -122,7 +122,7 @@ class TestRegisterOpenAPI:
         """Registration failing because of invalid JSON spec file."""
         app = App(__name__)
         spec_configs = [SpecConfig(path=PATH_SPECS_INVALID_JSON)]
-        with pytest.raises(YAMLError):
+        with pytest.raises(ValueError):
             register_openapi(app=app, specs=spec_configs)
 
     def test_openapi_not_found(self):
