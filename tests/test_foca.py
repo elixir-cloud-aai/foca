@@ -9,7 +9,10 @@ from connexion import App
 from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
-from yaml import safe_load, safe_dump, YAMLError
+from yaml import (
+    safe_load,
+    safe_dump,
+)
 
 from foca.foca import foca
 
@@ -59,7 +62,7 @@ def test_foca_empty_conf():
 
 def test_foca_invalid_structure():
     """Test foca(); invalid configuration file structure."""
-    with pytest.raises(YAMLError):
+    with pytest.raises(ValueError):
         foca(INVALID_CONF)
 
 

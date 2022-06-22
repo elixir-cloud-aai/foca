@@ -118,7 +118,7 @@ it adds additional features that allow easy modification of specifications on
 the fly. In particular, links to routers and security definitions can be added
 to each specified endpoint.
 
-*Example:*
+_Example:_
 
 ```yaml
 api:
@@ -167,7 +167,7 @@ collections for you. To use that functionality, simply include the top-level
 `db` keyword section in your configuration file and tune its behavior through
 the available parameters.
 
-*Example:*
+_Example:_
 
 ```yaml
 db:
@@ -212,7 +212,7 @@ FOCA provides a convenient, configurable exception handler and a simple way
 of adding new exceptions to be used with that handler. To use it, specify a
 top-level `exceptions` section in the app configuration file.
 
-*Example:*
+_Example:_
 
 ```yaml
 exceptions:
@@ -242,7 +242,7 @@ FOCA offers limited support for running asynchronous tasks via the
 [RabbitMQ][res-rabbitmq] broker and [Celery][res-celery]. To make use of it,
 include the `jobs` top-level section in the app configuration file.
 
-*Example:*
+_Example:_
 
 ```yaml
 jobs:
@@ -270,7 +270,7 @@ application's logging behavior in an effort to provide a single configuration
 file for every application. To use it, simply add a `log` top-level section in
 your app configuration file.
 
-*Example:*
+_Example:_
 
 ```yaml
 log:
@@ -350,15 +350,62 @@ server:
 
 ### Custom configuration
 
+If you would like FOCA to validate your custom app configuration (e.g.,
+parameters required for individual controllers, you can provide a path, in
+dot notation, to a [`pydantic`][res-pydantic] `BaseModel`-derived model. FOCA
+then tries to instantiate the model class with any custom parameters listed
+under keyword section `custom`.
+
+Suppose you have a model like the following defined in module
+`my_app.custom_config`:
+
+```py
+from pydantic import BaseModel
+
+
+class CustomConfig(BaseModel):
+    my_param: int = 5
+```
+
+And you have, in your app configuration file `my_app/config.yaml`, the
+following section:
+
+```console
+custom:
+  my_param: 10
+```
+
+You can then have FOCA validate your custom configuration against the
+`CustomConfig` class by including it in the `foca()` call like so:
+
+```py
+from foca.foca import foca
+
+my_app = foca(
+  config="my_app/config.yaml",
+  custom_config_model="my_app.custom_config.CustomConfig",
+)
+```
+
+We recommend that, when defining your `pydantic` model, that you supply
+default values wherever possible. In this way, the custom configuration
+parameters will always be available, even if not explicitly listed in the app
+configuration (like with the FOCA-specific parameters).
+
+> Note that there is tooling available to automatically generate `pydantic`
+> models from different file formats like JSON Schema etc. See here for the
+> [datamodel-code-generator][res-datamodel-code-generator] project.
+
 Apart from the reserved keyword sections listed above, you are free to include
 any other sections and parameters in your app configuration file. FOCA will
 simply attach these to your application instance as described
 [above](#configuration-file) and shown
 [below](#accessing-configuration-parameters). Note, however, that any
-such parameters need to be **MANUALLY VALIDATED**, as unfortunately (or
-fortunately!) we can't read your mind just yet.
+such parameters need to be _manually_ validated. The same is true if you
+include a `custom` section but do _not_ provide a validation model class via
+the `custom_config_model` parameter when calling `foca()`.
 
-*Example:*
+_Example:_
 
 ```yaml
 my_custom_param: 'some_value'
@@ -518,7 +565,7 @@ question etc.
 [org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
 [res-celery]: <http://docs.celeryproject.org/>
 [res-connexion]: <https://github.com/zalando/connexion>
-[res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
+[res-datamodel-code-generator]: <https://github.com/koxudaxi/datamodel-code-generator/>res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
 [res-elixir-cloud-coc]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md>
 [res-elixir-cloud-contributing]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CONTRIBUTING.md>
 [res-flask]: <http://flask.pocoo.org/>
@@ -529,6 +576,7 @@ question etc.
 [res-python-logging]: <https://docs.python.org/3/library/logging.html>
 [res-python-logging-how-to]: <https://docs.python.org/3/howto/logging.html?highlight=yaml#configuring-logging>
 [res-openapi]: <https://www.openapis.org/>
+[res-pydantic]: <https://pydantic-docs.helpmanual.io/>
 [res-rabbitmq]: <https://www.rabbitmq.com/>
 [res-semver]: <https://semver.org/>
 [res-swagger]: <https://swagger.io/tools/swagger-ui/>

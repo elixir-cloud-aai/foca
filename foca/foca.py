@@ -17,19 +17,36 @@ from foca.security.cors import enable_cors
 logger = logging.getLogger(__name__)
 
 
-def foca(config: Optional[str] = None) -> App:
+def foca(
+    config: Optional[str] = None,
+    custom_config_model: Optional[str] = None,
+) -> App:
     """Set up and initialize FOCA-based microservice.
 
     Args:
         config: Path to application configuration file in YAML format. Cf.
             :py:class:`foca.models.config.Config` for required file structure.
+        custom_config_model: Path to model to be used for custom config
+            parameter validation, supplied in "dot notation", e.g.,
+            ``myapp.config.models.CustomConfig`, where ``CustomConfig`` is the
+            actual importable name of a `pydantic` model for your custom
+            configuration, deriving from ``BaseModel``. FOCA will attempt to
+            instantiate the model with the values passed to the ``custom``
+            section in the application's configuration, if present. Wherever
+            possible, make sure that default values are supplied for each
+            config parameters, so as to make it easier for others to
+            write/modify their app configuration.
 
     Returns:
         Connexion application instance.
     """
 
     # Parse config parameters and format logging
-    conf = ConfigParser(config, format_logs=True).config
+    conf = ConfigParser(
+        config_file=config,
+        custom_config_model=custom_config_model,
+        format_logs=True,
+    ).config
     logger.info("Log formatting configured.")
     if config:
         logger.info(f"Configuration file '{config}' parsed.")
