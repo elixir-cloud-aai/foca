@@ -48,7 +48,7 @@ def foca(
         format_logs=True,
     ).config
     logger.info("Log formatting configured.")
-    if config:
+    if config is not None:
         logger.info(f"Configuration file '{config}' parsed.")
     else:
         logger.info("Default app configuration used.")
@@ -79,7 +79,7 @@ def foca(
 
     # Register MongoDB
     if conf.db:
-        cnx_app.app.config['FOCA'].db = register_mongodb(
+        cnx_app.app.config.foca.db = register_mongodb(
             app=cnx_app.app,
             conf=conf.db,
         )

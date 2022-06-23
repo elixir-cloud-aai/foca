@@ -199,7 +199,7 @@ db:
 > `mySecondCollection` and `myThirdCollection`, respectively). FOCA will
 > automatically register and initialize these databases and collections for you
 > and add convenient clients to the app instance (accessible as children of
-> `current_app.config['FOCA']` in an [application
+> `current_app.config.foca` in an [application
 > context][res-flask-app-context]). The collections would be indexed by keys
 > `id`, `other_id` and `third_id`, respectively. Out of these, only `id`
 > will be required to be unique.  
@@ -422,12 +422,12 @@ my_custom_param_section:
 
 Once the application is created using `foca()`, one can easily access any
 configuration parameters from within the [application
-context][res-flask-app-context] through `current_app.config['FOCA'] like so:
+context][res-flask-app-context] through `current_app.config.foca like so:
 
 ```python
 from flask import current_app
 
-app_config = current_app.config['FOCA']
+app_config = current_app.config.foca
 
 db = app_config.db
 api = app_config.api
@@ -440,7 +440,7 @@ app_specific_param = current_app.config['app_specific_param']
 ```
 
 _Outside of the application context_, configuration parameters are available
-via `app.config['FOCA']` in a similar way.
+via `app.config.foca` in a similar way.
 
 ### More examples
 

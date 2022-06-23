@@ -15,4 +15,4 @@ def test_create_celery_app():
     cnx_app = create_connexion_app(CONFIG)
     cel_app = create_celery_app(cnx_app.app)
     assert isinstance(cel_app, Celery)
-    assert cel_app.conf['FOCA'] == CONFIG
+    assert cel_app.conf.foca == CONFIG

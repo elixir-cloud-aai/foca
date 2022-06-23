@@ -103,8 +103,8 @@ def test__exclude_key_nested_dict():
 def test__problem_handler_json():
     """Test problem handler with instance of custom, unlisted error."""
     app = Flask(__name__)
-    app.config['FOCA'] = Config()
-    EXPECTED_RESPONSE = app.config['FOCA'].exceptions.mapping[Exception]
+    setattr(app.config, 'foca', Config())
+    EXPECTED_RESPONSE = app.config.foca.exceptions.mapping[Exception]
     with app.app_context():
         res = _problem_handler_json(UnknownException())
         assert isinstance(res, Response)
@@ -117,8 +117,8 @@ def test__problem_handler_json():
 def test__problem_handler_json_no_fallback_exception():
     """Test problem handler; unlisted error without fallback."""
     app = Flask(__name__)
-    app.config['FOCA'] = Config()
-    del app.config['FOCA'].exceptions.mapping[Exception]
+    setattr(app.config, 'foca', Config())
+    del app.config.foca.exceptions.mapping[Exception]
     with app.app_context():
         res = _problem_handler_json(UnknownException())
         assert isinstance(res, Response)
@@ -131,8 +131,8 @@ def test__problem_handler_json_no_fallback_exception():
 def test__problem_handler_json_with_public_members():
     """Test problem handler with public members."""
     app = Flask(__name__)
-    app.config['FOCA'] = Config()
-    app.config['FOCA'].exceptions.public_members = PUBLIC_MEMBERS
+    setattr(app.config, 'foca', Config())
+    app.config.foca.exceptions.public_members = PUBLIC_MEMBERS
     with app.app_context():
         res = _problem_handler_json(UnknownException())
         assert isinstance(res, Response)
@@ -143,8 +143,8 @@ def test__problem_handler_json_with_public_members():
 def test__problem_handler_json_with_private_members():
     """Test problem handler with private members."""
     app = Flask(__name__)
-    app.config['FOCA'] = Config()
-    app.config['FOCA'].exceptions.private_members = PRIVATE_MEMBERS
+    setattr(app.config, 'foca', Config())
+    app.config.foca.exceptions.private_members = PRIVATE_MEMBERS
     with app.app_context():
         res = _problem_handler_json(UnknownException())
         assert isinstance(res, Response)

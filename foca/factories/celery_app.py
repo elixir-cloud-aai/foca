@@ -19,7 +19,7 @@ def create_celery_app(app: Flask) -> Celery:
     Returns:
         Celery application instance.
     """
-    conf = app.config['FOCA'].jobs
+    conf = app.config.foca.jobs
 
     # Instantiate Celery app
     celery = Celery(
@@ -32,7 +32,7 @@ def create_celery_app(app: Flask) -> Celery:
     logger.debug(f"Celery app created from '{calling_module}'.")
 
     # Update Celery app configuration with Flask app configuration
-    celery.conf['FOCA'] = app.config['FOCA']
+    setattr(celery.conf, 'foca', app.config.foca)
     logger.debug('Celery app configured.')
 
     class ContextTask(celery.Task):  # type: ignore
