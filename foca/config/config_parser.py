@@ -49,7 +49,7 @@ class ConfigParser():
 
     def __init__(
         self,
-        config_file: Optional[str] = None,
+        config_file: Optional[Path] = None,
         custom_config_model: Optional[str] = None,
         format_logs: bool = True
     ) -> None:
@@ -82,7 +82,7 @@ class ConfigParser():
             )
 
     @staticmethod
-    def parse_yaml(conf: str) -> Dict:
+    def parse_yaml(conf: Path) -> Dict:
         """Parse YAML file.
 
         Args:
@@ -109,7 +109,7 @@ class ConfigParser():
             ) from exc
 
     @staticmethod
-    def merge_yaml(*args: str) -> Optional[Dict]:
+    def merge_yaml(*args: Path) -> Optional[Dict]:
         """Parse and merge a set of YAML files.
 
         Merging is done iteratively, from the first, second to the n-th

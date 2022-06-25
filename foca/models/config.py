@@ -531,9 +531,9 @@ class SpecConfig(FOCABaseConfig):
     Example:
 
         >>> SpecConfig(path="/my/path.yaml")
-        SpecConfig(path=['/my/path.yaml'], path_out='/my/path.modified.yaml', \
-append=None, add_operation_fields=None, add_security_fields=None, disable_auth\
-=False, connexion=None)
+        SpecConfig(path=[PosixPath('/my/path.yaml')], path_out=PosixPath('/my/\
+path.modified.yaml'), append=None, add_operation_fields=None, add_security_fie\
+lds=None, disable_auth=False, connexion=None)
 
         >>> SpecConfig(
         ...     path=["/path/to/specs.yaml", "/path/to/add_specs.yaml"],
@@ -562,16 +562,17 @@ append=None, add_operation_fields=None, add_security_fields=None, disable_auth\
         ...     },
         ...     disable_auth = False
         ... )
-        SpecConfig(path=['/path/to/specs.yaml', '/path/to/add_specs.yaml'], pa\
-th_out='/path/to/specs.modified.yaml', append=[{'security': {'jwt': {'type': '\
-apiKey', 'name': 'Authorization', 'in': 'header'}}}, {'my_other_root_field': '\
-some_value'}], add_operation_fields={'x-swagger-router-controller': 'controlle\
-rs.my_specs', 'x-some-other-custom-field': 'some_value'}, add_security_fields=\
-{'x-apikeyInfoFunc': 'security.auth.validate_token', 'x-some-other-custom-fiel\
-d': 'some_value'}, disable_auth=False, connexion=None)
+        SpecConfig(path=[PosixPath('/path/to/specs.yaml'), PosixPath('/path/to\
+/add_specs.yaml')], path_out=PosixPath('/path/to/specs.modified.yaml'), append\
+=[{'security': {'jwt': {'type': 'apiKey', 'name': 'Authorization', 'in': 'head\
+er'}}}, {'my_other_root_field': 'some_value'}], add_operation_fields={'x-swagg\
+er-router-controller': 'controllers.my_specs', 'x-some-other-custom-field': 's\
+ome_value'}, add_security_fields={'x-apikeyInfoFunc': 'security.auth.validate_\
+token', 'x-some-other-custom-field': 'some_value'}, disable_auth=False, connex\
+ion=None)
     """
-    path: Union[str, List[str]]
-    path_out: Optional[str] = None
+    path: Union[Path, List[Path]]
+    path_out: Optional[Path] = None
     append: Optional[List[Dict]] = None
     add_operation_fields: Optional[Dict] = None
     add_security_fields: Optional[Dict] = None
@@ -584,16 +585,16 @@ d': 'some_value'}, disable_auth=False, connexion=None)
         """Resolve path relative to caller's current working directory if no
         absolute path provided.
         """
-        # if path is a str, convert it to list
-        if(isinstance(v, str)):
-            if not Path(v).is_absolute():
-                return [str(Path.cwd() / v)]
+        # if path is not a list, convert it to single-item list
+        if(isinstance(v, Path)):
+            if not v.is_absolute():
+                return [Path.cwd() / v]
             return [v]
         else:
-            # modify each relaive part of the list
+            # make each path absolute
             v = [
-                str(Path.cwd() / path)
-                if not Path(path).is_absolute()
+                Path.cwd() / path
+                if not path.is_absolute()
                 else path
                 for path in v
             ]
@@ -602,13 +603,13 @@ d': 'some_value'}, disable_auth=False, connexion=None)
     # set default if no output file path provided
     @validator('path_out', always=True, allow_reuse=True)
     def set_default_out_path(cls, v, *, values):  # pylint: disable=E0213
-        """Set default output path for spec file if not supplied by user.
-        """
+        """Set default output path for spec file if not supplied by user."""
         if 'path' in values and values['path'] is not None:
             if not v:
-                return f"{Path(values['path'][0]).stem}.modified.yaml"
-            if not Path(v).is_absolute():
-                return str(Path.cwd() / v)
+                path = values['path'][0]
+                return path.parent / f"{path.stem}.modified.yaml"
+            if not v.is_absolute():
+                return Path.cwd() / v
         return v
 
 
@@ -632,9 +633,9 @@ class APIConfig(FOCABaseConfig):
         >>> APIConfig(
         ...     specs=[SpecConfig(path='/path/to/specs.yaml')],
         ... )
-        APIConfig(specs=[SpecConfig(path='/path/to/specs.yaml', path_out='/pat\
-h/to/specs.modified.yaml', append=None, add_operation_fields=None, connexion=N\
-one)])
+        APIConfig(specs=[SpecConfig(path=[PosixPath('/path/to/specs.yaml')], p\
+ath_out=PosixPath('/path/to/specs.modified.yaml'), append=None, add_operation_\
+fields=None, add_security_fields=None, disable_auth=False, connexion=None)])
     """
     specs: List[SpecConfig] = []
 
