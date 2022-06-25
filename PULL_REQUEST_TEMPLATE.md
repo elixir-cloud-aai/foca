@@ -18,7 +18,9 @@ Please delete options that are not relevant.
 - [ ] My code follows the [style guidelines](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/resources/contributing_guidelines.md#language-specific-guidelines) of this project
 - [ ] I have performed a self-review of my own code
 - [ ] I have commented my code, particularly in hard-to-understand areas
+- [ ] I have updated the documentation (or documentation does not need to be updated)
 - [ ] My changes generate no new warnings
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes
 - [ ] I have not reduced the existing code coverage
+
