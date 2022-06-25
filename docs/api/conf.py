@@ -12,12 +12,12 @@ from foca import __version__
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-import os
+from pathlib import Path
 import sys
 
 from sphinx.ext import apidoc
 
-sys.path.insert(0, os.path.abspath('../..'))
+sys.path.insert(Path().parents[1].resolve())
 
 
 # -- Project information -----------------------------------------------------

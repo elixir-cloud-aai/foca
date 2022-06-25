@@ -6,7 +6,6 @@ from functools import reduce
 import importlib
 import operator
 from pathlib import Path
-import os
 from typing import (Any, Dict, List, Optional, Union)
 
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
@@ -607,10 +606,7 @@ d': 'some_value'}, disable_auth=False, connexion=None)
         """
         if 'path' in values and values['path'] is not None:
             if not v:
-                return '.'.join([
-                    os.path.splitext(values['path'][0])[0],
-                    "modified.yaml"
-                ])
+                return f"{Path(values['path'][0]).stem}.modified.yaml"
             if not Path(v).is_absolute():
                 return str(Path.cwd() / v)
         return v
