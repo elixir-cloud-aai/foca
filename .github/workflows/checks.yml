@@ -55,9 +55,8 @@ jobs:
         run: |
           export PY_VERSION=${{ matrix.py-version-img[0] }}
           export PY_IMAGE=${{ matrix.py-version-img[1] }}
-          export TAG="petstore-py${PY_VERSION}"
           docker build \
-              -t ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG} \
+              -t ${DOCKERHUB_ORG}/${REPO_NAME}:petstore \
               -f docker/Dockerfile \
               --build-arg PY_IMAGE=${PY_IMAGE} \
               .
