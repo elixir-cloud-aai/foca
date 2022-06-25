@@ -6,6 +6,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        FOCA_IMAGE: ${PY_VERSION:-3.10}
     restart: unless-stopped
     links:
       - mongodb
@@ -19,4 +21,4 @@ services:
     volumes:
       - ./data/petstore/db:/data/db
     ports:
-      - "27017:27017"
+      - "27077:27017"
