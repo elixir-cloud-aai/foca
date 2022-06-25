@@ -122,7 +122,7 @@ jobs:
               .
           echo $DOCKERHUB_TOKEN | \
               docker login -u $DOCKERHUB_LOGIN --password-stdin
-          docker push ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG``}
+          docker push ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG}
           # if on default branch, we also want to update the "latest" tag
           if [[ "$ON_LATEST" = "TRUE" && "$ON_DEFAULT" == "TRUE" ]]; then
               docker tag \
