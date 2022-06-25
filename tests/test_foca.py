@@ -98,7 +98,7 @@ def test_foca_api():
 def test_foca_db():
     """Ensure foca() returns a Connexion app instance; valid db field"""
     app = foca(VALID_DB_CONF)
-    my_db = app.app.config['FOCA'].db.dbs['my-db']
+    my_db = app.app.config.foca.db.dbs['my-db']
     my_coll = my_db.collections['my-col-1']
     assert isinstance(my_db.client, Database)
     assert isinstance(my_coll.client, Collection)
@@ -114,10 +114,10 @@ def test_foca_invalid_db():
 def test_foca_CORS_enabled():
     """Ensures CORS is enabled for Microservice"""
     app = foca(VALID_CORS_ENA_CONF)
-    assert app.app.config['FOCA'].security.cors.enabled is True
+    assert app.app.config.foca.security.cors.enabled is True
 
 
 def test_foca_CORS_disabled():
     """Ensures CORS is disabled if user explicitly mentions"""
     app = foca(VALID_CORS_DIS_CONF)
-    assert app.app.config['FOCA'].security.cors.enabled is False
+    assert app.app.config.foca.security.cors.enabled is False

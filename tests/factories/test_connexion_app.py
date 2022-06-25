@@ -25,7 +25,7 @@ def test_add_config_to_connexion_app():
     cnx_app = App(__name__)
     cnx_app = __add_config_to_connexion_app(cnx_app, CONFIG)
     assert isinstance(cnx_app, App)
-    assert cnx_app.app.config['FOCA'] == CONFIG
+    assert cnx_app.app.config.foca == CONFIG
 
 
 def test_create_connexion_app_without_config():

@@ -14,7 +14,7 @@ error_response = {
 def findPets(limit=None, tags=None):
     try:
         db_collection = (
-            current_app.config['FOCA'].db.dbs['petstore']
+            current_app.config.foca.db.dbs['petstore']
             .collections['pets'].client
         )
         filter_dict = {} if tags is None else {'tag': {'$in': tags}}
@@ -33,7 +33,7 @@ def findPets(limit=None, tags=None):
 def addPet(pet):
     try:
         db_collection = (
-            current_app.config['FOCA'].db.dbs['petstore']
+            current_app.config.foca.db.dbs['petstore']
             .collections['pets'].client
         )
         counter = 0
@@ -56,7 +56,7 @@ def addPet(pet):
 def findPetById(id):
     try:
         db_collection = (
-            current_app.config['FOCA'].db.dbs['petstore']
+            current_app.config.foca.db.dbs['petstore']
             .collections['pets'].client
         )
         record = db_collection.find_one(
@@ -74,7 +74,7 @@ def findPetById(id):
 def deletePet(id):
     try:
         db_collection = (
-            current_app.config['FOCA'].db.dbs['petstore']
+            current_app.config.foca.db.dbs['petstore']
             .collections['pets'].client
         )
         record = db_collection.find_one(

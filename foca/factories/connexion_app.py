@@ -71,7 +71,7 @@ def __add_config_to_connexion_app(
         logger.debug('* {}: {}'.format(key, value))
 
     # Add user configuration to Flask app config
-    app.app.config['FOCA'] = config
+    setattr(app.app.config, 'foca', config)
 
     logger.debug('Connexion app configured.')
     return app
