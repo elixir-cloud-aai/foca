@@ -19,4 +19,4 @@ services:
     volumes:
       - ./data/petstore/db:/data/db
     ports:
-      - "27077:27017"
+      - "27017:27017"
