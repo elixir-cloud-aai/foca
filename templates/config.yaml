@@ -103,10 +103,10 @@ log:
 # Available in app context as attributes of `current_app.config.foca`
 
 # Can be validated by FOCA by passing a Pydantic model class to the
-# `custom_config_model` parameter in `foca.foca.foca`
+# `custom_config_model` parameter in the `foca.Foca()` constructor
 custom:
   my_param: 'some_value'
-  
+
 # Any other sections/parameters are *not* validated by FOCA; if desired,
 # validate parameters in app
 custom_params_not_validated:
