@@ -28,7 +28,7 @@ class Pet(BaseModel):
 
 class Pets(BaseModel):
     """Model instance for a list of pets.
-    
+
     Args:
         pets: List of pets.
 
@@ -40,7 +40,7 @@ class Pets(BaseModel):
 
 class Error(BaseModel):
     """Model for petstore error response.
-    
+
     Args:
         code: Status code.
         message: Error message.
