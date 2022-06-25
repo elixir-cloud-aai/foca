@@ -17,7 +17,7 @@ import sys
 
 from sphinx.ext import apidoc
 
-sys.path.insert(Path().parents[1].resolve())
+sys.path.insert(Path.cwd().resolve().parents[1])
 
 
 # -- Project information -----------------------------------------------------
