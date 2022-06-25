@@ -1,6 +1,7 @@
 """Class for setting up and initializing a FOCA-based microservice."""
 
 import logging
+from pathlib import Path
 from typing import Optional
 
 from connexion import App
@@ -21,7 +22,7 @@ class Foca:
 
     def __init__(
         self,
-        config_file: Optional[str] = None,
+        config_file: Optional[Path] = None,
         custom_config_model: Optional[str] = None,
     ) -> None:
         """Instantiate FOCA class.
@@ -58,8 +59,10 @@ class Foca:
                     parameters, so as to make it easier for others to
                     write/modify their app configuration.
         """
-        self.config_file = config_file
-        self.custom_config_model = custom_config_model
+        self.config_file: Optional[Path] = Path(
+            config_file
+        ) if config_file is not None else None
+        self.custom_config_model: Optional[str] = custom_config_model
 
     def create_app(self) -> App:
         """Set up and initialize FOCA-based microservice.

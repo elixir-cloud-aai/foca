@@ -1,19 +1,18 @@
-import os
+"""Package setup."""
+
+from pathlib import Path
 from setuptools import setup, find_packages
 
-root_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = Path(__file__).parent.resolve()
 
-# Read long description from file
-file_name = os.path.join(root_dir, "README.md")
-with open(file_name, "r") as fh:
-    long_description = fh.read()
+file_name = root_dir / "README.md"
+with open(file_name, "r") as _file:
+    long_description = _file.read()
 
-# Read requirements from file
 install_requires = []
-req = root_dir + '/requirements.txt'
-if os.path.isfile(req):
-    with open(req) as f:
-        install_requires = f.read().splitlines()
+req = root_dir / 'requirements.txt'
+with open(req, "r") as _file:
+    install_requires = _file.read().splitlines()
 
 setup(
     name="foca",

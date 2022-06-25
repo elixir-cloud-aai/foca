@@ -14,16 +14,16 @@ from foca.api.register_openapi import register_openapi
 from foca.models.config import SpecConfig
 
 # Define mock data
-DIR = Path(__file__).parent.parent / "test_files"
-PATH_SPECS_2_YAML_ORIGINAL = str(DIR / "openapi_2_petstore.original.yaml")
-PATH_SPECS_2_YAML_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
-PATH_SPECS_2_JSON_ORIGINAL = str(DIR / "openapi_2_petstore.original.json")
-PATH_SPECS_2_YAML_ADDITION = str(DIR / "openapi_2_petstore.addition.yaml")
-PATH_SPECS_3_YAML_ORIGINAL = str(DIR / "openapi_3_petstore.original.yaml")
-PATH_SPECS_3_YAML_MODIFIED = str(DIR / "openapi_3_petstore.modified.yaml")
-PATH_SPECS_INVALID_JSON = str(DIR / "invalid.json")
-PATH_SPECS_INVALID_YAML = str(DIR / "invalid.openapi.yaml")
-PATH_NOT_FOUND = str(DIR / "does/not/exist.yaml")
+DIR = Path(__file__).parents[1].resolve() / "test_files"
+PATH_SPECS_2_YAML_ORIGINAL = DIR / "openapi_2_petstore.original.yaml"
+PATH_SPECS_2_YAML_MODIFIED = DIR / "openapi_2_petstore.modified.yaml"
+PATH_SPECS_2_JSON_ORIGINAL = DIR / "openapi_2_petstore.original.json"
+PATH_SPECS_2_YAML_ADDITION = DIR / "openapi_2_petstore.addition.yaml"
+PATH_SPECS_3_YAML_ORIGINAL = DIR / "openapi_3_petstore.original.yaml"
+PATH_SPECS_3_YAML_MODIFIED = DIR / "openapi_3_petstore.modified.yaml"
+PATH_SPECS_INVALID_JSON = DIR / "invalid.json"
+PATH_SPECS_INVALID_YAML = DIR / "invalid.openapi.yaml"
+PATH_NOT_FOUND = DIR / "does/not/exist.yaml"
 OPERATION_FIELDS_2 = {"x-swagger-router-controller": "controllers"}
 OPERATION_FIELDS_2_NO_RESOLVE = {"x-swagger-router-controller": YAMLError}
 OPERATION_FIELDS_3 = {"x-openapi-router-controller": "controllers"}

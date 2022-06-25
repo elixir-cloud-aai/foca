@@ -3,7 +3,6 @@
 from pathlib import Path
 import pytest
 import shutil
-import os
 
 from connexion import App
 from pydantic import ValidationError
@@ -101,7 +100,6 @@ def test_foca_api(tmpdir):
     foca = Foca(config_file=temp_file)
     app = foca.create_app()
     assert isinstance(app, App)
-    os.remove(temp_file)
 
 
 def test_foca_db():
