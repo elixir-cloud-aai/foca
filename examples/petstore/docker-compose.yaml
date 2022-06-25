@@ -6,8 +6,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        FOCA_IMAGE: ${PY_VERSION:-3.10}
     restart: unless-stopped
     links:
       - mongodb
