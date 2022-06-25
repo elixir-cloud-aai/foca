@@ -1,6 +1,5 @@
 ### BASE IMAGE ###
-ARG FOCA_IMAGE=3.10
-FROM elixircloud/foca:petstore-py$FOCA_IMAGE
+FROM elixircloud/foca:petstore
 
 # Metadata
 LABEL software="Petstore application"
