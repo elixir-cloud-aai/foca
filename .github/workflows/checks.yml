@@ -39,7 +39,7 @@ jobs:
         run: flake8
       - name: Calculate unit test coverage
         run: |
-          coverage run --source foca -m pytest
+          coverage run --source foca -m pytest -W ignore::DeprecationWarning
           coverage xml
       - name: Submit Report to Codecov
         uses: codecov/codecov-action@v2

@@ -1,8 +1,6 @@
 import os
 from setuptools import setup, find_packages
 
-from foca import __version__
-
 root_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Read long description from file
@@ -19,7 +17,6 @@ if os.path.isfile(req):
 
 setup(
     name="foca",
-    version=__version__,
     description=(
         "Archetype for OpenAPI microservices based on Flask and Connexion"
     ),

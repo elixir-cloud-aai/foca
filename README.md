@@ -67,12 +67,13 @@ pip install foca
 
 (2) Create a [configuration file](#configuration-file).
 
-(3) Import the FOCA main function `foca()` and pass your config:
+(3) Import the FOCA class and pass your config file:
 
 ```python
-from foca import foca
+from foca import Foca
 
-app = foca("path/to/my/app/config.yaml")  # returns a Connexion app instance
+app = Foca(config_file="path/to/my/app/config.yaml")
+app = foca.create_app()  # returns a Connexion app instance
 ```
 
 (4) Start your [Flask][res-flask] app as usual.
@@ -376,15 +377,16 @@ custom:
 ```
 
 You can then have FOCA validate your custom configuration against the
-`CustomConfig` class by including it in the `foca()` call like so:
+`CustomConfig` class by including it in the `Foca()` call like so:
 
 ```py
-from foca.foca import foca
+from foca import Foca
 
-my_app = foca(
+foca = Foca(
   config="my_app/config.yaml",
   custom_config_model="my_app.custom_config.CustomConfig",
 )
+my_app = foca.create_app()
 ```
 
 We recommend that, when defining your `pydantic` model, that you supply
@@ -403,7 +405,7 @@ simply attach these to your application instance as described
 [below](#accessing-configuration-parameters). Note, however, that any
 such parameters need to be _manually_ validated. The same is true if you
 include a `custom` section but do _not_ provide a validation model class via
-the `custom_config_model` parameter when calling `foca()`.
+the `custom_config_model` parameter when instantiating `Foca`.
 
 _Example:_
 
