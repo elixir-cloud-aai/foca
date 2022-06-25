@@ -1,4 +1,5 @@
-FROM python:3.10-slim-buster as base
+ARG PY_IMAGE=3.10-slim-buster
+FROM python:$PY_IMAGE as base
 
 # Metadata
 LABEL software="FOCA"
