@@ -18,14 +18,19 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        py-version-img: [
+          ["3.7", "3.7-slim-stretch"],
+          ["3.8", "3.8-slim-buster"],
+          ["3.9", "3.9-slim-buster"],
+          ["3.10", "3.10-slim-buster"]
+        ]
 
     steps:
       - uses: actions/checkout@v2
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.py-version-img[0] }}
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.py-version-img[0] }}
       - name: Install requirements
         run: |
           pip install -e .
@@ -44,7 +49,18 @@ jobs:
           fail_ci_if_error: true
           verbose: true
       - name: Run tests on petstore app
+        env:
+          DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
+          export PY_VERSION=${{ matrix.py-version-img[0] }}
+          export PY_IMAGE=${{ matrix.py-version-img[1] }}
+          export TAG="petstore-py${PY_VERSION}"
+          docker build \
+              -t ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG} \
+              -f docker/Dockerfile \
+              --build-arg PY_IMAGE=${PY_IMAGE} \
+              .
           cd ./examples/petstore
           docker-compose up --build -d
           cd ../..
@@ -57,11 +73,11 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version-tag: [
-          ["3.7", ""],
-          ["3.8", ""],
-          ["3.9", ""],
-          ["3.10", "latest"]
+        py-version-img-tag: [
+          ["3.7", "3.7-slim-stretch", ""],
+          ["3.8", "3.8-slim-buster", ""],
+          ["3.9", "3.9-slim-buster", ""],
+          ["3.10", "3.10-slim-buster", "latest"]
         ]
 
     steps:
@@ -69,45 +85,49 @@ jobs:
         uses: actions/checkout@v2
       - name: Build & Publish image to DockerHub
         env:
-          docker_username: ${{ secrets.DOCKER_USERNAME }}
-          docker_password: ${{ secrets.DOCKER_PASSWORD }}
-          docker_org: ${{ secrets.DOCKER_ORG }}
-          repo_name: ${{ github.event.repository.name }}
+          DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+          DOCKERHUB_LOGIN: ${{ secrets.DOCKERHUB_LOGIN }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           set -x
-          export on_latest=FALSE
-          export on_default=FALSE
-          export py_version=${{ matrix.python-version-tag[0] }}
-          export default_branch=${{ github.event.repository.default_branch }}
-          if [[ "${{ matrix.python-version-tag[1] }}" == "latest" ]]; then
-              export on_latest=TRUE
+          export ON_LATEST=FALSE
+          export ON_DEFAULT=FALSE
+          export PY_VERSION=${{ matrix.py-version-img-tag[0] }}
+          export PY_IMAGE=${{ matrix.py-version-img-tag[1] }}
+          export PY_TAG=${{ matrix.py-version-img-tag[2] }}
+          export DEFAULT_BRANCH=${{ github.event.repository.default_branch }}
+          if [[ "$PY_TAG" == "latest" ]]; then
+              export ON_LATEST=TRUE
           fi
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            export branch_name=${GITHUB_REF##*/}
+            export BRANCH_NAME=${GITHUB_REF##*/}
           elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            export branch_name=${GITHUB_HEAD_REF##*/}
+            export BRANCH_NAME=${GITHUB_HEAD_REF##*/}
           else
-            export branch_name=INVALID_EVENT_BRANCH_UNKNOWN
+            export BRANCH_NAME=INVALID_EVENT_BRANCH_UNKNOWN
           fi
-          if [[ "$branch_name" == "$default_branch" ]]; then
-              export tag=$(date '+%Y%m%d')
-              export on_default=TRUE
+          if [[ "$BRANCH_NAME" == "$DEFAULT_BRANCH" ]]; then
+              export TAG=$(date '+%Y%m%d')
+              export ON_DEFAULT=TRUE
           else
-              export tag=$branch_name
+              export TAG=$BRANCH_NAME
           fi
-          export tag="${tag}-py${py_version}"
-          echo "TAG: ${tag}"
-          docker build . \
-              -t ${docker_org}/${repo_name}:${tag} \
-              -f docker/Dockerfile_py${py_version}
-          echo $docker_password | \
-              docker login -u $docker_username --password-stdin
-          docker push ${docker_org}/${repo_name}:${tag}
+          export TAG="${TAG}-py${PY_VERSION}"
+          echo "TAG: ${TAG}"
+          docker build \
+              -t ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG} \
+              -f docker/Dockerfile \
+              --build-arg PY_IMAGE=${PY_IMAGE} \
+              .
+          echo $DOCKERHUB_TOKEN | \
+              docker login -u $DOCKERHUB_LOGIN --password-stdin
+          docker push ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG}
           # if on default branch, we also want to update the "latest" tag
-          if [[ "$on_latest" = "TRUE" && "$on_default" == "TRUE" ]]; then
+          if [[ "$ON_LATEST" = "TRUE" && "$ON_DEFAULT" == "TRUE" ]]; then
               docker tag \
-                  ${docker_org}/${repo_name}:${tag} \
-                  ${docker_org}/${repo_name}:latest
-              docker push ${docker_org}/${repo_name}:latest
+                  ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG} \
+                  ${DOCKERHUB_ORG}/${REPO_NAME}:latest
+              docker push ${DOCKERHUB_ORG}/${REPO_NAME}:latest
           fi
           rm ${HOME}/.docker/config.json
