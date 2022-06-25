@@ -565,7 +565,8 @@ question etc.
 [org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
 [res-celery]: <http://docs.celeryproject.org/>
 [res-connexion]: <https://github.com/zalando/connexion>
-[res-datamodel-code-generator]: <https://github.com/koxudaxi/datamodel-code-generator/>res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
+[res-datamodel-code-generator]: <https://github.com/koxudaxi/datamodel-code-generator/>
+[res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
 [res-elixir-cloud-coc]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md>
 [res-elixir-cloud-contributing]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CONTRIBUTING.md>
 [res-flask]: <http://flask.pocoo.org/>
