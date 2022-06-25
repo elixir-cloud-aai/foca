@@ -15,15 +15,15 @@ FOCA makes sure that
 * FOCA configuration parameters are validated
 * requests and responses sent to/from the API endpoints configured in the
   [Petstore][app-specs] [OpenAPI][res-openapi] specification are validated
-* a [MongoDB][res-mongo-db] collection to store pets in is registered with The
+* a [MongoDB][res-mongo-db] collection to store pets in is registered with the
   app
 * [CORS][res-cors] is enabled
-* handles exceptions (here only returns `500 / Internal Server Error` for all
-  problems)
+* exceptions are handled according to the definitions in the `exceptions`
+  dictionary in module [`exceptions`][app-exceptions]
 
 Apart from writing the configuration file, all that was left for us to do to
 set up this example app was to write a _very_ simple app [entry point
-module][app-entry-point], implement the [endpoint controller
+module][app-entrypoint], implement the [endpoint controller
 logic][app-controllers] and prepare the [`Dockerfile`][app-dockerfile] and
 [Docker Compose][res-docker-compose] [configuration][app-docker-compose] for
 easy shipping/installation!
@@ -53,10 +53,35 @@ Clone repository:
 git clone https://github.com/elixir-cloud-aai/foca.git
 ```
 
+Traverse to the repository root directory:
+
+```bash
+cd foca
+```
+
+Locally build the FOCA base image based on the current state of FOCA and based
+on one of the supported Python versions (here: `3.9`):
+
+```bash
+docker build \
+  -t elixircloud/foca:petstore \
+  -f docker/Dockerfile \
+  .
+```
+
+> If you wish to modify FOCA code itself and then have those code changes
+> reflected in the example app, don't forget to rebuild the FOCA base image
+> before re-starting services via `docker-compose` in the next steps!  
+>  
+> You can also optionally build FOCA with another supported version of Python.
+> In that case, add `--build-arg PY_IMAGE="PYTHON_IMAGE_TAG"` to the `docker
+> build` command above, where `PYTHON_IMAGE_TAG` is the tag of the official
+> Python image you would like to use.
+
 Traverse to example app directory:
 
 ```bash
-cd foca/examples/petstore
+cd examples/petstore
 ```
 
 Build and run services in detached/daemonized mode:
@@ -72,8 +97,9 @@ docker-compose up -d --build
 > change the **first** of the two numbers listed below the corresponding
 > `ports` keyword to some unused/open port. Note that if you change the mapped
 > port for the `app` service you will need to manually append it to `localhost`
-> when you access the API (or the Swagger UI) in subsequent steps, like, e.g.,
-> so: `http://localhost:8080/`.
+> when you access the API (or the Swagger UI) in subsequent steps. For example,
+> assuming you would like to run the app on port `8080` instead of the default
+> of `80`, then the app will be availabe via : `http://localhost:8080/`.
 
 That's it, you can now visit the application's [Swagger UI][res-swagger-ui] in
 your browser, e.g.,:
@@ -82,7 +108,7 @@ your browser, e.g.,:
 firefox http://localhost/ui  # or use your browser of choice
 ```
 
-> Mac users may need to replace `localhost` with `0.0.0.0`.
+> Note that Mac users may need to replace `localhost` with `0.0.0.0`.
 
 ## Explore app
 
@@ -116,7 +142,7 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
   ```console
   curl -X GET \
       --header 'Accept: application/json' \
-      'http://localhost/pets/0' 
+      'http://localhost/pets/0'  # replace 0 with the the pet ID of choice
   ```
 
 * To **delete a pet**:  :-(
@@ -124,7 +150,7 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
   ```console
   curl -X DELETE \
       --header 'Accept: application/json' \
-      'http://localhost/pets/0' 
+      'http://localhost/pets/0'  # replace 0 with the the pet ID of choice
   ```
 
 ## Modify app
@@ -133,32 +159,18 @@ You can make use of this example to create your own app. Just modify any or all
 of the following:
 
 * [FOCA configuration file][app-config]
+* [Main application module][app-entrypoint]
 * [API specification][app-specs]
 * [Endpoint controller module][app-controllers]
-* [Main application module][app-entrypoint]
-* [Dockerfile][app-dockerfile]
-* [Docker Compose configuration][app-docker-compose]
-
-### Modifying FOCA
-
-In case you want to change FOCA itself and want the code changes to be
-reflected in the Petstore app, you will need to manually rebuild the FOCA
-container image like so:
-
-```bash
-docker build -t elixircloud/foca:latest .  # execute in the FOCA root directory
-```
-
-Then re-build and start the Petstore app as described before:
-
-```bash
-docker-compose up --build -d  # execute in _this_ directory
-```
+* [Registered exceptions][app-exceptions]
+* [`Dockerfile`][app-dockerfile]
+* [`docker-compose` configuration][app-docker-compose]
 
 [app-config]: config.yaml
 [app-controllers]: controllers.py
 [app-dockerfile]: Dockerfile
 [app-docker-compose]: docker-compose.yaml
+[app-exceptions]: exceptions.py
 [app-entrypoint]: app.py
 [app-specs]: petstore.yaml
 [docs]: <https://foca.readthedocs.io/en/latest/>
