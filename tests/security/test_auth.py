@@ -127,7 +127,7 @@ class TestValidateToken:
     def test_success_all_validation_checks(self, monkeypatch):
         """Test for validating token successfully via all methods."""
         app = Flask(__name__)
-        app.config['FOCA'] = Config()
+        setattr(app.config, 'foca', Config())
         request = MagicMock(name='requests')
         request.status_code = 200
         request.return_value.json.return_value = {
@@ -150,8 +150,8 @@ class TestValidateToken:
     def test_success_any_validation_check(self, monkeypatch):
         """Test for validating token successfully via any method."""
         app = Flask(__name__)
-        app.config['FOCA'] = Config()
-        app.config['FOCA'].security.auth.\
+        setattr(app.config, 'foca', Config())
+        app.config.foca.security.auth.\
             validation_checks = ValidationChecksEnum.any
         request = MagicMock(name='requests')
         request.status_code = 200
@@ -171,8 +171,8 @@ class TestValidateToken:
     def test_no_validation_methods(self):
         """Test for failed validation due to missing validation methods."""
         app = Flask(__name__)
-        app.config['FOCA'] = Config()
-        app.config['FOCA'].security.auth.validation_methods = []
+        setattr(app.config, 'foca', Config())
+        app.config.foca.security.auth.validation_methods = []
         with app.app_context():
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN)
@@ -180,7 +180,7 @@ class TestValidateToken:
     def test_invalid_token(self):
         """Test for failed validation due to invalid token."""
         app = Flask(__name__)
-        app.config['FOCA'] = Config()
+        setattr(app.config, 'foca', Config())
         with app.app_context():
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN_INVALID)
@@ -188,7 +188,7 @@ class TestValidateToken:
     def test_no_claims(self, monkeypatch):
         """Test for token with no issuer claim."""
         app = Flask(__name__)
-        app.config['FOCA'] = Config()
+        setattr(app.config, 'foca', Config())
         monkeypatch.setattr(
             'jwt.decode',
             lambda *args, **kwargs: {},
@@ -200,7 +200,7 @@ class TestValidateToken:
     def test_oidc_config_unavailable(self, monkeypatch):
         """Test for mocking an unavailable OIDC configuration server."""
         app = Flask(__name__)
-        app.config['FOCA'] = Config()
+        setattr(app.config, 'foca', Config())
         monkeypatch.setattr(
             'requests.get',
             lambda **kwargs: _raise(ConnectionError)
@@ -212,7 +212,7 @@ class TestValidateToken:
     def test_success_no_subject_claim(self, monkeypatch):
         """Test for validating token without subject claim."""
         app = Flask(__name__)
-        app.config['FOCA'] = Config()
+        setattr(app.config, 'foca', Config())
         monkeypatch.setattr(
             'jwt.decode',
             lambda *args, **kwargs: MOCK_CLAIMS_NO_SUB,
@@ -240,7 +240,7 @@ class TestValidateToken:
         """Test for all token validation methods failing when all methods
         are required to pass."""
         app = Flask(__name__)
-        app.config['FOCA'] = Config()
+        setattr(app.config, 'foca', Config())
         request = MagicMock(name='requests')
         request.status_code = 200
         request.return_value.json.return_value = {
@@ -264,8 +264,8 @@ class TestValidateToken:
         """Test for all token validation methods failing when any method
         is required to pass."""
         app = Flask(__name__)
-        app.config['FOCA'] = Config()
-        app.config['FOCA'].security.auth.\
+        setattr(app.config, 'foca', Config())
+        app.config.foca.security.auth.\
             validation_checks = ValidationChecksEnum.any
         request = MagicMock(name='requests')
         request.status_code = 200

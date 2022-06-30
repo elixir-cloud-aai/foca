@@ -58,7 +58,7 @@ def register_access_control(
     else:
         mongo_config.dbs[access_control_config.db_name] = access_db_conf
 
-    cnx_app.app.config['FOCA'].db = mongo_config
+    cnx_app.app.config.foca.db = mongo_config
 
     # Register new database for access control.
     add_new_database(

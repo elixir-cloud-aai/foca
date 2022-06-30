@@ -366,19 +366,19 @@ def test_spec_config_list_no_out():
 def test_SpecConfig_full():
     """Test SpecConfig instantiation; full example"""
     res = SpecConfig(**SPEC_CONFIG)
-    assert res.path_out == SPEC_CONFIG['path_out']
+    assert str(res.path_out) == SPEC_CONFIG['path_out']
 
 
 def test_SpecConfig_minimal():
     """Test SpecConfig instantiation; minimal example"""
     res = SpecConfig(path=PATH)
-    assert res.path_out == PATH_MODIFIED
+    assert str(res.path_out) == PATH_MODIFIED
 
 
 def test_SpecConfig_merge():
     """Test SpecConfig instantiation; multiple config files"""
     res = SpecConfig(path=[PATH, PATH_ADDITION])
-    assert res.path_out == PATH_MODIFIED
+    assert str(res.path_out) == PATH_MODIFIED
 
 
 def test_SpecConfig_extra_arg():

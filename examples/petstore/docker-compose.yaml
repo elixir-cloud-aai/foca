@@ -5,7 +5,7 @@ services:
   foca-petstore-root:
     build:
       context: ../../
-      dockerfile: docker/Dockerfile_py3.9
+      dockerfile: docker/Dockerfile
     image: foca-petstore-root:latest
     restart: "no"
   

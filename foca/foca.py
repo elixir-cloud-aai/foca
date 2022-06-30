@@ -1,6 +1,7 @@
-"""Entry point for setting up and initializing a FOCA-based microservice."""
+"""Class for setting up and initializing a FOCA-based microservice."""
 
 import logging
+from pathlib import Path
 from typing import Optional
 
 from connexion import App
@@ -23,85 +24,131 @@ from foca.security.cors import enable_cors
 logger = logging.getLogger(__name__)
 
 
-def foca(config: Optional[str] = None) -> App:
-    """Set up and initialize FOCA-based microservice.
+class Foca:
 
-    Args:
-        config: Path to application configuration file in YAML format. Cf.
-            :py:class:`foca.models.config.Config` for required file structure.
+    def __init__(
+        self,
+        config_file: Optional[Path] = None,
+        custom_config_model: Optional[str] = None,
+    ) -> None:
+        """Instantiate FOCA class.
 
-    Returns:
-        Connexion application instance.
-    """
+            Args:
+                config_file: Path to application configuration file in YAML
+                    format.  Cf. :py:class:`foca.models.config.Config` for
+                    required file structure.
+                custom_config_model: Path to model to be used for custom config
+                    parameter validation, supplied in "dot notation", e.g.,
+                    ``myapp.config.models.CustomConfig`, where ``CustomConfig``
+                    is the actual importable name of a `pydantic` model for
+                    your custom configuration, deriving from ``BaseModel``.
+                    FOCA will attempt to instantiate the model with the values
+                    passed to the ``custom`` section in the application's
+                    configuration, if present. Wherever possible, make sure
+                    that default values are supplied for each config
+                    parameters, so as to make it easier for others to
+                    write/modify their app configuration.
 
-    # Parse config parameters and format logging
-    conf = ConfigParser(config, format_logs=True).config
-    logger.info("Log formatting configured.")
-    if config:
-        logger.info(f"Configuration file '{config}' parsed.")
-    else:
-        logger.info("Default app configuration used.")
+            Attributes:
+                config_file: Path to application configuration file in YAML
+                    format.  Cf. :py:class:`foca.models.config.Config` for
+                    required file structure.
+                custom_config_model: Path to model to be used for custom config
+                    parameter validation, supplied in "dot notation", e.g.,
+                    ``myapp.config.models.CustomConfig`, where ``CustomConfig``
+                    is the actual importable name of a `pydantic` model for
+                    your custom configuration, deriving from ``BaseModel``.
+                    FOCA will attempt to instantiate the model with the values
+                    passed to the ``custom`` section in the application's
+                    configuration, if present. Wherever possible, make sure
+                    that default values are supplied for each config
+                    parameters, so as to make it easier for others to
+                    write/modify their app configuration.
+        """
+        self.config_file: Optional[Path] = Path(
+            config_file
+        ) if config_file is not None else None
+        self.custom_config_model: Optional[str] = custom_config_model
 
-    # Create Connexion app
-    cnx_app = create_connexion_app(conf)
-    logger.info("Connexion app created.")
+    def create_app(self) -> App:
+        """Set up and initialize FOCA-based microservice.
 
-    # Register error handlers
-    cnx_app = register_exception_handler(cnx_app)
-    logger.info("Error handler registered.")
+        Returns:
+            Connexion application instance.
+        """
 
-    # Enable cross-origin resource sharing
-    if(conf.security.cors.enabled is True):
-        enable_cors(cnx_app.app)
-        logger.info("CORS enabled.")
-    else:
-        logger.info("CORS not enabled.")
+        # Parse config parameters and format logging
+        conf = ConfigParser(
+            config_file=self.config_file,
+            custom_config_model=self.custom_config_model,
+            format_logs=True,
+        ).config
+        logger.info("Log formatting configured.")
+        if self.config_file is not None:
+            logger.info(f"Configuration file '{self.config_file}' parsed.")
+        else:
+            logger.info("Default app configuration used.")
 
-    # Register OpenAPI specs
-    if conf.api.specs:
-        cnx_app = register_openapi(
-            app=cnx_app,
-            specs=conf.api.specs,
+        # Create Connexion app
+        cnx_app = create_connexion_app(conf)
+        logger.info("Connexion app created.")
+
+        # Register error handlers
+        cnx_app = register_exception_handler(cnx_app)
+        logger.info("Error handler registered.")
+
+        # Enable cross-origin resource sharing
+        if(conf.security.cors.enabled is True):
+            enable_cors(cnx_app.app)
+            logger.info("CORS enabled.")
+        else:
+            logger.info("CORS not enabled.")
+
+        # Register OpenAPI specs
+        if conf.api.specs:
+            cnx_app = register_openapi(
+                app=cnx_app,
+                specs=conf.api.specs,
+            )
+        else:
+            logger.info("No OpenAPI specifications provided.")
+
+        # Register MongoDB
+        if conf.db:
+            cnx_app.app.config.foca.db = register_mongodb(
+                app=cnx_app.app,
+                conf=conf.db,
+            )
+            logger.info("Database registered.")
+        else:
+            logger.info("No database support configured.")
+        
+        # Register permission management and casbin enforcer
+        if (
+            conf.access_control.api_specs is None or
+            conf.access_control.api_controllers is None
+        ):
+            conf.access_control.api_controllers = DEFAULT_SPEC_CONTROLLER
+
+        if conf.access_control.db_name is None:
+            conf.access_control.db_name = DEFAULT_ACCESS_CONTROL_DB_NAME
+
+        if conf.access_control.collection_name is None:
+            conf.access_control.collection_name = (
+                DEFAULT_ACESS_CONTROL_COLLECTION_NAME
+            )
+
+        cnx_app = register_access_control(
+            cnx_app=cnx_app,
+            mongo_config=conf.db,
+            access_control_config=conf.access_control
         )
-    else:
-        logger.info("No OpenAPI specifications provided.")
 
-    # Register MongoDB
-    if conf.db:
-        cnx_app.app.config['FOCA'].db = register_mongodb(
-            app=cnx_app.app,
-            conf=conf.db,
-        )
-        logger.info("Database registered.")
-    else:
-        logger.info("No database support configured.")
+        # Create Celery app
+        if conf.jobs:
+            create_celery_app(cnx_app.app)
+            logger.info("Support for background tasks set up.")
+        else:
+            logger.info("No support for background tasks configured.")
 
-    # Register permission management and casbin enforcer
-    if (
-        conf.access_control.api_specs is None or
-        conf.access_control.api_controllers is None
-    ):
-        conf.access_control.api_controllers = DEFAULT_SPEC_CONTROLLER
-
-    if conf.access_control.db_name is None:
-        conf.access_control.db_name = DEFAULT_ACCESS_CONTROL_DB_NAME
-
-    if conf.access_control.collection_name is None:
-        conf.access_control.collection_name = (
-            DEFAULT_ACESS_CONTROL_COLLECTION_NAME
-        )
-
-    cnx_app = register_access_control(
-        cnx_app=cnx_app,
-        mongo_config=conf.db,
-        access_control_config=conf.access_control
-    )
-
-    # Create Celery app
-    if conf.jobs:
-        create_celery_app(cnx_app.app)
-        logger.info("Support for background tasks set up.")
-    else:
-        logger.info("No support for background tasks configured.")
-
-    return cnx_app
+        return cnx_app

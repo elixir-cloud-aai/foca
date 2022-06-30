@@ -1,6 +1,6 @@
 # FOCA CONFIGURATION
 
-# Available in app context as attributes of `current_app.config['FOCA']`
+# Available in app context as attributes of `current_app.config.foca`
 # Automatically validated via FOCA
 # Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html
 
@@ -100,7 +100,14 @@ log:
 
 
 # CUSTOM APP CONFIGURATION
+# Available in app context as attributes of `current_app.config.foca`
 
-# Available in app context as attributes of `current_app.config['FOCA']`
-# NOT VALIDATED VIA FOCA; if desired, validate parameters in app
-my_custom_param: 'some_value'
+# Can be validated by FOCA by passing a Pydantic model class to the
+# `custom_config_model` parameter in the `foca.Foca()` constructor
+custom:
+  my_param: 'some_value'
+
+# Any other sections/parameters are *not* validated by FOCA; if desired,
+# validate parameters in app
+custom_params_not_validated:
+  my_other_param: 'some_other_value'

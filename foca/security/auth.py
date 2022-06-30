@@ -35,7 +35,7 @@ def validate_token(token: str) -> Dict:
     oidc_config_claim_public_keys: str = 'jwks_uri'
 
     # Fetch security parameters
-    conf = current_app.config['FOCA'].security.auth
+    conf = current_app.config.foca.security.auth
     add_key_to_claims: bool = conf.add_key_to_claims
     allow_expired: bool = conf.allow_expired
     audience: Optional[Iterable[str]] = conf.audience
