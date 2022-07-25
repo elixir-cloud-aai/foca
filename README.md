@@ -46,7 +46,7 @@ Check the [API docs][badge-url-docs] for further details.
   * [Configuring logging](#configuring-logging)
   * [Configuring security](#configuring-security)
   * [Configuring the server](#configuring-the-server)
-  * [Configuring Access Control] (#configuring-access-control)
+  * [Configuring Access Control](#configuring-access-control)
   * [Custom configuration](#custom-configuration)
   * [Accessing configuration parameters](#accessing-configuration-parameters)
 * [Utilities](#utilities)

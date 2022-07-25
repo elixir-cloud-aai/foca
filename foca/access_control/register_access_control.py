@@ -2,8 +2,12 @@
 
 import logging
 from connexion import App
+from requests import request
 from flask_authz import CasbinEnforcer
 from pkg_resources import resource_filename
+from typing import (Callable, Optional)
+from functools import wraps
+from flask import current_app, jsonify, url_for
 
 from foca.models.config import (
     DBConfig,
@@ -115,7 +119,7 @@ def register_permission_specs(
         },
         connexion={
             "strict_validation": True,
-            "validate_responses": False,
+            "validate_responses": True,
             "options": {
                 "swagger_ui": True,
                 "serve_spec": True
@@ -181,3 +185,44 @@ def register_casbin_enforcer(
     app.app.config['casbin_adapter'] = adapter
 
     return app
+
+
+def check_permissions(
+    _fn: Optional[Callable] = None,
+) -> Callable:
+    """Decorator for checking user access to resource.
+
+    Returns:
+        The decorated function.
+    """
+
+    def _decorator_check_permissions(fn):
+        """User access decorator. Used to facilitate optional decorator arguments.
+
+        Args:
+            fn: The function to be decorated.
+
+        Returns:
+            The response returned from the input function.
+        """
+        @wraps(fn)
+        def _wrapper(*args, **kwargs):
+            """Wrapper for logging decorator.
+
+            Args:
+                args: positional arguments passed through from `check_permissions`.
+                kwargs: keyword arguments passed through from `check_permissions`.
+
+            Returns:
+                Wrapper function.
+            """
+            casbin_enforcer = current_app.config['casbin_enforcer']
+            response = casbin_enforcer.enforcer(func=fn(*args, **kwargs))()
+            return response
+
+        return _wrapper
+
+    if _fn is None:
+        return _decorator_check_permissions
+    else:
+        return _decorator_check_permissions(_fn)

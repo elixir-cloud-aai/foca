@@ -1,16 +1,16 @@
 openapi: 3.0.2
 info:
-  title: 'FOCA access control API specification'
+  title: FOCA access control API specification
   description: 'CRUD and List Operations for managing permissions.'
   version: 1.0.0
   license:
-    name: 'Apache 2.0'
-    url: 'https://github.com/elixir-cloud-aai/foca/blob/dev/LICENSE'
+    name: Apache 2.0
+    url: https://github.com/elixir-cloud-aai/foca/blob/dev/LICENSE
   contact:
-    name: 'ELIXIR Cloud & AAI'
-    email: 'alexander.kanitz@alumni.ethz.ch'
+    name: ELIXIR Cloud & AAI
+    email: alexander.kanitz@alumni.ethz.ch
 paths:
-  '/permissions':
+  /permissions:
     post:
       summary: Create a specific permission.
       operationId: foca.access_control.access_control_server.postPermission
@@ -104,7 +104,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  '/permissions/{id}':
+  /permissions/{id}:
     get:
       summary: Fetch one specific permission.
       operationId: foca.access_control.access_control_server.getPermission

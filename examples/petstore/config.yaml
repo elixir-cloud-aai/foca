@@ -8,7 +8,7 @@ server:
 
 security:
     auth:
-        required: False
+        required: True
         add_key_to_claims: True
         allow_expired: False
         audience: null
@@ -47,3 +47,7 @@ exceptions:
     required_members: [['message'], ['code']]
     status_member: ['code']
     exceptions: exceptions.exceptions
+
+access_control:
+    owner_headers: ['owner']
+    user_headers: ['user']
