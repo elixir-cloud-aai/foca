@@ -53,6 +53,7 @@ Check the [API docs][badge-url-docs] for further details.
   * [Database utilities](#database-utilities)
   * [Logging utitlies](#logging-utilities)
   * [Miscellaneous utilities](#miscellaneous-utilities)
+  * [Access Control utilities](#access-control-utilities)
 * [Contributing](#contributing)
 * [Versioning](#versioning)
 * [License](#license)
@@ -508,7 +509,7 @@ latest_object_id = find_id_latest("your_db_collection_instance")
 
 ### Logging utilities
 
-FOCA provides a decorator that ca be used on any route to automatically log
+FOCA provides a decorator that can be used on any route to automatically log
 any requests and/or responses passing through that route:
 
 ```python
@@ -536,6 +537,19 @@ obj_id = generate_id(charset=string.digits, length=6)
 
 > The above function processes and returns a random `obj_id` of length `6`
 > consisting of only digits (`string.digits`).
+
+### Access Control utilities
+
+FOCA provides a decorator that can be used on any route to automatically validate
+request on the basis of permission rules.
+
+```python
+from foca.access_control.register_access_control import check_permissions
+
+@check_permissions
+def your_controller():
+    pass
+```
 
 ## Contributing
 
