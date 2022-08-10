@@ -6,8 +6,6 @@ from functools import reduce
 import importlib
 import operator
 from pathlib import Path
-import os
-from pyexpat import model
 from typing import (Any, Dict, List, Optional, Union)
 
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611

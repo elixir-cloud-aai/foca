@@ -2,12 +2,11 @@
 
 import logging
 from connexion import App
-from requests import request
 from flask_authz import CasbinEnforcer
 from pkg_resources import resource_filename
 from typing import (Callable, Optional)
 from functools import wraps
-from flask import current_app, jsonify, url_for
+from flask import current_app
 
 from foca.models.config import (
     DBConfig,
@@ -210,8 +209,10 @@ def check_permissions(
             """Wrapper for logging decorator.
 
             Args:
-                args: positional arguments passed through from `check_permissions`.
-                kwargs: keyword arguments passed through from `check_permissions`.
+                args: positional arguments passed through from
+                    `check_permissions`.
+                kwargs: keyword arguments passed through from
+                    `check_permissions`.
 
             Returns:
                 Wrapper function.

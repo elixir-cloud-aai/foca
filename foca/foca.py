@@ -122,12 +122,12 @@ class Foca:
             logger.info("Database registered.")
         else:
             logger.info("No database support configured.")
-        
+
         # Register permission management and casbin enforcer
         if conf.security.auth.required:
             if (
-            conf.access_control.api_specs is None or
-            conf.access_control.api_controllers is None
+                conf.access_control.api_specs is None or
+                conf.access_control.api_controllers is None
             ):
                 conf.access_control.api_controllers = DEFAULT_SPEC_CONTROLLER
 
@@ -145,8 +145,14 @@ class Foca:
                 access_control_config=conf.access_control
             )
         else:
-            if conf.access_control.api_specs or conf.access_control.api_controllers:
-                logger.error("Please enable security config to register access control.")
+            if (
+                conf.access_control.api_specs or
+                conf.access_control.api_controllers
+            ):
+                logger.error(
+                    "Please enable security config to register "
+                    "access control."
+                )
 
         # Create Celery app
         if conf.jobs:
