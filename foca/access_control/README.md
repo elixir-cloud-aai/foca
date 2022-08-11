@@ -181,6 +181,16 @@ Access control works on the basis of model definitions. If not provided,
 default [RBAC Model Definition][default-model] will be used. For information
 on how to write policy definitions Cf. [Model Types][res-casbin-models].
 
+### Exploring Endpoints
+
+Once the app is up and running, you can visit the application's 
+[Access Control Swagger UI][res-swagger] in your browser, e.g.,:
+
+```bash
+firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
+```
+
+
 ## Contributing
 
 This project is a community effort and lives off your contributions, be it in
