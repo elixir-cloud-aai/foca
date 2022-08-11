@@ -178,9 +178,6 @@ def register_casbin_enforcer(
         dbname=access_control_config.db_name,
         collection=access_control_config.collection_name
     )
-    casbin_enforcer = CasbinEnforcer(app.app, adapter)
-
-    app.app.config['casbin_enforcer'] = casbin_enforcer
     app.app.config['casbin_adapter'] = adapter
 
     return app
@@ -217,7 +214,8 @@ def check_permissions(
             Returns:
                 Wrapper function.
             """
-            casbin_enforcer = current_app.config['casbin_enforcer']
+            adapter = current_app.config['casbin_adapter']
+            casbin_enforcer = CasbinEnforcer(current_app, adapter)
             response = casbin_enforcer.enforcer(func=fn(*args, **kwargs))()
             return response
 
