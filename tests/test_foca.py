@@ -1,6 +1,5 @@
 """Tests for `foca.py` module."""
 
-import imp
 from pathlib import Path
 import pytest
 import shutil
