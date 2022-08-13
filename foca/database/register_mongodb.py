@@ -102,18 +102,6 @@ def add_new_database(
                 f"Added database collection '{coll_name}'."
             )
 
-            # Add indexes
-            if coll_conf.indexes is not None:
-                # Remove already created indexes if any
-                coll_conf.client.drop_indexes()
-                for index in coll_conf.indexes:
-                    if index.keys is not None:
-                        coll_conf.client.create_index(
-                            index.keys, **index.options)
-                logger.info(
-                    f"Indexes created for collection '{coll_name}'."
-                )
-
 
 def _create_mongo_client(
         app: Flask,

@@ -1,5 +1,6 @@
 """Tests for `foca.py` module."""
 
+import imp
 from pathlib import Path
 import pytest
 import shutil
@@ -30,6 +31,7 @@ INVALID_JOBS_CONF = str(DIR / "conf_invalid_jobs.yaml")
 API_CONF = str(DIR / "conf_api.yaml")
 VALID_CORS_CONF_DISABLED = str(DIR / "conf_valid_cors_disabled.yaml")
 VALID_CORS_CONF_ENABLED = str(DIR / "conf_valid_cors_enabled.yaml")
+INVALID_ACCESS_CONTROL_CONF = str(DIR / "conf_invalid_access_control.yaml")
 
 
 def create_modified_api_conf(path, temp_dir, api_specs_in, api_specs_out):
@@ -132,3 +134,10 @@ def test_foca_CORS_disabled():
     foca = Foca(config_file=VALID_CORS_CONF_DISABLED)
     app = foca.create_app()
     assert app.app.config.foca.security.cors.enabled is False
+
+
+def test_foca_invalid_access_control():
+    """Ensures access control is not enabled if auth is disabled"""
+    foca = Foca(config_file=INVALID_ACCESS_CONTROL_CONF)
+    app = foca.create_app()
+    assert app.app.config.foca.db is None

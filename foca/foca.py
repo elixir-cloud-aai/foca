@@ -149,6 +149,7 @@ class Foca:
                 conf.access_control.api_specs or
                 conf.access_control.api_controllers
             ):
+                conf.access_control = None
                 logger.error(
                     "Please enable security config to register "
                     "access control."
