@@ -32,6 +32,7 @@ API_CONF = str(DIR / "conf_api.yaml")
 VALID_CORS_CONF_DISABLED = str(DIR / "conf_valid_cors_disabled.yaml")
 VALID_CORS_CONF_ENABLED = str(DIR / "conf_valid_cors_enabled.yaml")
 INVALID_ACCESS_CONTROL_CONF = str(DIR / "conf_invalid_access_control.yaml")
+VALID_ACCESS_CONTROL_CONF = str(DIR / "conf_valid_access_control.yaml")
 
 
 def create_modified_api_conf(path, temp_dir, api_specs_in, api_specs_out):
@@ -141,3 +142,14 @@ def test_foca_invalid_access_control():
     foca = Foca(config_file=INVALID_ACCESS_CONTROL_CONF)
     app = foca.create_app()
     assert app.app.config.foca.db is None
+
+
+def test_foca_valid_access_control():
+    """Ensures access control enabled."""
+    foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
+    app = foca.create_app()
+    my_db = app.app.config.foca.db.dbs['test_db']
+    my_coll = my_db.collections['test_collection']
+    assert isinstance(my_db.client, Database)
+    assert isinstance(my_coll.client, Collection)
+    assert isinstance(app, App)
