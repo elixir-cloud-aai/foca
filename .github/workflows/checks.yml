@@ -24,6 +24,7 @@ jobs:
           ["3.9", "3.9-slim-buster"],
           ["3.10", "3.10-slim-buster"]
         ]
+        mongodb-version: ["4.2", "4.4", "5.0"]
 
     steps:
       - uses: actions/checkout@v2
@@ -38,7 +39,7 @@ jobs:
       - name: Lint with flake8
         run: flake8
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.6.0
+        uses: supercharge/mongodb-github-action@1.7.0
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
       - name: Calculate unit test coverage
