@@ -45,8 +45,6 @@ class Adapter(persist.Adapter):
         """
 
         for line in self._collection.find():
-            if "ptype" not in line:
-                continue
             rule = CasbinRule(line["ptype"])
             for key, value in line.items():
                 setattr(rule, key, value)
@@ -65,22 +63,6 @@ class Adapter(persist.Adapter):
             setattr(line, f"v{index}", value)
         self._collection.insert_one(line.dict())
 
-    def _find_policy_lines(self, ptype: str, rule: List[str]) -> List[Dict]:
-        """Method to find a policies given a list of policy attributes.
-
-        Args:
-            ptype: Policy type for the given rule based on the given conf file.
-            rule: List of policy attributes.
-
-        Returns:
-            Policy object.
-        """
-
-        line = CasbinRule(ptype=ptype)
-        for index, value in enumerate(rule):
-            setattr(line, f"v{index}", value)
-        return self._collection.find(line.dict())
-
     def _delete_policy_lines(self, ptype: str, rule: List[str]) -> int:
         """Method to find a delete policies given a list of policy attributes.
 
@@ -98,7 +80,7 @@ class Adapter(persist.Adapter):
 
         # if rule is empty, do nothing
         # else find all given rules and delete them
-        if len(line.dict()) == 0:
+        if len(rule) == 0:
             return 0
         else:
             line_dict = line.dict()
@@ -124,8 +106,6 @@ class Adapter(persist.Adapter):
             True if successfully created.
         """
         for section_type in ["p", "g"]:
-            if section_type not in model.model.keys():
-                continue
             for ptype, ast in model.model[section_type].items():
                 for rule in ast.policy:
                     self.save_policy_line(ptype, rule)
