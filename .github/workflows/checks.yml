@@ -25,6 +25,7 @@ jobs:
           ["3.10", "3.10-slim-buster"]
         ]
         mongodb-version: ["4.2", "4.4", "5.0"]
+        mongodb-port: [12345]
 
     steps:
       - uses: actions/checkout@v2
@@ -42,12 +43,11 @@ jobs:
         uses: supercharge/mongodb-github-action@1.7.0
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
+          mongodb-port: ${{ matrix.mongodb-port }}
       - name: Calculate unit test coverage
         run: |
           coverage run --source foca -m pytest -W ignore::DeprecationWarning
           coverage xml
-      - name: Stop mongoDB
-        run: sudo systemctl stop mongod
       - name: Submit Report to Codecov
         uses: codecov/codecov-action@v2
         with:
