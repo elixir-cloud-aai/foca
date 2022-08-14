@@ -46,6 +46,8 @@ jobs:
         run: |
           coverage run --source foca -m pytest -W ignore::DeprecationWarning
           coverage xml
+      - name: Stop mongoDB
+        run: sudo systemctl stop mongod
       - name: Submit Report to Codecov
         uses: codecov/codecov-action@v2
         with:
