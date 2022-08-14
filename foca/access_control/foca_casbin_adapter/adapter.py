@@ -2,7 +2,7 @@
 
 from casbin import persist
 from casbin.model import Model
-from typing import (Dict, List, Optional)
+from typing import (List, Optional)
 from pymongo import MongoClient
 
 from foca.access_control.foca_casbin_adapter.casbin_rule import CasbinRule

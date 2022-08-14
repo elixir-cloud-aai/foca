@@ -30,7 +30,7 @@ TEST_POLICIES_MODEL_ROLES_CONF = [
 
 class TestAdapter:
     """Class to test adapter configuration."""
-    
+
     def save_policies(
         self,
         adapter: Adapter,
@@ -101,12 +101,12 @@ class TestAdapter:
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
 
-        assert e.enforce("alice", "data1", "read") == True
-        assert e.enforce("alice", "data1", "write") == False
-        assert e.enforce("bob", "data2", "read") == False
-        assert e.enforce("bob", "data2", "write") == True
-        assert e.enforce("alice", "data2", "read") == True
-        assert e.enforce("alice", "data2", "write") == True
+        assert e.enforce("alice", "data1", "read") is True
+        assert e.enforce("alice", "data1", "write") is False
+        assert e.enforce("bob", "data2", "read") is False
+        assert e.enforce("bob", "data2", "write") is True
+        assert e.enforce("alice", "data2", "read") is True
+        assert e.enforce("alice", "data2", "write") is True
         self.clear_db(dbname="casbin_test")
 
     def test_add_policy(self):
@@ -117,8 +117,8 @@ class TestAdapter:
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
         adapter = e.get_adapter()
-        assert e.enforce("alice", "data1", "write") == False
-        assert e.enforce("bob", "data2", "read") == False
+        assert e.enforce("alice", "data1", "write") is False
+        assert e.enforce("bob", "data2", "read") is False
 
         policy1 = adapter.add_policy(
             sec="p", ptype="p", rule=("alice", "data1", "write")
@@ -127,11 +127,11 @@ class TestAdapter:
             sec="p", ptype="p", rule=("bob", "data2", "read")
         )
         e.load_policy()
-        
-        assert policy1 == True
-        assert policy2 == True
-        assert e.enforce("alice", "data1", "read") == True
-        assert e.enforce("bob", "data2", "read") == True
+
+        assert policy1 is True
+        assert policy2 is True
+        assert e.enforce("alice", "data1", "read") is True
+        assert e.enforce("bob", "data2", "read") is True
         self.clear_db(dbname="casbin_test")
 
     def test_remove_policy(self):
@@ -142,17 +142,17 @@ class TestAdapter:
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
         adapter = e.get_adapter()
-        assert e.enforce("alice", "data2", "read") == True
-        assert e.enforce("alice", "data2", "write") == True
+        assert e.enforce("alice", "data2", "read") is True
+        assert e.enforce("alice", "data2", "write") is True
 
         remove_policy = adapter.remove_policy(
             sec="g", ptype="g", rule=("alice", "data2_admin")
         )
         e.load_policy()
 
-        assert remove_policy == True
-        assert e.enforce("alice", "data2", "read") == False
-        assert e.enforce("alice", "data2", "write") == False
+        assert remove_policy is True
+        assert e.enforce("alice", "data2", "read") is False
+        assert e.enforce("alice", "data2", "write") is False
         self.clear_db(dbname="casbin_test")
 
     def test_remove_policy_with_incomplete_rule(self):
@@ -164,14 +164,15 @@ class TestAdapter:
         adapter = Adapter("mongodb://localhost:27017", "casbin_test")
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
-            conf_file=MODEL_ROLES_CONF_FILE, policies=TEST_POLICIES_MODEL_ROLES_CONF
+            conf_file=MODEL_ROLES_CONF_FILE,
+            policies=TEST_POLICIES_MODEL_ROLES_CONF
         )
         e.load_policy()
 
-        assert e.enforce("alice", "data1", "write") == True
-        assert e.enforce("alice", "data1", "read") == True
-        assert e.enforce("bob", "data2", "read") == True
-        assert e.enforce("alice", "data2", "write") == True
+        assert e.enforce("alice", "data1", "write") is True
+        assert e.enforce("alice", "data1", "read") is True
+        assert e.enforce("bob", "data2", "read") is True
+        assert e.enforce("alice", "data2", "write") is True
 
         # test remove_policy doesn't remove when given an incomplete policy
         remove_policy = adapter.remove_policy(
@@ -179,11 +180,11 @@ class TestAdapter:
         )
         e.load_policy()
 
-        assert remove_policy == False
-        assert e.enforce("alice", "data1", "write") == True
-        assert e.enforce("alice", "data1", "read") == True
-        assert e.enforce("bob", "data2", "read") == True
-        assert e.enforce("alice", "data2", "write") == True
+        assert remove_policy is False
+        assert e.enforce("alice", "data1", "write") is True
+        assert e.enforce("alice", "data1", "read") is True
+        assert e.enforce("bob", "data2", "read") is True
+        assert e.enforce("alice", "data2", "write") is True
         self.clear_db(dbname="casbin_test")
 
     def test_remove_policy_with_empty_rule(self):
@@ -195,19 +196,20 @@ class TestAdapter:
         adapter = Adapter("mongodb://localhost:27017", "casbin_test")
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
-            conf_file=MODEL_ROLES_CONF_FILE, policies=TEST_POLICIES_MODEL_ROLES_CONF
+            conf_file=MODEL_ROLES_CONF_FILE,
+            policies=TEST_POLICIES_MODEL_ROLES_CONF
         )
         e.load_policy()
 
-        assert e.enforce("alice", "data1", "write") == True
+        assert e.enforce("alice", "data1", "write") is True
 
         remove_policy = adapter.remove_policy(
             sec="p", ptype=None, rule=()
         )
         e.load_policy()
 
-        assert remove_policy == False
-        assert e.enforce("alice", "data1", "write") == True
+        assert remove_policy is False
+        assert e.enforce("alice", "data1", "write") is True
         self.clear_db(dbname="casbin_test")
 
     def test_save_policy(self):
@@ -217,7 +219,7 @@ class TestAdapter:
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
-        assert e.enforce("alice", "data4", "read") == False
+        assert e.enforce("alice", "data4", "read") is False
 
         model = e.get_model()
         model.clear_policy()
@@ -225,7 +227,7 @@ class TestAdapter:
         adapter = e.get_adapter()
         adapter.save_policy(model)
 
-        assert e.enforce("alice", "data4", "read") == True
+        assert e.enforce("alice", "data4", "read") is True
         self.clear_db(dbname="casbin_test")
 
     def test_remove_filtered_policy(self):
@@ -236,30 +238,34 @@ class TestAdapter:
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
         adapter = e.get_adapter()
-        assert e.enforce("alice", "data1", "read") == True
-        assert e.enforce("alice", "data1", "write") == False
-        assert e.enforce("bob", "data2", "read") == False
-        assert e.enforce("bob", "data2", "write") == True
-        assert e.enforce("alice", "data2", "read") == True
-        assert e.enforce("alice", "data2", "write") == True
+        assert e.enforce("alice", "data1", "read") is True
+        assert e.enforce("alice", "data1", "write") is False
+        assert e.enforce("bob", "data2", "read") is False
+        assert e.enforce("bob", "data2", "write") is True
+        assert e.enforce("alice", "data2", "read") is True
+        assert e.enforce("alice", "data2", "write") is True
 
-        result = adapter.remove_filtered_policy("g", "g", 6, "alice", "data2_admin")
+        result = adapter.remove_filtered_policy(
+            "g", "g", 6, "alice", "data2_admin"
+        )
         e.load_policy()
-        assert result == False
+        assert result is False
 
         result = adapter.remove_filtered_policy(
             "g", "g", 0, *[f"v{i}" for i in range(7)]
         )
         e.load_policy()
-        assert result == False
+        assert result is False
 
-        result = adapter.remove_filtered_policy("g", "g", 0, "alice", "data2_admin")
+        result = adapter.remove_filtered_policy(
+            "g", "g", 0, "alice", "data2_admin"
+        )
         e.load_policy()
-        assert result == True
-        assert e.enforce("alice", "data1", "read") == True
-        assert e.enforce("alice", "data1", "write") == False
-        assert e.enforce("bob", "data2", "read") == False
-        assert e.enforce("bob", "data2", "write") == True
-        assert e.enforce("alice", "data2", "read") == False
-        assert e.enforce("alice", "data2", "write") == False
+        assert result is True
+        assert e.enforce("alice", "data1", "read") is True
+        assert e.enforce("alice", "data1", "write") is False
+        assert e.enforce("bob", "data2", "read") is False
+        assert e.enforce("bob", "data2", "write") is True
+        assert e.enforce("alice", "data2", "read") is False
+        assert e.enforce("alice", "data2", "write") is False
         self.clear_db(dbname="casbin_test")
