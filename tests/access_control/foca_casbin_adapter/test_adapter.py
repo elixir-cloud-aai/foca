@@ -74,7 +74,7 @@ class TestAdapter:
             policy model.
         """
 
-        adapter = Adapter("mongodb://localhost:27017", "casbin_test")
+        adapter = Adapter("mongodb://localhost:12345", "casbin_test")
         e = Enforcer(conf_file, adapter)
         model = e.get_model()
         for _policy in policies:
@@ -90,7 +90,7 @@ class TestAdapter:
             dbname: Database name to be cleared.
         """
 
-        client = MongoClient("mongodb://localhost:27017")
+        client = MongoClient("mongodb://localhost:12345")
         client.drop_database(dbname)
 
     def test_enforcer(self):
@@ -161,7 +161,7 @@ class TestAdapter:
         """
 
         self.clear_db(dbname="casbin_test")
-        adapter = Adapter("mongodb://localhost:27017", "casbin_test")
+        adapter = Adapter("mongodb://localhost:12345", "casbin_test")
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
             conf_file=MODEL_ROLES_CONF_FILE,
@@ -193,7 +193,7 @@ class TestAdapter:
         """
 
         self.clear_db(dbname="casbin_test")
-        adapter = Adapter("mongodb://localhost:27017", "casbin_test")
+        adapter = Adapter("mongodb://localhost:12345", "casbin_test")
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
             conf_file=MODEL_ROLES_CONF_FILE,
