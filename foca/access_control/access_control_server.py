@@ -4,7 +4,6 @@ import logging
 
 from typing import (Dict, List)
 
-from bson.objectid import ObjectId
 from flask import (request, current_app)
 
 from foca.utils.logging import log_traffic
@@ -24,8 +23,8 @@ def postPermission() -> str:
     try:
         request_json = request.json
 
-        access_control_config = current_app.config['FOCA'].access_control
-        mongo_config = current_app.config['FOCA'].db
+        access_control_config = current_app.config["FOCA"].access_control
+        mongo_config = current_app.config["FOCA"].db
 
         access_control_adapter = Adapter(
             uri=f"mongodb://{mongo_config.host}:{mongo_config.port}/",
@@ -67,9 +66,9 @@ def putPermission(
     """
     try:
         request_json = request.json
-        access_control_config = current_app.config['FOCA'].access_control
+        access_control_config = current_app.config["FOCA"].access_control
         db_coll_permission = (
-            current_app.config['FOCA'].db.dbs[access_control_config.db_name]
+            current_app.config["FOCA"].db.dbs[access_control_config.db_name]
             .collections[access_control_config.collection_name].client
         )
 
@@ -84,7 +83,7 @@ def putPermission(
             "v5": rule.get("v5", None)
         }
         db_coll_permission.replace_one(
-            filter={"_id": ObjectId(id)},
+            filter={"id": id},
             replacement=permission_data
         )
         logger.info("Policy updated.")
@@ -104,9 +103,9 @@ def getAllPermissions(limit=None) -> List[Dict]:
     Returns:
         List of permission dicts.
     """
-    access_control_config = current_app.config['FOCA'].access_control
+    access_control_config = current_app.config["FOCA"].access_control
     db_coll_permission = (
-        current_app.config['FOCA'].db.dbs[access_control_config.db_name]
+        current_app.config["FOCA"].db.dbs[access_control_config.db_name]
         .collections[access_control_config.collection_name].client
     )
 
@@ -131,21 +130,17 @@ def getPermission(
     Returns:
         Permission data for the given id.
     """
-    access_control_config = current_app.config['FOCA'].access_control
+    access_control_config = current_app.config["FOCA"].access_control
     db_coll_permission = (
-        current_app.config['FOCA'].db.dbs[access_control_config.db_name]
+        current_app.config["FOCA"].db.dbs[access_control_config.db_name]
         .collections[access_control_config.collection_name].client
     )
 
-    permission = db_coll_permission.find_one(
-        filter={"_id": ObjectId(id)},
-        projection={'_id': False}
-    )
-    logger.info(f"permission {permission}")
-    try:
-        return permission
-    except (KeyError, TypeError):
+    permission = db_coll_permission.find_one(filter={"id": id})
+    if permission is None:
         raise NotFound
+    del permission["_id"]
+    return permission
 
 
 @log_traffic
@@ -160,13 +155,13 @@ def deletePermission(
     Returns:
         Delete permission identifier.
     """
-    access_control_config = current_app.config['FOCA'].access_control
+    access_control_config = current_app.config["FOCA"].access_control
     db_coll_permission = (
-        current_app.config['FOCA'].db.dbs[access_control_config.db_name]
+        current_app.config["FOCA"].db.dbs[access_control_config.db_name]
         .collections[access_control_config.collection_name].client
     )
 
-    del_obj_permission = db_coll_permission.delete_one({'_id': ObjectId(id)})
+    del_obj_permission = db_coll_permission.delete_one({'id': id})
 
     if del_obj_permission.deleted_count:
         return id

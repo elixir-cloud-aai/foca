@@ -6,6 +6,7 @@ from typing import (List, Optional)
 from pymongo import MongoClient
 
 from foca.access_control.foca_casbin_adapter.casbin_rule import CasbinRule
+from foca.utils.misc import generate_id
 
 
 class Adapter(persist.Adapter):
@@ -61,7 +62,9 @@ class Adapter(persist.Adapter):
         line = CasbinRule(ptype=ptype)
         for index, value in enumerate(rule):
             setattr(line, f"v{index}", value)
-        self._collection.insert_one(line.dict())
+        line = line.dict()
+        line["id"] = generate_id()
+        self._collection.insert_one(line)
 
     def _delete_policy_lines(self, ptype: str, rule: List[str]) -> int:
         """Method to find a delete policies given a list of policy attributes.
@@ -85,7 +88,10 @@ class Adapter(persist.Adapter):
         else:
             line_dict = line.dict()
             line_dict_keys_len = len(line_dict)
-            results = self._collection.find(line_dict)
+            results = self._collection.find(
+                filter=line_dict,
+                projection={"id": False}
+            )
             to_delete = [
                 result["_id"]
                 for result in results

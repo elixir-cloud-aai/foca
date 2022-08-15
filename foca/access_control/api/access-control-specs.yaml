@@ -270,7 +270,7 @@ components:
         - policy_type
         - rule
       properties:
-        identifier:
+        id:
           type: string
           description: Unique identifier of the permission.
         rule_section:
