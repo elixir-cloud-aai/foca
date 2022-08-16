@@ -128,7 +128,7 @@ def register_permission_specs(
 
     app.add_api(
         specification=spec.path[0],
-        **spec.dict().get('connexion', {}),
+        **spec.dict().get("connexion", {}),
     )
     return app
 
@@ -160,15 +160,15 @@ def register_casbin_enforcer(
         casbin_model = access_control_config.model
 
     logger.info("Setting casbin model.")
-    app.app.config['CASBIN_MODEL'] = casbin_model
+    app.app.config["CASBIN_MODEL"] = casbin_model
 
     logger.info("Setting headers for owner operations.")
-    app.app.config['CASBIN_OWNER_HEADERS'] = (
+    app.app.config["CASBIN_OWNER_HEADERS"] = (
         access_control_config.owner_headers
     )
 
     logger.info("Setting headers for user operations.")
-    app.app.config['CASBIN_USER_NAME_HEADERS'] = (
+    app.app.config["CASBIN_USER_NAME_HEADERS"] = (
         access_control_config.user_headers
     )
 
@@ -178,7 +178,7 @@ def register_casbin_enforcer(
         dbname=access_control_config.db_name,
         collection=access_control_config.collection_name
     )
-    app.app.config['casbin_adapter'] = adapter
+    app.app.config["casbin_adapter"] = adapter
 
     return app
 
@@ -214,7 +214,7 @@ def check_permissions(
             Returns:
                 Wrapper function.
             """
-            adapter = current_app.config['casbin_adapter']
+            adapter = current_app.config["casbin_adapter"]
             casbin_enforcer = CasbinEnforcer(current_app, adapter)
             response = casbin_enforcer.enforcer(func=fn(*args, **kwargs))()
             return response

@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 from flask import Flask
+from foca.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.models.config import (AccessControlConfig, Config, MongoConfig)
 import mongomock
 import pytest
@@ -11,14 +12,17 @@ from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
     MOCK_ID,
     MOCK_RULE,
+    MOCK_RULE_INVALID,
     MONGO_CONFIG
 )
 from foca.access_control.access_control_server import (
     deletePermission,
     getPermission,
-    getAllPermissions
+    getAllPermissions,
+    postPermission,
+    putPermission
 )
-from foca.errors.exceptions import NotFound
+from foca.errors.exceptions import NotFound, InternalServerError
 
 
 # GET /permissions/{id}
@@ -150,3 +154,88 @@ def test_getAllPermissions_filters():
     with app.app_context():
         res = getAllPermissions.__wrapped__(limit=1)
         assert res == [data]
+
+
+# POST /permissions
+def test_postPermission():
+    """Test for creating a permission; identifier assigned by
+    implementation."""
+    app = Flask(__name__)
+    app.config["FOCA"] = Config(
+        db=MongoConfig(**MONGO_CONFIG),
+        access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
+    )
+    app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
+        .client = mongomock.MongoClient().db.collection
+    app.config["casbin_adapter"] = Adapter(
+        uri="mongodb://localhost:27017/",
+        dbname=ACCESS_CONTROL_CONFIG["db_name"],
+        collection=ACCESS_CONTROL_CONFIG["collection_name"]
+    )
+
+    with app.test_request_context(json=deepcopy(MOCK_RULE)):
+        res = postPermission.__wrapped__()
+        assert isinstance(res, str)
+
+
+def test_postPermission_InternalServerError():
+    """Test for creating a permission for invalid request."""
+    app = Flask(__name__)
+    app.config["FOCA"] = Config(
+        db=MongoConfig(**MONGO_CONFIG),
+        access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
+    )
+    app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
+        .client = mongomock.MongoClient().db.collection
+    app.config["casbin_adapter"] = Adapter(
+        uri="mongodb://localhost:27017/",
+        dbname=ACCESS_CONTROL_CONFIG["db_name"],
+        collection=ACCESS_CONTROL_CONFIG["collection_name"]
+    )
+
+    with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
+        with pytest.raises(InternalServerError):
+            postPermission.__wrapped__()
+
+
+# PUT /permissions/{id}
+def test_putPermission():
+    """Test for updating a permission; identifier assigned by
+    implementation."""
+    app = Flask(__name__)
+    app.config["FOCA"] = Config(
+        db=MongoConfig(**MONGO_CONFIG),
+        access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
+    )
+    app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
+        .client = mongomock.MongoClient().db.collection
+    app.config["casbin_adapter"] = Adapter(
+        uri="mongodb://localhost:27017/",
+        dbname=ACCESS_CONTROL_CONFIG["db_name"],
+        collection=ACCESS_CONTROL_CONFIG["collection_name"]
+    )
+
+    with app.test_request_context(json=deepcopy(MOCK_RULE)):
+        res = putPermission.__wrapped__(id=MOCK_ID)
+        assert isinstance(res, str)
+        assert res == MOCK_ID
+
+
+def test_putPermission_InternalServerError():
+    """Test for updating a permission for invalid request."""
+    app = Flask(__name__)
+    app.config["FOCA"] = Config(
+        db=MongoConfig(**MONGO_CONFIG),
+        access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
+    )
+    app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
+        .client = mongomock.MongoClient().db.collection
+    app.config["casbin_adapter"] = Adapter(
+        uri="mongodb://localhost:27017/",
+        dbname=ACCESS_CONTROL_CONFIG["db_name"],
+        collection=ACCESS_CONTROL_CONFIG["collection_name"]
+    )
+
+    with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
+        with pytest.raises(InternalServerError):
+            putPermission.__wrapped__(id=MOCK_ID)

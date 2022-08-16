@@ -36,3 +36,5 @@ MOCK_RULE = {
         "v3": "read"
     }
 }
+
+MOCK_RULE_INVALID = {"rule": []}

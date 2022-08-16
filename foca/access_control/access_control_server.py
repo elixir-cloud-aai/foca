@@ -7,7 +7,6 @@ from typing import (Dict, List)
 from flask import (request, current_app)
 
 from foca.utils.logging import log_traffic
-from foca.access_control.foca_casbin_adapter.adapter import Adapter
 from werkzeug.exceptions import (InternalServerError, NotFound)
 
 logger = logging.getLogger(__name__)
@@ -21,17 +20,8 @@ def postPermission() -> str:
         Identifier of the new permission added.
     """
     try:
+        access_control_adapter = current_app.config["casbin_adapter"]
         request_json = request.json
-
-        access_control_config = current_app.config["FOCA"].access_control
-        mongo_config = current_app.config["FOCA"].db
-
-        access_control_adapter = Adapter(
-            uri=f"mongodb://{mongo_config.host}:{mongo_config.port}/",
-            dbname=access_control_config.db_name,
-            collection=access_control_config.collection_name
-        )
-
         rule = request_json.get("rule", {})
         permission_data = [
             rule.get("v0", None),
