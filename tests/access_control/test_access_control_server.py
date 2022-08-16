@@ -161,6 +161,8 @@ def test_postPermission():
     """Test for creating a permission; identifier assigned by
     implementation."""
     app = Flask(__name__)
+    TEST_MONGO_CONFIG = deepcopy(MONGO_CONFIG)
+    TEST_MONGO_CONFIG["port"] = "12345"
     app.config["FOCA"] = Config(
         db=MongoConfig(**MONGO_CONFIG),
         access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
@@ -168,7 +170,7 @@ def test_postPermission():
     app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
         .client = mongomock.MongoClient().db.collection
     app.config["casbin_adapter"] = Adapter(
-        uri="mongodb://localhost:27017/",
+        uri="mongodb://localhost:12345/",
         dbname=ACCESS_CONTROL_CONFIG["db_name"],
         collection=ACCESS_CONTROL_CONFIG["collection_name"]
     )
@@ -181,6 +183,8 @@ def test_postPermission():
 def test_postPermission_InternalServerError():
     """Test for creating a permission for invalid request."""
     app = Flask(__name__)
+    TEST_MONGO_CONFIG = deepcopy(MONGO_CONFIG)
+    TEST_MONGO_CONFIG["port"] = "12345"
     app.config["FOCA"] = Config(
         db=MongoConfig(**MONGO_CONFIG),
         access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
@@ -188,7 +192,7 @@ def test_postPermission_InternalServerError():
     app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
         .client = mongomock.MongoClient().db.collection
     app.config["casbin_adapter"] = Adapter(
-        uri="mongodb://localhost:27017/",
+        uri="mongodb://localhost:12345/",
         dbname=ACCESS_CONTROL_CONFIG["db_name"],
         collection=ACCESS_CONTROL_CONFIG["collection_name"]
     )
@@ -209,11 +213,6 @@ def test_putPermission():
     )
     app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
         .client = mongomock.MongoClient().db.collection
-    app.config["casbin_adapter"] = Adapter(
-        uri="mongodb://localhost:27017/",
-        dbname=ACCESS_CONTROL_CONFIG["db_name"],
-        collection=ACCESS_CONTROL_CONFIG["collection_name"]
-    )
 
     with app.test_request_context(json=deepcopy(MOCK_RULE)):
         res = putPermission.__wrapped__(id=MOCK_ID)
@@ -230,11 +229,6 @@ def test_putPermission_InternalServerError():
     )
     app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
         .client = mongomock.MongoClient().db.collection
-    app.config["casbin_adapter"] = Adapter(
-        uri="mongodb://localhost:27017/",
-        dbname=ACCESS_CONTROL_CONFIG["db_name"],
-        collection=ACCESS_CONTROL_CONFIG["collection_name"]
-    )
 
     with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
         with pytest.raises(InternalServerError):
