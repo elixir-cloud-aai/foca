@@ -153,7 +153,7 @@ class TestAdapter(TestCase):
         """Test to remove policy with incomplete rule. (Policy should not be
         removed)
         """
-        adapter = Adapter("mongodb://localhost:27017", "casbin_test")
+        adapter = Adapter(f"mongodb://localhost:{self.db_port}", self.db_name)
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
             conf_file=MODEL_ROLES_CONF_FILE,
