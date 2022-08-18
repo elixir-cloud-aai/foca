@@ -203,7 +203,7 @@ def check_permissions(
         """
         @wraps(fn)
         def _wrapper(*args, **kwargs):
-            """Wrapper for logging decorator.
+            """Wrapper for permissions decorator.
 
             Args:
                 args: positional arguments passed through from
@@ -216,7 +216,7 @@ def check_permissions(
             """
             adapter = current_app.config["casbin_adapter"]
             casbin_enforcer = CasbinEnforcer(current_app, adapter)
-            response = casbin_enforcer.enforcer(func=fn(*args, **kwargs))()
+            response = casbin_enforcer.enforcer(func=fn)(*args, **kwargs)
             return response
 
         return _wrapper

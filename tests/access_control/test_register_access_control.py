@@ -1,51 +1,77 @@
 """Tests for registering access control"""
 
-from copy import deepcopy
 from flask import Flask
 import mongomock
+from pymongo import MongoClient
+from unittest import TestCase
 
-# from foca.access_control.register_access_control import check_permissions
+from foca.access_control.register_access_control import check_permissions
 from foca.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.models.config import AccessControlConfig, Config, MongoConfig
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
+    MOCK_REQUEST,
     MONGO_CONFIG,
     MOCK_PERMISSION
 )
 
-app = Flask(__name__)
-TEST_MONGO_CONFIG = deepcopy(MONGO_CONFIG)
-access_control = AccessControlConfig(**ACCESS_CONTROL_CONFIG)
-app.config["FOCA"] = Config(
-    db=MongoConfig(**MONGO_CONFIG),
-    access_control=access_control
-)
-app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
-    .client = mongomock.MongoClient().db.collection
-app.config["casbin_adapter"] = Adapter(
-    uri="mongodb://localhost:12345/",
-    dbname=ACCESS_CONTROL_CONFIG["db_name"],
-    collection=ACCESS_CONTROL_CONFIG["collection_name"]
-)
-app.config["CASBIN_MODEL"] = access_control.model
-app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
-    .client.insert_one(MOCK_PERMISSION)
-REQ = {
-    "REQUEST_METHOD": "GET",
-    "PATH_INFO": "/",
-    "SERVER_PROTOCOL": "HTTP/1.1",
-    "REMOTE_ADDR": "192.168.1.1",
-    "headers": {"X-User": "alice"}
-}
 
+class TestRegisterAccessControl(TestCase):
+    """Test class for register access control."""
 
-def test_check_permission():
-    """Test to check only valid user requests are permitted via enforcer."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.db = MongoConfig(**MONGO_CONFIG)
+        self.access_control = AccessControlConfig(**ACCESS_CONTROL_CONFIG)
+        self.access_db = self.access_control.db_name
+        self.access_col = self.access_control.collection_name
+        self.db_port = self.db.port
 
-    # @check_permissions
-    def mock_func():
-        return {"foo": "bar"}
+    def clear_db(self):
+        client = MongoClient(f"mongodb://localhost:{self.db_port}")
+        client.drop_database(self.access_db)
 
-    with app.test_request_context(environ_base=REQ):
-        response = mock_func()
-        assert response == {"foo": "bar"}
+    def setUp(self):
+        self.clear_db()
+
+    def tearDown(self):
+        self.clear_db()
+
+    def test_check_permission_allowed(self):
+        """Test to check only valid user requests are permitted via
+        enforcer."""
+        app = Flask(__name__)
+        app.config["FOCA"] = Config(
+            db=self.db,
+            access_control=self.access_control
+        )
+        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+            .client = mongomock.MongoClient().db.collection
+        app.config["casbin_adapter"] = Adapter(
+            uri=f"mongodb://localhost:{self.db_port}/",
+            dbname=self.access_db,
+            collection=self.access_col
+        )
+        app.config["casbin_adapter"].save_policy_line(
+            ptype="p",
+            rule=MOCK_PERMISSION
+        )
+        app.config["CASBIN_MODEL"] = self.access_control.model
+        app.config["CASBIN_OWNER_HEADERS"] = self.access_control.owner_headers
+        app.config["CASBIN_USER_NAME_HEADERS"] = self.access_control.\
+            user_headers
+
+        @check_permissions
+        def mock_func():
+            return "pass"
+
+        with app.test_request_context(
+            environ_base=MOCK_REQUEST,
+            headers={"X-User": "alice"}
+        ):
+            response = mock_func()
+            assert response == "pass"
+
+    def test_check_permission_not_allowed(self):
+        """Test to check invalid user request is not allowed."""
+        assert check_permissions() is not None

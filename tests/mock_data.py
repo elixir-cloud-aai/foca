@@ -2,7 +2,6 @@
 from pathlib import Path
 
 
-MOCK_ID = "mock_id"
 INDEX_CONFIG = {
     "keys": [("id", 1)]
 }
@@ -21,7 +20,6 @@ MONGO_CONFIG = {
         "access_control_db": DB_CONFIG,
     },
 }
-
 DIR = Path(__file__).parent / "access_control/foca_casbin_adapter/test_files/"
 MODEL_CONF_FILE = str(DIR / "rbac_model.conf")
 ACCESS_CONTROL_CONFIG = {
@@ -32,6 +30,7 @@ ACCESS_CONTROL_CONFIG = {
     "model": MODEL_CONF_FILE
 }
 
+MOCK_ID = "mock_id"
 MOCK_RULE = {
     "rule_section": "p",
     "policy_type": "p1",
@@ -42,12 +41,11 @@ MOCK_RULE = {
         "v3": "read"
     }
 }
-
 MOCK_RULE_INVALID = {"rule": []}
-
-MOCK_PERMISSION = {
-    "ptype": "p",
-    "v0": "alice",
-    "v1": "/",
-    "v2": "GET"
+MOCK_PERMISSION = ["alice", "/", "GET"]
+MOCK_REQUEST = {
+    "REQUEST_METHOD": "GET",
+    "PATH_INFO": "/",
+    "SERVER_PROTOCOL": "HTTP/1.1",
+    "REMOTE_ADDR": "192.168.1.1"
 }
