@@ -66,4 +66,5 @@ class CasbinRule:
         return ", ".join(self.dict().values())
 
     def __repr__(self):
+        print("self   ", self)
         return '<CasbinRule :"{}">'.format(str(self))

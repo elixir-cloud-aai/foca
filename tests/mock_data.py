@@ -1,4 +1,5 @@
 """Mock data for testing."""
+from pathlib import Path
 
 
 MOCK_ID = "mock_id"
@@ -21,11 +22,14 @@ MONGO_CONFIG = {
     },
 }
 
+DIR = Path(__file__).parent / "access_control/foca_casbin_adapter/test_files/"
+MODEL_CONF_FILE = str(DIR / "rbac_model.conf")
 ACCESS_CONTROL_CONFIG = {
     "db_name": "access_control_db",
     "collection_name": "policy_rules",
     "owner_headers": ["X-User", "X-Group"],
-    "user_headers": ["X-User"]
+    "user_headers": ["X-User"],
+    "model": MODEL_CONF_FILE
 }
 
 MOCK_RULE = {

@@ -46,7 +46,9 @@ class Adapter(persist.Adapter):
         """
 
         for line in self._collection.find():
+            print(line)
             rule = CasbinRule(line["ptype"])
+            print("RULE", rule)
             for key, value in line.items():
                 setattr(rule, key, value)
 

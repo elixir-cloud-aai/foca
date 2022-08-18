@@ -1,5 +1,6 @@
 """Tests for `adapter.py` module."""
 
+from unittest import TestCase
 from casbin import Enforcer, Model
 from pathlib import Path
 from pymongo import MongoClient
@@ -28,8 +29,19 @@ TEST_POLICIES_MODEL_ROLES_CONF = [
 ]
 
 
-class TestAdapter:
+class TestAdapter(TestCase):
     """Class to test adapter configuration."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.db_name = "casbin_test"
+        self.db_port = 12345
+        
+    def setUp(self):
+        self.clear_db()
+
+    def tearDown(self):
+        self.clear_db()
 
     def save_policies(
         self,
@@ -49,7 +61,6 @@ class TestAdapter:
             model: Casbin model configuration.
             policy: New policy to be added.
         """
-
         model.clear_policy()
         model.add_policy(*policy)
         adapter.save_policy(model)
@@ -73,30 +84,20 @@ class TestAdapter:
             Casbin enforcer object that validates against the registered
             policy model.
         """
-
-        adapter = Adapter("mongodb://localhost:12345", "casbin_test")
+        adapter = Adapter(f"mongodb://localhost:{self.db_port}", self.db_name)
         e = Enforcer(conf_file, adapter)
         model = e.get_model()
         for _policy in policies:
             self.save_policies(adapter=adapter, model=model, policy=_policy)
         return Enforcer(conf_file, adapter)
 
-    def clear_db(self, dbname: str):
-        """Helper to clear db after each test.
-
-        Args:
-            dbname: Database name to be cleared.
-        Attributes:
-            dbname: Database name to be cleared.
-        """
-
-        client = MongoClient("mongodb://localhost:12345")
-        client.drop_database(dbname)
+    def clear_db(self):
+        """Helper to clear db after each test."""
+        client = MongoClient(f"mongodb://localhost:{self.db_port}")
+        client.drop_database(self.db_name)
 
     def test_enforcer(self):
         """Test policy enforcer."""
-
-        self.clear_db(dbname="casbin_test")
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
@@ -107,12 +108,9 @@ class TestAdapter:
         assert e.enforce("bob", "data2", "write") is True
         assert e.enforce("alice", "data2", "read") is True
         assert e.enforce("alice", "data2", "write") is True
-        self.clear_db(dbname="casbin_test")
 
     def test_add_policy(self):
         """Test for adding new policy."""
-
-        self.clear_db(dbname="casbin_test")
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
@@ -132,12 +130,9 @@ class TestAdapter:
         assert policy2 is True
         assert e.enforce("alice", "data1", "read") is True
         assert e.enforce("bob", "data2", "read") is True
-        self.clear_db(dbname="casbin_test")
 
     def test_remove_policy(self):
         """Test for removing policy."""
-
-        self.clear_db(dbname="casbin_test")
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
@@ -153,15 +148,12 @@ class TestAdapter:
         assert remove_policy is True
         assert e.enforce("alice", "data2", "read") is False
         assert e.enforce("alice", "data2", "write") is False
-        self.clear_db(dbname="casbin_test")
 
     def test_remove_policy_with_incomplete_rule(self):
         """Test to remove policy with incomplete rule. (Policy should not be
         removed)
         """
-
-        self.clear_db(dbname="casbin_test")
-        adapter = Adapter("mongodb://localhost:12345", "casbin_test")
+        adapter = Adapter("mongodb://localhost:27017", "casbin_test")
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
             conf_file=MODEL_ROLES_CONF_FILE,
@@ -185,15 +177,12 @@ class TestAdapter:
         assert e.enforce("alice", "data1", "read") is True
         assert e.enforce("bob", "data2", "read") is True
         assert e.enforce("alice", "data2", "write") is True
-        self.clear_db(dbname="casbin_test")
 
     def test_remove_policy_with_empty_rule(self):
         """Test to remove policy with empty rule. (Policy should not be
         removed)
         """
-
-        self.clear_db(dbname="casbin_test")
-        adapter = Adapter("mongodb://localhost:12345", "casbin_test")
+        adapter = Adapter(f"mongodb://localhost:{self.db_port}", self.db_name)
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
             conf_file=MODEL_ROLES_CONF_FILE,
@@ -210,12 +199,9 @@ class TestAdapter:
 
         assert remove_policy is False
         assert e.enforce("alice", "data1", "write") is True
-        self.clear_db(dbname="casbin_test")
 
     def test_save_policy(self):
         """Test to save policy."""
-
-        self.clear_db(dbname="casbin_test")
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
@@ -228,12 +214,9 @@ class TestAdapter:
         adapter.save_policy(model)
 
         assert e.enforce("alice", "data4", "read") is True
-        self.clear_db(dbname="casbin_test")
 
     def test_remove_filtered_policy(self):
         """Test to remove filtered policy definitions."""
-
-        self.clear_db(dbname="casbin_test")
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
         )
@@ -268,4 +251,3 @@ class TestAdapter:
         assert e.enforce("bob", "data2", "write") is True
         assert e.enforce("alice", "data2", "read") is False
         assert e.enforce("alice", "data2", "write") is False
-        self.clear_db(dbname="casbin_test")
