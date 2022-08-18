@@ -38,7 +38,7 @@ class BaseTestAccessControl(TestCase):
     def clear_db(self):
         client = MongoClient(f"mongodb://localhost:{self.db_port}")
         client.drop_database(self.access_db)
-    
+
     def setUp(self):
         self.clear_db()
 

@@ -23,7 +23,7 @@ app.config["FOCA"] = Config(
 app.config["FOCA"].db.dbs["access_control_db"].collections["policy_rules"]\
     .client = mongomock.MongoClient().db.collection
 app.config["casbin_adapter"] = Adapter(
-    uri="mongodb://localhost:27017/",
+    uri="mongodb://localhost:12345/",
     dbname=ACCESS_CONTROL_CONFIG["db_name"],
     collection=ACCESS_CONTROL_CONFIG["collection_name"]
 )

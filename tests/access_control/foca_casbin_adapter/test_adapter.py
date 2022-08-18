@@ -31,12 +31,12 @@ TEST_POLICIES_MODEL_ROLES_CONF = [
 
 class TestAdapter(TestCase):
     """Class to test adapter configuration."""
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.db_name = "casbin_test"
         self.db_port = 12345
-        
+
     def setUp(self):
         self.clear_db()
 
