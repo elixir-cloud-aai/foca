@@ -1,20 +1,10 @@
 """Unit tests for endpoint controllers."""
 
 from copy import deepcopy
-
 from flask import Flask
-from foca.access_control.foca_casbin_adapter.adapter import Adapter
-from foca.models.config import (AccessControlConfig, Config, MongoConfig)
 import mongomock
 import pytest
 
-from tests.mock_data import (
-    ACCESS_CONTROL_CONFIG,
-    MOCK_ID,
-    MOCK_RULE,
-    MOCK_RULE_INVALID,
-    MONGO_CONFIG
-)
 from foca.access_control.access_control_server import (
     deletePermission,
     getPermission,
@@ -22,7 +12,16 @@ from foca.access_control.access_control_server import (
     postPermission,
     putPermission
 )
+from foca.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.errors.exceptions import NotFound, InternalServerError
+from foca.models.config import (AccessControlConfig, Config, MongoConfig)
+from tests.mock_data import (
+    ACCESS_CONTROL_CONFIG,
+    MOCK_ID,
+    MOCK_RULE,
+    MOCK_RULE_INVALID,
+    MONGO_CONFIG
+)
 
 
 # GET /permissions/{id}

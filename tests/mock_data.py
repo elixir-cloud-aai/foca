@@ -23,7 +23,9 @@ MONGO_CONFIG = {
 
 ACCESS_CONTROL_CONFIG = {
     "db_name": "access_control_db",
-    "collection_name": "policy_rules"
+    "collection_name": "policy_rules",
+    "owner_headers": ["X-User", "X-Group"],
+    "user_headers": ["X-User"]
 }
 
 MOCK_RULE = {
@@ -38,3 +40,10 @@ MOCK_RULE = {
 }
 
 MOCK_RULE_INVALID = {"rule": []}
+
+MOCK_PERMISSION = {
+    "ptype": "p",
+    "v0": "alice",
+    "v1": "/",
+    "v2": "GET"
+}
