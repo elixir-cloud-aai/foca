@@ -213,9 +213,7 @@ class TestPostPermission(BaseTestAccessControl):
         self.access_control = AccessControlConfig(**ACCESS_CONTROL_CONFIG)
         self.access_db = self.access_control.db_name
         self.access_col = self.access_control.collection_name
-        TEST_MONGO_CONFIG = deepcopy(MONGO_CONFIG)
-        TEST_MONGO_CONFIG["port"] = "12345"
-        self.db = MongoConfig(**TEST_MONGO_CONFIG)
+        self.db = MongoConfig(**MONGO_CONFIG)
         self.db_port = self.db.port
 
     def test_postPermission(self):
