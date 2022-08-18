@@ -6,9 +6,11 @@ services:
     build:
       context: ../../
       dockerfile: docker/Dockerfile
+      args:
+        PY_IMAGE: ${PETSTORE_PY_IMAGE:-3.10-slim-buster}
     image: foca-petstore-root:latest
     restart: "no"
-  
+
   app:
     image: elixircloud/foca-petstore:latest
     depends_on:

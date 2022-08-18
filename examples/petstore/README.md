@@ -53,35 +53,10 @@ Clone repository:
 git clone https://github.com/elixir-cloud-aai/foca.git
 ```
 
-Traverse to the repository root directory:
+Traverse to the Petstore app (_this_) directory:
 
 ```bash
-cd foca
-```
-
-Locally build the FOCA base image based on the current state of FOCA and based
-on one of the supported Python versions (here: `3.9`):
-
-```bash
-docker build \
-  -t elixircloud/foca:petstore \
-  -f docker/Dockerfile \
-  .
-```
-
-> If you wish to modify FOCA code itself and then have those code changes
-> reflected in the example app, don't forget to rebuild the FOCA base image
-> before re-starting services via `docker-compose` in the next steps!  
->  
-> You can also optionally build FOCA with another supported version of Python.
-> In that case, add `--build-arg PY_IMAGE="PYTHON_IMAGE_TAG"` to the `docker
-> build` command above, where `PYTHON_IMAGE_TAG` is the tag of the official
-> Python image you would like to use.
-
-Traverse to example app directory:
-
-```bash
-cd examples/petstore
+cd foca/examples/petstore
 ```
 
 Build and run services in detached/daemonized mode:
@@ -90,16 +65,27 @@ Build and run services in detached/daemonized mode:
 docker-compose up -d --build
 ```
 
-> In case Docker complains about port conflicts or if any of the used ports are
-> blocked by a firewall, you will need to re-map the conflicting port(s) in the
-> [Docker Compose config][app-docker-compose]. In particular, for each of the
-> services that failed to start because of a port conflict, you will need to
-> change the **first** of the two numbers listed below the corresponding
-> `ports` keyword to some unused/open port. Note that if you change the mapped
-> port for the `app` service you will need to manually append it to `localhost`
-> when you access the API (or the Swagger UI) in subsequent steps. For example,
-> assuming you would like to run the app on port `8080` instead of the default
-> of `80`, then the app will be availabe via : `http://localhost:8080/`.
+Some notes:
+
+> * This will build the app based on the _current_ state of your FOCA clone.
+> That is, any changes that you may have introduced to FOCA will be reflected
+> in your build.
+> * By default, the app will be build based on the latest Python version that
+> FOCA supports. If you would like to build the FOCA image based on a different
+> version of Python, you can set the Python image to be used as FOCA's base
+> image by defining the environment variable `PETSTORE_PY_IMAGE` before
+> executing the build command. For example:
+>  
+>    ```bash
+>    export PETSTORE_PY_IMAGE=3.8-slim-buster
+>    ```
+>  
+> * In case Docker complains about port conflicts or if any of the used ports
+> are blocked by a firewall, you will need to re-map the conflicting port(s) in
+> the [Docker Compose config][app-docker-compose]. In particular, for each of
+> the services that failed to start because of a port conflict, you will need
+> to change the **first** of the two numbers listed below the corresponding
+> `ports` keyword to some unused/open port.
 
 That's it, you can now visit the application's [Swagger UI][res-swagger-ui] in
 your browser, e.g.,:
@@ -108,7 +94,14 @@ your browser, e.g.,:
 firefox http://localhost/ui  # or use your browser of choice
 ```
 
-> Note that Mac users may need to replace `localhost` with `0.0.0.0`.
+Some notes:
+
+> * Mac users may need to replace `localhost` with `0.0.0.0`.
+> * If you have changed the mapped port for the `app` service you will need to
+> manually append it to `localhost` when you access the API (or the Swagger UI)
+> in subsequent steps. For example, assuming you would like to run the app on
+> port `8080` instead of the default of `80`, then the app will be availabe
+> at `http://localhost:8080/`.
 
 ## Explore app
 
