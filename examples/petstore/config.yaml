@@ -47,7 +47,3 @@ exceptions:
     required_members: [['message'], ['code']]
     status_member: ['code']
     exceptions: exceptions.exceptions
-
-access_control:
-    owner_headers: ['owner']
-    user_headers: ['user']
