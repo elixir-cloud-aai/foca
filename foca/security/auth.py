@@ -77,7 +77,7 @@ def validate_token(token: str) -> Dict:
         oidc_config.raise_for_status()
     except Exception as e:
         raise Unauthorized(
-            "Could not fetch issuer's configuration from: {url}"
+            f"Could not fetch issuer's configuration from: {url}"
         ) from e
 
     # Validate token

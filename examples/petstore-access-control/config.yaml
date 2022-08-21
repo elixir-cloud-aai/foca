@@ -1,0 +1,57 @@
+server:
+    host: '0.0.0.0'
+    port: 8080
+    debug: True
+    environment: development
+    testing: False
+    use_reloader: True
+
+security:
+    auth:
+        required: True
+        add_key_to_claims: True
+        allow_expired: False
+        audience: null
+        claim_identity: sub
+        claim_issuer: iss
+        algorithms:
+          - RS256
+        validation_methods:
+          - userinfo
+          - public_key
+        validation_checks: all
+
+api:
+    specs:
+        - path: petstore-access-control.yaml
+          append:
+            - security:
+              - bearerAuth: []
+          add_security_fields:
+              x-bearerInfoFunc: foca.security.auth.validate_token
+          add_operation_fields:
+              x-openapi-router-controller: controllers
+          connexion:
+              strict_validation: True
+              validate_responses: False
+              options:
+                  swagger_ui: True
+                  serve_spec: True
+
+db:
+    host: mongodb
+    port: 27017
+    dbs:
+        petstore-access-control:
+            collections:
+                pets:
+                    indexes: null
+
+exceptions:
+    required_members: [['message'], ['code']]
+    status_member: ['code']
+    exceptions: exceptions.exceptions
+
+access_control:
+    owner_headers: ['owner']
+    user_headers: ['user']

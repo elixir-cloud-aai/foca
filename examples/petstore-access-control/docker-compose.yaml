@@ -1,0 +1,34 @@
+version: '3.6'
+services:
+
+  # build app image based on current FOCA root image
+  foca-petstore-access-control-root:
+    build:
+      context: ../../
+      dockerfile: docker/Dockerfile
+      args:
+        PY_IMAGE: ${PETSTORE_PY_IMAGE:-3.10-slim-buster}
+    image: foca-petstore-access-control-root:latest
+    restart: "no"
+
+  app:
+    image: elixircloud/foca-petstore-access-control:latest
+    depends_on:
+      - foca-petstore-access-control-root
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    links:
+      - mongodb
+    command: bash -c "python app.py"
+    ports:
+      - "80:8080"
+
+  mongodb:
+    image: mongo:3.6
+    restart: unless-stopped
+    volumes:
+      - ./data/petstore-access-control/db:/data/db
+    ports:
+      - "27017:27017"
