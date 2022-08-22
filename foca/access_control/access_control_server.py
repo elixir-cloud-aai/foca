@@ -56,9 +56,9 @@ def putPermission(
     """
     try:
         request_json = request.json
-        access_control_config = current_app.config["FOCA"].access_control
+        access_control_config = current_app.config.foca.access_control
         db_coll_permission = (
-            current_app.config["FOCA"].db.dbs[access_control_config.db_name]
+            current_app.config.foca.db.dbs[access_control_config.db_name]
             .collections[access_control_config.collection_name].client
         )
 
@@ -93,9 +93,10 @@ def getAllPermissions(limit=None) -> List[Dict]:
     Returns:
         List of permission dicts.
     """
-    access_control_config = current_app.config["FOCA"].access_control
+    logger.info(f"test {current_app.config}")
+    access_control_config = current_app.config.foca.access_control
     db_coll_permission = (
-        current_app.config["FOCA"].db.dbs[access_control_config.db_name]
+        current_app.config.foca.db.dbs[access_control_config.db_name]
         .collections[access_control_config.collection_name].client
     )
 
@@ -120,9 +121,9 @@ def getPermission(
     Returns:
         Permission data for the given id.
     """
-    access_control_config = current_app.config["FOCA"].access_control
+    access_control_config = current_app.config.foca.access_control
     db_coll_permission = (
-        current_app.config["FOCA"].db.dbs[access_control_config.db_name]
+        current_app.config.foca.db.dbs[access_control_config.db_name]
         .collections[access_control_config.collection_name].client
     )
 
@@ -145,9 +146,9 @@ def deletePermission(
     Returns:
         Delete permission identifier.
     """
-    access_control_config = current_app.config["FOCA"].access_control
+    access_control_config = current_app.config.foca.access_control
     db_coll_permission = (
-        current_app.config["FOCA"].db.dbs[access_control_config.db_name]
+        current_app.config.foca.db.dbs[access_control_config.db_name]
         .collections[access_control_config.collection_name].client
     )
 

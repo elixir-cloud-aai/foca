@@ -62,15 +62,15 @@ class TestGetPermission(BaseTestAccessControl):
         identifier.
         """
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=self.db,
             access_control=self.access_control
         )
         mock_resp = deepcopy(MOCK_RULE)
         mock_resp["id"] = MOCK_ID
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client.insert_one(mock_resp)
         del mock_resp["_id"]
 
@@ -85,15 +85,15 @@ class TestGetPermission(BaseTestAccessControl):
         identifier when the identifier is not available.
         """
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=MongoConfig(**MONGO_CONFIG),
             access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
         )
         mock_resp = deepcopy(MOCK_RULE)
         mock_resp["id"] = MOCK_ID
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client.insert_one(mock_resp)
         del mock_resp["_id"]
 
@@ -116,15 +116,15 @@ class TestDeletePermission(BaseTestAccessControl):
     def test_deletePermission(self):
         """Test for deleting a permission."""
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=self.db,
             access_control=self.access_control
         )
         mock_resp = deepcopy(MOCK_RULE)
         mock_resp["id"] = MOCK_ID
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client.insert_one(mock_resp)
 
         with app.app_context():
@@ -134,14 +134,14 @@ class TestDeletePermission(BaseTestAccessControl):
     def test_deletePermission_NotFound(self):
         """Test `DELETE /permissions/{id}` endpoint with unavailable id."""
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=MongoConfig(**MONGO_CONFIG),
             access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
         )
         mock_resp = deepcopy(MOCK_RULE)
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client.insert_one(mock_resp)
 
         with app.app_context():
@@ -165,15 +165,15 @@ class TestGetAllPermissions(BaseTestAccessControl):
         specified.
         """
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=MongoConfig(**MONGO_CONFIG),
             access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
         )
         mock_resp = deepcopy(MOCK_RULE)
         mock_resp['id'] = MOCK_ID
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client.insert_one(mock_resp)
 
         data = deepcopy(MOCK_RULE)
@@ -187,15 +187,15 @@ class TestGetAllPermissions(BaseTestAccessControl):
         specified.
         """
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=MongoConfig(**MONGO_CONFIG),
             access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
         )
         mock_resp = deepcopy(MOCK_RULE)
         mock_resp['id'] = MOCK_ID
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client.insert_one(mock_resp)
 
         data = deepcopy(MOCK_RULE)
@@ -220,11 +220,11 @@ class TestPostPermission(BaseTestAccessControl):
         """Test for creating a permission; identifier assigned by
         implementation."""
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=self.db,
             access_control=self.access_control
         )
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
         app.config["casbin_adapter"] = Adapter(
             uri=f"mongodb://localhost:{self.db_port}/",
@@ -239,11 +239,11 @@ class TestPostPermission(BaseTestAccessControl):
     def test_postPermission_InternalServerError(self):
         """Test for creating a permission for invalid request."""
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=self.db,
             access_control=self.access_control
         )
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
         app.config["casbin_adapter"] = Adapter(
             uri=f"mongodb://localhost:{self.db_port}/",
@@ -271,11 +271,11 @@ class TestPutPermission(BaseTestAccessControl):
         """Test for updating a permission; identifier assigned by
         implementation."""
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=MongoConfig(**MONGO_CONFIG),
             access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
         )
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
 
         with app.test_request_context(json=deepcopy(MOCK_RULE)):
@@ -286,11 +286,11 @@ class TestPutPermission(BaseTestAccessControl):
     def test_putPermission_InternalServerError(self):
         """Test for updating a permission for invalid request."""
         app = Flask(__name__)
-        app.config["FOCA"] = Config(
+        app.config.foca = Config(
             db=MongoConfig(**MONGO_CONFIG),
             access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
         )
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client = mongomock.MongoClient().db.collection
 
         with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
