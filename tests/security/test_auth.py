@@ -114,6 +114,7 @@ MOCK_TOKEN_HEADER_KID = (
 )
 MOCK_TOKEN_INVALID = "my-invalid-token"
 MOCK_URL = "https://some-url-that-does-not.exist"
+MOCK_HEADERS = {"content-type": "application/json"}
 
 
 def _raise(exception) -> None:
@@ -143,7 +144,7 @@ class TestValidateToken:
             'foca.security.auth._validate_jwt_public_key',
             lambda **kwargs: None,
         )
-        with app.app_context():
+        with app.test_request_context(headers=MOCK_HEADERS):
             res = validate_token(token=MOCK_TOKEN_HEADER_KID)
             assert res['user_id'] == MOCK_USER_ID
 
@@ -164,7 +165,7 @@ class TestValidateToken:
             'foca.security.auth._validate_jwt_userinfo',
             lambda **kwargs: None,
         )
-        with app.app_context():
+        with app.test_request_context(headers=MOCK_HEADERS):
             res = validate_token(token=MOCK_TOKEN_HEADER_KID)
             assert res['user_id'] == MOCK_USER_ID
 
@@ -173,7 +174,7 @@ class TestValidateToken:
         app = Flask(__name__)
         setattr(app.config, 'foca', Config())
         app.config.foca.security.auth.validation_methods = []
-        with app.app_context():
+        with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN)
 
@@ -181,7 +182,7 @@ class TestValidateToken:
         """Test for failed validation due to invalid token."""
         app = Flask(__name__)
         setattr(app.config, 'foca', Config())
-        with app.app_context():
+        with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN_INVALID)
 
@@ -193,7 +194,7 @@ class TestValidateToken:
             'jwt.decode',
             lambda *args, **kwargs: {},
         )
-        with app.app_context():
+        with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN_INVALID)
 
@@ -205,7 +206,7 @@ class TestValidateToken:
             'requests.get',
             lambda **kwargs: _raise(ConnectionError)
         )
-        with app.app_context():
+        with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN_HEADER_KID)
 
@@ -232,7 +233,7 @@ class TestValidateToken:
             'foca.security.auth._validate_jwt_public_key',
             lambda **kwargs: None,
         )
-        with app.app_context():
+        with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN_HEADER_KID)
 
@@ -256,7 +257,7 @@ class TestValidateToken:
             'foca.security.auth._validate_jwt_public_key',
             lambda **kwargs: _raise(Unauthorized),
         )
-        with app.app_context():
+        with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN_HEADER_KID)
 
@@ -282,7 +283,7 @@ class TestValidateToken:
             'foca.security.auth._validate_jwt_public_key',
             lambda **kwargs: _raise(Unauthorized),
         )
-        with app.app_context():
+        with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN_HEADER_KID)
 
