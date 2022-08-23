@@ -53,5 +53,5 @@ exceptions:
     exceptions: exceptions.exceptions
 
 access_control:
-    owner_headers: ['owner']
-    user_headers: ['user']
+    owner_headers: ['user_id']
+    user_headers: ['user_id']

@@ -6,12 +6,13 @@ from typing import (Dict, Iterable, List, Optional)
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
-from flask import current_app
+from flask import current_app, request
 import jwt
 from jwt.exceptions import InvalidKeyError
 import requests
 from requests.exceptions import ConnectionError
 import json
+from werkzeug.datastructures import ImmutableMultiDict
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -119,6 +120,12 @@ def validate_token(token: str) -> Dict:
 
     # Log result
     logger.debug(f"Access granted to user: {claims[claim_identity]}")
+
+    req_headers = request.headers.__dict__
+    for key, val in claims.items():
+        req_headers[key] = val
+    req_headers['user_id'] = claims[claim_identity]
+    request.headers = ImmutableMultiDict(req_headers)
 
     # Return token info
     return {

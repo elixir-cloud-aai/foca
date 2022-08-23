@@ -1,7 +1,7 @@
-# FOCA-Petstore
+# FOCA-Petstore-Access-Control
 
 Dockerized [Petstore][res-petstore] example application implemented using
-[FOCA][res-foca].
+[FOCA][res-foca] with [access control][res-access-control] enabled.
 
 ## Description
 
@@ -17,6 +17,8 @@ FOCA makes sure that
   [Petstore][app-specs] [OpenAPI][res-openapi] specification are validated
 * a [MongoDB][res-mongo-db] collection to store pets in is registered with the
   app
+* a [MongoDB][res-mongo-db] collection to store access control permissions in
+  is registered with the app
 * [CORS][res-cors] is enabled
 * exceptions are handled according to the definitions in the `exceptions`
   dictionary in module [`exceptions`][app-exceptions]
@@ -56,7 +58,7 @@ git clone https://github.com/elixir-cloud-aai/foca.git
 Traverse to the Petstore app (_this_) directory:
 
 ```bash
-cd foca/examples/petstore
+cd foca/examples/petstore-access-control
 ```
 
 Build and run services in detached/daemonized mode:
@@ -90,8 +92,14 @@ Some notes:
 That's it, you can now visit the application's [Swagger UI][res-swagger-ui] in
 your browser, e.g.,:
 
+* For petstore application endpoints
 ```bash
 firefox http://localhost/ui  # or use your browser of choice
+```
+
+* For petstore application admin endpoints
+```bash
+firefox http://localhost/admin/access-control/ui/  # or use your browser of choice
 ```
 
 Some notes:
@@ -146,6 +154,50 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
       'http://localhost/pets/0'  # replace 0 with the the pet ID of choice
   ```
 
+* To **register a new permission**:
+
+  ```console
+  curl -X POST \
+      --header 'Accept: application/json' \
+      --header 'Content-Type: application/json' \
+      -d '{"policy_type":"p","rule":{"v0":"user_id1","v1":"/pets","v2":"GET"},"rule_section":"p"}' \
+      'http://localhost/admin/access-control/permissions'
+  ```
+
+* To **update an existing permission**:
+
+  ```console
+  curl -X PUT \
+      --header 'Accept: application/json' \
+      --header 'Content-Type: application/json' \
+      -d '{"policy_type":"p","rule":{"v0":"user_id1","v1":"/pets","v2":"GET"},"rule_section":"p"}' \
+      'http://localhost/admin/access-control/permissions/0' # replace 0 with the the permission ID of choice
+  ```
+
+* To **retrieve all registered permissions**:
+
+  ```console
+  curl -X GET \
+      --header 'Accept: application/json' \
+      'http://localhost/admin/access-control/permissions'
+  ```
+
+* To **retrieve information on a specific permission**:
+
+  ```console
+  curl -X GET \
+      --header 'Accept: application/json' \
+      'http://localhost/admin/access-control/permissions/0'  # replace 0 with the the permission ID of choice
+  ```
+
+* To **delete a pet**:  :-(
+
+  ```console
+  curl -X DELETE \
+      --header 'Accept: application/json' \
+      'http://localhost/admin/access-control/permissions/0'  # replace 0 with the the permission ID of choice
+  ```
+
 ## Modify app
 
 You can make use of this example to create your own app. Just modify any or all
@@ -169,6 +221,7 @@ of the following:
 [docs]: <https://foca.readthedocs.io/en/latest/>
 [docs-config-file]: ../../README.md#configuration-file
 [img-hint]: ../../images/hint.svg
+[res-access-control]: ../../foca/access_control/README.md
 [res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
 [res-curl]: <https://curl.se/>
 [res-docker-compose]: <https://docs.docker.com/compose/>

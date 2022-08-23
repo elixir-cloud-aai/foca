@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 @check_permissions
 def findPets(limit=None, tags=None):
     db_collection: Collection = (
-        current_app.config.foca.db.dbs['petstore']
+        current_app.config.foca.db.dbs['petstore-access-control']
         .collections['pets'].client
     )
     filter_dict = {} if tags is None else {'tag': {'$in': tags}}
@@ -30,7 +30,7 @@ def findPets(limit=None, tags=None):
 @check_permissions
 def addPet(pet):
     db_collection: Collection = (
-        current_app.config.foca.db.dbs['petstore']
+        current_app.config.foca.db.dbs['petstore-access-control']
         .collections['pets'].client
     )
     counter = 0
@@ -50,7 +50,7 @@ def addPet(pet):
 @check_permissions
 def findPetById(id):
     db_collection: Collection = (
-        current_app.config.foca.db.dbs['petstore']
+        current_app.config.foca.db.dbs['petstore-access-control']
         .collections['pets'].client
     )
     record = db_collection.find_one(
@@ -65,7 +65,7 @@ def findPetById(id):
 @check_permissions
 def deletePet(id):
     db_collection: Collection = (
-        current_app.config.foca.db.dbs['petstore']
+        current_app.config.foca.db.dbs['petstore-access-control']
         .collections['pets'].client
     )
     record = db_collection.find_one(
