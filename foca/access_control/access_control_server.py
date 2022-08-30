@@ -106,7 +106,20 @@ def getAllPermissions(limit=None) -> List[Dict]:
         filter={},
         projection={'_id': False}
     ).sort([('$natural', -1)]).limit(limit)
-    return list(permissions)
+    permissions = list(permissions)
+    user_permission_list = []
+    for _permission in permissions:
+        policy_type = _permission.get("ptype", None)
+        id = _permission.get("id", None)
+        del _permission["ptype"]
+        del _permission["id"]
+        rule = _permission
+        user_permission_list.append({
+            "policy_type": policy_type,
+            "rule": rule,
+            "id": id
+        })
+    return user_permission_list
 
 
 @log_traffic
@@ -131,7 +144,15 @@ def getPermission(
     if permission is None:
         raise NotFound
     del permission["_id"]
-    return permission
+    policy_type = permission.get("ptype", None)
+    id = permission.get("id", None)
+    del permission["ptype"]
+    del permission["id"]
+    return {
+        "id": id,
+        "rule": permission,
+        "policy_type": policy_type
+    }
 
 
 @log_traffic

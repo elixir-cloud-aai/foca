@@ -284,7 +284,6 @@ components:
         rule:
           $ref: '#/components/schemas/Rule'
       example:
-        identifier: 'abc123'
         rule_section: 'p'
         policy_type: 'p1'
         rule:

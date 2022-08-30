@@ -32,7 +32,13 @@ ACCESS_CONTROL_CONFIG = {
 
 MOCK_ID = "mock_id"
 MOCK_RULE = {
-    "rule_section": "p",
+    "ptype": "p1",
+    "v0": "alice",
+    "v1": "data1",
+    "v2": "POST",
+    "v3": "read"
+}
+MOCK_RULE_USER_INPUT_OUTPUT = {
     "policy_type": "p1",
     "rule": {
         "v0": "alice",

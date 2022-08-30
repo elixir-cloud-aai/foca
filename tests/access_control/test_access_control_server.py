@@ -21,6 +21,7 @@ from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
     MOCK_ID,
     MOCK_RULE,
+    MOCK_RULE_USER_INPUT_OUTPUT,
     MOCK_RULE_INVALID,
     MONGO_CONFIG
 )
@@ -74,7 +75,7 @@ class TestGetPermission(BaseTestAccessControl):
             .client.insert_one(mock_resp)
         del mock_resp["_id"]
 
-        data = deepcopy(MOCK_RULE)
+        data = deepcopy(MOCK_RULE_USER_INPUT_OUTPUT)
         data["id"] = MOCK_ID
         with app.app_context():
             res = getPermission.__wrapped__(id=MOCK_ID)
@@ -176,7 +177,7 @@ class TestGetAllPermissions(BaseTestAccessControl):
         app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client.insert_one(mock_resp)
 
-        data = deepcopy(MOCK_RULE)
+        data = deepcopy(MOCK_RULE_USER_INPUT_OUTPUT)
         data['id'] = MOCK_ID
         with app.app_context():
             res = getAllPermissions.__wrapped__()
@@ -198,7 +199,7 @@ class TestGetAllPermissions(BaseTestAccessControl):
         app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client.insert_one(mock_resp)
 
-        data = deepcopy(MOCK_RULE)
+        data = deepcopy(MOCK_RULE_USER_INPUT_OUTPUT)
         data['id'] = MOCK_ID
         with app.app_context():
             res = getAllPermissions.__wrapped__(limit=1)
