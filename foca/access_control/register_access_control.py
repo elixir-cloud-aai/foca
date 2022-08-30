@@ -2,11 +2,13 @@
 
 import logging
 from connexion import App
+from connexion.exceptions import Forbidden
 from flask_authz import CasbinEnforcer
 from pkg_resources import resource_filename
-from typing import (Callable, Optional)
+from typing import (Callable, Optional, Tuple)
 from functools import wraps
 from flask import current_app
+from flask.wrappers import Response
 
 from foca.models.config import (
     DBConfig,
@@ -216,7 +218,14 @@ def check_permissions(
             """
             adapter = current_app.config["casbin_adapter"]
             casbin_enforcer = CasbinEnforcer(current_app, adapter)
-            response = casbin_enforcer.enforcer(func=fn)(*args, **kwargs)
+            response: Tuple[Response, int] = casbin_enforcer.enforcer(
+                func=fn
+            )(*args, **kwargs)
+            if (
+                response[0].status_code == 200
+                and response[1] == 401
+            ):
+                raise Forbidden
             return response
 
         return _wrapper
