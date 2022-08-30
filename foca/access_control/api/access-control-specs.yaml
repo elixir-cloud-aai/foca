@@ -284,12 +284,11 @@ components:
         rule:
           $ref: '#/components/schemas/Rule'
       example:
-        rule_section: 'p'
-        policy_type: 'p1'
+        policy_type: 'p'
         rule:
           v0: alice
-          v1: data1
-          v2: read
+          v1: /pets
+          v2: POST
     Rule:
       description: Rule definition. These will be utilised as per the policy conf structure.
       type: object
@@ -314,8 +313,8 @@ components:
           description: Param 5.
       example:
         v0: alice
-        v1: data1
-        v2: read
+        v1: /pets
+        v2: POST
     Error:
       type: object
       required:

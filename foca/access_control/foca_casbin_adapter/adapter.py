@@ -65,6 +65,7 @@ class Adapter(persist.Adapter):
         line = line.dict()
         line["id"] = generate_id()
         self._collection.insert_one(line)
+        return line["id"]
 
     def _delete_policy_lines(self, ptype: str, rule: List[str]) -> int:
         """Method to find a delete policies given a list of policy attributes.

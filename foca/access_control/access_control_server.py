@@ -5,9 +5,10 @@ import logging
 from typing import (Dict, List)
 
 from flask import (request, current_app)
+from pymongo.collection import Collection
+from werkzeug.exceptions import (InternalServerError, NotFound)
 
 from foca.utils.logging import log_traffic
-from werkzeug.exceptions import (InternalServerError, NotFound)
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,12 @@ def postPermission() -> str:
             rule.get("v4", None),
             rule.get("v5", None)
         ]
-        access_control_adapter.save_policy_line(
+        permission_id = access_control_adapter.save_policy_line(
             ptype=request_json.get("policy_type", None),
             rule=permission_data
         )
         logger.info("New policy added.")
-        return "added"
+        return permission_id
     except Exception as e:
         logger.error(f"{type(e).__name__}: {e}")
         raise InternalServerError
@@ -57,24 +58,18 @@ def putPermission(
     try:
         request_json = request.json
         access_control_config = current_app.config.foca.access_control
-        db_coll_permission = (
+        db_coll_permission: Collection = (
             current_app.config.foca.db.dbs[access_control_config.db_name]
             .collections[access_control_config.collection_name].client
         )
 
-        rule = request_json.get("rule", {})
-        permission_data = {
-            "ptype": request_json.get("policy_type", None),
-            "v0": rule.get("v0", None),
-            "v1": rule.get("v1", None),
-            "v2": rule.get("v2", None),
-            "v3": rule.get("v3", None),
-            "v4": rule.get("v4", None),
-            "v5": rule.get("v5", None)
-        }
+        permission_data = request_json.get("rule", {})
+        permission_data["id"] = id
+        permission_data["ptype"] = request_json.get("policy_type", None)
         db_coll_permission.replace_one(
             filter={"id": id},
-            replacement=permission_data
+            replacement=permission_data,
+            upsert=True
         )
         logger.info("Policy updated.")
         return id
@@ -95,7 +90,7 @@ def getAllPermissions(limit=None) -> List[Dict]:
     """
     logger.info(f"test {current_app.config}")
     access_control_config = current_app.config.foca.access_control
-    db_coll_permission = (
+    db_coll_permission: Collection = (
         current_app.config.foca.db.dbs[access_control_config.db_name]
         .collections[access_control_config.collection_name].client
     )
@@ -135,7 +130,7 @@ def getPermission(
         Permission data for the given id.
     """
     access_control_config = current_app.config.foca.access_control
-    db_coll_permission = (
+    db_coll_permission: Collection = (
         current_app.config.foca.db.dbs[access_control_config.db_name]
         .collections[access_control_config.collection_name].client
     )
@@ -168,7 +163,7 @@ def deletePermission(
         Delete permission identifier.
     """
     access_control_config = current_app.config.foca.access_control
-    db_coll_permission = (
+    db_coll_permission: Collection = (
         current_app.config.foca.db.dbs[access_control_config.db_name]
         .collections[access_control_config.collection_name].client
     )
