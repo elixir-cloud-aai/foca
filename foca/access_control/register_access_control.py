@@ -222,7 +222,7 @@ def check_permissions(
                 func=fn
             )(*args, **kwargs)
             if (
-                response[0].status_code == 200
+                len(response) == 2 and response[0].status_code == 200
                 and response[1] == 401
             ):
                 raise Forbidden
