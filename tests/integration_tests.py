@@ -61,8 +61,9 @@ def test_add_pet_required_arguments_missing_400():
     print(response.json())
     response_data = Error(**response.json())
     assert response_data.code == 400
-    assert response_data.message == "We don't quite understand what it is you\
-        are looking for."
+    assert response_data.message == (
+        "We don't quite understand what it is you are looking for."
+    )
 
 
 def test_get_all_pets_200():
