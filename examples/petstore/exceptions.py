@@ -8,19 +8,19 @@ from werkzeug.exceptions import (
 
 exceptions = {
     Exception: {
-        "message": "An unexpected error occurred.",
+        "message": "Oops, something unexpected happened.",
         "code": 500,
     },
     BadRequestProblem: {
-        "message": "The request is malformed.",
+        "message": "We don't quite understand what it is you are looking for.",
         "code": 400,
     },
     NotFound: {
-        "message": "The requested resource wasn't found.",
+        "message": "We have never heard of this pet! :-(",
         "code": 404,
     },
     InternalServerError: {
-        "message": "An unexpected error occurred.",
+        "message": "We seem to be having a problem here in the petstore.",
         "code": 500,
     },
 }
