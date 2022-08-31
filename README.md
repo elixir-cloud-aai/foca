@@ -46,7 +46,6 @@ Check the [API docs][badge-url-docs] for further details.
   * [Configuring logging](#configuring-logging)
   * [Configuring security](#configuring-security)
   * [Configuring the server](#configuring-the-server)
-  * [Configuring Access Control](#configuring-access-control)
   * [Custom configuration](#custom-configuration)
   * [Accessing configuration parameters](#accessing-configuration-parameters)
 * [Utilities](#utilities)
@@ -67,7 +66,7 @@ Check the [API docs][badge-url-docs] for further details.
 pip install foca
 ```
 
-(2) Create a [configuration file](#configuration-file).
+(2) Create a [configuration](#configuration) file.
 
 (3) Import the FOCA class and pass your config file:
 
@@ -304,9 +303,10 @@ log:
 
 FOCA offers some convenience functionalities for securing your app.
 Specifically, it allows you to configure the validation of [JSON Web
-Token (JWT)][res-jwt]-based authorization and the use of [cross-origin resource
-sharing (CORS)][res-cors].To make use of them, include the `security` top-level
-section in your app configuration, as well as the desired sublevel section(s):
+Token (JWT)][res-jwt]-based authorization, a [Casbin][res-casbin]-based access
+control model, and the use of [cross-origin resource sharing (CORS)][res-cors].
+To make use of them, include the `security` top-level section in your app
+configuration, as well as the desired sublevel section(s):
 
 ```yaml
 security:
@@ -318,6 +318,13 @@ security:
       - userinfo
       - public_key
     validation_checks: any
+  access_control:
+    api_specs: 'path/to/your/access/control/specs'
+    api_controllers: 'path/to/your/access/control/spec/controllers'
+    api_route: '/route/to/access_control_api'
+    db_name: access_control_db_name
+    collection_name: access_control_collection_name
+    model: access_control_model_definition
   cors:
     enabled: True
 ```
@@ -326,9 +333,18 @@ security:
 > `RS256` algorithm, would not allow expired tokens and would grant access to
 > a protected endpoint if `any` of the two listed validation methods (via the
 > identity provider's `/userinfo` endpoint or its JSON Web Key (JWK) public
-> key. Furthermore, CORS would be enabled for this application.
+> key. Furthermore, the application created with this config would provide
+> an access control model `model`. Corresponding permissions could be accessed
+> and altered by a user with admin permissions via the dedicated endpoints
+> defined in the `api_specs`, operationalized by the controllers in
+> `api_controllers` and hosted at `api_route`. Permissions will be stored in
+> collection `collection_name` of a dedicated MongoDB database `db_name`.
+> Finally, CORS would be enabled for this application.
 >  
 > Cf. the [API model][docs-models-security] for further options and details.
+
+**Note:** A detailed explaination of the access control implementation can be
+found [here][docs-access-control].
 
 ### Configuring the server
 
@@ -350,33 +366,6 @@ server:
 > off.
 >  
 > Cf. the [API model][docs-models-server] for further options and details.
-
-### Configuring Access Control
-
-FOCA allows you to restrict your application configuration using access
-control. To modify defaults, include the top-level `access_control`
-keyword section in your app configuration file:
-
-```yaml
-access_control:
-  api_specs: 'path/to/your/access/control/specs'
-  api_controllers: 'path/to/your/access/control/spec/controllers'
-  db_name: access_control_db_name
-  collection_name: access_control_collection_name
-  model: access_control_model_definition
-  owner_headers: admin_identification_properties
-  user_headers: user_identification_properties
-```
-
-> This config would create an application with access control defined as per
-> `model` provided. The corresponding permission models could be accessed and
-> altered by the user with admin permissions on the swagger panel specified
-> under api specs.
->  
-> Cf. the [API model][docs-models-access-control] for further options and details.
-
-**Note:** A detail explaination of access control implementation can be found under
-Cf. [Access Control Model][foca-access-control]
 
 ### Custom configuration
 
@@ -430,11 +419,11 @@ configuration (like with the FOCA-specific parameters).
 Apart from the reserved keyword sections listed above, you are free to include
 any other sections and parameters in your app configuration file. FOCA will
 simply attach these to your application instance as described
-[above](#configuration-file) and shown
-[below](#accessing-configuration-parameters). Note, however, that any
-such parameters need to be _manually_ validated. The same is true if you
-include a `custom` section but do _not_ provide a validation model class via
-the `custom_config_model` parameter when instantiating `Foca`.
+[above](#configuration) and shown [below](#accessing-configuration-parameters).
+Note, however, that any such parameters need to be _manually_ validated. The
+same is true if you include a `custom` section but do _not_ provide a
+validation model class via the `custom_config_model` parameter when
+instantiating `Foca`.
 
 _Example:_
 
@@ -540,11 +529,13 @@ obj_id = generate_id(charset=string.digits, length=6)
 
 ### Access Control utilities
 
-FOCA provides a decorator that can be used on any route to automatically validate
-request on the basis of permission rules.
+FOCA provides a decorator that can be used on any route to automatically
+validate request on the basis of permission rules.
 
 ```python
-from foca.access_control.register_access_control import check_permissions
+from foca.security.access_control.register_access_control import (
+    check_permissions
+)
 
 @check_permissions
 def your_controller():
@@ -593,7 +584,7 @@ question etc.
 [badge-url-pypi]: <https://pypi.python.org/pypi/foca>
 [config-template]: templates/config.yaml
 [config-petstore]: examples/petstore/config.yaml
-[foca-access-control]: foca/access_control/README.md
+[docs-access-control]: docs/access_control/README.md
 [docs-models]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html>
 [docs-models-api]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.APIConfig>
 [docs-models-db]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.DBConfig>
@@ -602,26 +593,22 @@ question etc.
 [docs-models-log]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.LogConfig>
 [docs-models-security]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.SecurityConfig>
 [docs-models-server]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ServerConfig>
-[docs-models-access-control]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.AccessControlConfig>
 [example]: examples/petstore/README.md
 [img-hint]: images/hint.svg
 [img-logo-banner]: images/logo-banner.svg
 [license]: LICENSE
 [license-apache]: <https://www.apache.org/licenses/LICENSE-2.0>
 [org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
+[res-casbin]: <https://casbin.org/>
 [res-celery]: <http://docs.celeryproject.org/>
 [res-connexion]: <https://github.com/zalando/connexion>
-[res-datamodel-code-generator]: <https://github.com/koxudaxi/datamodel-code-generator/>
 [res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
 [res-elixir-cloud-coc]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md>
 [res-elixir-cloud-contributing]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CONTRIBUTING.md>
 [res-flask]: <http://flask.pocoo.org/>
 [res-flask-app-context]: <https://flask.palletsprojects.com/en/1.1.x/appcontext/>
-[res-foca]: <https://pypi.org/project/foca/>
 [res-jwt]: <https://jwt.io>
 [res-mongo-db]: <https://www.mongodb.com/>
-[res-python-logging]: <https://docs.python.org/3/library/logging.html>
-[res-python-logging-how-to]: <https://docs.python.org/3/howto/logging.html?highlight=yaml#configuring-logging>
 [res-openapi]: <https://www.openapis.org/>
 [res-pydantic]: <https://pydantic-docs.helpmanual.io/>
 [res-rabbitmq]: <https://www.rabbitmq.com/>
