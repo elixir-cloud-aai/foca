@@ -24,6 +24,8 @@ jobs:
           ["3.9", "3.9-slim-buster"],
           ["3.10", "3.10-slim-buster"]
         ]
+        mongodb-version: ["4.2", "4.4", "5.0"]
+        mongodb-port: [12345]
 
     steps:
       - uses: actions/checkout@v2
@@ -37,6 +39,11 @@ jobs:
           pip install -r requirements_dev.txt
       - name: Lint with flake8
         run: flake8
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.7.0
+        with:
+          mongodb-version: ${{ matrix.mongodb-version }}
+          mongodb-port: ${{ matrix.mongodb-port }}
       - name: Calculate unit test coverage
         run: |
           coverage run --source foca -m pytest -W ignore::DeprecationWarning

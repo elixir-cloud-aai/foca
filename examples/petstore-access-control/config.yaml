@@ -23,8 +23,12 @@ security:
 
 api:
     specs:
-        - path: petstore.yaml
-          append: null
+        - path: petstore-access-control.yaml
+          append:
+            - security:
+              - bearerAuth: []
+          add_security_fields:
+              x-bearerInfoFunc: foca.security.auth.validate_token
           add_operation_fields:
               x-openapi-router-controller: controllers
           connexion:
@@ -38,7 +42,7 @@ db:
     host: mongodb
     port: 27017
     dbs:
-        petstore:
+        petstore-access-control:
             collections:
                 pets:
                     indexes: null
@@ -47,3 +51,7 @@ exceptions:
     required_members: [['message'], ['code']]
     status_member: ['code']
     exceptions: exceptions.exceptions
+
+access_control:
+    owner_headers: ['user_id']
+    user_headers: ['user_id']

@@ -5,7 +5,7 @@ import os
 
 from flask import Flask
 from flask_pymongo import PyMongo
-from foca.models.config import MongoConfig
+from foca.models.config import MongoConfig, DBConfig
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -64,6 +64,43 @@ def register_mongodb(
                         )
 
     return conf
+
+
+def add_new_database(
+    app: Flask,
+    conf: MongoConfig,
+    db_conf: DBConfig,
+    db_name: str
+):
+    """Register an additional db to database config.
+
+    Args:
+        app: Flask application instance.
+        conf: :py:class:`foca.models.config.MongoConfig` instance describing
+            databases and collections to be registered with `app`.
+        db_conf: :py:class:`foca.models.config.DBConfig` instance describing
+            new databases configuration to be registered with `app`.
+        db_name: Name of the database being added.
+    """
+    # Instantiate PyMongo client
+    mongo = _create_mongo_client(
+        app=app,
+        host=conf.host,
+        port=conf.port,
+        db=db_name,
+    )
+
+    # Add database
+    db_conf.client = mongo.db
+
+    # Add collections
+    if db_conf.collections is not None:
+        for coll_name, coll_conf in db_conf.collections.items():
+
+            coll_conf.client = mongo.db[coll_name]
+            logger.info(
+                f"Added database collection '{coll_name}'."
+            )
 
 
 def _create_mongo_client(

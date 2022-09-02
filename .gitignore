@@ -327,4 +327,6 @@ pip-selfcheck.json
 .vscode
 examples/petstore/petstore.modified.yaml
 examples/petstore/data/
+examples/petstore-access-control/petstore-access-control.modified.yaml
+examples/petstore-access-control/data/
 *.modified.yaml

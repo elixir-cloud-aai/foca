@@ -56,6 +56,7 @@ setup(
     packages=find_packages(),
     install_requires=install_requires,
     include_package_data=True,
+    package_data={"foca.access_control.api": ["*.yaml", "*.conf"]},
     setup_requires=[
         "setuptools_git==1.2",
         "twine==3.8.0"

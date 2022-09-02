@@ -1,0 +1,329 @@
+openapi: 3.0.2
+info:
+  title: FOCA access control API specification
+  description: 'CRUD and List Operations for managing permissions.'
+  version: 1.0.0
+  license:
+    name: Apache 2.0
+    url: https://github.com/elixir-cloud-aai/foca/blob/dev/LICENSE
+  contact:
+    name: ELIXIR Cloud & AAI
+    email: alexander.kanitz@alumni.ethz.ch
+paths:
+  /permissions:
+    post:
+      summary: Create a specific permission.
+      operationId: foca.access_control.access_control_server.postPermission
+      description: This endpoint is used to create a new permission.
+      tags:
+        - permission
+      requestBody:
+        description: Permission (meta)data to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: permission
+              $ref: '#/components/schemas/Permission'
+      responses:
+        '200':
+          description: Permission was successfully created.
+          content:
+            application/json:
+              schema:
+                description: Permission identifier.
+                type: string
+        '400':
+          description: The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      summary: List permissions
+      operationId: foca.access_control.access_control_server.getAllPermissions
+      description: Returns all permissions existing on the system.
+      tags:
+        - permission
+      parameters:
+        - name: limit
+          in: query
+          description: maximum number of results to return
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: An array of permission objects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Permission'
+        '400':
+          description: The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /permissions/{id}:
+    get:
+      summary: Fetch one specific permission.
+      operationId: foca.access_control.access_control_server.getPermission
+      description: This endpoint returns one specific permission.
+      tags:
+        - permission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A unique identifier of the permission.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A Permission.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Permission'
+        '400':
+          description: The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The permission cannot be found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a specific permission.
+      description: This endpoint updates a specific permission.
+      operationId: foca.access_control.access_control_server.putPermission
+      tags:
+        - permission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A unique identifier of the permission.
+          schema:
+            type: string
+      requestBody:
+        description: Permission (meta)data to update.
+        required: true
+        content:
+          application/json:
+            schema:
+              x-body-name: permission
+              $ref: '#/components/schemas/Permission'
+      responses:
+        '200':
+          description: Permission was successfully updated.
+          content:
+            application/json:
+              schema:
+                description: Permission identifier.
+                type: string
+        '400':
+          description: The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a permission.
+      description: Delete an existing permission object.
+      operationId: foca.access_control.access_control_server.deletePermission
+      tags:
+        - permission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A unique identifier of the permission.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The permission was successfully deleted.
+          content:
+            application/json:
+              schema:
+                description: Identifier of deleted permission.
+                type: string
+        '400':
+          description: The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The requested permission was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+servers:
+  - url: /admin/access-control
+components:
+  schemas:
+    Permission:
+      description: Permission model.
+      type: object
+      required:
+        - policy_type
+        - rule
+      properties:
+        id:
+          type: string
+          description: Unique identifier of the permission.
+        rule_section:
+          type: string
+          description: This defines the section for which the rule is being added.
+            Type `p` and `g` refer to policy and role sections respectively.
+          enum: ["p", "g"]
+        policy_type:
+          type: string
+          description: This defines the policy type of the permission (rule) definition.
+        rule:
+          $ref: '#/components/schemas/Rule'
+      example:
+        policy_type: 'p'
+        rule:
+          v0: alice
+          v1: /pets
+          v2: POST
+    Rule:
+      description: Rule definition. These will be utilised as per the policy conf structure.
+      type: object
+      properties:
+        v0:
+          type: string
+          description: Param 0.
+        v1:
+          type: string
+          description: Param 1.
+        v2:
+          type: string
+          description: Param 2.
+        v3:
+          type: string
+          description: Param 3.
+        v4:
+          type: string
+          description: Param 4.
+        v5:
+          type: string
+          description: Param 5.
+      example:
+        v0: alice
+        v1: /pets
+        v2: POST
+    Error:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: integer
+          format: int32
+          default: 500
+        message:
+          type: string
+          default: Internal Server Error

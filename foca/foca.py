@@ -6,6 +6,12 @@ from typing import Optional
 
 from connexion import App
 
+from foca.access_control.register_access_control import register_access_control
+from foca.access_control.constants import (
+    DEFAULT_SPEC_CONTROLLER,
+    DEFAULT_ACCESS_CONTROL_DB_NAME,
+    DEFAULT_ACESS_CONTROL_COLLECTION_NAME,
+)
 from foca.api.register_openapi import register_openapi
 from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
@@ -116,6 +122,38 @@ class Foca:
             logger.info("Database registered.")
         else:
             logger.info("No database support configured.")
+
+        # Register permission management and casbin enforcer
+        if conf.security.auth.required:
+            if (
+                conf.access_control.api_specs is None or
+                conf.access_control.api_controllers is None
+            ):
+                conf.access_control.api_controllers = DEFAULT_SPEC_CONTROLLER
+
+            if conf.access_control.db_name is None:
+                conf.access_control.db_name = DEFAULT_ACCESS_CONTROL_DB_NAME
+
+            if conf.access_control.collection_name is None:
+                conf.access_control.collection_name = (
+                    DEFAULT_ACESS_CONTROL_COLLECTION_NAME
+                )
+
+            cnx_app = register_access_control(
+                cnx_app=cnx_app,
+                mongo_config=conf.db,
+                access_control_config=conf.access_control
+            )
+        else:
+            if (
+                conf.access_control.api_specs or
+                conf.access_control.api_controllers
+            ):
+                conf.access_control = None
+                logger.error(
+                    "Please enable security config to register "
+                    "access control."
+                )
 
         # Create Celery app
         if conf.jobs:

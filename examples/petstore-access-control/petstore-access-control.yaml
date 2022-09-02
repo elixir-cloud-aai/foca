@@ -41,6 +41,18 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Pet'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: unexpected error
           content:
@@ -65,6 +77,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Pet'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: unexpected error
           content:
@@ -90,6 +114,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Pet'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: unexpected error
           content:
@@ -110,6 +146,18 @@ paths:
       responses:
         '204':
           description: pet deleted
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           description: unexpected error
           content:
@@ -117,6 +165,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 components:
+  securitySchemes:
+      bearerAuth:
+        type: http
+        scheme: bearer
+        bearerFormat: JWT
   schemas:
     Pet:
       allOf:
