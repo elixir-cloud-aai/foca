@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def register_access_control(
     cnx_app: App,
-    mongo_config: MongoConfig,
+    mongo_config: Optional[MongoConfig],
     access_control_config: AccessControlConfig
 ) -> App:
     """Register access control configuration with flask app.
@@ -58,10 +58,11 @@ def register_access_control(
     if mongo_config is None:
         mongo_config = MongoConfig()
 
+    access_control_db = str(access_control_config.db_name)
     if mongo_config.dbs is None:
-        mongo_config.dbs = {access_control_config.db_name: access_db_conf}
+        mongo_config.dbs = {access_control_db: access_db_conf}
     else:
-        mongo_config.dbs[access_control_config.db_name] = access_db_conf
+        mongo_config.dbs[access_control_db] = access_db_conf
 
     cnx_app.app.config.foca.db = mongo_config
 
@@ -70,7 +71,7 @@ def register_access_control(
         app=cnx_app.app,
         conf=mongo_config,
         db_conf=access_db_conf,
-        db_name=access_control_config.db_name
+        db_name=access_control_db
     )
 
     # Register access control api specs and corresponding controller.
@@ -154,12 +155,13 @@ def register_casbin_enforcer(
         Connexion application instance with registered casbin configuration.
     """
     # Check if default, get package path variables for model.
+    access_control_config_model = str(access_control_config.model)
     if access_control_config.api_specs is None:
         casbin_model = str(resource_filename(
-            ACCESS_CONTROL_BASE_PATH, access_control_config.model
+            ACCESS_CONTROL_BASE_PATH, access_control_config_model
         ))
     else:
-        casbin_model = access_control_config.model
+        casbin_model = access_control_config_model
 
     logger.info("Setting casbin model.")
     app.app.config["CASBIN_MODEL"] = casbin_model
@@ -177,7 +179,7 @@ def register_casbin_enforcer(
     logger.info("Setting up casbin enforcer.")
     adapter = Adapter(
         uri=f"mongodb://{mongo_config.host}:{mongo_config.port}/",
-        dbname=access_control_config.db_name,
+        dbname=str(access_control_config.db_name),
         collection=access_control_config.collection_name
     )
     app.app.config["casbin_adapter"] = adapter
