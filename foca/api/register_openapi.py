@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from connexion import App
 import yaml
@@ -39,7 +39,7 @@ def register_openapi(
 
         # Merge specs
         list_specs = [spec.path] if isinstance(spec.path, Path) else spec.path
-        spec_parsed: dict = ConfigParser.merge_yaml(*list_specs)
+        spec_parsed: Dict = ConfigParser.merge_yaml(*list_specs)
         logger.debug(f"Parsed spec: {list_specs}")
 
         # Add/replace root objects

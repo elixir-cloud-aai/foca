@@ -90,7 +90,7 @@ def test_merge_yaml_with_no_args():
     """Test merge_yaml with no arguments."""
     empty_list = []
     res = ConfigParser.merge_yaml(*empty_list)
-    assert res is None
+    assert res == {}
 
 
 def test_merge_yaml_with_two_args():
