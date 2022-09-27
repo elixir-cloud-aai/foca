@@ -22,10 +22,10 @@ def postPermission() -> str:
     Returns:
         Identifier of the new permission added.
     """
-    try:
-        access_control_adapter = current_app.config["casbin_adapter"]
-        request_json = request.json
-        if isinstance(request_json, dict):
+    request_json = request.json
+    if isinstance(request_json, dict):
+        try:
+            access_control_adapter = current_app.config["casbin_adapter"]
             rule = request_json.get("rule", {})
             permission_data = [
                 rule.get("v0", None),
@@ -41,12 +41,12 @@ def postPermission() -> str:
             )
             logger.info("New policy added.")
             return permission_id
-        else:
-            logger.error(f"Invalid request payload.")
-            raise BadRequest
-    except Exception as e:
-        logger.error(f"{type(e).__name__}: {e}")
-        raise InternalServerError
+        except Exception as e:
+            logger.error(f"{type(e).__name__}: {e}")
+            raise InternalServerError
+    else:
+        logger.error(f"Invalid request payload.")
+        raise BadRequest
 
 
 @log_traffic
@@ -61,9 +61,9 @@ def putPermission(
     Returns:
         Identifier of updated permission.
     """
-    try:
-        request_json = request.json
-        if isinstance(request_json, dict):
+    request_json = request.json
+    if isinstance(request_json, dict):
+        try:
             access_control_config = current_app.config.foca.access_control
             db_coll_permission: Collection = (
                 current_app.config.foca.db.dbs[access_control_config.db_name]
@@ -80,12 +80,12 @@ def putPermission(
             )
             logger.info("Policy updated.")
             return id
-        else:
-            logger.error("Invalid request payload.")
-            raise BadRequest
-    except Exception as e:
-        logger.error(f"{type(e).__name__}: {e}")
-        raise InternalServerError
+        except Exception as e:
+            logger.error(f"{type(e).__name__}: {e}")
+            raise InternalServerError
+    else:
+        logger.error("Invalid request payload.")
+        raise BadRequest
 
 
 @log_traffic

@@ -15,7 +15,7 @@ from foca.access_control.access_control_server import (
     putPermission
 )
 from foca.access_control.foca_casbin_adapter.adapter import Adapter
-from foca.errors.exceptions import NotFound, InternalServerError
+from foca.errors.exceptions import BadRequest, InternalServerError, NotFound
 from foca.models.config import (AccessControlConfig, Config, MongoConfig)
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
@@ -255,6 +255,25 @@ class TestPostPermission(BaseTestAccessControl):
         with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
             with pytest.raises(InternalServerError):
                 postPermission.__wrapped__()
+    
+    def test_postPermission_BadRequest(self):
+        """Test for creating a permission for invalid request payload."""
+        app = Flask(__name__)
+        app.config.foca = Config(
+            db=self.db,
+            access_control=self.access_control
+        )
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
+            .client = mongomock.MongoClient().db.collection
+        app.config["casbin_adapter"] = Adapter(
+            uri=f"mongodb://localhost:{self.db_port}/",
+            dbname=self.access_db,
+            collection=self.access_col
+        )
+
+        with app.test_request_context(json=""):
+            with pytest.raises(BadRequest):
+                postPermission.__wrapped__()
 
 
 class TestPutPermission(BaseTestAccessControl):
@@ -296,4 +315,18 @@ class TestPutPermission(BaseTestAccessControl):
 
         with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
             with pytest.raises(InternalServerError):
+                putPermission.__wrapped__(id=MOCK_ID)
+    
+    def test_putPermission_BadRequest(self):
+        """Test for updating a permission for invalid request payload."""
+        app = Flask(__name__)
+        app.config.foca = Config(
+            db=MongoConfig(**MONGO_CONFIG),
+            access_control=AccessControlConfig(**ACCESS_CONTROL_CONFIG)
+        )
+        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
+            .client = mongomock.MongoClient().db.collection
+
+        with app.test_request_context(json=""):
+            with pytest.raises(BadRequest):
                 putPermission.__wrapped__(id=MOCK_ID)
