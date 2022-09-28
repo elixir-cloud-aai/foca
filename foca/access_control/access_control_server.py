@@ -1,6 +1,5 @@
 """"Controllers for permission management endpoints."""
 
-import json
 import logging
 
 from typing import (Dict, List)
@@ -45,7 +44,7 @@ def postPermission() -> str:
             logger.error(f"{type(e).__name__}: {e}")
             raise InternalServerError
     else:
-        logger.error(f"Invalid request payload.")
+        logger.error("Invalid request payload.")
         raise BadRequest
 
 
@@ -63,10 +62,13 @@ def putPermission(
     """
     request_json = request.json
     if isinstance(request_json, dict):
+        app_config = current_app.config
         try:
-            access_control_config = current_app.config.foca.access_control # type: ignore[attr-defined]
+            access_control_config = \
+                app_config.foca.access_control  # type: ignore[attr-defined]
             db_coll_permission: Collection = (
-                current_app.config.foca.db.dbs[access_control_config.db_name] # type: ignore[attr-defined]
+                app_config.foca.db.dbs[  # type: ignore[attr-defined]
+                    access_control_config.db_name]
                 .collections[access_control_config.collection_name].client
             )
 
@@ -98,11 +100,13 @@ def getAllPermissions(limit=None) -> List[Dict]:
     Returns:
         List of permission dicts.
     """
-    logger.info(f"test {current_app.config}")
-    access_control_config = current_app.config.foca.access_control # type: ignore[attr-defined]
+    app_config = current_app.config
+    access_control_config = \
+        app_config.foca.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
-        current_app.config.foca.db.dbs[access_control_config.db_name] # type: ignore[attr-defined]
-        .collections[access_control_config.collection_name].client
+        app_config.foca.db.dbs[  # type: ignore[attr-defined]
+            access_control_config.db_name
+        ].collections[access_control_config.collection_name].client
     )
 
     if not limit:
@@ -139,10 +143,13 @@ def getPermission(
     Returns:
         Permission data for the given id.
     """
-    access_control_config = current_app.config.foca.access_control # type: ignore[attr-defined]
+    app_config = current_app.config
+    access_control_config = \
+        app_config.foca.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
-        current_app.config.foca.db.dbs[access_control_config.db_name] # type: ignore[attr-defined]
-        .collections[access_control_config.collection_name].client
+        app_config.foca.db.dbs[  # type: ignore[attr-defined]
+            access_control_config.db_name
+        ].collections[access_control_config.collection_name].client
     )
 
     permission = db_coll_permission.find_one(filter={"id": id})
@@ -172,10 +179,13 @@ def deletePermission(
     Returns:
         Delete permission identifier.
     """
-    access_control_config = current_app.config.foca.access_control # type: ignore[attr-defined]
+    app_config = current_app.config
+    access_control_config = \
+        app_config.foca.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
-        current_app.config.foca.db.dbs[access_control_config.db_name] # type: ignore[attr-defined]
-        .collections[access_control_config.collection_name].client
+        app_config.foca.db.dbs[  # type: ignore[attr-defined]
+            access_control_config.db_name
+        ].collections[access_control_config.collection_name].client
     )
 
     del_obj_permission = db_coll_permission.delete_one({'id': id})

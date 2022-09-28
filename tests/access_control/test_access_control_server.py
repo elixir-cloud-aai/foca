@@ -255,7 +255,7 @@ class TestPostPermission(BaseTestAccessControl):
         with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
             with pytest.raises(InternalServerError):
                 postPermission.__wrapped__()
-    
+
     def test_postPermission_BadRequest(self):
         """Test for creating a permission for invalid request payload."""
         app = Flask(__name__)
@@ -316,7 +316,7 @@ class TestPutPermission(BaseTestAccessControl):
         with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
             with pytest.raises(InternalServerError):
                 putPermission.__wrapped__(id=MOCK_ID)
-    
+
     def test_putPermission_BadRequest(self):
         """Test for updating a permission for invalid request payload."""
         app = Flask(__name__)

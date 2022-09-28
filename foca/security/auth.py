@@ -36,7 +36,7 @@ def validate_token(token: str) -> Dict:
     oidc_config_claim_public_keys: str = 'jwks_uri'
 
     # Fetch security parameters
-    conf = current_app.config.foca.security.auth # type: ignore[attr-defined]
+    conf = current_app.config.foca.security.auth  # type: ignore[attr-defined]
     add_key_to_claims: bool = conf.add_key_to_claims
     allow_expired: bool = conf.allow_expired
     audience: Optional[Iterable[str]] = conf.audience
@@ -125,7 +125,9 @@ def validate_token(token: str) -> Dict:
     for key, val in claims.items():
         req_headers[key] = val
     req_headers['user_id'] = claims[claim_identity]
-    request.headers = ImmutableMultiDict(req_headers) # type: ignore[assignment]
+    request.headers = ImmutableMultiDict(
+        req_headers
+    )  # type: ignore[assignment]
 
     # Return token info
     return {
@@ -247,14 +249,14 @@ def _validate_jwt_public_key(
     used_key: Dict = {}
     claims = {}
     for key in public_keys.values():
-        used_key = key # type: ignore[assignment]
+        used_key = key  # type: ignore[assignment]
 
         # Decode JWT and validate via public key
         try:
             claims = jwt.decode(
                 jwt=token,
                 verify=True,
-                key=key, # type: ignore[arg-type]
+                key=key,  # type: ignore[arg-type]
                 algorithms=algorithms,
                 audience=audience,
                 options=validation_options,
