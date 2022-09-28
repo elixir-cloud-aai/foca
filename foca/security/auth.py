@@ -125,9 +125,8 @@ def validate_token(token: str) -> Dict:
     for key, val in claims.items():
         req_headers[key] = val
     req_headers['user_id'] = claims[claim_identity]
-    request.headers = ImmutableMultiDict(
-        req_headers
-    )  # type: ignore[assignment]
+    request.headers = \
+        ImmutableMultiDict(req_headers)  # type: ignore[assignment]
 
     # Return token info
     return {

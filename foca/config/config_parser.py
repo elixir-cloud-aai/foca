@@ -169,8 +169,8 @@ class ConfigParser():
                 f"has no class {model_class} or could not be imported"
             )
         try:
-            custom_config = model_class(
-                **self.config.custom)  # type: ignore[attr-defined, operator]
+            custom_config = model_class(  # type: ignore[operator]
+                **self.config.custom)  # type: ignore[attr-defined]
         except Exception as exc:
             raise ValueError(
                 "failed validating custom configuration: provided custom "
