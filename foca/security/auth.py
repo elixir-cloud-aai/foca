@@ -36,13 +36,13 @@ def validate_token(token: str) -> Dict:
     oidc_config_claim_public_keys: str = 'jwks_uri'
 
     # Fetch security parameters
-    conf = current_app.config.foca.security.auth
+    conf = current_app.config.foca.security.auth # type: ignore[attr-defined]
     add_key_to_claims: bool = conf.add_key_to_claims
     allow_expired: bool = conf.allow_expired
     audience: Optional[Iterable[str]] = conf.audience
     claim_identity: str = conf.claim_identity
     claim_issuer: str = conf.claim_issuer
-    algorithms: Iterable[str] = conf.algorithms
+    algorithms: List[str] = conf.algorithms
     validation_methods: List[str] = [e.value for e in conf.validation_methods]
     validation_checks: str = conf.validation_checks.value
 
@@ -125,7 +125,7 @@ def validate_token(token: str) -> Dict:
     for key, val in claims.items():
         req_headers[key] = val
     req_headers['user_id'] = claims[claim_identity]
-    request.headers = ImmutableMultiDict(req_headers)
+    request.headers = ImmutableMultiDict(req_headers) # type: ignore[assignment]
 
     # Return token info
     return {
@@ -172,7 +172,7 @@ def _validate_jwt_userinfo(
 def _validate_jwt_public_key(
     token: str,
     url: str,
-    algorithms: Iterable[str] = ['RS256'],
+    algorithms: List[str] = ['RS256'],
     add_key_to_claims: bool = True,
     audience: Optional[Iterable[str]] = None,
     allow_expired: bool = False,
@@ -244,17 +244,17 @@ def _validate_jwt_public_key(
         validation_options['verify_exp'] = False
 
     # Try public keys one after the other
-    used_key = {}
+    used_key: Dict = {}
     claims = {}
     for key in public_keys.values():
-        used_key = key
+        used_key = key # type: ignore[assignment]
 
         # Decode JWT and validate via public key
         try:
             claims = jwt.decode(
                 jwt=token,
                 verify=True,
-                key=key,
+                key=key, # type: ignore[arg-type]
                 algorithms=algorithms,
                 audience=audience,
                 options=validation_options,

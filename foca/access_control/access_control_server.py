@@ -64,9 +64,9 @@ def putPermission(
     request_json = request.json
     if isinstance(request_json, dict):
         try:
-            access_control_config = current_app.config.foca.access_control
+            access_control_config = current_app.config.foca.access_control # type: ignore[attr-defined]
             db_coll_permission: Collection = (
-                current_app.config.foca.db.dbs[access_control_config.db_name]
+                current_app.config.foca.db.dbs[access_control_config.db_name] # type: ignore[attr-defined]
                 .collections[access_control_config.collection_name].client
             )
 
@@ -99,9 +99,9 @@ def getAllPermissions(limit=None) -> List[Dict]:
         List of permission dicts.
     """
     logger.info(f"test {current_app.config}")
-    access_control_config = current_app.config.foca.access_control
+    access_control_config = current_app.config.foca.access_control # type: ignore[attr-defined]
     db_coll_permission: Collection = (
-        current_app.config.foca.db.dbs[access_control_config.db_name]
+        current_app.config.foca.db.dbs[access_control_config.db_name] # type: ignore[attr-defined]
         .collections[access_control_config.collection_name].client
     )
 
@@ -139,9 +139,9 @@ def getPermission(
     Returns:
         Permission data for the given id.
     """
-    access_control_config = current_app.config.foca.access_control
+    access_control_config = current_app.config.foca.access_control # type: ignore[attr-defined]
     db_coll_permission: Collection = (
-        current_app.config.foca.db.dbs[access_control_config.db_name]
+        current_app.config.foca.db.dbs[access_control_config.db_name] # type: ignore[attr-defined]
         .collections[access_control_config.collection_name].client
     )
 
@@ -172,9 +172,9 @@ def deletePermission(
     Returns:
         Delete permission identifier.
     """
-    access_control_config = current_app.config.foca.access_control
+    access_control_config = current_app.config.foca.access_control # type: ignore[attr-defined]
     db_coll_permission: Collection = (
-        current_app.config.foca.db.dbs[access_control_config.db_name]
+        current_app.config.foca.db.dbs[access_control_config.db_name] # type: ignore[attr-defined]
         .collections[access_control_config.collection_name].client
     )
 

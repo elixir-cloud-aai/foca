@@ -130,7 +130,7 @@ def register_permission_specs(
     )
 
     app.add_api(
-        specification=spec.path[0],
+        specification=spec.path[0], # type: ignore[index]
         **spec.dict().get("connexion", {}),
     )
     return app

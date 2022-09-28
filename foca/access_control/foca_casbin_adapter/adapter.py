@@ -172,6 +172,6 @@ class Adapter(persist.Adapter):
         for index, value in enumerate(field_values):
             query[f"v{index + field_index}"] = value
 
-        query["ptype"] = ptype
+        query["ptype"] = ptype # type: ignore[assignment]
         results = self._collection.delete_many(query)
         return results.deleted_count > 0
