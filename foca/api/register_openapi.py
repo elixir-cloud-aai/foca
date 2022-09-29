@@ -1,7 +1,8 @@
 """Register and modify OpenAPI specifications."""
 
 import logging
-from typing import List
+from pathlib import Path
+from typing import Dict, List
 
 from connexion import App
 import yaml
@@ -37,8 +38,9 @@ def register_openapi(
     for spec in specs:
 
         # Merge specs
-        spec_parsed = ConfigParser.merge_yaml(*spec.path)
-        logger.debug(f"Parsed spec: {spec.path}")
+        list_specs = [spec.path] if isinstance(spec.path, Path) else spec.path
+        spec_parsed: Dict = ConfigParser.merge_yaml(*list_specs)
+        logger.debug(f"Parsed spec: {list_specs}")
 
         # Add/replace root objects
         if spec.append is not None:

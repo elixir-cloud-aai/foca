@@ -109,7 +109,7 @@ class ConfigParser():
             ) from exc
 
     @staticmethod
-    def merge_yaml(*args: Path) -> Optional[Dict]:
+    def merge_yaml(*args: Path) -> Dict:
         """Parse and merge a set of YAML files.
 
         Merging is done iteratively, from the first, second to the n-th
@@ -126,7 +126,7 @@ class ConfigParser():
         """
         args_list = list(args)
         if not args_list:
-            return None
+            return {}
         yaml_dict = Addict(ConfigParser.parse_yaml(args_list.pop(0)))
 
         for arg in args_list:
@@ -169,7 +169,8 @@ class ConfigParser():
                 f"has no class {model_class} or could not be imported"
             )
         try:
-            custom_config = model_class(**self.config.custom)
+            custom_config = model_class(  # type: ignore[operator]
+                **self.config.custom)  # type: ignore[attr-defined]
         except Exception as exc:
             raise ValueError(
                 "failed validating custom configuration: provided custom "

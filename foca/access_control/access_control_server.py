@@ -9,6 +9,7 @@ from pymongo.collection import Collection
 from werkzeug.exceptions import (InternalServerError, NotFound)
 
 from foca.utils.logging import log_traffic
+from foca.errors.exceptions import BadRequest
 
 logger = logging.getLogger(__name__)
 
@@ -20,27 +21,31 @@ def postPermission() -> str:
     Returns:
         Identifier of the new permission added.
     """
-    try:
-        access_control_adapter = current_app.config["casbin_adapter"]
-        request_json = request.json
-        rule = request_json.get("rule", {})
-        permission_data = [
-            rule.get("v0", None),
-            rule.get("v1", None),
-            rule.get("v2", None),
-            rule.get("v3", None),
-            rule.get("v4", None),
-            rule.get("v5", None)
-        ]
-        permission_id = access_control_adapter.save_policy_line(
-            ptype=request_json.get("policy_type", None),
-            rule=permission_data
-        )
-        logger.info("New policy added.")
-        return permission_id
-    except Exception as e:
-        logger.error(f"{type(e).__name__}: {e}")
-        raise InternalServerError
+    request_json = request.json
+    if isinstance(request_json, dict):
+        try:
+            access_control_adapter = current_app.config["casbin_adapter"]
+            rule = request_json.get("rule", {})
+            permission_data = [
+                rule.get("v0", None),
+                rule.get("v1", None),
+                rule.get("v2", None),
+                rule.get("v3", None),
+                rule.get("v4", None),
+                rule.get("v5", None)
+            ]
+            permission_id = access_control_adapter.save_policy_line(
+                ptype=request_json.get("policy_type", None),
+                rule=permission_data
+            )
+            logger.info("New policy added.")
+            return permission_id
+        except Exception as e:
+            logger.error(f"{type(e).__name__}: {e}")
+            raise InternalServerError
+    else:
+        logger.error("Invalid request payload.")
+        raise BadRequest
 
 
 @log_traffic
@@ -55,27 +60,34 @@ def putPermission(
     Returns:
         Identifier of updated permission.
     """
-    try:
-        request_json = request.json
-        access_control_config = current_app.config.foca.access_control
-        db_coll_permission: Collection = (
-            current_app.config.foca.db.dbs[access_control_config.db_name]
-            .collections[access_control_config.collection_name].client
-        )
+    request_json = request.json
+    if isinstance(request_json, dict):
+        app_config = current_app.config
+        try:
+            access_control_config = \
+                app_config.foca.access_control  # type: ignore[attr-defined]
+            db_coll_permission: Collection = (
+                app_config.foca.db.dbs[  # type: ignore[attr-defined]
+                    access_control_config.db_name]
+                .collections[access_control_config.collection_name].client
+            )
 
-        permission_data = request_json.get("rule", {})
-        permission_data["id"] = id
-        permission_data["ptype"] = request_json.get("policy_type", None)
-        db_coll_permission.replace_one(
-            filter={"id": id},
-            replacement=permission_data,
-            upsert=True
-        )
-        logger.info("Policy updated.")
-        return id
-    except Exception as e:
-        logger.error(f"{type(e).__name__}: {e}")
-        raise InternalServerError
+            permission_data = request_json.get("rule", {})
+            permission_data["id"] = id
+            permission_data["ptype"] = request_json.get("policy_type", None)
+            db_coll_permission.replace_one(
+                filter={"id": id},
+                replacement=permission_data,
+                upsert=True
+            )
+            logger.info("Policy updated.")
+            return id
+        except Exception as e:
+            logger.error(f"{type(e).__name__}: {e}")
+            raise InternalServerError
+    else:
+        logger.error("Invalid request payload.")
+        raise BadRequest
 
 
 @log_traffic
@@ -88,11 +100,13 @@ def getAllPermissions(limit=None) -> List[Dict]:
     Returns:
         List of permission dicts.
     """
-    logger.info(f"test {current_app.config}")
-    access_control_config = current_app.config.foca.access_control
+    app_config = current_app.config
+    access_control_config = \
+        app_config.foca.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
-        current_app.config.foca.db.dbs[access_control_config.db_name]
-        .collections[access_control_config.collection_name].client
+        app_config.foca.db.dbs[  # type: ignore[attr-defined]
+            access_control_config.db_name
+        ].collections[access_control_config.collection_name].client
     )
 
     if not limit:
@@ -129,10 +143,13 @@ def getPermission(
     Returns:
         Permission data for the given id.
     """
-    access_control_config = current_app.config.foca.access_control
+    app_config = current_app.config
+    access_control_config = \
+        app_config.foca.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
-        current_app.config.foca.db.dbs[access_control_config.db_name]
-        .collections[access_control_config.collection_name].client
+        app_config.foca.db.dbs[  # type: ignore[attr-defined]
+            access_control_config.db_name
+        ].collections[access_control_config.collection_name].client
     )
 
     permission = db_coll_permission.find_one(filter={"id": id})
@@ -162,10 +179,13 @@ def deletePermission(
     Returns:
         Delete permission identifier.
     """
-    access_control_config = current_app.config.foca.access_control
+    app_config = current_app.config
+    access_control_config = \
+        app_config.foca.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
-        current_app.config.foca.db.dbs[access_control_config.db_name]
-        .collections[access_control_config.collection_name].client
+        app_config.foca.db.dbs[  # type: ignore[attr-defined]
+            access_control_config.db_name
+        ].collections[access_control_config.collection_name].client
     )
 
     del_obj_permission = db_coll_permission.delete_one({'id': id})

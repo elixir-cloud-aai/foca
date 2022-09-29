@@ -62,10 +62,10 @@ class Adapter(persist.Adapter):
         line = CasbinRule(ptype=ptype)
         for index, value in enumerate(rule):
             setattr(line, f"v{index}", value)
-        line = line.dict()
-        line["id"] = generate_id()
-        self._collection.insert_one(line)
-        return line["id"]
+        rule_dict: dict = line.dict()
+        rule_dict["id"] = generate_id()
+        self._collection.insert_one(rule_dict)
+        return rule_dict["id"]
 
     def _delete_policy_lines(self, ptype: str, rule: List[str]) -> int:
         """Method to find a delete policies given a list of policy attributes.
@@ -118,13 +118,13 @@ class Adapter(persist.Adapter):
                     self.save_policy_line(ptype, rule)
         return True
 
-    def add_policy(self, sec: str, ptype: str, rule: CasbinRule) -> bool:
+    def add_policy(self, sec: str, ptype: str, rule: List[str]) -> bool:
         """Add policy rules to mongodb
 
         Args:
             sec: Section corresponding which the rule will be added.
             ptype: Policy type for which casbin rule will be added.
-            rule: Casbin rule to be added.
+            rule: Casbin rule list definition to be added.
 
         Returns:
             True if succeed else False.
@@ -132,13 +132,13 @@ class Adapter(persist.Adapter):
         self.save_policy_line(ptype, rule)
         return True
 
-    def remove_policy(self, sec: str, ptype: str, rule: CasbinRule):
+    def remove_policy(self, sec: str, ptype: str, rule: List[str]):
         """Remove policy rules from mongodb(duplicate rules are also removed).
 
         Args:
             sec: Section corresponding which the rule will be added.
             ptype: Policy type for which casbin rule will be removed.
-            rule: Casbin rule to be removed.
+            rule: Casbin rule list definition to be removed.
 
         Returns:
             Number of policies removed.
@@ -172,6 +172,6 @@ class Adapter(persist.Adapter):
         for index, value in enumerate(field_values):
             query[f"v{index + field_index}"] = value
 
-        query["ptype"] = ptype
+        query["ptype"] = ptype  # type: ignore[assignment]
         results = self._collection.delete_many(query)
         return results.deleted_count > 0

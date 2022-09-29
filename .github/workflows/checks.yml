@@ -39,6 +39,8 @@ jobs:
           pip install -r requirements_dev.txt
       - name: Lint with flake8
         run: flake8
+      - name: Run mypy
+        run: mypy foca
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.7.0
         with:
