@@ -65,7 +65,7 @@ def putPermission(
         app_config = current_app.config
         try:
             access_control_config = \
-                app_config.foca.access_control  # type: ignore[attr-defined]
+                app_config.foca.security.access_control  # type: ignore[attr-defined]
             db_coll_permission: Collection = (
                 app_config.foca.db.dbs[  # type: ignore[attr-defined]
                     access_control_config.db_name]
@@ -102,7 +102,7 @@ def getAllPermissions(limit=None) -> List[Dict]:
     """
     app_config = current_app.config
     access_control_config = \
-        app_config.foca.access_control  # type: ignore[attr-defined]
+        app_config.foca.security.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
         app_config.foca.db.dbs[  # type: ignore[attr-defined]
             access_control_config.db_name
@@ -145,7 +145,7 @@ def getPermission(
     """
     app_config = current_app.config
     access_control_config = \
-        app_config.foca.access_control  # type: ignore[attr-defined]
+        app_config.foca.security.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
         app_config.foca.db.dbs[  # type: ignore[attr-defined]
             access_control_config.db_name
@@ -181,7 +181,7 @@ def deletePermission(
     """
     app_config = current_app.config
     access_control_config = \
-        app_config.foca.access_control  # type: ignore[attr-defined]
+        app_config.foca.security.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
         app_config.foca.db.dbs[  # type: ignore[attr-defined]
             access_control_config.db_name

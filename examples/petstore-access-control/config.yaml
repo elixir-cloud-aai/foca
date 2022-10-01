@@ -20,6 +20,9 @@ security:
           - userinfo
           - public_key
         validation_checks: all
+    access_control:
+        owner_headers: ['user_id']
+        user_headers: ['user_id']
 
 api:
     specs:
@@ -51,7 +54,3 @@ exceptions:
     required_members: [['message'], ['code']]
     status_member: ['code']
     exceptions: exceptions.exceptions
-
-access_control:
-    owner_headers: ['user_id']
-    user_headers: ['user_id']

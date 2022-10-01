@@ -18,8 +18,8 @@ from foca.models.config import (
     AccessControlConfig
 )
 from foca.database.register_mongodb import add_new_database
-from foca.access_control.foca_casbin_adapter.adapter import Adapter
-from foca.access_control.constants import (
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH
 )

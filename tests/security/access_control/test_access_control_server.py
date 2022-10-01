@@ -7,14 +7,14 @@ import mongomock
 from pymongo import MongoClient
 import pytest
 
-from foca.access_control.access_control_server import (
+from foca.security.access_control.access_control_server import (
     deletePermission,
     getPermission,
     getAllPermissions,
     postPermission,
     putPermission
 )
-from foca.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.errors.exceptions import BadRequest, InternalServerError, NotFound
 from foca.models.config import (AccessControlConfig, Config, MongoConfig)
 from tests.mock_data import (

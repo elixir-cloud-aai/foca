@@ -221,7 +221,7 @@ of the following:
 [docs]: <https://foca.readthedocs.io/en/latest/>
 [docs-config-file]: ../../README.md#configuration-file
 [img-hint]: ../../images/hint.svg
-[res-access-control]: ../../foca/access_control/README.md
+[res-access-control]: ../../foca/security/access_control/README.md
 [res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
 [res-curl]: <https://curl.se/>
 [res-docker-compose]: <https://docs.docker.com/compose/>

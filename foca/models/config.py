@@ -11,7 +11,7 @@ from typing import (Any, Dict, List, Optional, Union)
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
 import pymongo
 
-from foca.access_control.constants import DEFAULT_MODEL_FILE
+from foca.security.access_control.constants import DEFAULT_MODEL_FILE
 
 
 def _validate_log_level_choices(level: int) -> int:
@@ -642,6 +642,62 @@ fields=None, add_security_fields=None, disable_auth=False, connexion=None)])
     specs: List[SpecConfig] = []
 
 
+class AccessControlConfig(FOCABaseConfig):
+    """Model for setting access control configuration.
+    For exact behaviour cf. https://github.com/casbin/pycasbin.
+
+    Args:
+        api_specs: Path to API spec definition. If None, the use default
+            specs.
+        api_controllers: Path to API spec controller. If None, the use default
+            specs.
+        db_name: Access control database name. If None, the use default specs.
+        collection_name: Access control collection name. If None, the use
+            default specs.
+        model: Path to access control model configuration file. If None,
+            the use default specs.
+        owner_headers: Owner (Admin) specific header property requirements
+            for casbin.
+        user_headers: User specific header property requirements for casbin.
+
+    Attributes:
+        api_specs: Path to API spec definition.
+        api_controllers: Path to API spec controller.
+        db_name: Access control database name.
+        collection_name: Access control collection name.
+        model: Path to access control model configuration file.
+        owner_headers: Owner (Admin) specific header property requirements
+            for casbin.
+        user_headers: User specific header property requirements for casbin.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Example:
+        >>> AccessControlConfig(
+        ...     api_specs='/path/to/spec.yaml',
+        ...     api_controllers='/path/to/spec_server.py',
+        ...     db_name='access_control_db',
+        ...     collection_name='access_control_collection',
+        ...     model='/path/to/policy.conf',
+        ...     owner_headers={'X-User', 'X-Group'},
+        ...     user_headers={'X-User'}
+        ... )
+        AccessControlConfig(api_specs='/path/to/access_control_spec.yaml',api_\
+controllers='/path/to/access_control_spec_server.py', db_name='access_control_\
+db', collection_name='access_control_collection', model='/path/to/policy.co\
+nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
+    """
+    api_specs: Optional[str] = None
+    api_controllers: Optional[str] = None
+    db_name: Optional[str] = None
+    collection_name: Optional[str] = None
+    model: Optional[str] = DEFAULT_MODEL_FILE
+    owner_headers: Optional[set] = None
+    user_headers: Optional[set] = None
+
+
 class AuthConfig(FOCABaseConfig):
     """Model for parameters used to configure JSON Web Token (JWT)-based
     authorization for the app.
@@ -741,10 +797,14 @@ class SecurityConfig(FOCABaseConfig):
     """Model for list the Security configuration.
 
     Args:
+        access_control: Config parameters for Access Control.
         auth: Config parameters for JSON Web Token (JWT) validation.
+        cors: Config parameters for CORS.
 
     Attributes:
+        access_control: Config parameters for Access Control.
         auth: Config parameters for JSON Web Token (JWT) validation.
+        cors: Config parameters for CORS.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -752,14 +812,21 @@ class SecurityConfig(FOCABaseConfig):
 
     Example:
         >>> SecurityConfig(
+        ...     access_control=AccessControlConfig(),
         ...     auth=AuthConfig(),
+        ...     cors=CORSConfig(),    
         ... )
         SecurityConfig(auth=AuthConfig(required=False, add_key_to_claims=True,\
  allow_expired=False, audience=None, claim_identity='sub', claim_issuer='iss',\
  algorithms=['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'u\
 serinfo'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_check\
-s=<ValidationChecksEnum.all: 'all'>), cors=CORSConfig(enabled=True))
+s=<ValidationChecksEnum.all: 'all'>), cors=CORSConfig(enabled=True), access_co\
+ntrol=AccessControlConfig(api_specs='/path/to/access_control_spec.yaml',api_co\
+ntrollers='/path/to/access_control_spec_server.py', db_name='access_control_db\
+', collection_name='access_control_collection', model='/path/to/policy.conf', \
+owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'}))
     """
+    access_control: AccessControlConfig = AccessControlConfig()
     auth: AuthConfig = AuthConfig()
     cors: CORSConfig = CORSConfig()
 
@@ -1097,62 +1164,6 @@ onsole']))
     root: Optional[LogRootConfig] = LogRootConfig()
 
 
-class AccessControlConfig(FOCABaseConfig):
-    """Model for setting access control configuration.
-    For exact behaviour cf. https://github.com/casbin/pycasbin.
-
-    Args:
-        api_specs: Path to API spec definition. If None, the use default
-            specs.
-        api_controllers: Path to API spec controller. If None, the use default
-            specs.
-        db_name: Access control database name. If None, the use default specs.
-        collection_name: Access control collection name. If None, the use
-            default specs.
-        model: Path to access control model configuration file. If None,
-            the use default specs.
-        owner_headers: Owner (Admin) specific header property requirements
-            for casbin.
-        user_headers: User specific header property requirements for casbin.
-
-    Attributes:
-        api_specs: Path to API spec definition.
-        api_controllers: Path to API spec controller.
-        db_name: Access control database name.
-        collection_name: Access control collection name.
-        model: Path to access control model configuration file.
-        owner_headers: Owner (Admin) specific header property requirements
-            for casbin.
-        user_headers: User specific header property requirements for casbin.
-
-    Raises:
-        pydantic.ValidationError: The class was instantianted with an illegal
-            data type.
-
-    Example:
-        >>> AccessControlConfig(
-        ...     api_specs="/path/to/spec.yaml",
-        ...     api_controllers="/path/to/spec_server.py",
-        ...     db_name="access_control_db",
-        ...     collection_name="access_control_collection",
-        ...     model="/path/to/policy.conf",
-        ...     owner_headers={'X-User', 'X-Group'},
-        ...     user_headers={'X-User'}
-        ... )
-        AccessControlConfig(api_specs="/path/to/access_control_spec.yaml",api_\
-controllers="/path/to/access_control_spec_server.py", db_name="access_control_\
-db", collection_name="access_control_collection", model="/path/to/policy.co\
-nf", owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
-    """
-    api_specs: Optional[str] = None
-    api_controllers: Optional[str] = None
-    db_name: Optional[str] = None
-    collection_name: Optional[str] = None
-    model: Optional[str] = DEFAULT_MODEL_FILE
-    owner_headers: Optional[set] = None
-    user_headers: Optional[set] = None
-
-
 class Config(FOCABaseConfig):
     """Model for all app configuration parameters.
 
@@ -1164,7 +1175,6 @@ class Config(FOCABaseConfig):
         db: Database config parameters.
         jobs: Background job config parameters.
         log: Logger config parameters.
-        access_control: Access control config parameters.
 
     Attributes:
         server: Server config parameters.
@@ -1174,7 +1184,6 @@ class Config(FOCABaseConfig):
         db: Database config parameters.
         jobs: Background job config parameters.
         log: Logger config parameters.
-        access_control: Access control config parameters.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -1204,17 +1213,17 @@ rityConfig(auth=AuthConfig(required=False, add_key_to_claims=True, allow_expir\
 ed=False, audience=None, claim_identity='sub', claim_issuer='iss', algorithms=\
 ['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'userinfo'>, <\
 ValidationMethodsEnum.public_key: 'public_key'>], validation_checks=<Validatio\
-nChecksEnum.all: 'all'>), cors=CORSConfig(enabled=True)), db=None, jobs=None, \
-log=LogConfig(version=1, disable_existing_loggers=False, formatters={'standard\
-': LogFormatterConfig(class_formatter='logging.Formatter', style='{', format='\
-[{asctime}: {levelname:<8}] {message} [{name}]')}, handlers={'console': LogHan\
-dlerConfig(class_handler='logging.StreamHandler', level=20, formatter='standar\
-d', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['conso\
-le'])), access_control=AccessControlConfig(api_specs="/path/to/access_control_\
-spec.yaml", api_controllers="/path/to/access_control_spec_server.py", db_name=\
-"access_control_db", collection_name="access_control_collection", model="/p\
-ath/to/policy.conf", owner_headers={'X-User', 'X-Group'}, user_headers={'X-Use\
-r'}))
+nChecksEnum.all: 'all'>), cors=CORSConfig(enabled=True), access_control=Access\
+ControlConfig(api_specs='/path/to/access_control_spec.yaml', api_controllers='\
+/path/to/access_control_spec_server.py', db_name='access_control_db', collecti\
+on_name='access_control_collection', model='/path/to/policy.conf', owner_heade\
+rs={'X-User', 'X-Group'}, user_headers={'X-User'})), db=None, jobs=None, log=L\
+ogConfig(version=1, disable_existing_loggers=False, formatters={'standard': Lo\
+gFormatterConfig(class_formatter='logging.Formatter', style='{', format='[{asc\
+time}: {levelname:<8}] {message} [{name}]')}, handlers={'console': LogHandlerC\
+onfig(class_handler='logging.StreamHandler', level=20, formatter='standard', s\
+tream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['console'])\
+))
     """
     server: ServerConfig = ServerConfig()
     exceptions: ExceptionConfig = ExceptionConfig()
@@ -1223,7 +1232,6 @@ r'}))
     db: Optional[MongoConfig] = None
     jobs: Optional[JobsConfig] = None
     log: LogConfig = LogConfig()
-    access_control: AccessControlConfig = AccessControlConfig()
 
     class Config:
         """Configuration for Pydantic model class."""
