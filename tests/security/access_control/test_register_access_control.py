@@ -6,8 +6,10 @@ from pymongo import MongoClient
 from unittest import TestCase
 import pytest
 
-from foca.access_control.register_access_control import check_permissions
-from foca.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.register_access_control import (
+    check_permissions
+)
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.errors.exceptions import Forbidden
 from foca.models.config import AccessControlConfig, Config, MongoConfig
 from tests.mock_data import (

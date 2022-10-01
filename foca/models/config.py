@@ -814,7 +814,7 @@ class SecurityConfig(FOCABaseConfig):
         >>> SecurityConfig(
         ...     access_control=AccessControlConfig(),
         ...     auth=AuthConfig(),
-        ...     cors=CORSConfig(),    
+        ...     cors=CORSConfig(),
         ... )
         SecurityConfig(auth=AuthConfig(required=False, add_key_to_claims=True,\
  allow_expired=False, audience=None, claim_identity='sub', claim_issuer='iss',\

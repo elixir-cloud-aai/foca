@@ -6,7 +6,9 @@ from flask import (current_app, make_response)
 from pymongo.collection import Collection
 
 from exceptions import NotFound
-from foca.security.access_control.register_access_control import check_permissions
+from foca.security.access_control.register_access_control import (
+    check_permissions
+)
 
 logger = logging.getLogger(__name__)
 
