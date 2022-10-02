@@ -64,8 +64,10 @@ def putPermission(
     if isinstance(request_json, dict):
         app_config = current_app.config
         try:
+            security_conf = \
+                app_config.foca.security  # type: ignore[attr-defined]
             access_control_config = \
-                app_config.foca.security.access_control  # type: ignore[attr-defined]
+                security_conf.access_control  # type: ignore[attr-defined]
             db_coll_permission: Collection = (
                 app_config.foca.db.dbs[  # type: ignore[attr-defined]
                     access_control_config.db_name]
