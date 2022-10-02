@@ -157,7 +157,7 @@ respectively. To manually set the names, provide values for the `db_name` and
 ### Configuring the API
 
 FOCA comes with a default API for configuring permission resources. However,
-you can provide a custom [Swagger 2.x or OpenAPI 3.x](res-openapi) definition
+you can provide a custom [Swagger 2.x or OpenAPI 3.x][res-openapi] definition
 for `/permissions` endpoints via `api_specs`, provide a module containing
 custom controllers for the defined endpoints via the `api_controllers`
 parameter and tell FOCA where to host the endpoints via `api_route`.
@@ -198,9 +198,9 @@ firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
 
 [casbin-docs]: <https://casbin.org/docs/en/how-it-works>
 [docs-models-access-control]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.AccessControlConfig>
-[default-specs]: api/access-control-specs.yaml
-[default-controllers]: ./access_control_server.py
-[default-model]: api/default_model.conf
+[default-specs]: ../../foca/security/access_control/api/access-control-specs.yaml
+[default-controllers]: ../../foca/security/access_control/access_control_server.py
+[default-model]: ../../foca/security/access_control/api/default_model.conf
 [img-casbin-flow]: ../../images/casbin_model.jpeg
 [img-logo-banner]: ../../images/logo-banner.svg
 [res-casbin-models]: <https://casbin.org/docs/en/supported-models>
