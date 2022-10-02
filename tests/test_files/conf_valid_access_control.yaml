@@ -12,8 +12,6 @@ security:
           - public_key
         validation_checks: all
     cors:
-      enabled: False
-    cors:
       enabled: True
     access_control:
         api_specs: foca/security/access_control/api/access-control-specs.yaml
