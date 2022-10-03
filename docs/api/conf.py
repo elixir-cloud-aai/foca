@@ -15,6 +15,8 @@ import sys
 
 from sphinx.ext import apidoc
 
+from foca import __version__
+
 sys.path.insert(0, Path.cwd().resolve().parents[1])
 
 
@@ -25,7 +27,7 @@ copyright = '2022, ELIXIR Cloud & AAI'
 author = 'ELIXIR Cloud & AAI'
 
 # The full version, including alpha/beta/rc tags
-release = '0.9.0'
+release = __version__
 
 
 # -- General configuration ---------------------------------------------------
