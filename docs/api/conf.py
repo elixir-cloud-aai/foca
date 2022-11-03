@@ -1,5 +1,3 @@
-from foca import __version__
-
 # Configuration file for the Sphinx documentation builder.
 #
 # This file only contains a selection of the most common options. For a full
@@ -17,8 +15,11 @@ import sys
 
 from sphinx.ext import apidoc
 
-sys.path.insert(0, Path.cwd().resolve().parents[1])
+root_dir = Path.cwd().resolve().parents[1]
 
+sys.path.insert(0, root_dir)
+
+exec(open(root_dir / "foca" / "version.py").read())
 
 # -- Project information -----------------------------------------------------
 
@@ -27,7 +28,7 @@ copyright = '2020, ELIXIR Cloud & AAI'
 author = 'ELIXIR Cloud & AAI'
 
 # The full version, including alpha/beta/rc tags
-release = __version__
+release = __version__  # noqa: F821
 
 
 # -- General configuration ---------------------------------------------------

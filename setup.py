@@ -5,6 +5,8 @@ from setuptools import setup, find_packages
 
 root_dir = Path(__file__).parent.resolve()
 
+exec(open(root_dir / "foca" / "version.py").read())
+
 file_name = root_dir / "README.md"
 with open(file_name, "r") as _file:
     long_description = _file.read()
@@ -16,6 +18,7 @@ with open(req, "r") as _file:
 
 setup(
     name="foca",
+    version=__version__,  # noqa: F821
     description=(
         "Archetype for OpenAPI microservices based on Flask and Connexion"
     ),
