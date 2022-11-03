@@ -7,8 +7,6 @@
 [![GitHub_tag][badge-github-tag]][badge-url-github-tag]
 [![PyPI_release][badge-pypi]][badge-url-pypi]
 
-## Description
-
 **FOCA** (**F**lask-**O**penAPI-**C**onnexion-**A**rchetype) is an opinionated
 archetype that enables fast development of [OpenAPI][res-openapi]-based HTTP
 API microservices in [Flask][res-flask], leveraging the excellent
@@ -34,7 +32,6 @@ Check the [API docs][badge-url-docs] for further details.
 
 ## Table of Contents
 
-* [Description](#description)
 * [Usage](#usage)
 * [Configuration](#configuration)
   * [Configuring OpenAPI specifications](#configuring-openapi-specifications)
