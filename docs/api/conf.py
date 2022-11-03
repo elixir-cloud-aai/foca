@@ -15,10 +15,11 @@ import sys
 
 from sphinx.ext import apidoc
 
-from foca import __version__
+root_dir = Path.cwd().resolve().parents[1]
 
-sys.path.insert(0, Path.cwd().resolve().parents[1])
+sys.path.insert(0, root_dir)
 
+exec(open(root_dir / "foca" / "version.py").read())
 
 # -- Project information -----------------------------------------------------
 
@@ -27,7 +28,7 @@ copyright = '2022, ELIXIR Cloud & AAI'
 author = 'ELIXIR Cloud & AAI'
 
 # The full version, including alpha/beta/rc tags
-release = __version__
+release = __version__  # noqa: F821
 
 
 # -- General configuration ---------------------------------------------------
