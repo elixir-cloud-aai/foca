@@ -3,6 +3,8 @@
 from pathlib import Path
 from setuptools import setup, find_packages
 
+exec(open('foca/version.py').read())
+
 root_dir = Path(__file__).parent.resolve()
 
 file_name = root_dir / "README.md"
@@ -16,6 +18,7 @@ with open(req, "r") as _file:
 
 setup(
     name="foca",
+    version=__version__,
     description=(
         "Archetype for OpenAPI microservices based on Flask and Connexion"
     ),

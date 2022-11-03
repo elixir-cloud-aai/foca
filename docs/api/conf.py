@@ -1,4 +1,4 @@
-from foca import __version__
+from foca.version import __version__
 
 # Configuration file for the Sphinx documentation builder.
 #
