@@ -19,7 +19,7 @@ root_dir = Path.cwd().resolve().parents[1]
 
 sys.path.insert(0, root_dir)
 
-exec(open(root_dir / "foca" / "version.py"))
+exec(open(root_dir / "foca" / "version.py").read())
 
 # -- Project information -----------------------------------------------------
 
