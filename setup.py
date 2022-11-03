@@ -18,7 +18,7 @@ with open(req, "r") as _file:
 
 setup(
     name="foca",
-    version=__version__,
+    version=__version__,  # noqa: F821
     description=(
         "Archetype for OpenAPI microservices based on Flask and Connexion"
     ),
