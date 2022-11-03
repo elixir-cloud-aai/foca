@@ -3,9 +3,9 @@
 from pathlib import Path
 from setuptools import setup, find_packages
 
-exec(open('foca/version.py').read())
-
 root_dir = Path(__file__).parent.resolve()
+
+exec(open(root_dir / "foca" / "version.py").read())
 
 file_name = root_dir / "README.md"
 with open(file_name, "r") as _file:
