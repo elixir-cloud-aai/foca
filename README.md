@@ -1,4 +1,4 @@
-# FOCA
+# ![FOCA_logo][foca-logo] &ensp;_Develop Flask microservices quickly!_
 
 [![License][badge-license]][badge-url-license]
 [![Build_status][badge-build-status]][badge-url-build-status]
@@ -6,8 +6,6 @@
 [![Coverage][badge-coverage]][badge-url-coverage]
 [![GitHub_tag][badge-github-tag]][badge-url-github-tag]
 [![PyPI_release][badge-pypi]][badge-url-pypi]
-
-_Quickly develop Flask microservices!_
 
 ## Description
 
@@ -594,6 +592,7 @@ question etc.
 [docs-models-security]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.SecurityConfig>
 [docs-models-server]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ServerConfig>
 [example]: examples/petstore/README.md
+[foca-logo]: images/foca_logo_192px.png
 [img-hint]: images/hint.svg
 [img-logo-banner]: images/logo-banner.svg
 [license]: LICENSE
