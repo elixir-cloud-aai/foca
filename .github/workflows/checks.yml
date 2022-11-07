@@ -28,9 +28,9 @@ jobs:
         mongodb-port: [12345]
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.py-version-img[0] }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.py-version-img[0] }}
       - name: Install requirements
@@ -51,7 +51,7 @@ jobs:
           coverage run --source foca -m pytest -W ignore::DeprecationWarning
           coverage xml
       - name: Submit Report to Codecov
-        uses: codecov/codecov-action@v2
+        uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
@@ -90,7 +90,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Build & Publish image to DockerHub
         env:
           DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
