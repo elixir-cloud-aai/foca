@@ -24,7 +24,7 @@ exec(open(root_dir / "foca" / "version.py").read())
 # -- Project information -----------------------------------------------------
 
 project = 'FOCA'
-copyright = '2020, ELIXIR Cloud & AAI'
+copyright = '2022, ELIXIR Cloud & AAI'
 author = 'ELIXIR Cloud & AAI'
 
 # The full version, including alpha/beta/rc tags

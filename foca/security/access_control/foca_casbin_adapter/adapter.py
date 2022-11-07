@@ -5,7 +5,9 @@ from casbin.model import Model
 from typing import (List, Optional)
 from pymongo import MongoClient
 
-from foca.access_control.foca_casbin_adapter.casbin_rule import CasbinRule
+from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
+    CasbinRule
+)
 from foca.utils.misc import generate_id
 
 

@@ -1,7 +1,9 @@
 """Tests for initialising casbin rule object.
 """
 
-from foca.access_control.foca_casbin_adapter.casbin_rule import CasbinRule
+from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
+    CasbinRule
+)
 
 # Define data
 BASE_RULE_OBJECT = {

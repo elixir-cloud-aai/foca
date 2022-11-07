@@ -20,7 +20,8 @@ MONGO_CONFIG = {
         "access_control_db": DB_CONFIG,
     },
 }
-DIR = Path(__file__).parent / "access_control/foca_casbin_adapter/test_files/"
+RELATIVE_PATH = "security/access_control/foca_casbin_adapter/test_files/"
+DIR = Path(__file__).parent / RELATIVE_PATH
 MODEL_CONF_FILE = str(DIR / "rbac_model.conf")
 ACCESS_CONTROL_CONFIG = {
     "db_name": "access_control_db",

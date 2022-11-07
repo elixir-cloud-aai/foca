@@ -6,7 +6,7 @@ from pathlib import Path
 from pymongo import MongoClient
 from typing import List, Tuple
 
-from foca.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
 # Constants
 DIR = Path(__file__).parent / "test_files"
