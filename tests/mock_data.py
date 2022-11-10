@@ -15,7 +15,7 @@ DB_CONFIG = {
 }
 MONGO_CONFIG = {
     "host": "mongodb",
-    "port": 12345,
+    "port": 27017,
     "dbs": {
         "access_control_db": DB_CONFIG,
     },
