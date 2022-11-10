@@ -255,10 +255,16 @@ jobs:
 > FOCA and registers the tasks found in modules `my_task_1` and `my_task_2`.  
 >  
 > Cf. the [API model][docs-models-jobs] for further details.  
->  
-> **WARNING:** Note that FOCA's support for asynchronous tasks is currently
-> still experimental and thus hasn't been tested extensively. Please use with
-> caution.
+
+The `foca.Foca` class provides a method `.create_celery_app()` that you can
+use in your Celery worker entry point to crate a Celery app, like so:
+
+```py
+from foca import Foca
+
+foca = Foca(config="my_app/config.yaml")
+my_celery_app = foca.create_celery_app()
+```
 
 ### Configuring logging
 

@@ -1,0 +1,62 @@
+server:
+    host: '0.0.0.0'
+    port: 8080
+    debug: True
+    environment: development
+    testing: False
+    use_reloader: True
+
+api:
+    specs:
+        - path: my_specs.yaml
+          path_out: my_specs.modified.yaml
+          append: null
+          add_operation_fields: null
+          disable_auth: False
+          connexion: null
+
+security:
+    auth:
+        add_key_to_claims: True
+        algorithms:
+          - RS256
+        allow_expired: False
+        audience: null
+        claim_identity: sub
+        claim_issuer: iss
+        validation_methods:
+          - userinfo
+          - public_key
+        validation_checks: all
+
+db:
+    host: mongo
+    port: 27017
+    dbs:
+        my_db:
+            collections:
+                my-col-1:
+                    indexes: null
+
+custom:
+    my_custom_field_1: my_custom_value_1
+    my_custom_field_2: my_custom_value_2
+    my_custom_field_3: my_custom_value_3
+
+log:
+    version: 1
+    disable_existing_loggers: False
+    formatters:
+        standard:
+            class: logging.Formatter
+            style: "{"
+            format: "[{asctime}: {levelname:<8}] {message} [{name}]"
+    handlers:
+        console:
+            class: logging.StreamHandler
+            level: 20
+            formatter: standard
+            stream: ext://sys.stderr
+    root:
+        level: 10
+        handlers: [console]
