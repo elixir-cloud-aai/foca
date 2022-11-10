@@ -174,6 +174,16 @@ class Foca:
         cnx_app = register_exception_handler(cnx_app)
         logger.info("Error handler registered.")
 
+        # Register MongoDB
+        if self.conf.db:
+            cnx_app.app.config.foca.db = register_mongodb(
+                app=cnx_app.app,
+                conf=self.conf.db,
+            )
+            logger.info("Database registered.")
+        else:
+            logger.info("No database support configured.")
+
         # Create Celery app
         if self.conf.jobs:
             celery_app = create_celery_app(cnx_app.app)
