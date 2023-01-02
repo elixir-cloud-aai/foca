@@ -1,5 +1,5 @@
 addict==2.2.1
-celery==5.2.2
+celery==5.2.7
 connexion==2.11.2
 cryptography==36.0.2
 Flask==2.0.3
