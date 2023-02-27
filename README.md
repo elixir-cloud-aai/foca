@@ -68,7 +68,7 @@ pip install foca
 ```python
 from foca import Foca
 
-app = Foca(config_file="path/to/my/app/config.yaml")
+foca = Foca(config_file="path/to/my/app/config.yaml")
 app = foca.create_app()  # returns a Connexion app instance
 ```
 
