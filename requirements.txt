@@ -2,7 +2,7 @@ addict==2.2.1
 celery==5.2.2
 connexion==2.11.2
 cryptography==36.0.2
-Flask==2.0.3
+Flask==2.3.2
 flask-authz==2.5.0
 Flask-Cors==3.0.9
 Flask-PyMongo==2.3.0
