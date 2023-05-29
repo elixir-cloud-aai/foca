@@ -14,4 +14,4 @@ requests==2.27.1
 swagger-ui-bundle==0.0.6
 toml==0.10.0
 typing==3.7.4.1
-Werkzeug==2.0.3
+Werkzeug==2.2.3
