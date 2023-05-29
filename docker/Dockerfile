@@ -15,7 +15,6 @@ FROM base as builder
 # Install general dependencies
 ENV PACKAGES openssl git build-essential python3-dev curl jq
 RUN apt-get update && \
-    apt-get install apt-utils && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /app
@@ -45,7 +44,6 @@ ENV HOME=/tmp/user
 # Install general dependencies
 ENV PACKAGES openssl git build-essential python3-dev curl jq
 RUN apt-get update && \
-    apt-get install apt-utils && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
 
