@@ -14,7 +14,7 @@ LABEL maintainer.organisation="ELIXIR Cloud & AAI"
 FROM base as builder
 
 # Install general dependencies
-ENV PACKAGES openssl git build-essential python3-dev curl jq
+ENV PACKAGES openssl git build-essential python3-dev curl jq apt-utils
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
@@ -43,7 +43,7 @@ ENV USER=ipython
 ENV HOME=/tmp/user
 
 # Install general dependencies
-ENV PACKAGES openssl git build-essential python3-dev curl jq
+ENV PACKAGES openssl git build-essential python3-dev curl jq apt-utils
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
