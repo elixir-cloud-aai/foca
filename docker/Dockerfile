@@ -13,10 +13,9 @@ LABEL maintainer.organisation="ELIXIR Cloud & AAI"
 FROM base as builder
 
 # Install general dependencies
-ENV DEBIAN_FRONTEND noninteractive
-ENV DEBCONF_NOWARNINGS="yes"
 ENV PACKAGES openssl git build-essential python3-dev curl jq
 RUN apt-get update && \
+    apt-get install apt-utils && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /app
@@ -44,10 +43,9 @@ ENV USER=ipython
 ENV HOME=/tmp/user
 
 # Install general dependencies
-ENV DEBIAN_FRONTEND noninteractive
-ENV DEBCONF_NOWARNINGS="yes"
 ENV PACKAGES openssl git build-essential python3-dev curl jq
 RUN apt-get update && \
+    apt-get install apt-utils && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
 
