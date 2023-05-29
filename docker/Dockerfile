@@ -1,4 +1,5 @@
 ARG PY_IMAGE=3.11-slim-buster
+ARG DEBIAN_FRONTEND=noninteractive
 FROM python:$PY_IMAGE as base
 
 # Metadata
