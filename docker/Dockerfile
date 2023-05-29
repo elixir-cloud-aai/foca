@@ -1,5 +1,4 @@
 ARG PY_IMAGE=3.11-slim-buster
-ARG DEBIAN_FRONTEND=noninteractive
 FROM python:$PY_IMAGE as base
 
 # Metadata
@@ -14,7 +13,9 @@ LABEL maintainer.organisation="ELIXIR Cloud & AAI"
 FROM base as builder
 
 # Install general dependencies
-ENV PACKAGES openssl git build-essential python3-dev curl jq apt-utils
+ENV DEBIAN_FRONTEND noninteractive
+ENV DEBCONF_NOWARNINGS="yes"
+ENV PACKAGES openssl git build-essential python3-dev curl jq
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
@@ -43,7 +44,9 @@ ENV USER=ipython
 ENV HOME=/tmp/user
 
 # Install general dependencies
-ENV PACKAGES openssl git build-essential python3-dev curl jq apt-utils
+ENV DEBIAN_FRONTEND noninteractive
+ENV DEBCONF_NOWARNINGS="yes"
+ENV PACKAGES openssl git build-essential python3-dev curl jq
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
