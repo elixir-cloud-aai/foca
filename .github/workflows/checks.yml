@@ -61,7 +61,6 @@ jobs:
           DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
-          echo "DOCKERHUB_ORG: ${DOCKERHUB_ORG}"
           export PY_VERSION=${{ matrix.py-version-img[0] }}
           export PY_IMAGE=${{ matrix.py-version-img[1] }}
           docker build \
