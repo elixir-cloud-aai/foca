@@ -137,4 +137,3 @@ jobs:
               docker push ${DOCKERHUB_ORG}/${REPO_NAME}:latest
           fi
           rm ${HOME}/.docker/config.json
-
