@@ -18,7 +18,6 @@ def register_mongodb(
     """Register MongoDB databases and collections with Flask application
     instance.
 
-
     Args:
         app: Flask application instance.
         conf: :py:class:`foca.models.config.MongoConfig` instance describing
