@@ -11,8 +11,6 @@ from typing import (Any, Dict, List, Optional, Union)
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
 import pymongo
 
-from foca.security.access_control.constants import DEFAULT_MODEL_FILE
-
 
 def _validate_log_level_choices(level: int) -> int:
     """Custom validation function for Pydantic to ensure that a valid
@@ -693,7 +691,7 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     api_controllers: Optional[str] = None
     db_name: Optional[str] = None
     collection_name: Optional[str] = None
-    model: Optional[str] = DEFAULT_MODEL_FILE
+    model: Optional[str] = None
     owner_headers: Optional[set] = None
     user_headers: Optional[set] = None
 
