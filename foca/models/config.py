@@ -6,10 +6,16 @@ from functools import reduce
 import importlib
 import operator
 from pathlib import Path
+from pkg_resources import resource_filename
 from typing import (Any, Dict, List, Optional, Union)
 
 from pydantic import (BaseModel, Field, validator)  # pylint: disable=E0611
 import pymongo
+
+from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH,
+    DEFAULT_MODEL_FILE
+)
 
 
 def _validate_log_level_choices(level: int) -> int:
@@ -694,6 +700,26 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     model: Optional[str] = None
     owner_headers: Optional[set] = None
     user_headers: Optional[set] = None
+
+    @validator('model', always=True, allow_reuse=True)
+    def validate_model_path(cls, v: Optional[Path]):  # pylint: disable=E0213
+        """
+        Resolve path relative to caller's current working directory if no
+        absolute path provided for model or Set to default file path for model
+        if path is not provided.
+        """
+        if v is None:
+            return str(
+                resource_filename(
+                    ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
+                )
+            )
+
+        model_path = Path(v)
+        if not model_path.is_absolute():
+            return str(Path.cwd() / model_path)
+
+        return v
 
 
 class AuthConfig(FOCABaseConfig):

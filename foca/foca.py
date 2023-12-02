@@ -6,14 +6,11 @@ from typing import Optional
 
 from celery import Celery
 from connexion import App
-from pkg_resources import resource_filename
 
 from foca.security.access_control.register_access_control import (
     register_access_control,
 )
 from foca.security.access_control.constants import (
-    ACCESS_CONTROL_BASE_PATH,
-    DEFAULT_MODEL_FILE,
     DEFAULT_SPEC_CONTROLLER,
     DEFAULT_ACCESS_CONTROL_DB_NAME,
     DEFAULT_ACESS_CONTROL_COLLECTION_NAME,
@@ -145,13 +142,6 @@ class Foca:
             if self.conf.security.access_control.collection_name is None:
                 self.conf.security.access_control.collection_name = (
                     DEFAULT_ACESS_CONTROL_COLLECTION_NAME
-                )
-
-            if self.conf.security.access_control.model is None:
-                self.conf.security.access_control.model = str(
-                    resource_filename(
-                        ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
-                    )
                 )
 
             cnx_app = register_access_control(
