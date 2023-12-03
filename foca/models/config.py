@@ -718,7 +718,7 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
 
         model_path = Path(v)
         if not model_path.is_absolute():
-            return str(Path.cwd() / model_path)
+            return str(model_path.resolve())
 
         return v
 
