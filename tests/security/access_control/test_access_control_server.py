@@ -19,7 +19,9 @@ from foca.security.access_control.access_control_server import (
     putPermission
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
-from foca.security.access_control.constants import ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
+from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
+)
 from foca.errors.exceptions import BadRequest, InternalServerError, NotFound
 from foca.models.config import (AccessControlConfig, Config, MongoConfig)
 
@@ -352,7 +354,6 @@ class TestModelPathResolution(TestCase):
         )
         assert config.model == default_model_path
 
-
     def test_relative_path_model_input(self):
         file_path = "access_model.conf"
         config = AccessControlConfig(model=file_path)
@@ -368,4 +369,3 @@ class TestModelPathResolution(TestCase):
         config = AccessControlConfig(model=file_path)
         assert config.model == file_path
         assert config.model == os.path.abspath(file_path)
-
