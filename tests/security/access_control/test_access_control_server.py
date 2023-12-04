@@ -2,8 +2,12 @@
 
 from copy import deepcopy
 from unittest import TestCase
+
+
 from flask import Flask
 import mongomock
+import os
+from pkg_resources import resource_filename
 from pymongo import MongoClient
 import pytest
 
@@ -15,8 +19,12 @@ from foca.security.access_control.access_control_server import (
     putPermission
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
+)
 from foca.errors.exceptions import BadRequest, InternalServerError, NotFound
 from foca.models.config import (AccessControlConfig, Config, MongoConfig)
+
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
     MOCK_ID,
@@ -332,3 +340,32 @@ class TestPutPermission(BaseTestAccessControl):
         with app.test_request_context(json=""):
             with pytest.raises(BadRequest):
                 putPermission.__wrapped__(id=MOCK_ID)
+
+
+class TestModelPathResolution(TestCase):
+    """Test class for checking access control model input resolution"""
+
+    def test_no_model_input(self):
+        config = AccessControlConfig()
+        default_model_path = str(
+            resource_filename(
+                ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
+            )
+        )
+        assert config.model == default_model_path
+
+    def test_relative_path_model_input(self):
+        file_path = "access_model.conf"
+        config = AccessControlConfig(model=file_path)
+        assert config.model == os.path.abspath(file_path)
+
+        # testing relative paths with relative parent directory notation used
+        file_path = "../../test/access_model.conf"
+        config = AccessControlConfig(model=file_path)
+        assert config.model == os.path.abspath(file_path)
+
+    def test_absolute_path_model_input(self):
+        file_path = "/test/access_model.conf"
+        config = AccessControlConfig(model=file_path)
+        assert config.model == file_path
+        assert config.model == os.path.abspath(file_path)

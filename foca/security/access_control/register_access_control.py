@@ -155,13 +155,7 @@ def register_casbin_enforcer(
         Connexion application instance with registered casbin configuration.
     """
     # Check if default, get package path variables for model.
-    access_control_config_model = str(access_control_config.model)
-    if access_control_config.api_specs is None:
-        casbin_model = str(resource_filename(
-            ACCESS_CONTROL_BASE_PATH, access_control_config_model
-        ))
-    else:
-        casbin_model = access_control_config_model
+    casbin_model = access_control_config.model
 
     logger.info("Setting casbin model.")
     app.app.config["CASBIN_MODEL"] = casbin_model
