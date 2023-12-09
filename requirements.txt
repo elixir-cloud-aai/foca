@@ -3,7 +3,7 @@ celery==5.2.2
 connexion>=2.11.2,<3.0.0
 cryptography==41.0.3
 Flask==2.2.5
-flask-authz==2.5.0
+flask-authz==2.5.1
 Flask-Cors==3.0.9
 Flask-PyMongo==2.3.0
 pydantic==1.10.8
