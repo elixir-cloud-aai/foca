@@ -26,6 +26,10 @@ RUN pip install \
         --prefix="/install" \
         -r requirements.txt
 
+# Make temporary directory for modified specs
+ENV TMPDIR=specs
+RUN mkdir -p ${TMPDIR} && chmod 1777 ${TMPDIR}
+
 # Install FOCA
 COPY setup.py README.md ./
 COPY foca/ ./foca/

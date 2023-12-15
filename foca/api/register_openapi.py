@@ -1,6 +1,7 @@
 """Register and modify OpenAPI specifications."""
 
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -88,6 +89,13 @@ def register_openapi(
 
         # Write modified specs
         try:
+            output_path = Path(spec.path_out)
+            root_dir = output_path.parent
+            file_name = output_path.name
+            temp_dir = Path(os.environ.get('TMPDIR', 'specs'))
+            modified_dir = root_dir / temp_dir
+            modified_dir.mkdir(parents=True, exist_ok=True)
+            spec.path_out = modified_dir / file_name
             with open(spec.path_out, 'w') as out_file:  # type: ignore
                 yaml.safe_dump(spec_parsed, out_file)
         except OSError as e:
