@@ -89,14 +89,13 @@ def register_openapi(
 
         # Write modified specs
         try:
-            output_path = os.path.normpath(spec.path_out)
-            root_dir = os.path.dirname(output_path)
-            file_name = os.path.basename(output_path)
-            temp_dir = os.environ.get('TMPDIR', 'specs')
-            modified_dir = os.path.join(root_dir, temp_dir)
-            os.makedirs(modified_dir, exist_ok=True)
-            spec.path_out = os.path.join(modified_dir, file_name)
-
+            output_path = Path(str(spec.path_out))
+            root_dir = output_path.parent
+            file_name = output_path.name
+            temp_dir = Path(os.environ.get('TMPDIR', 'specs'))
+            modified_dir = Path(root_dir / temp_dir)
+            modified_dir.mkdir(parents=True, exist_ok=True)
+            spec.path_out = modified_dir / file_name
             with open(spec.path_out, 'w') as out_file:  # type: ignore
                 yaml.safe_dump(spec_parsed, out_file)
         except OSError as e:
