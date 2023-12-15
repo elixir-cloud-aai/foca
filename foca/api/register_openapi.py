@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from connexion import App
-import yaml
+# import yaml
 
 from foca.models.config import SpecConfig
 from foca.config.config_parser import ConfigParser
@@ -87,25 +87,25 @@ def register_openapi(
             logger.debug("Removed security fields")
 
         # Write modified specs
-        try:
-            with open(spec.path_out, 'w') as out_file:  # type: ignore
-                yaml.safe_dump(spec_parsed, out_file)
-        except OSError as e:
-            raise OSError(
-                "Modified specification could not be written to file "
-                f"'{spec.path_out}'"
-            ) from e
-        except yaml.YAMLError as e:
-            raise yaml.YAMLError(
-                "Could not encode modified specification"
-            ) from e
-        logger.debug(f"Wrote specs to file: {spec.path_out}")
+        # try:
+        #     with open(spec.path_out, 'w') as out_file:  # type: ignore
+        #         yaml.safe_dump(spec_parsed, out_file)
+        # except OSError as e:
+        #     raise OSError(
+        #         "Modified specification could not be written to file "
+        #         f"'{spec.path_out}'"
+        #     ) from e
+        # except yaml.YAMLError as e:
+        #     raise yaml.YAMLError(
+        #         "Could not encode modified specification"
+        #     ) from e
+        # logger.debug(f"Wrote specs to file: {spec.path_out}")
 
         # Attach specs to connexion App
         logger.debug(f"Modified specs: {spec_parsed}")
         spec.connexion = {} if spec.connexion is None else spec.connexion
         app.add_api(
-            specification=spec.path_out,
+            specification=spec_parsed,
             **spec.dict().get('connexion', {}),
         )
         logger.info(f"API endpoints added from spec: {spec.path_out}")
