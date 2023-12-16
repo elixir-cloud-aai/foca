@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Dict, List
 
 from connexion import App
-# import yaml
 
 from foca.models.config import SpecConfig
 from foca.config.config_parser import ConfigParser
@@ -85,21 +84,6 @@ def register_openapi(
                 for operation_object in path_item_object.values():
                     operation_object.pop('security', None)
             logger.debug("Removed security fields")
-
-        # Write modified specs
-        # try:
-        #     with open(spec.path_out, 'w') as out_file:  # type: ignore
-        #         yaml.safe_dump(spec_parsed, out_file)
-        # except OSError as e:
-        #     raise OSError(
-        #         "Modified specification could not be written to file "
-        #         f"'{spec.path_out}'"
-        #     ) from e
-        # except yaml.YAMLError as e:
-        #     raise yaml.YAMLError(
-        #         "Could not encode modified specification"
-        #     ) from e
-        # logger.debug(f"Wrote specs to file: {spec.path_out}")
 
         # Attach specs to connexion App
         logger.debug(f"Modified specs: {spec_parsed}")
