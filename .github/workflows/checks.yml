@@ -85,6 +85,7 @@ jobs:
           ["3.8", "3.8-slim-buster", ""],
           ["3.9", "3.9-slim-buster", ""],
           ["3.10", "3.10-slim-buster", "latest"],
+          ["3.11", "3.11-slim-buster", "latest"],
         ]
 
     steps:
