@@ -10,6 +10,7 @@ from werkzeug.exceptions import (InternalServerError, NotFound)
 
 from foca.utils.logging import log_traffic
 from foca.errors.exceptions import BadRequest
+from foca.models.config import AccessControlConfig
 
 logger = logging.getLogger(__name__)
 
@@ -62,16 +63,13 @@ def putPermission(
     """
     request_json = request.json
     if isinstance(request_json, dict):
-        app_config = current_app.config
+        foca_conf = getattr(current_app.config, 'foca')
         try:
-            security_conf = \
-                app_config.foca.security  # type: ignore[attr-defined]
-            access_control_config = \
-                security_conf.access_control  # type: ignore[attr-defined]
+            access_control_conf: AccessControlConfig = \
+                foca_conf.security.access_control
             db_coll_permission: Collection = (
-                app_config.foca.db.dbs[  # type: ignore[attr-defined]
-                    access_control_config.db_name]
-                .collections[access_control_config.collection_name].client
+                foca_conf.db.dbs[access_control_conf.db_name]
+                .collections[access_control_conf.collection_name].client
             )
 
             permission_data = request_json.get("rule", {})
@@ -102,11 +100,10 @@ def getAllPermissions(limit=None) -> List[Dict]:
     Returns:
         List of permission dicts.
     """
-    app_config = current_app.config
-    access_control_config = \
-        app_config.foca.security.access_control  # type: ignore[attr-defined]
+    foca_conf = getattr(current_app.config, 'foca')
+    access_control_config = foca_conf.security.access_control
     db_coll_permission: Collection = (
-        app_config.foca.db.dbs[  # type: ignore[attr-defined]
+        foca_conf.db.dbs[
             access_control_config.db_name
         ].collections[access_control_config.collection_name].client
     )
@@ -145,11 +142,10 @@ def getPermission(
     Returns:
         Permission data for the given id.
     """
-    app_config = current_app.config
-    access_control_config = \
-        app_config.foca.security.access_control  # type: ignore[attr-defined]
+    foca_conf = getattr(current_app.config, 'foca')
+    access_control_config = foca_conf.security.access_control
     db_coll_permission: Collection = (
-        app_config.foca.db.dbs[  # type: ignore[attr-defined]
+        foca_conf.db.dbs[
             access_control_config.db_name
         ].collections[access_control_config.collection_name].client
     )
@@ -181,11 +177,10 @@ def deletePermission(
     Returns:
         Delete permission identifier.
     """
-    app_config = current_app.config
-    access_control_config = \
-        app_config.foca.security.access_control  # type: ignore[attr-defined]
+    foca_conf = getattr(current_app.config, 'foca')
+    access_control_config = foca_conf.security.access_control
     db_coll_permission: Collection = (
-        app_config.foca.db.dbs[  # type: ignore[attr-defined]
+        foca_conf.db.dbs[
             access_control_config.db_name
         ].collections[access_control_config.collection_name].client
     )

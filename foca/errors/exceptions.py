@@ -211,7 +211,8 @@ def _problem_handler_json(exception: Exception) -> Response:
         JSON-formatted error response.
     """
     # Look up exception & get status code
-    conf = current_app.config.foca.exceptions  # type: ignore[attr-defined]
+    foca_conf = getattr(current_app.config, 'foca')
+    conf = foca_conf.exceptions
     exc = type(exception)
     if exc not in conf.mapping:
         exc = Exception

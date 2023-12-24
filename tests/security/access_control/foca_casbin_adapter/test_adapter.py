@@ -35,7 +35,7 @@ class TestAdapter(TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.db_name = "casbin_test"
-        self.db_port = 12345
+        self.db_port = 27017
 
     def setUp(self):
         self.clear_db()

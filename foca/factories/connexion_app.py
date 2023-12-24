@@ -7,6 +7,7 @@ from typing import Optional
 from connexion import App
 
 from foca.models.config import Config
+from foca.factories.flask_app import create_flask_app
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ def create_connexion_app(config: Optional[Config] = None) -> App:
         __name__,
         skip_error_handlers=True,
     )
+    app.app = create_flask_app()
 
     calling_module = ':'.join([stack()[1].filename, stack()[1].function])
     logger.debug(f"Connexion app created from '{calling_module}'.")
@@ -71,7 +73,7 @@ def __add_config_to_connexion_app(
         logger.debug('* {}: {}'.format(key, value))
 
     # Add user configuration to Flask app config
-    setattr(app.app.config, 'foca', config)
+    app.app.config.foca = config
 
     logger.debug('Connexion app configured.')
     return app
