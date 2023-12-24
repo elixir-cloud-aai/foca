@@ -2,7 +2,7 @@
 
 from casbin import persist
 from casbin.model import Model
-from typing import (Any, List, Optional)
+from typing import (Any, Dict, List, Optional)
 from pymongo import MongoClient
 
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
@@ -170,7 +170,7 @@ class Adapter(persist.Adapter):
         if not (1 <= field_index + len(field_values) <= 6):
             return False
 
-        query: dict[str, Any] = {}
+        query: Dict[str, Any] = {}
         for index, value in enumerate(field_values):
             query[f"v{index + field_index}"] = value
 
