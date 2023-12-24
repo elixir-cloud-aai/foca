@@ -19,9 +19,10 @@ jobs:
       fail-fast: true
       matrix:
         py-version-img: [
-          ["3.8", "3.8-slim-buster"],
-          ["3.9", "3.9-slim-buster"],
-          ["3.10", "3.10-slim-buster"],
+          ["3.8", "3.8-slim-bullseye"],
+          ["3.9", "3.9-slim-bullseye"],
+          ["3.10", "3.10-slim-bullseye"],
+          ["3.11", "3.11-slim-bullseye"]
         ]
         mongodb-version: ["4.2", "4.4", "5.0"]
         mongodb-port: [12345]
@@ -81,9 +82,10 @@ jobs:
       fail-fast: true
       matrix:
         py-version-img-tag: [
-          ["3.8", "3.8-slim-buster", ""],
-          ["3.9", "3.9-slim-buster", ""],
-          ["3.10", "3.10-slim-buster", "latest"],
+          ["3.8", "3.8-slim-bullseye", ""],
+          ["3.9", "3.9-slim-bullseye", ""],
+          ["3.10", "3.10-slim-bullseye", ""],
+          ["3.11", "3.11-slim-bullseye", "latest"],
         ]
 
     steps:

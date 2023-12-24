@@ -1,4 +1,4 @@
-ARG PY_IMAGE=3.10-slim-buster
+ARG PY_IMAGE=3.11-slim-bullseye
 FROM python:$PY_IMAGE as base
 
 # Metadata
