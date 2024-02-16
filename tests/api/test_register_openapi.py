@@ -5,7 +5,7 @@ instance.
 from copy import deepcopy
 from pathlib import Path
 
-from connexion import App
+import connexion
 from connexion.exceptions import InvalidSpecification
 import pytest
 from yaml import YAMLError
@@ -80,54 +80,54 @@ class TestRegisterOpenAPI:
 
     def test_openapi_2_yaml(self):
         """Successfully register OpenAPI 2 YAML specs with Connexion app."""
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert isinstance(res, connexion.FlaskApp)
 
     def test_openapi_3_yaml(self):
         """Successfully register OpenAPI 3 YAML specs with Connexion app."""
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_3)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert isinstance(res, connexion.FlaskApp)
 
     def test_openapi_2_json(self):
         """Successfully register OpenAPI 2 JSON specs with Connexion app."""
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_JSON)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert isinstance(res, connexion.FlaskApp)
 
     def test_openapi_2_json_and_3_yaml(self):
         """Successfully register both OpenAPI2 JSON and OpenAPI3 YAML specs
         with Connexion app.
         """
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [
             SpecConfig(**SPEC_CONFIG_2_JSON),
             SpecConfig(**SPEC_CONFIG_3),
         ]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert isinstance(res, connexion.FlaskApp)
 
     def test_openapi_2_invalid(self):
         """Registration failing because of invalid OpenAPI 2 spec file."""
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(path=PATH_SPECS_INVALID_YAML)]
         with pytest.raises(InvalidSpecification):
             register_openapi(app=app, specs=spec_configs)
 
     def test_openapi_2_json_invalid(self):
         """Registration failing because of invalid JSON spec file."""
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(path=PATH_SPECS_INVALID_JSON)]
         with pytest.raises(ValueError):
             register_openapi(app=app, specs=spec_configs)
 
     def test_openapi_not_found(self):
         """Registration failing because spec file is unavailable."""
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(path=PATH_NOT_FOUND)]
         with pytest.raises(OSError):
             register_openapi(app=app, specs=spec_configs)
@@ -136,34 +136,34 @@ class TestRegisterOpenAPI:
         """Successfully register OpenAPI 2 JSON specs with Connexion app;
         specs provided as list.
         """
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_LIST)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert isinstance(res, connexion.FlaskApp)
 
     def test_openapi_2_fragments(self):
         """Successfully register OpenAPI 2 JSON specs with Connexion app;
         specs provided as multiple fragments.
         """
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_MULTI)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert isinstance(res, connexion.FlaskApp)
 
     def test_openapi_2_yaml_no_auth(self):
         """Successfully register OpenAPI 2 YAML specs with Connexion app;
         no security definitions/fields.
         """
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_DISABLE_AUTH)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert isinstance(res, connexion.FlaskApp)
 
     def test_openapi_3_yaml_no_auth(self):
         """Successfully register OpenAPI 3 YAML specs with Connexion app;
         no security schemes/fields.
         """
-        app = App(__name__)
+        app = connexion.FlaskApp(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_3_DISABLE_AUTH)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert isinstance(res, connexion.FlaskApp)

@@ -68,8 +68,8 @@ paths:
         content:
           application/json:
             schema:
-              x-body-name: pet
               $ref: '#/components/schemas/NewPet'
+        x-body-name: pet
       responses:
         '200':
           description: pet response

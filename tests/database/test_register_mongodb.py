@@ -10,7 +10,7 @@ from foca.database.register_mongodb import (
 from foca.models.config import MongoConfig
 
 MONGO_DICT_MIN = {
-    'host': 'mongodb',
+    'host': '127.0.0.1',
     'port': 27017,
 }
 DB_DICT_NO_COLL = {

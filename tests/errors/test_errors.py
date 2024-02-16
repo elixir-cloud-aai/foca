@@ -6,7 +6,7 @@ from copy import deepcopy
 import json
 
 from flask import (Flask, Response)
-from connexion import App
+import connexion
 import pytest
 
 from foca.errors.exceptions import (
@@ -52,9 +52,9 @@ class UnknownException(Exception):
 
 def test_register_exception_handler():
     """Test exception handler registration with Connexion app."""
-    app = App(__name__)
+    app = connexion.FlaskApp(__name__)
     ret = register_exception_handler(app)
-    assert isinstance(ret, App)
+    assert isinstance(ret, connexion.FlaskApp)
 
 
 def test__exc_to_str():

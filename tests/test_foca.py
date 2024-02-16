@@ -5,7 +5,7 @@ import pytest
 import shutil
 
 from celery import Celery
-from connexion import App
+import connexion
 from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -82,14 +82,14 @@ def test_foca_create_app_output_defaults():
     """Ensure a Connexion app instance is returned; defaults only."""
     foca = Foca()
     app = foca.create_app()
-    assert isinstance(app, App)
+    assert isinstance(app, connexion.FlaskApp)
 
 
 def test_foca_create_app_jobs():
     """Ensure a Connexion app instance is returned; valid 'jobs' field."""
     foca = Foca(config_file=JOBS_CONF)
     app = foca.create_app()
-    assert isinstance(app, App)
+    assert isinstance(app, connexion.FlaskApp)
 
 
 def test_foca_create_app_api(tmpdir):
@@ -102,7 +102,7 @@ def test_foca_create_app_api(tmpdir):
     )
     foca = Foca(config_file=temp_file)
     app = foca.create_app()
-    assert isinstance(app, App)
+    assert isinstance(app, connexion.FlaskApp)
 
 
 def test_foca_db():
@@ -113,7 +113,7 @@ def test_foca_db():
     my_coll = my_db.collections["my-col-1"]
     assert isinstance(my_db.client, Database)
     assert isinstance(my_coll.client, Collection)
-    assert isinstance(app, App)
+    assert isinstance(app, connexion.FlaskApp)
 
 
 def test_foca_cors_config_flag_enabled():
@@ -145,7 +145,7 @@ def test_foca_valid_access_control():
     my_coll = my_db.collections["test_collection"]
     assert isinstance(my_db.client, Database)
     assert isinstance(my_coll.client, Collection)
-    assert isinstance(app, App)
+    assert isinstance(app, connexion.FlaskApp)
 
 
 def test_foca_create_celery_app():
