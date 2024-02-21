@@ -1,7 +1,7 @@
 """Methods to manage permission management configuration"""
 
 import logging
-from connexion import App
+import connexion
 from connexion.exceptions import Forbidden
 from flask_authz import CasbinEnforcer
 from pkg_resources import resource_filename
@@ -28,10 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 def register_access_control(
-    cnx_app: App,
+    cnx_app: connexion.FlaskApp,
     mongo_config: Optional[MongoConfig],
     access_control_config: AccessControlConfig
-) -> App:
+) -> connexion.FlaskApp:
     """Register access control configuration with flask app.
 
     Args:
@@ -90,7 +90,7 @@ def register_access_control(
 
 
 def register_permission_specs(
-    app: App,
+    app: connexion.FlaskApp,
     access_control_config: AccessControlConfig
 ):
     """Register open api specs for permission management.
@@ -137,10 +137,10 @@ def register_permission_specs(
 
 
 def register_casbin_enforcer(
-    app: App,
+    app: connexion.FlaskApp,
     access_control_config: AccessControlConfig,
     mongo_config: MongoConfig
-) -> App:
+) -> connexion.FlaskApp:
     """Method to add casbin permission enforcer.
 
     Args:
@@ -191,7 +191,7 @@ def check_permissions(
     """
 
     def _decorator_check_permissions(fn):
-        """User access decorator. Used to facilitate optional decorator arguments.
+        """User access decorator. Used to facilitate optional decorator arguments. # noqa
 
         Args:
             fn: The function to be decorated.

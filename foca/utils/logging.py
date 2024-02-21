@@ -1,7 +1,7 @@
 """Utility functions for logging."""
 
 import logging
-from connexion import request
+from flask import request
 from functools import wraps
 from typing import (Callable, Optional)
 

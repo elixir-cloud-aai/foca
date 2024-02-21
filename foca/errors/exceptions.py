@@ -5,7 +5,7 @@ import logging
 from traceback import format_exception
 from typing import (Dict, List)
 
-from connexion import App
+import connexion
 from connexion.exceptions import (
     ExtraParameterProblem,
     Forbidden,
@@ -77,7 +77,7 @@ exceptions = {
 }
 
 
-def register_exception_handler(app: App) -> App:
+def register_exception_handler(app: connexion.FlaskApp) -> connexion.FlaskApp:
     """Register generic JSON problem handler with Connexion application
     instance.
 

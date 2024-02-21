@@ -3,16 +3,16 @@
 from inspect import stack
 import logging
 from typing import Optional
-
-from connexion import App
-
+import connexion
 from foca.models.config import Config
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 
-def create_connexion_app(config: Optional[Config] = None) -> App:
+def create_connexion_app(
+        config: Optional[Config] = None
+) -> connexion.FlaskApp:
     """Create and configure Connexion application instance.
 
     Args:
@@ -22,9 +22,9 @@ def create_connexion_app(config: Optional[Config] = None) -> App:
         Connexion application instance.
     """
     # Instantiate Connexion app
-    app = App(
+    app = connexion.FlaskApp(
         __name__,
-        skip_error_handlers=True,
+        arguments=["port: 6000"]
     )
 
     calling_module = ':'.join([stack()[1].filename, stack()[1].function])
@@ -41,9 +41,9 @@ def create_connexion_app(config: Optional[Config] = None) -> App:
 
 
 def __add_config_to_connexion_app(
-    app: App,
+    app: connexion.FlaskApp,
     config: Config,
-) -> App:
+) -> connexion.FlaskApp:
     """Replace default Flask and Connexion settings with FOCA configuration
     parameters.
 
@@ -57,14 +57,13 @@ def __add_config_to_connexion_app(
     conf = config.server
 
     # replace Connexion app settings
-    app.host = conf.host
-    app.port = conf.port
-    app.debug = conf.debug
+    app.app.config["port"] = conf.port
+    app.app.config["host"] = conf.host
 
     # replace Flask app settings
-    app.app.config['DEBUG'] = conf.debug
-    app.app.config['ENV'] = conf.environment
-    app.app.config['TESTING'] = conf.testing
+    app.app.env = conf.environment
+    app.app.debug = conf.debug
+    app.app.testing = conf.testing
 
     logger.debug('Flask app settings:')
     for (key, value) in app.app.config.items():

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from celery import Celery
-from connexion import App
+import connexion
 
 from foca.security.access_control.register_access_control import (
     register_access_control,
@@ -84,7 +84,7 @@ class Foca:
         else:
             logger.info("Default app configuration used.")
 
-    def create_app(self) -> App:
+    def create_app(self) -> connexion.FlaskApp:
         """Set up and initialize FOCA-based Connexion app.
 
         Returns:
