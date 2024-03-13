@@ -4,7 +4,7 @@ from importlib import import_module
 import logging
 from logging.config import dictConfig
 from pathlib import Path
-from typing import (Dict, Optional)
+from typing import (Dict, Optional, Callable)
 
 from addict import Dict as Addict
 from pydantic import BaseModel
@@ -157,7 +157,10 @@ class ConfigParser():
         module = Path(model).stem
         model_class = Path(model).suffix[1:]
         try:
-            model_class = getattr(import_module(module), model_class)
+            model_class_instance: Callable = getattr(
+                import_module(module),
+                model_class
+            )
         except ModuleNotFoundError:
             raise ValueError(
                 f"failed validating custom configuration: module '{module}' "
@@ -169,8 +172,7 @@ class ConfigParser():
                 f"has no class {model_class} or could not be imported"
             )
         try:
-            custom_config = model_class(  # type: ignore[operator]
-                **self.config.custom)  # type: ignore[attr-defined]
+            custom_config = model_class_instance(**self.config.custom)
         except Exception as exc:
             raise ValueError(
                 "failed validating custom configuration: provided custom "

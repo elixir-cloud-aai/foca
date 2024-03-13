@@ -3,14 +3,14 @@
 from inspect import stack
 import logging
 
-from flask import Flask
+from connexion import FlaskApp
 from celery import Celery
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 
-def create_celery_app(app: Flask) -> Celery:
+def create_celery_app(app: FlaskApp) -> Celery:
     """Create and configure Celery application instance.
 
     Args:
@@ -19,7 +19,7 @@ def create_celery_app(app: Flask) -> Celery:
     Returns:
         Celery application instance.
     """
-    conf = app.config.foca.jobs  # type: ignore[attr-defined]
+    conf = app.config.foca.jobs
 
     # Instantiate Celery app
     celery = Celery(
@@ -32,7 +32,7 @@ def create_celery_app(app: Flask) -> Celery:
     logger.debug(f"Celery app created from '{calling_module}'.")
 
     # Update Celery app configuration with Flask app configuration
-    setattr(celery.conf, 'foca', app.config.foca)  # type: ignore[attr-defined]
+    setattr(celery.conf, 'foca', app.config.foca)
     logger.debug('Celery app configured.')
 
     class ContextTask(celery.Task):  # type: ignore

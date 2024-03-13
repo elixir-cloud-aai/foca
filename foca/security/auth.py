@@ -2,17 +2,19 @@
 
 from connexion.exceptions import Unauthorized
 import logging
-from typing import (Dict, Iterable, List, Optional)
+from typing import (Any, cast, Dict, Iterable, List, Optional)
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
-from flask import current_app, request
+from flask import (current_app, request)
 import jwt
 from jwt.exceptions import InvalidKeyError
 import requests
 from requests.exceptions import ConnectionError
 import json
 from werkzeug.datastructures import ImmutableMultiDict
+
+from foca.models.config import Config
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -36,7 +38,8 @@ def validate_token(token: str) -> Dict:
     oidc_config_claim_public_keys: str = 'jwks_uri'
 
     # Fetch security parameters
-    conf = current_app.config.foca.security.auth  # type: ignore[attr-defined]
+    foca_conf = cast(Config, getattr(current_app.config, 'foca'))
+    conf = foca_conf.security.auth
     add_key_to_claims: bool = conf.add_key_to_claims
     allow_expired: bool = conf.allow_expired
     audience: Optional[Iterable[str]] = conf.audience
@@ -245,10 +248,10 @@ def _validate_jwt_public_key(
         validation_options['verify_exp'] = False
 
     # Try public keys one after the other
-    used_key: Dict = {}
+    used_key: Any = {}
     claims = {}
     for key in public_keys.values():
-        used_key = key  # type: ignore[assignment]
+        used_key = key
 
         # Decode JWT and validate via public key
         try:

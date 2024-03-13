@@ -49,7 +49,7 @@ class TestGenerateId:
         """Evaulation of `length` raises an exception."""
         charset = int
         with pytest.raises(TypeError):
-            generate_id(charset=charset)  # type: ignore
+            generate_id(charset=charset)
 
     def test_length(self):
         """Non-default argument to `length`."""
@@ -61,7 +61,7 @@ class TestGenerateId:
         """Argument to `length` is not an integer."""
         length = ""
         with pytest.raises(TypeError):
-            generate_id(length=length)  # type: ignore
+            generate_id(length=length)
 
     def test_length_not_positive(self):
         """Argument to `length` is not a positive integer."""

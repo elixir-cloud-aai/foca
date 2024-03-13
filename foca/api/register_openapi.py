@@ -67,7 +67,7 @@ def register_openapi(
                 # OpenAPI 3
                 sec_schemes = spec_parsed.get(
                     'components', {'securitySchemes': {}}
-                ).get('securitySchemes', {})  # type: ignore
+                ).get('securitySchemes', {})
                 for sec_scheme in sec_schemes.values():
                     sec_scheme[key] = val
             logger.debug(f"Added security fields: {spec.add_security_fields}")
