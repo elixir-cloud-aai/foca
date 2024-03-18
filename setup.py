@@ -17,14 +17,20 @@ with open(req, "r") as _file:
     install_requires = _file.read().splitlines()
 
 docs_require = []
-req = root_dir / 'requirements.txt'
-with open(req, "r") as _file:
-    docs_require = _file.read().splitlines()
+req = root_dir / 'requirements_docs.txt'
+try:
+    with open(req, "r") as _file:
+        docs_require = _file.read().splitlines()
+except FileNotFoundError:
+    "Docs requirements unavailable."
 
 dev_requires = []
 req = root_dir / 'requirements_dev.txt'
-with open(req, "r") as _file:
-    dev_requires = _file.read().splitlines()
+try:
+    with open(req, "r") as _file:
+        dev_requires = _file.read().splitlines()
+except FileNotFoundError:
+    "Docs requirements unavailable."
 
 setup(
     name="foca",
