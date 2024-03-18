@@ -147,8 +147,8 @@ class ConfigParser():
             model: Path to model to be used for configuration validation,
                 supplied in "dot notation", e.g.,
                 ``myapp.config.models.CustomConfig`, where ``CustomConfig`` is
-                the actual importable name of a `pydantic` model for your custom
-                configuration, deriving from ``BaseModel``.
+                the actual importable name of a `pydantic` model for your
+                custom configuration, deriving from ``BaseModel``.
 
         Returns:
             Custom configuration model instantiated with the parameters listed
