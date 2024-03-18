@@ -75,7 +75,7 @@ setup(
     extras_require={
         "docs": docs_require,
         "dev": dev_requires,
-    }
+    },
     include_package_data=True,
     package_data={
         "foca.security.access_control.api": ["*.yaml", "*.conf"],
