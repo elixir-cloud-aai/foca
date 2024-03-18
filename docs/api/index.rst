@@ -11,11 +11,6 @@ FOCA API docs
 
    modules/modules
 
-.. toctree::
-   :caption: Index
-
-   indices
-
 Indices and tables
 ==================
 
