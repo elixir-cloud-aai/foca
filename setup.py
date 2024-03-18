@@ -16,6 +16,16 @@ req = root_dir / 'requirements.txt'
 with open(req, "r") as _file:
     install_requires = _file.read().splitlines()
 
+docs_require = []
+req = root_dir / 'docs' / 'api' / 'requirements.txt'
+with open(req, "r") as _file:
+    docs_require = _file.read().splitlines()
+
+dev_requires = []
+req = root_dir / 'requirements_dev.txt'
+with open(req, "r") as _file:
+    dev_requires = _file.read().splitlines()
+
 setup(
     name="foca",
     version=__version__,  # noqa: F821
@@ -57,14 +67,18 @@ setup(
         "Tracker": "https://github.com/elixir-cloud-aai/foca/issues",
     },
     packages=find_packages(),
+    setup_requires=[
+        "setuptools_git==1.2",
+        "twine==3.8.0"
+    ],
     install_requires=install_requires,
+    extras_require={
+        "docs": docs_require,
+        "dev": dev_requires,
+    }
     include_package_data=True,
     package_data={
         "foca.security.access_control.api": ["*.yaml", "*.conf"],
         "": ["py.typed"],
     },
-    setup_requires=[
-        "setuptools_git==1.2",
-        "twine==3.8.0"
-    ],
 )
