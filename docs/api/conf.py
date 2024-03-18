@@ -17,7 +17,7 @@ from sphinx.ext import apidoc
 
 root_dir = Path.cwd().resolve().parents[1]
 
-sys.path.insert(0, root_dir)
+sys.path.insert(0, str(root_dir))
 
 exec(open(root_dir / "foca" / "version.py").read())
 
