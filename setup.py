@@ -17,7 +17,7 @@ with open(req, "r") as _file:
     install_requires = _file.read().splitlines()
 
 docs_require = []
-req = root_dir / 'docs' / 'api' / 'requirements.txt'
+req = root_dir / 'requirements.txt'
 with open(req, "r") as _file:
     docs_require = _file.read().splitlines()
 
