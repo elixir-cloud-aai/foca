@@ -15,9 +15,8 @@ import sys
 
 from sphinx.ext import apidoc
 
-root_dir = Path.cwd().resolve().parents[1]
-
-sys.path.insert(0, root_dir)
+root_dir = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(root_dir))
 
 exec(open(root_dir / "foca" / "version.py").read())
 
@@ -47,7 +46,8 @@ templates_path = ['_templates']
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['_build', 'api/yourpackage.rst']
+exclude_patterns = ['_build']
+
 
 # Default doc to search for
 master_doc = 'index'

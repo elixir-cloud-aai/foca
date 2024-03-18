@@ -39,9 +39,9 @@ def register_access_control(
         mongo_config: :py:class:`foca.models.config.AccessControlConfig`
             instance describing databases and collections to be registered
             with `app`.
-        access_control_config: :py:class:
-            `foca.models.config.AccessControlConfig` instance describing
-            access control to be registered with `app`.
+        access_control_config:
+            :py:class:`foca.models.config.AccessControlConfig` instance
+            describing access control to be registered with `app`.
 
     Returns:
         Connexion application instance with registered access control config.
@@ -97,9 +97,9 @@ def register_permission_specs(
 
     Args:
         app: Connexion application instance.
-        access_control_config: :py:class:
-            `foca.models.config.AccessControlConfig` instance describing
-            access control to be registered with `app`.
+        access_control_config:
+            :py:class:`foca.models.config.AccessControlConfig` instance
+            describing access control to be registered with `app`.
 
     Returns:
         Connexion app with updated permission specifications.
@@ -145,9 +145,9 @@ def register_casbin_enforcer(
 
     Args:
         app: Connexion app.
-        access_control_config: :py:class:
-            `foca.models.config.AccessControlConfig` instance describing
-            access control to be registered with `app`.
+        access_control_config:
+            :py:class:`foca.models.config.AccessControlConfig` instance
+            describing access control to be registered with `app`.
         mongo_config: :py:class:`foca.models.config.MongoConfig` instance
             describing databases and collections to be registered with `app`.
 

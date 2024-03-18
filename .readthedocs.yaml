@@ -28,5 +28,9 @@ sphinx:
 #    - epub
 
 python:
-   install:
-   - requirements: docs/api/requirements.txt
+  install:
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
+        - dev

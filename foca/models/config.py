@@ -625,11 +625,11 @@ class APIConfig(FOCABaseConfig):
     specifications to be attached to a Connexion app.
 
     Args:
-        spec: List of configuration parameters for OpenAPI 2.x or 3.x
+        specs: List of configuration parameters for OpenAPI 2.x or 3.x
             specifications to be attached to a Connexion app.
 
     Attributes:
-        spec: List of configuration parameters for OpenAPI 2.x or 3.x
+        specs: List of configuration parameters for OpenAPI 2.x or 3.x
             specifications to be attached to a Connexion app.
 
     Raises:
