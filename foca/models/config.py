@@ -79,6 +79,7 @@ class ExceptionLoggingEnum(Enum):
         regular: The exception is logged with the entire traceback stack,
             typically on multiple lines.
     """
+
     minimal = "minimal"
     none = "none"
     regular = "regular"
@@ -93,12 +94,15 @@ class ValidationMethodsEnum(Enum):
         userinfo: JWT validation via OpenID Connect-compliant identity
             provider's ``/userinfo`` endpoint.
     """
+
     public_key = "public_key"
     userinfo = "userinfo"
 
 
 class ValidationChecksEnum(Enum):
-    """Enumerator for values indicating how many JSON Web Token (JWT)
+    """Enumeration for validation checks.
+
+    Enumerator for values indicating how many JSON Web Token (JWT)
     validation methods are requested.
 
     Attributes:
@@ -107,6 +111,7 @@ class ValidationChecksEnum(Enum):
         any: Any method is sufficient to validate the JWT; validation succeeds
             after the first successful check.
     """
+
     all = "all"
     any = "any"
 
@@ -126,6 +131,7 @@ class PymongoDirectionEnum(Enum):
         HASHED: Index specifier for a hashed index.
         TEXT: Index specifier for a text index.
     """
+
     ASCENDING = 1
     DESCENDING = -1
     GEO2D = "2d"
@@ -136,12 +142,22 @@ class PymongoDirectionEnum(Enum):
 
 
 class FOCABaseConfig(BaseModel):
-    """Base configuration for FOCA models."""
+    """Base configuration for FOCA models.
+
+    Attributes:
+        model_config (ConfigDict): Configuration dictionary that specifies
+            additional model settings. 'extra' is set to 'forbid' to prevent
+            extra attributes, and 'arbitrary_types_allowed' is set to True to
+            allow arbitrary types.
+    """
+
     model_config = ConfigDict(extra='forbid', arbitrary_types_allowed=True)
 
 
 class ServerConfig(FOCABaseConfig):
-    """Model for configuration parameters to set up a Flask or Connexion
+    """Server configuration for FOCA models.
+
+    Model for configuration parameters to set up a Flask or Connexion
     app instance.
 
     Args:
@@ -192,6 +208,7 @@ class ServerConfig(FOCABaseConfig):
         ServerConfig(host='0.0.0.0', port=8080, debug=True, environment='devel\
 opment', testing=False, use_reloader=True)
     """
+
     host: str = "0.0.0.0"
     port: int = 8080
     debug: bool = True
@@ -201,7 +218,9 @@ opment', testing=False, use_reloader=True)
 
 
 class ExceptionConfig(FOCABaseConfig):
-    """Model for app context JSON exceptions to be registered with a Connexion
+    """Exception configuration for FOCA models.
+
+    Model for app context JSON exceptions to be registered with a Connexion
     app.
 
     Args:
@@ -309,6 +328,7 @@ ay', 'status': 502}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title\
 ': 'Service Unavailable', 'status': 502}, <class 'werkzeug.exceptions.GatewayT\
 imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
     """
+
     required_members: List[List[str]] = [["title"], ["status"]]
     extension_members: Union[bool, List[List[str]]] = False
     status_member: List[str] = ["status"]
@@ -329,6 +349,11 @@ imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
 
         Returns:
             Model instance with exceptions mapping set.
+
+        Raises:
+            ValueError: Raised if the exceptions mapping is not set or if it
+                cannot be imported. Also raised if any exceptions do not have
+                all required members or have additional members.
         """
         # Ensure that exceptions can be imported and are of the correct type
         split_module = self.exceptions.split(".")
@@ -461,8 +486,10 @@ imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
 
 
 class SpecConfig(FOCABaseConfig):
-    """Model for configuration parameters for OpenAPI 2.x or 3.x specifications
-    to be attached to a Connexion app.
+    """Configuration model for API specifications.
+
+    This model defines configuration parameters for OpenAPI 2.x or 3.x
+    specifications to be attached to a Connexion app.
 
     Args:
         path: A single path or list of paths to OpenAPI 2.x or 3.x
@@ -597,6 +624,7 @@ ome_value'}, add_security_fields={'x-apikeyInfoFunc': 'security.auth.validate_\
 token', 'x-some-other-custom-field': 'some_value'}, disable_auth=False, connex\
 ion=None)
     """
+
     path: Union[Path, List[Path]]
     path_out: Optional[Path] = None
     append: Optional[List[Dict]] = None
@@ -612,6 +640,7 @@ ion=None)
         Returns:
             Model instance with absolute paths and output path set.
         """
+
         paths = (
             self.path if isinstance(self.path, list)
             else [self.path]
@@ -653,6 +682,7 @@ class APIConfig(FOCABaseConfig):
 ath_out=PosixPath('/path/to/specs.modified.yaml'), append=None, add_operation_\
 fields=None, add_security_fields=None, disable_auth=False, connexion=None)])
     """
+
     specs: List[SpecConfig] = []
 
 
@@ -703,6 +733,7 @@ controllers='/path/to/access_control_spec_server.py', db_name='access_control_\
 db', collection_name='access_control_collection', model='/path/to/policy.co\
 nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     """
+
     api_specs: Optional[str] = None
     api_controllers: Optional[str] = None
     db_name: Optional[str] = None
@@ -725,6 +756,7 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
             is provided, return default model path.
 
         """
+
         if v is None:
             with resource_path(
                 ACCESS_CONTROL_BASE_PATH,
@@ -802,6 +834,7 @@ class AuthConfig(FOCABaseConfig):
 onMethodsEnum.public_key: 'public_key'>], validation_checks=<ValidationChecksE\
 num.all: 'all'>)
     """
+
     required: bool = True
     add_key_to_claims: bool = True
     allow_expired: bool = False
@@ -831,6 +864,7 @@ class CORSConfig(FOCABaseConfig):
         ... )
         CORSConfig(enabled=True)
     """
+
     enabled: bool = True
 
 
@@ -867,6 +901,7 @@ ntrollers='/path/to/access_control_spec_server.py', db_name='access_control_db\
 ', collection_name='access_control_collection', model='/path/to/policy.conf', \
 owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'}))
     """
+
     access_control: AccessControlConfig = AccessControlConfig()
     auth: AuthConfig = AuthConfig()
     cors: CORSConfig = CORSConfig()
@@ -899,6 +934,7 @@ class IndexConfig(FOCABaseConfig):
         IndexConfig(keys=[('name', -1), ('id', 1)], options={'unique': True, '\
 sparse': False})
     """
+
     keys: Optional[Union[Dict, List[Tuple]]] = None
     options: Dict = dict()
 
@@ -940,6 +976,7 @@ class CollectionConfig(FOCABaseConfig):
         CollectionConfig(indexes=[IndexConfig(keys=[('last_name', 1)], options\
 ={})], client=None)}, client=None)
     """
+
     indexes: Optional[List[IndexConfig]] = None
     client: Optional[collection.Collection] = None
 
@@ -974,6 +1011,7 @@ class DBConfig(FOCABaseConfig):
         DBConfig(collections={'my_collection': CollectionConfig(indexes=[Index\
 Config(keys=[('last_name', 1)], options={})], client=None)}, client=None)
     """
+
     collections: Optional[Dict[str, CollectionConfig]] = None
     client: Optional[database.Database] = None
 
@@ -1005,6 +1043,7 @@ class MongoConfig(FOCABaseConfig):
         ... )
         MongoConfig(host='mongodb', port=27017, dbs=None)
     """
+
     host: str = "mongodb"
     port: int = 27017
     dbs: Optional[Dict[str, DBConfig]] = None
@@ -1039,6 +1078,7 @@ class JobsConfig(FOCABaseConfig):
         ... )
         JobsConfig(host='rabbitmq', port=5672, backend='rpc://', include=[])
     """
+
     host: str = "rabbitmq"
     port: int = 5672
     backend: str = 'rpc://'
@@ -1070,6 +1110,7 @@ class LogFormatterConfig(FOCABaseConfig):
         LogFormatterConfig(class_formatter='logging.Formatter', style='{', for\
 mat='[{asctime}: {levelname:<8}] {message} [{name}]')
     """
+
     class_formatter: str = Field(
         "logging.Formatter",
         alias="class",
@@ -1106,6 +1147,7 @@ class LogHandlerConfig(FOCABaseConfig):
         LogHandlerConfig(class_handler='logging.StreamHandler', level=20, form\
 atter='standard', stream='ext://sys.stderr')
     """
+
     class_handler: str = Field(
         "logging.StreamHandler",
         alias="class",
@@ -1139,6 +1181,7 @@ class LogRootConfig(FOCABaseConfig):
         ... )
         LogRootConfig(level=20, handlers=['console'])
     """
+
     level: int = 10
     handlers: Optional[List[str]] = ["console"]
 
@@ -1195,6 +1238,7 @@ gHandlerConfig(class_handler='logging.StreamHandler', level=20, formatter='sta\
 ndard', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['c\
 onsole']))
     """
+
     version: int = 1
     disable_existing_loggers: bool = False
     formatters: Optional[Dict[str, LogFormatterConfig]] = {
@@ -1267,6 +1311,7 @@ onfig(class_handler='logging.StreamHandler', level=20, formatter='standard', s\
 tream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['console'])\
 ))
     """
+
     server: ServerConfig = ServerConfig()
     exceptions: ExceptionConfig = ExceptionConfig()
     api: APIConfig = APIConfig()

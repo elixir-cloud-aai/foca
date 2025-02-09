@@ -1,23 +1,25 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
+"""
+Configuration file for the Sphinx documentation builder.
 
-# -- Path setup --------------------------------------------------------------
+This file contains a selection of the most common options. For a full
+list see the documentation:
+https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-#
+If extensions (or modules to document with autodoc) are in another directory,
+add these directories to sys.path here. If the directory is relative to the
+documentation root, use os.path.abspath to make it absolute, like shown here.
+"""
+
 from pathlib import Path
 import sys
 
 from sphinx.ext import apidoc
 
+# Set up the path to include the root directory
 root_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(root_dir))
 
+# Execute the version file to get the version information
 exec(open(root_dir / "foca" / "version.py").read())
 
 # -- Project information -----------------------------------------------------
@@ -67,8 +69,13 @@ html_static_path = []
 
 # -- Automation -------------------------------------------------------------
 
-# Auto-generate API doc
 def run_apidoc(_):
+    """
+    Auto-generate API documentation.
+
+    This function runs the Sphinx apidoc tool to generate API documentation
+    for the FOCA project.
+    """
     ignore_paths = [
     ]
     argv = [
@@ -81,4 +88,14 @@ def run_apidoc(_):
 
 
 def setup(app):
+    """
+    Set up the Sphinx application.
+
+    This function connects the 'builder-inited' event to the run_apidoc
+    function to automatically generate API documentation when the builder
+    is initialized.
+
+    Args:
+        app: The Sphinx application object.
+    """
     app.connect('builder-inited', run_apidoc)

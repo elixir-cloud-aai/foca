@@ -21,7 +21,8 @@ class TestGenerateId:
         assert set(res) <= set(string.digits)
 
     def test_charset_literal_string_duplicates(self):
-        """Argument to `charset` is non-default literal string with duplicates.
+        """
+        Argument to `charset` is non-default literal string with duplicates.
         """
         charset = string.digits + string.digits
         res = generate_id(charset=charset)

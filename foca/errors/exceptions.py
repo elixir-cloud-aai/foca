@@ -78,8 +78,12 @@ exceptions = {
 
 
 def register_exception_handler(app: App) -> App:
-    """Register generic JSON problem handler with Connexion application
-    instance.
+    """
+    Register generic JSON problem handler with Connexion application instance.
+
+    This function registers a generic JSON problem handler with the provided
+    Connexion application instance to handle exceptions in a standardized
+    JSON format.
 
     Args:
         app: Connexion application instance.
@@ -202,7 +206,7 @@ def _exclude_key_nested_dict(
 
 
 def _problem_handler_json(exception: Exception) -> Response:
-    """Generic JSON problem handler.
+    """Handle exceptions and return a JSON response.
 
     Args:
         exception: Raised exception.

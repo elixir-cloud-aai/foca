@@ -28,6 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 class Foca:
+    """FOCA application class.
+
+    This class provides methods to initialize and configure the FOCA
+    application.
+    """
+
     def __init__(
         self,
         config_file: Optional[Path] = None,
@@ -165,6 +171,9 @@ class Foca:
 
         Returns:
             Celery application instance.
+
+        Raises:
+            ValueError: If no support for background tasks is configured.
         """
         # Create Connexion app
         cnx_app = create_connexion_app(self.conf)

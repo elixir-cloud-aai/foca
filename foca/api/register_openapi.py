@@ -28,10 +28,6 @@ def register_openapi(
 
     Returns:
         Connexion application instance with registered OpenAPI specifications.
-
-    Raises:
-        OSError: Modified specification cannot be written.
-        yaml.YAMLError: Modified specification cannot be serialized.
     """
     # Iterate over OpenAPI specs
     for spec in specs:

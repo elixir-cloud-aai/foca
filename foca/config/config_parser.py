@@ -16,35 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigParser():
-    """Parse FOCA config files.
+    """A class to parse and manage FOCA configuration files.
 
-    Args:
-        config_file: Path to config file in YAML format.
-        custom_config_model: Path to model to be used for custom config
-            parameter validation, supplied in "dot notation", e.g.,
-            ``myapp.config.models.CustomConfig`, where ``CustomConfig`` is the
-            actual importable name of a `pydantic` model for your custom
-            configuration, deriving from ``BaseModel``. FOCA will attempt to
-            instantiate the model with the values passed to the ``custom``
-            section in the application's configuration, if present. Wherever
-            possible, make sure that default values are supplied for each
-            config parameters, so as to make it easier for others to
-            write/modify their app configuration.
-        format_logs: Whether log formatting should be configured.
-
-    Attributes:
-        config_file: Path to config file in YAML format.
-        custom_config_model: Path to model to be used for custom config
-            parameter validation, supplied in "dot notation", e.g.,
-            ``myapp.config.models.CustomConfig`, where ``CustomConfig`` is the
-            actual importable name of a `pydantic` model for your custom
-            configuration, deriving from ``BaseModel``. FOCA will attempt to
-            instantiate the model with the values passed to the ``custom``
-            section in the application's configuration, if present. Wherever
-            possible, make sure that default values are supplied for each
-            config parameters, so as to make it easier for others to
-            write/modify their app configuration.
-        format_logs: Whether log formatting should be configured.
+    This class provides methods to parse configuration files in YAML format
+    and validate custom configuration parameters using a specified model.
     """
 
     def __init__(
@@ -53,7 +28,22 @@ class ConfigParser():
         custom_config_model: Optional[str] = None,
         format_logs: bool = True
     ) -> None:
-        """Constructor method."""
+        """Initialize the ConfigParser.
+
+        Args:
+            config_file: Path to config file in YAML format.
+            custom_config_model: Path to model to be used for custom config
+                parameter validation, supplied in "dot notation", e.g.,
+                ``myapp.config.models.CustomConfig`, where ``CustomConfig`` is
+                the actual importable name of a `pydantic` model for your
+                custom configuration, deriving from ``BaseModel``. FOCA will
+                attempt to instantiate the model with the values passed to the
+                ``custom`` section in the application's configuration, if
+                present. Wherever possible, make sure that default values are
+                supplied for each config parameters, so as to make it easier
+                for others to write/modify their app configuration.
+            format_logs: Whether log formatting should be configured.
+        """
         if config_file is not None:
             self.config = Config(**self.parse_yaml(config_file))
         else:
@@ -117,7 +107,7 @@ class ConfigParser():
         behavior cf. https://github.com/mewwts/addict.
 
         Args:
-            *args: One or more paths to YAML files.
+            args: One or more paths to YAML files.
 
         Returns:
             Dictionary of merged YAML file contents, or ``None`` if no
@@ -153,6 +143,9 @@ class ConfigParser():
         Returns:
             Custom configuration model instantiated with the parameters listed
             in the app configuration's ``custom``.
+
+        Raises:
+            ValueError: If the custom configuration model path is invalid.
         """
         module = Path(model).stem
         model_class = Path(model).suffix[1:]

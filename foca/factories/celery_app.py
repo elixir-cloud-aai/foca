@@ -37,11 +37,26 @@ def create_celery_app(app: Flask) -> Celery:
 
     class ContextTask(celery.Task):  # type: ignore
         # https://github.com/python/mypy/issues/4284)
-        """Create subclass of task that wraps task execution in application
+        """Class constructor for Celery tasks.
+
+        Create subclass of task that wraps task execution in application
         context.
         """
+
         def __call__(self, *args, **kwargs):
-            """Wrap task execution in application context."""
+            """Execute the task within the application context.
+
+            This method wraps the task execution in the application's context,
+            ensuring that the task has access to the application's resources
+            and configurations.
+
+            Args:
+                args: Variable length argument list.
+                kwargs: Arbitrary keyword arguments.
+
+            Returns:
+                The result of the task execution.
+            """
             with app.app_context():  # pragma: no cover
                 return self.run(*args, **kwargs)
 

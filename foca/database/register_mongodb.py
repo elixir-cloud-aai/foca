@@ -15,8 +15,10 @@ def register_mongodb(
     app: Flask,
     conf: MongoConfig,
 ) -> MongoConfig:
-    """Register MongoDB databases and collections with Flask application
-    instance.
+    """Register MongoDB with the Flask application.
+
+    This function sets up the MongoDB connection for the Flask application
+    using the configuration provided in the app's config.
 
     Args:
         app: Flask application instance.
