@@ -1,0 +1,97 @@
+[build-system]
+build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core"]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.flake8]
+exclude = [".git", ".eggs", "build", ".venv", "venv", "env"]
+max-line-length = 79
+
+[tool.poetry]
+authors = ["ELIXIR Cloud & AAI"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Environment :: Web Environment",
+  "Framework :: Flask",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: Apache Software License",
+  "Natural Language :: English",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: System :: Systems Administration",
+  "Topic :: Utilities",
+  "Typing :: Typed",
+]
+description = "Archetype for OpenAPI microservices based on Flask and Connexion"
+keywords = ["rest api app openapi python microservice"]
+license = "Apache-2.0"
+maintainers = ["Alexander Kanitz <alexander.kanitz@alumni.ethz.ch>"]
+name = "foca"
+readme = "README.md"
+repository = "https://github.com/elixir-cloud-aai/foca"
+version = "0.13.0"
+
+[tool.poetry.dependencies]
+python = ">=3.9.0,<4.0.0"
+addict = "~=2.2"
+celery = "~=5.2"
+connexion = "~=2.11"
+cryptography = "~=42.0"
+Flask = "~=2.2"
+flask-authz = "~=2.5.1"
+Flask-Cors = "~=4.0"
+Flask-PyMongo = "~=2.3"
+pydantic = "~=2.7"
+PyJWT = "~=2.4"
+pymongo = "~=4.7"
+PyYAML = "~=6.0"
+requests = "~=2.31"
+swagger-ui-bundle = "~=0.0"
+toml = "~=0.10"
+typing = "~=3.7"
+Werkzeug = "~=2.2"
+
+
+[tool.poetry.group.code_quality]
+optional = true
+
+[tool.poetry.group.code_quality.dependencies]
+flake8 = ">=6.1"
+Flake8-pyproject = ">=1.2.3"
+mypy = ">=0.991"
+mypy-extensions = ">=0.4.4"
+pylint = ">=3.2"
+
+[tool.poetry.group.docs]
+optional = true
+
+[tool.poetry.group.docs.dependencies]
+Sphinx = ">=7.2"
+readthedocs-sphinx-ext = ">=2.2"
+sphinx-rtd-theme = ">=1.3"
+
+[tool.poetry.group.test]
+optional = true
+
+[tool.poetry.group.test.dependencies]
+coverage = ">=6.5"
+mongomock = ">=4.1"
+pytest = ">=7.4"
+
+[tool.poetry.group.types]
+optional = true
+
+[tool.poetry.group.types.dependencies]
+types-PyYAML = "*"
+types-requests = "*"
+types-setuptools = "*"
+types-urllib3 = "*"
+typing_extensions = ">=4.11"

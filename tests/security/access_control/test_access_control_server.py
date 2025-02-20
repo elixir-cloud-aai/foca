@@ -7,7 +7,7 @@ from unittest import TestCase
 from flask import Flask
 import mongomock
 import os
-from pkg_resources import resource_filename
+from importlib.resources import files
 from pymongo import MongoClient
 import pytest
 
@@ -349,7 +349,7 @@ class TestModelPathResolution(TestCase):
     def test_no_model_input(self):
         config = AccessControlConfig()
         default_model_path = str(
-            resource_filename(
+            files(
                 ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
             )
         )

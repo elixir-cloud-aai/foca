@@ -1,52 +1,50 @@
+###################################################
+#   Stage 1: Get poetry                           #
+###################################################
 ARG PY_IMAGE=3.12-slim-bookworm
-FROM python:$PY_IMAGE as base
+FROM python:$PY_IMAGE AS poetry
 
-# Metadata
-LABEL software="FOCA"
-LABEL software.description="Kickstart OpenAPI-based microservice development with Flask & Connexion"
-LABEL software.website="https://github.com/elixir-cloud-aai/foca"
-LABEL software.license="https://spdx.org/licenses/Apache-2.0"
-LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
-LABEL maintainer.organisation="ELIXIR Cloud & AAI"
+ENV PYTHONDONTWRITEBYTECODE=1 \
+PYTHONUNBUFFERED=1 
 
-# Build image
-FROM base as builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        && rm -rf /var/lib/apt/lists/*
 
-# Install general dependencies
-ENV PACKAGES openssl git build-essential python3-dev curl jq
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ${PACKAGES} && \
-    rm -rf /var/lib/apt/lists/*
+RUN curl -sSL https://install.python-poetry.org | python3 - && \
+        ln -s /root/.local/bin/poetry /usr/local/bin/poetry
+
+###################################################
+#   Stage 2: Get deps                             #
+###################################################
+FROM poetry AS builder
+
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt ./
-RUN pip install \
-        --no-warn-script-location \
-        --prefix="/install" \
-        -r requirements.txt
+COPY . /app/
 
-# Install FOCA
-COPY setup.py README.md ./
-COPY foca/ ./foca/
-RUN pip install --upgrade pkginfo && \
-    pip install . \
-        --no-warn-script-location \
-        --prefix="/install"
+RUN poetry config virtualenvs.create false \
+    && poetry build
 
-# Final image
-FROM base
+# ###################################################
+# #   Stage 3: Add Metadata and install wheel       #
+# ###################################################
+FROM python:$PY_IMAGE
+
+COPY --from=builder /app/dist /app/dist
+
+RUN pip install /app/dist/*.whl
+
+LABEL org.opencontainers.image.title="FOCA"
+LABEL org.opencontainers.image.description="Kickstart OpenAPI-based microservice development with Flask & Connexion"
+LABEL org.opencontainers.image.source="https://github.com/elixir-cloud-aai/foca"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.authors="alexander.kanitz@alumni.ethz.ch"
+LABEL org.opencontainers.image.vendor="ELIXIR Cloud & AAI"
 
 # Python UserID workaround for OpenShift/K8S
 ENV LOGNAME=ipython
 ENV USER=ipython
 ENV HOME=/tmp/user
 
-# Install general dependencies
-ENV PACKAGES openssl git build-essential python3-dev curl jq
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ${PACKAGES} && \
-    rm -rf /var/lib/apt/lists/*
-
-# Copy Python packages
-COPY --from=builder /install /usr/local
+WORKDIR /app
