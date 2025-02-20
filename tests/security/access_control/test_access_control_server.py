@@ -349,9 +349,7 @@ class TestModelPathResolution(TestCase):
     def test_no_model_input(self):
         config = AccessControlConfig()
         default_model_path = str(
-            files(
-                ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
-            )
+            files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE)
         )
         assert config.model == default_model_path
 

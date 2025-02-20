@@ -9,6 +9,11 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.10"
+  jobs:
+    post_create_environment:
+      - python -m pip install poetry
+    post_install:
+      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH poetry install --with docs
     # You can also specify other tool versions:
     # nodejs: "20"
     # rust: "1.70"
@@ -26,11 +31,3 @@ sphinx:
 # formats:
 #    - pdf
 #    - epub
-
-python:
-  install:
-    - method: pip
-      path: .
-      extra_requirements:
-        - docs
-        - dev
