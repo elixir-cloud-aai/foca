@@ -22,9 +22,9 @@ exec(open(root_dir / "foca" / "version.py").read())
 
 # -- Project information -----------------------------------------------------
 
-project = 'FOCA'
-copyright = '2022, ELIXIR Cloud & AAI'
-author = 'ELIXIR Cloud & AAI'
+project = "FOCA"
+copyright = "2022, ELIXIR Cloud & AAI"
+author = "ELIXIR Cloud & AAI"
 
 # The full version, including alpha/beta/rc tags
 release = __version__  # noqa: F821
@@ -36,28 +36,28 @@ release = __version__  # noqa: F821
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.napoleon',
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
+templates_path = ["_templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['_build']
+exclude_patterns = ["_build"]
 
 
 # Default doc to search for
-master_doc = 'index'
+master_doc = "index"
 
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'sphinx_rtd_theme'
+html_theme = "sphinx_rtd_theme"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -67,18 +67,13 @@ html_static_path = []
 
 # -- Automation -------------------------------------------------------------
 
+
 # Auto-generate API doc
 def run_apidoc(_):
-    ignore_paths = [
-    ]
-    argv = [
-        "--force",
-        "--module-first",
-        "-o", "./modules",
-        "../../foca"
-    ] + ignore_paths
+    ignore_paths = []
+    argv = ["--force", "--module-first", "-o", "./modules", "../../foca"] + ignore_paths
     apidoc.main(argv)
 
 
 def setup(app):
-    app.connect('builder-inited', run_apidoc)
+    app.connect("builder-inited", run_apidoc)

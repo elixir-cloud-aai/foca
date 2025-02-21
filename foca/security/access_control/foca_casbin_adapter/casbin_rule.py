@@ -1,6 +1,6 @@
 """Casbin rule class."""
 
-from typing import (Dict, Optional)
+from typing import Dict, Optional
 
 
 class CasbinRule:
@@ -33,7 +33,7 @@ class CasbinRule:
         v2: Optional[str] = None,
         v3: Optional[str] = None,
         v4: Optional[str] = None,
-        v5: Optional[str] = None
+        v5: Optional[str] = None,
     ):
         """Casbin rule object initializer."""
         self.ptype = ptype

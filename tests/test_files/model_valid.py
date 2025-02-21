@@ -7,4 +7,5 @@ class CustomConfig(BaseModel):
     Args:
         param: Test parameter.
     """
-    param: str = 'STRING'
+
+    param: str = "STRING"

@@ -1,6 +1,6 @@
 """Utility functions for interacting with a MongoDB database collection."""
 
-from typing import (Any, Mapping, Optional)
+from typing import Any, Mapping, Optional
 
 from bson.objectid import ObjectId
 from pymongo.collection import Collection
@@ -17,10 +17,7 @@ def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
         Newest document or ``None``, if no document exists.
     """
     try:
-        return collection.find(
-            {},
-            {'_id': False}
-        ).sort([('_id', -1)]).limit(1).next()
+        return collection.find({}, {"_id": False}).sort([("_id", -1)]).limit(1).next()
     except StopIteration:
         return None
 
@@ -36,6 +33,6 @@ def find_id_latest(collection: Collection) -> Optional[ObjectId]:
         `ObjectId` of newest document or ``None``, if no document exists.
     """
     try:
-        return collection.find().sort([('_id', -1)]).limit(1).next()['_id']
+        return collection.find().sort([("_id", -1)]).limit(1).next()["_id"]
     except StopIteration:
         return None

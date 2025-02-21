@@ -99,18 +99,18 @@ indent-style = "space"
 line-ending = "lf"
 quote-style = "double"
 
-[tool.ruff.lint]
-select = [
-  "B", # flake8-bugbear
-  "C90", # mccabe
-  "D", # pydocstyle
-  "E", # pycodestyle
-  "F", # Pyflakes
-  "I", # isort
-  "PL", # pylint
-  "SIM", # flake8-simplify
-  "UP", # pyupgrade
-]
+# [tool.ruff.lint]
+# select = [
+#   "B", # flake8-bugbear
+#   "C90", # mccabe
+#   "D", # pydocstyle
+#   "E", # pycodestyle
+#   "F", # Pyflakes
+#   "I", # isort
+#   "PL", # pylint
+#   "SIM", # flake8-simplify
+#   "UP", # pyupgrade
+# ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

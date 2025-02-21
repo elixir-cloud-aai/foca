@@ -21,6 +21,7 @@ class Pet(BaseModel):
         name: The pet's name.
         tag: Optional tag for the pet.
     """
+
     id: int
     name: str
     tag: Optional[str]
@@ -35,6 +36,7 @@ class Pets(BaseModel):
     Attributes:
         pets: List of pets.
     """
+
     pets: List[Pet] = []
 
 
@@ -49,5 +51,6 @@ class Error(BaseModel):
         code: Status code.
         message: Error message.
     """
+
     code: int
     message: str

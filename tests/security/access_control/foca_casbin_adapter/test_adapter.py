@@ -17,7 +17,7 @@ TEST_POLICIES_MODEL_CONF = [
     ("p", "p", ["bob", "data2", "write"]),
     ("p", "p", ["data2_admin", "data2", "read"]),
     ("p", "p", ["data2_admin", "data2", "write"]),
-    ("g", "g", ["alice", "data2_admin"])
+    ("g", "g", ["alice", "data2_admin"]),
 ]
 TEST_POLICIES_MODEL_ROLES_CONF = [
     ("p", "p", ["alice", "data1", "write"]),
@@ -25,7 +25,7 @@ TEST_POLICIES_MODEL_ROLES_CONF = [
     ("p", "p", ["bob", "data2", "read"]),
     ("p", "p", ["data_group_admin", "data_group", "write"]),
     ("g", "g", ["alice", "data_group_admin"]),
-    ("g", "g2", ["data2", "data_group"])
+    ("g", "g2", ["data2", "data_group"]),
 ]
 
 
@@ -43,12 +43,7 @@ class TestAdapter(TestCase):
     def tearDown(self):
         self.clear_db()
 
-    def save_policies(
-        self,
-        adapter: Adapter,
-        model: Model,
-        policy: Tuple
-    ) -> None:
+    def save_policies(self, adapter: Adapter, model: Model, policy: Tuple) -> None:
         """Helper function for adding policy to a given model.
 
         Args:
@@ -65,11 +60,7 @@ class TestAdapter(TestCase):
         model.add_policy(*policy)
         adapter.save_policy(model)
 
-    def get_enforcer(
-        self,
-        conf_file: str,
-        policies: List
-    ) -> Enforcer:
+    def get_enforcer(self, conf_file: str, policies: List) -> Enforcer:
         """Helper function to register policy enforcer.
 
         Args:
@@ -121,9 +112,7 @@ class TestAdapter(TestCase):
         policy1 = adapter.add_policy(
             sec="p", ptype="p", rule=("alice", "data1", "write")
         )
-        policy2 = adapter.add_policy(
-            sec="p", ptype="p", rule=("bob", "data2", "read")
-        )
+        policy2 = adapter.add_policy(sec="p", ptype="p", rule=("bob", "data2", "read"))
         e.load_policy()
 
         assert policy1 is True
@@ -156,8 +145,7 @@ class TestAdapter(TestCase):
         adapter = Adapter(f"mongodb://localhost:{self.db_port}", self.db_name)
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
-            conf_file=MODEL_ROLES_CONF_FILE,
-            policies=TEST_POLICIES_MODEL_ROLES_CONF
+            conf_file=MODEL_ROLES_CONF_FILE, policies=TEST_POLICIES_MODEL_ROLES_CONF
         )
         e.load_policy()
 
@@ -185,16 +173,13 @@ class TestAdapter(TestCase):
         adapter = Adapter(f"mongodb://localhost:{self.db_port}", self.db_name)
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
-            conf_file=MODEL_ROLES_CONF_FILE,
-            policies=TEST_POLICIES_MODEL_ROLES_CONF
+            conf_file=MODEL_ROLES_CONF_FILE, policies=TEST_POLICIES_MODEL_ROLES_CONF
         )
         e.load_policy()
 
         assert e.enforce("alice", "data1", "write") is True
 
-        remove_policy = adapter.remove_policy(
-            sec="p", ptype=None, rule=()
-        )
+        remove_policy = adapter.remove_policy(sec="p", ptype=None, rule=())
         e.load_policy()
 
         assert remove_policy is False
@@ -228,9 +213,7 @@ class TestAdapter(TestCase):
         assert e.enforce("alice", "data2", "read") is True
         assert e.enforce("alice", "data2", "write") is True
 
-        result = adapter.remove_filtered_policy(
-            "g", "g", 6, "alice", "data2_admin"
-        )
+        result = adapter.remove_filtered_policy("g", "g", 6, "alice", "data2_admin")
         e.load_policy()
         assert result is False
 
@@ -240,9 +223,7 @@ class TestAdapter(TestCase):
         e.load_policy()
         assert result is False
 
-        result = adapter.remove_filtered_policy(
-            "g", "g", 0, "alice", "data2_admin"
-        )
+        result = adapter.remove_filtered_policy("g", "g", 0, "alice", "data2_admin")
         e.load_policy()
         assert result is True
         assert e.enforce("alice", "data1", "read") is True

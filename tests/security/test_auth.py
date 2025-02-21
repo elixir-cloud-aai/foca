@@ -5,11 +5,11 @@ from unittest.mock import MagicMock
 
 from connexion.exceptions import Unauthorized
 from flask import Flask
-from jwt.exceptions import (InvalidKeyError, InvalidTokenError)
+from jwt.exceptions import InvalidKeyError, InvalidTokenError
 import pytest
 from requests.exceptions import ConnectionError
 
-from foca.models.config import (Config, ValidationChecksEnum)
+from foca.models.config import Config, ValidationChecksEnum
 from foca.security.auth import (
     _get_public_keys,
     _validate_jwt_userinfo,
@@ -18,19 +18,19 @@ from foca.security.auth import (
 )
 
 DICT_EMPTY = {}
-MOCK_BYTES = b'my-mock-bytes'
+MOCK_BYTES = b"my-mock-bytes"
 MOCK_CLAIMS_ISSUER = {"iss": "some-mock-issuer"}
-MOCK_USER_ID = '1234567890'
+MOCK_USER_ID = "1234567890"
 MOCK_CLAIMS_NO_SUB = {
-    'azp': 'my-azp',
-    'scope': 'email openid profile',
-    'iss': 'https://my.issuer.org/oidc/',
-    'exp': 1000010000,
-    'iat': 1000000000,
-    'jti': 'my-jti',
+    "azp": "my-azp",
+    "scope": "email openid profile",
+    "iss": "https://my.issuer.org/oidc/",
+    "exp": 1000010000,
+    "iat": 1000000000,
+    "jti": "my-jti",
 }
 MOCK_CLAIMS = deepcopy(MOCK_CLAIMS_NO_SUB)
-MOCK_CLAIMS['sub'] = 'user@issuer.org'
+MOCK_CLAIMS["sub"] = "user@issuer.org"
 MOCK_KEYS = {
     "abc": (
         "uVHPfUHVEzpgOnDNi3e2pVsbK1hsINsTy_1mMT7sxDyP-1eQSjzYsGSUJ3GH"
@@ -128,51 +128,50 @@ class TestValidateToken:
     def test_success_all_validation_checks(self, monkeypatch):
         """Test for validating token successfully via all methods."""
         app = Flask(__name__)
-        setattr(app.config, 'foca', Config())
-        request = MagicMock(name='requests')
+        setattr(app.config, "foca", Config())
+        request = MagicMock(name="requests")
         request.status_code = 200
         request.return_value.json.return_value = {
-            'userinfo_endpoint': MOCK_URL,
-            'jwks_uri': MOCK_URL,
+            "userinfo_endpoint": MOCK_URL,
+            "jwks_uri": MOCK_URL,
         }
-        monkeypatch.setattr('requests.get', request)
+        monkeypatch.setattr("requests.get", request)
         monkeypatch.setattr(
-            'foca.security.auth._validate_jwt_userinfo',
+            "foca.security.auth._validate_jwt_userinfo",
             lambda **kwargs: None,
         )
         monkeypatch.setattr(
-            'foca.security.auth._validate_jwt_public_key',
+            "foca.security.auth._validate_jwt_public_key",
             lambda **kwargs: None,
         )
         with app.test_request_context(headers=MOCK_HEADERS):
             res = validate_token(token=MOCK_TOKEN_HEADER_KID)
-            assert res['user_id'] == MOCK_USER_ID
+            assert res["user_id"] == MOCK_USER_ID
 
     def test_success_any_validation_check(self, monkeypatch):
         """Test for validating token successfully via any method."""
         app = Flask(__name__)
-        setattr(app.config, 'foca', Config())
-        app.config.foca.security.auth.\
-            validation_checks = ValidationChecksEnum.any
-        request = MagicMock(name='requests')
+        setattr(app.config, "foca", Config())
+        app.config.foca.security.auth.validation_checks = ValidationChecksEnum.any
+        request = MagicMock(name="requests")
         request.status_code = 200
         request.return_value.json.return_value = {
-            'userinfo_endpoint': MOCK_URL,
-            'jwks_uri': MOCK_URL,
+            "userinfo_endpoint": MOCK_URL,
+            "jwks_uri": MOCK_URL,
         }
-        monkeypatch.setattr('requests.get', request)
+        monkeypatch.setattr("requests.get", request)
         monkeypatch.setattr(
-            'foca.security.auth._validate_jwt_userinfo',
+            "foca.security.auth._validate_jwt_userinfo",
             lambda **kwargs: None,
         )
         with app.test_request_context(headers=MOCK_HEADERS):
             res = validate_token(token=MOCK_TOKEN_HEADER_KID)
-            assert res['user_id'] == MOCK_USER_ID
+            assert res["user_id"] == MOCK_USER_ID
 
     def test_no_validation_methods(self):
         """Test for failed validation due to missing validation methods."""
         app = Flask(__name__)
-        setattr(app.config, 'foca', Config())
+        setattr(app.config, "foca", Config())
         app.config.foca.security.auth.validation_methods = []
         with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
@@ -181,7 +180,7 @@ class TestValidateToken:
     def test_invalid_token(self):
         """Test for failed validation due to invalid token."""
         app = Flask(__name__)
-        setattr(app.config, 'foca', Config())
+        setattr(app.config, "foca", Config())
         with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN_INVALID)
@@ -189,9 +188,9 @@ class TestValidateToken:
     def test_no_claims(self, monkeypatch):
         """Test for token with no issuer claim."""
         app = Flask(__name__)
-        setattr(app.config, 'foca', Config())
+        setattr(app.config, "foca", Config())
         monkeypatch.setattr(
-            'jwt.decode',
+            "jwt.decode",
             lambda *args, **kwargs: {},
         )
         with app.test_request_context(headers=MOCK_HEADERS):
@@ -201,11 +200,8 @@ class TestValidateToken:
     def test_oidc_config_unavailable(self, monkeypatch):
         """Test for mocking an unavailable OIDC configuration server."""
         app = Flask(__name__)
-        setattr(app.config, 'foca', Config())
-        monkeypatch.setattr(
-            'requests.get',
-            lambda **kwargs: _raise(ConnectionError)
-        )
+        setattr(app.config, "foca", Config())
+        monkeypatch.setattr("requests.get", lambda **kwargs: _raise(ConnectionError))
         with app.test_request_context(headers=MOCK_HEADERS):
             with pytest.raises(Unauthorized):
                 validate_token(token=MOCK_TOKEN_HEADER_KID)
@@ -213,24 +209,24 @@ class TestValidateToken:
     def test_success_no_subject_claim(self, monkeypatch):
         """Test for validating token without subject claim."""
         app = Flask(__name__)
-        setattr(app.config, 'foca', Config())
+        setattr(app.config, "foca", Config())
         monkeypatch.setattr(
-            'jwt.decode',
+            "jwt.decode",
             lambda *args, **kwargs: MOCK_CLAIMS_NO_SUB,
         )
-        request = MagicMock(name='requests')
+        request = MagicMock(name="requests")
         request.status_code = 200
         request.return_value.json.return_value = {
-            'userinfo_endpoint': MOCK_URL,
-            'jwks_uri': MOCK_URL,
+            "userinfo_endpoint": MOCK_URL,
+            "jwks_uri": MOCK_URL,
         }
-        monkeypatch.setattr('requests.get', request)
+        monkeypatch.setattr("requests.get", request)
         monkeypatch.setattr(
-            'foca.security.auth._validate_jwt_userinfo',
+            "foca.security.auth._validate_jwt_userinfo",
             lambda **kwargs: None,
         )
         monkeypatch.setattr(
-            'foca.security.auth._validate_jwt_public_key',
+            "foca.security.auth._validate_jwt_public_key",
             lambda **kwargs: None,
         )
         with app.test_request_context(headers=MOCK_HEADERS):
@@ -241,20 +237,20 @@ class TestValidateToken:
         """Test for all token validation methods failing when all methods
         are required to pass."""
         app = Flask(__name__)
-        setattr(app.config, 'foca', Config())
-        request = MagicMock(name='requests')
+        setattr(app.config, "foca", Config())
+        request = MagicMock(name="requests")
         request.status_code = 200
         request.return_value.json.return_value = {
-            'userinfo_endpoint': MOCK_URL,
-            'jwks_uri': MOCK_URL,
+            "userinfo_endpoint": MOCK_URL,
+            "jwks_uri": MOCK_URL,
         }
-        monkeypatch.setattr('requests.get', request)
+        monkeypatch.setattr("requests.get", request)
         monkeypatch.setattr(
-            'foca.security.auth._validate_jwt_userinfo',
+            "foca.security.auth._validate_jwt_userinfo",
             lambda **kwargs: _raise(ConnectionError),
         )
         monkeypatch.setattr(
-            'foca.security.auth._validate_jwt_public_key',
+            "foca.security.auth._validate_jwt_public_key",
             lambda **kwargs: _raise(Unauthorized),
         )
         with app.test_request_context(headers=MOCK_HEADERS):
@@ -265,22 +261,21 @@ class TestValidateToken:
         """Test for all token validation methods failing when any method
         is required to pass."""
         app = Flask(__name__)
-        setattr(app.config, 'foca', Config())
-        app.config.foca.security.auth.\
-            validation_checks = ValidationChecksEnum.any
-        request = MagicMock(name='requests')
+        setattr(app.config, "foca", Config())
+        app.config.foca.security.auth.validation_checks = ValidationChecksEnum.any
+        request = MagicMock(name="requests")
         request.status_code = 200
         request.return_value.json.return_value = {
-            'userinfo_endpoint': MOCK_URL,
-            'jwks_uri': MOCK_URL,
+            "userinfo_endpoint": MOCK_URL,
+            "jwks_uri": MOCK_URL,
         }
-        monkeypatch.setattr('requests.get', request)
+        monkeypatch.setattr("requests.get", request)
         monkeypatch.setattr(
-            'foca.security.auth._validate_jwt_userinfo',
+            "foca.security.auth._validate_jwt_userinfo",
             lambda **kwargs: _raise(ConnectionError),
         )
         monkeypatch.setattr(
-            'foca.security.auth._validate_jwt_public_key',
+            "foca.security.auth._validate_jwt_public_key",
             lambda **kwargs: _raise(Unauthorized),
         )
         with app.test_request_context(headers=MOCK_HEADERS):
@@ -293,10 +288,10 @@ class TestValidateJwtUserinfo:
 
     def test_success(self, monkeypatch):
         """Test for validating a token successfully."""
-        request = MagicMock(name='requests')
+        request = MagicMock(name="requests")
         request.status_code = 200
         request.return_value.json.return_value = {}
-        monkeypatch.setattr('requests.get', request)
+        monkeypatch.setattr("requests.get", request)
         res = _validate_jwt_userinfo(
             token=MOCK_TOKEN,
             url=MOCK_URL,
@@ -305,10 +300,7 @@ class TestValidateJwtUserinfo:
 
     def test_ConnectionError(self, monkeypatch):
         """Test for being unable to connect to user info endpoint."""
-        monkeypatch.setattr(
-            'requests.get',
-            lambda **kwargs: _raise(ConnectionError)
-        )
+        monkeypatch.setattr("requests.get", lambda **kwargs: _raise(ConnectionError))
         with pytest.raises(ConnectionError):
             _validate_jwt_userinfo(
                 token=MOCK_TOKEN,
@@ -322,11 +314,11 @@ class TestValidateJwtPublicKey:
     def test_success(self, monkeypatch):
         """Test for validating a token successfully."""
         monkeypatch.setattr(
-            'foca.security.auth._get_public_keys',
+            "foca.security.auth._get_public_keys",
             lambda **kwargs: MOCK_KEYS,
         )
         monkeypatch.setattr(
-            'jwt.decode',
+            "jwt.decode",
             lambda *args, **kwargs: MOCK_CLAIMS,
         )
         res = _validate_jwt_public_key(
@@ -339,11 +331,11 @@ class TestValidateJwtPublicKey:
     def test_InvalidKeyError(self, monkeypatch):
         """Test for invalid key."""
         monkeypatch.setattr(
-            'foca.security.auth._get_public_keys',
+            "foca.security.auth._get_public_keys",
             lambda **kwargs: MOCK_KEYS,
         )
         monkeypatch.setattr(
-            'jwt.decode',
+            "jwt.decode",
             lambda **kwargs: _raise(InvalidKeyError),
         )
         with pytest.raises(Unauthorized):
@@ -355,11 +347,11 @@ class TestValidateJwtPublicKey:
     def test_InvalidTokenError(self, monkeypatch):
         """Test for invalid token."""
         monkeypatch.setattr(
-            'foca.security.auth._get_public_keys',
+            "foca.security.auth._get_public_keys",
             lambda **kwargs: MOCK_KEYS,
         )
         monkeypatch.setattr(
-            'jwt.decode',
+            "jwt.decode",
             lambda **kwargs: _raise(InvalidTokenError),
         )
         with pytest.raises(Unauthorized):
@@ -371,7 +363,7 @@ class TestValidateJwtPublicKey:
     def test_no_header_claims(self, monkeypatch):
         """Test for token without header claims."""
         monkeypatch.setattr(
-            'foca.security.auth._get_public_keys',
+            "foca.security.auth._get_public_keys",
             lambda **kwargs: MOCK_KEYS,
         )
         with pytest.raises(Unauthorized):
@@ -383,7 +375,7 @@ class TestValidateJwtPublicKey:
     def test_kid_mismatch(self, monkeypatch):
         """Test for token and JWK set with mismatching JWK identifiers."""
         monkeypatch.setattr(
-            'foca.security.auth._get_public_keys',
+            "foca.security.auth._get_public_keys",
             lambda **kwargs: MOCK_KEYS,
         )
         with pytest.raises(KeyError):
@@ -399,28 +391,25 @@ class TestGetPublicKeys:
     def test_success(self, monkeypatch):
         """Test for successfully fetching keys."""
         mock_jwk_set = {"keys": [MOCK_JWK, {}]}
-        request = MagicMock(name='requests')
+        request = MagicMock(name="requests")
         request.status_code = 200
         request.return_value.json.return_value = mock_jwk_set
-        monkeypatch.setattr('requests.get', request)
+        monkeypatch.setattr("requests.get", request)
         res = _get_public_keys(url=MOCK_URL, pem=True)
-        assert MOCK_JWK['kid'] in res
+        assert MOCK_JWK["kid"] in res
 
     def test_ConnectionError(self, monkeypatch):
         """Test for being unable to connect to keys endpoint."""
-        monkeypatch.setattr(
-            'requests.get',
-            lambda **kwargs: _raise(ConnectionError)
-        )
+        monkeypatch.setattr("requests.get", lambda **kwargs: _raise(ConnectionError))
         with pytest.raises(ConnectionError):
             _get_public_keys(url=MOCK_URL)
 
     def test_non_public_key(self, monkeypatch):
         """Test for non-public keys."""
         mock_jwk_set = {"keys": [MOCK_JWK_PRIVATE]}
-        request = MagicMock(name='requests')
+        request = MagicMock(name="requests")
         request.status_code = 200
         request.return_value.json.return_value = mock_jwk_set
-        monkeypatch.setattr('requests.get', request)
+        monkeypatch.setattr("requests.get", request)
         res = _get_public_keys(url=MOCK_URL)
         assert res == {}

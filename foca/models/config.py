@@ -29,7 +29,7 @@ from typing_extensions import Self
 
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
-    DEFAULT_MODEL_FILE
+    DEFAULT_MODEL_FILE,
 )
 
 
@@ -52,10 +52,7 @@ def _validate_log_level_choices(cls, level: int) -> int:
     return level
 
 
-def _get_by_path(
-    obj: Dict,
-    key_sequence: List[str]
-) -> Any:
+def _get_by_path(obj: Dict, key_sequence: List[str]) -> Any:
     """Access a nested dictionary by sequence of keys.
 
     Args:
@@ -79,6 +76,7 @@ class ExceptionLoggingEnum(Enum):
         regular: The exception is logged with the entire traceback stack,
             typically on multiple lines.
     """
+
     minimal = "minimal"
     none = "none"
     regular = "regular"
@@ -93,6 +91,7 @@ class ValidationMethodsEnum(Enum):
         userinfo: JWT validation via OpenID Connect-compliant identity
             provider's ``/userinfo`` endpoint.
     """
+
     public_key = "public_key"
     userinfo = "userinfo"
 
@@ -107,6 +106,7 @@ class ValidationChecksEnum(Enum):
         any: Any method is sufficient to validate the JWT; validation succeeds
             after the first successful check.
     """
+
     all = "all"
     any = "any"
 
@@ -126,6 +126,7 @@ class PymongoDirectionEnum(Enum):
         HASHED: Index specifier for a hashed index.
         TEXT: Index specifier for a text index.
     """
+
     ASCENDING = 1
     DESCENDING = -1
     GEO2D = "2d"
@@ -137,7 +138,8 @@ class PymongoDirectionEnum(Enum):
 
 class FOCABaseConfig(BaseModel):
     """Base configuration for FOCA models."""
-    model_config = ConfigDict(extra='forbid', arbitrary_types_allowed=True)
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
 
 class ServerConfig(FOCABaseConfig):
@@ -192,6 +194,7 @@ class ServerConfig(FOCABaseConfig):
         ServerConfig(host='0.0.0.0', port=8080, debug=True, environment='devel\
 opment', testing=False, use_reloader=True)
     """
+
     host: str = "0.0.0.0"
     port: int = 8080
     debug: bool = True
@@ -309,6 +312,7 @@ ay', 'status': 502}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title\
 ': 'Service Unavailable', 'status': 502}, <class 'werkzeug.exceptions.GatewayT\
 imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
     """
+
     required_members: List[List[str]] = [["title"], ["status"]]
     extension_members: Union[bool, List[List[str]]] = False
     status_member: List[str] = ["status"]
@@ -366,14 +370,11 @@ imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
 
         # Ensure that status member is among required members
         if self.status_member not in self.required_members:
-            raise ValueError(
-                "Status member is not among required members."
-            )
+            raise ValueError("Status member is not among required members.")
 
         # Filter members that are returned to the user
-        if (
-                isinstance(self.public_members, list) and
-                isinstance(self.private_members, list)
+        if isinstance(self.public_members, list) and isinstance(
+            self.private_members, list
         ):
             raise ValueError(
                 "Both public and private member filters are active, but at "
@@ -400,10 +401,9 @@ imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
 
         # Ensure that each exception fulfills all requirements
         for key, val in exc_dict.items():
-
             # Keys are exceptions
             try:
-                getattr(key, '__cause__')
+                getattr(key, "__cause__")
             except AttributeError as exc:
                 raise ValueError(
                     f"Key '{key}' in 'exceptions' dictionary does not appear "
@@ -597,6 +597,7 @@ ome_value'}, add_security_fields={'x-apikeyInfoFunc': 'security.auth.validate_\
 token', 'x-some-other-custom-field': 'some_value'}, disable_auth=False, connex\
 ion=None)
     """
+
     path: Union[Path, List[Path]]
     path_out: Optional[Path] = None
     append: Optional[List[Dict]] = None
@@ -612,14 +613,8 @@ ion=None)
         Returns:
             Model instance with absolute paths and output path set.
         """
-        paths = (
-            self.path if isinstance(self.path, list)
-            else [self.path]
-        )
-        self.path = [
-            path if path.is_absolute()
-            else path.resolve() for path in paths
-        ]
+        paths = self.path if isinstance(self.path, list) else [self.path]
+        self.path = [path if path.is_absolute() else path.resolve() for path in paths]
         if self.path_out is None:
             _path = self.path[0].resolve()
             self.path_out = _path.parent / f"{_path.stem}.modified.yaml"
@@ -653,6 +648,7 @@ class APIConfig(FOCABaseConfig):
 ath_out=PosixPath('/path/to/specs.modified.yaml'), append=None, add_operation_\
 fields=None, add_security_fields=None, disable_auth=False, connexion=None)])
     """
+
     specs: List[SpecConfig] = []
 
 
@@ -703,6 +699,7 @@ controllers='/path/to/access_control_spec_server.py', db_name='access_control_\
 db', collection_name='access_control_collection', model='/path/to/policy.co\
 nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     """
+
     api_specs: Optional[str] = None
     api_controllers: Optional[str] = None
     db_name: Optional[str] = None
@@ -711,7 +708,7 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     owner_headers: Optional[set] = None
     user_headers: Optional[set] = None
 
-    @field_validator('model', mode='before')
+    @field_validator("model", mode="before")
     @classmethod
     def validate_model_path(cls, v: Optional[str]) -> str:
         """Validate the model path.
@@ -726,10 +723,7 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
 
         """
         if v is None:
-            with resource_path(
-                ACCESS_CONTROL_BASE_PATH,
-                DEFAULT_MODEL_FILE
-            ) as _path:
+            with resource_path(ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE) as _path:
                 return str(_path)
 
         model_path = Path(v)
@@ -802,6 +796,7 @@ class AuthConfig(FOCABaseConfig):
 onMethodsEnum.public_key: 'public_key'>], validation_checks=<ValidationChecksE\
 num.all: 'all'>)
     """
+
     required: bool = True
     add_key_to_claims: bool = True
     allow_expired: bool = False
@@ -831,6 +826,7 @@ class CORSConfig(FOCABaseConfig):
         ... )
         CORSConfig(enabled=True)
     """
+
     enabled: bool = True
 
 
@@ -867,6 +863,7 @@ ntrollers='/path/to/access_control_spec_server.py', db_name='access_control_db\
 ', collection_name='access_control_collection', model='/path/to/policy.conf', \
 owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'}))
     """
+
     access_control: AccessControlConfig = AccessControlConfig()
     auth: AuthConfig = AuthConfig()
     cors: CORSConfig = CORSConfig()
@@ -899,20 +896,18 @@ class IndexConfig(FOCABaseConfig):
         IndexConfig(keys=[('name', -1), ('id', 1)], options={'unique': True, '\
 sparse': False})
     """
+
     keys: Optional[Union[Dict, List[Tuple]]] = None
     options: Dict = dict()
 
     @field_validator("keys", mode="after")
     @classmethod
     def store_enum_value(
-        cls,
-        v: Optional[Union[Dict, List[Tuple]]]
+        cls, v: Optional[Union[Dict, List[Tuple]]]
     ) -> Optional[Union[Dict, List[Tuple]]]:
         """Convert dict values of keys into list of tuples"""
         if v is not None and isinstance(v, dict):
-            v = [
-                tuple([key, val]) for key, val in v.items()
-            ]
+            v = [tuple([key, val]) for key, val in v.items()]
         return v
 
 
@@ -940,6 +935,7 @@ class CollectionConfig(FOCABaseConfig):
         CollectionConfig(indexes=[IndexConfig(keys=[('last_name', 1)], options\
 ={})], client=None)}, client=None)
     """
+
     indexes: Optional[List[IndexConfig]] = None
     client: Optional[collection.Collection] = None
 
@@ -974,6 +970,7 @@ class DBConfig(FOCABaseConfig):
         DBConfig(collections={'my_collection': CollectionConfig(indexes=[Index\
 Config(keys=[('last_name', 1)], options={})], client=None)}, client=None)
     """
+
     collections: Optional[Dict[str, CollectionConfig]] = None
     client: Optional[database.Database] = None
 
@@ -1005,6 +1002,7 @@ class MongoConfig(FOCABaseConfig):
         ... )
         MongoConfig(host='mongodb', port=27017, dbs=None)
     """
+
     host: str = "mongodb"
     port: int = 27017
     dbs: Optional[Dict[str, DBConfig]] = None
@@ -1034,14 +1032,15 @@ class JobsConfig(FOCABaseConfig):
         >>> JobsConfig(
         ...     host="rabbitmq",
         ...     port=5672,
-        ...     backend='rpc://',
+        ...     backend="rpc://",
         ...     include=[],
         ... )
         JobsConfig(host='rabbitmq', port=5672, backend='rpc://', include=[])
     """
+
     host: str = "rabbitmq"
     port: int = 5672
-    backend: str = 'rpc://'
+    backend: str = "rpc://"
     include: Optional[List[str]] = None
 
 
@@ -1070,6 +1069,7 @@ class LogFormatterConfig(FOCABaseConfig):
         LogFormatterConfig(class_formatter='logging.Formatter', style='{', for\
 mat='[{asctime}: {levelname:<8}] {message} [{name}]')
     """
+
     class_formatter: str = Field(
         "logging.Formatter",
         alias="class",
@@ -1106,6 +1106,7 @@ class LogHandlerConfig(FOCABaseConfig):
         LogHandlerConfig(class_handler='logging.StreamHandler', level=20, form\
 atter='standard', stream='ext://sys.stderr')
     """
+
     class_handler: str = Field(
         "logging.StreamHandler",
         alias="class",
@@ -1114,7 +1115,7 @@ atter='standard', stream='ext://sys.stderr')
     formatter: str = "standard"
     stream: str = "ext://sys.stderr"
 
-    _validate_level = field_validator('level')(_validate_log_level_choices)
+    _validate_level = field_validator("level")(_validate_log_level_choices)
 
 
 class LogRootConfig(FOCABaseConfig):
@@ -1139,10 +1140,11 @@ class LogRootConfig(FOCABaseConfig):
         ... )
         LogRootConfig(level=20, handlers=['console'])
     """
+
     level: int = 10
     handlers: Optional[List[str]] = ["console"]
 
-    _validate_level = field_validator('level')(_validate_log_level_choices)
+    _validate_level = field_validator("level")(_validate_log_level_choices)
 
 
 class LogConfig(FOCABaseConfig):
@@ -1195,6 +1197,7 @@ gHandlerConfig(class_handler='logging.StreamHandler', level=20, formatter='sta\
 ndard', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['c\
 onsole']))
     """
+
     version: int = 1
     disable_existing_loggers: bool = False
     formatters: Optional[Dict[str, LogFormatterConfig]] = {
@@ -1267,6 +1270,7 @@ onfig(class_handler='logging.StreamHandler', level=20, formatter='standard', s\
 tream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['console'])\
 ))
     """
+
     server: ServerConfig = ServerConfig()
     exceptions: ExceptionConfig = ExceptionConfig()
     api: APIConfig = APIConfig()
@@ -1274,4 +1278,4 @@ tream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['console'])\
     db: Optional[MongoConfig] = None
     jobs: Optional[JobsConfig] = None
     log: LogConfig = LogConfig()
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra="allow")

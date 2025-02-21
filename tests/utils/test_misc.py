@@ -8,7 +8,6 @@ from foca.utils.misc import generate_id
 
 
 class TestGenerateId:
-
     def test_default(self):
         """Use only default arguments."""
         res = generate_id()
@@ -21,8 +20,7 @@ class TestGenerateId:
         assert set(res) <= set(string.digits)
 
     def test_charset_literal_string_duplicates(self):
-        """Argument to `charset` is non-default literal string with duplicates.
-        """
+        """Argument to `charset` is non-default literal string with duplicates."""
         charset = string.digits + string.digits
         res = generate_id(charset=charset)
         assert set(res) <= set(string.digits)

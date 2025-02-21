@@ -27,7 +27,7 @@ def create_connexion_app(config: Optional[Config] = None) -> App:
         skip_error_handlers=True,
     )
 
-    calling_module = ':'.join([stack()[1].filename, stack()[1].function])
+    calling_module = ":".join([stack()[1].filename, stack()[1].function])
     logger.debug(f"Connexion app created from '{calling_module}'.")
 
     # Configure Connexion app
@@ -62,16 +62,16 @@ def __add_config_to_connexion_app(
     app.debug = conf.debug
 
     # replace Flask app settings
-    app.app.config['DEBUG'] = conf.debug
-    app.app.config['ENV'] = conf.environment
-    app.app.config['TESTING'] = conf.testing
+    app.app.config["DEBUG"] = conf.debug
+    app.app.config["ENV"] = conf.environment
+    app.app.config["TESTING"] = conf.testing
 
-    logger.debug('Flask app settings:')
-    for (key, value) in app.app.config.items():
-        logger.debug('* {}: {}'.format(key, value))
+    logger.debug("Flask app settings:")
+    for key, value in app.app.config.items():
+        logger.debug("* {}: {}".format(key, value))
 
     # Add user configuration to Flask app config
-    setattr(app.app.config, 'foca', config)
+    setattr(app.app.config, "foca", config)
 
-    logger.debug('Connexion app configured.')
+    logger.debug("Connexion app configured.")
     return app

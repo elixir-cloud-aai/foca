@@ -45,9 +45,7 @@ exceptions = {
         "code": 401,
     },
     Forbidden: {
-        "message": (
-            "Sorry, but you don't have permission to play with the pets."
-        ),
+        "message": ("Sorry, but you don't have permission to play with the pets."),
         "code": 403,
     },
     NotFound: {

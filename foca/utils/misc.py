@@ -5,8 +5,7 @@ import string
 
 
 def generate_id(
-    charset: str = ''.join([string.ascii_letters, string.digits]),
-    length: int = 6
+    charset: str = "".join([string.ascii_letters, string.digits]), length: int = 6
 ) -> str:
     """Generate random string composed of specified character set.
 
@@ -30,12 +29,8 @@ def generate_id(
     except Exception as e:
         raise TypeError(f"Could not evaluate 'charset': {charset}") from e
     if not isinstance(charset, str) or charset == "":
-        raise TypeError(
-            f"Could not evaluate 'charset' to non-empty string: {charset}"
-        )
+        raise TypeError(f"Could not evaluate 'charset' to non-empty string: {charset}")
     if not isinstance(length, int) or not length > 0:
-        raise TypeError(
-            f"Argument to 'length' is not a positive integer: {length}"
-        )
-    charset = ''.join(sorted(set(charset)))
-    return ''.join(choice(charset) for __ in range(length))
+        raise TypeError(f"Argument to 'length' is not a positive integer: {length}")
+    charset = "".join(sorted(set(charset)))
+    return "".join(choice(charset) for __ in range(length))

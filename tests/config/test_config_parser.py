@@ -18,9 +18,9 @@ DIR = Path(__file__).parent.parent / "test_files"
 PATH = str(DIR / "openapi_2_petstore.original.yaml")
 PATH_ADDITION = str(DIR / "openapi_2_petstore.addition.yaml")
 TEST_CONFIG_INSTANCE = Config()
-TEST_CONFIG_MODEL = 'tests.test_files.model_valid.CustomConfig'
-TEST_CONFIG_MODEL_NOT_EXISTS = 'tests.test_files.model_valid.NotExists'
-TEST_CONFIG_MODEL_MODULE_NOT_EXISTS = 'tests.test_files.not_a_module.NotExists'
+TEST_CONFIG_MODEL = "tests.test_files.model_valid.CustomConfig"
+TEST_CONFIG_MODEL_NOT_EXISTS = "tests.test_files.model_valid.NotExists"
+TEST_CONFIG_MODEL_MODULE_NOT_EXISTS = "tests.test_files.not_a_module.NotExists"
 TEST_DICT = {}
 TEST_FILE = "tests/test_files/conf_valid.yaml"
 TEST_FILE_CUSTOM_INVALID = "tests/test_files/conf_valid_custom_invalid.yaml"
@@ -32,7 +32,7 @@ TEST_FILE_INVALID_LOG = "tests/test_files/conf_log_invalid.yaml"
 def test_config_parser_valid_config_file():
     """Test valid YAML parsing."""
     conf = ConfigParser(Path(TEST_FILE))
-    assert type(conf.config.model_dump()) == type(TEST_DICT)
+    assert type(conf.config.model_dump()) is type(TEST_DICT)
     assert isinstance(conf.config, type(TEST_CONFIG_INSTANCE))
 
 
@@ -52,7 +52,7 @@ def test_config_parser_invalid_file_path():
 def test_config_parser_invalid_log_config():
     """Test invalid log config YAML."""
     conf = ConfigParser(Path(TEST_FILE_INVALID_LOG))
-    assert type(conf.config.model_dump()) == type(TEST_DICT)
+    assert type(conf.config.model_dump()) is type(TEST_DICT)
     assert isinstance(conf.config, type(TEST_CONFIG_INSTANCE))
 
 
@@ -97,7 +97,7 @@ def test_merge_yaml_with_two_args():
     """Test merge_yaml with no arguments."""
     yaml_list = [Path(PATH), Path(PATH_ADDITION)]
     res = ConfigParser.merge_yaml(*yaml_list)
-    assert 'put' in res['paths']['/pets/{petId}']
+    assert "put" in res["paths"]["/pets/{petId}"]
 
 
 def test_parse_custom_config_valid_model():

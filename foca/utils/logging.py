@@ -3,7 +3,7 @@
 import logging
 from connexion import request
 from functools import wraps
-from typing import (Callable, Optional)
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ def log_traffic(
         Returns:
             The response returned from the input function.
         """
+
         @wraps(fn)
         def _wrapper(*args, **kwargs):
             """Wrapper for logging decorator.
@@ -47,9 +48,9 @@ def log_traffic(
                 Wrapper function.
             """
             req = (
-                f"\"{request.environ['REQUEST_METHOD']} "
+                f'"{request.environ["REQUEST_METHOD"]} '
                 f"{request.environ['PATH_INFO']} "
-                f"{request.environ['SERVER_PROTOCOL']}\" from "
+                f'{request.environ["SERVER_PROTOCOL"]}" from '
                 f"{request.environ['REMOTE_ADDR']}"
             )
             if log_request:
