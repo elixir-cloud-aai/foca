@@ -4,18 +4,18 @@ from importlib import import_module
 import logging
 from logging.config import dictConfig
 from pathlib import Path
-from typing import (Dict, Optional)
+from typing import Dict, Optional
 
 from addict import Dict as Addict
 from pydantic import BaseModel
 import yaml
 
-from foca.models.config import (Config, LogConfig)
+from foca.models.config import Config, LogConfig
 
 logger = logging.getLogger(__name__)
 
 
-class ConfigParser():
+class ConfigParser:
     """Parse FOCA config files.
 
     Args:
@@ -51,7 +51,7 @@ class ConfigParser():
         self,
         config_file: Optional[Path] = None,
         custom_config_model: Optional[str] = None,
-        format_logs: bool = True
+        format_logs: bool = True,
     ) -> None:
         """Constructor method."""
         if config_file is not None:
@@ -61,10 +61,10 @@ class ConfigParser():
         if custom_config_model is not None:
             setattr(
                 self.config,
-                'custom',
+                "custom",
                 self.parse_custom_config(
                     model=custom_config_model,
-                )
+                ),
             )
         if format_logs:
             self._configure_logging()
@@ -100,13 +100,9 @@ class ConfigParser():
                 try:
                     return yaml.safe_load(config_file)
                 except yaml.YAMLError as exc:
-                    raise ValueError(
-                        f"file '{conf}' is not valid YAML"
-                    ) from exc
+                    raise ValueError(f"file '{conf}' is not valid YAML") from exc
         except OSError as exc:
-            raise OSError(
-                f"file '{conf}' could not be read"
-            ) from exc
+            raise OSError(f"file '{conf}' could not be read") from exc
 
     @staticmethod
     def merge_yaml(*args: Path) -> Dict:
@@ -170,7 +166,8 @@ class ConfigParser():
             )
         try:
             custom_config = model_class(  # type: ignore[operator]
-                **self.config.custom)  # type: ignore[attr-defined]
+                **self.config.custom
+            )  # type: ignore[attr-defined]
         except Exception as exc:
             raise ValueError(
                 "failed validating custom configuration: provided custom "

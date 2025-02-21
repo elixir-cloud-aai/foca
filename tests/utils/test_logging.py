@@ -8,10 +8,10 @@ from foca.utils.logging import log_traffic
 
 app = Flask(__name__)
 REQ = {
-    'REQUEST_METHOD': 'GET',
-    'PATH_INFO': '/',
-    'SERVER_PROTOCOL': 'HTTP/1.1',
-    'REMOTE_ADDR': '192.168.1.1',
+    "REQUEST_METHOD": "GET",
+    "PATH_INFO": "/",
+    "SERVER_PROTOCOL": "HTTP/1.1",
+    "REMOTE_ADDR": "192.168.1.1",
 }
 
 # Get logger instance
@@ -24,12 +24,11 @@ def test_logging_decorator(caplog):
 
     @log_traffic
     def mock_func():
-        return {'foo': 'bar'}
+        return {"foo": "bar"}
 
     with app.test_request_context(environ_base=REQ):
         mock_func()
-    assert 'Incoming request' in caplog.text \
-        and 'Response to request' in caplog.text
+    assert "Incoming request" in caplog.text and "Response to request" in caplog.text
 
 
 def test_logging_decorator_log_level(caplog):
@@ -37,11 +36,11 @@ def test_logging_decorator_log_level(caplog):
 
     @log_traffic(log_level=30)
     def mock_func():
-        return {'foo': 'bar'}
+        return {"foo": "bar"}
 
     with app.test_request_context(environ_base=REQ):
         mock_func()
-    assert 'WARNING' in caplog.text
+    assert "WARNING" in caplog.text
 
 
 def test_logging_decorator_req_only(caplog):
@@ -50,12 +49,13 @@ def test_logging_decorator_req_only(caplog):
 
     @log_traffic(log_response=False)
     def mock_func():
-        return {'foo': 'bar'}
+        return {"foo": "bar"}
 
     with app.test_request_context(environ_base=REQ):
         mock_func()
-    assert 'Incoming request' in caplog.text \
-        and 'Response to request' not in caplog.text
+    assert (
+        "Incoming request" in caplog.text and "Response to request" not in caplog.text
+    )
 
 
 def test_logging_decorator_res_only(caplog):
@@ -64,9 +64,10 @@ def test_logging_decorator_res_only(caplog):
 
     @log_traffic(log_request=False)
     def mock_func():
-        return {'foo': 'bar'}
+        return {"foo": "bar"}
 
     with app.test_request_context(environ_base=REQ):
         mock_func()
-    assert 'Incoming request' not in caplog.text \
-        and 'Response to request' in caplog.text
+    assert (
+        "Incoming request" not in caplog.text and "Response to request" in caplog.text
+    )

@@ -17,4 +17,4 @@ def enable_cors(app: Flask) -> None:
         app: Flask application instance.
     """
     CORS(app)
-    logger.debug('Enabled CORS for Flask app.')
+    logger.debug("Enabled CORS for Flask app.")

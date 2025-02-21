@@ -2,7 +2,7 @@
 
 from connexion.exceptions import Unauthorized
 import logging
-from typing import (Dict, Iterable, List, Optional)
+from typing import Dict, Iterable, List, Optional
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
@@ -32,8 +32,8 @@ def validate_token(token: str) -> Dict:
     # Set parameters defined by OpenID Connect specification
     # Cf. https://openid.net/specs/openid-connect-discovery-1_0.html
     oidc_suffix_config: str = ".well-known/openid-configuration"
-    oidc_config_claim_userinfo: str = 'userinfo_endpoint'
-    oidc_config_claim_public_keys: str = 'jwks_uri'
+    oidc_config_claim_userinfo: str = "userinfo_endpoint"
+    oidc_config_claim_public_keys: str = "jwks_uri"
 
     # Fetch security parameters
     conf = current_app.config.foca.security.auth  # type: ignore[attr-defined]
@@ -49,16 +49,13 @@ def validate_token(token: str) -> Dict:
     # Ensure that validation methods are configured
     if not len(validation_methods):
         raise Unauthorized(
-            "Authentication is enabled, but no JWT validation methods "
-            "configured"
+            "Authentication is enabled, but no JWT validation methods configured"
         )
 
     # Decode JWT
     try:
         claims = jwt.decode(
-            jwt=token,
-            algorithms=algorithms,
-            options={"verify_signature": False}
+            jwt=token, algorithms=algorithms, options={"verify_signature": False}
         )
     except Exception as e:
         raise Unauthorized("JWT could not be decoded") from e
@@ -66,9 +63,7 @@ def validate_token(token: str) -> Dict:
 
     # Verify existence of issuer claim
     if claim_issuer not in claims:
-        raise Unauthorized(
-            f"Required identity claim not available: {claim_identity}"
-        )
+        raise Unauthorized(f"Required identity claim not available: {claim_identity}")
 
     # Get OIDC configuration
     url = f"{claims[claim_issuer].rstrip('/')}/{oidc_suffix_config}"
@@ -77,21 +72,19 @@ def validate_token(token: str) -> Dict:
         oidc_config = requests.get(url)
         oidc_config.raise_for_status()
     except Exception as e:
-        raise Unauthorized(
-            f"Could not fetch issuer's configuration from: {url}"
-        ) from e
+        raise Unauthorized(f"Could not fetch issuer's configuration from: {url}") from e
 
     # Validate token
     passed_any = False
     for method in validation_methods:
         logger.debug(f"Validating JWT via method: {method}")
         try:
-            if method == 'userinfo':
+            if method == "userinfo":
                 _validate_jwt_userinfo(
                     url=oidc_config.json()[oidc_config_claim_userinfo],
                     token=token,
                 )
-            if method == 'public_key':
+            if method == "public_key":
                 _validate_jwt_public_key(
                     url=oidc_config.json()[oidc_config_claim_public_keys],
                     token=token,
@@ -101,22 +94,20 @@ def validate_token(token: str) -> Dict:
                     allow_expired=allow_expired,
                 )
         except Exception as e:
-            if validation_checks == 'all':
+            if validation_checks == "all":
                 raise Unauthorized(
                     "Insufficient number of JWT validation checks passed"
                 ) from e
             continue
         passed_any = True
-        if validation_checks == 'any':
+        if validation_checks == "any":
             break
     if not passed_any:
         raise Unauthorized("No JWT validation checks passed")
 
     # Verify existence of specified identity claim
     if claim_identity not in claims:
-        raise Unauthorized(
-            f"Required identity claim '{claim_identity} not available"
-        )
+        raise Unauthorized(f"Required identity claim '{claim_identity} not available")
 
     # Log result
     logger.debug(f"Access granted to user: {claims[claim_identity]}")
@@ -124,24 +115,23 @@ def validate_token(token: str) -> Dict:
     req_headers = request.headers.__dict__
     for key, val in claims.items():
         req_headers[key] = val
-    req_headers['user_id'] = claims[claim_identity]
-    request.headers = \
-        ImmutableMultiDict(req_headers)  # type: ignore[assignment]
+    req_headers["user_id"] = claims[claim_identity]
+    request.headers = ImmutableMultiDict(req_headers)  # type: ignore[assignment]
 
     # Return token info
     return {
-        'jwt': token,
-        'claims': claims,
-        'user_id': claims[claim_identity],
-        'scope': claims.get('scope', ""),
+        "jwt": token,
+        "claims": claims,
+        "user_id": claims[claim_identity],
+        "scope": claims.get("scope", ""),
     }
 
 
 def _validate_jwt_userinfo(
     token: str,
     url: str,
-    header_name: str = 'Authorization',
-    prefix: str = 'Bearer',
+    header_name: str = "Authorization",
+    prefix: str = "Bearer",
 ) -> None:
     """Validate JSON Web Token (JWT) via an OpenID Connect-compliant
     identity provider's user info endpoint.
@@ -173,11 +163,11 @@ def _validate_jwt_userinfo(
 def _validate_jwt_public_key(
     token: str,
     url: str,
-    algorithms: List[str] = ['RS256'],
+    algorithms: List[str] = ["RS256"],
     add_key_to_claims: bool = True,
     audience: Optional[Iterable[str]] = None,
     allow_expired: bool = False,
-    claim_key_id: str = 'kid',
+    claim_key_id: str = "kid",
 ) -> None:
     """Validate JSON Web Token (JWT) via an OpenID Connect-compliant
     identity provider's public key.
@@ -240,9 +230,9 @@ def _validate_jwt_public_key(
     # Set validations
     validation_options = {}
     if audience is None:
-        validation_options['verify_aud'] = False
+        validation_options["verify_aud"] = False
     if allow_expired:
-        validation_options['verify_exp'] = False
+        validation_options["verify_exp"] = False
 
     # Try public keys one after the other
     used_key: Dict = {}
@@ -280,7 +270,7 @@ def _validate_jwt_public_key(
 
     # Add public key to claims
     if add_key_to_claims:
-        claims['public_key'] = used_key
+        claims["public_key"] = used_key
 
     # Log success and return claims
     logger.debug("Validation via issuer's public keys succeeded")
@@ -289,8 +279,8 @@ def _validate_jwt_public_key(
 def _get_public_keys(
     url: str,
     pem: bool = False,
-    claim_key_id: str = 'kid',
-    claim_keys: str = 'keys',
+    claim_key_id: str = "kid",
+    claim_keys: str = "keys",
 ) -> Dict[str, RSAPublicKey]:
     """Obtain the identity provider's public JSON Web Key (JWK) set.
 
@@ -330,16 +320,20 @@ def _get_public_keys(
 
             # Convert to PEM if requested
             if pem:
-                key = key.public_bytes(  # type: ignore
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                ).decode('utf-8').encode('unicode_escape').decode('utf-8')
+                key = (
+                    key.public_bytes(  # type: ignore
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                    )
+                    .decode("utf-8")
+                    .encode("unicode_escape")
+                    .decode("utf-8")
+                )
 
             public_keys[jwk[claim_key_id]] = key
         except Exception as e:
             logger.warning(
-                f"JSON Web Key '{jwk}' could not be processed: "
-                f"{type(e).__name__}: {e}"
+                f"JSON Web Key '{jwk}' could not be processed: {type(e).__name__}: {e}"
             )
 
     # Return dictionary of public keys

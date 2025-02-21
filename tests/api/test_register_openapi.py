@@ -21,8 +21,12 @@ PATH_SPECS_2_JSON_ORIGINAL = DIR / "openapi_2_petstore.original.json"
 PATH_SPECS_2_YAML_ADDITION = DIR / "openapi_2_petstore.addition.yaml"
 PATH_SPECS_3_YAML_ORIGINAL = DIR / "openapi_3_petstore.original.yaml"
 PATH_SPECS_3_YAML_MODIFIED = DIR / "openapi_3_petstore.modified.yaml"
-PATH_SPECS_3_PATHITEMPARAM_YAML_ORIGINAL = DIR / "openapi_3_petstore_pathitemparam.original.yaml"  # noqa: E501
-PATH_SPECS_3_PATHITEMPARAM_YAML_MODIFIED = DIR / "openapi_3_petstore_pathitemparam.modified.yaml"  # noqa: E501
+PATH_SPECS_3_PATHITEMPARAM_YAML_ORIGINAL = (
+    DIR / "openapi_3_petstore_pathitemparam.original.yaml"
+)  # noqa: E501
+PATH_SPECS_3_PATHITEMPARAM_YAML_MODIFIED = (
+    DIR / "openapi_3_petstore_pathitemparam.modified.yaml"
+)  # noqa: E501
 PATH_SPECS_INVALID_JSON = DIR / "invalid.json"
 PATH_SPECS_INVALID_YAML = DIR / "invalid.openapi.yaml"
 PATH_NOT_FOUND = DIR / "does/not/exist.yaml"
@@ -35,9 +39,7 @@ APPEND = {
     "info": {
         "version": "1.0.0",
         "title": "Swagger Petstore",
-        "license": {
-            "name": "MIT"
-        }
+        "license": {"name": "MIT"},
     }
 }
 CONNEXION_CONFIG = {
@@ -46,7 +48,7 @@ CONNEXION_CONFIG = {
     "options": {
         "swagger_ui": True,
         "serve_spec": True,
-    }
+    },
 }
 SPEC_CONFIG_2 = {
     "path": PATH_SPECS_2_YAML_ORIGINAL,
@@ -76,19 +78,18 @@ SPEC_CONFIG_3_PATHITEMPARAM = {
     "connexion": CONNEXION_CONFIG,
 }
 SPEC_CONFIG_2_JSON = deepcopy(SPEC_CONFIG_2)
-SPEC_CONFIG_2_JSON['path'] = PATH_SPECS_2_JSON_ORIGINAL
+SPEC_CONFIG_2_JSON["path"] = PATH_SPECS_2_JSON_ORIGINAL
 SPEC_CONFIG_2_LIST = deepcopy(SPEC_CONFIG_2)
-SPEC_CONFIG_2_LIST['path'] = [PATH_SPECS_2_YAML_ORIGINAL]
+SPEC_CONFIG_2_LIST["path"] = [PATH_SPECS_2_YAML_ORIGINAL]
 SPEC_CONFIG_2_MULTI = deepcopy(SPEC_CONFIG_2_LIST)
-SPEC_CONFIG_2_MULTI['path'].append(PATH_SPECS_2_YAML_ADDITION)
+SPEC_CONFIG_2_MULTI["path"].append(PATH_SPECS_2_YAML_ADDITION)
 SPEC_CONFIG_2_DISABLE_AUTH = deepcopy(SPEC_CONFIG_2)
-SPEC_CONFIG_2_DISABLE_AUTH['disable_auth'] = True
+SPEC_CONFIG_2_DISABLE_AUTH["disable_auth"] = True
 SPEC_CONFIG_3_DISABLE_AUTH = deepcopy(SPEC_CONFIG_3)
-SPEC_CONFIG_3_DISABLE_AUTH['disable_auth'] = True
+SPEC_CONFIG_3_DISABLE_AUTH["disable_auth"] = True
 
 
 class TestRegisterOpenAPI:
-
     def test_openapi_2_yaml(self):
         """Successfully register OpenAPI 2 YAML specs with Connexion app."""
         app = App(__name__)

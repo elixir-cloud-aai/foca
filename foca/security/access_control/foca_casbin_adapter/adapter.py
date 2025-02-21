@@ -2,12 +2,10 @@
 
 from casbin import persist
 from casbin.model import Model
-from typing import (List, Optional)
+from typing import List, Optional
 from pymongo import MongoClient
 
-from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
-    CasbinRule
-)
+from foca.security.access_control.foca_casbin_adapter.casbin_rule import CasbinRule
 from foca.utils.misc import generate_id
 
 
@@ -94,10 +92,7 @@ class Adapter(persist.Adapter):
         else:
             line_dict = line.dict()
             line_dict_keys_len = len(line_dict)
-            results = self._collection.find(
-                filter=line_dict,
-                projection={"id": False}
-            )
+            results = self._collection.find(filter=line_dict, projection={"id": False})
             to_delete = [
                 result["_id"]
                 for result in results
@@ -153,8 +148,7 @@ class Adapter(persist.Adapter):
         return deleted_count > 0
 
     def remove_filtered_policy(
-        self, sec: str, ptype: str,
-        field_index: int, *field_values: List[str]
+        self, sec: str, ptype: str, field_index: int, *field_values: List[str]
     ):
         """Remove policy rules that match the filter from the storage.
            This is part of the Auto-Save feature.
