@@ -36,12 +36,12 @@ jobs:
           python-version: ${{ matrix.py-version-img[0] }}
       - name: Install requirements
         run: |
-          pip install -e .[dev]
-          pip install setuptools
+          pip install poetry
+          poetry install --with=code_quality,docs,test,types
       - name: Lint with flake8
-        run: flake8
+        run: poetry run flake8
       - name: Run mypy
-        run: mypy foca
+        run: poetry run mypy foca
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.7.0
         with:
@@ -49,8 +49,8 @@ jobs:
           mongodb-port: ${{ matrix.mongodb-port }}
       - name: Calculate unit test coverage
         run: |
-          coverage run --source foca -m pytest -W ignore::DeprecationWarning
-          coverage xml
+          poetry run coverage run --source foca -m pytest -W ignore::DeprecationWarning
+          poetry run coverage xml
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
@@ -72,10 +72,10 @@ jobs:
               --build-arg PY_IMAGE=${PY_IMAGE} \
               .
           cd ./examples/petstore
-          docker-compose up --build -d
+          docker compose up --build -d
           cd ../..
           sleep 10
-          pytest ./tests/integration_tests.py
+          poetry run pytest ./tests/integration_tests.py
 
   Docker:
     runs-on: ubuntu-latest

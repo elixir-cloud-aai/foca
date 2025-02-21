@@ -57,7 +57,7 @@ def register_openapi(
         if spec.add_operation_fields is not None:
             for key, val in spec.add_operation_fields.items():
                 for path_item_object in spec_parsed.get('paths', {}).values():
-                    for operation, operation_object in path_item_object.items():
+                    for operation, operation_object in path_item_object.items():  # noqa: E501
                         if operation not in _OPERATION_OBJECT_FIELDS:
                             continue
                         operation_object[key] = val
