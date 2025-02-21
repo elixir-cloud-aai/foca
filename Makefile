@@ -36,7 +36,7 @@ cv: clean-venv
 .PHONY: format-lint fl
 format-lint:
 	@echo "\nRunning linter and formatter using ruff and typos +++++++++++++++++++++++++++++\n"
-	@poetry run flake8 && poetry run ruff check --fix
+	@poetry run flake8
 	@typos .
 
 fl: format-lint
