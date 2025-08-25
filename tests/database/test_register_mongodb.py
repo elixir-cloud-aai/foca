@@ -84,7 +84,10 @@ def test_register_mongodb_no_database():
 def test__create_mongo_client_with_mongo_uri(monkeypatch):
     """When MONGO_URI environment variable IS defined, prefer it."""
     # SRV style and options should be accepted without modification
-    mongo_uri = "mongodb://user:pass@db1.example.com:27017,db2.example.com:27017/admin?replicaSet=rs0&ssl=true"
+    mongo_uri = (
+        "mongodb://user:pass@db1.example.com:27017,"
+        "db2.example.com:27017/admin?replicaSet=rs0&ssl=true"
+    )
     monkeypatch.setenv("MONGO_URI", mongo_uri)
     app = Flask(__name__)
     res = _create_mongo_client(app)
@@ -100,7 +103,9 @@ def test__create_mongo_client_with_mongo_uri_and_db_override(monkeypatch):
     app = Flask(__name__)
     res = _create_mongo_client(app)
     assert isinstance(res, PyMongo)
-    assert app.config['MONGO_URI'].startswith("mongodb://localhost:27017/new_db")
+    assert app.config['MONGO_URI'].startswith(
+        "mongodb://localhost:27017/new_db"
+    )
     assert "retryWrites=true" in app.config['MONGO_URI']
 
 

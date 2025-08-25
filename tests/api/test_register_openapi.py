@@ -24,11 +24,19 @@ PATH_SPECS_3_YAML_MODIFIED = DIR / "openapi_3_petstore.modified.yaml"
 PATH_SPECS_INVALID_JSON = DIR / "invalid.json"
 PATH_SPECS_INVALID_YAML = DIR / "invalid.openapi.yaml"
 PATH_NOT_FOUND = DIR / "does/not/exist.yaml"
-OPERATION_FIELDS_2 = {"x-swagger-router-controller": "controllers"}
-OPERATION_FIELDS_2_NO_RESOLVE = {"x-swagger-router-controller": YAMLError}
+OPERATION_FIELDS_2 = {
+    "x-swagger-router-controller": "controllers",
+}
+OPERATION_FIELDS_2_NO_RESOLVE = {
+    "x-swagger-router-controller": YAMLError,
+}
 OPERATION_FIELDS_3 = {"x-openapi-router-controller": "controllers"}
-SECURITY_FIELDS_2 = {"x-apikeyInfoFunc": "controllers.validate_token"}
-SECURITY_FIELDS_3 = {"x-bearerInfoFunc": "controllers.validate_token"}
+SECURITY_FIELDS_2 = {
+    "x-apikeyInfoFunc": "controllers.validate_token",
+}
+SECURITY_FIELDS_3 = {
+    "x-bearerInfoFunc": "controllers.validate_token",
+}
 APPEND = {
     "info": {
         "version": "1.0.0",
