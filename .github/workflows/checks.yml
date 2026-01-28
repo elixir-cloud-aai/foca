@@ -77,7 +77,7 @@ jobs:
           cd ../..
           # Wait until the app is up and running
           for i in {1..30}; do
-              if curl -s http://localhost:80/pets > /dev/null
+              if curl -s http://localhost:80/pets > /dev/null; then
                   break
               fi
               sleep 2
