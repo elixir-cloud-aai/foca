@@ -7,9 +7,9 @@ name: CI
 
 on:
   push:
-    branches: [ dev ]
+    branches: [dev]
   pull_request:
-    branches: [ dev ]
+    branches: [dev]
 
 jobs:
   Test:
@@ -18,12 +18,13 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        py-version-img: [
-          ["3.9", "3.9-slim-bookworm"],
-          ["3.10", "3.10-slim-bookworm"],
-          ["3.11", "3.11-slim-bookworm"],
-          ["3.12", "3.12-slim-bookworm"],
-        ]
+        py-version-img:
+          [
+            ["3.9", "3.9-slim-bookworm"],
+            ["3.10", "3.10-slim-bookworm"],
+            ["3.11", "3.11-slim-bookworm"],
+            ["3.12", "3.12-slim-bookworm"],
+          ]
         mongodb-version: ["4.4", "5.0", "6.0", "7.0"]
         mongodb-port: [12345]
 
@@ -74,7 +75,13 @@ jobs:
           cd ./examples/petstore
           docker compose build foca-petstore-root
           cd ../..
-          sleep 10
+          # Wait until the app is up and running
+          for i in {1..30}; do
+              if curl -s http://localhost:80/pets > /dev/null
+                  break
+              fi
+              sleep 2
+          done
           pytest ./tests/integration_tests.py
 
   Docker:
@@ -83,12 +90,13 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        py-version-img-tag: [
-          ["3.9", "3.9-slim-bookworm", ""],
-          ["3.10", "3.10-slim-bookworm", ""],
-          ["3.11", "3.11-slim-bookworm", ""],
-          ["3.12", "3.12-slim-bookworm", "latest"],
-        ]
+        py-version-img-tag:
+          [
+            ["3.9", "3.9-slim-bookworm", ""],
+            ["3.10", "3.10-slim-bookworm", ""],
+            ["3.11", "3.11-slim-bookworm", ""],
+            ["3.12", "3.12-slim-bookworm", "latest"],
+          ]
 
     steps:
       - name: Checkout Repository
