@@ -73,7 +73,7 @@ jobs:
               --build-arg PY_IMAGE=${PY_IMAGE} \
               .
           cd ./examples/petstore
-          docker compose build
+          docker compose build foca-petstore-root
           docker compose up -d
           cd ../..
           # Wait until the app is up and running
