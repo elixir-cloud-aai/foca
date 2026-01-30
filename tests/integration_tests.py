@@ -8,7 +8,7 @@ from tests.test_files.models_petstore import (
     Pets,
 )
 
-PETSTORE_URL = "http://localhost:80"
+PETSTORE_URL = "http://localhost:8080"
 NAME_PET = "karl"
 TAG_PET = "frog"
 EXTRA_PARAM_ARG = "extra"
@@ -48,7 +48,7 @@ def test_add_pet_extra_parameter_200():
     assert isinstance(response_data, Pet)
     assert response_data.name == NAME_PET
     assert response_data.tag == TAG_PET
-    assert getattr(response_data, 'extra_parameter', None) is None
+    assert getattr(response_data, "extra_parameter", None) is None
 
 
 def test_add_pet_required_arguments_missing_400():
