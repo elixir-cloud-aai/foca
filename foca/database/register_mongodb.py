@@ -6,6 +6,7 @@ import os
 from flask import Flask
 from flask_pymongo import PyMongo
 from foca.models.config import MongoConfig, DBConfig
+from urllib.parse import urlparse, urlunparse
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -123,6 +124,37 @@ def _create_mongo_client(
     Returns:
         MongoDB client for Flask application instance.
     """
+    # If full URI provided, prefer it over component-based construction
+    provided_uri = os.environ.get('MONGO_URI')
+    if provided_uri:
+        db_override = os.environ.get('MONGO_DBNAME')
+        if db_override:
+            try:
+                parsed = urlparse(provided_uri)
+                # Replace/insert path component with overridden db name
+                new_path = f"/{db_override}"
+                provided_uri = urlunparse((
+                    parsed.scheme,
+                    parsed.netloc,
+                    new_path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                ))
+            except Exception:
+                # In case of any parsing issues, fall back to using the
+                # provided URI as-is; PyMongo will validate later.
+                pass
+        app.config['MONGO_URI'] = provided_uri
+        mongo = PyMongo(app)
+        logger.info(
+            "Registered database '{db}' using provided MONGO_URI.".format(
+                db=os.environ.get('MONGO_DBNAME', db)
+            )
+        )
+        return mongo
+
+    # Fall back to legacy component-based construction
     auth = ''
     user = os.environ.get('MONGO_USERNAME')
     if user is not None and user != "":

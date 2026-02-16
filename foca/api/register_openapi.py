@@ -66,7 +66,10 @@ def register_openapi(
             )
 
         # Add fields to security definitions/schemes
-        if not spec.disable_auth and spec.add_security_fields is not None:
+        if (
+            not spec.disable_auth
+            and spec.add_security_fields is not None
+        ):
             for key, val in spec.add_security_fields.items():
                 # OpenAPI 2
                 sec_defs = spec_parsed.get('securityDefinitions', {})
