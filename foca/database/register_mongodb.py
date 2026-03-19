@@ -123,18 +123,24 @@ def _create_mongo_client(
     Returns:
         MongoDB client for Flask application instance.
     """
+    # Normalize environment variables: strip whitespace and treat empty strings as None
+    mongo_username = os.environ.get('MONGO_USERNAME', '').strip() or None
+    mongo_password = os.environ.get('MONGO_PASSWORD', '').strip() or None
+    mongo_host = os.environ.get('MONGO_HOST', '').strip() or host
+    mongo_port = os.environ.get('MONGO_PORT', '').strip() or port
+    mongo_dbname = os.environ.get('MONGO_DBNAME', '').strip() or db
+
     auth = ''
-    user = os.environ.get('MONGO_USERNAME')
-    if user is not None and user != "":
+    if mongo_username is not None and mongo_password is not None:
         auth = '{username}:{password}@'.format(
-            username=os.environ.get('MONGO_USERNAME'),
-            password=os.environ.get('MONGO_PASSWORD'),
+            username=mongo_username,
+            password=mongo_password,
         )
 
     app.config['MONGO_URI'] = 'mongodb://{auth}{host}:{port}/{db}'.format(
-        host=os.environ.get('MONGO_HOST', host),
-        port=os.environ.get('MONGO_PORT', port),
-        db=os.environ.get('MONGO_DBNAME', db),
+        host=mongo_host,
+        port=mongo_port,
+        db=mongo_dbname,
         auth=auth
     )
 
@@ -144,9 +150,9 @@ def _create_mongo_client(
             "Registered database '{db}' at URI '{host}':'{port}' with Flask "
             'application.'
         ).format(
-            db=os.environ.get('MONGO_DBNAME', db),
-            host=os.environ.get('MONGO_HOST', host),
-            port=os.environ.get('MONGO_PORT', port)
+            db=mongo_dbname,
+            host=mongo_host,
+            port=mongo_port
         )
     )
     return mongo
