@@ -55,13 +55,6 @@ api:
 
 # DATABASE CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.DBConfig
-# Environment variable overrides:
-#   MONGO_URI      — complete MongoDB connection string (takes precedence over all other vars)
-#   MONGO_HOST     — overrides db.host
-#   MONGO_PORT     — overrides db.port
-#   MONGO_USERNAME — MongoDB username (enables auth)
-#   MONGO_PASSWORD — MongoDB password (used with MONGO_USERNAME)
-#   MONGO_DBNAME   — overrides the database name
 db:
   host: mongodb
   port: 27017

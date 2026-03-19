@@ -114,14 +114,6 @@ def _create_mongo_client(
 ) -> PyMongo:
     """Create MongoDB client for Flask application instance.
 
-    If the ``MONGO_URI`` environment variable is set and non-empty, it is
-    used as the complete MongoDB connection string. In that case, the
-    ``host``, ``port``, and ``db`` parameters as well as individual
-    environment variables (``MONGO_HOST``, ``MONGO_PORT``,
-    ``MONGO_USERNAME``, ``MONGO_PASSWORD``, ``MONGO_DBNAME``) are ignored.
-    A warning is logged if any individual MongoDB environment variables
-    are also set.
-
     Args:
         app: Flask application instance.
         host: Host at which MongoDB database is exposed.
@@ -131,26 +123,6 @@ def _create_mongo_client(
     Returns:
         MongoDB client for Flask application instance.
     """
-    mongo_uri = os.environ.get('MONGO_URI')
-    if mongo_uri is not None and mongo_uri != "":
-        individual_vars = {
-            'MONGO_HOST': os.environ.get('MONGO_HOST'),
-            'MONGO_PORT': os.environ.get('MONGO_PORT'),
-            'MONGO_USERNAME': os.environ.get('MONGO_USERNAME'),
-            'MONGO_PASSWORD': os.environ.get('MONGO_PASSWORD'),
-            'MONGO_DBNAME': os.environ.get('MONGO_DBNAME'),
-        }
-        ignored = [name for name, val in individual_vars.items() if val is not None]
-        if ignored:
-            logger.warning(
-                "MONGO_URI is set; ignoring individual MongoDB environment variable(s): %s",
-                ', '.join(ignored),
-            )
-        app.config['MONGO_URI'] = mongo_uri
-        mongo = PyMongo(app)
-        logger.info("Registered MongoDB client via MONGO_URI with Flask application.")
-        return mongo
-
     auth = ''
     user = os.environ.get('MONGO_USERNAME')
     if user is not None and user != "":
