@@ -1,5 +1,7 @@
 """Tests for registering access control"""
 
+import logging
+from types import SimpleNamespace
 from flask import Flask
 import mongomock
 from pymongo import MongoClient
@@ -7,7 +9,8 @@ from unittest import TestCase
 import pytest
 
 from foca.security.access_control.register_access_control import (
-    check_permissions
+    check_permissions,
+    register_access_control,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.errors.exceptions import Forbidden
@@ -110,3 +113,37 @@ class TestRegisterAccessControl(TestCase):
         ):
             with pytest.raises(Forbidden):
                 mock_func()
+
+
+def test_register_access_control_logs_setup_steps(monkeypatch, caplog):
+    """Test setup logs for access control registration flow."""
+    caplog.set_level(logging.INFO)
+    access_control = AccessControlConfig(**ACCESS_CONTROL_CONFIG)
+    mongo_config = MongoConfig(**MONGO_CONFIG)
+
+    dummy_app = SimpleNamespace(
+        app=SimpleNamespace(config=SimpleNamespace(foca=SimpleNamespace(db=None)))
+    )
+
+    monkeypatch.setattr(
+        "foca.security.access_control.register_access_control.add_new_database",
+        lambda app, conf, db_conf, db_name: None,
+    )
+    monkeypatch.setattr(
+        "foca.security.access_control.register_access_control.register_casbin_enforcer",
+        lambda app, mongo_config, access_control_config: app,
+    )
+    monkeypatch.setattr(
+        "foca.security.access_control.register_access_control.register_permission_specs",
+        lambda app, access_control_config: app,
+    )
+
+    updated_app = register_access_control(
+        cnx_app=dummy_app,
+        mongo_config=mongo_config,
+        access_control_config=access_control,
+    )
+
+    assert updated_app is dummy_app
+    assert "Access control enforcer registered." in caplog.text
+    assert "Access control permission specifications registered." in caplog.text
