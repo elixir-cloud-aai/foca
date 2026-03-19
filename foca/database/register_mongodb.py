@@ -140,7 +140,7 @@ def _create_mongo_client(
             'MONGO_PASSWORD': os.environ.get('MONGO_PASSWORD'),
             'MONGO_DBNAME': os.environ.get('MONGO_DBNAME'),
         }
-        ignored = [name for name, val in individual_vars.items() if val is not None]
+        ignored = [name for name, val in individual_vars.items() if val is not None and val != ""]
         if ignored:
             logger.warning(
                 "MONGO_URI is set; ignoring individual MongoDB environment variable(s): %s",

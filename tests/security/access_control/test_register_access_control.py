@@ -117,7 +117,7 @@ class TestRegisterAccessControl(TestCase):
 
 def test_register_access_control_logs_setup_steps(monkeypatch, caplog):
     """Test setup logs for access control registration flow."""
-    caplog.set_level(logging.INFO)
+    logger_name = "foca.security.access_control.register_access_control"
     access_control = AccessControlConfig(**ACCESS_CONTROL_CONFIG)
     mongo_config = MongoConfig(**MONGO_CONFIG)
 
@@ -138,12 +138,14 @@ def test_register_access_control_logs_setup_steps(monkeypatch, caplog):
         lambda app, access_control_config: app,
     )
 
-    updated_app = register_access_control(
-        cnx_app=dummy_app,
-        mongo_config=mongo_config,
-        access_control_config=access_control,
-    )
+    with caplog.at_level(logging.INFO, logger=logger_name):
+        updated_app = register_access_control(
+            cnx_app=dummy_app,
+            mongo_config=mongo_config,
+            access_control_config=access_control,
+        )
 
     assert updated_app is dummy_app
-    assert "Access control enforcer registered." in caplog.text
-    assert "Access control permission specifications registered." in caplog.text
+    records = [r for r in caplog.records if r.name == logger_name]
+    assert any("Access control enforcer registered." in r.getMessage() for r in records)
+    assert any("Access control permission specifications registered." in r.getMessage() for r in records)
