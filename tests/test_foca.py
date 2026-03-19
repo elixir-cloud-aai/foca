@@ -130,22 +130,29 @@ def test_foca_CORS_disabled():
     assert app.app.config.foca.security.cors.enabled is False
 
 
-def test_foca_invalid_access_control():
+def test_foca_invalid_access_control(capsys):
     """Ensures access control is not enabled if auth flag is disabled."""
     foca = Foca(config_file=INVALID_ACCESS_CONTROL_CONF)
     app = foca.create_app()
+    logs = capsys.readouterr().err
     assert app.app.config.foca.db is None
+    assert "Please enable security config to register access control." in logs
+    assert "Access control registered." not in logs
 
 
-def test_foca_valid_access_control():
+def test_foca_valid_access_control(capsys):
     """Ensures access control settings are set correctly."""
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
     app = foca.create_app()
+    logs = capsys.readouterr().err
     my_db = app.app.config.foca.db.dbs["test_db"]
     my_coll = my_db.collections["test_collection"]
     assert isinstance(my_db.client, Database)
     assert isinstance(my_coll.client, Collection)
     assert isinstance(app, App)
+    assert "Access control enforcer registered." in logs
+    assert "Access control permission specifications registered." in logs
+    assert "Access control registered." in logs
 
 
 def test_foca_create_celery_app():

@@ -203,6 +203,16 @@ db:
 >  
 > Cf. the [API model][docs-models-db] for further options and details.
 
+> **Environment variable overrides:** FOCA supports overriding MongoDB
+> connection parameters via environment variables. If the `MONGO_URI`
+> environment variable is set, it will be used as the complete MongoDB
+> connection string, taking precedence over all other MongoDB-related
+> environment variables and configuration file settings. This is useful for
+> replica sets, SRV records, TLS options, or URIs from secret managers. If
+> `MONGO_URI` is not set, the following individual environment variables can
+> override corresponding configuration values: `MONGO_HOST`, `MONGO_PORT`,
+> `MONGO_USERNAME`, `MONGO_PASSWORD`, `MONGO_DBNAME`.
+
 ### Configuring exceptions
 
 FOCA provides a convenient, configurable exception handler and a simple way

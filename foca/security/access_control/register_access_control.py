@@ -2,7 +2,7 @@
 
 import logging
 from functools import wraps
-from importlib.resources import path as resource_path
+from importlib.resources import as_file, files
 from pathlib import Path
 from typing import (Callable, Optional, Tuple)
 
@@ -82,11 +82,13 @@ def register_access_control(
         mongo_config=mongo_config,
         access_control_config=access_control_config
     )
+    logger.info("Access control enforcer registered.")
 
     cnx_app = register_permission_specs(
         app=cnx_app,
         access_control_config=access_control_config
     )
+    logger.info("Access control permission specifications registered.")
 
     return cnx_app
 
@@ -108,9 +110,10 @@ def register_permission_specs(
     """
     # Check if default, get package path variables for specs.
     if access_control_config.api_specs is None:
-        with resource_path(
-            ACCESS_CONTROL_BASE_PATH, DEFAULT_API_SPEC_PATH
-        ) as _path:
+        spec_file = files(ACCESS_CONTROL_BASE_PATH).joinpath(
+            DEFAULT_API_SPEC_PATH
+        )
+        with as_file(spec_file) as _path:
             spec_path = str(_path)
     else:
         spec_path = access_control_config.api_specs

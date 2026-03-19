@@ -4,7 +4,7 @@ from copy import deepcopy
 from enum import Enum
 from functools import reduce
 import importlib
-from importlib.resources import path as resource_path
+from importlib.resources import as_file, files
 import operator
 from pathlib import Path
 from typing import (
@@ -726,10 +726,10 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
 
         """
         if v is None:
-            with resource_path(
-                ACCESS_CONTROL_BASE_PATH,
+            model_file = files(ACCESS_CONTROL_BASE_PATH).joinpath(
                 DEFAULT_MODEL_FILE
-            ) as _path:
+            )
+            with as_file(model_file) as _path:
                 return str(_path)
 
         model_path = Path(v)

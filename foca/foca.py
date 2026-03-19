@@ -149,6 +149,7 @@ class Foca:
                 mongo_config=self.conf.db,
                 access_control_config=self.conf.security.access_control,
             )
+            logger.info("Access control registered.")
         else:
             if (
                 self.conf.security.access_control.api_specs
