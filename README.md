@@ -543,6 +543,12 @@ def your_controller():
     pass
 ```
 
+Alternatively, set `security.access_control.enforce: True` to enforce
+policies on all operations requiring authentication, using identity and
+group claims of validated OIDC tokens. FOCA also provides helpers for
+managing resource-scoped roles, e.g., for resource ownership. See the [access
+control documentation][docs-access-control] for details.
+
 ## Contributing
 
 This project is a community effort and lives off your contributions, be it in
