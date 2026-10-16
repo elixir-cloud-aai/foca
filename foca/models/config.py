@@ -673,6 +673,18 @@ class AccessControlConfig(FOCABaseConfig):
         owner_headers: Owner (Admin) specific header property requirements
             for casbin.
         user_headers: User specific header property requirements for casbin.
+        enforce: Enforce policies on all operations of the app's API specs
+            that require authentication, unless an operation sets
+            `x-foca-access-control: false`. The permissions API is always
+            enforced.
+        claim_identity: Claim of the validated JSON Web Token (JWT) used as
+            the subject for enforcing policies.
+        claim_groups: Claim of the validated JWT listing groups or
+            entitlements of the subject (e.g., `eduperson_entitlement`). If
+            set, its values are used as additional subjects (roles) when
+            enforcing policies.
+        group_mapping: Mapping of values of `claim_groups` to roles. If set,
+            only mapped values are used as roles.
 
     Attributes:
         api_specs: Path to API spec definition.
@@ -683,6 +695,11 @@ class AccessControlConfig(FOCABaseConfig):
         owner_headers: Owner (Admin) specific header property requirements
             for casbin.
         user_headers: User specific header property requirements for casbin.
+        enforce: Enforce policies on all operations of the app's API specs
+            that require authentication.
+        claim_identity: JWT claim used as the subject for enforcing policies.
+        claim_groups: JWT claim listing groups or entitlements of the subject.
+        group_mapping: Mapping of values of `claim_groups` to roles.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -710,6 +727,10 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     model: Optional[str] = Field(default=None, validate_default=True)
     owner_headers: Optional[set] = None
     user_headers: Optional[set] = None
+    enforce: bool = False
+    claim_identity: str = "sub"
+    claim_groups: Optional[str] = None
+    group_mapping: Optional[Dict[str, str]] = None
 
     @field_validator('model', mode='before')
     @classmethod

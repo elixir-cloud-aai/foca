@@ -20,6 +20,7 @@ from foca.models.config import (
     AccessControlConfig
 )
 from foca.database.register_mongodb import add_new_database
+from foca.security.access_control.enforcement import AccessControlResolver
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
@@ -97,6 +98,9 @@ def register_permission_specs(
 ):
     """Register open api specs for permission management.
 
+    Access control policies are enforced on all operations of the permissions
+    API, irrespective of `access_control.enforce`.
+
     Args:
         app: Connexion application instance.
         access_control_config:
@@ -134,6 +138,7 @@ def register_permission_specs(
 
     app.add_api(
         specification=spec.path[0],  # type: ignore[index]
+        resolver=AccessControlResolver(),
         **spec.model_dump().get("connexion", {}),
     )
     return app
