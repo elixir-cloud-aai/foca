@@ -140,6 +140,7 @@ security:
     user_headers: user_identification_properties
     enforce: False
     claim_identity: sub
+    subject_prefix: "user:"
     claim_groups: group_claim
     group_mapping:
       group_claim_value: role
@@ -203,7 +204,6 @@ security:
   access_control:
     model: path/to/resource_role_model.conf
     enforce: True
-    claim_identity: sub
     claim_groups: eduperson_entitlement
     group_mapping:
       "urn:geant:example.org:group:admins#example.org": admin
@@ -225,8 +225,12 @@ policy allows them.
 ### Identity and group claims
 
 The subject is taken from the claims of the **already validated** token,
-from the claim set via `claim_identity` (default: `sub`). Requests with
-validated tokens lacking that claim are denied with `401`.
+from the claim set via `claim_identity`. If not set, the claim set via
+`security.auth.claim_identity` (default: `sub`) is used, i.e., the same claim
+that token validation requires. Use a stable identifier assigned by the
+identity provider (like `sub`), not a claim users may choose or change (like
+`preferred_username` or `email`). Requests with validated tokens lacking that
+claim are denied with `401`.
 
 If `claim_groups` is set, the values of that claim (a list or a single
 string) are additionally checked as subjects, i.e., they act as roles. If
@@ -235,8 +239,19 @@ mapping are ignored. Access is granted if any of the subjects is allowed.
 This way, no rules are needed per user for group-based access, e.g., for
 administrators.
 
+To keep users, groups and roles apart, subjects are namespaced in rules:
+
+| Subject | In rules | Example |
+| --- | --- | --- |
+| User identifier | prefixed with `subject_prefix` (default: `user:`) | `user:alice` |
+| Group claim value without `group_mapping` | prefixed with `group:` | `group:vo-members` |
+| Role (from `group_mapping` or `g` rules) | as is | `admin` |
+
+This way, a user whose identifier equals a role name (e.g., `admin`), or an
+identity provider group of that name, is not granted that role.
+
 In your controllers, use `get_current_subject()` and `get_current_groups()`
-to get the subject and roles of the current request:
+to get the subject (without prefix) and roles of the current request:
 
 ```python
 from foca.security.access_control import (
@@ -254,8 +269,9 @@ roles. It supports rules like the following:
 p, *, /services, POST                            # any authenticated user
 p, owner, /services/:id, (GET)|(PUT)|(DELETE)    # owners: full access
 p, maintainer, /services/:id, (GET)|(PUT)        # maintainers: read/update
-g2, alice, owner, /services/123                  # alice owns /services/123
-g, bob, admin                                    # bob is an admin
+p, group:vo-members, /services/:id, GET          # raw group claim value
+g2, user:alice, owner, /services/123             # alice owns /services/123
+g, user:bob, admin                               # bob is an admin
 ```
 
 Subjects with role `admin`, assigned via `g` rules or mapped from group
@@ -299,7 +315,14 @@ def deleteService(id, **kwargs):
 
 `list_resource_roles(resource)` returns the subjects and roles granted on a
 resource, and `remove_resource_role(subject, role, resource)` revokes a
-single role.
+single role. The helpers take and return user identifiers without prefix and
+add `subject_prefix` to the rules themselves.
+
+The helpers manage `g2` rules by default. For models defining resource-scoped
+roles under another name, pass it via `ptype` (e.g., `ptype="g3"`). The
+helpers raise a `ValueError` if the model does not define that role type with
+three fields (subject, role, resource), e.g., with the default model, whose
+`g2` groups objects.
 
 ### Securing the permissions API
 
