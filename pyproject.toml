@@ -37,36 +37,36 @@ classifiers = [
 ]
 dependencies = [
     "addict~=2.2",
-    "celery~=5.2",
-    "connexion~=2.11",
-    "cryptography~=44.0.1",
-    "Flask~=2.2",
-    "flask-authz~=2.5.1",
-    "Flask-Cors~=6.0.0",
-    "Flask-PyMongo~=2.3",
-    "pydantic~=2.7",
-    "PyJWT~=2.4",
-    "pymongo~=4.7",
-    "PyYAML~=6.0",
-    "requests~=2.31",
-    "swagger-ui-bundle~=0.0",
-    "typing_extensions>=4.11",
-    "Werkzeug~=3.1.5",
+    "celery>=5.4,<6",
+    "connexion>=2.15.1,<3",
+    "cryptography>=50",
+    "Flask>=3.1.3,<4",
+    "flask-authz>=2.5.1,<2.8",
+    "Flask-Cors>=6.0.5,<7",
+    "Flask-PyMongo>=3.0,<4",
+    "pydantic>=2.7,<3",
+    "PyJWT>=2.10,<3",
+    "pymongo>=4.7,<5",
+    "PyYAML>=6.0,<7",
+    "requests>=2.32,<3",
+    "swagger-ui-bundle>=1.1,<2",
+    "typing_extensions>=4.12",
+    "Werkzeug>=3.1.5,<4",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "coverage>=6.5",
-    "flake8>=6.1",
-    "mongomock>=4.1",
-    "mypy>=0.991",
-    "pytest>=7.4",
+    "coverage>=7.6",
+    "flake8>=7.1",
+    "mongomock>=4.3",
+    "mypy>=1.13",
+    "pytest>=8.3",
     "types-PyYAML",
     "types-requests",
 ]
 docs = [
-    "Sphinx>=7.2",
-    "sphinx-rtd-theme>=1.3",
+    "Sphinx>=8",
+    "sphinx-rtd-theme>=3",
 ]
 
 [project.urls]

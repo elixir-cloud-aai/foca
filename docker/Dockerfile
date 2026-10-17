@@ -1,5 +1,5 @@
-ARG PY_IMAGE=3.12-slim-bookworm
-FROM python:$PY_IMAGE as base
+ARG PY_IMAGE=3.13-slim-trixie
+FROM python:$PY_IMAGE AS base
 
 # Metadata
 LABEL software="FOCA"
@@ -10,10 +10,10 @@ LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
 LABEL maintainer.organisation="ELIXIR Cloud & AAI"
 
 # Build image
-FROM base as builder
+FROM base AS builder
 
 # Install general dependencies
-ENV PACKAGES openssl git build-essential python3-dev curl jq
+ENV PACKAGES="openssl git build-essential python3-dev curl jq"
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
@@ -35,7 +35,7 @@ ENV USER=ipython
 ENV HOME=/tmp/user
 
 # Install general dependencies
-ENV PACKAGES openssl git build-essential python3-dev curl jq
+ENV PACKAGES="openssl git build-essential python3-dev curl jq"
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ${PACKAGES} && \
     rm -rf /var/lib/apt/lists/*
