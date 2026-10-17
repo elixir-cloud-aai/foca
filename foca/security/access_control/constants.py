@@ -1,5 +1,4 @@
-"""File to store permission based constants.
-"""
+"""File to store permission based constants."""
 
 DEFAULT_ACCESS_CONTROL_DB_NAME = "access_control_db"
 DEFAULT_ACESS_CONTROL_COLLECTION_NAME = "policy_rules"

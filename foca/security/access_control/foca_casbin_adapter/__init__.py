@@ -1,0 +1,1 @@
+"""Casbin adapter for MongoDB."""

@@ -1,0 +1,1 @@
+"""Registration of OpenAPI specifications."""

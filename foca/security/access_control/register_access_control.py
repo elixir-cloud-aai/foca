@@ -1,10 +1,10 @@
-"""Methods to manage permission management configuration"""
+"""Methods to manage permission management configuration."""
 
 import logging
+from collections.abc import Callable
 from functools import wraps
 from importlib.resources import path as resource_path
 from pathlib import Path
-from typing import (Callable, Optional, Tuple)
 
 from connexion import App
 from connexion.exceptions import Forbidden
@@ -12,28 +12,28 @@ from flask import current_app
 from flask.wrappers import Response
 from flask_authz import CasbinEnforcer
 
+from foca.database.register_mongodb import add_new_database
 from foca.models.config import (
+    AccessControlConfig,
+    CollectionConfig,
     DBConfig,
     MongoConfig,
     SpecConfig,
-    CollectionConfig,
-    AccessControlConfig
 )
-from foca.database.register_mongodb import add_new_database
-from foca.security.access_control.enforcement import AccessControlResolver
-from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
-    DEFAULT_API_SPEC_PATH
+    DEFAULT_API_SPEC_PATH,
 )
+from foca.security.access_control.enforcement import AccessControlResolver
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
 logger = logging.getLogger(__name__)
 
 
 def register_access_control(
     cnx_app: App,
-    mongo_config: Optional[MongoConfig],
-    access_control_config: AccessControlConfig
+    mongo_config: MongoConfig | None,
+    access_control_config: AccessControlConfig,
 ) -> App:
     """Register access control configuration with flask app.
 
@@ -51,10 +51,10 @@ def register_access_control(
     """
     # Register access control database and collection.
     access_db_conf = DBConfig(
-        collections={
-            access_control_config.collection_name: CollectionConfig()
-        } if access_control_config.collection_name is not None else {},
-        client=None
+        collections={access_control_config.collection_name: CollectionConfig()}
+        if access_control_config.collection_name is not None
+        else {},
+        client=None,
     )
 
     # Set default db attributes if config not present.
@@ -74,27 +74,25 @@ def register_access_control(
         app=cnx_app.app,
         conf=mongo_config,
         db_conf=access_db_conf,
-        db_name=access_control_db
+        db_name=access_control_db,
     )
 
     # Register access control api specs and corresponding controller.
     cnx_app = register_casbin_enforcer(
         app=cnx_app,
         mongo_config=mongo_config,
-        access_control_config=access_control_config
+        access_control_config=access_control_config,
     )
 
     cnx_app = register_permission_specs(
-        app=cnx_app,
-        access_control_config=access_control_config
+        app=cnx_app, access_control_config=access_control_config
     )
 
     return cnx_app
 
 
 def register_permission_specs(
-    app: App,
-    access_control_config: AccessControlConfig
+    app: App, access_control_config: AccessControlConfig
 ):
     """Register open api specs for permission management.
 
@@ -129,11 +127,8 @@ def register_permission_specs(
         connexion={
             "strict_validation": True,
             "validate_responses": True,
-            "options": {
-                "swagger_ui": True,
-                "serve_spec": True
-            }
-        }
+            "options": {"swagger_ui": True, "serve_spec": True},
+        },
     )
 
     app.add_api(
@@ -147,7 +142,7 @@ def register_permission_specs(
 def register_casbin_enforcer(
     app: App,
     access_control_config: AccessControlConfig,
-    mongo_config: MongoConfig
+    mongo_config: MongoConfig,
 ) -> App:
     """Method to add casbin permission enforcer.
 
@@ -182,7 +177,7 @@ def register_casbin_enforcer(
     adapter = Adapter(
         uri=f"mongodb://{mongo_config.host}:{mongo_config.port}/",
         dbname=str(access_control_config.db_name),
-        collection=access_control_config.collection_name
+        collection=access_control_config.collection_name,
     )
     app.app.config["casbin_adapter"] = adapter
 
@@ -190,7 +185,7 @@ def register_casbin_enforcer(
 
 
 def check_permissions(
-    _fn: Optional[Callable] = None,
+    _fn: Callable | None = None,
 ) -> Callable:
     """Decorator for checking user access to resource.
 
@@ -209,8 +204,9 @@ def check_permissions(
         Returns:
             The response returned from the input function.
         """
+
         @wraps(fn)
-        def _wrapper(*args, **kwargs) -> Tuple[Response, int]:
+        def _wrapper(*args, **kwargs) -> tuple[Response, int]:
             """Wrapper for permissions decorator.
 
             Args:
@@ -224,11 +220,12 @@ def check_permissions(
             """
             adapter = current_app.config["casbin_adapter"]
             casbin_enforcer = CasbinEnforcer(current_app, adapter)
-            response: Tuple[Response, int] = casbin_enforcer.enforcer(
-                func=fn
-            )(*args, **kwargs)
+            response: tuple[Response, int] = casbin_enforcer.enforcer(func=fn)(
+                *args, **kwargs
+            )
             if (
-                len(response) == 2 and response[0].status_code == 200
+                len(response) == 2
+                and response[0].status_code == 200
                 and response[1] == 401
             ):
                 raise Forbidden

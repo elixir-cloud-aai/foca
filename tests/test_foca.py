@@ -1,17 +1,17 @@
 """Tests for `foca.py` module."""
 
-from pathlib import Path
-import pytest
 import shutil
+from pathlib import Path
 
+import pytest
 from celery import Celery
 from connexion import App
 from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
 from yaml import (
-    safe_load,
     safe_dump,
+    safe_load,
 )
 
 from foca import Foca
@@ -32,7 +32,9 @@ VALID_CORS_CONF_DISABLED = DIR / "conf_valid_cors_disabled.yaml"
 VALID_CORS_CONF_ENABLED = DIR / "conf_valid_cors_enabled.yaml"
 INVALID_ACCESS_CONTROL_CONF = DIR / "conf_invalid_access_control.yaml"
 VALID_ACCESS_CONTROL_CONF = DIR / "conf_valid_access_control.yaml"
-ENFORCE_WITHOUT_AUTH_CONF = DIR / "conf_enforce_access_control_without_auth.yaml"
+ENFORCE_WITHOUT_AUTH_CONF = (
+    DIR / "conf_enforce_access_control_without_auth.yaml"
+)
 
 
 def create_modified_api_conf(path, temp_dir, api_specs_in, api_specs_out):

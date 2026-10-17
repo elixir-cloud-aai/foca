@@ -1,10 +1,10 @@
 """Tests for `adapter.py` module."""
 
-from unittest import TestCase
-from casbin import Enforcer, Model
 from pathlib import Path
+from unittest import TestCase
+
+from casbin import Enforcer, Model
 from pymongo import MongoClient
-from typing import List, Tuple
 
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
@@ -17,7 +17,7 @@ TEST_POLICIES_MODEL_CONF = [
     ("p", "p", ["bob", "data2", "write"]),
     ("p", "p", ["data2_admin", "data2", "read"]),
     ("p", "p", ["data2_admin", "data2", "write"]),
-    ("g", "g", ["alice", "data2_admin"])
+    ("g", "g", ["alice", "data2_admin"]),
 ]
 TEST_POLICIES_MODEL_ROLES_CONF = [
     ("p", "p", ["alice", "data1", "write"]),
@@ -25,7 +25,7 @@ TEST_POLICIES_MODEL_ROLES_CONF = [
     ("p", "p", ["bob", "data2", "read"]),
     ("p", "p", ["data_group_admin", "data_group", "write"]),
     ("g", "g", ["alice", "data_group_admin"]),
-    ("g", "g2", ["data2", "data_group"])
+    ("g", "g2", ["data2", "data_group"]),
 ]
 
 
@@ -44,10 +44,7 @@ class TestAdapter(TestCase):
         self.clear_db()
 
     def save_policies(
-        self,
-        adapter: Adapter,
-        model: Model,
-        policy: Tuple
+        self, adapter: Adapter, model: Model, policy: tuple
     ) -> None:
         """Helper function for adding policy to a given model.
 
@@ -65,11 +62,7 @@ class TestAdapter(TestCase):
         model.add_policy(*policy)
         adapter.save_policy(model)
 
-    def get_enforcer(
-        self,
-        conf_file: str,
-        policies: List
-    ) -> Enforcer:
+    def get_enforcer(self, conf_file: str, policies: list) -> Enforcer:
         """Helper function to register policy enforcer.
 
         Args:
@@ -157,7 +150,7 @@ class TestAdapter(TestCase):
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
             conf_file=MODEL_ROLES_CONF_FILE,
-            policies=TEST_POLICIES_MODEL_ROLES_CONF
+            policies=TEST_POLICIES_MODEL_ROLES_CONF,
         )
         e.load_policy()
 
@@ -186,15 +179,13 @@ class TestAdapter(TestCase):
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
             conf_file=MODEL_ROLES_CONF_FILE,
-            policies=TEST_POLICIES_MODEL_ROLES_CONF
+            policies=TEST_POLICIES_MODEL_ROLES_CONF,
         )
         e.load_policy()
 
         assert e.enforce("alice", "data1", "write") is True
 
-        remove_policy = adapter.remove_policy(
-            sec="p", ptype=None, rule=()
-        )
+        remove_policy = adapter.remove_policy(sec="p", ptype=None, rule=())
         e.load_policy()
 
         assert remove_policy is False

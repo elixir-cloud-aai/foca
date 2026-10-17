@@ -1,15 +1,13 @@
-""""Controllers for permission management endpoints."""
+"""Controllers for permission management endpoints."""
 
 import logging
 
-from typing import (Dict, List)
-
-from flask import (request, current_app)
+from flask import current_app, request
 from pymongo.collection import Collection
-from werkzeug.exceptions import (InternalServerError, NotFound)
+from werkzeug.exceptions import InternalServerError, NotFound
 
-from foca.utils.logging import log_traffic
 from foca.errors.exceptions import BadRequest
+from foca.utils.logging import log_traffic
 
 logger = logging.getLogger(__name__)
 
@@ -32,17 +30,17 @@ def postPermission() -> str:
                 rule.get("v2", None),
                 rule.get("v3", None),
                 rule.get("v4", None),
-                rule.get("v5", None)
+                rule.get("v5", None),
             ]
             permission_id = access_control_adapter.save_policy_line(
                 ptype=request_json.get("policy_type", None),
-                rule=permission_data
+                rule=permission_data,
             )
             logger.info("New policy added.")
             return permission_id
         except Exception as e:
             logger.error(f"{type(e).__name__}: {e}")
-            raise InternalServerError
+            raise InternalServerError from e
     else:
         logger.error("Invalid request payload.")
         raise BadRequest
@@ -64,36 +62,34 @@ def putPermission(
     if isinstance(request_json, dict):
         app_config = current_app.config
         try:
-            security_conf = \
-                app_config.foca.security  # type: ignore[attr-defined]
-            access_control_config = \
-                security_conf.access_control  # type: ignore[attr-defined]
+            security_conf = app_config.foca.security  # type: ignore[attr-defined]
+            access_control_config = security_conf.access_control  # type: ignore[attr-defined]
             db_coll_permission: Collection = (
                 app_config.foca.db.dbs[  # type: ignore[attr-defined]
-                    access_control_config.db_name]
-                .collections[access_control_config.collection_name].client
+                    access_control_config.db_name
+                ]
+                .collections[access_control_config.collection_name]
+                .client
             )
 
             permission_data = request_json.get("rule", {})
             permission_data["id"] = id
             permission_data["ptype"] = request_json.get("policy_type", None)
             db_coll_permission.replace_one(
-                filter={"id": id},
-                replacement=permission_data,
-                upsert=True
+                filter={"id": id}, replacement=permission_data, upsert=True
             )
             logger.info("Policy updated.")
             return id
         except Exception as e:
             logger.error(f"{type(e).__name__}: {e}")
-            raise InternalServerError
+            raise InternalServerError from e
     else:
         logger.error("Invalid request payload.")
         raise BadRequest
 
 
 @log_traffic
-def getAllPermissions(limit=None) -> List[Dict]:
+def getAllPermissions(limit=None) -> list[dict]:
     """Method to fetch all permissions.
 
     Args:
@@ -103,21 +99,21 @@ def getAllPermissions(limit=None) -> List[Dict]:
         List of permission dicts.
     """
     app_config = current_app.config
-    access_control_config = \
-        app_config.foca.security.access_control  # type: ignore[attr-defined]
+    access_control_config = app_config.foca.security.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
         app_config.foca.db.dbs[  # type: ignore[attr-defined]
             access_control_config.db_name
-        ].collections[access_control_config.collection_name].client
+        ]
+        .collections[access_control_config.collection_name]
+        .client
     )
 
     if not limit:
         limit = 0
     permissions = list(
-        db_coll_permission.find(
-            filter={},
-            projection={'_id': False}
-        ).sort([('$natural', -1)]).limit(limit)
+        db_coll_permission.find(filter={}, projection={"_id": False})
+        .sort([("$natural", -1)])
+        .limit(limit)
     )
     user_permission_list = []
     for _permission in permissions:
@@ -126,18 +122,16 @@ def getAllPermissions(limit=None) -> List[Dict]:
         del _permission["ptype"]
         del _permission["id"]
         rule = _permission
-        user_permission_list.append({
-            "policy_type": policy_type,
-            "rule": rule,
-            "id": id
-        })
+        user_permission_list.append(
+            {"policy_type": policy_type, "rule": rule, "id": id}
+        )
     return user_permission_list
 
 
 @log_traffic
 def getPermission(
     id: str,
-) -> Dict:
+) -> dict:
     """Method to fetch a particular permission.
 
     Args:
@@ -147,12 +141,13 @@ def getPermission(
         Permission data for the given id.
     """
     app_config = current_app.config
-    access_control_config = \
-        app_config.foca.security.access_control  # type: ignore[attr-defined]
+    access_control_config = app_config.foca.security.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
         app_config.foca.db.dbs[  # type: ignore[attr-defined]
             access_control_config.db_name
-        ].collections[access_control_config.collection_name].client
+        ]
+        .collections[access_control_config.collection_name]
+        .client
     )
 
     permission = db_coll_permission.find_one(filter={"id": id})
@@ -163,11 +158,7 @@ def getPermission(
     id = permission.get("id", None)
     del permission["ptype"]
     del permission["id"]
-    return {
-        "id": id,
-        "rule": permission,
-        "policy_type": policy_type
-    }
+    return {"id": id, "rule": permission, "policy_type": policy_type}
 
 
 @log_traffic
@@ -183,15 +174,16 @@ def deletePermission(
         Delete permission identifier.
     """
     app_config = current_app.config
-    access_control_config = \
-        app_config.foca.security.access_control  # type: ignore[attr-defined]
+    access_control_config = app_config.foca.security.access_control  # type: ignore[attr-defined]
     db_coll_permission: Collection = (
         app_config.foca.db.dbs[  # type: ignore[attr-defined]
             access_control_config.db_name
-        ].collections[access_control_config.collection_name].client
+        ]
+        .collections[access_control_config.collection_name]
+        .client
     )
 
-    del_obj_permission = db_coll_permission.delete_one({'id': id})
+    del_obj_permission = db_coll_permission.delete_one({"id": id})
 
     if del_obj_permission.deleted_count:
         return id

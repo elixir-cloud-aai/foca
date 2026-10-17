@@ -1,12 +1,13 @@
 """Utility functions for interacting with a MongoDB database collection."""
 
-from typing import (Any, Mapping, Optional)
+from collections.abc import Mapping
+from typing import Any
 
 from bson.objectid import ObjectId
 from pymongo.collection import Collection
 
 
-def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
+def find_one_latest(collection: Collection) -> Mapping[Any, Any] | None:
     """Return newest document, stripped of `ObjectId`.
 
     Args:
@@ -17,15 +18,17 @@ def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
         Newest document or ``None``, if no document exists.
     """
     try:
-        return collection.find(
-            {},
-            {'_id': False}
-        ).sort([('_id', -1)]).limit(1).next()
+        return (
+            collection.find({}, {"_id": False})
+            .sort([("_id", -1)])
+            .limit(1)
+            .next()
+        )
     except StopIteration:
         return None
 
 
-def find_id_latest(collection: Collection) -> Optional[ObjectId]:
+def find_id_latest(collection: Collection) -> ObjectId | None:
     """Return `ObjectId` of newest document.
 
     Args:
@@ -36,6 +39,6 @@ def find_id_latest(collection: Collection) -> Optional[ObjectId]:
         `ObjectId` of newest document or ``None``, if no document exists.
     """
     try:
-        return collection.find().sort([('_id', -1)]).limit(1).next()['_id']
+        return collection.find().sort([("_id", -1)]).limit(1).next()["_id"]
     except StopIteration:
         return None

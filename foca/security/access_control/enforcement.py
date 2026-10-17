@@ -1,14 +1,14 @@
 """Enforcement of access control policies and helpers for managing them."""
 
 import logging
+from collections.abc import Callable
 from functools import wraps
-from typing import (Callable, Dict, List, Optional, Tuple, Union)
 
 from casbin import Enforcer
 from connexion import context
-from connexion.exceptions import (Forbidden, Unauthorized)
-from connexion.resolver import (Resolution, Resolver)
-from flask import (current_app, request)
+from connexion.exceptions import Forbidden, Unauthorized
+from connexion.resolver import Resolution, Resolver
+from flask import current_app, request
 
 from foca.security.access_control.constants import GROUP_PREFIX
 
@@ -20,13 +20,10 @@ RESOURCE_ROLE_PTYPE = "g2"
 
 def _get_access_control_config():
     """Get access control configuration of current app."""
-    return (
-        current_app.config.foca  # type: ignore[attr-defined]
-        .security.access_control
-    )
+    return current_app.config.foca.security.access_control  # type: ignore[attr-defined]
 
 
-def _get_claims() -> Dict:
+def _get_claims() -> dict:
     """Get claims of the validated token of the current request.
 
     Returns:
@@ -44,7 +41,7 @@ def _get_claims() -> Dict:
     return claims if isinstance(claims, dict) else {}
 
 
-def get_current_subject() -> Optional[str]:
+def get_current_subject() -> str | None:
     """Get subject of the current request.
 
     Returns:
@@ -55,10 +52,7 @@ def get_current_subject() -> Optional[str]:
     """
     claim = _get_access_control_config().claim_identity
     if claim is None:
-        claim = (
-            current_app.config.foca  # type: ignore[attr-defined]
-            .security.auth.claim_identity
-        )
+        claim = current_app.config.foca.security.auth.claim_identity  # type: ignore[attr-defined]
     subject = _get_claims().get(claim)
     return None if subject is None else str(subject)
 
@@ -72,11 +66,11 @@ def _unprefix_subject(subject: str) -> str:
     """Remove configured prefix from a subject used in policy rules."""
     prefix = _get_access_control_config().subject_prefix
     if prefix and subject.startswith(prefix):
-        return subject[len(prefix):]
+        return subject[len(prefix) :]
     return subject
 
 
-def get_current_groups() -> List[str]:
+def get_current_groups() -> list[str]:
     """Get roles of the subject of the current request from group claims.
 
     Returns:
@@ -98,7 +92,8 @@ def get_current_groups() -> List[str]:
     groups = [str(value) for value in values]
     if conf.group_mapping is not None:
         groups = [
-            conf.group_mapping[group] for group in groups
+            conf.group_mapping[group]
+            for group in groups
             if group in conf.group_mapping
         ]
     else:
@@ -107,8 +102,7 @@ def get_current_groups() -> List[str]:
 
 
 def _is_within_path(request_path: str, resource_path: str) -> bool:
-    """Check whether a request path is a resource path or one of its
-    sub-paths.
+    """Check whether a request path is a resource path or a sub-path.
 
     Args:
         request_path: Request path.
@@ -122,9 +116,8 @@ def _is_within_path(request_path: str, resource_path: str) -> bool:
     resource_path = resource_path.rstrip("/")
     if not resource_path:
         return request_path == "/"
-    return (
-        request_path == resource_path
-        or request_path.startswith(f"{resource_path}/")
+    return request_path == resource_path or request_path.startswith(
+        f"{resource_path}/"
     )
 
 
@@ -148,9 +141,7 @@ def get_enforcer() -> Enforcer:
         roles = enforcer.get_model().model.get("g", {})
         for ptype, assertion in roles.items():
             if assertion.value.count("_") == 3:
-                enforcer.add_named_domain_matching_func(
-                    ptype, _is_within_path
-                )
+                enforcer.add_named_domain_matching_func(ptype, _is_within_path)
     return enforcer
 
 
@@ -175,13 +166,14 @@ def enforce_access_control(fn: Callable) -> Callable:
         connexion.exceptions.Forbidden: The subject is not allowed to access
             the resource.
     """
+
     @wraps(fn)
     def _wrapper(*args, **kwargs):
         subject = get_current_subject()
         if subject is None:
             raise Unauthorized("Subject could not be identified")
         enforcer = get_enforcer()
-        for _subject in [_prefix_subject(subject)] + get_current_groups():
+        for _subject in [_prefix_subject(subject), *get_current_groups()]:
             if enforcer.enforce(_subject, request.path, request.method):
                 logger.debug(
                     f"Access granted: {request.method} {request.path} to "
@@ -196,7 +188,7 @@ def enforce_access_control(fn: Callable) -> Callable:
     return _wrapper
 
 
-def _requires_authentication(security: Optional[List[Dict]]) -> bool:
+def _requires_authentication(security: list[dict] | None) -> bool:
     """Check whether security requirements require authentication.
 
     Args:
@@ -237,9 +229,10 @@ class AccessControlResolver(Resolver):
 
     def __init__(
         self,
-        resolver: Optional[Union[Resolver, Callable]] = None,
+        resolver: Resolver | Callable | None = None,
         enforce_all: bool = False,
     ):
+        """Construct resolver."""
         super().__init__()
         # Same normalization as Connexion's `App.add_api()`: wrap callables,
         # use any other resolver object (with a `resolve()` method) as is
@@ -371,7 +364,7 @@ def remove_resource_role(
 def list_resource_roles(
     resource: str,
     ptype: str = RESOURCE_ROLE_PTYPE,
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     """List roles granted on a resource.
 
     Args:
@@ -387,8 +380,10 @@ def list_resource_roles(
     """
     enforcer = _get_resource_role_enforcer(ptype)
     return [
-        (_unprefix_subject(rule[0]), rule[1]) for rule in
-        enforcer.get_filtered_named_grouping_policy(ptype, 2, resource)
+        (_unprefix_subject(rule[0]), rule[1])
+        for rule in enforcer.get_filtered_named_grouping_policy(
+            ptype, 2, resource
+        )
     ]
 
 

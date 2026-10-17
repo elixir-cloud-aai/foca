@@ -1,9 +1,9 @@
 """Define and register exceptions raised in app context with Connexion app."""
 
-from copy import deepcopy
 import logging
+from copy import deepcopy
+from json import dumps
 from traceback import format_exception
-from typing import (Dict, List)
 
 from connexion import App
 from connexion.exceptions import (
@@ -12,11 +12,10 @@ from connexion.exceptions import (
     OAuthProblem,
     Unauthorized,
 )
-from flask import (current_app, Response)
-from json import dumps
+from flask import Response, current_app
 from werkzeug.exceptions import (
-    BadRequest,
     BadGateway,
+    BadRequest,
     GatewayTimeout,
     InternalServerError,
     NotFound,
@@ -73,13 +72,12 @@ exceptions = {
     GatewayTimeout: {
         "title": "Gateway Timeout",
         "status": 504,
-    }
+    },
 }
 
 
 def register_exception_handler(app: App) -> App:
-    """Register generic JSON problem handler with Connexion application
-    instance.
+    """Register generic JSON problem handler with Connexion app.
 
     Args:
         app: Connexion application instance.
@@ -107,12 +105,8 @@ def _exc_to_str(
     Returns:
         String representation of exception.
     """
-    exc_lines = format_exception(
-        exc.__class__,
-        exc,
-        exc.__traceback__
-    )
-    exc_stripped = [e.rstrip('\n') for e in exc_lines]
+    exc_lines = format_exception(exc.__class__, exc, exc.__traceback__)
+    exc_stripped = [e.rstrip("\n") for e in exc_lines]
     exc_split = []
     for item in exc_stripped:
         exc_split.extend(item.splitlines())
@@ -121,7 +115,7 @@ def _exc_to_str(
 
 def _log_exception(
     exc: BaseException,
-    format: str = 'oneline',
+    format: str = "oneline",
 ) -> None:
     """Log exception with indicated format.
 
@@ -134,31 +128,28 @@ def _log_exception(
             or ``regular`` (exception logged with entire trace stack, typically
             across multiple lines).
     """
-    exc_str = ''
+    exc_str = ""
     valid_formats = [
-        'oneline',
-        'minimal',
-        'regular',
+        "oneline",
+        "minimal",
+        "regular",
     ]
     if format in valid_formats:
         if format == "oneline":
             exc_str = _exc_to_str(exc=exc)
         elif format == "minimal":
-            exc_str = f"{type(exc).__name__}: {str(exc)}"
+            exc_str = f"{type(exc).__name__}: {exc!s}"
         else:
-            exc_str = _exc_to_str(
-                exc=exc,
-                delimiter='\n'
-            )
+            exc_str = _exc_to_str(exc=exc, delimiter="\n")
         logger.error(exc_str)
     else:
         logger.error("Error logging is misconfigured.")
 
 
 def _subset_nested_dict(
-    obj: Dict,
-    key_sequence: List,
-) -> Dict:
+    obj: dict,
+    key_sequence: list,
+) -> dict:
     """Subset nested dictionary.
 
     Args:
@@ -179,9 +170,9 @@ def _subset_nested_dict(
 
 
 def _exclude_key_nested_dict(
-    obj: Dict,
-    key_sequence: List,
-) -> Dict:
+    obj: dict,
+    key_sequence: list,
+) -> dict:
     """Exclude key from nested dictionary.
 
     Args:
@@ -216,16 +207,15 @@ def _problem_handler_json(exception: Exception) -> Response:
     if exc not in conf.mapping:
         exc = Exception
     try:
-        status = int(_get_by_path(
-            obj=conf.mapping[exc],
-            key_sequence=conf.status_member,
-        ))
+        status = int(
+            _get_by_path(
+                obj=conf.mapping[exc],
+                key_sequence=conf.status_member,
+            )
+        )
     except KeyError:
         if conf.logging.value != "none":
-            _log_exception(
-                exc=exception,
-                format=conf.logging.value
-            )
+            _log_exception(exc=exception, format=conf.logging.value)
         return Response(
             status=500,
             mimetype="application/problem+json",
@@ -233,25 +223,26 @@ def _problem_handler_json(exception: Exception) -> Response:
     # Log exception JSON & traceback
     if conf.logging.value != "none":
         logger.error(conf.mapping[exc])
-        _log_exception(
-            exc=exception,
-            format=conf.logging.value
-        )
+        _log_exception(exc=exception, format=conf.logging.value)
     # Filter members to be returned to user
     keep = deepcopy(conf.mapping[exc])
     if conf.public_members is not None:
         keep = {}
         for member in deepcopy(conf.public_members):
-            keep.update(_subset_nested_dict(
-                obj=conf.mapping[exc],
-                key_sequence=member,
-            ))
+            keep.update(
+                _subset_nested_dict(
+                    obj=conf.mapping[exc],
+                    key_sequence=member,
+                )
+            )
     elif conf.private_members is not None:
         for member in deepcopy(conf.private_members):
-            keep.update(_exclude_key_nested_dict(
-                obj=keep,
-                key_sequence=member,
-            ))
+            keep.update(
+                _exclude_key_nested_dict(
+                    obj=keep,
+                    key_sequence=member,
+                )
+            )
     # Return response
     return Response(
         response=dumps(keep),

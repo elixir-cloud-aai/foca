@@ -4,8 +4,8 @@ from connexion.exceptions import (
     BadRequestProblem,
     ExtraParameterProblem,
     Forbidden,
-    Unauthorized,
     OAuthProblem,
+    Unauthorized,
 )
 from werkzeug.exceptions import (
     BadRequest,

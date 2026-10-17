@@ -1,21 +1,20 @@
 """Parser for YAML-based app configuration."""
 
-from importlib import import_module
 import logging
+from importlib import import_module
 from logging.config import dictConfig
 from pathlib import Path
-from typing import (Dict, Optional)
 
+import yaml
 from addict import Dict as Addict
 from pydantic import BaseModel
-import yaml
 
-from foca.models.config import (Config, LogConfig)
+from foca.models.config import Config, LogConfig
 
 logger = logging.getLogger(__name__)
 
 
-class ConfigParser():
+class ConfigParser:
     """Parse FOCA config files.
 
     Args:
@@ -49,9 +48,9 @@ class ConfigParser():
 
     def __init__(
         self,
-        config_file: Optional[Path] = None,
-        custom_config_model: Optional[str] = None,
-        format_logs: bool = True
+        config_file: Path | None = None,
+        custom_config_model: str | None = None,
+        format_logs: bool = True,
     ) -> None:
         """Constructor method."""
         if config_file is not None:
@@ -61,10 +60,10 @@ class ConfigParser():
         if custom_config_model is not None:
             setattr(
                 self.config,
-                'custom',
+                "custom",
                 self.parse_custom_config(
                     model=custom_config_model,
-                )
+                ),
             )
         if format_logs:
             self._configure_logging()
@@ -82,7 +81,7 @@ class ConfigParser():
             )
 
     @staticmethod
-    def parse_yaml(conf: Path) -> Dict:
+    def parse_yaml(conf: Path) -> dict:
         """Parse YAML file.
 
         Args:
@@ -104,12 +103,10 @@ class ConfigParser():
                         f"file '{conf}' is not valid YAML"
                     ) from exc
         except OSError as exc:
-            raise OSError(
-                f"file '{conf}' could not be read"
-            ) from exc
+            raise OSError(f"file '{conf}' could not be read") from exc
 
     @staticmethod
-    def merge_yaml(*args: Path) -> Dict:
+    def merge_yaml(*args: Path) -> dict:
         """Parse and merge a set of YAML files.
 
         Merging is done iteratively, from the first, second to the n-th
@@ -158,19 +155,20 @@ class ConfigParser():
         model_class = Path(model).suffix[1:]
         try:
             model_class = getattr(import_module(module), model_class)
-        except ModuleNotFoundError:
+        except ModuleNotFoundError as exc:
             raise ValueError(
                 f"failed validating custom configuration: module '{module}' "
                 "not available"
-            )
-        except (AttributeError, ImportError):
+            ) from exc
+        except (AttributeError, ImportError) as exc:
             raise ValueError(
                 f"failed validating custom configuration: module '{module}' "
                 f"has no class {model_class} or could not be imported"
-            )
+            ) from exc
         try:
             custom_config = model_class(  # type: ignore[operator]
-                **self.config.custom)  # type: ignore[attr-defined]
+                **self.config.custom  # type: ignore[attr-defined]
+            )
         except Exception as exc:
             raise ValueError(
                 "failed validating custom configuration: provided custom "

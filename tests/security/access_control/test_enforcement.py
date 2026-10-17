@@ -3,16 +3,16 @@
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
-from typing import Dict, Optional
+from typing import ClassVar
 from unittest import mock
 
+import mongomock
+import pytest
+import yaml
 from connexion.exceptions import Unauthorized
 from connexion.resolver import Resolution, Resolver
 from flask import Flask
 from flask.globals import request_ctx
-import mongomock
-import pytest
-import yaml
 
 from foca.api.register_openapi import register_openapi
 from foca.errors.exceptions import register_exception_handler
@@ -52,7 +52,7 @@ ADMIN_ENTITLEMENT = "urn:example:group:admins"
 THIS_MODULE = __name__
 
 # Bearer tokens mapped to the claims of their (fake) validated JWTs
-TOKENS: Dict[str, Dict] = {
+TOKENS: dict[str, dict] = {
     "alice": {"sub": "alice"},
     "bob": {"sub": "bob"},
     "carol": {"sub": "carol", "groups": [ADMIN_ENTITLEMENT]},
@@ -79,7 +79,7 @@ POLICIES = [
 ]
 
 
-def mock_token_info(token: str) -> Dict:
+def mock_token_info(token: str) -> dict:
     """Return token info or raise as FOCA's `validate_token()` does."""
     if token not in TOKENS:
         raise Unauthorized("JWT could not be validated")
@@ -92,9 +92,9 @@ def controller(*args, **kwargs) -> str:
 
 
 # Operations need distinct identifiers
-list_items = create_item = get_item = update_item = delete_item = \
-    get_open = get_item_permissions = update_item_permissions = \
-    get_ref_item = get_optional = controller
+list_items = create_item = get_item = update_item = delete_item = get_open = (
+    get_item_permissions
+) = update_item_permissions = get_ref_item = get_optional = controller
 
 
 def function_resolver(operation_id: str):
@@ -110,16 +110,16 @@ class DuckTypedResolver:
         return Resolution(controller, operation.operation_id)
 
 
-def _operation(operation_id: str, **extra) -> Dict:
+def _operation(operation_id: str, **extra) -> dict:
     """Build an OpenAPI 3 Operation object."""
     operation = {
         "operationId": f"{THIS_MODULE}.{operation_id}",
         "responses": {
             "200": {
                 "description": "OK",
-                "content": {"application/json": {"schema": {
-                    "type": "string"
-                }}},
+                "content": {
+                    "application/json": {"schema": {"type": "string"}}
+                },
             },
         },
     }
@@ -128,7 +128,10 @@ def _operation(operation_id: str, **extra) -> Dict:
 
 
 ID_PARAMETER = {
-    "name": "id", "in": "path", "required": True, "schema": {"type": "string"},
+    "name": "id",
+    "in": "path",
+    "required": True,
+    "schema": {"type": "string"},
 }
 
 SPEC = {
@@ -152,9 +155,7 @@ SPEC = {
             "put": _operation("update_item_permissions"),
         },
         "/open": {
-            "get": _operation(
-                "get_open", **{"x-foca-access-control": False}
-            ),
+            "get": _operation("get_open", **{"x-foca-access-control": False}),
         },
         # path item defined via reference
         "/refs/{id}": {"$ref": "#/x-path-items/ref-item"},
@@ -206,7 +207,7 @@ def _access_control_config(**kwargs) -> AccessControlConfig:
 def _create_app(
     tmp_path: Path,
     access_control: AccessControlConfig,
-    connexion: Optional[Dict] = None,
+    connexion: dict | None = None,
 ):
     """Create app with test API, permissions API and in-memory policies."""
     spec_file = tmp_path / "spec.yaml"
@@ -216,9 +217,13 @@ def _create_app(
             auth=AuthConfig(),
             access_control=access_control,
         ),
-        db=MongoConfig(dbs={DB_NAME: DBConfig(
-            collections={COLLECTION_NAME: CollectionConfig()},
-        )}),
+        db=MongoConfig(
+            dbs={
+                DB_NAME: DBConfig(
+                    collections={COLLECTION_NAME: CollectionConfig()},
+                )
+            }
+        ),
     )
     cnx_app = create_connexion_app(config)
     cnx_app = register_exception_handler(cnx_app)
@@ -227,9 +232,7 @@ def _create_app(
         specs=[SpecConfig(path=spec_file, connexion=connexion)],
         enforce_access_control=access_control.enforce,
     )
-    with mock.patch(
-        "foca.security.auth.validate_token", new=mock_token_info
-    ):
+    with mock.patch("foca.security.auth.validate_token", new=mock_token_info):
         cnx_app = register_permission_specs(
             app=cnx_app,
             access_control_config=access_control,
@@ -251,7 +254,7 @@ def _create_app(
     return cnx_app.app
 
 
-def _headers(user: Optional[str]) -> Dict:
+def _headers(user: str | None) -> dict:
     return {} if user is None else {"Authorization": f"Bearer {user}"}
 
 
@@ -263,77 +266,86 @@ def app(tmp_path):
 class TestEnforcement:
     """Tests for enforcing policies on an app's operations."""
 
-    @pytest.mark.parametrize("method,path,user,status", [
-        # public operation (`security: []`) is not enforced
-        ("get", "/items", None, 200),
-        # authentication still comes first
-        ("post", "/items", None, 401),
-        ("delete", "/items/1", "unknown", 401),
-        # any authenticated user may create
-        ("post", "/items", "dave", 200),
-        # owner has full access to own resource only
-        ("get", "/items/1", "alice", 200),
-        ("put", "/items/1", "alice", 200),
-        ("delete", "/items/1", "alice", 200),
-        ("delete", "/items/2", "alice", 403),
-        # maintainer may read and update, but not delete
-        ("get", "/items/1", "bob", 200),
-        ("put", "/items/1", "bob", 200),
-        ("delete", "/items/1", "bob", 403),
-        # users without roles on a resource are denied
-        ("get", "/items/1", "dave", 403),
-        ("delete", "/items/1", "dave", 403),
-        # admin role mapped from group claim may do everything
-        ("delete", "/items/2", "carol", 200),
-        # unmapped group claim values are not used as roles
-        ("delete", "/items/2", "eve", 403),
-        ("get", "/items/1", "frank", 403),
-        # identifiers equal to role names do not grant these roles
-        ("delete", "/items/1", "owner", 403),
-        ("delete", "/items/2", "admin", 403),
-        # token without identity claim
-        ("post", "/items", "anonymous", 401),
-        # operation opted out of enforcement
-        ("get", "/open", "dave", 200),
-    ])
+    @pytest.mark.parametrize(
+        "method,path,user,status",
+        [
+            # public operation (`security: []`) is not enforced
+            ("get", "/items", None, 200),
+            # authentication still comes first
+            ("post", "/items", None, 401),
+            ("delete", "/items/1", "unknown", 401),
+            # any authenticated user may create
+            ("post", "/items", "dave", 200),
+            # owner has full access to own resource only
+            ("get", "/items/1", "alice", 200),
+            ("put", "/items/1", "alice", 200),
+            ("delete", "/items/1", "alice", 200),
+            ("delete", "/items/2", "alice", 403),
+            # maintainer may read and update, but not delete
+            ("get", "/items/1", "bob", 200),
+            ("put", "/items/1", "bob", 200),
+            ("delete", "/items/1", "bob", 403),
+            # users without roles on a resource are denied
+            ("get", "/items/1", "dave", 403),
+            ("delete", "/items/1", "dave", 403),
+            # admin role mapped from group claim may do everything
+            ("delete", "/items/2", "carol", 200),
+            # unmapped group claim values are not used as roles
+            ("delete", "/items/2", "eve", 403),
+            ("get", "/items/1", "frank", 403),
+            # identifiers equal to role names do not grant these roles
+            ("delete", "/items/1", "owner", 403),
+            ("delete", "/items/2", "admin", 403),
+            # token without identity claim
+            ("post", "/items", "anonymous", 401),
+            # operation opted out of enforcement
+            ("get", "/open", "dave", 200),
+        ],
+    )
     def test_enforce(self, app, method, path, user, status):
         response = getattr(app.test_client(), method)(
             path, headers=_headers(user)
         )
         assert response.status_code == status
 
-    @pytest.mark.parametrize("method,path,user,status", [
-        # roles cover sub-paths of the resource they were granted on
-        ("get", "/items/1/permissions", "alice", 200),
-        ("put", "/items/1/permissions", "alice", 200),
-        # ... and stored paths with trailing slashes
-        ("get", "/items/3", "alice", 200),
-        ("put", "/items/3/permissions", "alice", 200),
-        # ... but not sibling resources sharing a prefix
-        ("get", "/items/10", "alice", 403),
-        ("put", "/items/10/permissions", "alice", 403),
-        # ... nor sub-paths of other resources
-        ("put", "/items/2/permissions", "alice", 403),
-        # ... nor sub-paths without a `p` rule for the role
-        ("get", "/items/1/permissions", "bob", 403),
-        ("put", "/items/1/permissions", "bob", 403),
-        # users without roles on the resource
-        ("get", "/items/1/permissions", "dave", 403),
-        # admins may still do everything
-        ("put", "/items/2/permissions", "carol", 200),
-    ])
+    @pytest.mark.parametrize(
+        "method,path,user,status",
+        [
+            # roles cover sub-paths of the resource they were granted on
+            ("get", "/items/1/permissions", "alice", 200),
+            ("put", "/items/1/permissions", "alice", 200),
+            # ... and stored paths with trailing slashes
+            ("get", "/items/3", "alice", 200),
+            ("put", "/items/3/permissions", "alice", 200),
+            # ... but not sibling resources sharing a prefix
+            ("get", "/items/10", "alice", 403),
+            ("put", "/items/10/permissions", "alice", 403),
+            # ... nor sub-paths of other resources
+            ("put", "/items/2/permissions", "alice", 403),
+            # ... nor sub-paths without a `p` rule for the role
+            ("get", "/items/1/permissions", "bob", 403),
+            ("put", "/items/1/permissions", "bob", 403),
+            # users without roles on the resource
+            ("get", "/items/1/permissions", "dave", 403),
+            # admins may still do everything
+            ("put", "/items/2/permissions", "carol", 200),
+        ],
+    )
     def test_enforce_subpaths(self, app, method, path, user, status):
         response = getattr(app.test_client(), method)(
             path, headers=_headers(user)
         )
         assert response.status_code == status
 
-    @pytest.mark.parametrize("method,path,user,status", [
-        ("get", "/items/1", "alice", 200),
-        ("get", "/items/1/permissions", "alice", 403),
-        ("put", "/items/1/permissions", "alice", 403),
-        ("get", "/items/3", "alice", 403),
-    ])
+    @pytest.mark.parametrize(
+        "method,path,user,status",
+        [
+            ("get", "/items/1", "alice", 200),
+            ("get", "/items/1/permissions", "alice", 403),
+            ("put", "/items/1/permissions", "alice", 403),
+            ("get", "/items/3", "alice", 403),
+        ],
+    )
     def test_enforce_subpaths_disabled(
         self, tmp_path, method, path, user, status
     ):
@@ -346,14 +358,17 @@ class TestEnforcement:
         )
         assert response.status_code == status
 
-    @pytest.mark.parametrize("method,path,user,status", [
-        # operations of path items defined via reference are enforced
-        ("get", "/refs/1", "dave", 403),
-        ("get", "/refs/1", "carol", 200),
-        # operations with optional authentication are not enforced
-        ("get", "/optional", None, 200),
-        ("get", "/optional", "dave", 200),
-    ])
+    @pytest.mark.parametrize(
+        "method,path,user,status",
+        [
+            # operations of path items defined via reference are enforced
+            ("get", "/refs/1", "dave", 403),
+            ("get", "/refs/1", "carol", 200),
+            # operations with optional authentication are not enforced
+            ("get", "/optional", None, 200),
+            ("get", "/optional", "dave", 200),
+        ],
+    )
     def test_enforce_resolved_operations(
         self, app, method, path, user, status
     ):
@@ -362,19 +377,25 @@ class TestEnforcement:
         )
         assert response.status_code == status
 
-    @pytest.mark.parametrize("resolver", [
-        # callable resolving operation identifiers
-        function_resolver,
-        # resolver instance
-        Resolver(function_resolver=function_resolver),
-        # resolver object not inheriting from `Resolver`
-        DuckTypedResolver(),
-    ])
-    @pytest.mark.parametrize("method,path,user,status", [
-        ("delete", "/items/1", "alice", 200),
-        ("delete", "/items/1", "dave", 403),
-        ("get", "/items", None, 200),
-    ])
+    @pytest.mark.parametrize(
+        "resolver",
+        [
+            # callable resolving operation identifiers
+            function_resolver,
+            # resolver instance
+            Resolver(function_resolver=function_resolver),
+            # resolver object not inheriting from `Resolver`
+            DuckTypedResolver(),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "method,path,user,status",
+        [
+            ("delete", "/items/1", "alice", 200),
+            ("delete", "/items/1", "dave", 403),
+            ("get", "/items", None, 200),
+        ],
+    )
     def test_enforce_custom_resolver(
         self, tmp_path, resolver, method, path, user, status
     ):
@@ -395,20 +416,21 @@ class TestEnforcement:
         )
         assert response.status_code == 200
 
-    @pytest.mark.parametrize("method,path,user,status", [
-        # raw group claim values are prefixed with `group:`
-        ("get", "/items/1", "frank", 200),
-        ("put", "/items/1", "frank", 403),
-        # ... and so do not grant roles of the same name
-        ("delete", "/items/2", "eve", 403),
-        ("delete", "/items/2", "carol", 403),
-    ])
+    @pytest.mark.parametrize(
+        "method,path,user,status",
+        [
+            # raw group claim values are prefixed with `group:`
+            ("get", "/items/1", "frank", 200),
+            ("put", "/items/1", "frank", 403),
+            # ... and so do not grant roles of the same name
+            ("delete", "/items/2", "eve", 403),
+            ("delete", "/items/2", "carol", 403),
+        ],
+    )
     def test_enforce_groups_without_mapping(
         self, tmp_path, method, path, user, status
     ):
-        app = _create_app(
-            tmp_path, _access_control_config(group_mapping=None)
-        )
+        app = _create_app(tmp_path, _access_control_config(group_mapping=None))
         response = getattr(app.test_client(), method)(
             path, headers=_headers(user)
         )
@@ -419,17 +441,23 @@ class TestPermissionsApi:
     """Tests for securing the permissions API."""
 
     url = "/admin/access-control/permissions"
-    payload = {"policy_type": "p", "rule": {"v0": "dave", "v1": "/items/:id"}}
+    payload: ClassVar[dict] = {
+        "policy_type": "p",
+        "rule": {"v0": "dave", "v1": "/items/:id"},
+    }
 
-    @pytest.mark.parametrize("user,status", [
-        (None, 401),
-        ("unknown", 401),
-        ("dave", 403),
-        ("alice", 403),
-        ("eve", 403),
-        ("admin", 403),
-        ("carol", 200),
-    ])
+    @pytest.mark.parametrize(
+        "user,status",
+        [
+            (None, 401),
+            ("unknown", 401),
+            ("dave", 403),
+            ("alice", 403),
+            ("eve", 403),
+            ("admin", 403),
+            ("carol", 200),
+        ],
+    )
     def test_post_permission(self, app, user, status):
         response = app.test_client().post(
             self.url, json=self.payload, headers=_headers(user)
@@ -448,21 +476,24 @@ class TestPermissionsApi:
         assert response.status_code == 403
 
 
-@pytest.mark.parametrize("request_path,resource_path,expected", [
-    ("/services/ABC", "/services/ABC", True),
-    ("/services/ABC/permissions", "/services/ABC", True),
-    ("/services/ABC/a/b", "/services/ABC", True),
-    ("/services/ABC/", "/services/ABC", True),
-    ("/services/ABC", "/services/ABC/", True),
-    ("/services/ABC/permissions", "/services/ABC/", True),
-    ("/services/ABCD", "/services/ABC", False),
-    ("/services/AB", "/services/ABC", False),
-    ("/services", "/services/ABC", False),
-    ("/services/XYZ/permissions", "/services/ABC", False),
-    # the root path only matches itself
-    ("/", "/", True),
-    ("/services/ABC", "/", False),
-])
+@pytest.mark.parametrize(
+    "request_path,resource_path,expected",
+    [
+        ("/services/ABC", "/services/ABC", True),
+        ("/services/ABC/permissions", "/services/ABC", True),
+        ("/services/ABC/a/b", "/services/ABC", True),
+        ("/services/ABC/", "/services/ABC", True),
+        ("/services/ABC", "/services/ABC/", True),
+        ("/services/ABC/permissions", "/services/ABC/", True),
+        ("/services/ABCD", "/services/ABC", False),
+        ("/services/AB", "/services/ABC", False),
+        ("/services", "/services/ABC", False),
+        ("/services/XYZ/permissions", "/services/ABC", False),
+        # the root path only matches itself
+        ("/", "/", True),
+        ("/services/ABC", "/", False),
+    ],
+)
 def test_is_within_path(request_path, resource_path, expected):
     assert _is_within_path(request_path, resource_path) is expected
 
@@ -593,7 +624,8 @@ class TestResourceRoles:
             # duplicates are not added
             assert not add_resource_role("alice", "owner", "/items/1")
             assert list_resource_roles("/items/1") == [
-                ("alice", "owner"), ("bob", "maintainer"),
+                ("alice", "owner"),
+                ("bob", "maintainer"),
             ]
             assert remove_resource_role("bob", "maintainer", "/items/1")
             assert not remove_resource_role("bob", "maintainer", "/items/1")
@@ -609,7 +641,9 @@ class TestResourceRoles:
             collection = helper_app.config["casbin_adapter"]._collection
             rule = collection.find_one({"ptype": "g2"})
             assert (rule["v0"], rule["v1"], rule["v2"]) == (
-                "user:alice", "owner", "/items/1"
+                "user:alice",
+                "owner",
+                "/items/1",
             )
 
     def test_list_unprefixed_subjects(self, helper_app):
@@ -619,7 +653,8 @@ class TestResourceRoles:
             )
             add_resource_role("alice", "owner", "/items/1")
             assert list_resource_roles("/items/1") == [
-                ("group:testers", "maintainer"), ("alice", "owner"),
+                ("group:testers", "maintainer"),
+                ("alice", "owner"),
             ]
 
     def test_custom_subject_prefix(self, helper_app):
@@ -632,9 +667,11 @@ class TestResourceRoles:
 
     def test_custom_ptype(self, helper_app, tmp_path):
         model = tmp_path / "model.conf"
-        model.write_text(Path(_model_path()).read_text().replace(
-            "g2 = _, _, _", "g2 = _, _, _\ng3 = _, _, _"
-        ))
+        model.write_text(
+            Path(_model_path())
+            .read_text()
+            .replace("g2 = _, _, _", "g2 = _, _, _\ng3 = _, _, _")
+        )
         helper_app.config["CASBIN_MODEL"] = str(model)
         with helper_app.app_context():
             assert add_resource_role("alice", "owner", "/items/1", ptype="g3")
@@ -646,14 +683,17 @@ class TestResourceRoles:
             )
             assert not remove_resource("/items/1", ptype="g3")
 
-    @pytest.mark.parametrize("ptype,model_file", [
-        # role definition without resource
-        ("g", RESOURCE_ROLE_MODEL_FILE),
-        # undefined role definition
-        ("g3", RESOURCE_ROLE_MODEL_FILE),
-        # `g2` defines object groups in default model
-        ("g2", DEFAULT_MODEL_FILE),
-    ])
+    @pytest.mark.parametrize(
+        "ptype,model_file",
+        [
+            # role definition without resource
+            ("g", RESOURCE_ROLE_MODEL_FILE),
+            # undefined role definition
+            ("g3", RESOURCE_ROLE_MODEL_FILE),
+            # `g2` defines object groups in default model
+            ("g2", DEFAULT_MODEL_FILE),
+        ],
+    )
     def test_incompatible_model(self, helper_app, ptype, model_file):
         with resource_path(ACCESS_CONTROL_BASE_PATH, model_file) as _path:
             helper_app.config["CASBIN_MODEL"] = str(_path)

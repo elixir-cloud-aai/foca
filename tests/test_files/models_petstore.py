@@ -1,10 +1,5 @@
 """Validation models for the petstore app."""
 
-from typing import (
-    List,
-    Optional,
-)
-
 from pydantic import BaseModel
 
 
@@ -21,9 +16,10 @@ class Pet(BaseModel):
         name: The pet's name.
         tag: Optional tag for the pet.
     """
+
     id: int
     name: str
-    tag: Optional[str]
+    tag: str | None
 
 
 class Pets(BaseModel):
@@ -35,7 +31,8 @@ class Pets(BaseModel):
     Attributes:
         pets: List of pets.
     """
-    pets: List[Pet] = []
+
+    pets: list[Pet] = []
 
 
 class Error(BaseModel):
@@ -49,5 +46,6 @@ class Error(BaseModel):
         code: Status code.
         message: Error message.
     """
+
     code: int
     message: str

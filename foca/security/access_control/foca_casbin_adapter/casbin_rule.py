@@ -1,7 +1,5 @@
 """Casbin rule class."""
 
-from typing import (Dict, Optional)
-
 
 class CasbinRule:
     """This class defines the basic structuring of a casbin rule object.
@@ -27,13 +25,13 @@ class CasbinRule:
 
     def __init__(
         self,
-        ptype: Optional[str] = None,
-        v0: Optional[str] = None,
-        v1: Optional[str] = None,
-        v2: Optional[str] = None,
-        v3: Optional[str] = None,
-        v4: Optional[str] = None,
-        v5: Optional[str] = None
+        ptype: str | None = None,
+        v0: str | None = None,
+        v1: str | None = None,
+        v2: str | None = None,
+        v3: str | None = None,
+        v4: str | None = None,
+        v5: str | None = None,
     ):
         """Casbin rule object initializer."""
         self.ptype = ptype
@@ -44,7 +42,7 @@ class CasbinRule:
         self.v4 = v4
         self.v5 = v5
 
-    def dict(self) -> Dict:
+    def dict(self) -> dict:
         """Method to convert params into casbin rule object.
 
         Returns:
@@ -63,8 +61,10 @@ class CasbinRule:
         return rule_dict
 
     def __str__(self):
+        """Return rule values as comma-separated string."""
         return ", ".join(self.dict().values())
 
     def __repr__(self):
+        """Return representation of rule."""
         print("self   ", self)
-        return '<CasbinRule :"{}">'.format(str(self))
+        return f'<CasbinRule :"{self!s}">'

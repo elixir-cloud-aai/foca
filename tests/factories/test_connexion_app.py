@@ -2,17 +2,17 @@
 
 from connexion import App
 
-from foca.models.config import Config
 from foca.factories.connexion_app import (
     __add_config_to_connexion_app,
     create_connexion_app,
-    )
+)
+from foca.models.config import Config
 
 CONFIG = Config()
 ERROR_CODE = 400
 ERROR_ORIGINAL = {
-    'title': 'BAD REQUEST',
-    'status_code': str(ERROR_CODE),
+    "title": "BAD REQUEST",
+    "status_code": str(ERROR_CODE),
 }
 ERROR_REWRITTEN = {
     "msg": "The request is malformed.",

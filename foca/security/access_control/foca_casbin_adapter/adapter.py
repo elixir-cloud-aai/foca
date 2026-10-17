@@ -2,18 +2,18 @@
 
 from casbin import persist
 from casbin.model import Model
-from typing import (List, Optional)
 from pymongo import MongoClient
 
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
-    CasbinRule
+    CasbinRule,
 )
 from foca.utils.misc import generate_id
 
 
 class Adapter(persist.Adapter):
-    """Interface for casbin adapters. This is utilized for interacting casbin
-    and mongodb.
+    """Casbin adapter for MongoDB.
+
+    Used for interactions between Casbin and MongoDB.
 
     Args:
         uri: This should be the same requiement as pymongo Client's 'uri'
@@ -33,7 +33,7 @@ class Adapter(persist.Adapter):
     """
 
     def __init__(
-        self, uri: str, dbname: str, collection: Optional[str] = "casbin_rule"
+        self, uri: str, dbname: str, collection: str | None = "casbin_rule"
     ):
         """Create an adapter for Mongodb."""
         client: MongoClient = MongoClient(uri)
@@ -49,7 +49,6 @@ class Adapter(persist.Adapter):
         Args:
             model: CasbinRule object.
         """
-
         for line in self._collection.find():
             rule = CasbinRule(line["ptype"])
             for key, value in line.items():
@@ -57,7 +56,7 @@ class Adapter(persist.Adapter):
 
             persist.load_policy_line(str(rule), model)
 
-    def save_policy_line(self, ptype: str, rule: List[str]):
+    def save_policy_line(self, ptype: str, rule: list[str]):
         """Method to save a policy.
 
         Args:
@@ -72,7 +71,7 @@ class Adapter(persist.Adapter):
         self._collection.insert_one(rule_dict)
         return rule_dict["id"]
 
-    def _delete_policy_lines(self, ptype: str, rule: List[str]) -> int:
+    def _delete_policy_lines(self, ptype: str, rule: list[str]) -> int:
         """Method to find a delete policies given a list of policy attributes.
 
         Args:
@@ -82,7 +81,6 @@ class Adapter(persist.Adapter):
         Returns:
             Count of policies deleted.
         """
-
         line = CasbinRule(ptype=ptype)
         for index, value in enumerate(rule):
             setattr(line, f"v{index}", value)
@@ -95,8 +93,7 @@ class Adapter(persist.Adapter):
             line_dict = line.dict()
             line_dict_keys_len = len(line_dict)
             results = self._collection.find(
-                filter=line_dict,
-                projection={"id": False}
+                filter=line_dict, projection={"id": False}
             )
             to_delete = [
                 result["_id"]
@@ -124,8 +121,8 @@ class Adapter(persist.Adapter):
                     self.save_policy_line(ptype, rule)
         return True
 
-    def add_policy(self, sec: str, ptype: str, rule: List[str]) -> bool:
-        """Add policy rules to mongodb
+    def add_policy(self, sec: str, ptype: str, rule: list[str]) -> bool:
+        """Add policy rules to MongoDB.
 
         Args:
             sec: Section corresponding which the rule will be added.
@@ -138,7 +135,7 @@ class Adapter(persist.Adapter):
         self.save_policy_line(ptype, rule)
         return True
 
-    def remove_policy(self, sec: str, ptype: str, rule: List[str]):
+    def remove_policy(self, sec: str, ptype: str, rule: list[str]):
         """Remove policy rules from mongodb(duplicate rules are also removed).
 
         Args:
@@ -153,11 +150,11 @@ class Adapter(persist.Adapter):
         return deleted_count > 0
 
     def remove_filtered_policy(
-        self, sec: str, ptype: str,
-        field_index: int, *field_values: List[str]
+        self, sec: str, ptype: str, field_index: int, *field_values: list[str]
     ):
         """Remove policy rules that match the filter from the storage.
-           This is part of the Auto-Save feature.
+
+        This is part of the Auto-Save feature.
 
         Args:
             sec: Section corresponding which the rule will be added.

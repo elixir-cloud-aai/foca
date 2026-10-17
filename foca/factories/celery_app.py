@@ -1,10 +1,10 @@
 """Factory for creating and configuring Celery application instances."""
 
-from inspect import stack
 import logging
+from inspect import stack
 
-from flask import Flask
 from celery import Celery
+from flask import Flask
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -28,18 +28,17 @@ def create_celery_app(app: Flask) -> Celery:
         backend=conf.backend,
         include=conf.include,
     )
-    calling_module = ':'.join([stack()[1].filename, stack()[1].function])
+    calling_module = ":".join([stack()[1].filename, stack()[1].function])
     logger.debug(f"Celery app created from '{calling_module}'.")
 
     # Update Celery app configuration with Flask app configuration
-    setattr(celery.conf, 'foca', app.config.foca)  # type: ignore[attr-defined]
-    logger.debug('Celery app configured.')
+    setattr(celery.conf, "foca", app.config.foca)  # type: ignore[attr-defined]
+    logger.debug("Celery app configured.")
 
     class ContextTask(celery.Task):  # type: ignore
         # https://github.com/python/mypy/issues/4284)
-        """Create subclass of task that wraps task execution in application
-        context.
-        """
+        """Create task subclass that executes tasks in app context."""
+
         def __call__(self, *args, **kwargs):
             """Wrap task execution in application context."""
             with app.app_context():  # pragma: no cover
