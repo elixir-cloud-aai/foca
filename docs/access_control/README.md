@@ -144,6 +144,7 @@ security:
     claim_groups: group_claim
     group_mapping:
       group_claim_value: role
+    resource_roles_cover_subpaths: True
 ```
 
 > The application created with this config would provide an access control
@@ -269,6 +270,7 @@ roles. It supports rules like the following:
 p, *, /services, POST                            # any authenticated user
 p, owner, /services/:id, (GET)|(PUT)|(DELETE)    # owners: full access
 p, maintainer, /services/:id, (GET)|(PUT)        # maintainers: read/update
+p, owner, /services/:id/permissions, (GET)|(PUT) # owners: manage access
 p, group:vo-members, /services/:id, GET          # raw group claim value
 g2, user:alice, owner, /services/123             # alice owns /services/123
 g, user:bob, admin                               # bob is an admin
@@ -278,6 +280,16 @@ Subjects with role `admin`, assigned via `g` rules or mapped from group
 claims, may do everything. Read operations can be made public via
 `security: []`. Note that the paths are the full request paths, including
 any base path of your API.
+
+Roles granted on a resource also apply to its sub-paths, split on `/`: owning
+`/services/123` covers `/services/123/permissions`, but not `/services/1234`.
+This way, endpoints below a resource, such as an endpoint for owners to manage
+access to their resource, are enforced like the resource itself. Sub-path
+matching only makes a role _apply_ there; what the role may do is still
+decided by `p` rules. In the example above, owners may manage access, while
+maintainers may not, as no rule allows them to. Trailing slashes in resource
+paths are ignored, and roles granted on `/` only apply to `/` itself. Set
+`resource_roles_cover_subpaths: False` to only match the exact resource path.
 
 Which subjects get which roles on which resources depends on your app's
 domain and is up to your app. FOCA provides helpers to manage resource-scoped
