@@ -1,13 +1,13 @@
 """Unit tests for endpoint controllers."""
 
 from copy import deepcopy
+from importlib.resources import path as resource_path
 from unittest import TestCase
 
 
 from flask import Flask
 import mongomock
 import os
-from pkg_resources import resource_filename
 from pymongo import MongoClient
 import pytest
 
@@ -348,11 +348,10 @@ class TestModelPathResolution(TestCase):
 
     def test_no_model_input(self):
         config = AccessControlConfig()
-        default_model_path = str(
-            resource_filename(
-                ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
-            )
-        )
+        with resource_path(
+            ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
+        ) as _path:
+            default_model_path = str(_path)
         assert config.model == default_model_path
 
     def test_relative_path_model_input(self):

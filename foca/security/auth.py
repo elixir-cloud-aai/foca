@@ -258,7 +258,7 @@ def _validate_jwt_public_key(
                 key=key,  # type: ignore[arg-type]
                 algorithms=algorithms,
                 audience=audience,
-                options=validation_options,
+                options=validation_options,  # type: ignore[arg-type]
             )
         # Wrong or faulty key was used; try next one
         except InvalidKeyError as e:

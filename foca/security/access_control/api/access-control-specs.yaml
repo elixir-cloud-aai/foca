@@ -261,7 +261,15 @@ paths:
                 $ref: '#/components/schemas/Error'
 servers:
   - url: /admin/access-control
+security:
+  - bearerAuth: []
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      x-bearerInfoFunc: foca.security.auth.validate_token
   schemas:
     Permission:
       description: Permission model.

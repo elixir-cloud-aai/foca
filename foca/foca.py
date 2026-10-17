@@ -110,6 +110,10 @@ class Foca:
             cnx_app = register_openapi(
                 app=cnx_app,
                 specs=self.conf.api.specs,
+                enforce_access_control=(
+                    self.conf.security.auth.required
+                    and self.conf.security.access_control.enforce
+                ),
             )
         else:
             logger.info("No OpenAPI specifications provided.")
@@ -156,6 +160,10 @@ class Foca:
             ):
                 logger.error(
                     "Please enable security config to register access control."
+                )
+            if self.conf.security.access_control.enforce:
+                logger.error(
+                    "Access control not enforced: security config disabled."
                 )
 
         return cnx_app

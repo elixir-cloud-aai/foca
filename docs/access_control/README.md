@@ -21,6 +21,10 @@ it can be configured for your needs.
   * [Configuring header properties](#configuring-header-properties)
   * [Configuring the access control
     model](#configuring-the-access-control-model)
+* [Enforcing policies with OIDC tokens](#enforcing-policies-with-oidc-tokens)
+  * [Identity and group claims](#identity-and-group-claims)
+  * [Resource-scoped roles](#resource-scoped-roles)
+  * [Securing the permissions API](#securing-the-permissions-api)
 * [Exploring the API](#exploring-the-api)
 
 ## Why do we need it?
@@ -134,6 +138,12 @@ security:
     collection_name: access_control_collection_name
     owner_headers: admin_identification_properties
     user_headers: user_identification_properties
+    enforce: False
+    claim_identity: sub
+    subject_prefix: "user:"
+    claim_groups: group_claim
+    group_mapping:
+      group_claim_value: role
 ```
 
 > The application created with this config would provide an access control
@@ -182,6 +192,152 @@ request. These are used to validate the incoming request and to differentiate
 users and owners/admins. You can set up `owner_headers` and `user_headers` to
 specify custom owner and user properties, respectively.
 
+## Enforcing policies with OIDC tokens
+
+Policies can be enforced on all operations of an app's API specifications
+through configuration alone:
+
+```yaml
+security:
+  auth:
+    required: True
+  access_control:
+    model: path/to/resource_role_model.conf
+    enforce: True
+    claim_groups: eduperson_entitlement
+    group_mapping:
+      "urn:geant:example.org:group:admins#example.org": admin
+```
+
+With `enforce: True`, every operation that requires authentication (i.e.,
+that has non-empty `security` requirements, either on the operation or the
+specification level) is checked against the policies, using the full request
+path as the object and the HTTP method as the action. Policies are enforced
+_after_ the bearer token was validated (e.g., by FOCA's
+`foca.security.auth.validate_token`). Requests are denied with `403` if no
+policy allows them.
+
+* Operations with `security: []` are not enforced, i.e., they are public.
+* Single operations can opt out via `x-foca-access-control: false`.
+* With `enforce: False` (default), policies are only enforced on controllers
+  decorated with `check_permissions`.
+
+### Identity and group claims
+
+The subject is taken from the claims of the **already validated** token,
+from the claim set via `claim_identity`. If not set, the claim set via
+`security.auth.claim_identity` (default: `sub`) is used, i.e., the same claim
+that token validation requires. Use a stable identifier assigned by the
+identity provider (like `sub`), not a claim users may choose or change (like
+`preferred_username` or `email`). Requests with validated tokens lacking that
+claim are denied with `401`.
+
+If `claim_groups` is set, the values of that claim (a list or a single
+string) are additionally checked as subjects, i.e., they act as roles. If
+`group_mapping` is set, claim values are mapped to roles, and values without
+mapping are ignored. Access is granted if any of the subjects is allowed.
+This way, no rules are needed per user for group-based access, e.g., for
+administrators.
+
+To keep users, groups and roles apart, subjects are namespaced in rules:
+
+| Subject | In rules | Example |
+| --- | --- | --- |
+| User identifier | prefixed with `subject_prefix` (default: `user:`) | `user:alice` |
+| Group claim value without `group_mapping` | prefixed with `group:` | `group:vo-members` |
+| Role (from `group_mapping` or `g` rules) | as is | `admin` |
+
+This way, a user whose identifier equals a role name (e.g., `admin`), or an
+identity provider group of that name, is not granted that role.
+
+In your controllers, use `get_current_subject()` and `get_current_groups()`
+to get the subject (without prefix) and roles of the current request:
+
+```python
+from foca.security.access_control import (
+    get_current_groups,
+    get_current_subject,
+)
+```
+
+### Resource-scoped roles
+
+FOCA ships a [reference model][resource-role-model] for resource-scoped
+roles. It supports rules like the following:
+
+```console
+p, *, /services, POST                            # any authenticated user
+p, owner, /services/:id, (GET)|(PUT)|(DELETE)    # owners: full access
+p, maintainer, /services/:id, (GET)|(PUT)        # maintainers: read/update
+p, group:vo-members, /services/:id, GET          # raw group claim value
+g2, user:alice, owner, /services/123             # alice owns /services/123
+g, user:bob, admin                               # bob is an admin
+```
+
+Subjects with role `admin`, assigned via `g` rules or mapped from group
+claims, may do everything. Read operations can be made public via
+`security: []`. Note that the paths are the full request paths, including
+any base path of your API.
+
+Which subjects get which roles on which resources depends on your app's
+domain and is up to your app. FOCA provides helpers to manage resource-scoped
+roles (`g2` rules) in your controllers, e.g., to make the creator of a
+resource its owner, let owners manage access to their resources, and clean up
+when a resource is deleted:
+
+```python
+from flask import request
+
+from foca.security.access_control import (
+    add_resource_role,
+    get_current_subject,
+    list_resource_roles,
+    remove_resource,
+    remove_resource_role,
+)
+
+
+def postService(**kwargs):
+    service_id = ...  # create resource
+    add_resource_role(
+        subject=get_current_subject(),
+        role="owner",
+        resource=f"{request.path.rstrip('/')}/{service_id}",
+    )
+    return service_id
+
+
+def deleteService(id, **kwargs):
+    ...  # delete resource
+    remove_resource(request.path)
+    return id
+```
+
+`list_resource_roles(resource)` returns the subjects and roles granted on a
+resource, and `remove_resource_role(subject, role, resource)` revokes a
+single role. The helpers take and return user identifiers without prefix and
+add `subject_prefix` to the rules themselves.
+
+The helpers manage `g2` rules by default. For models defining resource-scoped
+roles under another name, pass it via `ptype` (e.g., `ptype="g3"`). The
+helpers raise a `ValueError` if the model does not define that role type with
+three fields (subject, role, resource), e.g., with the default model, whose
+`g2` groups objects.
+
+### Securing the permissions API
+
+The [permissions API](#exploring-the-api) requires a bearer token
+(`bearerAuth`, validated by `foca.security.auth.validate_token`), and
+policies are always enforced on it, irrespective of `enforce`. With the
+[reference model][resource-role-model], only subjects with role `admin` can
+manage rules. With other models, rules allowing access to the permissions API
+routes (e.g., `/admin/access-control/permissions`) are required. Initial
+rules can be added via `group_mapping` (e.g., mapping an entitlement to
+`admin`) or directly to the access control database.
+
+> If you provide custom `api_specs` for the permissions API, make sure that
+> they require authentication; otherwise, all requests will be denied.
+
 ## Exploring the API
 
 Once your app is up and running, you can explore the access control API
@@ -201,6 +357,7 @@ firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
 [default-specs]: ../../foca/security/access_control/api/access-control-specs.yaml
 [default-controllers]: ../../foca/security/access_control/access_control_server.py
 [default-model]: ../../foca/security/access_control/api/default_model.conf
+[resource-role-model]: ../../foca/security/access_control/api/resource_role_model.conf
 [img-casbin-flow]: ../../images/casbin_model.jpeg
 [img-logo-banner]: ../../images/logo-banner.svg
 [res-casbin-models]: <https://casbin.org/docs/en/supported-models>
