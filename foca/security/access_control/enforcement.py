@@ -107,17 +107,52 @@ def get_current_groups() -> List[str]:
     return list(dict.fromkeys(groups))
 
 
+def _is_within_path(request_path: str, resource_path: str) -> bool:
+    """Check whether a request path is a resource path or one of its
+    sub-paths.
+
+    Args:
+        request_path: Request path.
+        resource_path: Resource path a role was granted on. Trailing
+            slashes are ignored. The root path `/` only matches itself.
+
+    Returns:
+        `True` if `request_path` equals `resource_path` or starts with
+        `resource_path` followed by `/`.
+    """
+    resource_path = resource_path.rstrip("/")
+    if not resource_path:
+        return request_path == "/"
+    return (
+        request_path == resource_path
+        or request_path.startswith(f"{resource_path}/")
+    )
+
+
 def get_enforcer() -> Enforcer:
     """Get Casbin enforcer with current policies of the app.
+
+    If `access_control.resource_roles_cover_subpaths` is set, roles of
+    resource-scoped role definitions (with three fields, e.g.,
+    `g2 = _, _, _`) also apply to sub-paths of the resource path they were
+    granted on.
 
     Returns:
         Casbin enforcer for the app's model with policies loaded from the
         app's access control database.
     """
-    return Enforcer(
+    enforcer = Enforcer(
         current_app.config["CASBIN_MODEL"],
         current_app.config["casbin_adapter"],
     )
+    if _get_access_control_config().resource_roles_cover_subpaths:
+        roles = enforcer.get_model().model.get("g", {})
+        for ptype, assertion in roles.items():
+            if assertion.value.count("_") == 3:
+                enforcer.add_named_domain_matching_func(
+                    ptype, _is_within_path
+                )
+    return enforcer
 
 
 def enforce_access_control(fn: Callable) -> Callable:

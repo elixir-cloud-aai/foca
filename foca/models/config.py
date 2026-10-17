@@ -689,6 +689,12 @@ class AccessControlConfig(FOCABaseConfig):
             `group_mapping` is set.
         group_mapping: Mapping of values of `claim_groups` to roles. If set,
             only mapped values are used as roles.
+        resource_roles_cover_subpaths: Whether resource-scoped roles (role
+            definitions with three fields, e.g., `g2 = _, _, _`) granted on
+            a resource path also apply to its sub-paths (e.g., a role on
+            `/services/ABC` also applies to `/services/ABC/permissions`, but
+            not to `/services/ABCD`). What a role may do on a sub-path is
+            still decided by policy rules.
 
     Attributes:
         api_specs: Path to API spec definition.
@@ -705,6 +711,8 @@ class AccessControlConfig(FOCABaseConfig):
         subject_prefix: Prefix added to the subject in policy rules.
         claim_groups: JWT claim listing groups or entitlements of the subject.
         group_mapping: Mapping of values of `claim_groups` to roles.
+        resource_roles_cover_subpaths: Whether resource-scoped roles apply to
+            sub-paths of the resource path they were granted on.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -737,6 +745,7 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     subject_prefix: str = "user:"
     claim_groups: Optional[str] = None
     group_mapping: Optional[Dict[str, str]] = None
+    resource_roles_cover_subpaths: bool = True
 
     @field_validator('model', mode='before')
     @classmethod

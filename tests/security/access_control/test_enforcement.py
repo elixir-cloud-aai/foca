@@ -39,6 +39,7 @@ from foca.security.access_control.constants import (
     DEFAULT_MODEL_FILE,
     RESOURCE_ROLE_MODEL_FILE,
 )
+from foca.security.access_control.enforcement import _is_within_path
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
     register_permission_specs,
@@ -70,6 +71,10 @@ POLICIES = [
     ("p", ["group:testers", "/items/:id", "GET"]),
     ("g2", ["user:alice", "owner", "/items/1"]),
     ("g2", ["user:bob", "maintainer", "/items/1"]),
+    # owners may manage access to their resources via a sub-path
+    ("p", ["owner", "/items/:id/permissions", "(GET)|(PUT)"]),
+    # stored resource path with trailing slash
+    ("g2", ["user:alice", "owner", "/items/3/"]),
 ]
 
 
@@ -87,7 +92,7 @@ def controller(*args, **kwargs) -> str:
 
 # Operations need distinct identifiers
 list_items = create_item = get_item = update_item = delete_item = \
-    get_open = controller
+    get_open = get_item_permissions = update_item_permissions = controller
 
 
 def _operation(operation_id: str, **extra) -> Dict:
@@ -125,6 +130,11 @@ SPEC = {
             "get": _operation("get_item"),
             "put": _operation("update_item"),
             "delete": _operation("delete_item"),
+        },
+        "/items/{id}/permissions": {
+            "parameters": [ID_PARAMETER],
+            "get": _operation("get_item_permissions"),
+            "put": _operation("update_item_permissions"),
         },
         "/open": {
             "get": _operation(
@@ -259,6 +269,50 @@ class TestEnforcement:
         )
         assert response.status_code == status
 
+    @pytest.mark.parametrize("method,path,user,status", [
+        # roles cover sub-paths of the resource they were granted on
+        ("get", "/items/1/permissions", "alice", 200),
+        ("put", "/items/1/permissions", "alice", 200),
+        # ... and stored paths with trailing slashes
+        ("get", "/items/3", "alice", 200),
+        ("put", "/items/3/permissions", "alice", 200),
+        # ... but not sibling resources sharing a prefix
+        ("get", "/items/10", "alice", 403),
+        ("put", "/items/10/permissions", "alice", 403),
+        # ... nor sub-paths of other resources
+        ("put", "/items/2/permissions", "alice", 403),
+        # ... nor sub-paths without a `p` rule for the role
+        ("get", "/items/1/permissions", "bob", 403),
+        ("put", "/items/1/permissions", "bob", 403),
+        # users without roles on the resource
+        ("get", "/items/1/permissions", "dave", 403),
+        # admins may still do everything
+        ("put", "/items/2/permissions", "carol", 200),
+    ])
+    def test_enforce_subpaths(self, app, method, path, user, status):
+        response = getattr(app.test_client(), method)(
+            path, headers=_headers(user)
+        )
+        assert response.status_code == status
+
+    @pytest.mark.parametrize("method,path,user,status", [
+        ("get", "/items/1", "alice", 200),
+        ("get", "/items/1/permissions", "alice", 403),
+        ("put", "/items/1/permissions", "alice", 403),
+        ("get", "/items/3", "alice", 403),
+    ])
+    def test_enforce_subpaths_disabled(
+        self, tmp_path, method, path, user, status
+    ):
+        app = _create_app(
+            tmp_path,
+            _access_control_config(resource_roles_cover_subpaths=False),
+        )
+        response = getattr(app.test_client(), method)(
+            path, headers=_headers(user)
+        )
+        assert response.status_code == status
+
     def test_enforce_disabled(self, tmp_path):
         app = _create_app(tmp_path, _access_control_config(enforce=False))
         response = app.test_client().delete(
@@ -317,6 +371,25 @@ class TestPermissionsApi:
             self.url, json=self.payload, headers=_headers("dave")
         )
         assert response.status_code == 403
+
+
+@pytest.mark.parametrize("request_path,resource_path,expected", [
+    ("/services/ABC", "/services/ABC", True),
+    ("/services/ABC/permissions", "/services/ABC", True),
+    ("/services/ABC/a/b", "/services/ABC", True),
+    ("/services/ABC/", "/services/ABC", True),
+    ("/services/ABC", "/services/ABC/", True),
+    ("/services/ABC/permissions", "/services/ABC/", True),
+    ("/services/ABCD", "/services/ABC", False),
+    ("/services/AB", "/services/ABC", False),
+    ("/services", "/services/ABC", False),
+    ("/services/XYZ/permissions", "/services/ABC", False),
+    # the root path only matches itself
+    ("/", "/", True),
+    ("/services/ABC", "/", False),
+])
+def test_is_within_path(request_path, resource_path, expected):
+    assert _is_within_path(request_path, resource_path) is expected
 
 
 @pytest.fixture
