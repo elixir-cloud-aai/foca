@@ -203,6 +203,18 @@ db:
 >  
 > Cf. the [API model][docs-models-db] for further options and details.
 
+The connection can be configured through environment variables, e.g., to
+keep credentials out of configuration files:
+
+| Variable | Description |
+| --- | --- |
+| `MONGO_URI` | Full [connection string][res-mongo-db-uri] (`mongodb://` or `mongodb+srv://`), e.g., for replica sets, TLS or other connection options. Takes precedence over the variables below, except `MONGO_DBNAME`. Each configured database is still accessed under its own name; a database in the connection string's path is used as authentication database (unless `authSource` is set). |
+| `MONGO_HOST` | Host; overrides `db.host`. |
+| `MONGO_PORT` | Port; overrides `db.port`. |
+| `MONGO_USERNAME` | Username. |
+| `MONGO_PASSWORD` | Password. |
+| `MONGO_DBNAME` | Database name; overrides the names of _all_ configured databases. |
+
 ### Configuring exceptions
 
 FOCA provides a convenient, configurable exception handler and a simple way
@@ -619,6 +631,7 @@ question etc.
 [res-flask-app-context]: <https://flask.palletsprojects.com/en/1.1.x/appcontext/>
 [res-jwt]: <https://jwt.io>
 [res-mongo-db]: <https://www.mongodb.com/>
+[res-mongo-db-uri]: <https://www.mongodb.com/docs/manual/reference/connection-string/>
 [res-openapi]: <https://www.openapis.org/>
 [res-pydantic]: <https://pydantic-docs.helpmanual.io/>
 [res-rabbitmq]: <https://www.rabbitmq.com/>

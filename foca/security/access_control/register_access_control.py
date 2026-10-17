@@ -12,7 +12,7 @@ from flask import current_app
 from flask.wrappers import Response
 from flask_authz import CasbinEnforcer
 
-from foca.database.register_mongodb import add_new_database
+from foca.database.register_mongodb import add_new_database, get_mongo_uri
 from foca.models.config import (
     AccessControlConfig,
     CollectionConfig,
@@ -175,7 +175,11 @@ def register_casbin_enforcer(
 
     logger.info("Setting up casbin enforcer.")
     adapter = Adapter(
-        uri=f"mongodb://{mongo_config.host}:{mongo_config.port}/",
+        uri=get_mongo_uri(
+            host=mongo_config.host,
+            port=mongo_config.port,
+            db=str(access_control_config.db_name),
+        ),
         dbname=str(access_control_config.db_name),
         collection=access_control_config.collection_name,
     )

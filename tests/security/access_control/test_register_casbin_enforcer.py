@@ -1,0 +1,58 @@
+"""Tests for registering the Casbin enforcer."""
+
+from connexion import App
+
+from foca.models.config import AccessControlConfig, MongoConfig
+from foca.security.access_control import register_access_control as module
+
+
+def test_adapter_uri(monkeypatch):
+    """Casbin adapter connects with the app's MongoDB connection string."""
+    for var in ["MONGO_HOST", "MONGO_PORT", "MONGO_DBNAME", "MONGO_PASSWORD"]:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("MONGO_URI", "mongodb://u:p@h1:1,h2:2/?replicaSet=rs")
+    captured = {}
+
+    def mock_adapter(uri, dbname, collection):
+        captured.update(uri=uri, dbname=dbname, collection=collection)
+
+    monkeypatch.setattr(module, "Adapter", mock_adapter)
+    module.register_casbin_enforcer(
+        app=App(__name__),
+        access_control_config=AccessControlConfig(
+            db_name="access_control_db",
+            collection_name="policy_rules",
+        ),
+        mongo_config=MongoConfig(),
+    )
+    assert captured == {
+        "uri": "mongodb://u:p@h1:1,h2:2/access_control_db?replicaSet=rs",
+        "dbname": "access_control_db",
+        "collection": "policy_rules",
+    }
+
+
+def test_adapter_uri_env_vars(monkeypatch):
+    """Casbin adapter honours individual MongoDB environment variables."""
+    for var in ["MONGO_URI", "MONGO_PORT", "MONGO_DBNAME"]:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("MONGO_HOST", "other")
+    monkeypatch.setenv("MONGO_USERNAME", "user")
+    monkeypatch.setenv("MONGO_PASSWORD", "secret")
+    captured = {}
+
+    def mock_adapter(uri, dbname, collection):
+        captured.update(uri=uri)
+
+    monkeypatch.setattr(module, "Adapter", mock_adapter)
+    module.register_casbin_enforcer(
+        app=App(__name__),
+        access_control_config=AccessControlConfig(
+            db_name="access_control_db",
+            collection_name="policy_rules",
+        ),
+        mongo_config=MongoConfig(host="mongodb", port=27017),
+    )
+    assert captured["uri"] == (
+        "mongodb://user:secret@other:27017/access_control_db"
+    )
