@@ -1,7 +1,6 @@
 """Mock data for testing."""
 from pathlib import Path
 
-
 INDEX_CONFIG = {
     "keys": [("id", 1)]
 }

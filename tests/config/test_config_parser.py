@@ -5,11 +5,11 @@ Tests for config_parser.py
 from pathlib import Path
 from unittest import mock
 
+import pytest
 from pydantic import (
     BaseModel,
     ValidationError,
 )
-import pytest
 
 from foca.config.config_parser import ConfigParser
 from foca.models.config import Config

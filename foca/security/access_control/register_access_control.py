@@ -1,10 +1,10 @@
 """Methods to manage permission management configuration"""
 
 import logging
+from collections.abc import Callable
 from functools import wraps
 from importlib.resources import path as resource_path
 from pathlib import Path
-from typing import (Callable, Optional, Tuple)
 
 from connexion import App
 from connexion.exceptions import Forbidden
@@ -12,27 +12,27 @@ from flask import current_app
 from flask.wrappers import Response
 from flask_authz import CasbinEnforcer
 
+from foca.database.register_mongodb import add_new_database
 from foca.models.config import (
+    AccessControlConfig,
+    CollectionConfig,
     DBConfig,
     MongoConfig,
     SpecConfig,
-    CollectionConfig,
-    AccessControlConfig
 )
-from foca.database.register_mongodb import add_new_database
-from foca.security.access_control.enforcement import AccessControlResolver
-from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
-    DEFAULT_API_SPEC_PATH
+    DEFAULT_API_SPEC_PATH,
 )
+from foca.security.access_control.enforcement import AccessControlResolver
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
 logger = logging.getLogger(__name__)
 
 
 def register_access_control(
     cnx_app: App,
-    mongo_config: Optional[MongoConfig],
+    mongo_config: MongoConfig | None,
     access_control_config: AccessControlConfig
 ) -> App:
     """Register access control configuration with flask app.
@@ -190,7 +190,7 @@ def register_casbin_enforcer(
 
 
 def check_permissions(
-    _fn: Optional[Callable] = None,
+    _fn: Callable | None = None,
 ) -> Callable:
     """Decorator for checking user access to resource.
 
@@ -210,7 +210,7 @@ def check_permissions(
             The response returned from the input function.
         """
         @wraps(fn)
-        def _wrapper(*args, **kwargs) -> Tuple[Response, int]:
+        def _wrapper(*args, **kwargs) -> tuple[Response, int]:
             """Wrapper for permissions decorator.
 
             Args:
@@ -224,7 +224,7 @@ def check_permissions(
             """
             adapter = current_app.config["casbin_adapter"]
             casbin_enforcer = CasbinEnforcer(current_app, adapter)
-            response: Tuple[Response, int] = casbin_enforcer.enforcer(
+            response: tuple[Response, int] = casbin_enforcer.enforcer(
                 func=fn
             )(*args, **kwargs)
             if (

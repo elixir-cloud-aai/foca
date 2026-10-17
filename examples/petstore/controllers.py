@@ -2,10 +2,9 @@
 
 import logging
 
-from flask import (current_app, make_response)
-from pymongo.collection import Collection
-
 from exceptions import NotFound
+from flask import current_app, make_response
+from pymongo.collection import Collection
 
 logger = logging.getLogger(__name__)
 

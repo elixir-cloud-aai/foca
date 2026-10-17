@@ -5,7 +5,8 @@ import os
 
 from flask import Flask
 from flask_pymongo import PyMongo
-from foca.models.config import MongoConfig, DBConfig
+
+from foca.models.config import DBConfig, MongoConfig
 
 # Get logger instance
 logger = logging.getLogger(__name__)

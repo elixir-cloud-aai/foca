@@ -2,14 +2,12 @@
 
 import logging
 
-from typing import (Dict, List)
-
-from flask import (request, current_app)
+from flask import current_app, request
 from pymongo.collection import Collection
-from werkzeug.exceptions import (InternalServerError, NotFound)
+from werkzeug.exceptions import InternalServerError, NotFound
 
-from foca.utils.logging import log_traffic
 from foca.errors.exceptions import BadRequest
+from foca.utils.logging import log_traffic
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +91,7 @@ def putPermission(
 
 
 @log_traffic
-def getAllPermissions(limit=None) -> List[Dict]:
+def getAllPermissions(limit=None) -> list[dict]:
     """Method to fetch all permissions.
 
     Args:
@@ -137,7 +135,7 @@ def getAllPermissions(limit=None) -> List[Dict]:
 @log_traffic
 def getPermission(
     id: str,
-) -> Dict:
+) -> dict:
     """Method to fetch a particular permission.
 
     Args:

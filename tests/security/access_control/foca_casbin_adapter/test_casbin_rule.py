@@ -2,7 +2,7 @@
 """
 
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
-    CasbinRule
+    CasbinRule,
 )
 
 # Define data

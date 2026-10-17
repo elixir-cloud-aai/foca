@@ -1,10 +1,10 @@
 """Tests for `adapter.py` module."""
 
-from unittest import TestCase
-from casbin import Enforcer, Model
 from pathlib import Path
+from unittest import TestCase
+
+from casbin import Enforcer, Model
 from pymongo import MongoClient
-from typing import List, Tuple
 
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
@@ -47,7 +47,7 @@ class TestAdapter(TestCase):
         self,
         adapter: Adapter,
         model: Model,
-        policy: Tuple
+        policy: tuple
     ) -> None:
         """Helper function for adding policy to a given model.
 
@@ -68,7 +68,7 @@ class TestAdapter(TestCase):
     def get_enforcer(
         self,
         conf_file: str,
-        policies: List
+        policies: list
     ) -> Enforcer:
         """Helper function to register policy enforcer.
 

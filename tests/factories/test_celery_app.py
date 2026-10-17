@@ -4,7 +4,7 @@ from celery import Celery
 
 from foca.factories.celery_app import create_celery_app
 from foca.factories.connexion_app import create_connexion_app
-from foca.models.config import (Config, JobsConfig)
+from foca.models.config import Config, JobsConfig
 
 CONFIG = Config()
 CONFIG.jobs = JobsConfig()

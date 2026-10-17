@@ -1,14 +1,14 @@
 """Enforcement of access control policies and helpers for managing them."""
 
 import logging
+from collections.abc import Callable
 from functools import wraps
-from typing import (Callable, Dict, List, Optional, Tuple, Union)
 
 from casbin import Enforcer
 from connexion import context
-from connexion.exceptions import (Forbidden, Unauthorized)
-from connexion.resolver import (Resolution, Resolver)
-from flask import (current_app, request)
+from connexion.exceptions import Forbidden, Unauthorized
+from connexion.resolver import Resolution, Resolver
+from flask import current_app, request
 
 from foca.security.access_control.constants import GROUP_PREFIX
 
@@ -26,7 +26,7 @@ def _get_access_control_config():
     )
 
 
-def _get_claims() -> Dict:
+def _get_claims() -> dict:
     """Get claims of the validated token of the current request.
 
     Returns:
@@ -44,7 +44,7 @@ def _get_claims() -> Dict:
     return claims if isinstance(claims, dict) else {}
 
 
-def get_current_subject() -> Optional[str]:
+def get_current_subject() -> str | None:
     """Get subject of the current request.
 
     Returns:
@@ -76,7 +76,7 @@ def _unprefix_subject(subject: str) -> str:
     return subject
 
 
-def get_current_groups() -> List[str]:
+def get_current_groups() -> list[str]:
     """Get roles of the subject of the current request from group claims.
 
     Returns:
@@ -196,7 +196,7 @@ def enforce_access_control(fn: Callable) -> Callable:
     return _wrapper
 
 
-def _requires_authentication(security: Optional[List[Dict]]) -> bool:
+def _requires_authentication(security: list[dict] | None) -> bool:
     """Check whether security requirements require authentication.
 
     Args:
@@ -237,7 +237,7 @@ class AccessControlResolver(Resolver):
 
     def __init__(
         self,
-        resolver: Optional[Union[Resolver, Callable]] = None,
+        resolver: Resolver | Callable | None = None,
         enforce_all: bool = False,
     ):
         super().__init__()
@@ -371,7 +371,7 @@ def remove_resource_role(
 def list_resource_roles(
     resource: str,
     ptype: str = RESOURCE_ROLE_PTYPE,
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     """List roles granted on a resource.
 
     Args:

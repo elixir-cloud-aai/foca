@@ -2,12 +2,11 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, List
 
 from connexion import App
 
-from foca.models.config import SpecConfig
 from foca.config.config_parser import ConfigParser
+from foca.models.config import SpecConfig
 from foca.security.access_control.enforcement import AccessControlResolver
 
 # Get logger instance
@@ -22,11 +21,10 @@ _OPERATION_OBJECT_FIELDS = frozenset({
 
 def register_openapi(
         app: App,
-        specs: List[SpecConfig],
+        specs: list[SpecConfig],
         enforce_access_control: bool = False,
 ) -> App:
-    """
-    Register OpenAPI specifications with Connexion application instance.
+    """Register OpenAPI specifications with Connexion application instance.
 
     Args:
         app: Connexion application instance.
@@ -49,7 +47,7 @@ def register_openapi(
 
         # Merge specs
         list_specs = [spec.path] if isinstance(spec.path, Path) else spec.path
-        spec_parsed: Dict = ConfigParser.merge_yaml(*list_specs)
+        spec_parsed: dict = ConfigParser.merge_yaml(*list_specs)
         logger.debug(f"Parsed spec: {list_specs}")
 
         # Add/replace root objects

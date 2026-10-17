@@ -1,26 +1,25 @@
 """Functions for validating JWT Bearer tokens."""
 
-from connexion.exceptions import Unauthorized
+import json
 import logging
-from typing import (Dict, Iterable, List, Optional)
+from collections.abc import Iterable
 
+import jwt
+import requests
+from connexion.exceptions import Unauthorized
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from flask import current_app, request
-import jwt
 from jwt.exceptions import InvalidKeyError
-import requests
 from requests.exceptions import ConnectionError
-import json
 from werkzeug.datastructures import ImmutableMultiDict
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 
-def validate_token(token: str) -> Dict:
-    """
-    Validate JSON Web Token (JWT) Bearer token.
+def validate_token(token: str) -> dict:
+    """Validate JSON Web Token (JWT) Bearer token.
 
     Returns:
         Token claims.
@@ -39,15 +38,15 @@ def validate_token(token: str) -> Dict:
     conf = current_app.config.foca.security.auth  # type: ignore[attr-defined]
     add_key_to_claims: bool = conf.add_key_to_claims
     allow_expired: bool = conf.allow_expired
-    audience: Optional[Iterable[str]] = conf.audience
+    audience: Iterable[str] | None = conf.audience
     claim_identity: str = conf.claim_identity
     claim_issuer: str = conf.claim_issuer
-    algorithms: List[str] = conf.algorithms
-    validation_methods: List[str] = [e.value for e in conf.validation_methods]
+    algorithms: list[str] = conf.algorithms
+    validation_methods: list[str] = [e.value for e in conf.validation_methods]
     validation_checks: str = conf.validation_checks.value
 
     # Ensure that validation methods are configured
-    if not len(validation_methods):
+    if not validation_methods:
         raise Unauthorized(
             "Authentication is enabled, but no JWT validation methods "
             "configured"
@@ -173,9 +172,9 @@ def _validate_jwt_userinfo(
 def _validate_jwt_public_key(
     token: str,
     url: str,
-    algorithms: List[str] = ['RS256'],
+    algorithms: list[str] = ['RS256'],
     add_key_to_claims: bool = True,
-    audience: Optional[Iterable[str]] = None,
+    audience: Iterable[str] | None = None,
     allow_expired: bool = False,
     claim_key_id: str = 'kid',
 ) -> None:
@@ -245,7 +244,7 @@ def _validate_jwt_public_key(
         validation_options['verify_exp'] = False
 
     # Try public keys one after the other
-    used_key: Dict = {}
+    used_key: dict = {}
     claims = {}
     for key in public_keys.values():
         used_key = key  # type: ignore[assignment]
@@ -291,7 +290,7 @@ def _get_public_keys(
     pem: bool = False,
     claim_key_id: str = 'kid',
     claim_keys: str = 'keys',
-) -> Dict[str, RSAPublicKey]:
+) -> dict[str, RSAPublicKey]:
     """Obtain the identity provider's public JSON Web Key (JWK) set.
 
     Args:

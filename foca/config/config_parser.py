@@ -1,21 +1,20 @@
 """Parser for YAML-based app configuration."""
 
-from importlib import import_module
 import logging
+from importlib import import_module
 from logging.config import dictConfig
 from pathlib import Path
-from typing import (Dict, Optional)
 
+import yaml
 from addict import Dict as Addict
 from pydantic import BaseModel
-import yaml
 
-from foca.models.config import (Config, LogConfig)
+from foca.models.config import Config, LogConfig
 
 logger = logging.getLogger(__name__)
 
 
-class ConfigParser():
+class ConfigParser:
     """Parse FOCA config files.
 
     Args:
@@ -49,8 +48,8 @@ class ConfigParser():
 
     def __init__(
         self,
-        config_file: Optional[Path] = None,
-        custom_config_model: Optional[str] = None,
+        config_file: Path | None = None,
+        custom_config_model: str | None = None,
         format_logs: bool = True
     ) -> None:
         """Constructor method."""
@@ -82,7 +81,7 @@ class ConfigParser():
             )
 
     @staticmethod
-    def parse_yaml(conf: Path) -> Dict:
+    def parse_yaml(conf: Path) -> dict:
         """Parse YAML file.
 
         Args:
@@ -109,7 +108,7 @@ class ConfigParser():
             ) from exc
 
     @staticmethod
-    def merge_yaml(*args: Path) -> Dict:
+    def merge_yaml(*args: Path) -> dict:
         """Parse and merge a set of YAML files.
 
         Merging is done iteratively, from the first, second to the n-th

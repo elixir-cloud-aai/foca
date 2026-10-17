@@ -1,37 +1,36 @@
 """Unit tests for endpoint controllers."""
 
+import os
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from unittest import TestCase
 
-
-from flask import Flask
 import mongomock
-import os
-from pymongo import MongoClient
 import pytest
+from flask import Flask
+from pymongo import MongoClient
 
+from foca.errors.exceptions import BadRequest, InternalServerError, NotFound
+from foca.models.config import AccessControlConfig, Config, MongoConfig
 from foca.security.access_control.access_control_server import (
     deletePermission,
-    getPermission,
     getAllPermissions,
+    getPermission,
     postPermission,
-    putPermission
+    putPermission,
+)
+from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH,
+    DEFAULT_MODEL_FILE,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
-from foca.security.access_control.constants import (
-    ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
-)
-from foca.errors.exceptions import BadRequest, InternalServerError, NotFound
-from foca.models.config import (AccessControlConfig, Config, MongoConfig)
-
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
     MOCK_ID,
     MOCK_RULE,
-    MOCK_RULE_USER_INPUT_OUTPUT,
     MOCK_RULE_INVALID,
-    MONGO_CONFIG
+    MOCK_RULE_USER_INPUT_OUTPUT,
+    MONGO_CONFIG,
 )
 
 
@@ -106,9 +105,8 @@ class TestGetPermission(BaseTestAccessControl):
             .client.insert_one(mock_resp)
         del mock_resp["_id"]
 
-        with app.app_context():
-            with pytest.raises(NotFound):
-                getPermission.__wrapped__(id=MOCK_ID + MOCK_ID)
+        with app.app_context(), pytest.raises(NotFound):
+            getPermission.__wrapped__(id=MOCK_ID + MOCK_ID)
 
 
 class TestDeletePermission(BaseTestAccessControl):
@@ -153,9 +151,8 @@ class TestDeletePermission(BaseTestAccessControl):
         app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
             .client.insert_one(mock_resp)
 
-        with app.app_context():
-            with pytest.raises(NotFound):
-                deletePermission.__wrapped__(id=MOCK_ID)
+        with app.app_context(), pytest.raises(NotFound):
+            deletePermission.__wrapped__(id=MOCK_ID)
 
 
 class TestGetAllPermissions(BaseTestAccessControl):

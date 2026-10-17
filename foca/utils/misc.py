@@ -1,7 +1,7 @@
 """Miscellaneous utility functions."""
 
-from random import choice
 import string
+from random import choice
 
 
 def generate_id(

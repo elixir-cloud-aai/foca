@@ -5,9 +5,9 @@ instance.
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
 from connexion import App
 from connexion.exceptions import InvalidSpecification
-import pytest
 from yaml import YAMLError
 
 from foca.api.register_openapi import register_openapi

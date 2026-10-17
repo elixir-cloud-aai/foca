@@ -1,17 +1,17 @@
 """Tests for `foca.py` module."""
 
-from pathlib import Path
-import pytest
 import shutil
+from pathlib import Path
 
+import pytest
 from celery import Celery
 from connexion import App
 from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
 from yaml import (
-    safe_load,
     safe_dump,
+    safe_load,
 )
 
 from foca import Foca

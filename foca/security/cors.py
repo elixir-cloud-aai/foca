@@ -1,8 +1,8 @@
 """Resources for cross-origin resource sharing (CORS)."""
 
 import logging
-from flask import Flask
 
+from flask import Flask
 from flask_cors import CORS
 
 # Get logger instance

@@ -1,15 +1,16 @@
 """Utility functions for logging."""
 
 import logging
-from connexion import request
+from collections.abc import Callable
 from functools import wraps
-from typing import (Callable, Optional)
+
+from connexion import request
 
 logger = logging.getLogger(__name__)
 
 
 def log_traffic(
-    _fn: Optional[Callable] = None,
+    _fn: Callable | None = None,
     log_request: bool = True,
     log_response: bool = True,
     log_level: int = logging.INFO,

@@ -2,25 +2,24 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from celery import Celery
 from connexion import App
 
-from foca.security.access_control.register_access_control import (
-    register_access_control,
-)
-from foca.security.access_control.constants import (
-    DEFAULT_SPEC_CONTROLLER,
-    DEFAULT_ACCESS_CONTROL_DB_NAME,
-    DEFAULT_ACESS_CONTROL_COLLECTION_NAME,
-)
 from foca.api.register_openapi import register_openapi
 from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
 from foca.errors.exceptions import register_exception_handler
-from foca.factories.connexion_app import create_connexion_app
 from foca.factories.celery_app import create_celery_app
+from foca.factories.connexion_app import create_connexion_app
+from foca.security.access_control.constants import (
+    DEFAULT_ACCESS_CONTROL_DB_NAME,
+    DEFAULT_ACESS_CONTROL_COLLECTION_NAME,
+    DEFAULT_SPEC_CONTROLLER,
+)
+from foca.security.access_control.register_access_control import (
+    register_access_control,
+)
 from foca.security.cors import enable_cors
 
 # Get logger instance
@@ -30,8 +29,8 @@ logger = logging.getLogger(__name__)
 class Foca:
     def __init__(
         self,
-        config_file: Optional[Path] = None,
-        custom_config_model: Optional[str] = None,
+        config_file: Path | None = None,
+        custom_config_model: str | None = None,
     ) -> None:
         """Instantiate FOCA class.
 
@@ -69,10 +68,10 @@ class Foca:
             conf: App configuration. Instance of
                 :py:class:`foca.models.config.Config`.
         """
-        self.config_file: Optional[Path] = (
+        self.config_file: Path | None = (
             Path(config_file) if config_file is not None else None
         )
-        self.custom_config_model: Optional[str] = custom_config_model
+        self.custom_config_model: str | None = custom_config_model
         self.conf = ConfigParser(
             config_file=self.config_file,
             custom_config_model=self.custom_config_model,
@@ -152,14 +151,13 @@ class Foca:
                 mongo_config=self.conf.db,
                 access_control_config=self.conf.security.access_control,
             )
-        else:
-            if (
-                self.conf.security.access_control.api_specs
-                or self.conf.security.access_control.api_controllers
-            ):
-                logger.error(
-                    "Please enable security config to register access control."
-                )
+        elif (
+            self.conf.security.access_control.api_specs
+            or self.conf.security.access_control.api_controllers
+        ):
+            logger.error(
+                "Please enable security config to register access control."
+            )
 
         return cnx_app
 

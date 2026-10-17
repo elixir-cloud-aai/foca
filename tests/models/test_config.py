@@ -1,16 +1,16 @@
 """Tests for config.py."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
 
 from foca.models.config import (
     AccessControlConfig,
     AuthConfig,
-    Config,
     CollectionConfig,
+    Config,
     DBConfig,
     ExceptionConfig,
     IndexConfig,

@@ -2,20 +2,20 @@
 Tests for exceptions.py
 """
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 
-from flask import (Flask, Response)
-from connexion import App
 import pytest
+from connexion import App
+from flask import Flask, Response
 
 from foca.errors.exceptions import (
     _exc_to_str,
     _exclude_key_nested_dict,
-    _problem_handler_json,
     _log_exception,
-    register_exception_handler,
+    _problem_handler_json,
     _subset_nested_dict,
+    register_exception_handler,
 )
 from foca.models.config import Config
 

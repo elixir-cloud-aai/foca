@@ -3,16 +3,15 @@
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
-from typing import Dict, Optional
 from unittest import mock
 
+import mongomock
+import pytest
+import yaml
 from connexion.exceptions import Unauthorized
 from connexion.resolver import Resolution, Resolver
 from flask import Flask
 from flask.globals import request_ctx
-import mongomock
-import pytest
-import yaml
 
 from foca.api.register_openapi import register_openapi
 from foca.errors.exceptions import register_exception_handler
@@ -52,7 +51,7 @@ ADMIN_ENTITLEMENT = "urn:example:group:admins"
 THIS_MODULE = __name__
 
 # Bearer tokens mapped to the claims of their (fake) validated JWTs
-TOKENS: Dict[str, Dict] = {
+TOKENS: dict[str, dict] = {
     "alice": {"sub": "alice"},
     "bob": {"sub": "bob"},
     "carol": {"sub": "carol", "groups": [ADMIN_ENTITLEMENT]},
@@ -79,7 +78,7 @@ POLICIES = [
 ]
 
 
-def mock_token_info(token: str) -> Dict:
+def mock_token_info(token: str) -> dict:
     """Return token info or raise as FOCA's `validate_token()` does."""
     if token not in TOKENS:
         raise Unauthorized("JWT could not be validated")
@@ -110,7 +109,7 @@ class DuckTypedResolver:
         return Resolution(controller, operation.operation_id)
 
 
-def _operation(operation_id: str, **extra) -> Dict:
+def _operation(operation_id: str, **extra) -> dict:
     """Build an OpenAPI 3 Operation object."""
     operation = {
         "operationId": f"{THIS_MODULE}.{operation_id}",
@@ -206,7 +205,7 @@ def _access_control_config(**kwargs) -> AccessControlConfig:
 def _create_app(
     tmp_path: Path,
     access_control: AccessControlConfig,
-    connexion: Optional[Dict] = None,
+    connexion: dict | None = None,
 ):
     """Create app with test API, permissions API and in-memory policies."""
     spec_file = tmp_path / "spec.yaml"
@@ -251,7 +250,7 @@ def _create_app(
     return cnx_app.app
 
 
-def _headers(user: Optional[str]) -> Dict:
+def _headers(user: str | None) -> dict:
     return {} if user is None else {"Authorization": f"Bearer {user}"}
 
 

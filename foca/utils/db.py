@@ -1,12 +1,13 @@
 """Utility functions for interacting with a MongoDB database collection."""
 
-from typing import (Any, Mapping, Optional)
+from collections.abc import Mapping
+from typing import Any
 
 from bson.objectid import ObjectId
 from pymongo.collection import Collection
 
 
-def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
+def find_one_latest(collection: Collection) -> Mapping[Any, Any] | None:
     """Return newest document, stripped of `ObjectId`.
 
     Args:
@@ -25,7 +26,7 @@ def find_one_latest(collection: Collection) -> Optional[Mapping[Any, Any]]:
         return None
 
 
-def find_id_latest(collection: Collection) -> Optional[ObjectId]:
+def find_id_latest(collection: Collection) -> ObjectId | None:
     """Return `ObjectId` of newest document.
 
     Args:

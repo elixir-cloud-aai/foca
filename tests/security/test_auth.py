@@ -3,17 +3,17 @@
 from copy import deepcopy
 from unittest.mock import MagicMock
 
+import pytest
 from connexion.exceptions import Unauthorized
 from flask import Flask
-from jwt.exceptions import (InvalidKeyError, InvalidTokenError)
-import pytest
+from jwt.exceptions import InvalidKeyError, InvalidTokenError
 from requests.exceptions import ConnectionError
 
-from foca.models.config import (Config, ValidationChecksEnum)
+from foca.models.config import Config, ValidationChecksEnum
 from foca.security.auth import (
     _get_public_keys,
-    _validate_jwt_userinfo,
     _validate_jwt_public_key,
+    _validate_jwt_userinfo,
     validate_token,
 )
 

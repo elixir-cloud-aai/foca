@@ -2,11 +2,11 @@
 
 from connexion import App
 
-from foca.models.config import Config
 from foca.factories.connexion_app import (
     __add_config_to_connexion_app,
     create_connexion_app,
-    )
+)
+from foca.models.config import Config
 
 CONFIG = Config()
 ERROR_CODE = 400

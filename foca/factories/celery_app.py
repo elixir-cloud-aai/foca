@@ -1,10 +1,10 @@
 """Factory for creating and configuring Celery application instances."""
 
-from inspect import stack
 import logging
+from inspect import stack
 
-from flask import Flask
 from celery import Celery
+from flask import Flask
 
 # Get logger instance
 logger = logging.getLogger(__name__)

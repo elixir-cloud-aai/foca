@@ -1,8 +1,7 @@
 """Factory for creating and configuring Connexion application instances."""
 
-from inspect import stack
 import logging
-from typing import Optional
+from inspect import stack
 
 from connexion import App
 
@@ -12,7 +11,7 @@ from foca.models.config import Config
 logger = logging.getLogger(__name__)
 
 
-def create_connexion_app(config: Optional[Config] = None) -> App:
+def create_connexion_app(config: Config | None = None) -> App:
     """Create and configure Connexion application instance.
 
     Args:
@@ -68,7 +67,7 @@ def __add_config_to_connexion_app(
 
     logger.debug('Flask app settings:')
     for (key, value) in app.app.config.items():
-        logger.debug('* {}: {}'.format(key, value))
+        logger.debug(f'* {key}: {value}')
 
     # Add user configuration to Flask app config
     setattr(app.app.config, 'foca', config)

@@ -1,9 +1,5 @@
 """Validation models for the petstore app."""
 
-from typing import (
-    List,
-    Optional,
-)
 
 from pydantic import BaseModel
 
@@ -23,7 +19,7 @@ class Pet(BaseModel):
     """
     id: int
     name: str
-    tag: Optional[str]
+    tag: str | None
 
 
 class Pets(BaseModel):
@@ -35,7 +31,7 @@ class Pets(BaseModel):
     Attributes:
         pets: List of pets.
     """
-    pets: List[Pet] = []
+    pets: list[Pet] = []
 
 
 class Error(BaseModel):

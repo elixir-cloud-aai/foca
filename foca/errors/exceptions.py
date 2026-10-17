@@ -1,9 +1,9 @@
 """Define and register exceptions raised in app context with Connexion app."""
 
-from copy import deepcopy
 import logging
+from copy import deepcopy
+from json import dumps
 from traceback import format_exception
-from typing import (Dict, List)
 
 from connexion import App
 from connexion.exceptions import (
@@ -12,11 +12,10 @@ from connexion.exceptions import (
     OAuthProblem,
     Unauthorized,
 )
-from flask import (current_app, Response)
-from json import dumps
+from flask import Response, current_app
 from werkzeug.exceptions import (
-    BadRequest,
     BadGateway,
+    BadRequest,
     GatewayTimeout,
     InternalServerError,
     NotFound,
@@ -144,7 +143,7 @@ def _log_exception(
         if format == "oneline":
             exc_str = _exc_to_str(exc=exc)
         elif format == "minimal":
-            exc_str = f"{type(exc).__name__}: {str(exc)}"
+            exc_str = f"{type(exc).__name__}: {exc!s}"
         else:
             exc_str = _exc_to_str(
                 exc=exc,
@@ -156,9 +155,9 @@ def _log_exception(
 
 
 def _subset_nested_dict(
-    obj: Dict,
-    key_sequence: List,
-) -> Dict:
+    obj: dict,
+    key_sequence: list,
+) -> dict:
     """Subset nested dictionary.
 
     Args:
@@ -179,9 +178,9 @@ def _subset_nested_dict(
 
 
 def _exclude_key_nested_dict(
-    obj: Dict,
-    key_sequence: List,
-) -> Dict:
+    obj: dict,
+    key_sequence: list,
+) -> dict:
     """Exclude key from nested dictionary.
 
     Args:
