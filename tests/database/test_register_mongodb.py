@@ -1,5 +1,7 @@
 """Tests for register_mongodb.py"""
 
+import logging
+
 import pytest
 from flask import Flask
 from flask_pymongo import PyMongo
@@ -76,6 +78,7 @@ class TestGetMongoUri:
         clean_env.setenv("MONGO_HOST", "ignored")
         assert get_mongo_uri(host="db", port=1234, db="my_db") == (
             "mongodb://u:p@h1:1,h2:2/my_db?replicaSet=rs&tls=true"
+            "&authSource=admin"
         )
 
     def test_uri_without_path(self, clean_env):
@@ -87,7 +90,7 @@ class TestGetMongoUri:
         """`MONGO_URI` with SRV scheme."""
         clean_env.setenv("MONGO_URI", "mongodb+srv://u:p@cluster.example.org")
         assert get_mongo_uri(db="my_db") == (
-            "mongodb+srv://u:p@cluster.example.org/my_db"
+            "mongodb+srv://u:p@cluster.example.org/my_db?authSource=admin"
         )
 
     def test_uri_auth_db(self, clean_env):
@@ -102,6 +105,27 @@ class TestGetMongoUri:
         clean_env.setenv("MONGO_URI", "mongodb://u:p@h1:1/admin?authSource=x")
         assert get_mongo_uri(db="my_db") == (
             "mongodb://u:p@h1:1/my_db?authSource=x"
+        )
+
+    def test_uri_without_path_no_credentials(self, clean_env):
+        """No `authSource` is added without credentials."""
+        clean_env.setenv("MONGO_URI", "mongodb://h1:1/?tls=true")
+        assert get_mongo_uri(db="my_db") == "mongodb://h1:1/my_db?tls=true"
+
+    def test_uri_semicolon_separator(self, clean_env):
+        """Options separated by semicolons are recognized and kept."""
+        clean_env.setenv("MONGO_URI", "mongodb://u:p@h1:1/admin?tls=true;w=1")
+        assert get_mongo_uri(db="my_db") == (
+            "mongodb://u:p@h1:1/my_db?tls=true;w=1;authSource=admin"
+        )
+
+    def test_uri_semicolon_auth_source(self, clean_env):
+        """Explicit `authSource` after semicolon is kept."""
+        clean_env.setenv(
+            "MONGO_URI", "mongodb://u:p@h1:1/admin?tls=true;authSource=x"
+        )
+        assert get_mongo_uri(db="my_db") == (
+            "mongodb://u:p@h1:1/my_db?tls=true;authSource=x"
         )
 
     def test_uri_dbname(self, clean_env):
@@ -123,7 +147,21 @@ def test__create_mongo_client_uri(clean_env):
     app = Flask(__name__)
     res = _create_mongo_client(app=app, db="my_db")
     assert isinstance(res, PyMongo)
-    assert app.config["MONGO_URI"] == "mongodb://u:p@h1:1/my_db?tls=false"
+    assert app.config["MONGO_URI"] == (
+        "mongodb://u:p@h1:1/my_db?tls=false&authSource=admin"
+    )
+
+
+def test__create_mongo_client_no_secrets_logged(clean_env, caplog):
+    """Credentials and options are not logged."""
+    clean_env.setenv(
+        "MONGO_URI",
+        "mongodb://u:secret@h1:1/?tlsCertificateKeyFilePassword=secret",
+    )
+    with caplog.at_level(logging.INFO):
+        _create_mongo_client(app=Flask(__name__), db="my_db")
+    assert "mongodb://h1:1/my_db" in caplog.text
+    assert "secret" not in caplog.text
 
 
 MONGO_DICT_MIN = {

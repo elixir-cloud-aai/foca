@@ -26,7 +26,10 @@ def test_adapter_uri(monkeypatch):
         mongo_config=MongoConfig(),
     )
     assert captured == {
-        "uri": "mongodb://u:p@h1:1,h2:2/access_control_db?replicaSet=rs",
+        "uri": (
+            "mongodb://u:p@h1:1,h2:2/access_control_db"
+            "?replicaSet=rs&authSource=admin"
+        ),
         "dbname": "access_control_db",
         "collection": "policy_rules",
     }
@@ -56,3 +59,28 @@ def test_adapter_uri_env_vars(monkeypatch):
     assert captured["uri"] == (
         "mongodb://user:secret@other:27017/access_control_db"
     )
+
+
+def test_adapter_dbname_override(monkeypatch):
+    """Casbin adapter honours `MONGO_DBNAME`, like other database clients."""
+    for var in ["MONGO_URI", "MONGO_HOST", "MONGO_PORT", "MONGO_USERNAME"]:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("MONGO_DBNAME", "other_db")
+    captured = {}
+
+    def mock_adapter(uri, dbname, collection):
+        captured.update(uri=uri, dbname=dbname)
+
+    monkeypatch.setattr(module, "Adapter", mock_adapter)
+    module.register_casbin_enforcer(
+        app=App(__name__),
+        access_control_config=AccessControlConfig(
+            db_name="access_control_db",
+            collection_name="policy_rules",
+        ),
+        mongo_config=MongoConfig(host="mongodb", port=27017),
+    )
+    assert captured == {
+        "uri": "mongodb://mongodb:27017/other_db",
+        "dbname": "other_db",
+    }
