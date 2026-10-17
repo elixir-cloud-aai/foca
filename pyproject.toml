@@ -59,10 +59,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "coverage>=7.6",
-    "flake8>=7.1",
     "mongomock>=4.3",
     "mypy>=1.13",
+    "pre-commit>=4",
     "pytest>=8.3",
+    "ruff>=0.17",
     "types-PyYAML",
     "types-requests",
 ]
@@ -86,6 +87,42 @@ include = ["foca*"]
 [tool.setuptools.package-data]
 "foca" = ["py.typed"]
 "foca.security.access_control.api" = ["*.yaml", "*.conf"]
+
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.lint]
+select = [
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "D",    # pydocstyle
+    "E",    # pycodestyle errors
+    "F",    # Pyflakes
+    "I",    # isort
+    "PL",   # Pylint
+    "RUF",  # Ruff-specific rules
+    "SIM",  # flake8-simplify
+    "UP",   # pyupgrade
+    "W",    # pycodestyle warnings
+]
+ignore = [
+    # Complexity limits; refactoring is tracked separately
+    "PLR0912",  # too-many-branches
+    "PLR0913",  # too-many-arguments
+    "PLR0915",  # too-many-statements
+    "PLR0917",  # too-many-positional-arguments
+    # setattr() is used deliberately for dynamic attributes (e.g., on configs)
+    "B010",     # set-attr-with-constant
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "D",        # pydocstyle
+    "PLR2004",  # magic-value-comparison
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.mypy]
 ignore_missing_imports = true
