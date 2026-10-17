@@ -397,6 +397,13 @@ class TestCurrentSubject:
         finally:
             ctx.pop()
 
+    def test_invalid_group_claim(self, helper_app):
+        ctx = self._context(helper_app, {"sub": "x", "groups": {"a": 1}})
+        try:
+            assert get_current_groups() == []
+        finally:
+            ctx.pop()
+
     def test_groups_without_mapping(self, helper_app):
         helper_app.config.foca.security.access_control.group_mapping = None
         ctx = self._context(helper_app, {"sub": "x", "groups": ["a", "b"]})
@@ -456,6 +463,16 @@ class TestResourceRoles:
             assert (rule["v0"], rule["v1"], rule["v2"]) == (
                 "user:alice", "owner", "/items/1"
             )
+
+    def test_list_unprefixed_subjects(self, helper_app):
+        with helper_app.app_context():
+            helper_app.config["casbin_adapter"].save_policy_line(
+                ptype="g2", rule=["group:testers", "maintainer", "/items/1"]
+            )
+            add_resource_role("alice", "owner", "/items/1")
+            assert list_resource_roles("/items/1") == [
+                ("group:testers", "maintainer"), ("alice", "owner"),
+            ]
 
     def test_custom_subject_prefix(self, helper_app):
         helper_app.config.foca.security.access_control.subject_prefix = "u/"

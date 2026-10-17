@@ -1,0 +1,5 @@
+security:
+    auth:
+        required: False
+    access_control:
+        enforce: True

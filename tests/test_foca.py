@@ -3,6 +3,7 @@
 from pathlib import Path
 import pytest
 import shutil
+from unittest import mock
 
 from celery import Celery
 from connexion import App
@@ -32,6 +33,7 @@ VALID_CORS_CONF_DISABLED = DIR / "conf_valid_cors_disabled.yaml"
 VALID_CORS_CONF_ENABLED = DIR / "conf_valid_cors_enabled.yaml"
 INVALID_ACCESS_CONTROL_CONF = DIR / "conf_invalid_access_control.yaml"
 VALID_ACCESS_CONTROL_CONF = DIR / "conf_valid_access_control.yaml"
+ENFORCE_WITHOUT_AUTH_CONF = DIR / "conf_enforce_access_control_without_auth.yaml"
 
 
 def create_modified_api_conf(path, temp_dir, api_specs_in, api_specs_out):
@@ -135,6 +137,17 @@ def test_foca_invalid_access_control():
     foca = Foca(config_file=INVALID_ACCESS_CONTROL_CONF)
     app = foca.create_app()
     assert app.app.config.foca.db is None
+
+
+def test_foca_enforce_access_control_without_auth():
+    """Ensures error is logged if enforcement is enabled without auth."""
+    foca = Foca(config_file=ENFORCE_WITHOUT_AUTH_CONF)
+    with mock.patch("foca.foca.logger") as logger:
+        app = foca.create_app()
+    assert app.app.config.foca.db is None
+    logger.error.assert_called_once_with(
+        "Access control not enforced: security config disabled."
+    )
 
 
 def test_foca_valid_access_control():
