@@ -57,7 +57,28 @@ def register_access_control(
 
     access_control_db = str(access_control_config.db_name)
     access_control_collection = access_control_config.collection_name
+
+    # Remove policy collection (and database) added by a previous
+    # registration with the same configuration (e.g., when creating an app
+    # repeatedly), so that it is not mistaken for an app collection
+    registered = access_control_config._registered_collection
+    if registered is not None:
+        registered_db, registered_collection, added_db = registered
+        registered_db_conf = mongo_config.dbs.get(registered_db)
+        if added_db:
+            mongo_config.dbs.pop(registered_db, None)
+        elif (
+            registered_db_conf is not None
+            and registered_db_conf.collections is not None
+        ):
+            registered_db_conf.collections.pop(registered_collection, None)
+
     app_db_conf = mongo_config.dbs.get(access_control_db)
+    access_control_config._registered_collection = (
+        access_control_db,
+        str(access_control_collection),
+        app_db_conf is None,
+    )
 
     if app_db_conf is None:
         # Register new database for access control.

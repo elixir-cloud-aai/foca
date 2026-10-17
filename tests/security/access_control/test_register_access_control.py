@@ -129,7 +129,7 @@ class TestRegisterAccessControlSetup:
     """Tests for registering the access control database and API."""
 
     @staticmethod
-    def _register(mongo_config, **access_control_kwargs):
+    def _register(mongo_config, times=1, **access_control_kwargs):
         access_control_kwargs = {
             "db_name": "access_control_db",
             "collection_name": "policy_rules",
@@ -139,13 +139,15 @@ class TestRegisterAccessControlSetup:
             api_controllers=DEFAULT_SPEC_CONTROLLER,
             **access_control_kwargs,
         )
-        cnx_app = create_connexion_app(Config(db=mongo_config))
-        register_access_control(
-            cnx_app=cnx_app,
-            mongo_config=mongo_config,
-            access_control_config=access_control_config,
-        )
-        return cnx_app.app.config.foca.db
+        for _ in range(times):
+            cnx_app = create_connexion_app(Config(db=mongo_config))
+            register_access_control(
+                cnx_app=cnx_app,
+                mongo_config=mongo_config,
+                access_control_config=access_control_config,
+            )
+            mongo_config = cnx_app.app.config.foca.db
+        return mongo_config
 
     @staticmethod
     def _app_db_config():
@@ -188,6 +190,20 @@ class TestRegisterAccessControlSetup:
         collections = db.dbs["app_db"].collections
         assert collections["items"].client is items_client
         assert collections["policy_rules"].client == app_db["policy_rules"]
+
+    def test_separate_db_repeated(self):
+        """Repeated registration reuses the access control database."""
+        db = self._register(self._app_db_config(), times=2)
+        assert set(db.dbs) == {"app_db", "access_control_db"}
+        assert set(db.dbs["app_db"].collections) == {"items"}
+        assert set(db.dbs["access_control_db"].collections) == {"policy_rules"}
+
+    def test_shared_db_repeated(self):
+        """Repeated registration reuses the policy collection."""
+        db = self._register(self._app_db_config(), times=2, db_name="app_db")
+        collections = db.dbs["app_db"].collections
+        assert set(collections) == {"items", "policy_rules"}
+        assert collections["policy_rules"].client is not None
 
     def test_shared_db_collection_clash(self):
         """Policy collection must not be an app collection."""

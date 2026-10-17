@@ -16,6 +16,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     field_validator,
     model_validator,
 )
@@ -735,6 +736,11 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     claim_groups: str | None = None
     group_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
+    # Database and collection names of the policy collection added by FOCA,
+    # and whether FOCA also added the database; set on registration
+    _registered_collection: tuple[str, str, bool] | None = PrivateAttr(
+        default=None
+    )
 
     @field_validator("subject_prefix")
     @classmethod
