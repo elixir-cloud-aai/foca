@@ -8,9 +8,10 @@ the pet.
 
 import logging
 
-from exceptions import NotFound
+from exceptions import InternalServerError, NotFound
 from flask import current_app, make_response, request
 from pymongo.collection import Collection
+from pymongo.errors import DuplicateKeyError
 
 from foca.security.access_control import (
     add_resource_role,
@@ -19,6 +20,8 @@ from foca.security.access_control import (
 )
 
 logger = logging.getLogger(__name__)
+
+MAX_INSERT_ATTEMPTS = 10
 
 
 def _get_collection() -> Collection:
@@ -42,20 +45,38 @@ def findPets(limit=None, tags=None):
     return list(records)
 
 
+def _pet_path(id: int) -> str:
+    # Canonical resource path of a pet, independent of how the request path
+    # spells the ID (e.g., `/pets/00` for pet 0)
+    base_path = request.path.rstrip("/")
+    if request.view_args and "id" in request.view_args:
+        base_path = base_path.rsplit("/", 1)[0]
+    return f"{base_path}/{id}"
+
+
 def addPet(pet):
     db_collection = _get_collection()
-    counter = 0
-    ctr = db_collection.find({}).sort([("$natural", -1)])
-    if db_collection.count_documents({}) != 0:
-        counter = ctr[0].get("id") + 1
-    record = {"id": counter, "name": pet["name"], "tag": pet["tag"]}
-    db_collection.insert_one(record)
+    # IDs are unique (cf. index in `config.yaml`); if a concurrent request
+    # took the next ID, try again with the one after
+    for _ in range(MAX_INSERT_ATTEMPTS):
+        last = db_collection.find_one(
+            {}, {"_id": False, "id": True}, sort=[("id", -1)]
+        )
+        counter = 0 if last is None else last["id"] + 1
+        record = {"id": counter, "name": pet["name"], "tag": pet["tag"]}
+        try:
+            db_collection.insert_one(record)
+            break
+        except DuplicateKeyError:
+            continue
+    else:
+        raise InternalServerError
     del record["_id"]
     # Make the creator the owner of the new pet
     add_resource_role(
         subject=get_current_subject(),
         role="owner",
-        resource=f"{request.path.rstrip('/')}/{counter}",
+        resource=_pet_path(counter),
     )
     return record
 
@@ -83,6 +104,6 @@ def deletePet(id):
         {"id": id},
     )
     # Remove all roles granted on the deleted pet
-    remove_resource(request.path)
+    remove_resource(_pet_path(id))
     response = make_response("", 204)
     return response

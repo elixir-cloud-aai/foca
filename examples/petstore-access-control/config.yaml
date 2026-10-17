@@ -53,7 +53,11 @@ db:
         petstore-access-control:
             collections:
                 pets:
-                    indexes: null
+                    indexes:
+                        - keys:
+                              id: 1
+                          options:
+                              unique: True
 
 exceptions:
     required_members: [['message'], ['code']]
