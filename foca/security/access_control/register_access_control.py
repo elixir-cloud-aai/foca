@@ -138,7 +138,7 @@ def register_permission_specs(
 
     app.add_api(
         specification=spec.path[0],  # type: ignore[index]
-        resolver=AccessControlResolver(),
+        resolver=AccessControlResolver(enforce_all=True),
         **spec.model_dump().get("connexion", {}),
     )
     return app

@@ -7,12 +7,15 @@ from pydantic import ValidationError
 import pytest
 
 from foca.models.config import (
+    AccessControlConfig,
+    AuthConfig,
     Config,
     CollectionConfig,
     DBConfig,
     ExceptionConfig,
     IndexConfig,
     MongoConfig,
+    SecurityConfig,
     SpecConfig,
 )
 
@@ -385,3 +388,40 @@ def test_SpecConfig_extra_arg():
     """Test SpecConfig instantiation; extra argument."""
     with pytest.raises(ValidationError):
         SpecConfig(non_existing=PATH)
+
+
+@pytest.mark.parametrize("prefix", ["user:", "u/", "user:group:", "groups:"])
+def test_AccessControlConfig_subject_prefix(prefix):
+    """Test AccessControlConfig instantiation; valid subject prefixes."""
+    res = AccessControlConfig(subject_prefix=prefix)
+    assert res.subject_prefix == prefix
+
+
+@pytest.mark.parametrize("prefix", ["", "group:", "group:x", "g", "group"])
+def test_AccessControlConfig_subject_prefix_invalid(prefix):
+    """Test AccessControlConfig instantiation; subject prefixes that may
+    collide with role names or group subjects."""
+    with pytest.raises(ValidationError):
+        AccessControlConfig(subject_prefix=prefix)
+
+
+def test_SecurityConfig_enforce_without_auth():
+    """Test SecurityConfig instantiation; enforcing access control requires
+    authentication."""
+    with pytest.raises(ValidationError):
+        SecurityConfig(
+            auth=AuthConfig(required=False),
+            access_control=AccessControlConfig(enforce=True),
+        )
+
+
+@pytest.mark.parametrize("required,enforce", [
+    (True, True), (True, False), (False, False),
+])
+def test_SecurityConfig_enforce(required, enforce):
+    """Test SecurityConfig instantiation; valid auth and enforcement."""
+    res = SecurityConfig(
+        auth=AuthConfig(required=required),
+        access_control=AccessControlConfig(enforce=enforce),
+    )
+    assert res.access_control.enforce is enforce

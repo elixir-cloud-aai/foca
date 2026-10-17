@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Tuple
+from typing import Dict, List
 
 from connexion import App
 
@@ -105,7 +105,6 @@ def register_openapi(
         if enforce_access_control:
             connexion_kwargs['resolver'] = AccessControlResolver(
                 resolver=connexion_kwargs.get('resolver'),
-                operations=_get_enforced_operations(spec_parsed),
             )
         app.add_api(
             specification=spec_parsed,
@@ -114,30 +113,3 @@ def register_openapi(
         logger.info(f"API endpoints added from spec: {spec.path_out}")
 
     return app
-
-
-def _get_enforced_operations(spec: Dict) -> FrozenSet[Tuple[str, str]]:
-    """Get operations to enforce access control policies on.
-
-    Operations are enforced if they require authentication, i.e., if their
-    effective `security` requirements are not empty, and if they do not set
-    `x-foca-access-control: false`.
-
-    Args:
-        spec: OpenAPI specification.
-
-    Returns:
-        Path and (lowercase) HTTP method of the operations to enforce.
-    """
-    global_security = spec.get('security')
-    operations = set()
-    for path, path_item_object in spec.get('paths', {}).items():
-        for operation, operation_object in path_item_object.items():
-            if operation not in _OPERATION_OBJECT_FIELDS:
-                continue
-            if operation_object.get('x-foca-access-control') is False:
-                continue
-            if not operation_object.get('security', global_security):
-                continue
-            operations.add((path, operation))
-    return frozenset(operations)

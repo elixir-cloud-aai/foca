@@ -3,7 +3,6 @@
 from pathlib import Path
 import pytest
 import shutil
-from unittest import mock
 
 from celery import Celery
 from connexion import App
@@ -140,14 +139,9 @@ def test_foca_invalid_access_control():
 
 
 def test_foca_enforce_access_control_without_auth():
-    """Ensures error is logged if enforcement is enabled without auth."""
-    foca = Foca(config_file=ENFORCE_WITHOUT_AUTH_CONF)
-    with mock.patch("foca.foca.logger") as logger:
-        app = foca.create_app()
-    assert app.app.config.foca.db is None
-    logger.error.assert_called_once_with(
-        "Access control not enforced: security config disabled."
-    )
+    """Ensures app refuses to start if enforcement is enabled without auth."""
+    with pytest.raises(ValidationError):
+        Foca(config_file=ENFORCE_WITHOUT_AUTH_CONF)
 
 
 def test_foca_valid_access_control():

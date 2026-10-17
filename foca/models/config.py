@@ -29,7 +29,8 @@ from typing_extensions import Self
 
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
-    DEFAULT_MODEL_FILE
+    DEFAULT_MODEL_FILE,
+    GROUP_PREFIX,
 )
 
 
@@ -682,6 +683,8 @@ class AccessControlConfig(FOCABaseConfig):
             `AuthConfig.claim_identity`.
         subject_prefix: Prefix added to the subject in policy rules (e.g.,
             `user:alice`), so that subjects cannot collide with role names.
+            Must not be empty and must not overlap with `group:`, the prefix
+            of group claim values.
         claim_groups: Claim of the validated JWT listing groups or
             entitlements of the subject (e.g., `eduperson_entitlement`). If
             set, its values are used as additional subjects (roles) when
@@ -746,6 +749,34 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     claim_groups: Optional[str] = None
     group_mapping: Optional[Dict[str, str]] = None
     resource_roles_cover_subpaths: bool = True
+
+    @field_validator('subject_prefix')
+    @classmethod
+    def validate_subject_prefix(cls, v: str) -> str:
+        """Validate the subject prefix.
+
+        Args:
+            v: Subject prefix.
+
+        Returns:
+            Subject prefix.
+
+        Raises:
+            ValueError: The prefix is empty, so that subjects may collide with
+                role names, or it overlaps with the prefix of group claim
+                values, so that subjects may collide with groups.
+        """
+        if not v:
+            raise ValueError(
+                "'subject_prefix' must not be empty, as subjects could "
+                "otherwise collide with role names"
+            )
+        if GROUP_PREFIX.startswith(v) or v.startswith(GROUP_PREFIX):
+            raise ValueError(
+                f"'subject_prefix' must not overlap with '{GROUP_PREFIX}', "
+                "as subjects could otherwise collide with groups"
+            )
+        return v
 
     @field_validator('model', mode='before')
     @classmethod
@@ -885,7 +916,8 @@ class SecurityConfig(FOCABaseConfig):
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type.
+            data type, or access control is enforced while authentication is
+            disabled.
 
     Example:
         >>> SecurityConfig(
@@ -906,6 +938,24 @@ owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'}))
     access_control: AccessControlConfig = AccessControlConfig()
     auth: AuthConfig = AuthConfig()
     cors: CORSConfig = CORSConfig()
+
+    @model_validator(mode="after")
+    def validate_enforce_access_control(self) -> Self:
+        """Ensure that access control is only enforced with authentication.
+
+        Returns:
+            Validated security configuration.
+
+        Raises:
+            ValueError: Enforcing access control is enabled while
+                authentication is disabled, in which case access control is
+                not registered, and policies would not be enforced.
+        """
+        if self.access_control.enforce and not self.auth.required:
+            raise ValueError(
+                "'access_control.enforce' requires 'auth.required'"
+            )
+        return self
 
 
 class IndexConfig(FOCABaseConfig):
