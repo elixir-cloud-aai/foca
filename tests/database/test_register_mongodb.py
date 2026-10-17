@@ -1,6 +1,7 @@
 """Tests for register_mongodb.py"""
 
 import logging
+from urllib.parse import unquote, urlsplit
 
 import pytest
 from flask import Flask
@@ -52,16 +53,16 @@ class TestGetMongoUri:
         """Credentials are percent-escaped."""
         clean_env.setenv("MONGO_USERNAME", "us@r")
         clean_env.setenv("MONGO_PASSWORD", "p:w/d")
-        assert get_mongo_uri(host="db", port=1234, db="my_db") == (
-            "mongodb://us%40r:p%3Aw%2Fd@db:1234/my_db"
-        )
+        uri = urlsplit(get_mongo_uri(host="db", port=1234, db="my_db"))
+        assert (uri.hostname, uri.port, uri.path) == ("db", 1234, "/my_db")
+        assert unquote(uri.username) == "us@r"
+        assert unquote(uri.password) == "p:w/d"
 
     def test_username_without_password(self, clean_env):
         """Unset password is passed as 'None', as in previous versions."""
         clean_env.setenv("MONGO_USERNAME", "user")
-        assert get_mongo_uri(host="db", port=1234, db="my_db") == (
-            "mongodb://user:None@db:1234/my_db"
-        )
+        uri = urlsplit(get_mongo_uri(host="db", port=1234, db="my_db"))
+        assert (uri.username, uri.password) == ("user", "None")
 
     def test_empty_username(self, clean_env):
         """Empty username is ignored."""

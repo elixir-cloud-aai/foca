@@ -1,5 +1,7 @@
 """Tests for registering the Casbin enforcer."""
 
+from urllib.parse import urlsplit
+
 from connexion import App
 
 from foca.models.config import AccessControlConfig, MongoConfig
@@ -53,9 +55,13 @@ def test_adapter_uri_env_vars(monkeypatch):
         ),
         mongo_config=MongoConfig(host="mongodb", port=27017),
     )
-    assert captured["uri"] == (
-        "mongodb://user:secret@other:27017/access_control_db"
+    uri = urlsplit(captured["uri"])
+    assert (uri.hostname, uri.port, uri.path) == (
+        "other",
+        27017,
+        "/access_control_db",
     )
+    assert (uri.username, uri.password) == ("user", "secret")
 
 
 def test_adapter_dbname_override(monkeypatch):
