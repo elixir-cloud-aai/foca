@@ -158,10 +158,12 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
           PY_VERSION: ${{ matrix.python-version }}
           LATEST: ${{ matrix.latest }}
+          # Same date for all matrix jobs of a push, even across midnight
+          COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
         run: |
           set -x
           IMAGE="${DOCKERHUB_ORG}/${REPO_NAME}"
-          TAG="$(date '+%Y%m%d')-py${PY_VERSION}"
+          TAG="$(date -u -d "${COMMIT_TIMESTAMP}" '+%Y%m%d')-py${PY_VERSION}"
           docker build \
               -t "${IMAGE}:${TAG}" \
               -f docker/Dockerfile \
