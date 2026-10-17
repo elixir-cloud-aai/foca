@@ -7,7 +7,7 @@ from typing import Dict, Optional
 from unittest import mock
 
 from connexion.exceptions import Unauthorized
-from connexion.resolver import Resolver
+from connexion.resolver import Resolution, Resolver
 from flask import Flask
 from flask.globals import request_ctx
 import mongomock
@@ -100,6 +100,14 @@ list_items = create_item = get_item = update_item = delete_item = \
 def function_resolver(operation_id: str):
     """Callable operation resolver, as accepted by Connexion."""
     return controller
+
+
+class DuckTypedResolver:
+    """Operation resolver not inheriting from `Resolver`, as accepted by
+    Connexion."""
+
+    def resolve(self, operation) -> Resolution:
+        return Resolution(controller, operation.operation_id)
 
 
 def _operation(operation_id: str, **extra) -> Dict:
@@ -359,6 +367,8 @@ class TestEnforcement:
         function_resolver,
         # resolver instance
         Resolver(function_resolver=function_resolver),
+        # resolver object not inheriting from `Resolver`
+        DuckTypedResolver(),
     ])
     @pytest.mark.parametrize("method,path,user,status", [
         ("delete", "/items/1", "alice", 200),

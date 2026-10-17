@@ -222,9 +222,10 @@ class AccessControlResolver(Resolver):
     resolved and security requirements inherited from the specification.
 
     Args:
-        resolver: Resolver to resolve functions with, or a function
-            resolving operation identifiers to functions, as accepted by
-            Connexion. Defaults to Connexion's default resolver.
+        resolver: Resolver to resolve functions with (any object with a
+            `resolve()` method), or a function resolving operation
+            identifiers to functions, as accepted by Connexion. Defaults to
+            Connexion's default resolver.
         enforce_all: Whether to enforce policies on all operations. If
             `False`, policies are only enforced on operations that require
             authentication and do not set `x-foca-access-control: false`.
@@ -240,13 +241,15 @@ class AccessControlResolver(Resolver):
         enforce_all: bool = False,
     ):
         super().__init__()
+        # Same normalization as Connexion's `App.add_api()`: wrap callables,
+        # use any other resolver object (with a `resolve()` method) as is
         self.resolver: Resolver
         if resolver is None:
             self.resolver = Resolver()
-        elif isinstance(resolver, Resolver):
-            self.resolver = resolver
-        else:
+        elif callable(resolver):
             self.resolver = Resolver(function_resolver=resolver)
+        else:
+            self.resolver = resolver
         self.enforce_all = enforce_all
 
     def _is_enforced(self, operation) -> bool:
