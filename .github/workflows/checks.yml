@@ -1,7 +1,6 @@
-# This workflow will build the project with multiple Python versions, lint, run
-# tests, and build and push Docker images.
-# For more information see:
-# https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+# Lint, type-check and test the package and build the distributions; run
+# integration tests on the petstore example; on pushes to the default branch,
+# build and push Docker images.
 
 name: CI
 
@@ -11,134 +10,165 @@ on:
   pull_request:
     branches: [dev]
 
-jobs:
-  Test:
-    name: Run linting and unit tests
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix:
-        py-version-img:
-          [
-            ["3.10", "3.10-slim-trixie"],
-            ["3.11", "3.11-slim-trixie"],
-            ["3.12", "3.12-slim-trixie"],
-          ]
-        mongodb-version: ["4.4", "5.0", "6.0", "7.0"]
-        mongodb-port: [12345]
+permissions:
+  contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint, type-check and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.py-version-img[0] }}
-        uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: ${{ matrix.py-version-img[0] }}
-      - name: Install requirements
-        run: |
-          pip install -e .[dev]
-          pip install setuptools
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package and tools
+        run: pip install -e .[dev] build twine
       - name: Lint with flake8
         run: flake8
-      - name: Run mypy
+      - name: Type-check with mypy
         run: mypy foca
+      - name: Build distributions
+        run: python -m build
+      - name: Check distributions
+        run: twine check --strict dist/*
+
+  test:
+    name: Unit tests (Python ${{ matrix.python-version }}, MongoDB ${{ matrix.mongodb-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        mongodb-version: ["8.0"]
+        include:
+          - python-version: "3.13"
+            mongodb-version: "7.0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package
+        run: pip install -e .[dev]
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.7.0
+        uses: supercharge/mongodb-github-action@315db7fe45ac2880b7758f1933e6e5d59afd5e94 # 1.12.1
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
-          mongodb-port: ${{ matrix.mongodb-port }}
-      - name: Calculate unit test coverage
+          mongodb-port: 12345
+      - name: Run unit tests with coverage
         run: |
-          coverage run --source foca -m pytest -W ignore::DeprecationWarning
+          coverage run --source foca -m pytest
           coverage xml
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        if: matrix.python-version == '3.13' && matrix.mongodb-version == '8.0'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: test_unit
           files: ./coverage.xml
           fail_ci_if_error: true
           verbose: true
-      - name: Run tests on petstore app
-        env:
-          DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
-          REPO_NAME: ${{ github.event.repository.name }}
-        run: |
-          export PY_VERSION=${{ matrix.py-version-img[0] }}
-          export PY_IMAGE=${{ matrix.py-version-img[1] }}
-          docker build \
-              -t ${DOCKERHUB_ORG}/${REPO_NAME}:petstore \
-              -f docker/Dockerfile \
-              --build-arg PY_IMAGE=${PY_IMAGE} \
-              .
-          cd ./examples/petstore
-          docker compose build foca-petstore-root
-          docker compose up -d
-          cd ../..
-          sleep 10
-          pytest ./tests/integration_tests.py
 
-  Docker:
+  integration:
+    name: Integration tests (petstore)
     runs-on: ubuntu-latest
-    needs: [Test]
+    timeout-minutes: 20
+    env:
+      PETSTORE_PY_IMAGE: 3.13-slim-trixie
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package
+        run: pip install -e .[dev]
+      - name: Build and start petstore app
+        working-directory: examples/petstore
+        run: |
+          docker compose build foca-petstore-root
+          docker compose up -d --build
+      - name: Wait for petstore app
+        run: |
+          for _ in $(seq 1 30); do
+            curl -s -o /dev/null http://localhost:8080/ && exit 0
+            sleep 2
+          done
+          echo "Petstore app did not become ready" >&2
+          exit 1
+      - name: Run integration tests
+        run: pytest tests/integration_tests.py
+      - name: Show app logs
+        if: failure()
+        working-directory: examples/petstore
+        run: docker compose logs
+
+  docker:
+    name: Publish image (Python ${{ matrix.python-version }})
+    if: github.event_name == 'push'
+    needs: [lint, test, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: true
       matrix:
-        py-version-img-tag:
-          [
-            ["3.10", "3.10-slim-trixie", ""],
-            ["3.11", "3.11-slim-trixie", ""],
-            ["3.12", "3.12-slim-trixie", "latest"],
-          ]
-
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - python-version: "3.13"
+            latest: true
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      - name: Build & Publish image to DockerHub
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_LOGIN }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push image
         env:
           DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
-          DOCKERHUB_LOGIN: ${{ secrets.DOCKERHUB_LOGIN }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           REPO_NAME: ${{ github.event.repository.name }}
+          PY_VERSION: ${{ matrix.python-version }}
+          LATEST: ${{ matrix.latest }}
+          # Same date for all matrix jobs of a push, even across midnight
+          COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
         run: |
           set -x
-          export ON_LATEST=FALSE
-          export ON_DEFAULT=FALSE
-          export PY_VERSION=${{ matrix.py-version-img-tag[0] }}
-          export PY_IMAGE=${{ matrix.py-version-img-tag[1] }}
-          export PY_TAG=${{ matrix.py-version-img-tag[2] }}
-          export DEFAULT_BRANCH=${{ github.event.repository.default_branch }}
-          if [[ "$PY_TAG" == "latest" ]]; then
-              export ON_LATEST=TRUE
-          fi
-          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            export BRANCH_NAME=${GITHUB_REF##*/}
-          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            export BRANCH_NAME=${GITHUB_HEAD_REF##*/}
-          else
-            export BRANCH_NAME=INVALID_EVENT_BRANCH_UNKNOWN
-          fi
-          if [[ "$BRANCH_NAME" == "$DEFAULT_BRANCH" ]]; then
-              export TAG=$(date '+%Y%m%d')
-              export ON_DEFAULT=TRUE
-          else
-              export TAG=$BRANCH_NAME
-          fi
-          export TAG="${TAG}-py${PY_VERSION}"
-          echo "TAG: ${TAG}"
+          IMAGE="${DOCKERHUB_ORG}/${REPO_NAME}"
+          TAG="$(date -u -d "${COMMIT_TIMESTAMP}" '+%Y%m%d')-py${PY_VERSION}"
           docker build \
-              -t ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG} \
+              -t "${IMAGE}:${TAG}" \
               -f docker/Dockerfile \
-              --build-arg PY_IMAGE=${PY_IMAGE} \
+              --build-arg PY_IMAGE="${PY_VERSION}-slim-trixie" \
               .
-          echo $DOCKERHUB_TOKEN | \
-              docker login -u $DOCKERHUB_LOGIN --password-stdin
-          docker push ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG}
-          # if on default branch, we also want to update the "latest" tag
-          if [[ "$ON_LATEST" = "TRUE" && "$ON_DEFAULT" == "TRUE" ]]; then
-              docker tag \
-                  ${DOCKERHUB_ORG}/${REPO_NAME}:${TAG} \
-                  ${DOCKERHUB_ORG}/${REPO_NAME}:latest
-              docker push ${DOCKERHUB_ORG}/${REPO_NAME}:latest
+          docker push "${IMAGE}:${TAG}"
+          if [[ "${LATEST}" == "true" ]]; then
+              docker tag "${IMAGE}:${TAG}" "${IMAGE}:latest"
+              docker push "${IMAGE}:latest"
           fi
-          rm ${HOME}/.docker/config.json
