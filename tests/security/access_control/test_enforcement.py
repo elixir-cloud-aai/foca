@@ -7,6 +7,7 @@ from typing import Dict, Optional
 from unittest import mock
 
 from connexion.exceptions import Unauthorized
+from connexion.resolver import Resolver
 from flask import Flask
 from flask.globals import request_ctx
 import mongomock
@@ -353,18 +354,24 @@ class TestEnforcement:
         )
         assert response.status_code == status
 
+    @pytest.mark.parametrize("resolver", [
+        # callable resolving operation identifiers
+        function_resolver,
+        # resolver instance
+        Resolver(function_resolver=function_resolver),
+    ])
     @pytest.mark.parametrize("method,path,user,status", [
         ("delete", "/items/1", "alice", 200),
         ("delete", "/items/1", "dave", 403),
         ("get", "/items", None, 200),
     ])
-    def test_enforce_callable_resolver(
-        self, tmp_path, method, path, user, status
+    def test_enforce_custom_resolver(
+        self, tmp_path, resolver, method, path, user, status
     ):
         app = _create_app(
             tmp_path,
             _access_control_config(),
-            connexion={"resolver": function_resolver},
+            connexion={"resolver": resolver},
         )
         response = getattr(app.test_client(), method)(
             path, headers=_headers(user)
