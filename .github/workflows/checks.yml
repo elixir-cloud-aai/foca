@@ -20,7 +20,6 @@ jobs:
       matrix:
         py-version-img:
           [
-            ["3.9", "3.9-slim-bookworm"],
             ["3.10", "3.10-slim-bookworm"],
             ["3.11", "3.11-slim-bookworm"],
             ["3.12", "3.12-slim-bookworm"],
@@ -87,7 +86,6 @@ jobs:
       matrix:
         py-version-img-tag:
           [
-            ["3.9", "3.9-slim-bookworm", ""],
             ["3.10", "3.10-slim-bookworm", ""],
             ["3.11", "3.11-slim-bookworm", ""],
             ["3.12", "3.12-slim-bookworm", "latest"],
