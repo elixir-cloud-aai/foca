@@ -2,6 +2,7 @@
 
 import importlib
 import operator
+from contextlib import suppress
 from copy import deepcopy
 from enum import Enum
 from functools import reduce
@@ -32,6 +33,7 @@ def _validate_log_level_choices(cls, level: int) -> int:
     """Ensure that a valid logging level is set.
 
     Args:
+        cls: Model class.
         level: Log level choice to be validated.
 
     Returns:
@@ -92,8 +94,7 @@ class ValidationMethodsEnum(Enum):
 
 
 class ValidationChecksEnum(Enum):
-    """Enumerator for values indicating how many JSON Web Token (JWT)
-    validation methods are requested.
+    """Enumerator for how many JWT validation methods are requested.
 
     Attributes:
         all: All JWT validation methods need to pass; validation fails after
@@ -138,8 +139,7 @@ class FOCABaseConfig(BaseModel):
 
 
 class ServerConfig(FOCABaseConfig):
-    """Model for configuration parameters to set up a Flask or Connexion
-    app instance.
+    """Model for configuration parameters of a Flask or Connexion app.
 
     Args:
         host: Host at which the application is exposed.
@@ -151,7 +151,7 @@ class ServerConfig(FOCABaseConfig):
         environment: Variable to specify the application environment variable.
             See Flask documentation for more details.
         testing: Enable/disable testing mode. If ``True``, exceptions are
-            propagated rather than handled by the the app’s error handlers.
+            propagated rather than handled by the app's error handlers.
         use_reloader: Enable/disable the application reloader. If
             ``debug=True``, enabling this will allow the server to reload
             automatically on code changes. See Flask documentation for more
@@ -167,7 +167,7 @@ class ServerConfig(FOCABaseConfig):
         environment: Variable to specify the application environment variable.
             See Flask documentation for more details.
         testing: Enable/disable testing mode. If ``True``, exceptions are
-            propagated rather than handled by the the app’s error handlers.
+            propagated rather than handled by the app's error handlers.
         use_reloader: Enable/disable the application reloader. If
             ``debug=True``, enabling this will allow the server to reload
             automatically on code changes. See Flask documentation for more
@@ -199,8 +199,7 @@ opment', testing=False, use_reloader=True)
 
 
 class ExceptionConfig(FOCABaseConfig):
-    """Model for app context JSON exceptions to be registered with a Connexion
-    app.
+    """Model for JSON exceptions to be registered with a Connexion app.
 
     Args:
         required_members: List of dictionary keys indicating which JSON members
@@ -397,13 +396,11 @@ imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
         # Ensure that each exception fulfills all requirements
         for key, val in exc_dict.items():
             # Keys are exceptions
-            try:
-                key.__cause__
-            except AttributeError as exc:
+            if not hasattr(key, "__cause__"):
                 raise ValueError(
                     f"Key '{key}' in 'exceptions' dictionary does not appear "
                     "to be an Exception."
-                ) from exc
+                )
             # Values are dictionaries
             if not isinstance(val, dict):
                 raise ValueError(
@@ -426,10 +423,8 @@ imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
             if limited_members:
                 members = deepcopy(val)
                 for keys in allowed_members:
-                    try:
+                    with suppress(KeyError):
                         reduce(lambda v, k: v.pop(k), keys, members)
-                    except KeyError:
-                        pass
                 if members:
                     raise ValueError(
                         f"Exception '{key}' in 'exceptions' dictionary has "
@@ -456,8 +451,7 @@ imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
 
 
 class SpecConfig(FOCABaseConfig):
-    """Model for configuration parameters for OpenAPI 2.x or 3.x specifications
-    to be attached to a Connexion app.
+    """Model for an OpenAPI 2.x or 3.x specification for a Connexion app.
 
     Args:
         path: A single path or list of paths to OpenAPI 2.x or 3.x
@@ -621,8 +615,7 @@ ion=None)
 
 
 class APIConfig(FOCABaseConfig):
-    """Model for a list of configuration parameters for OpenAPI 2.x or 3.x
-    specifications to be attached to a Connexion app.
+    """Model for OpenAPI 2.x or 3.x specifications for a Connexion app.
 
     Args:
         specs: List of configuration parameters for OpenAPI 2.x or 3.x
@@ -650,6 +643,7 @@ fields=None, add_security_fields=None, disable_auth=False, connexion=None)])
 
 class AccessControlConfig(FOCABaseConfig):
     """Model for setting access control configuration.
+
     For exact behaviour cf. https://github.com/casbin/pycasbin.
 
     Args:
@@ -798,8 +792,7 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
 
 
 class AuthConfig(FOCABaseConfig):
-    """Model for parameters used to configure JSON Web Token (JWT)-based
-    authorization for the app.
+    """Model for configuring JSON Web Token (JWT)-based authorization.
 
     Args:
         required: Boolean to define the auth configuration for the app.
@@ -981,16 +974,16 @@ sparse': False})
     """
 
     keys: dict | list[tuple] | None = None
-    options: dict = dict()
+    options: dict = {}
 
     @field_validator("keys", mode="after")
     @classmethod
     def store_enum_value(
         cls, v: dict | list[tuple] | None
     ) -> dict | list[tuple] | None:
-        """Convert dict values of keys into list of tuples"""
+        """Convert dict values of keys into list of tuples."""
         if v is not None and isinstance(v, dict):
-            v = [tuple([key, val]) for key, val in v.items()]
+            v = [(key, val) for key, val in v.items()]
         return v
 
 
@@ -1059,8 +1052,7 @@ Config(keys=[('last_name', 1)], options={})], client=None)}, client=None)
 
 
 class MongoConfig(FOCABaseConfig):
-    """Model for configuring a MongoDB instance attached to a Flask or
-    Connexion app.
+    """Model for a MongoDB instance attached to a Flask/Connexion app.
 
     Args:
         host: Host at which the database is exposed.
@@ -1092,8 +1084,9 @@ class MongoConfig(FOCABaseConfig):
 
 
 class JobsConfig(FOCABaseConfig):
-    """Model for configuring a RabbitMQ broker instance and Celery client
-    and tasks to be attached to a Flask/Connexion app.
+    """Model for configuring RabbitMQ broker and Celery client and tasks.
+
+    The broker, client and tasks are attached to a Flask/Connexion app.
 
     Args:
         host: Host at which the broker is exposed.

@@ -32,7 +32,7 @@ TEST_FILE_INVALID_LOG = "tests/test_files/conf_log_invalid.yaml"
 def test_config_parser_valid_config_file():
     """Test valid YAML parsing."""
     conf = ConfigParser(Path(TEST_FILE))
-    assert type(conf.config.model_dump()) == type(TEST_DICT)
+    assert type(conf.config.model_dump()) is type(TEST_DICT)
     assert isinstance(conf.config, type(TEST_CONFIG_INSTANCE))
 
 
@@ -52,7 +52,7 @@ def test_config_parser_invalid_file_path():
 def test_config_parser_invalid_log_config():
     """Test invalid log config YAML."""
     conf = ConfigParser(Path(TEST_FILE_INVALID_LOG))
-    assert type(conf.config.model_dump()) == type(TEST_DICT)
+    assert type(conf.config.model_dump()) is type(TEST_DICT)
     assert isinstance(conf.config, type(TEST_CONFIG_INSTANCE))
 
 

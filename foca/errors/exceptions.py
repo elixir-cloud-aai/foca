@@ -77,8 +77,7 @@ exceptions = {
 
 
 def register_exception_handler(app: App) -> App:
-    """Register generic JSON problem handler with Connexion application
-    instance.
+    """Register generic JSON problem handler with Connexion app.
 
     Args:
         app: Connexion application instance.

@@ -40,7 +40,7 @@ def addPet(pet):
     )
     counter = 0
     ctr = db_collection.find({}).sort([("$natural", -1)])
-    if not db_collection.count_documents({}) == 0:
+    if db_collection.count_documents({}) != 0:
         counter = ctr[0].get("id") + 1
     record = {"id": counter, "name": pet["name"], "tag": pet["tag"]}
     db_collection.insert_one(record)

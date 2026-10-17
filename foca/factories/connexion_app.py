@@ -43,8 +43,7 @@ def __add_config_to_connexion_app(
     app: App,
     config: Config,
 ) -> App:
-    """Replace default Flask and Connexion settings with FOCA configuration
-    parameters.
+    """Replace default Flask and Connexion settings with FOCA config.
 
     Args:
         app: Connexion application instance.

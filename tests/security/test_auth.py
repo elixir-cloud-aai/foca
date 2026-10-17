@@ -175,17 +175,21 @@ class TestValidateToken:
         app = Flask(__name__)
         setattr(app.config, "foca", Config())
         app.config.foca.security.auth.validation_methods = []
-        with app.test_request_context(headers=MOCK_HEADERS):
-            with pytest.raises(Unauthorized):
-                validate_token(token=MOCK_TOKEN)
+        with (
+            app.test_request_context(headers=MOCK_HEADERS),
+            pytest.raises(Unauthorized),
+        ):
+            validate_token(token=MOCK_TOKEN)
 
     def test_invalid_token(self):
         """Test for failed validation due to invalid token."""
         app = Flask(__name__)
         setattr(app.config, "foca", Config())
-        with app.test_request_context(headers=MOCK_HEADERS):
-            with pytest.raises(Unauthorized):
-                validate_token(token=MOCK_TOKEN_INVALID)
+        with (
+            app.test_request_context(headers=MOCK_HEADERS),
+            pytest.raises(Unauthorized),
+        ):
+            validate_token(token=MOCK_TOKEN_INVALID)
 
     def test_no_claims(self, monkeypatch):
         """Test for token with no issuer claim."""
@@ -195,9 +199,11 @@ class TestValidateToken:
             "jwt.decode",
             lambda *args, **kwargs: {},
         )
-        with app.test_request_context(headers=MOCK_HEADERS):
-            with pytest.raises(Unauthorized):
-                validate_token(token=MOCK_TOKEN_INVALID)
+        with (
+            app.test_request_context(headers=MOCK_HEADERS),
+            pytest.raises(Unauthorized),
+        ):
+            validate_token(token=MOCK_TOKEN_INVALID)
 
     def test_oidc_config_unavailable(self, monkeypatch):
         """Test for mocking an unavailable OIDC configuration server."""
@@ -206,9 +212,11 @@ class TestValidateToken:
         monkeypatch.setattr(
             "requests.get", lambda **kwargs: _raise(ConnectionError)
         )
-        with app.test_request_context(headers=MOCK_HEADERS):
-            with pytest.raises(Unauthorized):
-                validate_token(token=MOCK_TOKEN_HEADER_KID)
+        with (
+            app.test_request_context(headers=MOCK_HEADERS),
+            pytest.raises(Unauthorized),
+        ):
+            validate_token(token=MOCK_TOKEN_HEADER_KID)
 
     def test_success_no_subject_claim(self, monkeypatch):
         """Test for validating token without subject claim."""
@@ -233,9 +241,11 @@ class TestValidateToken:
             "foca.security.auth._validate_jwt_public_key",
             lambda **kwargs: None,
         )
-        with app.test_request_context(headers=MOCK_HEADERS):
-            with pytest.raises(Unauthorized):
-                validate_token(token=MOCK_TOKEN_HEADER_KID)
+        with (
+            app.test_request_context(headers=MOCK_HEADERS),
+            pytest.raises(Unauthorized),
+        ):
+            validate_token(token=MOCK_TOKEN_HEADER_KID)
 
     def test_fail_all_validation_checks_all_required(self, monkeypatch):
         """Test for all token validation methods failing when all methods
@@ -257,9 +267,11 @@ class TestValidateToken:
             "foca.security.auth._validate_jwt_public_key",
             lambda **kwargs: _raise(Unauthorized),
         )
-        with app.test_request_context(headers=MOCK_HEADERS):
-            with pytest.raises(Unauthorized):
-                validate_token(token=MOCK_TOKEN_HEADER_KID)
+        with (
+            app.test_request_context(headers=MOCK_HEADERS),
+            pytest.raises(Unauthorized),
+        ):
+            validate_token(token=MOCK_TOKEN_HEADER_KID)
 
     def test_fail_all_validation_checks_any_required(self, monkeypatch):
         """Test for all token validation methods failing when any method
@@ -284,9 +296,11 @@ class TestValidateToken:
             "foca.security.auth._validate_jwt_public_key",
             lambda **kwargs: _raise(Unauthorized),
         )
-        with app.test_request_context(headers=MOCK_HEADERS):
-            with pytest.raises(Unauthorized):
-                validate_token(token=MOCK_TOKEN_HEADER_KID)
+        with (
+            app.test_request_context(headers=MOCK_HEADERS),
+            pytest.raises(Unauthorized),
+        ):
+            validate_token(token=MOCK_TOKEN_HEADER_KID)
 
 
 class TestValidateJwtUserinfo:

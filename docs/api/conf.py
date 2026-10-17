@@ -18,7 +18,8 @@ from sphinx.ext import apidoc
 root_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(root_dir))
 
-exec(open(root_dir / "foca" / "version.py").read())
+with open(root_dir / "foca" / "version.py") as _file:
+    exec(_file.read())
 
 # -- Project information -----------------------------------------------------
 
@@ -77,7 +78,8 @@ def run_apidoc(_):
         "-o",
         "./modules",
         "../../foca",
-    ] + ignore_paths
+        *ignore_paths,
+    ]
     apidoc.main(argv)
 
 

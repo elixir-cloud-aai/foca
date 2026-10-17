@@ -3,6 +3,7 @@
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 
 import mongomock
@@ -440,7 +441,10 @@ class TestPermissionsApi:
     """Tests for securing the permissions API."""
 
     url = "/admin/access-control/permissions"
-    payload = {"policy_type": "p", "rule": {"v0": "dave", "v1": "/items/:id"}}
+    payload: ClassVar[dict] = {
+        "policy_type": "p",
+        "rule": {"v0": "dave", "v1": "/items/:id"},
+    }
 
     @pytest.mark.parametrize(
         "user,status",

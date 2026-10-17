@@ -272,9 +272,11 @@ class TestPostPermission(BaseTestAccessControl):
             collection=self.access_col,
         )
 
-        with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
-            with pytest.raises(InternalServerError):
-                postPermission.__wrapped__()
+        with (
+            app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)),
+            pytest.raises(InternalServerError),
+        ):
+            postPermission.__wrapped__()
 
     def test_postPermission_BadRequest(self):
         """Test for creating a permission for invalid request payload."""
@@ -291,9 +293,11 @@ class TestPostPermission(BaseTestAccessControl):
             collection=self.access_col,
         )
 
-        with app.test_request_context(json=""):
-            with pytest.raises(BadRequest):
-                postPermission.__wrapped__()
+        with (
+            app.test_request_context(json=""),
+            pytest.raises(BadRequest),
+        ):
+            postPermission.__wrapped__()
 
 
 class TestPutPermission(BaseTestAccessControl):
@@ -337,9 +341,11 @@ class TestPutPermission(BaseTestAccessControl):
             self.access_col
         ].client = mongomock.MongoClient().db.collection
 
-        with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
-            with pytest.raises(InternalServerError):
-                putPermission.__wrapped__(id=MOCK_ID)
+        with (
+            app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)),
+            pytest.raises(InternalServerError),
+        ):
+            putPermission.__wrapped__(id=MOCK_ID)
 
     def test_putPermission_BadRequest(self):
         """Test for updating a permission for invalid request payload."""
@@ -353,9 +359,11 @@ class TestPutPermission(BaseTestAccessControl):
             self.access_col
         ].client = mongomock.MongoClient().db.collection
 
-        with app.test_request_context(json=""):
-            with pytest.raises(BadRequest):
-                putPermission.__wrapped__(id=MOCK_ID)
+        with (
+            app.test_request_context(json=""),
+            pytest.raises(BadRequest),
+        ):
+            putPermission.__wrapped__(id=MOCK_ID)
 
 
 class TestModelPathResolution(TestCase):

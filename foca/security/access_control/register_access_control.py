@@ -1,4 +1,4 @@
-"""Methods to manage permission management configuration"""
+"""Methods to manage permission management configuration."""
 
 import logging
 from collections.abc import Callable

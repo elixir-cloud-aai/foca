@@ -1,4 +1,4 @@
-""" "Controllers for permission management endpoints."""
+"""Controllers for permission management endpoints."""
 
 import logging
 
@@ -40,7 +40,7 @@ def postPermission() -> str:
             return permission_id
         except Exception as e:
             logger.error(f"{type(e).__name__}: {e}")
-            raise InternalServerError
+            raise InternalServerError from e
     else:
         logger.error("Invalid request payload.")
         raise BadRequest
@@ -82,7 +82,7 @@ def putPermission(
             return id
         except Exception as e:
             logger.error(f"{type(e).__name__}: {e}")
-            raise InternalServerError
+            raise InternalServerError from e
     else:
         logger.error("Invalid request payload.")
         raise BadRequest

@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 
 class Foca:
+    """Create Connexion and Celery apps from a FOCA configuration."""
+
     def __init__(
         self,
         config_file: Path | None = None,

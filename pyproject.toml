@@ -111,15 +111,16 @@ ignore = [
     "PLR0913",  # too-many-arguments
     "PLR0915",  # too-many-statements
     "PLR0917",  # too-many-positional-arguments
+    # Flags HTTP status codes and Casbin rule lengths, which are clear as is
+    "PLR2004",  # magic-value-comparison
     # setattr() is used deliberately for dynamic attributes (e.g., on configs)
     "B010",     # set-attr-with-constant
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = [
-    "D",        # pydocstyle
-    "PLR2004",  # magic-value-comparison
-]
+"docs/**" = ["D"]
+"examples/**" = ["D"]
+"tests/**" = ["D"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

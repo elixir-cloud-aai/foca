@@ -102,8 +102,7 @@ def get_current_groups() -> list[str]:
 
 
 def _is_within_path(request_path: str, resource_path: str) -> bool:
-    """Check whether a request path is a resource path or one of its
-    sub-paths.
+    """Check whether a request path is a resource path or a sub-path.
 
     Args:
         request_path: Request path.
@@ -174,7 +173,7 @@ def enforce_access_control(fn: Callable) -> Callable:
         if subject is None:
             raise Unauthorized("Subject could not be identified")
         enforcer = get_enforcer()
-        for _subject in [_prefix_subject(subject)] + get_current_groups():
+        for _subject in [_prefix_subject(subject), *get_current_groups()]:
             if enforcer.enforce(_subject, request.path, request.method):
                 logger.debug(
                     f"Access granted: {request.method} {request.path} to "
@@ -233,6 +232,7 @@ class AccessControlResolver(Resolver):
         resolver: Resolver | Callable | None = None,
         enforce_all: bool = False,
     ):
+        """Construct resolver."""
         super().__init__()
         # Same normalization as Connexion's `App.add_api()`: wrap callables,
         # use any other resolver object (with a `resolve()` method) as is

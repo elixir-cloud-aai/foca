@@ -11,8 +11,9 @@ from foca.utils.misc import generate_id
 
 
 class Adapter(persist.Adapter):
-    """Interface for casbin adapters. This is utilized for interacting casbin
-    and mongodb.
+    """Casbin adapter for MongoDB.
+
+    Used for interactions between Casbin and MongoDB.
 
     Args:
         uri: This should be the same requiement as pymongo Client's 'uri'
@@ -121,7 +122,7 @@ class Adapter(persist.Adapter):
         return True
 
     def add_policy(self, sec: str, ptype: str, rule: list[str]) -> bool:
-        """Add policy rules to mongodb
+        """Add policy rules to MongoDB.
 
         Args:
             sec: Section corresponding which the rule will be added.
@@ -152,7 +153,8 @@ class Adapter(persist.Adapter):
         self, sec: str, ptype: str, field_index: int, *field_values: list[str]
     ):
         """Remove policy rules that match the filter from the storage.
-           This is part of the Auto-Save feature.
+
+        This is part of the Auto-Save feature.
 
         Args:
             sec: Section corresponding which the rule will be added.

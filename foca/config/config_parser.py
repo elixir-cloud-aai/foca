@@ -155,16 +155,16 @@ class ConfigParser:
         model_class = Path(model).suffix[1:]
         try:
             model_class = getattr(import_module(module), model_class)
-        except ModuleNotFoundError:
+        except ModuleNotFoundError as exc:
             raise ValueError(
                 f"failed validating custom configuration: module '{module}' "
                 "not available"
-            )
-        except (AttributeError, ImportError):
+            ) from exc
+        except (AttributeError, ImportError) as exc:
             raise ValueError(
                 f"failed validating custom configuration: module '{module}' "
                 f"has no class {model_class} or could not be imported"
-            )
+            ) from exc
         try:
             custom_config = model_class(  # type: ignore[operator]
                 **self.config.custom  # type: ignore[attr-defined]

@@ -61,8 +61,10 @@ class CasbinRule:
         return rule_dict
 
     def __str__(self):
+        """Return rule values as comma-separated string."""
         return ", ".join(self.dict().values())
 
     def __repr__(self):
+        """Return representation of rule."""
         print("self   ", self)
         return f'<CasbinRule :"{self!s}">'

@@ -2,7 +2,7 @@
 
 import json
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 import jwt
 import requests
@@ -141,8 +141,10 @@ def _validate_jwt_userinfo(
     header_name: str = "Authorization",
     prefix: str = "Bearer",
 ) -> None:
-    """Validate JSON Web Token (JWT) via an OpenID Connect-compliant
-    identity provider's user info endpoint.
+    """Validate JSON Web Token (JWT) via user info endpoint.
+
+    Uses an OpenID Connect-compliant identity provider's user info
+    endpoint.
 
     Args:
         url: URL to OpenID Connect identity provider's user info endpoint.
@@ -171,14 +173,15 @@ def _validate_jwt_userinfo(
 def _validate_jwt_public_key(
     token: str,
     url: str,
-    algorithms: list[str] = ["RS256"],
+    algorithms: Sequence[str] = ("RS256",),
     add_key_to_claims: bool = True,
     audience: Iterable[str] | None = None,
     allow_expired: bool = False,
     claim_key_id: str = "kid",
 ) -> None:
-    """Validate JSON Web Token (JWT) via an OpenID Connect-compliant
-    identity provider's public key.
+    """Validate JSON Web Token (JWT) via public key.
+
+    Uses an OpenID Connect-compliant identity provider's public key.
 
     Args:
         url: URL to OpenID Connect identity provider's public keys endpoint.
@@ -232,8 +235,8 @@ def _validate_jwt_public_key(
     if jwk_id:
         try:
             public_keys = {jwk_id: public_keys[jwk_id]}
-        except KeyError:
-            raise KeyError("JWT key ID not found among issuer's JWKs")
+        except KeyError as exc:
+            raise KeyError("JWT key ID not found among issuer's JWKs") from exc
 
     # Set validations
     validation_options = {}

@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def enable_cors(app: Flask) -> None:
-    """Enables cross-origin resource sharing (CORS) for Flask application
-    instance.
+    """Enable cross-origin resource sharing (CORS) for Flask app.
 
     Args:
         app: Flask application instance.
