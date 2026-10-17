@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foca"
+dynamic = ["version"]
+description = "Archetype for OpenAPI microservices based on Flask and Connexion"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "ELIXIR Cloud & AAI", email = "alexander.kanitz@alumni.ethz.ch" },
+]
+maintainers = [
+    { name = "Alexander Kanitz", email = "alexander.kanitz@alumni.ethz.ch" },
+]
+keywords = ["rest", "api", "app", "openapi", "python", "microservice"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Framework :: Flask",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
+dependencies = [
+    "addict~=2.2",
+    "celery~=5.2",
+    "connexion~=2.11",
+    "cryptography~=44.0.1",
+    "Flask~=2.2",
+    "flask-authz~=2.5.1",
+    "Flask-Cors~=6.0.0",
+    "Flask-PyMongo~=2.3",
+    "pydantic~=2.7",
+    "PyJWT~=2.4",
+    "pymongo~=4.7",
+    "PyYAML~=6.0",
+    "requests~=2.31",
+    "swagger-ui-bundle~=0.0",
+    "typing_extensions>=4.11",
+    "Werkzeug~=3.1.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "coverage>=6.5",
+    "flake8>=6.1",
+    "mongomock>=4.1",
+    "mypy>=0.991",
+    "pytest>=7.4",
+    "types-PyYAML",
+    "types-requests",
+]
+docs = [
+    "Sphinx>=7.2",
+    "sphinx-rtd-theme>=1.3",
+]
+
+[project.urls]
+Repository = "https://github.com/elixir-cloud-aai/foca"
+Documentation = "https://foca.readthedocs.io"
+Tracker = "https://github.com/elixir-cloud-aai/foca/issues"
+"ELIXIR Cloud & AAI" = "https://elixir-europe.github.io/cloud/"
+
+[tool.setuptools.dynamic]
+version = { attr = "foca.version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["foca*"]
+
+[tool.setuptools.package-data]
+"foca" = ["py.typed"]
+"foca.security.access_control.api" = ["*.yaml", "*.conf"]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
