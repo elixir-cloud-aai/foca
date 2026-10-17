@@ -116,11 +116,16 @@ def _create_mongo_client(
         MongoDB client for Flask application instance.
     """
     uri = get_mongo_uri(host=host, port=port, db=db)
+    db_name = get_mongo_db_name(db)
     app.config["MONGO_URI"] = uri
     mongo = PyMongo(app)
+    # Select database via client, as `MONGO_URI` may name another database
+    # (e.g., the authentication database) or none
+    if mongo.cx is not None:
+        mongo.db = mongo.cx[db_name]
     logger.info(
-        f"Registered database '{get_mongo_db_name(db)}' at URI "
-        f"'{_redact_uri(uri)}' with Flask application."
+        f"Registered database '{db_name}' at URI '{_redact_uri(uri)}' with "
+        "Flask application."
     )
     return mongo
 
@@ -130,22 +135,18 @@ def get_mongo_uri(
     port: int = 27017,
     db: str = "database",
 ) -> str:
-    """Get MongoDB connection string for a database.
+    """Get MongoDB connection string.
 
-    If environment variable `MONGO_URI` is set, it is used as the connection
-    string, with its database set to `db` (so that each database of the app
-    is still accessed under its own name). Unless `authSource` is set
-    explicitly, the authentication database is kept: a database in the
-    path of `MONGO_URI` is set as `authSource`, and so is `admin` (the
-    default authentication database) if `MONGO_URI` has credentials but
-    no database.
+    If environment variable `MONGO_URI` is set, it is returned unchanged. As
+    a database named in its path is used as authentication database (and
+    connection strings may set other database-related options), clients
+    must select the database to access by name, e.g., via
+    :py:func:`get_mongo_db_name`, rather than via the connection string.
 
     Otherwise, the connection string is built from `host`, `port` and `db`,
     which may be overridden by environment variables `MONGO_HOST`,
     `MONGO_PORT` and `MONGO_DBNAME`, respectively; credentials are taken
     from environment variables `MONGO_USERNAME` and `MONGO_PASSWORD`.
-
-    In both cases, environment variable `MONGO_DBNAME` overrides `db`.
 
     Args:
         host: Host at which MongoDB database is exposed.
@@ -158,10 +159,14 @@ def get_mongo_uri(
     Raises:
         ValueError: Raised if `MONGO_URI` is not a MongoDB connection string.
     """
-    db = get_mongo_db_name(db)
     uri = os.environ.get("MONGO_URI")
     if uri:
-        return _set_uri_database(uri=uri, db=db)
+        if urlsplit(uri).scheme not in ("mongodb", "mongodb+srv"):
+            raise ValueError(
+                "Environment variable 'MONGO_URI' must start with "
+                "'mongodb://' or 'mongodb+srv://'."
+            )
+        return uri
 
     auth = ""
     user = os.environ.get("MONGO_USERNAME")
@@ -172,7 +177,7 @@ def get_mongo_uri(
         auth = f"{quote_plus(user)}:{quote_plus(password)}@"
     host = os.environ.get("MONGO_HOST", host)
     port_str = os.environ.get("MONGO_PORT", str(port))
-    return f"mongodb://{auth}{host}:{port_str}/{db}"
+    return f"mongodb://{auth}{host}:{port_str}/{get_mongo_db_name(db)}"
 
 
 def get_mongo_db_name(db: str) -> str:
@@ -186,44 +191,6 @@ def get_mongo_db_name(db: str) -> str:
         `db`.
     """
     return os.environ.get("MONGO_DBNAME", db)
-
-
-def _set_uri_database(uri: str, db: str) -> str:
-    """Set database of MongoDB connection string.
-
-    Args:
-        uri: MongoDB connection string.
-        db: Name of database to set.
-
-    Returns:
-        MongoDB connection string with database `db`. The previous
-        authentication database is kept, unless `authSource` is set.
-
-    Raises:
-        ValueError: Raised if `uri` is not a MongoDB connection string.
-    """
-    parts = urlsplit(uri)
-    if parts.scheme not in ("mongodb", "mongodb+srv"):
-        raise ValueError(
-            "Environment variable 'MONGO_URI' must start with 'mongodb://' "
-            "or 'mongodb+srv://'."
-        )
-    query = parts.query
-    # Options may be separated by '&' or ';'
-    separator = ";" if ";" in query and "&" not in query else "&"
-    has_auth_source = any(
-        option.split("=", 1)[0].lower() == "authsource"
-        for option in query.replace(";", "&").split("&")
-    )
-    # Keep authentication database, which defaults to the database in the
-    # path or, for connection strings with credentials, to 'admin'
-    auth_db = parts.path.lstrip("/") or (
-        "admin" if "@" in parts.netloc else ""
-    )
-    if auth_db and not has_auth_source:
-        auth_source = f"authSource={auth_db}"
-        query = f"{query}{separator}{auth_source}" if query else auth_source
-    return urlunsplit((parts.scheme, parts.netloc, f"/{db}", query, ""))
 
 
 def _redact_uri(uri: str) -> str:

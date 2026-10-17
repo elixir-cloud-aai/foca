@@ -208,7 +208,7 @@ keep credentials out of configuration files:
 
 | Variable | Description |
 | --- | --- |
-| `MONGO_URI` | Full [connection string][res-mongo-db-uri] (`mongodb://` or `mongodb+srv://`), e.g., for replica sets, TLS or other connection options. Takes precedence over the variables below, except `MONGO_DBNAME`. Each configured database is still accessed under its own name; a database in the connection string's path is used as authentication database (unless `authSource` is set). |
+| `MONGO_URI` | Full [connection string][res-mongo-db-uri] (`mongodb://` or `mongodb+srv://`), e.g., for replica sets, TLS or other connection options. Takes precedence over the variables below, except `MONGO_DBNAME`. It is used as is, so a database in its path only acts as authentication database (as per MongoDB's defaults); each configured database is still accessed under its own name. |
 | `MONGO_HOST` | Host; overrides `db.host`. |
 | `MONGO_PORT` | Port; overrides `db.port`. |
 | `MONGO_USERNAME` | Username. |

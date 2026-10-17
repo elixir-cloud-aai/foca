@@ -10,7 +10,7 @@ def test_adapter_uri(monkeypatch):
     """Casbin adapter connects with the app's MongoDB connection string."""
     for var in ["MONGO_HOST", "MONGO_PORT", "MONGO_DBNAME", "MONGO_PASSWORD"]:
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("MONGO_URI", "mongodb://u:p@h1:1,h2:2/?replicaSet=rs")
+    monkeypatch.setenv("MONGO_URI", "mongodb://h1:1,h2:2/?replicaSet=rs")
     captured = {}
 
     def mock_adapter(uri, dbname, collection):
@@ -26,10 +26,7 @@ def test_adapter_uri(monkeypatch):
         mongo_config=MongoConfig(),
     )
     assert captured == {
-        "uri": (
-            "mongodb://u:p@h1:1,h2:2/access_control_db"
-            "?replicaSet=rs&authSource=admin"
-        ),
+        "uri": "mongodb://h1:1,h2:2/?replicaSet=rs",
         "dbname": "access_control_db",
         "collection": "policy_rules",
     }

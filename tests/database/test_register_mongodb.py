@@ -8,6 +8,7 @@ from flask_pymongo import PyMongo
 
 from foca.database.register_mongodb import (
     _create_mongo_client,
+    get_mongo_db_name,
     get_mongo_uri,
     register_mongodb,
 )
@@ -70,69 +71,23 @@ class TestGetMongoUri:
             "mongodb://db:1234/my_db"
         )
 
-    def test_uri(self, clean_env):
-        """`MONGO_URI` takes precedence; database name is set per database."""
-        clean_env.setenv(
-            "MONGO_URI", "mongodb://u:p@h1:1,h2:2/?replicaSet=rs&tls=true"
-        )
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            "mongodb://h1:1,h2:2/?replicaSet=rs&tls=true",
+            "mongodb://h1:1",
+            "mongodb+srv://cluster.example.org",
+            "mongodb://h1:1/admin?tls=true;w=1",
+            "mongodb://h1:1/accounts&tls=false",
+            "mongodb://alice%40EXAMPLE.COM@h1:1/?authMechanism=GSSAPI",
+        ],
+    )
+    def test_uri(self, clean_env, uri):
+        """`MONGO_URI` takes precedence and is returned unchanged."""
+        clean_env.setenv("MONGO_URI", uri)
         clean_env.setenv("MONGO_HOST", "ignored")
-        assert get_mongo_uri(host="db", port=1234, db="my_db") == (
-            "mongodb://u:p@h1:1,h2:2/my_db?replicaSet=rs&tls=true"
-            "&authSource=admin"
-        )
-
-    def test_uri_without_path(self, clean_env):
-        """`MONGO_URI` without path and options."""
-        clean_env.setenv("MONGO_URI", "mongodb://h1:1")
-        assert get_mongo_uri(db="my_db") == "mongodb://h1:1/my_db"
-
-    def test_uri_srv(self, clean_env):
-        """`MONGO_URI` with SRV scheme."""
-        clean_env.setenv("MONGO_URI", "mongodb+srv://u:p@cluster.example.org")
-        assert get_mongo_uri(db="my_db") == (
-            "mongodb+srv://u:p@cluster.example.org/my_db?authSource=admin"
-        )
-
-    def test_uri_auth_db(self, clean_env):
-        """Database in `MONGO_URI` is kept as authentication database."""
-        clean_env.setenv("MONGO_URI", "mongodb://u:p@h1:1/admin?tls=true")
-        assert get_mongo_uri(db="my_db") == (
-            "mongodb://u:p@h1:1/my_db?tls=true&authSource=admin"
-        )
-
-    def test_uri_auth_source(self, clean_env):
-        """Explicit `authSource` in `MONGO_URI` is kept."""
-        clean_env.setenv("MONGO_URI", "mongodb://u:p@h1:1/admin?authSource=x")
-        assert get_mongo_uri(db="my_db") == (
-            "mongodb://u:p@h1:1/my_db?authSource=x"
-        )
-
-    def test_uri_without_path_no_credentials(self, clean_env):
-        """No `authSource` is added without credentials."""
-        clean_env.setenv("MONGO_URI", "mongodb://h1:1/?tls=true")
-        assert get_mongo_uri(db="my_db") == "mongodb://h1:1/my_db?tls=true"
-
-    def test_uri_semicolon_separator(self, clean_env):
-        """Options separated by semicolons are recognized and kept."""
-        clean_env.setenv("MONGO_URI", "mongodb://u:p@h1:1/admin?tls=true;w=1")
-        assert get_mongo_uri(db="my_db") == (
-            "mongodb://u:p@h1:1/my_db?tls=true;w=1;authSource=admin"
-        )
-
-    def test_uri_semicolon_auth_source(self, clean_env):
-        """Explicit `authSource` after semicolon is kept."""
-        clean_env.setenv(
-            "MONGO_URI", "mongodb://u:p@h1:1/admin?tls=true;authSource=x"
-        )
-        assert get_mongo_uri(db="my_db") == (
-            "mongodb://u:p@h1:1/my_db?tls=true;authSource=x"
-        )
-
-    def test_uri_dbname(self, clean_env):
-        """`MONGO_DBNAME` overrides database name with `MONGO_URI`."""
-        clean_env.setenv("MONGO_URI", "mongodb://h1:1")
-        clean_env.setenv("MONGO_DBNAME", "other_db")
-        assert get_mongo_uri(db="my_db") == "mongodb://h1:1/other_db"
+        clean_env.setenv("MONGO_DBNAME", "ignored")
+        assert get_mongo_uri(host="db", port=1234, db="my_db") == uri
 
     def test_uri_invalid_scheme(self, clean_env):
         """`MONGO_URI` with invalid scheme."""
@@ -141,15 +96,40 @@ class TestGetMongoUri:
             get_mongo_uri(db="my_db")
 
 
-def test__create_mongo_client_uri(clean_env):
-    """Client is configured with URI from `MONGO_URI`."""
-    clean_env.setenv("MONGO_URI", "mongodb://u:p@h1:1/?tls=false")
+class TestGetMongoDbName:
+    def test_default(self, clean_env):
+        """Configured database name is used."""
+        assert get_mongo_db_name("my_db") == "my_db"
+
+    def test_override(self, clean_env):
+        """`MONGO_DBNAME` overrides configured database name."""
+        clean_env.setenv("MONGO_DBNAME", "other_db")
+        assert get_mongo_db_name("my_db") == "other_db"
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "mongodb://h1:1/?tls=false",
+        "mongodb://h1:1/admin?tls=false",
+    ],
+)
+def test__create_mongo_client_uri(clean_env, uri):
+    """Client uses `MONGO_URI` unchanged and selects configured database."""
+    clean_env.setenv("MONGO_URI", uri)
     app = Flask(__name__)
     res = _create_mongo_client(app=app, db="my_db")
     assert isinstance(res, PyMongo)
-    assert app.config["MONGO_URI"] == (
-        "mongodb://u:p@h1:1/my_db?tls=false&authSource=admin"
-    )
+    assert app.config["MONGO_URI"] == uri
+    assert res.db.name == "my_db"
+
+
+def test__create_mongo_client_dbname(clean_env):
+    """Client selects database from `MONGO_DBNAME`."""
+    clean_env.setenv("MONGO_URI", "mongodb://h1:1/admin")
+    clean_env.setenv("MONGO_DBNAME", "other_db")
+    res = _create_mongo_client(app=Flask(__name__), db="my_db")
+    assert res.db.name == "other_db"
 
 
 def test__create_mongo_client_no_secrets_logged(clean_env, caplog):
@@ -160,7 +140,7 @@ def test__create_mongo_client_no_secrets_logged(clean_env, caplog):
     )
     with caplog.at_level(logging.INFO):
         _create_mongo_client(app=Flask(__name__), db="my_db")
-    assert "mongodb://h1:1/my_db" in caplog.text
+    assert "'my_db' at URI 'mongodb://h1:1/'" in caplog.text
     assert "secret" not in caplog.text
 
 
