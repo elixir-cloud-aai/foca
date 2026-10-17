@@ -185,7 +185,7 @@ components:
     NewPet:
       type: object
       required:
-        - name  
+        - name
       properties:
         name:
           type: string
