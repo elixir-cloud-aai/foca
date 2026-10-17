@@ -8,10 +8,10 @@ the pet.
 
 import logging
 
-from exceptions import InternalServerError, NotFound
+from exceptions import NotFound
 from flask import current_app, make_response, request
+from pymongo import ReturnDocument
 from pymongo.collection import Collection
-from pymongo.errors import DuplicateKeyError
 
 from foca.security.access_control import (
     add_resource_role,
@@ -21,15 +21,26 @@ from foca.security.access_control import (
 
 logger = logging.getLogger(__name__)
 
-MAX_INSERT_ATTEMPTS = 10
 
-
-def _get_collection() -> Collection:
+def _get_collection(name: str = "pets") -> Collection:
     return (
         current_app.config.foca.db.dbs["petstore-access-control"]
-        .collections["pets"]
+        .collections[name]
         .client
     )
+
+
+def _next_pet_id() -> int:
+    # IDs are taken from an atomically incremented counter, so that they
+    # are never shared by concurrent requests or reused after deletion
+    # (roles are granted per pet ID)
+    counter = _get_collection("counters").find_one_and_update(
+        {"_id": "pets"},
+        {"$inc": {"value": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return counter["value"] - 1
 
 
 def findPets(limit=None, tags=None):
@@ -56,27 +67,17 @@ def _pet_path(id: int) -> str:
 
 def addPet(pet):
     db_collection = _get_collection()
-    # IDs are unique (cf. index in `config.yaml`); if a concurrent request
-    # took the next ID, try again with the one after
-    for _ in range(MAX_INSERT_ATTEMPTS):
-        last = db_collection.find_one(
-            {}, {"_id": False, "id": True}, sort=[("id", -1)]
-        )
-        counter = 0 if last is None else last["id"] + 1
-        record = {"id": counter, "name": pet["name"], "tag": pet["tag"]}
-        try:
-            db_collection.insert_one(record)
-            break
-        except DuplicateKeyError:
-            continue
-    else:
-        raise InternalServerError
+    pet_id = _next_pet_id()
+    record = {"id": pet_id, "name": pet["name"]}
+    if "tag" in pet:
+        record["tag"] = pet["tag"]
+    db_collection.insert_one(record)
     del record["_id"]
     # Make the creator the owner of the new pet
     add_resource_role(
         subject=get_current_subject(),
         role="owner",
-        resource=_pet_path(counter),
+        resource=_pet_path(pet_id),
     )
     return record
 
