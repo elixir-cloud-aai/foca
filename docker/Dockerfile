@@ -19,18 +19,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt ./
-RUN pip install \
-        --no-warn-script-location \
-        --prefix="/install" \
-        -r requirements.txt
-
-# Install FOCA
-COPY setup.py README.md ./
+# Install FOCA and its dependencies
+COPY pyproject.toml MANIFEST.in README.md LICENSE ./
 COPY foca/ ./foca/
-RUN pip install --upgrade pkginfo && \
-    pip install . \
+RUN pip install . \
         --no-warn-script-location \
         --prefix="/install"
 

@@ -1,6 +1,6 @@
-# Package setuptools-git will ensure that all files that are version-controlled
-# are packaged. Therefore, this file lists only those files that are not
-# supposed to end up in distributions.
+# Files to include in source distributions in addition to the package, its
+# package data, README.md, LICENSE and pyproject.toml.
 
-exclude .gitignore
-prune .github
+graft tests
+include templates/config.yaml
+global-exclude *.py[cod] __pycache__
