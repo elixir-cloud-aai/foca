@@ -73,12 +73,9 @@ def register_access_control(
         ):
             registered_db_conf.collections.pop(registered_collection, None)
 
+    access_control_config._registered_collection = None
     app_db_conf = mongo_config.dbs.get(access_control_db)
-    access_control_config._registered_collection = (
-        access_control_db,
-        str(access_control_collection),
-        app_db_conf is None,
-    )
+    added_db = app_db_conf is None
 
     if app_db_conf is None:
         # Register new database for access control.
@@ -126,6 +123,12 @@ def register_access_control(
             f"to database '{access_control_db}'."
         )
 
+    # Remember what was added, once registration of the database succeeded
+    access_control_config._registered_collection = (
+        access_control_db,
+        str(access_control_collection),
+        added_db,
+    )
     cnx_app.app.config.foca.db = mongo_config
 
     # Register access control api specs and corresponding controller.

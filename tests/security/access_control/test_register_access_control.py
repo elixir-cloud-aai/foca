@@ -214,6 +214,30 @@ class TestRegisterAccessControlSetup:
                 collection_name="items",
             )
 
+    def test_shared_db_without_collections(self):
+        """Policy collection is added to app database without collections."""
+        mongo_config = MongoConfig(dbs={"app_db": DBConfig(collections=None)})
+        db = self._register(mongo_config, db_name="app_db")
+        assert set(db.dbs["app_db"].collections) == {"policy_rules"}
+
+    def test_shared_db_collection_clash_repeated(self):
+        """Rejected registration does not affect repeated registration."""
+        mongo_config = self._app_db_config()
+        access_control_config = AccessControlConfig(
+            api_controllers=DEFAULT_SPEC_CONTROLLER,
+            db_name="app_db",
+            collection_name="items",
+        )
+        for _ in range(2):
+            with pytest.raises(ValueError, match="items"):
+                register_access_control(
+                    cnx_app=create_connexion_app(Config(db=mongo_config)),
+                    mongo_config=mongo_config,
+                    access_control_config=access_control_config,
+                )
+        items = mongo_config.dbs["app_db"].collections["items"]
+        assert items.indexes[0].keys == [("id", 1)]
+
     def test_no_db_config(self):
         """Access control database is registered without app databases."""
         db = self._register(None)
