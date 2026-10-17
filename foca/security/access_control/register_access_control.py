@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 def register_access_control(
     cnx_app: App,
     mongo_config: MongoConfig | None,
-    access_control_config: AccessControlConfig
+    access_control_config: AccessControlConfig,
 ) -> App:
     """Register access control configuration with flask app.
 
@@ -51,10 +51,10 @@ def register_access_control(
     """
     # Register access control database and collection.
     access_db_conf = DBConfig(
-        collections={
-            access_control_config.collection_name: CollectionConfig()
-        } if access_control_config.collection_name is not None else {},
-        client=None
+        collections={access_control_config.collection_name: CollectionConfig()}
+        if access_control_config.collection_name is not None
+        else {},
+        client=None,
     )
 
     # Set default db attributes if config not present.
@@ -74,27 +74,25 @@ def register_access_control(
         app=cnx_app.app,
         conf=mongo_config,
         db_conf=access_db_conf,
-        db_name=access_control_db
+        db_name=access_control_db,
     )
 
     # Register access control api specs and corresponding controller.
     cnx_app = register_casbin_enforcer(
         app=cnx_app,
         mongo_config=mongo_config,
-        access_control_config=access_control_config
+        access_control_config=access_control_config,
     )
 
     cnx_app = register_permission_specs(
-        app=cnx_app,
-        access_control_config=access_control_config
+        app=cnx_app, access_control_config=access_control_config
     )
 
     return cnx_app
 
 
 def register_permission_specs(
-    app: App,
-    access_control_config: AccessControlConfig
+    app: App, access_control_config: AccessControlConfig
 ):
     """Register open api specs for permission management.
 
@@ -129,11 +127,8 @@ def register_permission_specs(
         connexion={
             "strict_validation": True,
             "validate_responses": True,
-            "options": {
-                "swagger_ui": True,
-                "serve_spec": True
-            }
-        }
+            "options": {"swagger_ui": True, "serve_spec": True},
+        },
     )
 
     app.add_api(
@@ -147,7 +142,7 @@ def register_permission_specs(
 def register_casbin_enforcer(
     app: App,
     access_control_config: AccessControlConfig,
-    mongo_config: MongoConfig
+    mongo_config: MongoConfig,
 ) -> App:
     """Method to add casbin permission enforcer.
 
@@ -182,7 +177,7 @@ def register_casbin_enforcer(
     adapter = Adapter(
         uri=f"mongodb://{mongo_config.host}:{mongo_config.port}/",
         dbname=str(access_control_config.db_name),
-        collection=access_control_config.collection_name
+        collection=access_control_config.collection_name,
     )
     app.app.config["casbin_adapter"] = adapter
 
@@ -209,6 +204,7 @@ def check_permissions(
         Returns:
             The response returned from the input function.
         """
+
         @wraps(fn)
         def _wrapper(*args, **kwargs) -> tuple[Response, int]:
             """Wrapper for permissions decorator.
@@ -224,11 +220,12 @@ def check_permissions(
             """
             adapter = current_app.config["casbin_adapter"]
             casbin_enforcer = CasbinEnforcer(current_app, adapter)
-            response: tuple[Response, int] = casbin_enforcer.enforcer(
-                func=fn
-            )(*args, **kwargs)
+            response: tuple[Response, int] = casbin_enforcer.enforcer(func=fn)(
+                *args, **kwargs
+            )
             if (
-                len(response) == 2 and response[0].status_code == 200
+                len(response) == 2
+                and response[0].status_code == 200
                 and response[1] == 401
             ):
                 raise Forbidden

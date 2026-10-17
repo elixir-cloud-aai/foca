@@ -20,10 +20,7 @@ RESOURCE_ROLE_PTYPE = "g2"
 
 def _get_access_control_config():
     """Get access control configuration of current app."""
-    return (
-        current_app.config.foca  # type: ignore[attr-defined]
-        .security.access_control
-    )
+    return current_app.config.foca.security.access_control  # type: ignore[attr-defined]
 
 
 def _get_claims() -> dict:
@@ -55,10 +52,7 @@ def get_current_subject() -> str | None:
     """
     claim = _get_access_control_config().claim_identity
     if claim is None:
-        claim = (
-            current_app.config.foca  # type: ignore[attr-defined]
-            .security.auth.claim_identity
-        )
+        claim = current_app.config.foca.security.auth.claim_identity  # type: ignore[attr-defined]
     subject = _get_claims().get(claim)
     return None if subject is None else str(subject)
 
@@ -72,7 +66,7 @@ def _unprefix_subject(subject: str) -> str:
     """Remove configured prefix from a subject used in policy rules."""
     prefix = _get_access_control_config().subject_prefix
     if prefix and subject.startswith(prefix):
-        return subject[len(prefix):]
+        return subject[len(prefix) :]
     return subject
 
 
@@ -98,7 +92,8 @@ def get_current_groups() -> list[str]:
     groups = [str(value) for value in values]
     if conf.group_mapping is not None:
         groups = [
-            conf.group_mapping[group] for group in groups
+            conf.group_mapping[group]
+            for group in groups
             if group in conf.group_mapping
         ]
     else:
@@ -122,9 +117,8 @@ def _is_within_path(request_path: str, resource_path: str) -> bool:
     resource_path = resource_path.rstrip("/")
     if not resource_path:
         return request_path == "/"
-    return (
-        request_path == resource_path
-        or request_path.startswith(f"{resource_path}/")
+    return request_path == resource_path or request_path.startswith(
+        f"{resource_path}/"
     )
 
 
@@ -148,9 +142,7 @@ def get_enforcer() -> Enforcer:
         roles = enforcer.get_model().model.get("g", {})
         for ptype, assertion in roles.items():
             if assertion.value.count("_") == 3:
-                enforcer.add_named_domain_matching_func(
-                    ptype, _is_within_path
-                )
+                enforcer.add_named_domain_matching_func(ptype, _is_within_path)
     return enforcer
 
 
@@ -175,6 +167,7 @@ def enforce_access_control(fn: Callable) -> Callable:
         connexion.exceptions.Forbidden: The subject is not allowed to access
             the resource.
     """
+
     @wraps(fn)
     def _wrapper(*args, **kwargs):
         subject = get_current_subject()
@@ -387,8 +380,10 @@ def list_resource_roles(
     """
     enforcer = _get_resource_role_enforcer(ptype)
     return [
-        (_unprefix_subject(rule[0]), rule[1]) for rule in
-        enforcer.get_filtered_named_grouping_policy(ptype, 2, resource)
+        (_unprefix_subject(rule[0]), rule[1])
+        for rule in enforcer.get_filtered_named_grouping_policy(
+            ptype, 2, resource
+        )
     ]
 
 

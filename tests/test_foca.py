@@ -32,7 +32,9 @@ VALID_CORS_CONF_DISABLED = DIR / "conf_valid_cors_disabled.yaml"
 VALID_CORS_CONF_ENABLED = DIR / "conf_valid_cors_enabled.yaml"
 INVALID_ACCESS_CONTROL_CONF = DIR / "conf_invalid_access_control.yaml"
 VALID_ACCESS_CONTROL_CONF = DIR / "conf_valid_access_control.yaml"
-ENFORCE_WITHOUT_AUTH_CONF = DIR / "conf_enforce_access_control_without_auth.yaml"
+ENFORCE_WITHOUT_AUTH_CONF = (
+    DIR / "conf_enforce_access_control_without_auth.yaml"
+)
 
 
 def create_modified_api_conf(path, temp_dir, api_specs_in, api_specs_out):

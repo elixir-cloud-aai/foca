@@ -11,8 +11,8 @@ from foca.models.config import Config
 CONFIG = Config()
 ERROR_CODE = 400
 ERROR_ORIGINAL = {
-    'title': 'BAD REQUEST',
-    'status_code': str(ERROR_CODE),
+    "title": "BAD REQUEST",
+    "status_code": str(ERROR_CODE),
 }
 ERROR_REWRITTEN = {
     "msg": "The request is malformed.",

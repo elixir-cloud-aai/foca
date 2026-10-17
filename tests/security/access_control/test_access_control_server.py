@@ -75,10 +75,12 @@ class TestGetPermission(BaseTestAccessControl):
         app.config.foca = base_config
         mock_resp = deepcopy(MOCK_RULE)
         mock_resp["id"] = MOCK_ID
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client.insert_one(mock_resp)
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client.insert_one(mock_resp)
         del mock_resp["_id"]
 
         data = deepcopy(MOCK_RULE_USER_INPUT_OUTPUT)
@@ -99,10 +101,12 @@ class TestGetPermission(BaseTestAccessControl):
         app.config.foca = base_config
         mock_resp = deepcopy(MOCK_RULE)
         mock_resp["id"] = MOCK_ID
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client.insert_one(mock_resp)
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client.insert_one(mock_resp)
         del mock_resp["_id"]
 
         with app.app_context(), pytest.raises(NotFound):
@@ -128,10 +132,12 @@ class TestDeletePermission(BaseTestAccessControl):
         app.config.foca = base_config
         mock_resp = deepcopy(MOCK_RULE)
         mock_resp["id"] = MOCK_ID
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client.insert_one(mock_resp)
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client.insert_one(mock_resp)
 
         with app.app_context():
             res = deletePermission.__wrapped__(id=MOCK_ID)
@@ -146,10 +152,12 @@ class TestDeletePermission(BaseTestAccessControl):
         )
         app.config.foca = base_config
         mock_resp = deepcopy(MOCK_RULE)
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client.insert_one(mock_resp)
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client.insert_one(mock_resp)
 
         with app.app_context(), pytest.raises(NotFound):
             deletePermission.__wrapped__(id=MOCK_ID)
@@ -177,14 +185,16 @@ class TestGetAllPermissions(BaseTestAccessControl):
         )
         app.config.foca = base_config
         mock_resp = deepcopy(MOCK_RULE)
-        mock_resp['id'] = MOCK_ID
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client.insert_one(mock_resp)
+        mock_resp["id"] = MOCK_ID
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client.insert_one(mock_resp)
 
         data = deepcopy(MOCK_RULE_USER_INPUT_OUTPUT)
-        data['id'] = MOCK_ID
+        data["id"] = MOCK_ID
         with app.app_context():
             res = getAllPermissions.__wrapped__()
             assert res == [data]
@@ -201,14 +211,16 @@ class TestGetAllPermissions(BaseTestAccessControl):
         )
         app.config.foca = base_config
         mock_resp = deepcopy(MOCK_RULE)
-        mock_resp['id'] = MOCK_ID
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client.insert_one(mock_resp)
+        mock_resp["id"] = MOCK_ID
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client.insert_one(mock_resp)
 
         data = deepcopy(MOCK_RULE_USER_INPUT_OUTPUT)
-        data['id'] = MOCK_ID
+        data["id"] = MOCK_ID
         with app.app_context():
             res = getAllPermissions.__wrapped__(limit=1)
             assert res == [data]
@@ -232,12 +244,13 @@ class TestPostPermission(BaseTestAccessControl):
         base_config = Config(db=self.db)
         base_config.security.access_control = self.access_control
         app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
         app.config["casbin_adapter"] = Adapter(
             uri=f"mongodb://localhost:{self.db_port}/",
             dbname=self.access_db,
-            collection=self.access_col
+            collection=self.access_col,
         )
 
         with app.test_request_context(json=deepcopy(MOCK_RULE)):
@@ -250,12 +263,13 @@ class TestPostPermission(BaseTestAccessControl):
         base_config = Config(db=self.db)
         base_config.security.access_control = self.access_control
         app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
         app.config["casbin_adapter"] = Adapter(
             uri=f"mongodb://localhost:{self.db_port}/",
             dbname=self.access_db,
-            collection=self.access_col
+            collection=self.access_col,
         )
 
         with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
@@ -268,12 +282,13 @@ class TestPostPermission(BaseTestAccessControl):
         base_config = Config(db=self.db)
         base_config.security.access_control = self.access_control
         app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
         app.config["casbin_adapter"] = Adapter(
             uri=f"mongodb://localhost:{self.db_port}/",
             dbname=self.access_db,
-            collection=self.access_col
+            collection=self.access_col,
         )
 
         with app.test_request_context(json=""):
@@ -301,8 +316,9 @@ class TestPutPermission(BaseTestAccessControl):
             **ACCESS_CONTROL_CONFIG
         )
         app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
 
         with app.test_request_context(json=deepcopy(MOCK_RULE)):
             res = putPermission.__wrapped__(id=MOCK_ID)
@@ -317,8 +333,9 @@ class TestPutPermission(BaseTestAccessControl):
             **ACCESS_CONTROL_CONFIG
         )
         app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
 
         with app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)):
             with pytest.raises(InternalServerError):
@@ -332,8 +349,9 @@ class TestPutPermission(BaseTestAccessControl):
             **ACCESS_CONTROL_CONFIG
         )
         app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
 
         with app.test_request_context(json=""):
             with pytest.raises(BadRequest):

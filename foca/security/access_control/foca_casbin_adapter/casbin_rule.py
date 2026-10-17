@@ -1,7 +1,6 @@
 """Casbin rule class."""
 
 
-
 class CasbinRule:
     """This class defines the basic structuring of a casbin rule object.
 
@@ -32,7 +31,7 @@ class CasbinRule:
         v2: str | None = None,
         v3: str | None = None,
         v4: str | None = None,
-        v5: str | None = None
+        v5: str | None = None,
     ):
         """Casbin rule object initializer."""
         self.ptype = ptype

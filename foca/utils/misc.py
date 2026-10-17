@@ -5,8 +5,8 @@ from random import choice
 
 
 def generate_id(
-    charset: str = ''.join([string.ascii_letters, string.digits]),
-    length: int = 6
+    charset: str = "".join([string.ascii_letters, string.digits]),
+    length: int = 6,
 ) -> str:
     """Generate random string composed of specified character set.
 
@@ -37,5 +37,5 @@ def generate_id(
         raise TypeError(
             f"Argument to 'length' is not a positive integer: {length}"
         )
-    charset = ''.join(sorted(set(charset)))
-    return ''.join(choice(charset) for __ in range(length))
+    charset = "".join(sorted(set(charset)))
+    return "".join(choice(charset) for __ in range(length))

@@ -1,5 +1,4 @@
-"""Tests for initialising casbin rule object.
-"""
+"""Tests for initialising casbin rule object."""
 
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     CasbinRule,
@@ -13,7 +12,7 @@ BASE_RULE_OBJECT = {
     "v2": "v2",
     "v3": "v3",
     "v4": "v4",
-    "v5": "v5"
+    "v5": "v5",
 }
 BASE_RULE_STR_REPRESENTATION = "ptype, v0, v1, v2, v3, v4, v5"
 BASE_RULE_REPRESENTATION = f'<CasbinRule :"{BASE_RULE_STR_REPRESENTATION}">'

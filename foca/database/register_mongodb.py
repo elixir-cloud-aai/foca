@@ -31,7 +31,6 @@ def register_mongodb(
     # Iterate over databases
     if conf.dbs is not None:
         for db_name, db_conf in conf.dbs.items():
-
             # Instantiate PyMongo client
             mongo = _create_mongo_client(
                 app=app,
@@ -46,11 +45,8 @@ def register_mongodb(
             # Add collections
             if db_conf.collections is not None and db_conf.client is not None:
                 for coll_name, coll_conf in db_conf.collections.items():
-
                     coll_conf.client = db_conf.client[coll_name]
-                    logger.info(
-                        f"Added database collection '{coll_name}'."
-                    )
+                    logger.info(f"Added database collection '{coll_name}'.")
 
                     # Add indexes
                     if (
@@ -62,7 +58,8 @@ def register_mongodb(
                         for index in coll_conf.indexes:
                             if index.keys is not None:
                                 coll_conf.client.create_index(
-                                    index.keys, **index.options)
+                                    index.keys, **index.options
+                                )
                         logger.info(
                             f"Indexes created for collection '{coll_name}'."
                         )
@@ -71,10 +68,7 @@ def register_mongodb(
 
 
 def add_new_database(
-    app: Flask,
-    conf: MongoConfig,
-    db_conf: DBConfig,
-    db_name: str
+    app: Flask, conf: MongoConfig, db_conf: DBConfig, db_name: str
 ):
     """Register an additional db to database config.
 
@@ -100,18 +94,15 @@ def add_new_database(
     # Add collections
     if db_conf.collections is not None and db_conf.client is not None:
         for coll_name, coll_conf in db_conf.collections.items():
-
             coll_conf.client = db_conf.client[coll_name]
-            logger.info(
-                f"Added database collection '{coll_name}'."
-            )
+            logger.info(f"Added database collection '{coll_name}'.")
 
 
 def _create_mongo_client(
-        app: Flask,
-        host: str = 'mongodb',
-        port: int = 27017,
-        db: str = 'database',
+    app: Flask,
+    host: str = "mongodb",
+    port: int = 27017,
+    db: str = "database",
 ) -> PyMongo:
     """Create MongoDB client for Flask application instance.
 
@@ -124,30 +115,30 @@ def _create_mongo_client(
     Returns:
         MongoDB client for Flask application instance.
     """
-    auth = ''
-    user = os.environ.get('MONGO_USERNAME')
+    auth = ""
+    user = os.environ.get("MONGO_USERNAME")
     if user is not None and user != "":
-        auth = '{username}:{password}@'.format(
-            username=os.environ.get('MONGO_USERNAME'),
-            password=os.environ.get('MONGO_PASSWORD'),
+        auth = "{username}:{password}@".format(
+            username=os.environ.get("MONGO_USERNAME"),
+            password=os.environ.get("MONGO_PASSWORD"),
         )
 
-    app.config['MONGO_URI'] = 'mongodb://{auth}{host}:{port}/{db}'.format(
-        host=os.environ.get('MONGO_HOST', host),
-        port=os.environ.get('MONGO_PORT', port),
-        db=os.environ.get('MONGO_DBNAME', db),
-        auth=auth
+    app.config["MONGO_URI"] = "mongodb://{auth}{host}:{port}/{db}".format(
+        host=os.environ.get("MONGO_HOST", host),
+        port=os.environ.get("MONGO_PORT", port),
+        db=os.environ.get("MONGO_DBNAME", db),
+        auth=auth,
     )
 
     mongo = PyMongo(app)
     logger.info(
         (
             "Registered database '{db}' at URI '{host}':'{port}' with Flask "
-            'application.'
+            "application."
         ).format(
-            db=os.environ.get('MONGO_DBNAME', db),
-            host=os.environ.get('MONGO_HOST', host),
-            port=os.environ.get('MONGO_PORT', port)
+            db=os.environ.get("MONGO_DBNAME", db),
+            host=os.environ.get("MONGO_HOST", host),
+            port=os.environ.get("MONGO_PORT", port),
         )
     )
     return mongo

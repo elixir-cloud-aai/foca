@@ -47,32 +47,31 @@ class TestRegisterAccessControl(TestCase):
         enforcer."""
         app = Flask(__name__)
         app.config["FOCA"] = Config(
-            db=self.db,
-            access_control=self.access_control
+            db=self.db, access_control=self.access_control
         )
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
+        app.config["FOCA"].db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
         app.config["casbin_adapter"] = Adapter(
             uri=f"mongodb://localhost:{self.db_port}/",
             dbname=self.access_db,
-            collection=self.access_col
+            collection=self.access_col,
         )
         app.config["casbin_adapter"].save_policy_line(
-            ptype="p",
-            rule=MOCK_PERMISSION
+            ptype="p", rule=MOCK_PERMISSION
         )
         app.config["CASBIN_MODEL"] = self.access_control.model
         app.config["CASBIN_OWNER_HEADERS"] = self.access_control.owner_headers
-        app.config["CASBIN_USER_NAME_HEADERS"] = self.access_control.\
-            user_headers
+        app.config["CASBIN_USER_NAME_HEADERS"] = (
+            self.access_control.user_headers
+        )
 
         @check_permissions
         def mock_func():
             return "pass"
 
         with app.test_request_context(
-            environ_base=MOCK_REQUEST,
-            headers={"X-User": "alice"}
+            environ_base=MOCK_REQUEST, headers={"X-User": "alice"}
         ):
             response = mock_func()
             assert response == "pass"
@@ -86,27 +85,30 @@ class TestRegisterAccessControl(TestCase):
         present."""
         app = Flask(__name__)
         app.config["FOCA"] = Config(
-            db=self.db,
-            access_control=self.access_control
+            db=self.db, access_control=self.access_control
         )
-        app.config["FOCA"].db.dbs[self.access_db].collections[self.access_col]\
-            .client = mongomock.MongoClient().db.collection
+        app.config["FOCA"].db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
         app.config["casbin_adapter"] = Adapter(
             uri=f"mongodb://localhost:{self.db_port}/",
             dbname=self.access_db,
-            collection=self.access_col
+            collection=self.access_col,
         )
         app.config["CASBIN_MODEL"] = self.access_control.model
         app.config["CASBIN_OWNER_HEADERS"] = self.access_control.owner_headers
-        app.config["CASBIN_USER_NAME_HEADERS"] = self.access_control.\
-            user_headers
+        app.config["CASBIN_USER_NAME_HEADERS"] = (
+            self.access_control.user_headers
+        )
 
         @check_permissions
         def mock_func():
             return "pass"
 
-        with app.test_request_context(
-            environ_base=MOCK_REQUEST,
-            headers={"X-Admin": "alice"}
-        ), pytest.raises(Forbidden):
+        with (
+            app.test_request_context(
+                environ_base=MOCK_REQUEST, headers={"X-Admin": "alice"}
+            ),
+            pytest.raises(Forbidden),
+        ):
             mock_func()

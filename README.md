@@ -402,8 +402,8 @@ You can then have FOCA validate your custom configuration against the
 from foca import Foca
 
 foca = Foca(
-  config="my_app/config.yaml",
-  custom_config_model="my_app.custom_config.CustomConfig",
+    config="my_app/config.yaml",
+    custom_config_model="my_app.custom_config.CustomConfig",
 )
 my_app = foca.create_app()
 ```
@@ -457,7 +457,7 @@ exceptions = app_config.exceptions
 security = app_config.security
 jobs = app_config.jobs
 log = app_config.log
-app_specific_param = current_app.config['app_specific_param']
+app_specific_param = current_app.config["app_specific_param"]
 ```
 
 _Outside of the application context_, configuration parameters are available
@@ -505,6 +505,7 @@ any requests and/or responses passing through that route:
 ```python
 from foca.utils.logging import log_traffic
 
+
 @log_traffic(log_request=True, log_response=True, log_level=20)
 def your_controller():
     pass
@@ -535,8 +536,9 @@ validate request on the basis of permission rules.
 
 ```python
 from foca.security.access_control.register_access_control import (
-    check_permissions
+    check_permissions,
 )
+
 
 @check_permissions
 def your_controller():

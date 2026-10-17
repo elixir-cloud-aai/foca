@@ -21,76 +21,71 @@ from foca.models.config import (
 
 DIR = Path(__file__).parent / "test_files"
 EXCEPTIONS_NO_DICT = []
-EXCEPTIONS_NOT_NESTED = {Exception: 'b'}
-EXCEPTIONS_NOT_EXC = {'a': {'status': 400, 'title': 'Bad Request'}}
-REQUIRED_MEMBERS = [['title'], ['status']]
-MEMBER_TITLE = ['title']
-MEMBER_STATUS = ['status']
-MEMBER_NA = ['some', 'field']
-MEMBERS_NA = [
-    MEMBER_NA,
-    MEMBER_NA + ['more']
-]
+EXCEPTIONS_NOT_NESTED = {Exception: "b"}
+EXCEPTIONS_NOT_EXC = {"a": {"status": 400, "title": "Bad Request"}}
+REQUIRED_MEMBERS = [["title"], ["status"]]
+MEMBER_TITLE = ["title"]
+MEMBER_STATUS = ["status"]
+MEMBER_NA = ["some", "field"]
+MEMBERS_NA = [MEMBER_NA, MEMBER_NA + ["more"]]
 MODULE_NA = "some.unavailable.module"
 MODULE_WITHOUT_EXCEPTIONS = "foca.foca.exceptions"
-MODULE_PATCH_NO_DICT = 'some.path.EXCEPTIONS_NO_DICT'
-MODULE_PATCH_NOT_NESTED = 'some.path.EXCEPTIONS_NOT_NESTED'
-MODULE_PATCH_NOT_EXC = 'some.path.EXCEPTIONS_NOT_EXC'
+MODULE_PATCH_NO_DICT = "some.path.EXCEPTIONS_NO_DICT"
+MODULE_PATCH_NOT_NESTED = "some.path.EXCEPTIONS_NOT_NESTED"
+MODULE_PATCH_NOT_EXC = "some.path.EXCEPTIONS_NOT_EXC"
 PATH = str(DIR / "openapi_2_petstore.yaml")
 PATH_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
 PATH_ADDITION = str(DIR / "openapi_2_petstore.addition.yaml")
 INDEX_CONFIG = {
-    'keys': {'last_name': -1},
-    'options': {
-        'name': 'indexLastName',
-        'unique': True,
-        'background': False,
-        'sparse': False
-    }
+    "keys": {"last_name": -1},
+    "options": {
+        "name": "indexLastName",
+        "unique": True,
+        "background": False,
+        "sparse": False,
+    },
 }
 COLLECTION_CONFIG = {
-    'indexes': [INDEX_CONFIG],
+    "indexes": [INDEX_CONFIG],
 }
 DB_CONFIG = {
-    'collections': {
-        'wes-col': COLLECTION_CONFIG,
+    "collections": {
+        "wes-col": COLLECTION_CONFIG,
     },
 }
 MONGO_CONFIG = {
-    'host': 'mongodb',
-    'port': 27017,
-    'dbs': {
-        'wes': DB_CONFIG,
+    "host": "mongodb",
+    "port": 27017,
+    "dbs": {
+        "wes": DB_CONFIG,
     },
 }
 SPEC_CONFIG = {
-    'path': '/my/abs/path',
-    'path_out': '/my/abs/out/path',
+    "path": "/my/abs/path",
+    "path_out": "/my/abs/out/path",
 }
 SPEC_CONFIG_REL_IN = {
-    'path': 'path',
-    'path_out': '/my/abs/out/path',
+    "path": "path",
+    "path_out": "/my/abs/out/path",
 }
 SPEC_CONFIG_REL_OUT = {
-    'path': '/my/abs/path',
-    'path_out': 'path',
+    "path": "/my/abs/path",
+    "path_out": "path",
 }
 SPEC_CONFIG_REL_IO = {
-    'path': '/my/abs/path',
-    'path_out': '/my/abs/out/path',
+    "path": "/my/abs/path",
+    "path_out": "/my/abs/out/path",
 }
 SPEC_CONFIG_NO_OUT = {
-    'path': '/my/abs/path',
+    "path": "/my/abs/path",
 }
 SPEC_CONFIG_REL_IN_NO_OUT = {
-    'path': 'path',
+    "path": "path",
 }
 SPEC_CONFIG_NO_IN = {
-    'path_out': '/my/abs/out/path',
+    "path_out": "/my/abs/out/path",
 }
-SPEC_CONFIG_LIST_NO_OUT = {
-    'path': ['path1', 'path2']
-}
+SPEC_CONFIG_LIST_NO_OUT = {"path": ["path1", "path2"]}
 
 
 def test_config_empty():
@@ -145,8 +140,8 @@ def test_exception_config_with_wrong_exceptions_type(monkeypatch):
     """Test creation of the ExceptionConfig model; exceptions object is not
     of dictionary type."""
     monkeypatch.setattr(
-        'importlib.import_module',
-        lambda *args, **kwargs: sys.modules[__name__]
+        "importlib.import_module",
+        lambda *args, **kwargs: sys.modules[__name__],
     )
     with pytest.raises(ValidationError):
         ExceptionConfig(
@@ -160,7 +155,7 @@ def test_exception_config_with_optional_status_member():
     with pytest.raises(ValidationError):
         ExceptionConfig(
             extension_members=True,
-            status_member=['sdf', 'asd'],
+            status_member=["sdf", "asd"],
         )
 
 
@@ -208,8 +203,8 @@ def test_exception_config_with_wrong_exception_values(monkeypatch):
     """Test creation of the ExceptionConfig model; exceptions object is not
     a dictionary of dictionaries."""
     monkeypatch.setattr(
-        'importlib.import_module',
-        lambda *args, **kwargs: sys.modules[__name__]
+        "importlib.import_module",
+        lambda *args, **kwargs: sys.modules[__name__],
     )
     with pytest.raises(ValidationError):
         ExceptionConfig(
@@ -221,8 +216,8 @@ def test_exception_config_with_wrong_exception_keys(monkeypatch):
     """Test creation of the ExceptionConfig model; exceptions object is not
     a dictionary of exceptions."""
     monkeypatch.setattr(
-        'importlib.import_module',
-        lambda *args, **kwargs: sys.modules[__name__]
+        "importlib.import_module",
+        lambda *args, **kwargs: sys.modules[__name__],
     )
     with pytest.raises(ValidationError):
         ExceptionConfig(
@@ -234,9 +229,7 @@ def test_exception_config_missing_required_members():
     """Test creation of the ExceptionConfig model; required members are
     missing."""
     with pytest.raises(ValidationError):
-        ExceptionConfig(
-            required_members=REQUIRED_MEMBERS + MEMBERS_NA
-        )
+        ExceptionConfig(required_members=REQUIRED_MEMBERS + MEMBERS_NA)
 
 
 def test_exception_config_forbidden_extension_members():
@@ -369,7 +362,7 @@ def test_spec_config_list_no_out():
 def test_SpecConfig_full():
     """Test SpecConfig instantiation; full example"""
     res = SpecConfig(**SPEC_CONFIG)
-    assert str(res.path_out) == SPEC_CONFIG['path_out']
+    assert str(res.path_out) == SPEC_CONFIG["path_out"]
 
 
 def test_SpecConfig_minimal():
@@ -415,9 +408,14 @@ def test_SecurityConfig_enforce_without_auth():
         )
 
 
-@pytest.mark.parametrize("required,enforce", [
-    (True, True), (True, False), (False, False),
-])
+@pytest.mark.parametrize(
+    "required,enforce",
+    [
+        (True, True),
+        (True, False),
+        (False, False),
+    ],
+)
 def test_SecurityConfig_enforce(required, enforce):
     """Test SecurityConfig instantiation; valid auth and enforcement."""
     res = SecurityConfig(

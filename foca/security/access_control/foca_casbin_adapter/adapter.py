@@ -1,6 +1,5 @@
 """Casbin rule adapter."""
 
-
 from casbin import persist
 from casbin.model import Model
 from pymongo import MongoClient
@@ -93,8 +92,7 @@ class Adapter(persist.Adapter):
             line_dict = line.dict()
             line_dict_keys_len = len(line_dict)
             results = self._collection.find(
-                filter=line_dict,
-                projection={"id": False}
+                filter=line_dict, projection={"id": False}
             )
             to_delete = [
                 result["_id"]
@@ -151,8 +149,7 @@ class Adapter(persist.Adapter):
         return deleted_count > 0
 
     def remove_filtered_policy(
-        self, sec: str, ptype: str,
-        field_index: int, *field_values: list[str]
+        self, sec: str, ptype: str, field_index: int, *field_values: list[str]
     ):
         """Remove policy rules that match the filter from the storage.
            This is part of the Auto-Save feature.
