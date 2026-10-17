@@ -678,11 +678,15 @@ class AccessControlConfig(FOCABaseConfig):
             `x-foca-access-control: false`. The permissions API is always
             enforced.
         claim_identity: Claim of the validated JSON Web Token (JWT) used as
-            the subject for enforcing policies.
+            the subject for enforcing policies. If None, use
+            `AuthConfig.claim_identity`.
+        subject_prefix: Prefix added to the subject in policy rules (e.g.,
+            `user:alice`), so that subjects cannot collide with role names.
         claim_groups: Claim of the validated JWT listing groups or
             entitlements of the subject (e.g., `eduperson_entitlement`). If
             set, its values are used as additional subjects (roles) when
-            enforcing policies.
+            enforcing policies, prefixed with `group:` unless
+            `group_mapping` is set.
         group_mapping: Mapping of values of `claim_groups` to roles. If set,
             only mapped values are used as roles.
 
@@ -698,6 +702,7 @@ class AccessControlConfig(FOCABaseConfig):
         enforce: Enforce policies on all operations of the app's API specs
             that require authentication.
         claim_identity: JWT claim used as the subject for enforcing policies.
+        subject_prefix: Prefix added to the subject in policy rules.
         claim_groups: JWT claim listing groups or entitlements of the subject.
         group_mapping: Mapping of values of `claim_groups` to roles.
 
@@ -728,7 +733,8 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     owner_headers: Optional[set] = None
     user_headers: Optional[set] = None
     enforce: bool = False
-    claim_identity: str = "sub"
+    claim_identity: Optional[str] = None
+    subject_prefix: str = "user:"
     claim_groups: Optional[str] = None
     group_mapping: Optional[Dict[str, str]] = None
 
