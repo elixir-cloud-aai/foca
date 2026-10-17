@@ -15,8 +15,12 @@ def generate_id(
 ) -> str:
     """Generate random string composed of specified character set.
 
-    Characters are drawn with :py:func:`secrets.choice`, i.e., the generated
-    identifiers are suitable for use in security-sensitive contexts.
+    Characters are drawn with :py:func:`secrets.choice`, i.e., they are not
+    predictable from previously generated identifiers. Whether identifiers
+    are hard enough to guess for a given purpose still depends on `charset`
+    and `length`: the defaults yield about 36 bits of entropy, which is fine
+    for collision-resistant resource identifiers, but too little for
+    secrets such as tokens.
 
     Args:
         charset: A string of allowed characters. Duplicate characters are
