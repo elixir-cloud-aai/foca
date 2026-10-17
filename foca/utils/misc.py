@@ -4,9 +4,26 @@ import re
 import string
 from secrets import choice
 
-# Matches charsets that look like expressions using the `string` module,
-# which were evaluated by previous versions of `generate_id()`
-_STRING_EXPRESSION = re.compile(r"\bstring\.[a-z_]+")
+# Matches references to constants of the `string` module (e.g.,
+# `string.digits`), as used in charset expressions that were evaluated by
+# previous versions of `generate_id()`
+_STRING_EXPRESSION = re.compile(
+    r"\bstring\s*\.\s*(?:"
+    + "|".join(
+        [
+            "ascii_letters",
+            "ascii_lowercase",
+            "ascii_uppercase",
+            "digits",
+            "hexdigits",
+            "octdigits",
+            "printable",
+            "punctuation",
+            "whitespace",
+        ]
+    )
+    + r")\b"
+)
 
 
 def generate_id(

@@ -30,6 +30,21 @@ class TestGenerateId:
         """Argument to `charset` is used literally, not evaluated."""
         charset = "''.join([])"
         res = generate_id(charset=charset, length=20)
+        assert len(res) == 20
+        assert set(res) <= set(charset)
+
+    @pytest.mark.parametrize(
+        "charset",
+        [
+            "string.abc",
+            "my_string.xyz",
+            "substring.digits",
+        ],
+    )
+    def test_charset_literal_with_dot(self, charset):
+        """Literal charset resembling attribute access is used literally."""
+        res = generate_id(charset=charset, length=20)
+        assert len(res) == 20
         assert set(res) <= set(charset)
 
     def test_charset_digit_string(self):
@@ -43,6 +58,7 @@ class TestGenerateId:
             "string.ascii_uppercase + string.digits",
             "string.digits",
             "''.join([string.ascii_letters, string.digits])",
+            "string . ascii_uppercase+string .digits",
         ],
     )
     def test_charset_expression(self, charset):
