@@ -2,7 +2,7 @@
 
 import logging
 from functools import wraps
-from typing import (Callable, Dict, FrozenSet, List, Optional, Tuple)
+from typing import (Callable, Dict, List, Optional, Tuple, Union)
 
 from casbin import Enforcer
 from connexion import context
@@ -10,13 +10,12 @@ from connexion.exceptions import (Forbidden, Unauthorized)
 from connexion.resolver import (Resolution, Resolver)
 from flask import (current_app, request)
 
+from foca.security.access_control.constants import GROUP_PREFIX
+
 logger = logging.getLogger(__name__)
 
 # Policy type of resource-scoped role rules: subject, role, resource
 RESOURCE_ROLE_PTYPE = "g2"
-
-# Prefix of group claim values used as roles without `group_mapping`
-GROUP_PREFIX = "group:"
 
 
 def _get_access_control_config():
@@ -197,34 +196,77 @@ def enforce_access_control(fn: Callable) -> Callable:
     return _wrapper
 
 
+def _requires_authentication(security: Optional[List[Dict]]) -> bool:
+    """Check whether security requirements require authentication.
+
+    Args:
+        security: Effective security requirements of an operation.
+
+    Returns:
+        `True` if there are security requirements and none of the
+        alternatives is empty; an empty alternative (e.g., `[{}]`) allows
+        anonymous access.
+    """
+    if not security:
+        return False
+    return all(security)
+
+
 class AccessControlResolver(Resolver):
     """Connexion resolver enforcing access control policies.
 
     Resolved functions are wrapped with :py:func:`enforce_access_control`.
     As Connexion's security handlers wrap the resolved functions, policies are
-    enforced after token validation.
+    enforced after token validation. Whether to enforce policies is decided
+    for each operation as resolved by Connexion, i.e., with references
+    resolved and security requirements inherited from the specification.
 
     Args:
-        resolver: Resolver to resolve functions with. Defaults to Connexion's
-            default resolver.
-        operations: Path and (lowercase) HTTP method of the operations to
-            enforce policies on. If `None`, policies are enforced on all
-            operations.
+        resolver: Resolver to resolve functions with (any object with a
+            `resolve()` method), or a function resolving operation
+            identifiers to functions, as accepted by Connexion. Defaults to
+            Connexion's default resolver.
+        enforce_all: Whether to enforce policies on all operations. If
+            `False`, policies are only enforced on operations that require
+            authentication and do not set `x-foca-access-control: false`.
 
     Attributes:
         resolver: Resolver to resolve functions with.
-        operations: Path and (lowercase) HTTP method of the operations to
-            enforce policies on.
+        enforce_all: Whether to enforce policies on all operations.
     """
 
     def __init__(
         self,
-        resolver: Optional[Resolver] = None,
-        operations: Optional[FrozenSet[Tuple[str, str]]] = None,
+        resolver: Optional[Union[Resolver, Callable]] = None,
+        enforce_all: bool = False,
     ):
         super().__init__()
-        self.resolver = Resolver() if resolver is None else resolver
-        self.operations = operations
+        # Same normalization as Connexion's `App.add_api()`: wrap callables,
+        # use any other resolver object (with a `resolve()` method) as is
+        self.resolver: Resolver
+        if resolver is None:
+            self.resolver = Resolver()
+        elif callable(resolver):
+            self.resolver = Resolver(function_resolver=resolver)
+        else:
+            self.resolver = resolver
+        self.enforce_all = enforce_all
+
+    def _is_enforced(self, operation) -> bool:
+        """Check whether to enforce policies on an operation.
+
+        Args:
+            operation: Connexion operation.
+
+        Returns:
+            Whether to enforce policies on the operation.
+        """
+        if self.enforce_all:
+            return True
+        # Connexion only exposes vendor extensions via the operation object
+        if operation._operation.get("x-foca-access-control") is False:
+            return False
+        return _requires_authentication(operation.security)
 
     def resolve(self, operation) -> Resolution:
         """Resolve operation and wrap function with policy enforcement.
@@ -236,10 +278,7 @@ class AccessControlResolver(Resolver):
             Resolution of the operation.
         """
         resolution = self.resolver.resolve(operation)
-        if (
-            self.operations is not None
-            and (operation.path, operation.method) not in self.operations
-        ):
+        if not self._is_enforced(operation):
             return resolution
         logger.debug(
             f"Enforcing access control: {operation.method.upper()} "

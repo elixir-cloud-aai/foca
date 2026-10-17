@@ -7,6 +7,7 @@ from typing import Dict, Optional
 from unittest import mock
 
 from connexion.exceptions import Unauthorized
+from connexion.resolver import Resolution, Resolver
 from flask import Flask
 from flask.globals import request_ctx
 import mongomock
@@ -92,7 +93,21 @@ def controller(*args, **kwargs) -> str:
 
 # Operations need distinct identifiers
 list_items = create_item = get_item = update_item = delete_item = \
-    get_open = get_item_permissions = update_item_permissions = controller
+    get_open = get_item_permissions = update_item_permissions = \
+    get_ref_item = get_optional = controller
+
+
+def function_resolver(operation_id: str):
+    """Callable operation resolver, as accepted by Connexion."""
+    return controller
+
+
+class DuckTypedResolver:
+    """Operation resolver not inheriting from `Resolver`, as accepted by
+    Connexion."""
+
+    def resolve(self, operation) -> Resolution:
+        return Resolution(controller, operation.operation_id)
 
 
 def _operation(operation_id: str, **extra) -> Dict:
@@ -141,6 +156,20 @@ SPEC = {
                 "get_open", **{"x-foca-access-control": False}
             ),
         },
+        # path item defined via reference
+        "/refs/{id}": {"$ref": "#/x-path-items/ref-item"},
+        # optional authentication
+        "/optional": {
+            "get": _operation(
+                "get_optional", security=[{}, {"bearerAuth": []}]
+            ),
+        },
+    },
+    "x-path-items": {
+        "ref-item": {
+            "parameters": [ID_PARAMETER],
+            "get": _operation("get_ref_item"),
+        },
     },
     "components": {
         "securitySchemes": {
@@ -174,7 +203,11 @@ def _access_control_config(**kwargs) -> AccessControlConfig:
     return AccessControlConfig(**params)
 
 
-def _create_app(tmp_path: Path, access_control: AccessControlConfig):
+def _create_app(
+    tmp_path: Path,
+    access_control: AccessControlConfig,
+    connexion: Optional[Dict] = None,
+):
     """Create app with test API, permissions API and in-memory policies."""
     spec_file = tmp_path / "spec.yaml"
     spec_file.write_text(yaml.safe_dump(deepcopy(SPEC)))
@@ -191,7 +224,7 @@ def _create_app(tmp_path: Path, access_control: AccessControlConfig):
     cnx_app = register_exception_handler(cnx_app)
     cnx_app = register_openapi(
         app=cnx_app,
-        specs=[SpecConfig(path=spec_file)],
+        specs=[SpecConfig(path=spec_file, connexion=connexion)],
         enforce_access_control=access_control.enforce,
     )
     with mock.patch(
@@ -307,6 +340,48 @@ class TestEnforcement:
         app = _create_app(
             tmp_path,
             _access_control_config(resource_roles_cover_subpaths=False),
+        )
+        response = getattr(app.test_client(), method)(
+            path, headers=_headers(user)
+        )
+        assert response.status_code == status
+
+    @pytest.mark.parametrize("method,path,user,status", [
+        # operations of path items defined via reference are enforced
+        ("get", "/refs/1", "dave", 403),
+        ("get", "/refs/1", "carol", 200),
+        # operations with optional authentication are not enforced
+        ("get", "/optional", None, 200),
+        ("get", "/optional", "dave", 200),
+    ])
+    def test_enforce_resolved_operations(
+        self, app, method, path, user, status
+    ):
+        response = getattr(app.test_client(), method)(
+            path, headers=_headers(user)
+        )
+        assert response.status_code == status
+
+    @pytest.mark.parametrize("resolver", [
+        # callable resolving operation identifiers
+        function_resolver,
+        # resolver instance
+        Resolver(function_resolver=function_resolver),
+        # resolver object not inheriting from `Resolver`
+        DuckTypedResolver(),
+    ])
+    @pytest.mark.parametrize("method,path,user,status", [
+        ("delete", "/items/1", "alice", 200),
+        ("delete", "/items/1", "dave", 403),
+        ("get", "/items", None, 200),
+    ])
+    def test_enforce_custom_resolver(
+        self, tmp_path, resolver, method, path, user, status
+    ):
+        app = _create_app(
+            tmp_path,
+            _access_control_config(),
+            connexion={"resolver": resolver},
         )
         response = getattr(app.test_client(), method)(
             path, headers=_headers(user)

@@ -219,9 +219,21 @@ _after_ the bearer token was validated (e.g., by FOCA's
 policy allows them.
 
 * Operations with `security: []` are not enforced, i.e., they are public.
+  The same applies to operations with optional authentication, i.e., with an
+  empty security requirement alternative (e.g., `security: [{}, {bearerAuth:
+  []}]`).
 * Single operations can opt out via `x-foca-access-control: false`.
+* Operations are selected as resolved by Connexion, so operations of path
+  items defined via `$ref` are enforced, too.
+* `enforce: True` requires `security.auth.required: True`; FOCA refuses to
+  start otherwise.
 * With `enforce: False` (default), policies are only enforced on controllers
   decorated with `check_permissions`.
+
+`check_permissions` is a separate mechanism: it takes subjects from request
+headers (`owner_headers`), not from validated token claims, and does not
+apply the subject namespaces described below. Do not combine it with
+`enforce: True`; otherwise, both checks apply to decorated controllers.
 
 ### Identity and group claims
 
@@ -249,7 +261,11 @@ To keep users, groups and roles apart, subjects are namespaced in rules:
 | Role (from `group_mapping` or `g` rules) | as is | `admin` |
 
 This way, a user whose identifier equals a role name (e.g., `admin`), or an
-identity provider group of that name, is not granted that role.
+identity provider group of that name, is not granted that role. For the same
+reason, `subject_prefix` must not be empty and must not overlap with
+`group:`. All rules, including those for the permissions API, must use these
+forms (e.g., `p, user:alice, /admin/access-control/permissions, GET`); rules
+naming unprefixed user identifiers do not match.
 
 In your controllers, use `get_current_subject()` and `get_current_groups()`
 to get the subject (without prefix) and roles of the current request:
@@ -343,7 +359,8 @@ The [permissions API](#exploring-the-api) requires a bearer token
 policies are always enforced on it, irrespective of `enforce`. With the
 [reference model][resource-role-model], only subjects with role `admin` can
 manage rules. With other models, rules allowing access to the permissions API
-routes (e.g., `/admin/access-control/permissions`) are required. Initial
+routes (e.g., `/admin/access-control/permissions`) are required, naming
+prefixed subjects (e.g., `user:alice`) or roles. Initial
 rules can be added via `group_mapping` (e.g., mapping an entitlement to
 `admin`) or directly to the access control database.
 
