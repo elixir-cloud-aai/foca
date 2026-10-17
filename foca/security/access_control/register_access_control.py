@@ -49,33 +49,63 @@ def register_access_control(
     Returns:
         Connexion application instance with registered access control config.
     """
-    # Register access control database and collection.
-    access_db_conf = DBConfig(
-        collections={access_control_config.collection_name: CollectionConfig()}
-        if access_control_config.collection_name is not None
-        else {},
-        client=None,
-    )
-
     # Set default db attributes if config not present.
     if mongo_config is None:
         mongo_config = MongoConfig()
+    if mongo_config.dbs is None:
+        mongo_config.dbs = {}
 
     access_control_db = str(access_control_config.db_name)
-    if mongo_config.dbs is None:
-        mongo_config.dbs = {access_control_db: access_db_conf}
-    else:
+    access_control_collection = access_control_config.collection_name
+    app_db_conf = mongo_config.dbs.get(access_control_db)
+
+    if app_db_conf is None:
+        # Register new database for access control.
+        access_db_conf = DBConfig(
+            collections={access_control_collection: CollectionConfig()}
+            if access_control_collection is not None
+            else {},
+            client=None,
+        )
         mongo_config.dbs[access_control_db] = access_db_conf
+        add_new_database(
+            app=cnx_app.app,
+            conf=mongo_config,
+            db_conf=access_db_conf,
+            db_name=access_control_db,
+        )
+    elif access_control_collection is not None:
+        # Add policy collection to app database of the same name, keeping
+        # the app's collections.
+        if app_db_conf.collections is None:
+            app_db_conf.collections = {}
+        if access_control_collection in app_db_conf.collections:
+            raise ValueError(
+                f"Access control collection '{access_control_collection}' "
+                f"clashes with app collection of the same name in database "
+                f"'{access_control_db}'. Set a different "
+                "'security.access_control.collection_name' or "
+                "'security.access_control.db_name'."
+            )
+        policy_collection = CollectionConfig()
+        app_db_conf.collections[access_control_collection] = policy_collection
+        if app_db_conf.client is None:
+            add_new_database(
+                app=cnx_app.app,
+                conf=mongo_config,
+                db_conf=app_db_conf,
+                db_name=access_control_db,
+            )
+        else:
+            policy_collection.client = app_db_conf.client[
+                access_control_collection
+            ]
+        logger.info(
+            f"Added access control collection '{access_control_collection}' "
+            f"to database '{access_control_db}'."
+        )
 
     cnx_app.app.config.foca.db = mongo_config
-
-    # Register new database for access control.
-    add_new_database(
-        app=cnx_app.app,
-        conf=mongo_config,
-        db_conf=access_db_conf,
-        db_name=access_control_db,
-    )
 
     # Register access control api specs and corresponding controller.
     cnx_app = register_casbin_enforcer(
@@ -136,6 +166,7 @@ def register_permission_specs(
         resolver=AccessControlResolver(enforce_all=True),
         **spec.model_dump().get("connexion", {}),
     )
+    logger.info(f"Permission management API registered from '{spec_path}'.")
     return app
 
 
@@ -180,6 +211,7 @@ def register_casbin_enforcer(
         collection=access_control_config.collection_name,
     )
     app.app.config["casbin_adapter"] = adapter
+    logger.info("Casbin enforcer registered.")
 
     return app
 

@@ -1,5 +1,6 @@
 """Tests for registering access control"""
 
+import logging
 from unittest import TestCase
 
 import mongomock
@@ -8,10 +9,20 @@ from flask import Flask
 from pymongo import MongoClient
 
 from foca.errors.exceptions import Forbidden
-from foca.models.config import AccessControlConfig, Config, MongoConfig
+from foca.factories.connexion_app import create_connexion_app
+from foca.models.config import (
+    AccessControlConfig,
+    CollectionConfig,
+    Config,
+    DBConfig,
+    IndexConfig,
+    MongoConfig,
+)
+from foca.security.access_control.constants import DEFAULT_SPEC_CONTROLLER
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
     check_permissions,
+    register_access_control,
 )
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
@@ -112,3 +123,89 @@ class TestRegisterAccessControl(TestCase):
             pytest.raises(Forbidden),
         ):
             mock_func()
+
+
+class TestRegisterAccessControlSetup:
+    """Tests for registering the access control database and API."""
+
+    @staticmethod
+    def _register(mongo_config, **access_control_kwargs):
+        access_control_kwargs = {
+            "db_name": "access_control_db",
+            "collection_name": "policy_rules",
+            **access_control_kwargs,
+        }
+        access_control_config = AccessControlConfig(
+            api_controllers=DEFAULT_SPEC_CONTROLLER,
+            **access_control_kwargs,
+        )
+        cnx_app = create_connexion_app(Config(db=mongo_config))
+        register_access_control(
+            cnx_app=cnx_app,
+            mongo_config=mongo_config,
+            access_control_config=access_control_config,
+        )
+        return cnx_app.app.config.foca.db
+
+    @staticmethod
+    def _app_db_config():
+        return MongoConfig(
+            dbs={
+                "app_db": DBConfig(
+                    collections={
+                        "items": CollectionConfig(
+                            indexes=[IndexConfig(keys={"id": 1})]
+                        ),
+                    },
+                ),
+            },
+        )
+
+    def test_separate_db(self):
+        """Access control database is added next to app databases."""
+        db = self._register(self._app_db_config())
+        assert set(db.dbs) == {"app_db", "access_control_db"}
+        assert set(db.dbs["app_db"].collections) == {"items"}
+        assert set(db.dbs["access_control_db"].collections) == {"policy_rules"}
+
+    def test_shared_db(self):
+        """Policy collection is added to app database of the same name."""
+        db = self._register(self._app_db_config(), db_name="app_db")
+        assert set(db.dbs) == {"app_db"}
+        collections = db.dbs["app_db"].collections
+        assert set(collections) == {"items", "policy_rules"}
+        assert collections["items"].indexes[0].keys == [("id", 1)]
+        assert collections["policy_rules"].client is not None
+
+    def test_shared_db_registered(self):
+        """Policy collection uses client of registered app database."""
+        mongo_config = self._app_db_config()
+        app_db = mongomock.MongoClient().db
+        mongo_config.dbs["app_db"].client = app_db
+        items_client = app_db["items"]
+        mongo_config.dbs["app_db"].collections["items"].client = items_client
+        db = self._register(mongo_config, db_name="app_db")
+        collections = db.dbs["app_db"].collections
+        assert collections["items"].client is items_client
+        assert collections["policy_rules"].client == app_db["policy_rules"]
+
+    def test_shared_db_collection_clash(self):
+        """Policy collection must not be an app collection."""
+        with pytest.raises(ValueError, match="items"):
+            self._register(
+                self._app_db_config(),
+                db_name="app_db",
+                collection_name="items",
+            )
+
+    def test_no_db_config(self):
+        """Access control database is registered without app databases."""
+        db = self._register(None)
+        assert set(db.dbs) == {"access_control_db"}
+
+    def test_logs(self, caplog):
+        """Successful registration steps are logged."""
+        with caplog.at_level(logging.INFO):
+            self._register(None)
+        assert "Casbin enforcer registered." in caplog.text
+        assert "Permission management API registered" in caplog.text
