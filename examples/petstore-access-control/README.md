@@ -135,7 +135,7 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
   ```console
   curl -X GET \
       --header 'Accept: application/json' \
-      'http://localhost/pets' 
+      'http://localhost/pets'
   ```
 
 * To **retrieve information on a specific pet**:
