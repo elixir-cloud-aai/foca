@@ -267,6 +267,19 @@ class TestAdapterIdentifiers:
             for index in indexes.values()
         )
 
+    def test_duplicate_stored_ids(self, mock_adapter, caplog):
+        """Rules are stored even if stored rules share identifiers."""
+        mock_adapter._collection.insert_many(
+            [
+                {"id": "abcdef", "ptype": "g", "v0": "a", "v1": "b"},
+                {"id": "abcdef", "ptype": "g", "v0": "c", "v1": "d"},
+            ]
+        )
+        for rule in [["e", "f"], ["g", "h"]]:
+            assert mock_adapter.save_policy_line("g", rule)
+        assert mock_adapter._collection.count_documents({}) == 4
+        assert caplog.text.count("share identifiers") == 1
+
     def test_retry_on_collision(self, mock_adapter, monkeypatch):
         mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
         ids = iter(["abcdef", "abcdef", "ghijkl"])
