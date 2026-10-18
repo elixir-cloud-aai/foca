@@ -25,6 +25,7 @@ it can be configured for your needs.
   * [Identity and group claims](#identity-and-group-claims)
   * [Resource-scoped roles](#resource-scoped-roles)
   * [Securing the permissions API](#securing-the-permissions-api)
+  * [Rule values](#rule-values)
 * [Exploring the API](#exploring-the-api)
 
 ## Why do we need it?
@@ -373,7 +374,8 @@ rules can be added via `group_mapping` (e.g., mapping an entitlement to
 ### Rule values
 
 Rules are validated whenever they are written, i.e., via the permissions API,
-the resource role helpers or the Casbin adapter:
+the resource role helpers or the Casbin adapter (against the configured
+model):
 
 * The policy type (`policy_type`) must be defined in the model (e.g., `p`,
   `g` or `g2`), and the rule must have exactly as many values as the policy

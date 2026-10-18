@@ -28,24 +28,31 @@ class Adapter(persist.Adapter):
         dbname: Database to store policy.
         collection: Collection of the choosen database. Defaults to
             "casbin_rule".
+        model: Path to the Casbin model file. If given, rules are validated
+            against the model before they are stored (cf.
+            :py:func:`validate_rule`), so that rules that would be skipped
+            when loading policies are not stored in the first place.
 
     Attributes:
-        uri: This should be the same requiement as pymongo Client's 'uri'
-            parameter. See https://pymongo.readthedocs.io/en/stable/api/pymong\
-            o/mongo_client.html#pymongo.mongo_client.MongoClient.
-        dbname: Database to store policy.
-        collection: Collection of the choosen database. Defaults to
-            "casbin_rule".
+        model: Casbin model to validate rules against, if any.
     """
 
     def __init__(
-        self, uri: str, dbname: str, collection: str | None = "casbin_rule"
+        self,
+        uri: str,
+        dbname: str,
+        collection: str | None = "casbin_rule",
+        model: str | None = None,
     ):
         """Create an adapter for Mongodb."""
         client: MongoClient = MongoClient(uri)
         db = client[dbname]
         assert collection is not None
         self._collection = db[collection]
+        self.model: Model | None = None
+        if model is not None:
+            self.model = Model()
+            self.model.load_model(model)
 
     def load_policy(self, model: Model):
         """Implementing add Interface for casbin.
@@ -85,9 +92,10 @@ class Adapter(persist.Adapter):
             Identifier of the stored rule.
 
         Raises:
-            ValueError: The rule is invalid (cf. :py:func:`validate_rule`).
+            ValueError: The rule is invalid (cf. :py:func:`validate_rule`),
+                also for the adapter's model, if set.
         """
-        validate_rule(ptype, rule)
+        validate_rule(ptype, rule, self.model)
         line = CasbinRule(ptype=ptype)
         for index, value in enumerate(rule):
             setattr(line, f"v{index}", value)

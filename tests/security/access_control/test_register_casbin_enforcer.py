@@ -14,9 +14,11 @@ def test_adapter_uri(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("MONGO_URI", "mongodb://h1:1,h2:2/?replicaSet=rs")
     captured = {}
+    captured_kwargs = {}
 
-    def mock_adapter(uri, dbname, collection):
+    def mock_adapter(uri, dbname, collection, **kwargs):
         captured.update(uri=uri, dbname=dbname, collection=collection)
+        captured_kwargs.update(kwargs)
 
     monkeypatch.setattr(module, "Adapter", mock_adapter)
     module.register_casbin_enforcer(
@@ -32,6 +34,8 @@ def test_adapter_uri(monkeypatch):
         "dbname": "access_control_db",
         "collection": "policy_rules",
     }
+    # rules are validated against the app's model
+    assert captured_kwargs["model"] == AccessControlConfig().model
 
 
 def test_adapter_uri_env_vars(monkeypatch):
@@ -43,7 +47,7 @@ def test_adapter_uri_env_vars(monkeypatch):
     monkeypatch.setenv("MONGO_PASSWORD", "secret")
     captured = {}
 
-    def mock_adapter(uri, dbname, collection):
+    def mock_adapter(uri, dbname, collection, **kwargs):
         captured.update(uri=uri)
 
     monkeypatch.setattr(module, "Adapter", mock_adapter)
@@ -71,7 +75,7 @@ def test_adapter_dbname_override(monkeypatch):
     monkeypatch.setenv("MONGO_DBNAME", "other_db")
     captured = {}
 
-    def mock_adapter(uri, dbname, collection):
+    def mock_adapter(uri, dbname, collection, **kwargs):
         captured.update(uri=uri, dbname=dbname)
 
     monkeypatch.setattr(module, "Adapter", mock_adapter)
