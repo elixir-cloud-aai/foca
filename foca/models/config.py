@@ -29,6 +29,7 @@ from foca.security.access_control.constants import (
     DEFAULT_ID_LENGTH,
     DEFAULT_MODEL_FILE,
     GROUP_PREFIX,
+    MIN_ID_SPACE,
 )
 
 
@@ -662,6 +663,8 @@ class AccessControlConfig(FOCABaseConfig):
             letters, digits, `-`, `.`, `_` and `~` are allowed, as
             identifiers are used in URL paths.
         id_length: Length of generated policy rule identifiers (4 to 64).
+            Together with `id_charset`, it must allow for at least one
+            million different identifiers.
             Identifiers supplied via `PUT /permissions/{id}` must have the
             same length and characters.
         self_service: Allow any authenticated subject to list and get the
@@ -783,6 +786,25 @@ nf', ...)
                 "'_' and '~'"
             )
         return v
+
+    @model_validator(mode="after")
+    def validate_id_space(self) -> Self:
+        """Ensure that enough different identifiers can be generated.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: `id_charset` and `id_length` allow for fewer than
+                `MIN_ID_SPACE` different identifiers, so that generating
+                unique identifiers could fail.
+        """
+        if len(set(self.id_charset)) ** self.id_length < MIN_ID_SPACE:
+            raise ValueError(
+                "'id_charset' and 'id_length' must allow for at least "
+                f"{MIN_ID_SPACE} different identifiers"
+            )
+        return self
 
     @field_validator("model", mode="before")
     @classmethod
