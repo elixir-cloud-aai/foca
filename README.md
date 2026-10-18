@@ -203,6 +203,18 @@ db:
 >  
 > Cf. the [API model][docs-models-db] for further options and details.
 
+The connection can be configured through environment variables, e.g., to
+keep credentials out of configuration files:
+
+| Variable | Description |
+| --- | --- |
+| `MONGO_URI` | Full [connection string][res-mongo-db-uri] (`mongodb://` or `mongodb+srv://`), e.g., for replica sets, TLS or other connection options. Takes precedence over the variables below, except `MONGO_DBNAME`. It is used as is, so a database in its path only acts as authentication database (as per MongoDB's defaults); each configured database is still accessed under its own name. |
+| `MONGO_HOST` | Host; overrides `db.host`. |
+| `MONGO_PORT` | Port; overrides `db.port`. |
+| `MONGO_USERNAME` | Username. |
+| `MONGO_PASSWORD` | Password. |
+| `MONGO_DBNAME` | Database name; overrides the names of _all_ configured databases. |
+
 ### Configuring exceptions
 
 FOCA provides a convenient, configurable exception handler and a simple way
@@ -527,7 +539,12 @@ obj_id = generate_id(charset=string.digits, length=6)
 ```
 
 > The above function processes and returns a random `obj_id` of length `6`
-> consisting of only digits (`string.digits`).
+> consisting of only digits (`string.digits`). Characters are drawn with the
+> cryptographically secure `secrets` module. The `charset` is used as is: if
+> it is read from a config file, list the allowed characters themselves (e.g.,
+> `ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`); expressions such as
+> `string.ascii_uppercase + string.digits` are no longer evaluated and raise a
+> `ValueError`.
 
 ### Access Control utilities
 
@@ -619,6 +636,7 @@ question etc.
 [res-flask-app-context]: <https://flask.palletsprojects.com/en/1.1.x/appcontext/>
 [res-jwt]: <https://jwt.io>
 [res-mongo-db]: <https://www.mongodb.com/>
+[res-mongo-db-uri]: <https://www.mongodb.com/docs/manual/reference/connection-string/>
 [res-openapi]: <https://www.openapis.org/>
 [res-pydantic]: <https://pydantic-docs.helpmanual.io/>
 [res-rabbitmq]: <https://www.rabbitmq.com/>

@@ -1,13 +1,149 @@
 """Tests for register_mongodb.py"""
 
+import logging
+from urllib.parse import unquote, urlsplit
+
+import pytest
 from flask import Flask
 from flask_pymongo import PyMongo
 
 from foca.database.register_mongodb import (
     _create_mongo_client,
+    get_mongo_db_name,
+    get_mongo_uri,
     register_mongodb,
 )
 from foca.models.config import MongoConfig
+
+MONGO_ENV_VARS = [
+    "MONGO_URI",
+    "MONGO_HOST",
+    "MONGO_PORT",
+    "MONGO_DBNAME",
+    "MONGO_USERNAME",
+    "MONGO_PASSWORD",
+]
+
+
+@pytest.fixture
+def clean_env(monkeypatch):
+    """Unset MongoDB-related environment variables."""
+    for var in MONGO_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    return monkeypatch
+
+
+class TestGetMongoUri:
+    def test_defaults(self, clean_env):
+        """URI is built from arguments."""
+        assert get_mongo_uri(host="db", port=1234, db="my_db") == (
+            "mongodb://db:1234/my_db"
+        )
+
+    def test_env_vars(self, clean_env):
+        """Individual environment variables override arguments."""
+        clean_env.setenv("MONGO_HOST", "other")
+        clean_env.setenv("MONGO_PORT", "4321")
+        clean_env.setenv("MONGO_DBNAME", "other_db")
+        assert get_mongo_uri(host="db", port=1234, db="my_db") == (
+            "mongodb://other:4321/other_db"
+        )
+
+    def test_credentials_escaped(self, clean_env):
+        """Credentials are percent-escaped."""
+        clean_env.setenv("MONGO_USERNAME", "us@r")
+        clean_env.setenv("MONGO_PASSWORD", "p:w/d")
+        uri = urlsplit(get_mongo_uri(host="db", port=1234, db="my_db"))
+        assert (uri.hostname, uri.port, uri.path) == ("db", 1234, "/my_db")
+        assert unquote(uri.username) == "us@r"
+        assert unquote(uri.password) == "p:w/d"
+
+    def test_username_without_password(self, clean_env):
+        """Unset password is passed as 'None', as in previous versions."""
+        clean_env.setenv("MONGO_USERNAME", "user")
+        uri = urlsplit(get_mongo_uri(host="db", port=1234, db="my_db"))
+        assert (uri.username, uri.password) == ("user", "None")
+
+    def test_empty_username(self, clean_env):
+        """Empty username is ignored."""
+        clean_env.setenv("MONGO_USERNAME", "")
+        clean_env.setenv("MONGO_PASSWORD", "secret")
+        assert get_mongo_uri(host="db", port=1234, db="my_db") == (
+            "mongodb://db:1234/my_db"
+        )
+
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            "mongodb://h1:1,h2:2/?replicaSet=rs&tls=true",
+            "mongodb://h1:1",
+            "mongodb+srv://cluster.example.org",
+            "mongodb://h1:1/admin?tls=true;w=1",
+            "mongodb://h1:1/accounts&tls=false",
+            "mongodb://alice%40EXAMPLE.COM@h1:1/?authMechanism=GSSAPI",
+        ],
+    )
+    def test_uri(self, clean_env, uri):
+        """`MONGO_URI` takes precedence and is returned unchanged."""
+        clean_env.setenv("MONGO_URI", uri)
+        clean_env.setenv("MONGO_HOST", "ignored")
+        clean_env.setenv("MONGO_DBNAME", "ignored")
+        assert get_mongo_uri(host="db", port=1234, db="my_db") == uri
+
+    def test_uri_invalid_scheme(self, clean_env):
+        """`MONGO_URI` with invalid scheme."""
+        clean_env.setenv("MONGO_URI", "http://h1:1")
+        with pytest.raises(ValueError, match="MONGO_URI"):
+            get_mongo_uri(db="my_db")
+
+
+class TestGetMongoDbName:
+    def test_default(self, clean_env):
+        """Configured database name is used."""
+        assert get_mongo_db_name("my_db") == "my_db"
+
+    def test_override(self, clean_env):
+        """`MONGO_DBNAME` overrides configured database name."""
+        clean_env.setenv("MONGO_DBNAME", "other_db")
+        assert get_mongo_db_name("my_db") == "other_db"
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "mongodb://h1:1/?tls=false",
+        "mongodb://h1:1/admin?tls=false",
+    ],
+)
+def test__create_mongo_client_uri(clean_env, uri):
+    """Client uses `MONGO_URI` unchanged and selects configured database."""
+    clean_env.setenv("MONGO_URI", uri)
+    app = Flask(__name__)
+    res = _create_mongo_client(app=app, db="my_db")
+    assert isinstance(res, PyMongo)
+    assert app.config["MONGO_URI"] == uri
+    assert res.db.name == "my_db"
+
+
+def test__create_mongo_client_dbname(clean_env):
+    """Client selects database from `MONGO_DBNAME`."""
+    clean_env.setenv("MONGO_URI", "mongodb://h1:1/admin")
+    clean_env.setenv("MONGO_DBNAME", "other_db")
+    res = _create_mongo_client(app=Flask(__name__), db="my_db")
+    assert res.db.name == "other_db"
+
+
+def test__create_mongo_client_no_secrets_logged(clean_env, caplog):
+    """Credentials and options are not logged."""
+    clean_env.setenv(
+        "MONGO_URI",
+        "mongodb://u:secret@h1:1/?tlsCertificateKeyFilePassword=secret",
+    )
+    with caplog.at_level(logging.INFO):
+        _create_mongo_client(app=Flask(__name__), db="my_db")
+    assert "'my_db' at URI 'mongodb://h1:1/'" in caplog.text
+    assert "secret" not in caplog.text
+
 
 MONGO_DICT_MIN = {
     "host": "mongodb",
