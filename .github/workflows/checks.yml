@@ -114,6 +114,20 @@ jobs:
         run: |
           docker compose build foca-petstore-root
           docker compose up -d --build
+      - name: Check FOCA image
+        run: |
+          image=foca-petstore-root:latest
+          docker image inspect --format 'Image size: {{.Size}} bytes' "${image}"
+          uid="$(docker run --rm "${image}" id -u)"
+          if [ "${uid}" = "0" ]; then
+            echo "Image runs as root" >&2
+            exit 1
+          fi
+          if docker run --rm "${image}" sh -c \
+              'command -v gcc || command -v git || command -v curl'; then
+            echo "Image contains build tools" >&2
+            exit 1
+          fi
       - name: Wait for petstore app
         run: |
           for _ in $(seq 1 30); do

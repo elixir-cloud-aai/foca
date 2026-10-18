@@ -33,6 +33,7 @@ Check the [API docs][badge-url-docs] for further details.
 ## Table of Contents
 
 * [Usage](#usage)
+  * [Docker image](#docker-image)
 * [Configuration](#configuration)
   * [Environment-specific configuration](#environment-specific-configuration)
   * [Configuring OpenAPI specifications](#configuring-openapi-specifications)
@@ -77,6 +78,30 @@ app = foca.create_app()  # returns a Connexion app instance
 
 ![Hint][img-hint] _**Check out the [Petstore example application][example]
 shipped with this repository to see FOCA in action!**_
+
+### Docker image
+
+FOCA images with all dependencies installed are published as
+[`elixircloud/foca`][res-foca-docker] (built from
+[`docker/Dockerfile`][foca-dockerfile]), for use as base images of apps:
+
+```dockerfile
+FROM elixircloud/foca:latest
+COPY ./ /app
+CMD ["python", "app.py"]
+```
+
+The image contains no build tools and runs as non-root user `foca` (UID
+`1000`, group `0`); `/app` and the home directory are writable by group `0`,
+so that the image also runs under arbitrary user IDs (e.g., on OpenShift).
+To install system or Python packages in derived images, switch to `root` and
+back:
+
+```dockerfile
+USER root
+RUN pip install --no-cache-dir -r requirements.txt
+USER 1000
+```
 
 ## Configuration
 
@@ -774,6 +799,8 @@ question etc.
 [res-semver]: <https://semver.org/>
 [res-swagger]: <https://swagger.io/tools/swagger-ui/>
 [res-rfc-9457]: <https://www.rfc-editor.org/rfc/rfc9457>
+[res-foca-docker]: <https://hub.docker.com/r/elixircloud/foca>
+[foca-dockerfile]: docker/Dockerfile
 [res-pymongo]: <https://pymongo.readthedocs.io/>
 [res-using-foca]: <https://github.com/elixir-cloud-aai/foca/network/dependents>
 [res-yaml]: <https://yaml.org/>
