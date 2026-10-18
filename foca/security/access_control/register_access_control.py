@@ -188,7 +188,10 @@ def register_permission_specs(
 
     app.add_api(
         specification=spec.path[0],  # type: ignore[index]
-        resolver=AccessControlResolver(enforce_all=True),
+        resolver=AccessControlResolver(
+            enforce_all=True,
+            self_service=access_control_config.self_service,
+        ),
         **spec.model_dump().get("connexion", {}),
     )
     logger.info(f"Permission management API registered from '{spec_path}'.")

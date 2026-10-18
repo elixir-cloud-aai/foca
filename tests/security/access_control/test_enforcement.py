@@ -12,7 +12,7 @@ import yaml
 from casbin import Enforcer
 from connexion.exceptions import Forbidden, Unauthorized
 from connexion.resolver import Resolution, Resolver
-from flask import Flask
+from flask import Flask, request
 from flask.globals import request_ctx
 
 from foca.api.register_openapi import register_openapi
@@ -99,7 +99,15 @@ def controller(*args, **kwargs) -> str:
 # Operations need distinct identifiers
 list_items = create_item = get_item = update_item = delete_item = get_open = (
     get_item_permissions
-) = update_item_permissions = get_ref_item = get_optional = controller
+) = get_ref_item = get_optional = controller
+
+
+def update_item_permissions(id, *args, **kwargs) -> str:
+    """Grant role on item, as apps let owners manage access."""
+    body = request.get_json(silent=True)
+    if body:
+        add_resource_role(body["subject"], body["role"], f"/items/{id}")
+    return "ok"
 
 
 def function_resolver(operation_id: str):
@@ -546,7 +554,7 @@ class TestPermissionsApi:
         client = app.test_client()
         response = client.get(self.url, headers=_headers("carol"))
         assert response.status_code == 200
-        assert len(response.json) == len(POLICIES) + 1
+        assert len(response.json["results"]) == len(POLICIES) + 1
         response = client.get(f"{self.url}/abc", headers=_headers("carol"))
         assert response.status_code == 404
 
@@ -566,6 +574,220 @@ class TestPermissionsApi:
         assert client.get("/admin/access-control/ui/").status_code == 200
         assert (
             client.get("/admin/access-control/openapi.json").status_code == 200
+        )
+
+
+class TestPagination:
+    """Tests for listing permissions page by page."""
+
+    url = "/admin/access-control/permissions"
+
+    def _get(self, app, user="carol", **params):
+        return app.test_client().get(
+            self.url, query_string=params, headers=_headers(user)
+        )
+
+    def test_default(self, app):
+        response = self._get(app)
+        assert response.status_code == 200
+        assert response.json["pagination"] == {
+            "page": 0,
+            "page_size": 100,
+            "total": len(POLICIES),
+            "total_pages": 1,
+        }
+        assert [
+            [permission["policy_type"], *permission["rule"].values()]
+            for permission in response.json["results"]
+        ] == [[ptype, *rule] for ptype, rule in POLICIES]
+
+    def test_all_pages(self, app):
+        ids = []
+        for page in range(3):
+            response = self._get(app, page_size=3, page=page)
+            assert response.status_code == 200
+            assert response.json["pagination"] == {
+                "page": page,
+                "page_size": 3,
+                "total": len(POLICIES),
+                "total_pages": 3,
+            }
+            ids.extend(p["id"] for p in response.json["results"])
+        assert len(ids) == len(set(ids)) == len(POLICIES)
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"page": 1},
+            {"page_size": 3, "page": 3},
+            {"page": -1},
+            {"page_size": 0},
+            {"page_size": 1001},
+            {"page_size": "x"},
+        ],
+    )
+    def test_out_of_range(self, app, params):
+        assert self._get(app, **params).status_code == 400
+
+    def test_empty(self, app):
+        app.config["casbin_adapter"]._collection.delete_many({})
+        response = self._get(app)
+        assert response.status_code == 200
+        assert response.json == {
+            "results": [],
+            "pagination": {
+                "page": 0,
+                "page_size": 100,
+                "total": 0,
+                "total_pages": 0,
+            },
+        }
+        assert self._get(app, page=1).status_code == 400
+
+
+class TestSelfService:
+    """Tests for subjects accessing the permissions that apply to them."""
+
+    url = "/admin/access-control/permissions"
+
+    @pytest.fixture
+    def self_service_app(self, tmp_path):
+        return _create_app(tmp_path, _access_control_config(self_service=True))
+
+    @staticmethod
+    def _id(app, **query) -> str:
+        collection = app.config["casbin_adapter"]._collection
+        return collection.find_one(query)["id"]
+
+    def _list(self, app, user, **params):
+        response = app.test_client().get(
+            self.url, query_string=params, headers=_headers(user)
+        )
+        assert response.status_code == 200
+        return [
+            [p["policy_type"], *p["rule"].values()]
+            for p in response.json["results"]
+        ]
+
+    def test_disabled(self, app):
+        client = app.test_client()
+        rule_id = self._id(app, v0="user:alice")
+        for url in [self.url, f"{self.url}/{rule_id}"]:
+            response = client.get(url, headers=_headers("alice"))
+            assert response.status_code == 403
+
+    @pytest.mark.parametrize(
+        "user,expected",
+        [
+            (
+                "alice",
+                [
+                    ["p", "*", "/items", "POST"],
+                    ["g2", "user:alice", "owner", "/items/1"],
+                    ["g2", "user:alice", "owner", "/items/3/"],
+                ],
+            ),
+            # groups without mapping do not apply
+            ("frank", [["p", "*", "/items", "POST"]]),
+            ("dave", [["p", "*", "/items", "POST"]]),
+            ("carol", [[ptype, *rule] for ptype, rule in POLICIES]),
+        ],
+    )
+    def test_list(self, self_service_app, user, expected):
+        assert self._list(self_service_app, user) == expected
+
+    def test_list_groups(self, tmp_path):
+        app = _create_app(
+            tmp_path,
+            _access_control_config(self_service=True, group_mapping=None),
+        )
+        assert self._list(app, "frank") == [
+            ["p", "*", "/items", "POST"],
+            ["p", "group:testers", "/items/:id", "GET"],
+        ]
+
+    def test_list_paginated(self, self_service_app):
+        pages = [
+            self._list(self_service_app, "alice", page_size=2, page=page)
+            for page in range(2)
+        ]
+        assert pages == [
+            [
+                ["p", "*", "/items", "POST"],
+                ["g2", "user:alice", "owner", "/items/1"],
+            ],
+            [["g2", "user:alice", "owner", "/items/3/"]],
+        ]
+        response = self_service_app.test_client().get(
+            self.url,
+            query_string={"page_size": 2, "page": 2},
+            headers=_headers("alice"),
+        )
+        assert response.status_code == 400
+
+    def test_get(self, self_service_app):
+        client = self_service_app.test_client()
+        own = self._id(self_service_app, v0="user:alice")
+        other = self._id(self_service_app, v0="user:bob")
+        response = client.get(f"{self.url}/{own}", headers=_headers("alice"))
+        assert response.status_code == 200
+        assert response.json["rule"]["v0"] == "user:alice"
+        response = client.get(f"{self.url}/{other}", headers=_headers("alice"))
+        assert response.status_code == 404
+        response = client.get(f"{self.url}/{other}", headers=_headers("carol"))
+        assert response.status_code == 200
+
+    def test_unauthenticated(self, self_service_app):
+        response = self_service_app.test_client().get(self.url)
+        assert response.status_code == 401
+
+    def test_writes_enforced(self, self_service_app):
+        client = self_service_app.test_client()
+        own = self._id(self_service_app, v0="user:alice")
+        payload = {
+            "policy_type": "g",
+            "rule": {"v0": "user:alice", "v1": "admin"},
+        }
+        headers = _headers("alice")
+        assert (
+            client.post(self.url, json=payload, headers=headers).status_code
+            == 403
+        )
+        url = f"{self.url}/{own}"
+        assert (
+            client.put(url, json=payload, headers=headers).status_code == 403
+        )
+        assert client.delete(url, headers=headers).status_code == 403
+
+    @pytest.mark.parametrize("self_service", [False, True])
+    def test_owners_manage_access(self, tmp_path, self_service):
+        """Owners grant roles on their resources via app endpoints."""
+        app = _create_app(
+            tmp_path, _access_control_config(self_service=self_service)
+        )
+        client = app.test_client()
+        assert (
+            client.get("/items/1", headers=_headers("dave")).status_code == 403
+        )
+        # only owners may manage access
+        response = client.put(
+            "/items/1/permissions",
+            json={"subject": "dave", "role": "maintainer"},
+            headers=_headers("bob"),
+        )
+        assert response.status_code == 403
+        response = client.put(
+            "/items/1/permissions",
+            json={"subject": "dave", "role": "maintainer"},
+            headers=_headers("alice"),
+        )
+        assert response.status_code == 200
+        assert (
+            client.get("/items/1", headers=_headers("dave")).status_code == 200
+        )
+        assert (
+            client.delete("/items/1", headers=_headers("dave")).status_code
+            == 403
         )
 
 

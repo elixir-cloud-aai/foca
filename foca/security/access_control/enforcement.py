@@ -180,28 +180,50 @@ def enforce_access_control(fn: Callable) -> Callable:
 
     @wraps(fn)
     def _wrapper(*args, **kwargs):
-        subject = get_current_subject()
-        if subject is None:
-            raise Unauthorized("Subject could not be identified")
-        try:
-            validate_rule_value(_prefix_subject(subject))
-        except ValueError as exc:
-            logger.info(f"Access denied: invalid subject: {exc}")
-            raise Forbidden from exc
-        enforcer = get_enforcer()
-        for _subject in [_prefix_subject(subject), *get_current_groups()]:
-            if enforcer.enforce(_subject, request.path, request.method):
-                logger.debug(
-                    f"Access granted: {request.method} {request.path} to "
-                    f"'{subject}' as '{_subject}'"
-                )
-                return fn(*args, **kwargs)
-        logger.info(
-            f"Access denied: {request.method} {request.path} to '{subject}'"
-        )
-        raise Forbidden
+        if not is_permitted():
+            raise Forbidden
+        return fn(*args, **kwargs)
 
     return _wrapper
+
+
+def is_permitted() -> bool:
+    """Check whether the current request is allowed by the policies.
+
+    The subject (cf. :py:func:`get_current_subject`), prefixed with
+    `access_control.subject_prefix`, and any roles derived from its group
+    claims (cf. :py:func:`get_current_groups`) are checked against the
+    request path and HTTP method.
+
+    Returns:
+        `True` if the subject or any of its roles is allowed to access the
+        resource, `False` if not, or if the subject is not a valid value for
+        policy rules (cf. :py:func:`validate_rule_value`).
+
+    Raises:
+        connexion.exceptions.Unauthorized: The subject could not be
+            identified.
+    """
+    subject = get_current_subject()
+    if subject is None:
+        raise Unauthorized("Subject could not be identified")
+    try:
+        validate_rule_value(_prefix_subject(subject))
+    except ValueError as exc:
+        logger.info(f"Access denied: invalid subject: {exc}")
+        return False
+    enforcer = get_enforcer()
+    for _subject in [_prefix_subject(subject), *get_current_groups()]:
+        if enforcer.enforce(_subject, request.path, request.method):
+            logger.debug(
+                f"Access granted: {request.method} {request.path} to "
+                f"'{subject}' as '{_subject}'"
+            )
+            return True
+    logger.info(
+        f"Access denied: {request.method} {request.path} to '{subject}'"
+    )
+    return False
 
 
 def _requires_authentication(security: list[dict] | None) -> bool:
@@ -237,16 +259,23 @@ class AccessControlResolver(Resolver):
         enforce_all: Whether to enforce policies on all operations. If
             `False`, policies are only enforced on operations that require
             authentication and do not set `x-foca-access-control: false`.
+        self_service: Whether to leave enforcement to the controllers of
+            operations that set `x-foca-self-service: true`, even if
+            `enforce_all` is set. Such controllers must restrict access
+            themselves (e.g., via :py:func:`is_permitted`).
 
     Attributes:
         resolver: Resolver to resolve functions with.
         enforce_all: Whether to enforce policies on all operations.
+        self_service: Whether to leave enforcement to the controllers of
+            operations that set `x-foca-self-service: true`.
     """
 
     def __init__(
         self,
         resolver: Resolver | Callable | None = None,
         enforce_all: bool = False,
+        self_service: bool = False,
     ):
         """Construct resolver."""
         super().__init__()
@@ -260,6 +289,7 @@ class AccessControlResolver(Resolver):
         else:
             self.resolver = resolver
         self.enforce_all = enforce_all
+        self.self_service = self_service
 
     def _is_enforced(self, operation) -> bool:
         """Check whether to enforce policies on an operation.
@@ -270,9 +300,14 @@ class AccessControlResolver(Resolver):
         Returns:
             Whether to enforce policies on the operation.
         """
+        # Connexion only exposes vendor extensions via the operation object
+        if (
+            self.self_service
+            and operation._operation.get("x-foca-self-service") is True
+        ):
+            return False
         if self.enforce_all:
             return True
-        # Connexion only exposes vendor extensions via the operation object
         if operation._operation.get("x-foca-access-control") is False:
             return False
         return _requires_authentication(operation.security)

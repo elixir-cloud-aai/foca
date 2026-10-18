@@ -19,3 +19,7 @@ GROUP_PREFIX = "group:"
 DEFAULT_ID_CHARSET = string.ascii_letters + string.digits
 DEFAULT_ID_LENGTH = 6
 ID_ATTEMPTS = 5
+
+# Default and maximum number of permissions per page of the permissions API
+DEFAULT_PAGE_SIZE = 100
+MAX_PAGE_SIZE = 1000

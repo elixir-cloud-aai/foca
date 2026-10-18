@@ -60,26 +60,44 @@ paths:
     get:
       summary: List permissions
       operationId: foca.security.access_control.access_control_server.getAllPermissions
-      description: Returns all permissions existing on the system.
+      description: |-
+        Returns permissions page by page, in the order they were created, as
+        recommended by the GA4GH API pagination guide (page-based). Pages are
+        not guaranteed to be consistent with each other if permissions are
+        created or deleted in between.
+        If `access_control.self_service` is enabled, subjects that are not
+        allowed to list all permissions only get the permissions that apply
+        to them.
+      x-foca-self-service: true
       tags:
         - permission
       parameters:
-        - name: limit
+        - name: page_size
           in: query
-          description: maximum number of results to return
+          description: Maximum number of permissions per page.
           required: false
           schema:
             type: integer
             format: int32
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: page
+          in: query
+          description: Page to return, starting at 0.
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
       responses:
         '200':
-          description: An array of permission objects.
+          description: A page of permissions.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Permission'
+                $ref: '#/components/schemas/PermissionList'
         '400':
           description: The request is malformed.
           content:
@@ -108,7 +126,12 @@ paths:
     get:
       summary: Fetch one specific permission.
       operationId: foca.security.access_control.access_control_server.getPermission
-      description: This endpoint returns one specific permission.
+      description: |-
+        This endpoint returns one specific permission.
+        If `access_control.self_service` is enabled, subjects that are not
+        allowed to get all permissions only get permissions that apply to
+        them; others are not found.
+      x-foca-self-service: true
       tags:
         - permission
       parameters:
@@ -295,6 +318,42 @@ components:
           v0: alice
           v1: /pets
           v2: POST
+    PermissionList:
+      description: Page of permissions.
+      type: object
+      additionalProperties: false
+      required:
+        - results
+        - pagination
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    Pagination:
+      description: Pagination metadata, as per the GA4GH API pagination guide.
+      type: object
+      additionalProperties: false
+      required:
+        - page
+        - page_size
+        - total
+        - total_pages
+      properties:
+        page:
+          type: integer
+          description: Returned page, starting at 0.
+        page_size:
+          type: integer
+          description: Maximum number of results per page.
+        total:
+          type: integer
+          description: Total number of results.
+        total_pages:
+          type: integer
+          description: Total number of pages.
     Rule:
       description: Rule definition, with values in the order of the fields of
         the policy type's definition in the access control model. Values must

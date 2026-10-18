@@ -222,13 +222,14 @@ The permissions API can only be used by admins:
       'http://localhost/admin/access-control/permissions/abc123' # replace abc123 with the permission ID of choice
   ```
 
-* To **retrieve all registered permissions**:
+* To **retrieve registered permissions** page by page (`results`, with
+  pagination metadata in `pagination`):
 
   ```console
   curl -X GET \
       --header "Authorization: Bearer ${TOKEN}" \
       --header 'Accept: application/json' \
-      'http://localhost/admin/access-control/permissions'
+      'http://localhost/admin/access-control/permissions?page_size=100&page=0'
   ```
 
 * To **retrieve information on a specific permission**:
