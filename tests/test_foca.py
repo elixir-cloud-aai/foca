@@ -231,4 +231,60 @@ def test_foca_create_celery_app_without_jobs_field():
         foca.create_celery_app()
 
 
+def test_foca_relative_paths(tmp_path, monkeypatch):
+    """Ensure relative paths are resolved against the config file directory,
+    irrespective of the working directory."""
+    app_dir = tmp_path / "app"
+    (app_dir / "specs").mkdir(parents=True)
+    (app_dir / "policies").mkdir()
+    shutil.copy2(DIR / "openapi_3_petstore.original.yaml", app_dir / "specs")
+    shutil.copy2(
+        Path(AccessControlConfig().model), app_dir / "policies" / "model.conf"
+    )
+    config_file = app_dir / "config.yaml"
+    config_file.write_text(
+        "api:\n"
+        "  specs:\n"
+        "    - path: specs/openapi_3_petstore.original.yaml\n"
+        "      disable_auth: true\n"
+        "      connexion:\n"
+        "        resolver_error: 501\n"
+        "security:\n"
+        "  auth:\n"
+        "    issuers: [https://login.example.org/oidc/]\n"
+        "  access_control:\n"
+        "    enabled: true\n"
+        "    model: policies/model.conf\n"
+    )
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    monkeypatch.chdir(other_dir)
+    monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
+    foca = Foca(config_file=config_file)
+    assert foca.config_dir == app_dir
+    assert foca.conf.api.specs[0].path == [
+        app_dir / "specs" / "openapi_3_petstore.original.yaml"
+    ]
+    model = app_dir / "policies" / "model.conf"
+    assert foca.conf.security.access_control.model == str(model)
+    app = foca.create_app()
+    assert app.app.config["CASBIN_MODEL"] == str(model)
+    assert any(
+        rule.rule.endswith("/pets") for rule in app.app.url_map.iter_rules()
+    )
+
+
+def test_foca_relative_paths_without_file(tmp_path, monkeypatch):
+    """Ensure relative paths are resolved against the working directory if no
+    config file is used."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
+    foca = Foca()
+    assert foca.config_dir == tmp_path
+    assert foca.config_files == []
+    conf = AccessControlConfig(model="model.conf", api_specs="specs.yaml")
+    assert conf.model == str(tmp_path / "model.conf")
+    assert conf.api_specs == str(tmp_path / "specs.yaml")
+
+
 # INVALID_JOBS_CONF = DIR / "conf_invalid_jobs.yaml"

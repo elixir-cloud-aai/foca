@@ -1,6 +1,9 @@
 """Parser for YAML-based app configuration."""
 
 import logging
+import os
+from collections.abc import Sequence
+from copy import deepcopy
 from importlib import import_module
 from logging.config import dictConfig
 from pathlib import Path
@@ -13,12 +16,75 @@ from foca.models.config import Config, LogConfig
 
 logger = logging.getLogger(__name__)
 
+# Environment variable listing config files to merge into the app's config,
+# separated by `os.pathsep` (e.g., `:` on Linux)
+CONFIG_OVERLAY_ENV_VAR = "FOCA_CONFIG_OVERLAY"
+
+
+def deep_merge(base: dict, overlay: dict) -> dict:
+    """Merge dictionaries recursively.
+
+    Args:
+        base: Dictionary to merge into.
+        overlay: Dictionary to merge; mappings are merged recursively, while
+            all other values (including lists and ``None``) replace those in
+            `base`.
+
+    Returns:
+        Merged dictionary; the arguments are not modified.
+    """
+    merged = deepcopy(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _as_paths(config_file: Path | str | Sequence[Path | str] | None) -> list:
+    """Normalize one or more config file paths to a list of paths."""
+    if config_file is None:
+        return []
+    if isinstance(config_file, (str, os.PathLike)):
+        return [Path(config_file)]
+    return [Path(path) for path in config_file]
+
+
+def get_overlay_files() -> list[Path]:
+    """Get config files listed in environment variable `FOCA_CONFIG_OVERLAY`.
+
+    Returns:
+        Absolute paths of the listed files, in order; relative paths are
+        resolved against the current working directory.
+
+    Raises:
+        FileNotFoundError: A listed file does not exist.
+    """
+    value = os.environ.get(CONFIG_OVERLAY_ENV_VAR, "")
+    paths = [Path(path).resolve() for path in value.split(os.pathsep) if path]
+    for path in paths:
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Config overlay '{path}' listed in environment variable "
+                f"'{CONFIG_OVERLAY_ENV_VAR}' not found"
+            )
+    return paths
+
 
 class ConfigParser:
     """Parse FOCA config files.
 
+    Config files are merged in order (cf. :py:func:`deep_merge`), followed by
+    any files listed in environment variable `FOCA_CONFIG_OVERLAY`, and the
+    result is validated. Relative file paths in the configuration (e.g., of
+    API specifications) are resolved against the directory of the first
+    config file (the base config file), or against the current working
+    directory if no config file is given.
+
     Args:
-        config_file: Path to config file in YAML format.
+        config_file: Path to config file in YAML format, or sequence of paths
+            to config files to be merged.
         custom_config_model: Path to model to be used for custom config
             parameter validation, supplied in "dot notation", e.g.,
             ``myapp.config.models.CustomConfig`, where ``CustomConfig`` is the
@@ -32,7 +98,10 @@ class ConfigParser:
         format_logs: Whether log formatting should be configured.
 
     Attributes:
-        config_file: Path to config file in YAML format.
+        config_files: Paths to config files merged into the configuration,
+            including overlays from `FOCA_CONFIG_OVERLAY`.
+        config_dir: Directory that relative paths in the configuration are
+            resolved against.
         custom_config_model: Path to model to be used for custom config
             parameter validation, supplied in "dot notation", e.g.,
             ``myapp.config.models.CustomConfig`, where ``CustomConfig`` is the
@@ -48,15 +117,27 @@ class ConfigParser:
 
     def __init__(
         self,
-        config_file: Path | None = None,
+        config_file: Path | str | Sequence[Path | str] | None = None,
         custom_config_model: str | None = None,
         format_logs: bool = True,
     ) -> None:
         """Constructor method."""
-        if config_file is not None:
-            self.config = Config(**self.parse_yaml(config_file))
-        else:
-            self.config = Config()
+        config_files = _as_paths(config_file)
+        self.config_dir: Path = (
+            config_files[0].resolve().parent if config_files else Path.cwd()
+        )
+        self.config_files: list[Path] = config_files + get_overlay_files()
+        data: dict = {}
+        for path in self.config_files:
+            content = self.parse_yaml(path)
+            if content is None:
+                content = {}
+            if not isinstance(content, dict):
+                raise ValueError(f"file '{path}' is not a YAML mapping")
+            data = deep_merge(data, content)
+        self.config = Config.model_validate(
+            data, context={"base_dir": self.config_dir}
+        )
         if custom_config_model is not None:
             setattr(
                 self.config,
@@ -67,6 +148,11 @@ class ConfigParser:
             )
         if format_logs:
             self._configure_logging()
+        if self.config_files:
+            logger.info(
+                "Configuration files merged: "
+                f"{', '.join(str(path) for path in self.config_files)}"
+            )
         logger.debug(f"Parsed config: {self.config.model_dump(by_alias=True)}")
 
     def _configure_logging(self) -> None:

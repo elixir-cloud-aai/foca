@@ -1,6 +1,7 @@
 """Class for setting up and initializing a FOCA-based microservice."""
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
 from celery import Celery
@@ -26,15 +27,19 @@ class Foca:
 
     def __init__(
         self,
-        config_file: Path | None = None,
+        config_file: Path | str | Sequence[Path | str] | None = None,
         custom_config_model: str | None = None,
     ) -> None:
         """Instantiate FOCA class.
 
         Args:
             config_file: Path to application configuration file in YAML
-                format.  Cf. :py:class:`foca.models.config.Config` for
-                required file structure.
+                format, or sequence of paths to configuration files that are
+                merged in order. Files listed in environment variable
+                `FOCA_CONFIG_OVERLAY` are merged afterwards. Relative file
+                paths in the configuration are resolved against the directory
+                of the first file. Cf. :py:class:`foca.models.config.Config`
+                for required file structure.
             custom_config_model: Path to model to be used for custom config
                 parameter validation, supplied in "dot notation", e.g.,
                 ``myapp.config.models.CustomConfig`, where ``CustomConfig``
@@ -48,9 +53,15 @@ class Foca:
                 write/modify their app configuration.
 
         Attributes:
-            config_file: Path to application configuration file in YAML
-                format.  Cf. :py:class:`foca.models.config.Config` for
-                required file structure.
+            config_file: Path(s) to application configuration file(s), as
+                passed.
+            config_files: Paths to all merged configuration files, including
+                overlays from `FOCA_CONFIG_OVERLAY`.
+            config_dir: Directory that relative file paths in the
+                configuration are resolved against, i.e., the directory of
+                the first configuration file, or the current working
+                directory if no file was passed. Apps can use it to resolve
+                paths in their custom configuration the same way.
             custom_config_model: Path to model to be used for custom config
                 parameter validation, supplied in "dot notation", e.g.,
                 ``myapp.config.models.CustomConfig`, where ``CustomConfig``
@@ -65,19 +76,18 @@ class Foca:
             conf: App configuration. Instance of
                 :py:class:`foca.models.config.Config`.
         """
-        self.config_file: Path | None = (
-            Path(config_file) if config_file is not None else None
-        )
+        self.config_file = config_file
         self.custom_config_model: str | None = custom_config_model
-        self.conf = ConfigParser(
+        parser = ConfigParser(
             config_file=self.config_file,
             custom_config_model=self.custom_config_model,
             format_logs=True,
-        ).config
+        )
+        self.conf = parser.config
+        self.config_files: list[Path] = parser.config_files
+        self.config_dir: Path = parser.config_dir
         logger.info("Log formatting configured.")
-        if self.config_file is not None:
-            logger.info(f"Configuration file '{self.config_file}' parsed.")
-        else:
+        if not self.config_files:
             logger.info("Default app configuration used.")
 
     def _create_base_app(self) -> App:

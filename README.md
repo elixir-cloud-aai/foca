@@ -34,6 +34,7 @@ Check the [API docs][badge-url-docs] for further details.
 
 * [Usage](#usage)
 * [Configuration](#configuration)
+  * [Environment-specific configuration](#environment-specific-configuration)
   * [Configuring OpenAPI specifications](#configuring-openapi-specifications)
   * [Configuring MongoDB](#configuring-mongodb)
   * [Configuring exceptions](#configuring-exceptions)
@@ -102,6 +103,49 @@ corresponding informative exception will be raised whenever a value does not
 adhere to the corresponding model as described in the [API
 documentation][docs-models]. If you do _not_ want to make use of a specific
 FOCA functionality, simply omit the corresponding section.
+
+Relative file paths in the configuration (e.g., of OpenAPI specifications or
+the access control model) are resolved against the directory of the
+configuration file (the first one, if several are used; see below), so an
+app finds its files irrespective of the directory it is started from.
+Without a configuration file (e.g., if the configuration is created in
+code), they are resolved against the current working directory. Use
+`Foca.config_dir` to resolve paths in your custom configuration the same way.
+
+### Environment-specific configuration
+
+Settings that differ between environments (e.g., development and
+production) can be kept in separate files that are merged into a base
+configuration, in order: mappings are merged recursively, while lists and
+other values (including `null`) replace those of earlier files.
+
+```python
+from foca import Foca
+
+foca = Foca(config_file=["config.yaml", "config.dev.yaml"])
+```
+
+Files listed in the environment variable `FOCA_CONFIG_OVERLAY` (separated by
+`:` on Linux and macOS, `;` on Windows; relative to the current working
+directory) are merged afterwards, e.g., to select the overlay at deployment
+time, such as from a Kubernetes ConfigMap:
+
+```bash
+FOCA_CONFIG_OVERLAY=deployment/config.prod.yaml python app.py
+```
+
+```yaml
+# deployment/config.prod.yaml
+server:
+  port: 80
+log:
+  root:
+    level: 30
+```
+
+The merged configuration is validated once, and the merged files are logged.
+If your app needs to know its environment, define a value in your
+[custom configuration](#custom-configuration) and set it in the overlays.
 
 ### Configuring OpenAPI specifications
 

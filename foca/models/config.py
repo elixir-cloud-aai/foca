@@ -13,6 +13,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PrivateAttr,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -29,6 +30,28 @@ from foca.security.access_control.constants import (
     GROUP_PREFIX,
     MIN_ID_SPACE,
 )
+
+
+def _resolve_path(path: str | Path, info: ValidationInfo) -> Path:
+    """Resolve a file path of the configuration.
+
+    Args:
+        path: File path.
+        info: Validation info; relative paths are resolved against the
+            directory in its context's `base_dir` (e.g., the directory of the
+            base config file), if set, otherwise against the current working
+            directory.
+
+    Returns:
+        Absolute path.
+    """
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    base_dir = (info.context or {}).get("base_dir")
+    if base_dir is not None:
+        path = Path(base_dir) / path
+    return path.resolve()
 
 
 def _validate_log_level_choices(cls, level: int) -> int:
@@ -365,16 +388,20 @@ disable_auth=False, connexion=None)
     connexion: dict | None = None
 
     @model_validator(mode="after")
-    def make_paths_absolute(self) -> Self:
+    def make_paths_absolute(self, info: ValidationInfo) -> Self:
         """Make paths absolute.
+
+        Relative paths are resolved against the directory of the base config
+        file, if available, otherwise against the current working directory.
+
+        Args:
+            info: Validation info.
 
         Returns:
             Model instance with absolute paths.
         """
         paths = self.path if isinstance(self.path, list) else [self.path]
-        self.path = [
-            path if path.is_absolute() else path.resolve() for path in paths
-        ]
+        self.path = [_resolve_path(path, info) for path in paths]
         return self
 
 
@@ -598,28 +625,41 @@ control_collection', model='/path/to/policy.conf', ...)
 
     @field_validator("model", mode="before")
     @classmethod
-    def validate_model_path(cls, v: str | None) -> str:
+    def validate_model_path(cls, v: str | None, info: ValidationInfo) -> str:
         """Validate the model path.
 
         Args:
             v: Model path.
+            info: Validation info.
 
         Returns:
-            Model path as string; resolved relative to the caller's current
-            working directory if provided path is not absolute. If no path
-            is provided, return default model path.
-
+            Absolute model path as string; relative paths are resolved
+            against the directory of the base config file, if available,
+            otherwise against the current working directory. If no path is
+            provided, return default model path.
         """
         if v is None:
             return str(
                 files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE)
             )
+        return str(_resolve_path(v, info))
 
-        model_path = Path(v)
-        if not model_path.is_absolute():
-            return str(model_path.resolve())
+    @field_validator("api_specs")
+    @classmethod
+    def validate_api_specs_path(
+        cls, v: str | None, info: ValidationInfo
+    ) -> str | None:
+        """Validate the path of the permissions API specification.
 
-        return v
+        Args:
+            v: Path of the permissions API specification.
+            info: Validation info.
+
+        Returns:
+            Absolute path as string, resolved like the model path, or `None`
+            if not provided.
+        """
+        return None if v is None else str(_resolve_path(v, info))
 
 
 class AuthConfig(FOCABaseConfig):
