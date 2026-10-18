@@ -1,439 +1,434 @@
 """Tests for authentication module."""
 
-from copy import deepcopy
+import logging
+import time
 from unittest.mock import MagicMock
 
+import jwt
 import pytest
 from connexion.exceptions import Unauthorized
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from flask import Flask
-from jwt.exceptions import InvalidKeyError, InvalidTokenError
-from requests.exceptions import ConnectionError
+from pydantic import ValidationError
 
-from foca.models.config import Config, ValidationChecksEnum
-from foca.security.auth import (
-    _get_public_keys,
-    _validate_jwt_public_key,
-    _validate_jwt_userinfo,
-    validate_token,
-)
+from foca.models.config import AuthConfig, Config
+from foca.security import auth
+from foca.security.auth import log_auth_config_warnings, validate_token
 
-DICT_EMPTY = {}
-MOCK_BYTES = b"my-mock-bytes"
-MOCK_CLAIMS_ISSUER = {"iss": "some-mock-issuer"}
-MOCK_USER_ID = "1234567890"
-MOCK_CLAIMS_NO_SUB = {
-    "azp": "my-azp",
-    "scope": "email openid profile",
-    "iss": "https://my.issuer.org/oidc/",
-    "exp": 1000010000,
-    "iat": 1000000000,
-    "jti": "my-jti",
-}
-MOCK_CLAIMS = deepcopy(MOCK_CLAIMS_NO_SUB)
-MOCK_CLAIMS["sub"] = "user@issuer.org"
-MOCK_KEYS = {
-    "abc": (
-        "uVHPfUHVEzpgOnDNi3e2pVsbK1hsINsTy_1mMT7sxDyP-1eQSjzYsGSUJ3GH"
-        "q9LhiVndpwV8y7Enjdj0purywtwk_D8z9IIN36RJAh1yhFfbyhLPEZlCDdzx"
-        "as5Dku9k0GrxQuV6i30Mid8OgRQ2q3pmsks414Afy6xugC6u3inyjLzLPrhR"
-        "0oRPTGdNMXJbGw4sVTjnh5AzTgX-GrQWBHSjI7rMTcvqbbl7M8OOhE3MQ_gf"
-        "VLXwmwSIoKHODC0RO-XnVhqd7Qf0teS1JiILKYLl5FS_7Uy2ClVrAYd2T6X9"
-        "DIr_JlpRkwSD899pq6PR9nhKguipJE0qUXxamdY9nw"
-    ),
-}
-MOCK_JWK = {
-    "kty": "RSA",
-    "e": "AQAB",
-    "kid": "rsa1",
-    "alg": "RS256",
-    "n": (
-        "uVHPfUHVEzpgOnDNi3e2pVsbK1hsINsTy_1mMT7sxDyP-1eQSjzYsGSUJ3GH"
-        "q9LhiVndpwV8y7Enjdj0purywtwk_D8z9IIN36RJAh1yhFfbyhLPEZlCDdzx"
-        "as5Dku9k0GrxQuV6i30Mid8OgRQ2q3pmsks414Afy6xugC6u3inyjLzLPrhR"
-        "0oRPTGdNMXJbGw4sVTjnh5AzTgX-GrQWBHSjI7rMTcvqbbl7M8OOhE3MQ_gf"
-        "VLXwmwSIoKHODC0RO-XnVhqd7Qf0teS1JiILKYLl5FS_7Uy2ClVrAYd2T6X9"
-        "DIr_JlpRkwSD899pq6PR9nhKguipJE0qUXxamdY9nw"
-    ),
-}
-MOCK_JWK_PRIVATE = {
-    "kty": "RSA",
-    "kid": "juliet@capulet.lit",
-    "use": "enc",
-    "n": (
-        "t6Q8PWSi1dkJj9hTP8hNYFlvadM7DflW9mWepOJhJ66w7nyoK1gPNqFMSQRy"
-        "O125Gp-TEkodhWr0iujjHVx7BcV0llS4w5ACGgPrcAd6ZcSR0-Iqom-QFcNP"
-        "8Sjg086MwoqQU_LYywlAGZ21WSdS_PERyGFiNnj3QQlO8Yns5jCtLCRwLHL0"
-        "Pb1fEv45AuRIuUfVcPySBWYnDyGxvjYGDSM-AqWS9zIQ2ZilgT-GqUmipg0X"
-        "OC0Cc20rgLe2ymLHjpHciCKVAbY5-L32-lSeZO-Os6U15_aXrk9Gw8cPUaX1"
-        "_I8sLGuSiVdt3C_Fn2PZ3Z8i744FPFGGcG1qs2Wz-Q"
-    ),
-    "e": "AQAB",
-    "d": (
-        "GRtbIQmhOZtyszfgKdg4u_N-R_mZGU_9k7JQ_jn1DnfTuMdSNprTeaSTyWfS"
-        "NkuaAwnOEbIQVy1IQbWVV25NY3ybc_IhUJtfri7bAXYEReWaCl3hdlPKXy9U"
-        "vqPYGR0kIXTQRqns-dVJ7jahlI7LyckrpTmrM8dWBo4_PMaenNnPiQgO0xnu"
-        "ToxutRZJfJvG4Ox4ka3GORQd9CsCZ2vsUDmsXOfUENOyMqADC6p1M3h33tsu"
-        "rY15k9qMSpG9OX_IJAXmxzAh_tWiZOwk2K4yxH9tS3Lq1yX8C1EWmeRDkK2a"
-        "hecG85-oLKQt5VEpWHKmjOi_gJSdSgqcN96X52esAQ"
-    ),
-    "p": (
-        "2rnSOV4hKSN8sS4CgcQHFbs08XboFDqKum3sc4h3GRxrTmQdl1ZK9uw-PIHf"
-        "QP0FkxXVrx-WE-ZEbrqivH_2iCLUS7wAl6XvARt1KkIaUxPPSYB9yk31s0Q8"
-        "UK96E3_OrADAYtAJs-M3JxCLfNgqh56HDnETTQhH3rCT5T3yJws"
-    ),
-    "q": (
-        "1u_RiFDP7LBYh3N4GXLT9OpSKYP0uQZyiaZwBtOCBNJgQxaj10RWjsZu0c6I"
-        "edis4S7B_coSKB0Kj9PaPaBzg-IySRvvcQuPamQu66riMhjVtG6TlV8CLCYK"
-        "rYl52ziqK0E_ym2QnkwsUX7eYTB7LbAHRK9GqocDE5B0f808I4s"
-    ),
-    "dp": (
-        "KkMTWqBUefVwZ2_Dbj1pPQqyHSHjj90L5x_MOzqYAJMcLMZtbUtwKqvVDq3t"
-        "bEo3ZIcohbDtt6SbfmWzggabpQxNxuBpoOOf_a_HgMXK_lhqigI4y_kqS1wY"
-        "52IwjUn5rgRrJ-yYo1h41KR-vz2pYhEAeYrhttWtxVqLCRViD6c"
-    ),
-    "dq": (
-        "AvfS0-gRxvn0bwJoMSnFxYcK1WnuEjQFluMGfwGitQBWtfZ1Er7t1xDkbN9G"
-        "QTB9yqpDoYaN06H7CFtrkxhJIBQaj6nkF5KKS3TQtQ5qCzkOkmxIe3KRbBym"
-        "Xxkb5qwUpX5ELD5xFc6FeiafWYY63TmmEAu_lRFCOJ3xDea-ots"
-    ),
-    "qi": (
-        "lSQi-w9CpyUReMErP1RsBLk7wNtOvs5EQpPqmuMvqW57NBUczScEoPwmUqqa"
-        "bu9V0-Py4dQ57_bapoKRu1R90bvuFnU63SHWEFglZQvJDMeAvmj4sm-Fp0oY"
-        "u_neotgQ0hzbI5gry7ajdYy9-2lNx_76aBZoOUu9HCJ-UsfSOI8"
-    ),
-}
-MOCK_TOKEN = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODk"
-    "wIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJpc3MiOiJ"
-    "pc3N1ZXIifQ.4i3V6q3dT30uK0ESa7ia5oM4Y06IZM8Yc6Z3l0-IiyA"
-)
-MOCK_TOKEN_HEADER_KID = (
-    "eyJhbGciOiJIUzI1NiIsImtpZCI6InJzYTEifQ.eyJzdWIiOiIxMjM0NTY3O"
-    "DkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJpc3MiO"
-    "iJpc3N1ZXIifQ.nTQVs9sJVSiwUtbvMMuBrPvIzmxhDETVTRInuAFU9rY"
-)
-MOCK_TOKEN_INVALID = "my-invalid-token"
-MOCK_URL = "https://some-url-that-does-not.exist"
-MOCK_HEADERS = {"content-type": "application/json"}
+ISSUER = "https://idp.example.org"
+DISCOVERY_URI = f"{ISSUER}/.well-known/openid-configuration"
+JWKS_URI = f"{ISSUER}/jwks"
+USERINFO_URI = f"{ISSUER}/userinfo"
+KID = "key-1"
+SUBJECT = "alice"
 
 
-def _raise(exception) -> None:
-    """General purpose exception raiser."""
-    raise exception
+def _private_key():
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+PRIVATE_KEY = _private_key()
+OTHER_PRIVATE_KEY = _private_key()
+
+
+def _public_jwk(key, kid):
+    return {
+        **jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key(), as_dict=True),
+        "kid": kid,
+        "use": "sig",
+    }
+
+
+def make_token(key=PRIVATE_KEY, kid=KID, algorithm="RS256", **claims):
+    """Create signed token with valid default claims."""
+    now = int(time.time())
+    payload = {
+        "iss": ISSUER,
+        "sub": SUBJECT,
+        "iat": now,
+        "exp": now + 300,
+        "scope": "openid",
+    }
+    payload.update(claims)
+    payload = {key: val for key, val in payload.items() if val is not None}
+    headers = {"kid": kid} if kid is not None else {}
+    return jwt.encode(payload, key, algorithm=algorithm, headers=headers)
+
+
+class MockResponse:
+    """Mock response of `requests.get()`."""
+
+    def __init__(self, data, status_code=200):
+        self.data = data
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise auth.requests.HTTPError(str(self.status_code))
+
+    def json(self):
+        return self.data
+
+
+@pytest.fixture
+def idp(monkeypatch):
+    """Mock identity provider; returns mock of `requests.get()`."""
+    auth._oidc_configs.clear()
+    auth._jwk_sets.clear()
+    auth._failed_fetches.clear()
+    responses = {
+        DISCOVERY_URI: MockResponse(
+            {
+                "issuer": ISSUER,
+                "jwks_uri": JWKS_URI,
+                "userinfo_endpoint": USERINFO_URI,
+            }
+        ),
+        JWKS_URI: MockResponse({"keys": [_public_jwk(PRIVATE_KEY, KID)]}),
+        USERINFO_URI: MockResponse({"sub": SUBJECT}),
+    }
+    get = MagicMock(side_effect=lambda url, **kwargs: responses[url])
+    get.responses = responses
+    monkeypatch.setattr(auth.requests, "get", get)
+    yield get
+    auth._oidc_configs.clear()
+    auth._jwk_sets.clear()
+    auth._failed_fetches.clear()
+
+
+def urls(get):
+    """URLs requested via mock of `requests.get()`."""
+    return [call.args[0] for call in get.call_args_list]
+
+
+def make_app(**auth_conf):
+    """Create Flask app with FOCA config."""
+    app = Flask(__name__)
+    auth_conf = {"issuers": [ISSUER], **auth_conf}
+    app.config.foca = Config(security={"auth": auth_conf})
+    return app
+
+
+def validate(app, token):
+    with app.test_request_context():
+        return validate_token(token=token)
 
 
 class TestValidateToken:
     """Tests for `validate_token()`."""
 
-    def test_success_all_validation_checks(self, monkeypatch):
-        """Test for validating token successfully via all methods."""
-        app = Flask(__name__)
-        setattr(app.config, "foca", Config())
-        request = MagicMock(name="requests")
-        request.status_code = 200
-        request.return_value.json.return_value = {
-            "userinfo_endpoint": MOCK_URL,
-            "jwks_uri": MOCK_URL,
-        }
-        monkeypatch.setattr("requests.get", request)
-        monkeypatch.setattr(
-            "foca.security.auth._validate_jwt_userinfo",
-            lambda **kwargs: None,
-        )
-        monkeypatch.setattr(
-            "foca.security.auth._validate_jwt_public_key",
-            lambda **kwargs: None,
-        )
-        with app.test_request_context(headers=MOCK_HEADERS):
-            res = validate_token(token=MOCK_TOKEN_HEADER_KID)
-            assert res["user_id"] == MOCK_USER_ID
+    def test_success(self, idp):
+        """Valid token is accepted; verified claims are returned."""
+        res = validate(make_app(), make_token())
+        assert res["user_id"] == SUBJECT
+        assert res["claims"]["iss"] == ISSUER
+        assert res["scope"] == "openid"
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI]
+        for call in idp.call_args_list:
+            assert call.kwargs["allow_redirects"] is False
+            assert call.kwargs["timeout"] == 10
 
-    def test_success_any_validation_check(self, monkeypatch):
-        """Test for validating token successfully via any method."""
-        app = Flask(__name__)
-        setattr(app.config, "foca", Config())
-        app.config.foca.security.auth.validation_checks = (
-            ValidationChecksEnum.any
-        )
-        request = MagicMock(name="requests")
-        request.status_code = 200
-        request.return_value.json.return_value = {
-            "userinfo_endpoint": MOCK_URL,
-            "jwks_uri": MOCK_URL,
-        }
-        monkeypatch.setattr("requests.get", request)
-        monkeypatch.setattr(
-            "foca.security.auth._validate_jwt_userinfo",
-            lambda **kwargs: None,
-        )
-        with app.test_request_context(headers=MOCK_HEADERS):
-            res = validate_token(token=MOCK_TOKEN_HEADER_KID)
-            assert res["user_id"] == MOCK_USER_ID
-
-    def test_no_validation_methods(self):
-        """Test for failed validation due to missing validation methods."""
-        app = Flask(__name__)
-        setattr(app.config, "foca", Config())
-        app.config.foca.security.auth.validation_methods = []
-        with (
-            app.test_request_context(headers=MOCK_HEADERS),
-            pytest.raises(Unauthorized),
-        ):
-            validate_token(token=MOCK_TOKEN)
-
-    def test_invalid_token(self):
-        """Test for failed validation due to invalid token."""
-        app = Flask(__name__)
-        setattr(app.config, "foca", Config())
-        with (
-            app.test_request_context(headers=MOCK_HEADERS),
-            pytest.raises(Unauthorized),
-        ):
-            validate_token(token=MOCK_TOKEN_INVALID)
-
-    def test_no_claims(self, monkeypatch):
-        """Test for token with no issuer claim."""
-        app = Flask(__name__)
-        setattr(app.config, "foca", Config())
-        monkeypatch.setattr(
-            "jwt.decode",
-            lambda *args, **kwargs: {},
-        )
-        with (
-            app.test_request_context(headers=MOCK_HEADERS),
-            pytest.raises(Unauthorized),
-        ):
-            validate_token(token=MOCK_TOKEN_INVALID)
-
-    def test_oidc_config_unavailable(self, monkeypatch):
-        """Test for mocking an unavailable OIDC configuration server."""
-        app = Flask(__name__)
-        setattr(app.config, "foca", Config())
-        monkeypatch.setattr(
-            "requests.get", lambda **kwargs: _raise(ConnectionError)
-        )
-        with (
-            app.test_request_context(headers=MOCK_HEADERS),
-            pytest.raises(Unauthorized),
-        ):
-            validate_token(token=MOCK_TOKEN_HEADER_KID)
-
-    def test_success_no_subject_claim(self, monkeypatch):
-        """Test for validating token without subject claim."""
-        app = Flask(__name__)
-        setattr(app.config, "foca", Config())
-        monkeypatch.setattr(
-            "jwt.decode",
-            lambda *args, **kwargs: MOCK_CLAIMS_NO_SUB,
-        )
-        request = MagicMock(name="requests")
-        request.status_code = 200
-        request.return_value.json.return_value = {
-            "userinfo_endpoint": MOCK_URL,
-            "jwks_uri": MOCK_URL,
-        }
-        monkeypatch.setattr("requests.get", request)
-        monkeypatch.setattr(
-            "foca.security.auth._validate_jwt_userinfo",
-            lambda **kwargs: None,
-        )
-        monkeypatch.setattr(
-            "foca.security.auth._validate_jwt_public_key",
-            lambda **kwargs: None,
-        )
-        with (
-            app.test_request_context(headers=MOCK_HEADERS),
-            pytest.raises(Unauthorized),
-        ):
-            validate_token(token=MOCK_TOKEN_HEADER_KID)
-
-    def test_fail_all_validation_checks_all_required(self, monkeypatch):
-        """Test for all token validation methods failing when all methods
-        are required to pass."""
-        app = Flask(__name__)
-        setattr(app.config, "foca", Config())
-        request = MagicMock(name="requests")
-        request.status_code = 200
-        request.return_value.json.return_value = {
-            "userinfo_endpoint": MOCK_URL,
-            "jwks_uri": MOCK_URL,
-        }
-        monkeypatch.setattr("requests.get", request)
-        monkeypatch.setattr(
-            "foca.security.auth._validate_jwt_userinfo",
-            lambda **kwargs: _raise(ConnectionError),
-        )
-        monkeypatch.setattr(
-            "foca.security.auth._validate_jwt_public_key",
-            lambda **kwargs: _raise(Unauthorized),
-        )
-        with (
-            app.test_request_context(headers=MOCK_HEADERS),
-            pytest.raises(Unauthorized),
-        ):
-            validate_token(token=MOCK_TOKEN_HEADER_KID)
-
-    def test_fail_all_validation_checks_any_required(self, monkeypatch):
-        """Test for all token validation methods failing when any method
-        is required to pass."""
-        app = Flask(__name__)
-        setattr(app.config, "foca", Config())
-        app.config.foca.security.auth.validation_checks = (
-            ValidationChecksEnum.any
-        )
-        request = MagicMock(name="requests")
-        request.status_code = 200
-        request.return_value.json.return_value = {
-            "userinfo_endpoint": MOCK_URL,
-            "jwks_uri": MOCK_URL,
-        }
-        monkeypatch.setattr("requests.get", request)
-        monkeypatch.setattr(
-            "foca.security.auth._validate_jwt_userinfo",
-            lambda **kwargs: _raise(ConnectionError),
-        )
-        monkeypatch.setattr(
-            "foca.security.auth._validate_jwt_public_key",
-            lambda **kwargs: _raise(Unauthorized),
-        )
-        with (
-            app.test_request_context(headers=MOCK_HEADERS),
-            pytest.raises(Unauthorized),
-        ):
-            validate_token(token=MOCK_TOKEN_HEADER_KID)
-
-
-class TestValidateJwtUserinfo:
-    """Tests for `_validate_jwt_userinfo()`."""
-
-    def test_success(self, monkeypatch):
-        """Test for validating a token successfully."""
-        request = MagicMock(name="requests")
-        request.status_code = 200
-        request.return_value.json.return_value = {}
-        monkeypatch.setattr("requests.get", request)
-        res = _validate_jwt_userinfo(
-            token=MOCK_TOKEN,
-            url=MOCK_URL,
-        )
-        assert res is None
-
-    def test_ConnectionError(self, monkeypatch):
-        """Test for being unable to connect to user info endpoint."""
-        monkeypatch.setattr(
-            "requests.get", lambda **kwargs: _raise(ConnectionError)
-        )
-        with pytest.raises(ConnectionError):
-            _validate_jwt_userinfo(
-                token=MOCK_TOKEN,
-                url=MOCK_URL,
-            )
-
-
-class TestValidateJwtPublicKey:
-    """Tests for `_validate_jwt_public_key()`."""
-
-    def test_success(self, monkeypatch):
-        """Test for validating a token successfully."""
-        monkeypatch.setattr(
-            "foca.security.auth._get_public_keys",
-            lambda **kwargs: MOCK_KEYS,
-        )
-        monkeypatch.setattr(
-            "jwt.decode",
-            lambda *args, **kwargs: MOCK_CLAIMS,
-        )
-        res = _validate_jwt_public_key(
-            token=MOCK_TOKEN,
-            url=MOCK_URL,
-            allow_expired=True,
-        )
-        assert res is None
-
-    def test_InvalidKeyError(self, monkeypatch):
-        """Test for invalid key."""
-        monkeypatch.setattr(
-            "foca.security.auth._get_public_keys",
-            lambda **kwargs: MOCK_KEYS,
-        )
-        monkeypatch.setattr(
-            "jwt.decode",
-            lambda **kwargs: _raise(InvalidKeyError),
-        )
+    def test_untrusted_issuer(self, idp):
+        """Tokens of untrusted issuers are rejected without requests."""
+        token = make_token(iss="https://evil.example.org")
         with pytest.raises(Unauthorized):
-            _validate_jwt_public_key(
-                token=MOCK_TOKEN,
-                url=MOCK_URL,
-            )
+            validate(make_app(), token)
+        idp.assert_not_called()
 
-    def test_InvalidTokenError(self, monkeypatch):
-        """Test for invalid token."""
-        monkeypatch.setattr(
-            "foca.security.auth._get_public_keys",
-            lambda **kwargs: MOCK_KEYS,
-        )
-        monkeypatch.setattr(
-            "jwt.decode",
-            lambda **kwargs: _raise(InvalidTokenError),
-        )
+    def test_no_trusted_issuers(self, idp):
+        """All tokens are rejected if no issuers are trusted."""
         with pytest.raises(Unauthorized):
-            _validate_jwt_public_key(
-                token=MOCK_TOKEN,
-                url=MOCK_URL,
-            )
+            validate(make_app(issuers=[]), make_token())
+        idp.assert_not_called()
 
-    def test_no_header_claims(self, monkeypatch):
-        """Test for token without header claims."""
-        monkeypatch.setattr(
-            "foca.security.auth._get_public_keys",
-            lambda **kwargs: MOCK_KEYS,
-        )
+    def test_missing_issuer(self, idp):
+        """Tokens without issuer are rejected."""
         with pytest.raises(Unauthorized):
-            _validate_jwt_public_key(
-                token=MOCK_TOKEN_INVALID,
-                url=MOCK_URL,
-            )
+            validate(make_app(), make_token(iss=None))
+        idp.assert_not_called()
 
-    def test_kid_mismatch(self, monkeypatch):
-        """Test for token and JWK set with mismatching JWK identifiers."""
-        monkeypatch.setattr(
-            "foca.security.auth._get_public_keys",
-            lambda **kwargs: MOCK_KEYS,
+    def test_undecodable_token(self, idp):
+        """Malformed tokens are rejected."""
+        with pytest.raises(Unauthorized):
+            validate(make_app(), "not-a-token")
+
+    def test_discovery_issuer_mismatch(self, idp):
+        """Discovery documents must be issued for the token's issuer."""
+        idp.responses[DISCOVERY_URI].data["issuer"] = "https://evil.org"
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token())
+        assert JWKS_URI not in urls(idp)
+
+    def test_discovery_unavailable(self, idp):
+        """Tokens are rejected if the discovery document is unavailable."""
+        idp.responses[DISCOVERY_URI] = MockResponse({}, status_code=500)
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token())
+
+    def test_jwks_uri_missing(self, idp):
+        """Tokens are rejected if the issuer announces no JWK set."""
+        del idp.responses[DISCOVERY_URI].data["jwks_uri"]
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token())
+        assert urls(idp) == [DISCOVERY_URI]
+
+    def test_jwks_invalid(self, idp):
+        """Tokens are rejected if the JWK set is invalid."""
+        idp.responses[JWKS_URI] = MockResponse({"keys": []})
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token())
+
+    def test_jwks_unavailable(self, idp):
+        """Tokens are rejected if the JWK set is unavailable."""
+        idp.responses[JWKS_URI] = MockResponse({}, status_code=500)
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token())
+
+    @pytest.mark.parametrize("uri", [DISCOVERY_URI, JWKS_URI])
+    def test_failed_fetch_cooldown(self, idp, uri):
+        """Failed fetches are not repeated within cooldown."""
+        app = make_app()
+        ok = idp.responses[uri]
+        idp.responses[uri] = MockResponse({}, status_code=503)
+        for _ in range(3):
+            with pytest.raises(Unauthorized):
+                validate(app, make_token())
+        assert urls(idp).count(uri) == 1
+        # fetched again after cooldown
+        idp.responses[uri] = ok
+        auth._failed_fetches[uri] -= auth.JWKS_REFETCH_COOLDOWN
+        assert validate(app, make_token())["user_id"] == SUBJECT
+        assert urls(idp).count(uri) == 2
+        assert uri not in auth._failed_fetches
+
+    def test_failed_refetch_cooldown(self, idp):
+        """Failed refetches for unknown key IDs are not repeated within
+        cooldown."""
+        app = make_app()
+        validate(app, make_token())
+        idp.responses[JWKS_URI] = MockResponse({}, status_code=503)
+        auth._jwk_sets[JWKS_URI] = (
+            auth._jwk_sets[JWKS_URI][0] - auth.JWKS_REFETCH_COOLDOWN,
+            auth._jwk_sets[JWKS_URI][1],
         )
-        with pytest.raises(KeyError):
-            _validate_jwt_public_key(
-                token=MOCK_TOKEN_HEADER_KID,
-                url=MOCK_URL,
-            )
+        for _ in range(3):
+            with pytest.raises(Unauthorized):
+                validate(app, make_token(kid="other-key"))
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI, JWKS_URI]
+        # known keys are still accepted
+        assert validate(app, make_token())["user_id"] == SUBJECT
 
+    def test_userinfo_failures_not_throttled(self, idp):
+        """Failed user info requests depend on the token, so are repeated."""
+        app = make_app(validate_userinfo=True)
+        idp.responses[USERINFO_URI] = MockResponse({}, status_code=401)
+        for _ in range(2):
+            with pytest.raises(Unauthorized):
+                validate(app, make_token())
+        assert urls(idp).count(USERINFO_URI) == 2
 
-class TestGetPublicKeys:
-    """Tests for `_get_public_keys()`."""
+    def test_cached(self, idp):
+        """Discovery documents and JWK sets are cached."""
+        app = make_app()
+        validate(app, make_token())
+        validate(app, make_token())
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI]
 
-    def test_success(self, monkeypatch):
-        """Test for successfully fetching keys."""
-        mock_jwk_set = {"keys": [MOCK_JWK, {}]}
-        request = MagicMock(name="requests")
-        request.status_code = 200
-        request.return_value.json.return_value = mock_jwk_set
-        monkeypatch.setattr("requests.get", request)
-        res = _get_public_keys(url=MOCK_URL, pem=True)
-        assert MOCK_JWK["kid"] in res
+    def test_cache_expired(self, idp):
+        """Discovery documents and JWK sets are refetched after TTL."""
+        app = make_app(cache_ttl=0)
+        validate(app, make_token())
+        validate(app, make_token())
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI] * 2
 
-    def test_ConnectionError(self, monkeypatch):
-        """Test for being unable to connect to keys endpoint."""
-        monkeypatch.setattr(
-            "requests.get", lambda **kwargs: _raise(ConnectionError)
+    def test_key_rotation(self, idp):
+        """JWK set is refetched once for unknown key IDs."""
+        app = make_app()
+        validate(app, make_token())
+        idp.responses[JWKS_URI] = MockResponse(
+            {"keys": [_public_jwk(OTHER_PRIVATE_KEY, "key-2")]}
         )
-        with pytest.raises(ConnectionError):
-            _get_public_keys(url=MOCK_URL)
+        auth._jwk_sets[JWKS_URI] = (
+            auth._jwk_sets[JWKS_URI][0] - auth.JWKS_REFETCH_COOLDOWN,
+            auth._jwk_sets[JWKS_URI][1],
+        )
+        res = validate(app, make_token(key=OTHER_PRIVATE_KEY, kid="key-2"))
+        assert res["user_id"] == SUBJECT
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI, JWKS_URI]
 
-    def test_non_public_key(self, monkeypatch):
-        """Test for non-public keys."""
-        mock_jwk_set = {"keys": [MOCK_JWK_PRIVATE]}
-        request = MagicMock(name="requests")
-        request.status_code = 200
-        request.return_value.json.return_value = mock_jwk_set
-        monkeypatch.setattr("requests.get", request)
-        res = _get_public_keys(url=MOCK_URL)
-        assert res == {}
+    def test_unknown_key_id_cooldown(self, idp):
+        """JWK set is not refetched for unknown key IDs within cooldown."""
+        app = make_app()
+        validate(app, make_token())
+        with pytest.raises(Unauthorized):
+            validate(app, make_token(kid="other-key"))
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI]
+
+    def test_forged_signature(self, idp):
+        """Tokens signed with other keys are rejected."""
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token(key=OTHER_PRIVATE_KEY))
+
+    def test_unsigned_token(self, idp):
+        """Unsigned tokens are rejected."""
+        token = make_token(key=None, algorithm="none")
+        with pytest.raises(Unauthorized):
+            validate(make_app(), token)
+
+    def test_no_key_id(self, idp):
+        """Tokens without key ID are verified with all signing keys."""
+        idp.responses[JWKS_URI] = MockResponse(
+            {
+                "keys": [
+                    _public_jwk(OTHER_PRIVATE_KEY, "key-2"),
+                    _public_jwk(PRIVATE_KEY, KID),
+                ]
+            }
+        )
+        res = validate(make_app(), make_token(kid=None))
+        assert res["user_id"] == SUBJECT
+
+    def test_no_key_id_mixed_key_types(self, idp):
+        """Signing keys incompatible with the token's algorithm are
+        skipped."""
+        ec_key = ec.generate_private_key(ec.SECP256R1())
+        idp.responses[JWKS_URI] = MockResponse(
+            {
+                "keys": [
+                    {
+                        **jwt.algorithms.ECAlgorithm.to_jwk(
+                            ec_key.public_key(), as_dict=True
+                        ),
+                        "kid": "ec-key",
+                        "use": "sig",
+                    },
+                    _public_jwk(PRIVATE_KEY, KID),
+                ]
+            }
+        )
+        res = validate(make_app(), make_token(kid=None))
+        assert res["user_id"] == SUBJECT
+
+    def test_algorithm_not_allowed(self, idp):
+        """Tokens signed with algorithms that are not allowed are
+        rejected."""
+        app = make_app(algorithms=["RS512"])
+        with pytest.raises(Unauthorized):
+            validate(app, make_token(kid=None))
+
+    def test_no_key_id_forged(self, idp):
+        """Tokens without key ID signed with other keys are rejected."""
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token(key=OTHER_PRIVATE_KEY, kid=None))
+
+    def test_expired(self, idp):
+        """Expired tokens are rejected."""
+        token = make_token(exp=int(time.time()) - 60)
+        with pytest.raises(Unauthorized):
+            validate(make_app(), token)
+
+    def test_expired_allowed(self, idp):
+        """Expired tokens are accepted if configured."""
+        token = make_token(exp=int(time.time()) - 60)
+        res = validate(make_app(allow_expired=True), token)
+        assert res["user_id"] == SUBJECT
+
+    @pytest.mark.parametrize("claim", ["exp", "iat", "sub"])
+    def test_missing_required_claim(self, idp, claim):
+        """Tokens without required claims are rejected."""
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token(**{claim: None}))
+
+    def test_custom_identity_claim(self, idp):
+        """Identity is taken from the configured claim."""
+        app = make_app(claim_identity="email")
+        res = validate(app, make_token(email="alice@example.org"))
+        assert res["user_id"] == "alice@example.org"
+
+    def test_audience(self, idp):
+        """Tokens for the configured audience are accepted."""
+        res = validate(make_app(audience=["foca"]), make_token(aud="foca"))
+        assert res["user_id"] == SUBJECT
+
+    def test_audience_mismatch(self, idp):
+        """Tokens for other audiences are rejected."""
+        with pytest.raises(Unauthorized):
+            validate(make_app(audience=["foca"]), make_token(aud="other"))
+
+    def test_add_key_to_claims(self, idp):
+        """Public key used for verification is added to claims."""
+        res = validate(make_app(add_key_to_claims=True), make_token())
+        assert res["claims"]["public_key"].startswith(
+            "-----BEGIN PUBLIC KEY-----"
+        )
+
+    def test_no_key_in_claims(self, idp):
+        """Public key is not added to claims if not configured."""
+        res = validate(make_app(add_key_to_claims=False), make_token())
+        assert "public_key" not in res["claims"]
+
+    def test_userinfo(self, idp):
+        """Tokens are additionally validated via user info endpoint."""
+        res = validate(make_app(validate_userinfo=True), make_token())
+        assert res["user_id"] == SUBJECT
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI, USERINFO_URI]
+        call = idp.call_args_list[-1]
+        assert call.kwargs["allow_redirects"] is False
+        assert call.kwargs["headers"]["Authorization"].startswith("Bearer ")
+
+    def test_userinfo_after_signature(self, idp):
+        """Tokens are not sent to user info endpoint before verification."""
+        app = make_app(validate_userinfo=True)
+        with pytest.raises(Unauthorized):
+            validate(app, make_token(key=OTHER_PRIVATE_KEY))
+        assert USERINFO_URI not in urls(idp)
+
+    def test_userinfo_subject_mismatch(self, idp):
+        """User info must be for the token's subject."""
+        idp.responses[USERINFO_URI] = MockResponse({"sub": "mallory"})
+        with pytest.raises(Unauthorized):
+            validate(make_app(validate_userinfo=True), make_token())
+
+    def test_userinfo_unavailable(self, idp):
+        """Tokens are rejected if user info cannot be fetched."""
+        idp.responses[USERINFO_URI] = MockResponse({}, status_code=401)
+        with pytest.raises(Unauthorized):
+            validate(make_app(validate_userinfo=True), make_token())
+
+
+class TestAuthConfig:
+    """Tests for authentication config."""
+
+    def test_defaults(self):
+        """Defaults: no trusted issuers, local signature verification."""
+        conf = AuthConfig()
+        assert conf.issuers == []
+        assert conf.validate_userinfo is False
+
+    @pytest.mark.parametrize(
+        "field", ["validation_methods", "validation_checks", "claim_issuer"]
+    )
+    def test_removed_fields(self, field):
+        """Removed settings are rejected."""
+        with pytest.raises(ValidationError):
+            AuthConfig(**{field: "any"})
+
+
+class TestLogAuthConfigWarnings:
+    """Tests for `log_auth_config_warnings()`."""
+
+    def test_warnings(self, caplog):
+        """Insecure or incomplete settings are logged as warnings."""
+        conf = AuthConfig(issuers=[], audience=None, allow_expired=True)
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert "No trusted token issuers" in caplog.text
+        assert "audience" in caplog.text
+        assert "Expired" in caplog.text
+
+    def test_no_warnings(self, caplog):
+        """Complete and secure settings are not warned about."""
+        conf = AuthConfig(issuers=[ISSUER], audience=["foca"])
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert caplog.text == ""
