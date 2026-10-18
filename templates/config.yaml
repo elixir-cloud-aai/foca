@@ -30,10 +30,10 @@ security:
       - RS256
     allow_expired: False
     audience: null
-    validation_methods:
-      - userinfo
-      - public_key
-    validation_checks: any
+    # Trusted token issuers (`iss` claim); tokens of other issuers are
+    # rejected
+    issuers:
+      - https://login.example.org/oidc/
 
 # API CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.APIConfig

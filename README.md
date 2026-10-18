@@ -324,13 +324,13 @@ configuration, as well as the desired sublevel section(s):
 ```yaml
 security:
   auth:
+    issuers:
+      - https://login.example.org/oidc/
+    audience:
+      - my-app
     algorithms:
       - RS256
     allow_expired: False
-    validation_methods:
-      - userinfo
-      - public_key
-    validation_checks: any
   access_control:
     api_specs: 'path/to/your/access/control/specs'
     api_controllers: 'path/to/your/access/control/spec/controllers'
@@ -342,11 +342,14 @@ security:
     enabled: True
 ```
 
-> In this example, the validation of JWT Bearer tokens would make use of the
-> `RS256` algorithm, would not allow expired tokens and would grant access to
-> a protected endpoint if `any` of the two listed validation methods (via the
-> identity provider's `/userinfo` endpoint or its JSON Web Key (JWK) public
-> key. Furthermore, the application created with this config would provide
+> In this example, only JWT Bearer tokens issued by
+> `https://login.example.org/oidc/` for audience `my-app` would be accepted.
+> They would be verified locally with the issuer's public keys (obtained via
+> OpenID Connect discovery), signed with the `RS256` algorithm, and expired
+> tokens would be rejected. Tokens of other issuers are rejected without
+> contacting them; if no `issuers` are configured, all tokens are rejected.
+> Set `validate_userinfo: True` to additionally validate tokens via the
+> issuer's user info endpoint. Furthermore, the application created with this config would provide
 > an access control model `model`. Corresponding permissions could be accessed
 > and altered by a user with admin permissions via the dedicated endpoints
 > defined in the `api_specs`, operationalized by the controllers in

@@ -1,352 +1,322 @@
 """Functions for validating JWT Bearer tokens."""
 
-import json
 import logging
-from collections.abc import Iterable, Sequence
+import time
+from typing import Any
 
 import jwt
 import requests
 from connexion.exceptions import Unauthorized
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from flask import current_app, request
-from jwt.exceptions import InvalidKeyError
-from requests.exceptions import ConnectionError
 from werkzeug.datastructures import ImmutableMultiDict
+
+from foca.models.config import AuthConfig
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+# Path of OpenID Connect discovery documents, relative to the issuer
+# Cf. https://openid.net/specs/openid-connect-discovery-1_0.html
+OIDC_CONFIG_PATH = ".well-known/openid-configuration"
+
+# Minimum time (in seconds) between fetching an issuer's JSON Web Key (JWK)
+# set again because a token was signed with a key that is not in the set
+JWKS_REFETCH_COOLDOWN = 30
+
+# OpenID Connect discovery documents and JWK sets, with time of retrieval,
+# by issuer and JWK set URL, respectively
+_oidc_configs: dict[str, tuple[float, dict]] = {}
+_jwk_sets: dict[str, tuple[float, jwt.PyJWKSet]] = {}
 
 
 def validate_token(token: str) -> dict:
     """Validate JSON Web Token (JWT) Bearer token.
 
+    Only tokens issued by one of the trusted issuers configured via
+    `security.auth.issuers` are accepted. Tokens are verified locally with
+    the issuer's public keys, obtained via OpenID Connect discovery, and,
+    if configured, additionally via the issuer's user info endpoint.
+
+    Args:
+        token: JSON Web Token (JWT).
+
     Returns:
-        Token claims.
+        Token info, including the verified claims.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if JWT could not be
+        connexion.exceptions.Unauthorized: Raised if the JWT could not be
             successfully validated.
     """
-    # Set parameters defined by OpenID Connect specification
-    # Cf. https://openid.net/specs/openid-connect-discovery-1_0.html
-    oidc_suffix_config: str = ".well-known/openid-configuration"
-    oidc_config_claim_userinfo: str = "userinfo_endpoint"
-    oidc_config_claim_public_keys: str = "jwks_uri"
-
-    # Fetch security parameters
-    conf = current_app.config.foca.security.auth  # type: ignore[attr-defined]
-    add_key_to_claims: bool = conf.add_key_to_claims
-    allow_expired: bool = conf.allow_expired
-    audience: Iterable[str] | None = conf.audience
-    claim_identity: str = conf.claim_identity
-    claim_issuer: str = conf.claim_issuer
-    algorithms: list[str] = conf.algorithms
-    validation_methods: list[str] = [e.value for e in conf.validation_methods]
-    validation_checks: str = conf.validation_checks.value
-
-    # Ensure that validation methods are configured
-    if not validation_methods:
-        raise Unauthorized(
-            "Authentication is enabled, but no JWT validation methods "
-            "configured"
-        )
-
-    # Decode JWT
-    try:
-        claims = jwt.decode(
-            jwt=token,
-            algorithms=algorithms,
-            options={"verify_signature": False},
-        )
-    except Exception as e:
-        raise Unauthorized("JWT could not be decoded") from e
-    logger.debug(f"Decoded claims: {claims}")
-
-    # Verify existence of issuer claim
-    if claim_issuer not in claims:
-        raise Unauthorized(
-            f"Required identity claim not available: {claim_identity}"
-        )
-
-    # Get OIDC configuration
-    url = f"{claims[claim_issuer].rstrip('/')}/{oidc_suffix_config}"
-    logger.debug(f"Issuer's configuration URL: {url}")
-    try:
-        oidc_config = requests.get(url)
-        oidc_config.raise_for_status()
-    except Exception as e:
-        raise Unauthorized(
-            f"Could not fetch issuer's configuration from: {url}"
-        ) from e
-
-    # Validate token
-    passed_any = False
-    for method in validation_methods:
-        logger.debug(f"Validating JWT via method: {method}")
-        try:
-            if method == "userinfo":
-                _validate_jwt_userinfo(
-                    url=oidc_config.json()[oidc_config_claim_userinfo],
-                    token=token,
-                )
-            if method == "public_key":
-                _validate_jwt_public_key(
-                    url=oidc_config.json()[oidc_config_claim_public_keys],
-                    token=token,
-                    algorithms=algorithms,
-                    add_key_to_claims=add_key_to_claims,
-                    audience=audience,
-                    allow_expired=allow_expired,
-                )
-        except Exception as e:
-            if validation_checks == "all":
-                raise Unauthorized(
-                    "Insufficient number of JWT validation checks passed"
-                ) from e
-            continue
-        passed_any = True
-        if validation_checks == "any":
-            break
-    if not passed_any:
-        raise Unauthorized("No JWT validation checks passed")
-
-    # Verify existence of specified identity claim
-    if claim_identity not in claims:
-        raise Unauthorized(
-            f"Required identity claim '{claim_identity} not available"
-        )
-
-    # Log result
-    logger.debug(f"Access granted to user: {claims[claim_identity]}")
+    conf: AuthConfig = current_app.config.foca.security.auth  # type: ignore[attr-defined]
+    claims = _validate(token=token, conf=conf)
+    logger.debug(f"Access granted to user: {claims[conf.claim_identity]}")
 
     req_headers = request.headers.__dict__
     for key, val in claims.items():
         req_headers[key] = val
-    req_headers["user_id"] = claims[claim_identity]
+    req_headers["user_id"] = claims[conf.claim_identity]
     request.headers = ImmutableMultiDict(req_headers)  # type: ignore[assignment]
 
-    # Return token info
     return {
         "jwt": token,
         "claims": claims,
-        "user_id": claims[claim_identity],
+        "user_id": claims[conf.claim_identity],
         "scope": claims.get("scope", ""),
     }
 
 
-def _validate_jwt_userinfo(
-    token: str,
-    url: str,
-    header_name: str = "Authorization",
-    prefix: str = "Bearer",
-) -> None:
-    """Validate JSON Web Token (JWT) via user info endpoint.
-
-    Uses an OpenID Connect-compliant identity provider's user info
-    endpoint.
+def log_auth_config_warnings(conf: AuthConfig) -> None:
+    """Log warnings about incomplete or insecure authentication settings.
 
     Args:
-        url: URL to OpenID Connect identity provider's user info endpoint.
-        header_name: Name of the request header field at which the service is
-            expecting the JWT. Cf. `prefix`.
-        token: JSON Web Token (JWT).
-        prefix: Prefix that the app expects to precede the JWT, separated
-            by whitespace. Together, `prefix` and `token`, separated by
-            whitespace, constitute the value of the request header field
-            specified by `header-name`.
-
-    Raises:
-        requests.exceptions.ConnectionError: Raised if the identity provider's
-            user info or configuration endpoints could not be reached.
+        conf: Authentication settings.
     """
-    logger.debug(f"Issuer's user info endpoint URL: {url}")
-    headers = {f"{header_name}": f"{prefix} {token}"}
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-    except Exception as e:
-        raise ConnectionError(f"Could not connect to endpoint '{url}'") from e
-    logger.debug("Validation via user info endpoint succeeded")
+    if not conf.issuers:
+        logger.warning(
+            "No trusted token issuers configured "
+            "(`security.auth.issuers`): all bearer tokens will be rejected."
+        )
+    if conf.audience is None:
+        logger.warning(
+            "Token audience validation is disabled "
+            "(`security.auth.audience`): tokens issued for other services "
+            "by trusted issuers are accepted."
+        )
+    if conf.allow_expired:
+        logger.warning(
+            "Expired tokens are accepted (`security.auth.allow_expired`)."
+        )
 
 
-def _validate_jwt_public_key(
-    token: str,
-    url: str,
-    algorithms: Sequence[str] = ("RS256",),
-    add_key_to_claims: bool = True,
-    audience: Iterable[str] | None = None,
-    allow_expired: bool = False,
-    claim_key_id: str = "kid",
-) -> None:
-    """Validate JSON Web Token (JWT) via public key.
-
-    Uses an OpenID Connect-compliant identity provider's public key.
+def _validate(token: str, conf: AuthConfig) -> dict:
+    """Validate JSON Web Token (JWT).
 
     Args:
-        url: URL to OpenID Connect identity provider's public keys endpoint.
         token: JSON Web Token (JWT).
-        algorithms: Lists the JWT-signing algorithms supported by the app.
-        add_key_to_claims: Whether to allow the application to add the identity
-            provider's corresponding JSON Web Key (JWK), in PEM format, to the
-            dictionary of claims.
-        audience: List of audiences that the app identifies itself with. If
-            specified, JSON Web Tokens (JWT) that do not contain any of the
-            specified audiences are rejected. Set to ``None`` to disable
-            audience validation.
-        allow_expired: Allow/disallow expired JSON Web Tokens (JWT).
-        claim_key_id: The JSON Web Token (JWT) claim used to specify the
-            identifier of the JSON Web Key (JWK) used to issue that token.
+        conf: Authentication settings.
 
     Returns:
-        Dictionary of JWT claims, or an empty dictionary, if claims could not
-        be successfully decoded.
+        Verified token claims.
 
     Raises:
-        KeyError: Raised if used JSON Web Key (JWK) identifer was not found
-            among public JWK set.
-        Unauthorized: Raised if token could not be decoded.
+        connexion.exceptions.Unauthorized: Raised if the JWT could not be
+            successfully validated.
     """
-    logger.debug(f"Issuer's JWK set endpoint URL: {url}")
+    # Reject tokens of untrusted issuers before any network request
+    try:
+        unverified_claims = jwt.decode(
+            token, options={"verify_signature": False}
+        )
+    except jwt.PyJWTError as exc:
+        raise Unauthorized("JWT could not be decoded") from exc
+    issuer = unverified_claims.get("iss")
+    if not isinstance(issuer, str) or issuer not in conf.issuers:
+        raise Unauthorized("JWT issuer is not trusted")
 
-    # Obtain identity provider's public keys
-    public_keys = _get_public_keys(
-        url=url,
-        pem=False,
-        claim_key_id=claim_key_id,
+    oidc_config = _get_oidc_config(issuer=issuer, conf=conf)
+    claims = _verify_signature(
+        token=token,
+        issuer=issuer,
+        jwks_uri=oidc_config.get("jwks_uri"),
+        conf=conf,
     )
+    if conf.validate_userinfo:
+        _validate_userinfo(
+            token=token,
+            subject=claims.get("sub"),
+            url=oidc_config.get("userinfo_endpoint"),
+            conf=conf,
+        )
+    return claims
 
-    # Extract JWT header claims, if available
+
+def _fetch_json(url: Any, conf: AuthConfig, **kwargs) -> Any:
+    """Fetch JSON document from identity provider.
+
+    Args:
+        url: URL of the document.
+        conf: Authentication settings.
+        **kwargs: Additional arguments for :py:func:`requests.get`.
+
+    Returns:
+        Parsed JSON document.
+
+    Raises:
+        connexion.exceptions.Unauthorized: Raised if the document could not
+            be fetched.
+    """
+    if not isinstance(url, str) or not url:
+        raise Unauthorized("Identity provider endpoint not available")
     try:
-        header_claims = jwt.get_unverified_header(token)
-        logger.debug(f"Decoded header claims: {header_claims}")
-    except Exception:
-        logger.debug("Could not extract JWT header claims")
-        header_claims = {}
+        response = requests.get(
+            url,
+            timeout=conf.timeout,
+            allow_redirects=False,
+            **kwargs,
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as exc:
+        raise Unauthorized(
+            f"Could not fetch document from identity provider: {url}"
+        ) from exc
 
-    # Set used JWK identifier, if available
+
+def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict:
+    """Get OpenID Connect discovery document of a trusted issuer.
+
+    Args:
+        issuer: Trusted issuer.
+        conf: Authentication settings.
+
+    Returns:
+        OpenID Connect discovery document.
+
+    Raises:
+        connexion.exceptions.Unauthorized: Raised if the discovery document
+            could not be fetched or was not issued for `issuer`.
+    """
+    cached = _oidc_configs.get(issuer)
+    if cached is not None and time.monotonic() - cached[0] < conf.cache_ttl:
+        return cached[1]
+    oidc_config = _fetch_json(
+        url=f"{issuer.rstrip('/')}/{OIDC_CONFIG_PATH}",
+        conf=conf,
+    )
+    if (
+        not isinstance(oidc_config, dict)
+        or oidc_config.get("issuer") != issuer
+    ):
+        raise Unauthorized("OpenID Connect discovery document is invalid")
+    _oidc_configs[issuer] = (time.monotonic(), oidc_config)
+    return oidc_config
+
+
+def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False):
+    """Get JSON Web Key (JWK) set of a trusted issuer.
+
+    Args:
+        url: URL of the JWK set.
+        conf: Authentication settings.
+        refetch: Whether to fetch the JWK set again, e.g., because a token
+            was signed with an unknown key. Ignored if the JWK set was
+            fetched within the last `JWKS_REFETCH_COOLDOWN` seconds.
+
+    Returns:
+        JWK set.
+
+    Raises:
+        connexion.exceptions.Unauthorized: Raised if the JWK set could not
+            be fetched.
+    """
+    cached = _jwk_sets.get(url)
+    if cached is not None:
+        age = time.monotonic() - cached[0]
+        if age < conf.cache_ttl and not (
+            refetch and age >= JWKS_REFETCH_COOLDOWN
+        ):
+            return cached[1]
     try:
-        jwk_id = header_claims[claim_key_id]
-    except KeyError:
-        logger.debug("JWT key ID not specified, trying all available JWKs")
-        jwk_id = False
+        jwk_set = jwt.PyJWKSet.from_dict(_fetch_json(url=url, conf=conf))
+    except jwt.PyJWTError as exc:
+        raise Unauthorized("Issuer's JWK set is invalid") from exc
+    _jwk_sets[url] = (time.monotonic(), jwk_set)
+    return jwk_set
 
-    # Verify that used JWK exists and remove all other JWKs
-    if jwk_id:
-        try:
-            public_keys = {jwk_id: public_keys[jwk_id]}
-        except KeyError as exc:
-            raise KeyError("JWT key ID not found among issuer's JWKs") from exc
 
-    # Set validations
-    validation_options = {}
-    if audience is None:
-        validation_options["verify_aud"] = False
-    if allow_expired:
-        validation_options["verify_exp"] = False
+def _verify_signature(
+    token: str,
+    issuer: str,
+    jwks_uri: Any,
+    conf: AuthConfig,
+) -> dict:
+    """Verify JSON Web Token (JWT) with the issuer's public keys.
 
-    # Try public keys one after the other
-    used_key: dict = {}
-    claims = {}
-    for key in public_keys.values():
-        used_key = key  # type: ignore[assignment]
+    Args:
+        token: JSON Web Token (JWT).
+        issuer: Trusted issuer of the token.
+        jwks_uri: URL of the issuer's JSON Web Key (JWK) set.
+        conf: Authentication settings.
 
-        # Decode JWT and validate via public key
+    Returns:
+        Verified token claims.
+
+    Raises:
+        connexion.exceptions.Unauthorized: Raised if the JWT could not be
+            verified.
+    """
+    try:
+        key_id = jwt.get_unverified_header(token).get("kid")
+    except jwt.PyJWTError as exc:
+        raise Unauthorized("JWT header could not be decoded") from exc
+
+    # Use key with matching ID, fetching JWK set again if key is unknown;
+    # try all signing keys if token does not specify a key
+    keys = []
+    for refetch in (False, True):
+        jwk_set = _get_jwk_set(url=jwks_uri, conf=conf, refetch=refetch)
+        keys = [
+            key
+            for key in jwk_set.keys
+            if key.public_key_use in (None, "sig")
+            and (key_id is None or key.key_id == key_id)
+        ]
+        if keys:
+            break
+    if not keys:
+        raise Unauthorized("JWT signing key not found among issuer's JWKs")
+
+    options = {
+        "require": ["exp", "iat", "iss", conf.claim_identity],
+        "verify_aud": conf.audience is not None,
+        "verify_exp": not conf.allow_expired,
+    }
+    for key in keys:
         try:
             claims = jwt.decode(
-                jwt=token,
-                verify=True,
-                key=key,  # type: ignore[arg-type]
-                algorithms=algorithms,
-                audience=audience,
-                options=validation_options,  # type: ignore[arg-type]
+                token,
+                key=key,
+                algorithms=conf.algorithms,
+                audience=conf.audience,
+                issuer=issuer,
+                options=options,  # type: ignore[arg-type]
             )
-        # Wrong or faulty key was used; try next one
-        except InvalidKeyError as e:
-            logger.debug(
-                "JWT could not be decoded with current JWK '{key}': "
-                f"{type(e).__name__}: {e}"
-            )
-        # Key seems okay but token is invalid
-        except Exception as e:
-            raise Unauthorized("JWT could not be validated") from e
-
-        # Do not try other keys if token was decoded
-        if claims:
-            break
-
-    # Verify that token was decoded
-    if not claims:
-        raise Unauthorized("JWT could not be validated with issuer's JWKs")
-
-    # Add public key to claims
-    if add_key_to_claims:
-        claims["public_key"] = used_key
-
-    # Log success and return claims
-    logger.debug("Validation via issuer's public keys succeeded")
+        except jwt.InvalidSignatureError:
+            continue
+        except jwt.PyJWTError as exc:
+            raise Unauthorized(f"JWT could not be validated: {exc}") from exc
+        if conf.add_key_to_claims:
+            claims["public_key"] = key.key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            ).decode("utf-8")
+        return claims
+    raise Unauthorized("JWT signature could not be verified")
 
 
-def _get_public_keys(
-    url: str,
-    pem: bool = False,
-    claim_key_id: str = "kid",
-    claim_keys: str = "keys",
-) -> dict[str, RSAPublicKey]:
-    """Obtain the identity provider's public JSON Web Key (JWK) set.
+def _validate_userinfo(
+    token: str,
+    subject: Any,
+    url: Any,
+    conf: AuthConfig,
+) -> None:
+    """Validate JSON Web Token (JWT) via the issuer's user info endpoint.
 
     Args:
-        url: Endpoint providing the identity provider's JSON Web Key (JWK) set.
-        pem: Whether public JSON Web Keys (JWK) shall be returned in Privacy
-            Enhanced-Mail (PEM) format rather than as JSON dumps.
-        claim_key_id: The JWT claim encoding a JSON Web Key (JWK) identifier.
-        claim_keys: The JSON Web Key (JWK).
-
-    Returns:
-        JSON Web Key (JWK) public keys mapped to their identifiers.
+        token: JSON Web Token (JWT), already verified locally.
+        subject: Subject (`sub` claim) of the token.
+        url: URL of the issuer's user info endpoint.
+        conf: Authentication settings.
 
     Raises:
-        requests.exceptions.ConnectionError: Raised if the identity provider's
-            JWK endpoint could not be reached.
+        connexion.exceptions.Unauthorized: Raised if the user info could not
+            be fetched or is not about the subject of the token.
     """
-    # Get JWK sets from identity provider
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-    except Exception as e:
-        raise ConnectionError(f"Could not connect to endpoint '{url}'") from e
-
-    # Iterate over JWK set and store public keys in dictionary
-    public_keys = {}
-    for jwk in response.json().get(claim_keys, []):
-        try:
-            key = jwt.algorithms.RSAAlgorithm.from_jwk(  # type:ignore
-                json.dumps(jwk)
-            )
-
-            # Ensure key is public
-            if not isinstance(key, RSAPublicKey):
-                logger.warning(f"JSON Web Key '{jwk}' is not public.")
-                continue
-
-            # Convert to PEM if requested
-            if pem:
-                key = (
-                    key.public_bytes(  # type: ignore
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    )
-                    .decode("utf-8")
-                    .encode("unicode_escape")
-                    .decode("utf-8")
-                )
-
-            public_keys[jwk[claim_key_id]] = key
-        except Exception as e:
-            logger.warning(
-                f"JSON Web Key '{jwk}' could not be processed: "
-                f"{type(e).__name__}: {e}"
-            )
-
-    # Return dictionary of public keys
-    return public_keys
+    userinfo = _fetch_json(
+        url=url,
+        conf=conf,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if not isinstance(userinfo, dict) or userinfo.get("sub") != subject:
+        raise Unauthorized("User info does not match JWT subject")

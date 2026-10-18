@@ -81,33 +81,6 @@ class ExceptionLoggingEnum(Enum):
     oneline = "oneline"
 
 
-class ValidationMethodsEnum(Enum):
-    """Enumerator for JSON Web Token (JWT) validation methods.
-
-    Attributes:
-        public_key: JWT validation via the identity provider's JSON Web Key.
-        userinfo: JWT validation via OpenID Connect-compliant identity
-            provider's ``/userinfo`` endpoint.
-    """
-
-    public_key = "public_key"
-    userinfo = "userinfo"
-
-
-class ValidationChecksEnum(Enum):
-    """Enumerator for how many JWT validation methods are requested.
-
-    Attributes:
-        all: All JWT validation methods need to pass; validation fails after
-            first unsuccessful check.
-        any: Any method is sufficient to validate the JWT; validation succeeds
-            after the first successful check.
-    """
-
-    all = "all"
-    any = "any"
-
-
 class PymongoDirectionEnum(Enum):
     """Enumerator for supported Pymongo index directions.
 
@@ -800,42 +773,49 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
 class AuthConfig(FOCABaseConfig):
     """Model for configuring JSON Web Token (JWT)-based authorization.
 
+    Bearer tokens are only accepted if issued by one of the trusted
+    `issuers`. They are verified locally with the issuer's public keys,
+    obtained via OpenID Connect discovery, and, if `validate_userinfo` is
+    set, additionally via the issuer's user info endpoint.
+
     Args:
         required: Boolean to define the auth configuration for the app.
             Defaults to true.
-        add_key_to_claims: Whether to allow the application to add the identity
-            provider's corresponding JSON Web Key (JWK), in PEM format, to the
-            dictionary of claims.
+        issuers: Trusted token issuers, i.e., values of the `iss` claim of
+            accepted tokens. Tokens of other issuers are rejected without
+            contacting them. If empty, all tokens are rejected.
+        add_key_to_claims: Whether to add the identity provider's public key
+            that the token was verified with, in PEM format, to the claims.
         allow_expired: Allow/disallow expired JWTs. If ``False``, a ``401``
             authorization error is raised in response to a request containing
             an expired JWT.
         audience: List of audiences that the app identifies itself with. If
             specified, JWTs that do not contain any of the specified audiences
             are rejected. If ``None``, audience validation is disabled.
-        claim_identity: The JWT claim used to identify the sender.
-        claim_issuer: The JWT claim used to identify the issuer.
+        claim_identity: The JWT claim used to identify the sender. Tokens
+            without this claim are rejected.
         algorithms: Lists the JWT-signing algorithms supported by the app.
-        validation_methods: Lists the methods to be used to validate a JWT.
-        validation_checks: Specify how many of the `validation_methods` need
-            to pass before accepting a JWT.
+        validate_userinfo: Whether to additionally validate tokens via the
+            issuer's user info endpoint, which needs to report the token's
+            subject.
+        timeout: Timeout (in seconds) for requests to identity providers.
+        cache_ttl: Time (in seconds) for which identity providers' discovery
+            documents and public keys are cached.
 
     Attributes:
         required: Boolean to define the auth configuration for the app.
-        add_key_to_claims: Whether to allow the application to add the identity
-            provider's corresponding JSON Web Key (JWK), in PEM format, to the
-            dictionary of claims.
-        allow_expired: Allow/disallow expired JWTs. If ``False``, a ``401``
-            authorization error is raised in response to a request containing
-            an expired JWT.
-        audience: List of audiences that the app identifies itself with. If
-            specified, JWTs that do not contain any of the specified audiences
-            are rejected. If ``None``, audience validation is disabled.
+        issuers: Trusted token issuers.
+        add_key_to_claims: Whether to add the identity provider's public key
+            that the token was verified with, in PEM format, to the claims.
+        allow_expired: Allow/disallow expired JWTs.
+        audience: List of audiences that the app identifies itself with.
         claim_identity: The JWT claim used to identify the sender.
-        claim_issuer: The JWT claim used to identify the issuer.
         algorithms: Lists the JWT-signing algorithms supported by the app.
-        validation_methods: Lists the methods to be used to validate a JWT.
-        validation_checks: Specify how many of the `validation_methods` need
-            to pass before accepting a JWT.
+        validate_userinfo: Whether to additionally validate tokens via the
+            issuer's user info endpoint.
+        timeout: Timeout (in seconds) for requests to identity providers.
+        cache_ttl: Time (in seconds) for which identity providers' discovery
+            documents and public keys are cached.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -843,35 +823,25 @@ class AuthConfig(FOCABaseConfig):
 
     Example:
         >>> AuthConfig(
-        ...     required=False,
-        ...     add_key_to_claims=True,
-        ...     allow_expired=False,
-        ...     audience=None,
-        ...     claim_identity="sub",
-        ...     claim_issuer="iss",
-        ...     algorithms=["RS256"],
-        ...     validation_methods=["userinfo", "public_key"],
-        ...     validation_checks="all",
+        ...     issuers=["https://login.example.org/oidc/"],
+        ...     audience=["my-app"],
         ... )
-        AuthConfig(required=False, add_key_to_claims=True, allow_expired=False\
-, audience=None, claim_identity='sub', claim_issuer='iss', algorithms=['RS256'\
-], validation_methods=[<ValidationMethodsEnum.userinfo: 'userinfo'>, <Validati\
-onMethodsEnum.public_key: 'public_key'>], validation_checks=<ValidationChecksE\
-num.all: 'all'>)
+        AuthConfig(required=True, issuers=['https://login.example.org/oidc/']\
+, add_key_to_claims=True, allow_expired=False, audience=['my-app'], claim_iden\
+tity='sub', algorithms=['RS256'], validate_userinfo=False, timeout=10.0, cache\
+_ttl=300.0)
     """
 
     required: bool = True
+    issuers: list[str] = []
     add_key_to_claims: bool = True
     allow_expired: bool = False
     audience: list[str] | None = None
     claim_identity: str = "sub"
-    claim_issuer: str = "iss"
     algorithms: list[str] = ["RS256"]
-    validation_methods: list[ValidationMethodsEnum] = [
-        ValidationMethodsEnum.userinfo,
-        ValidationMethodsEnum.public_key,
-    ]
-    validation_checks: ValidationChecksEnum = ValidationChecksEnum.all
+    validate_userinfo: bool = False
+    timeout: float = Field(default=10, gt=0)
+    cache_ttl: float = Field(default=300, ge=0)
 
 
 class CORSConfig(FOCABaseConfig):
@@ -917,11 +887,10 @@ class SecurityConfig(FOCABaseConfig):
         ...     auth=AuthConfig(),
         ...     cors=CORSConfig(),
         ... )
-        SecurityConfig(auth=AuthConfig(required=False, add_key_to_claims=True,\
- allow_expired=False, audience=None, claim_identity='sub', claim_issuer='iss',\
- algorithms=['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'u\
-serinfo'>, <ValidationMethodsEnum.public_key: 'public_key'>], validation_check\
-s=<ValidationChecksEnum.all: 'all'>), cors=CORSConfig(enabled=True), access_co\
+        SecurityConfig(auth=AuthConfig(required=True, issuers=[], add_key_to_c\
+laims=True, allow_expired=False, audience=None, claim_identity='sub', algorit\
+hms=['RS256'], validate_userinfo=False, timeout=10.0, cache_ttl=300.0), cors=\
+CORSConfig(enabled=True), access_co\
 ntrol=AccessControlConfig(api_specs='/path/to/access_control_spec.yaml',api_co\
 ntrollers='/path/to/access_control_spec_server.py', db_name='access_control_db\
 ', collection_name='access_control_collection', model='/path/to/policy.conf', \
@@ -1336,11 +1305,10 @@ class 'werkzeug.exceptions.BadGateway'>: {'title': 'Bad Gateway', 'status': 50\
 2}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title': 'Service Unava\
 ilable', 'status': 502}, <class 'werkzeug.exceptions.GatewayTimeout'>: {'title\
 ': 'Gateway Timeout', 'status': 504}}), api=APIConfig(specs=[]), security=Secu\
-rityConfig(auth=AuthConfig(required=False, add_key_to_claims=True, allow_expir\
-ed=False, audience=None, claim_identity='sub', claim_issuer='iss', algorithms=\
-['RS256'], validation_methods=[<ValidationMethodsEnum.userinfo: 'userinfo'>, <\
-ValidationMethodsEnum.public_key: 'public_key'>], validation_checks=<Validatio\
-nChecksEnum.all: 'all'>), cors=CORSConfig(enabled=True), access_control=Access\
+rityConfig(auth=AuthConfig(required=True, issuers=[], add_key_to_claims=True, \
+allow_expired=False, audience=None, claim_identity='sub', algorithms=['RS256']\
+, validate_userinfo=False, timeout=10.0, cache_ttl=300.0), cors=CORSConfig(ena\
+bled=True), access_control=Access\
 ControlConfig(api_specs='/path/to/access_control_spec.yaml', api_controllers='\
 /path/to/access_control_spec_server.py', db_name='access_control_db', collecti\
 on_name='access_control_collection', model='/path/to/policy.conf', owner_heade\

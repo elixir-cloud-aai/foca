@@ -88,6 +88,15 @@ def test_foca_create_app_output_defaults():
     assert isinstance(app, App)
 
 
+def test_foca_create_app_auth_warnings(monkeypatch):
+    """Ensure authentication settings are checked for warnings."""
+    calls = []
+    monkeypatch.setattr("foca.foca.log_auth_config_warnings", calls.append)
+    foca = Foca()
+    foca.create_app()
+    assert calls == [foca.conf.security.auth]
+
+
 def test_foca_create_app_twice():
     """Ensure an app can be created repeatedly from the same instance."""
     foca = Foca(config_file=VALID_DB_CONF)

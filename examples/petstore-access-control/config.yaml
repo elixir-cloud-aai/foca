@@ -15,13 +15,12 @@ security:
         allow_expired: False
         audience: null
         claim_identity: sub
-        claim_issuer: iss
         algorithms:
           - RS256
-        validation_methods:
-          - userinfo
-          - public_key
-        validation_checks: all
+        # Trusted token issuers (`iss` claim); tokens of other issuers are
+        # rejected
+        issuers:
+          - https://login.example.org/oidc/
     access_control:
         model: petstore_policies.conf
         enforce: True

@@ -20,6 +20,7 @@ from foca.security.access_control.constants import (
 from foca.security.access_control.register_access_control import (
     register_access_control,
 )
+from foca.security.auth import log_auth_config_warnings
 from foca.security.cors import enable_cors
 
 # Get logger instance
@@ -130,6 +131,7 @@ class Foca:
 
         # Register permission management and casbin enforcer
         if self.conf.security.auth.required:
+            log_auth_config_warnings(self.conf.security.auth)
             if (
                 self.conf.security.access_control.api_specs is None
                 or self.conf.security.access_control.api_controllers is None
