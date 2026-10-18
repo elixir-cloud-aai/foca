@@ -369,6 +369,9 @@ security:
     model: access_control_model_definition
   cors:
     enabled: True
+    allow_origins:
+      - https://my-app.example.org
+    allow_credentials: True
 ```
 
 > In this example, only JWT Bearer tokens issued by
@@ -387,7 +390,11 @@ security:
 > defined in the `api_specs`, operationalized by the controllers in
 > `api_controllers` and hosted at `api_route`. Permissions will be stored in
 > collection `collection_name` of a dedicated MongoDB database `db_name`.
-> Finally, CORS would be enabled for this application.
+> Finally, cross-origin requests would only be allowed from
+> `https://my-app.example.org`, including credentials. By default, CORS is
+> enabled for any origin, without credentials; allowing credentials requires
+> explicit origins. Further options (`allow_methods`, `allow_headers`,
+> `expose_headers`, `max_age`) follow Starlette's `CORSMiddleware`.
 >  
 > Cf. the [API model][docs-models-security] for further options and details.
 

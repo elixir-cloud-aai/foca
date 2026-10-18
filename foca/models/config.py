@@ -747,20 +747,82 @@ _ttl=300.0)
 class CORSConfig(FOCABaseConfig):
     """Model for Cross Origin Resource Sharing (CORS) configuration.
 
+    Field names follow Starlette's `CORSMiddleware`. By default, requests
+    from any origin are allowed, without credentials.
+
     Args:
-        enabled: Enable/disable the CORS for the application.
+        enabled: Enable/disable CORS for the application.
+        allow_origins: Origins allowed to make cross-origin requests (e.g.,
+            ``https://example.org``), or ``*`` for any origin.
+        allow_methods: HTTP methods allowed in cross-origin requests.
+        allow_headers: Request headers allowed in cross-origin requests, or
+            ``*`` for any header.
+        expose_headers: Response headers exposed to the browser.
+        allow_credentials: Whether cross-origin requests may include
+            credentials (e.g., cookies). Requires explicit `allow_origins`.
+        max_age: Time (in seconds) for which browsers may cache preflight
+            responses. If ``None``, no `Access-Control-Max-Age` header is
+            sent.
 
     Attributes:
-        enabled: Enable/disable the CORS for the application.
+        enabled: Enable/disable CORS for the application.
+        allow_origins: Origins allowed to make cross-origin requests.
+        allow_methods: HTTP methods allowed in cross-origin requests.
+        allow_headers: Request headers allowed in cross-origin requests.
+        expose_headers: Response headers exposed to the browser.
+        allow_credentials: Whether cross-origin requests may include
+            credentials.
+        max_age: Time (in seconds) for which browsers may cache preflight
+            responses.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type, or credentials are allowed for any origin.
 
     Example:
         >>> CORSConfig(
-        ...     enabled=True,
+        ...     allow_origins=["https://example.org"],
+        ...     allow_credentials=True,
         ... )
-        CORSConfig(enabled=True)
+        CORSConfig(enabled=True, allow_origins=['https://example.org'], allow_\
+methods=['GET', 'HEAD', 'POST', 'OPTIONS', 'PUT', 'PATCH', 'DELETE'], allow_he\
+aders=['*'], expose_headers=[], allow_credentials=True, max_age=None)
     """
 
     enabled: bool = True
+    allow_origins: list[str] = ["*"]
+    allow_methods: list[str] = [
+        "GET",
+        "HEAD",
+        "POST",
+        "OPTIONS",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    ]
+    allow_headers: list[str] = ["*"]
+    expose_headers: list[str] = []
+    allow_credentials: bool = False
+    max_age: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_credentials(self) -> Self:
+        """Ensure that credentials are not allowed for any origin.
+
+        Returns:
+            Validated CORS configuration.
+
+        Raises:
+            ValueError: Credentials are allowed for any origin (``*``), which
+                would let any website make authenticated requests on behalf
+                of users.
+        """
+        if self.allow_credentials and "*" in self.allow_origins:
+            raise ValueError(
+                "'allow_credentials' requires explicit 'allow_origins' "
+                "instead of '*'"
+            )
+        return self
 
 
 class SecurityConfig(FOCABaseConfig):

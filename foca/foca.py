@@ -101,7 +101,7 @@ class Foca:
 
         # Enable cross-origin resource sharing
         if self.conf.security.cors.enabled is True:
-            enable_cors(cnx_app.app)
+            enable_cors(cnx_app.app, self.conf.security.cors)
             logger.info("CORS enabled.")
         else:
             logger.info("CORS not enabled.")
