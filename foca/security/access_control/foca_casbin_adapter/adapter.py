@@ -36,10 +36,15 @@ class Adapter(persist.Adapter):
             "casbin_rule".
         id_charset: Characters of generated rule identifiers.
         id_length: Length of generated rule identifiers.
+        model: Path to the Casbin model file. If given, rules are validated
+            against the model before they are stored (cf.
+            :py:func:`validate_rule`), so that rules that would be skipped
+            when loading policies are not stored in the first place.
 
     Attributes:
         id_charset: Characters of generated rule identifiers.
         id_length: Length of generated rule identifiers.
+        model: Casbin model to validate rules against, if any.
 
     Raises:
         ValueError: No collection is given.
@@ -52,6 +57,7 @@ class Adapter(persist.Adapter):
         collection: str | None = "casbin_rule",
         id_charset: str = DEFAULT_ID_CHARSET,
         id_length: int = DEFAULT_ID_LENGTH,
+        model: str | None = None,
     ):
         """Create an adapter for Mongodb."""
         if collection is None:
@@ -61,6 +67,10 @@ class Adapter(persist.Adapter):
         self.id_charset = id_charset
         self.id_length = id_length
         self._id_index_created = False
+        self.model: Model | None = None
+        if model is not None:
+            self.model = Model()
+            self.model.load_model(model)
 
     def _ensure_id_index(self) -> None:
         """Ensure unique index on rule identifiers.
@@ -122,11 +132,12 @@ class Adapter(persist.Adapter):
             Identifier of the stored rule.
 
         Raises:
-            ValueError: The rule is invalid (cf. :py:func:`validate_rule`).
+            ValueError: The rule is invalid (cf. :py:func:`validate_rule`),
+                also for the adapter's model, if set.
             pymongo.errors.DuplicateKeyError: No unique identifier could be
                 generated in `ID_ATTEMPTS` attempts.
         """
-        validate_rule(ptype, rule)
+        validate_rule(ptype, rule, self.model)
         self._ensure_id_index()
         document = CasbinRule.from_values(ptype, rule).to_dict()
         if id is not None:

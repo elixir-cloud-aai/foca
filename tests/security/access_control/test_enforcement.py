@@ -9,6 +9,7 @@ from unittest import mock
 import mongomock
 import pytest
 import yaml
+from casbin import Enforcer
 from connexion.exceptions import Forbidden, Unauthorized
 from connexion.resolver import Resolution, Resolver
 from flask import Flask
@@ -934,6 +935,28 @@ class TestResourceRoles:
                     helper(*args)
             collection = helper_app.config["casbin_adapter"]._collection
             assert collection.count_documents({}) == 0
+
+    def test_save_rule_invalid_for_model(self, helper_app):
+        adapter = Adapter(
+            uri="mongodb://localhost:12345/",
+            dbname=DB_NAME,
+            collection=COLLECTION_NAME,
+            model=_model_path(),
+        )
+        adapter._collection = mongomock.MongoClient()[DB_NAME][COLLECTION_NAME]
+        for ptype, rule in [
+            ("p2", ["*", "/items", "GET"]),
+            ("p", ["*", "/items"]),
+            ("p", ["*", "/items", "(GET"]),
+            ("g2", ["user:a", "owner"]),
+        ]:
+            with pytest.raises(ValueError):
+                adapter.save_policy_line(ptype, rule)
+        enforcer = Enforcer(_model_path(), adapter)
+        with pytest.raises(ValueError):
+            enforcer.add_policy("*", "/items", "(GET")
+        assert adapter._collection.count_documents({}) == 0
+        assert adapter.save_policy_line("p", ["*", "/items", "GET"])
 
     def test_save_invalid_rule(self, helper_app):
         adapter = helper_app.config["casbin_adapter"]

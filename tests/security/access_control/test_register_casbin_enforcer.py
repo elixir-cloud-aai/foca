@@ -37,6 +37,8 @@ def test_adapter_uri(monkeypatch):
         "collection": "policy_rules",
         "id_charset": "abc",
         "id_length": 8,
+        # rules are validated against the app's model
+        "model": AccessControlConfig().model,
     }
 
 

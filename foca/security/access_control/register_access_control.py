@@ -230,6 +230,7 @@ def register_casbin_enforcer(
         collection=access_control_config.collection_name,
         id_charset=access_control_config.id_charset,
         id_length=access_control_config.id_length,
+        model=casbin_model,
     )
     app.app.config["casbin_adapter"] = adapter
     logger.info("Casbin enforcer registered.")
