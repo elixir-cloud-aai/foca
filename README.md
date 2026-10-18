@@ -332,6 +332,7 @@ security:
       - RS256
     allow_expired: False
   access_control:
+    enabled: True
     api_specs: 'path/to/your/access/control/specs'
     api_controllers: 'path/to/your/access/control/spec/controllers'
     api_route: '/route/to/access_control_api'
@@ -349,8 +350,11 @@ security:
 > tokens would be rejected. Tokens of other issuers are rejected without
 > contacting them; if no `issuers` are configured, all tokens are rejected.
 > Set `validate_userinfo: True` to additionally validate tokens via the
-> issuer's user info endpoint. Furthermore, the application created with this config would provide
-> an access control model `model`. Corresponding permissions could be accessed
+> issuer's user info endpoint. Which operations require a token is defined by
+> the security requirements of the operations in your API specifications
+> (e.g., via `x-bearerInfoFunc: foca.security.auth.validate_token`).
+> Furthermore, as access control is `enabled`, the application created with
+> this config would provide an access control model `model`. Corresponding permissions could be accessed
 > and altered by a user with admin permissions via the dedicated endpoints
 > defined in the `api_specs`, operationalized by the controllers in
 > `api_controllers` and hosted at `api_route`. Permissions will be stored in

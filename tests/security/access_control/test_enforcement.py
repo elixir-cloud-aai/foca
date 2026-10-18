@@ -54,6 +54,7 @@ from foca.security.access_control.register_access_control import (
 DB_NAME = "access_control_db"
 COLLECTION_NAME = "policy_rules"
 ADMIN_ENTITLEMENT = "urn:example:group:admins"
+ISSUER = "https://login.example.org/oidc/"
 THIS_MODULE = __name__
 
 # Bearer tokens mapped to the claims of their (fake) validated JWTs
@@ -211,6 +212,7 @@ def _access_control_config(**kwargs) -> AccessControlConfig:
         "model": _model_path(),
         "claim_groups": "groups",
         "group_mapping": {ADMIN_ENTITLEMENT: "admin"},
+        "enabled": True,
         "enforce": True,
     }
     params.update(kwargs)
@@ -227,7 +229,7 @@ def _create_app(
     spec_file.write_text(yaml.safe_dump(deepcopy(SPEC)))
     config = Config(
         security=SecurityConfig(
-            auth=AuthConfig(),
+            auth=AuthConfig(issuers=[ISSUER]),
             access_control=access_control,
         ),
         db=MongoConfig(
@@ -818,7 +820,10 @@ def helper_app():
     """Flask app with access control config and in-memory policies."""
     app = Flask(__name__)
     app.config.foca = Config(  # type: ignore[attr-defined]
-        security=SecurityConfig(access_control=_access_control_config()),
+        security=SecurityConfig(
+            auth=AuthConfig(issuers=[ISSUER]),
+            access_control=_access_control_config(),
+        ),
     )
     adapter = Adapter(
         uri="mongodb://localhost:12345/",

@@ -1,5 +1,7 @@
 security:
     auth:
+        issuers:
+          - https://login.example.org/oidc/
         add_key_to_claims: True
         algorithms:
           - RS256
@@ -9,6 +11,7 @@ security:
     cors:
       enabled: True
     access_control:
+        enabled: True
         api_specs: foca/security/access_control/api/access-control-specs.yaml
         api_controllers: foca/security/access_control/access_control_server.py
         db_name: test_db

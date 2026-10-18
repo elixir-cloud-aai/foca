@@ -127,12 +127,27 @@ the policy, then the policy result (`p.eft`) is returned.
 
 ## Configuration
 
+Access control is disabled by default. Enable it via
+`security.access_control.enabled`; FOCA then registers the policy
+collection, the Casbin adapter and the permissions API. As the permissions
+API requires bearer tokens, trusted token issuers must be configured via
+`security.auth.issuers`. All other access control options require `enabled:
+True`; FOCA refuses to start otherwise.
+
+Note that which operations of your API require authentication is defined by
+the security requirements of the operations in your API specifications, not
+by FOCA's configuration.
+
 You can tweak the default access control behavior by setting a number of
 configuration parameters:
 
 ```yaml
 security:
+  auth:
+    issuers:
+      - https://login.example.org/oidc/
   access_control:
+    enabled: True
     model: access_control_model_definition
     api_specs: 'path/to/your/access/control/specs'
     api_controllers: 'path/to/your/access/control/spec/controllers'
@@ -216,8 +231,10 @@ through configuration alone:
 ```yaml
 security:
   auth:
-    required: True
+    issuers:
+      - https://login.example.org/oidc/
   access_control:
+    enabled: True
     model: path/to/resource_role_model.conf
     enforce: True
     claim_groups: eduperson_entitlement
@@ -240,8 +257,8 @@ policy allows them.
 * Single operations can opt out via `x-foca-access-control: false`.
 * Operations are selected as resolved by Connexion, so operations of path
   items defined via `$ref` are enforced, too.
-* `enforce: True` requires `security.auth.required: True`; FOCA refuses to
-  start otherwise.
+* `enforce: True` requires `enabled: True`; FOCA refuses to start
+  otherwise.
 * With `enforce: False` (default), policies are only enforced on the
   permissions API and on controllers decorated with
   `foca.security.access_control.enforce_access_control`, which applies the

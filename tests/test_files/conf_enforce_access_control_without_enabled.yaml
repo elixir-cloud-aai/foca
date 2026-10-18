@@ -1,5 +1,6 @@
 security:
     auth:
-        required: False
+        issuers:
+          - https://login.example.org/oidc/
     access_control:
         enforce: True

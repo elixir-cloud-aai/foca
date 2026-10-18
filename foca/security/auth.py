@@ -48,6 +48,9 @@ def validate_token(token: str) -> dict:
             successfully validated.
     """
     conf: AuthConfig = current_app.config.foca.security.auth  # type: ignore[attr-defined]
+    if not conf._warnings_logged:
+        log_auth_config_warnings(conf)
+        conf._warnings_logged = True
     claims = _validate(token=token, conf=conf)
     logger.debug(f"Access granted to user: {claims[conf.claim_identity]}")
 

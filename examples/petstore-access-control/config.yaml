@@ -10,7 +10,6 @@ server:
 
 security:
     auth:
-        required: True
         add_key_to_claims: True
         allow_expired: False
         audience: null
@@ -22,6 +21,7 @@ security:
         issuers:
           - https://login.example.org/oidc/
     access_control:
+        enabled: True
         model: petstore_policies.conf
         enforce: True
         # Serve Swagger UI and specification of the permissions API

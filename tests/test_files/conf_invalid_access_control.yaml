@@ -1,6 +1,5 @@
 security:
     auth:
-        required: False
         add_key_to_claims: True
         algorithms:
           - RS256
