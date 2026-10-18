@@ -9,10 +9,11 @@ the pet.
 import logging
 
 from exceptions import NotFound
-from flask import current_app, make_response, request
+from flask import make_response, request
 from pymongo import ReturnDocument
 from pymongo.collection import Collection
 
+from foca import get_collection
 from foca.security.access_control import (
     add_resource_role,
     get_current_subject,
@@ -23,11 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_collection(name: str = "pets") -> Collection:
-    return (
-        current_app.config.foca.db.dbs["petstore-access-control"]
-        .collections[name]
-        .client
-    )
+    return get_collection(db="petstore-access-control", collection=name)
 
 
 def _next_pet_id() -> int:

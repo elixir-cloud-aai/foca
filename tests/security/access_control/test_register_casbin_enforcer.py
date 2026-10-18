@@ -1,37 +1,16 @@
 """Tests for registering the Casbin enforcer."""
 
-import mongomock
 import pytest
 from connexion import App
 
-from foca.database import register_mongodb as db_module
 from foca.models.config import AccessControlConfig, MongoConfig
 from foca.security.access_control import register_access_control as module
 
-MONGO_ENV_VARS = [
-    "MONGO_URI",
-    "MONGO_HOST",
-    "MONGO_PORT",
-    "MONGO_DBNAME",
-    "MONGO_USERNAME",
-    "MONGO_PASSWORD",
-]
-
 
 @pytest.fixture
-def clients(monkeypatch):
-    """Replace MongoDB clients with in-memory clients; record their URIs."""
-    for var in MONGO_ENV_VARS:
-        monkeypatch.delenv(var, raising=False)
-    created: list[tuple[str, mongomock.MongoClient]] = []
-
-    def mongo_client(uri):
-        client = mongomock.MongoClient()
-        created.append((uri, client))
-        return client
-
-    monkeypatch.setattr(db_module, "MongoClient", mongo_client)
-    return created
+def clients(mongo_clients):
+    """In-memory MongoDB clients created by FOCA, with their URIs."""
+    return mongo_clients
 
 
 @pytest.fixture

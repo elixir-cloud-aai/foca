@@ -340,3 +340,25 @@ def test_AuthConfig_required_removed():
     """Test AuthConfig instantiation; `required` is no longer supported."""
     with pytest.raises(ValidationError):
         AuthConfig(required=True)
+
+
+def test_AccessControlConfig_default_model():
+    """Test AccessControlConfig instantiation; default model."""
+    model = Path(AccessControlConfig().model)
+    assert model.name == "default_model.conf"
+    assert model.is_file()
+
+
+@pytest.mark.parametrize(
+    "path", ["access_model.conf", "../../test/access_model.conf"]
+)
+def test_AccessControlConfig_relative_model(path):
+    """Test AccessControlConfig instantiation; relative model paths are
+    resolved against the working directory without config file."""
+    assert AccessControlConfig(model=path).model == str(Path(path).resolve())
+
+
+def test_AccessControlConfig_absolute_model():
+    """Test AccessControlConfig instantiation; absolute model path."""
+    path = "/test/access_model.conf"
+    assert AccessControlConfig(model=path).model == path

@@ -1,7 +1,6 @@
 """Tests for `adapter.py` module."""
 
 from pathlib import Path
-from unittest import TestCase
 
 import mongomock
 import pytest
@@ -14,6 +13,7 @@ from foca.security.access_control.foca_casbin_adapter import adapter as module
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
 # Constants
+DB_NAME = "casbin_test"
 DIR = Path(__file__).parent / "test_files"
 MODEL_CONF_FILE = str(DIR / "rbac_model.conf")
 MODEL_ROLES_CONF_FILE = str(DIR / "rbac_with_resources_roles.conf")
@@ -34,19 +34,29 @@ TEST_POLICIES_MODEL_ROLES_CONF = [
 ]
 
 
-class TestAdapter(TestCase):
+@pytest.fixture(
+    params=["mongomock", pytest.param("mongodb", marks=pytest.mark.mongodb)]
+)
+def policy_collection(request):
+    """Empty policy rule collection, in memory or in a MongoDB server on
+    `localhost:12345` (tests marked `mongodb`)."""
+    if request.param == "mongomock":
+        yield mongomock.MongoClient()[DB_NAME]["casbin_rule"]
+        return
+    client: MongoClient = MongoClient(
+        "mongodb://localhost:12345", serverSelectionTimeoutMS=5000
+    )
+    client.drop_database(DB_NAME)
+    yield client[DB_NAME]["casbin_rule"]
+    client.drop_database(DB_NAME)
+
+
+class TestAdapter:
     """Class to test adapter configuration."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.db_name = "casbin_test"
-        self.db_port = 12345
-
-    def setUp(self):
-        self.clear_db()
-
-    def tearDown(self):
-        self.clear_db()
+    @pytest.fixture(autouse=True)
+    def _policy_collection(self, policy_collection):
+        self._collection = policy_collection
 
     def save_policies(
         self, adapter: Adapter, model: Model, policies: list
@@ -85,14 +95,8 @@ class TestAdapter(TestCase):
         return Enforcer(conf_file, adapter)
 
     def collection(self):
-        """Policy rule collection of the test database."""
-        client = MongoClient(f"mongodb://localhost:{self.db_port}")
-        return client[self.db_name]["casbin_rule"]
-
-    def clear_db(self):
-        """Helper to clear db after each test."""
-        client = MongoClient(f"mongodb://localhost:{self.db_port}")
-        client.drop_database(self.db_name)
+        """Policy rule collection of the test."""
+        return self._collection
 
     def test_enforcer(self):
         """Test policy enforcer."""

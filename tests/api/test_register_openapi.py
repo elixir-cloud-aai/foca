@@ -85,20 +85,38 @@ SPEC_CONFIG_3_DISABLE_AUTH = deepcopy(SPEC_CONFIG_3)
 SPEC_CONFIG_3_DISABLE_AUTH["disable_auth"] = True
 
 
+def _routes(app: App) -> set[str]:
+    """Methods and paths of the routes registered with an app."""
+    return {
+        f"{method} {rule.rule}"
+        for rule in app.app.url_map.iter_rules()
+        for method in rule.methods or set()
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+
 class TestRegisterOpenAPI:
     def test_openapi_2_yaml(self):
         """Successfully register OpenAPI 2 YAML specs with Connexion app."""
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert _routes(res) >= {
+            "GET /v1/pets",
+            "POST /v1/pets",
+            "GET /v1/pets/<petId>",
+        }
 
     def test_openapi_3_yaml(self):
         """Successfully register OpenAPI 3 YAML specs with Connexion app."""
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_3)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert _routes(res) >= {
+            "GET /v2/pets",
+            "POST /v2/pets",
+            "GET /v2/pets/<petId>",
+        }
 
     def test_openapi_3_pathitemparam_yaml(self):
         """
@@ -108,14 +126,22 @@ class TestRegisterOpenAPI:
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_3_PATHITEMPARAM)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert _routes(res) >= {
+            "GET /v2/pets",
+            "POST /v2/pets",
+            "GET /v2/pets/<petId>",
+        }
 
     def test_openapi_2_json(self):
         """Successfully register OpenAPI 2 JSON specs with Connexion app."""
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_JSON)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert _routes(res) >= {
+            "GET /v1/pets",
+            "POST /v1/pets",
+            "GET /v1/pets/<petId>",
+        }
 
     def test_openapi_2_json_and_3_yaml(self):
         """Successfully register both OpenAPI2 JSON and OpenAPI3 YAML specs
@@ -127,7 +153,11 @@ class TestRegisterOpenAPI:
             SpecConfig(**SPEC_CONFIG_3),
         ]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert _routes(res) >= {
+            "GET /v1/pets",
+            "POST /v1/pets",
+            "GET /v1/pets/<petId>",
+        } | {"GET /v2/pets", "POST /v2/pets", "GET /v2/pets/<petId>"}
 
     def test_openapi_2_invalid(self):
         """Registration failing because of invalid OpenAPI 2 spec file."""
@@ -157,7 +187,11 @@ class TestRegisterOpenAPI:
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_LIST)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert _routes(res) >= {
+            "GET /v1/pets",
+            "POST /v1/pets",
+            "GET /v1/pets/<petId>",
+        }
 
     def test_openapi_2_fragments(self):
         """Successfully register OpenAPI 2 JSON specs with Connexion app;
@@ -166,7 +200,11 @@ class TestRegisterOpenAPI:
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_MULTI)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert _routes(res) >= {
+            "GET /v1/pets",
+            "POST /v1/pets",
+            "GET /v1/pets/<petId>",
+        } | {"PUT /v1/pets/<petId>"}
 
     def test_openapi_2_yaml_no_auth(self):
         """Successfully register OpenAPI 2 YAML specs with Connexion app;
@@ -175,7 +213,11 @@ class TestRegisterOpenAPI:
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_DISABLE_AUTH)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert _routes(res) >= {
+            "GET /v1/pets",
+            "POST /v1/pets",
+            "GET /v1/pets/<petId>",
+        }
 
     def test_openapi_3_yaml_no_auth(self):
         """Successfully register OpenAPI 3 YAML specs with Connexion app;
@@ -184,7 +226,11 @@ class TestRegisterOpenAPI:
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_3_DISABLE_AUTH)]
         res = register_openapi(app=app, specs=spec_configs)
-        assert isinstance(res, App)
+        assert _routes(res) >= {
+            "GET /v2/pets",
+            "POST /v2/pets",
+            "GET /v2/pets/<petId>",
+        }
 
 
 def _registered_spec(monkeypatch, spec_config: dict) -> dict:

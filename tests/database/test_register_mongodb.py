@@ -2,7 +2,6 @@
 
 from urllib.parse import unquote, urlsplit
 
-import mongomock
 import pytest
 
 from foca.database import register_mongodb as module
@@ -108,17 +107,9 @@ class TestGetMongoDbName:
 
 
 @pytest.fixture
-def clients(clean_env, monkeypatch):
-    """Replace MongoDB clients with in-memory clients; record their URIs."""
-    created: list[tuple[str, mongomock.MongoClient]] = []
-
-    def mongo_client(uri):
-        client = mongomock.MongoClient()
-        created.append((uri, client))
-        return client
-
-    monkeypatch.setattr(module, "MongoClient", mongo_client)
-    return created
+def clients(mongo_clients):
+    """In-memory MongoDB clients created by FOCA, with their URIs."""
+    return mongo_clients
 
 
 class TestCreateMongoClient:
