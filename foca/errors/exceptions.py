@@ -7,6 +7,7 @@ from traceback import format_exception
 
 from connexion import App
 from connexion.exceptions import (
+    BadRequestProblem,
     ExtraParameterProblem,
     Forbidden,
     OAuthProblem,
@@ -34,6 +35,10 @@ exceptions = {
         "status": 500,
     },
     BadRequest: {
+        "title": "Bad Request",
+        "status": 400,
+    },
+    BadRequestProblem: {
         "title": "Bad Request",
         "status": 400,
     },
