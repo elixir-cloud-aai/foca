@@ -306,7 +306,14 @@ def _verify_signature(
                 issuer=issuer,
                 options=options,  # type: ignore[arg-type]
             )
-        except jwt.InvalidSignatureError:
+        # Try the next key if this one does not fit the token (e.g., another
+        # key type or algorithm, if the token specifies no key ID); errors
+        # with the claims apply to all keys
+        except (
+            jwt.InvalidSignatureError,
+            jwt.InvalidAlgorithmError,
+            jwt.InvalidKeyError,
+        ):
             continue
         except jwt.PyJWTError as exc:
             raise Unauthorized(f"JWT could not be validated: {exc}") from exc

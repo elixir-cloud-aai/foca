@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import jwt
 import pytest
 from connexion.exceptions import Unauthorized
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from flask import Flask
 from pydantic import ValidationError
 
@@ -287,6 +287,34 @@ class TestValidateToken:
         )
         res = validate(make_app(), make_token(kid=None))
         assert res["user_id"] == SUBJECT
+
+    def test_no_key_id_mixed_key_types(self, idp):
+        """Signing keys incompatible with the token's algorithm are
+        skipped."""
+        ec_key = ec.generate_private_key(ec.SECP256R1())
+        idp.responses[JWKS_URI] = MockResponse(
+            {
+                "keys": [
+                    {
+                        **jwt.algorithms.ECAlgorithm.to_jwk(
+                            ec_key.public_key(), as_dict=True
+                        ),
+                        "kid": "ec-key",
+                        "use": "sig",
+                    },
+                    _public_jwk(PRIVATE_KEY, KID),
+                ]
+            }
+        )
+        res = validate(make_app(), make_token(kid=None))
+        assert res["user_id"] == SUBJECT
+
+    def test_algorithm_not_allowed(self, idp):
+        """Tokens signed with algorithms that are not allowed are
+        rejected."""
+        app = make_app(algorithms=["RS512"])
+        with pytest.raises(Unauthorized):
+            validate(app, make_token(kid=None))
 
     def test_no_key_id_forged(self, idp):
         """Tokens without key ID signed with other keys are rejected."""
