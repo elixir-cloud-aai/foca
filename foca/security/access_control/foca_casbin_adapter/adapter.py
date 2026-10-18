@@ -86,8 +86,8 @@ class Adapter(persist.Adapter):
         """
         if self._id_index_created:
             return
-        self._id_index_created = True
         try:
+            # Idempotent, also for concurrent first writes
             self._collection.create_index(
                 [("id", 1)],
                 unique=True,
@@ -101,6 +101,8 @@ class Adapter(persist.Adapter):
                 "guaranteed to be unique. Delete or re-create the rules "
                 f"with duplicate identifiers and restart the app: {exc}"
             )
+        # Other errors propagate, so that the next write tries again
+        self._id_index_created = True
 
     def load_policy(self, model: Model):
         """Implementing add Interface for casbin.
@@ -182,26 +184,14 @@ class Adapter(persist.Adapter):
         Returns:
             Count of policies deleted.
         """
-        line = CasbinRule.from_values(ptype, rule)
-
-        # if rule is empty, do nothing
-        # else find all given rules and delete them
-        if len(rule) == 0:
+        if not rule:
             return 0
-        else:
-            line_dict = line.to_dict()
-            line_dict_keys_len = len(line_dict)
-            results = self._collection.find(
-                filter=line_dict, projection={"id": False}
-            )
-            to_delete = [
-                result["_id"]
-                for result in results
-                if line_dict_keys_len == len(result.keys()) - 1
-            ]
-            return self._collection.delete_many(
-                {"_id": {"$in": to_delete}}
-            ).deleted_count
+        # Match the rule's values exactly, i.e., without further values, but
+        # irrespective of other stored fields (e.g., identifiers)
+        query: dict = CasbinRule.from_values(ptype, rule).to_dict()
+        for index in range(len(rule), MAX_RULE_VALUES):
+            query[f"v{index}"] = {"$exists": False}
+        return self._collection.delete_many(query).deleted_count
 
     def save_policy(self, model: Model) -> bool:
         """Method to save a casbin model.

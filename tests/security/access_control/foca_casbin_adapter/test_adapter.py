@@ -7,7 +7,7 @@ import mongomock
 import pytest
 from casbin import Enforcer, Model
 from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import ConnectionFailure, DuplicateKeyError
 
 from foca.security.access_control.constants import ID_ATTEMPTS
 from foca.security.access_control.foca_casbin_adapter import adapter as module
@@ -279,6 +279,44 @@ class TestAdapterIdentifiers:
             assert mock_adapter.save_policy_line("g", rule)
         assert mock_adapter._collection.count_documents({}) == 4
         assert caplog.text.count("share identifiers") == 1
+
+    def test_index_retried_after_error(self, mock_adapter, monkeypatch):
+        """Index creation is retried if it failed."""
+        create_index = mock_adapter._collection.create_index
+        calls = []
+
+        def failing_create_index(*args, **kwargs):
+            calls.append(args)
+            if len(calls) == 1:
+                raise ConnectionFailure("unavailable")
+            return create_index(*args, **kwargs)
+
+        monkeypatch.setattr(
+            mock_adapter._collection, "create_index", failing_create_index
+        )
+        with pytest.raises(ConnectionFailure):
+            mock_adapter.save_policy_line("g", ["a", "b"])
+        mock_adapter.save_policy_line("g", ["a", "b"])
+        mock_adapter.save_policy_line("g", ["c", "d"])
+        assert len(calls) == 2
+
+    def test_remove_rules_with_extra_fields(self, mock_adapter):
+        """Stored rules are removed irrespective of other fields."""
+        mock_adapter._collection.insert_many(
+            [
+                {"ptype": "g", "v0": "a", "v1": "b", "foo": "bar"},
+                {"ptype": "g", "v0": "a", "v1": "b", "id": "abcdef"},
+                {"ptype": "g", "v0": "a", "v1": "b", "v2": "c"},
+                {"ptype": "g", "v0": "a", "v1": "c"},
+            ]
+        )
+        assert mock_adapter.remove_policy("g", "g", ["a", "b"])
+        assert sorted(
+            [doc.get("v1"), doc.get("v2")]
+            for doc in mock_adapter._collection.find()
+        ) == [["b", "c"], ["c", None]]
+        assert not mock_adapter.remove_policy("g", "g", ["a", "b"])
+        assert not mock_adapter.remove_policy("g", "g", [])
 
     def test_retry_on_collision(self, mock_adapter, monkeypatch):
         mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
