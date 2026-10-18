@@ -20,13 +20,16 @@ logger = logging.getLogger(__name__)
 OIDC_CONFIG_PATH = ".well-known/openid-configuration"
 
 # Minimum time (in seconds) between fetching an issuer's JSON Web Key (JWK)
-# set again because a token was signed with a key that is not in the set
+# set again because a token was signed with a key that is not in the set, and
+# between attempts to fetch a discovery document or JWK set after a failure
 JWKS_REFETCH_COOLDOWN = 30
 
 # OpenID Connect discovery documents and JWK sets, with time of retrieval,
 # by issuer and JWK set URL, respectively
 _oidc_configs: dict[str, tuple[float, dict]] = {}
 _jwk_sets: dict[str, tuple[float, jwt.PyJWKSet]] = {}
+# Time of last failed attempt to fetch a discovery document or JWK set, by URL
+_failed_fetches: dict[str, float] = {}
 
 
 def validate_token(token: str) -> dict:
@@ -124,12 +127,18 @@ def _validate(token: str, conf: AuthConfig) -> dict:
     return claims
 
 
-def _fetch_json(url: Any, conf: AuthConfig, **kwargs) -> Any:
+def _fetch_json(
+    url: Any, conf: AuthConfig, throttle: bool = False, **kwargs
+) -> Any:
     """Fetch JSON document from identity provider.
 
     Args:
         url: URL of the document.
         conf: Authentication settings.
+        throttle: Whether to refrain from fetching the document again within
+            `JWKS_REFETCH_COOLDOWN` seconds after a failed attempt, so that
+            requests do not amplify load on an identity provider during an
+            outage. Use only for documents that do not depend on the token.
         **kwargs: Additional arguments for :py:func:`requests.get`.
 
     Returns:
@@ -141,6 +150,16 @@ def _fetch_json(url: Any, conf: AuthConfig, **kwargs) -> Any:
     """
     if not isinstance(url, str) or not url:
         raise Unauthorized("Identity provider endpoint not available")
+    if throttle:
+        failed = _failed_fetches.get(url)
+        if (
+            failed is not None
+            and time.monotonic() - failed < JWKS_REFETCH_COOLDOWN
+        ):
+            raise Unauthorized(
+                f"Document from identity provider temporarily unavailable: "
+                f"{url}"
+            )
     try:
         response = requests.get(
             url,
@@ -149,11 +168,15 @@ def _fetch_json(url: Any, conf: AuthConfig, **kwargs) -> Any:
             **kwargs,
         )
         response.raise_for_status()
-        return response.json()
+        document = response.json()
     except Exception as exc:
+        if throttle:
+            _failed_fetches[url] = time.monotonic()
         raise Unauthorized(
             f"Could not fetch document from identity provider: {url}"
         ) from exc
+    _failed_fetches.pop(url, None)
+    return document
 
 
 def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict:
@@ -176,6 +199,7 @@ def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict:
     oidc_config = _fetch_json(
         url=f"{issuer.rstrip('/')}/{OIDC_CONFIG_PATH}",
         conf=conf,
+        throttle=True,
     )
     if (
         not isinstance(oidc_config, dict)
@@ -211,7 +235,9 @@ def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False):
         ):
             return cached[1]
     try:
-        jwk_set = jwt.PyJWKSet.from_dict(_fetch_json(url=url, conf=conf))
+        jwk_set = jwt.PyJWKSet.from_dict(
+            _fetch_json(url=url, conf=conf, throttle=True)
+        )
     except jwt.PyJWTError as exc:
         raise Unauthorized("Issuer's JWK set is invalid") from exc
     _jwk_sets[url] = (time.monotonic(), jwk_set)
@@ -273,7 +299,14 @@ def _verify_signature(
                 issuer=issuer,
                 options=options,  # type: ignore[arg-type]
             )
-        except jwt.InvalidSignatureError:
+        # Try the next key if this one does not fit the token (e.g., another
+        # key type or algorithm, if the token specifies no key ID); errors
+        # with the claims apply to all keys
+        except (
+            jwt.InvalidSignatureError,
+            jwt.InvalidAlgorithmError,
+            jwt.InvalidKeyError,
+        ):
             continue
         except jwt.PyJWTError as exc:
             raise Unauthorized(f"JWT could not be validated: {exc}") from exc
