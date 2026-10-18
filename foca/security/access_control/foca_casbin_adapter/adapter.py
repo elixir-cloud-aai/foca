@@ -78,16 +78,29 @@ class Adapter(persist.Adapter):
         The index is created on the first write rather than when creating the
         adapter, so that creating an adapter does not require a database
         connection. Rules without string identifiers (e.g., added to the
-        database directly) are not indexed.
+        database directly) are not indexed. If stored rules share
+        identifiers (e.g., stored by previous versions), the index cannot be
+        created; an error is logged once, and rules are stored without
+        guaranteeing unique identifiers until the duplicates are resolved and
+        the app is restarted.
         """
         if self._id_index_created:
             return
-        self._collection.create_index(
-            [("id", 1)],
-            unique=True,
-            partialFilterExpression={"id": {"$type": "string"}},
-        )
         self._id_index_created = True
+        try:
+            self._collection.create_index(
+                [("id", 1)],
+                unique=True,
+                partialFilterExpression={"id": {"$type": "string"}},
+            )
+        except DuplicateKeyError as exc:
+            logger.error(
+                "Unique index on policy rule identifiers could not be "
+                f"created, as rules in collection '{self._collection.name}' "
+                "share identifiers; identifiers of new rules are not "
+                "guaranteed to be unique. Delete or re-create the rules "
+                f"with duplicate identifiers and restart the app: {exc}"
+            )
 
     def load_policy(self, model: Model):
         """Implementing add Interface for casbin.
