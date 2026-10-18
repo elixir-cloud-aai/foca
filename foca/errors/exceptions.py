@@ -1,99 +1,153 @@
-"""Define and register exceptions raised in app context with Connexion app."""
+"""Map exceptions to problem details and register a JSON problem handler."""
 
 import logging
 from copy import deepcopy
+from http import HTTPStatus
 from json import dumps
 from traceback import format_exception
 
 from connexion import App
-from connexion.exceptions import (
-    BadRequestProblem,
-    ExtraParameterProblem,
-    Forbidden,
-    OAuthProblem,
-    Unauthorized,
-)
-from flask import Response, current_app
-from werkzeug.exceptions import (
-    BadGateway,
-    BadRequest,
-    GatewayTimeout,
-    InternalServerError,
-    NotFound,
-    ServiceUnavailable,
-)
+from flask import Response
 
-from foca.models.config import _get_by_path
+from foca.models.config import ExceptionConfig, ExceptionLoggingEnum
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
-# Default exceptions
-exceptions = {
-    Exception: {
-        "title": "Internal Server Error",
-        "status": 500,
-    },
-    BadRequest: {
-        "title": "Bad Request",
-        "status": 400,
-    },
-    BadRequestProblem: {
-        "title": "Bad Request",
-        "status": 400,
-    },
-    ExtraParameterProblem: {
-        "title": "Bad Request",
-        "status": 400,
-    },
-    Unauthorized: {
-        "title": "Unauthorized",
-        "status": 401,
-    },
-    OAuthProblem: {
-        "title": "Unauthorized",
-        "status": 401,
-    },
-    Forbidden: {
-        "title": "Forbidden",
-        "status": 403,
-    },
-    NotFound: {
-        "title": "Not Found",
-        "status": 404,
-    },
-    InternalServerError: {
-        "title": "Internal Server Error",
-        "status": 500,
-    },
-    BadGateway: {
-        "title": "Bad Gateway",
-        "status": 502,
-    },
-    ServiceUnavailable: {
-        "title": "Service Unavailable",
-        "status": 503,
-    },
-    GatewayTimeout: {
-        "title": "Gateway Timeout",
-        "status": 504,
-    },
+# Problem details for exceptions without status, as per RFC 9457
+DEFAULT_PROBLEM = {
+    "title": HTTPStatus.INTERNAL_SERVER_ERROR.phrase,
+    "status": HTTPStatus.INTERNAL_SERVER_ERROR.value,
 }
 
+# Exception attributes holding HTTP status codes, e.g., of werkzeug
+# (`code`), Connexion (`status`) and Starlette (`status_code`) exceptions
+_STATUS_ATTRIBUTES = ("code", "status", "status_code")
 
-def register_exception_handler(app: App) -> App:
+# Catch-all exception classes, only used if nothing more specific applies
+_CATCH_ALL = (Exception, BaseException)
+
+
+def register_exception_handler(
+    app: App,
+    conf: ExceptionConfig | None = None,
+) -> App:
     """Register generic JSON problem handler with Connexion app.
 
     Args:
         app: Connexion application instance.
+        conf: Exception handling settings. Defaults to
+            :py:class:`foca.models.config.ExceptionConfig` defaults.
 
     Returns:
         Connexion application instance with registered generic JSON problem
         handler.
     """
-    app.add_error_handler(Exception, _problem_handler_json)
+    _conf = ExceptionConfig() if conf is None else conf
+
+    def _handler(exception: Exception) -> Response:
+        return _problem_handler_json(exception=exception, conf=_conf)
+
+    app.add_error_handler(Exception, _handler)
     logger.debug("Registered generic JSON problem handler with Connexion app.")
     return app
+
+
+def _get_status(exc: BaseException) -> int | None:
+    """Get HTTP error status code of an exception, if any.
+
+    Args:
+        exc: Exception.
+
+    Returns:
+        Value of the first attribute of `exc` among `code`, `status` and
+        `status_code` that is an HTTP error status code (400 to 599), or
+        `None` if there is none.
+    """
+    for attribute in _STATUS_ATTRIBUTES:
+        status = getattr(exc, attribute, None)
+        if (
+            isinstance(status, int)
+            and not isinstance(status, bool)
+            and 400 <= status <= 599
+        ):
+            return status
+    return None
+
+
+def _resolve_problem(exc: BaseException, conf: ExceptionConfig) -> dict:
+    """Resolve problem details of an exception (cf. :py:func:`build_problem`).
+
+    Args:
+        exc: Exception.
+        conf: Exception handling settings.
+
+    Returns:
+        Copy of the problem details, unfiltered.
+    """
+    problems = conf.problems
+    problem = next(
+        (
+            problems[cls]
+            for cls in type(exc).__mro__
+            if cls in problems and cls not in _CATCH_ALL
+        ),
+        None,
+    )
+    if problem is None:
+        status = _get_status(exc)
+        if status is not None:
+            try:
+                title = HTTPStatus(status).phrase
+            except ValueError:
+                title = "Error"
+            problem = {"title": title, "status": status}
+    if problem is None:
+        problem = next(
+            (problems[cls] for cls in _CATCH_ALL if cls in problems),
+            DEFAULT_PROBLEM,
+        )
+    return deepcopy(problem)
+
+
+def build_problem(
+    exc: BaseException,
+    conf: ExceptionConfig,
+) -> tuple[dict, int]:
+    """Build problem details for an exception.
+
+    Problem details are resolved as follows:
+
+    1. The problem details of the closest class in the method resolution
+       order of the exception that is listed in the configured mapping
+       (except for the catch-alls `Exception` and `BaseException`), i.e.,
+       exceptions that are not listed are handled like their closest listed
+       base class.
+    2. Otherwise, if the exception has an HTTP error status code (attribute
+       `code`, `status` or `status_code`, e.g., werkzeug and Connexion
+       exceptions), problem details with that status and its standard
+       reason phrase as title.
+    3. Otherwise, the problem details listed for `Exception` or
+       `BaseException`, if any.
+    4. Otherwise, `500 Internal Server Error`.
+
+    Args:
+        exc: Exception.
+        conf: Exception handling settings.
+
+    Returns:
+        Problem details, filtered by `conf.public_members`, if set, and HTTP
+        status code.
+    """
+    problem = _resolve_problem(exc=exc, conf=conf)
+    status = problem["status"]
+    if conf.public_members is not None:
+        problem = {
+            key: value
+            for key, value in problem.items()
+            if key in conf.public_members
+        }
+    return problem, status
 
 
 def _exc_to_str(
@@ -120,7 +174,7 @@ def _exc_to_str(
 
 def _log_exception(
     exc: BaseException,
-    format: str = "oneline",
+    format: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline,
     problem: dict | None = None,
 ) -> None:
     """Log exception with indicated format.
@@ -129,142 +183,48 @@ def _log_exception(
 
     Args:
         exc: The exception to log.
-        format: One of ``oneline`` (exception, including traceback logged to
-            single line), ``minimal`` (log only exception title and message),
-            or ``regular`` (exception logged with entire trace stack, typically
-            across multiple lines).
+        format: How to log the exception (cf.
+            :py:class:`foca.models.config.ExceptionLoggingEnum`).
         problem: Problem details the exception is mapped to; logged in the
             same record as the exception, if given.
     """
-    exc_str = ""
-    valid_formats = [
-        "oneline",
-        "minimal",
-        "regular",
-    ]
-    if format in valid_formats:
-        if format == "oneline":
-            exc_str = _exc_to_str(exc=exc)
-        elif format == "minimal":
-            exc_str = f"{type(exc).__name__}: {exc!s}"
-        else:
-            exc_str = _exc_to_str(exc=exc, delimiter="\n")
-        if problem is not None:
-            exc_str = f"{dumps(problem)} {exc_str}"
-        logger.error(exc_str)
+    if format is ExceptionLoggingEnum.none:
+        return
+    if format is ExceptionLoggingEnum.oneline:
+        exc_str = _exc_to_str(exc=exc)
+    elif format is ExceptionLoggingEnum.minimal:
+        exc_str = f"{type(exc).__name__}: {exc!s}"
     else:
-        logger.error("Error logging is misconfigured.")
+        exc_str = _exc_to_str(exc=exc, delimiter="\n")
+    if problem is not None:
+        exc_str = f"{dumps(problem)} {exc_str}"
+    logger.error(exc_str)
 
 
-def _subset_nested_dict(
-    obj: dict,
-    key_sequence: list,
-) -> dict:
-    """Subset nested dictionary.
-
-    Args:
-        obj: (Nested) dictionary.
-        key_sequence: Sequence of keys, to be applied from outside to inside,
-            pointing to the key (and descendants) to keep.
-
-    Returns:
-        Subset of `obj`.
-    """
-    filt = {}
-    if len(key_sequence):
-        key = key_sequence.pop(0)
-        filt[key] = obj[key]
-        if len(key_sequence):
-            filt[key] = _subset_nested_dict(filt[key], key_sequence)
-    return filt
-
-
-def _exclude_key_nested_dict(
-    obj: dict,
-    key_sequence: list,
-) -> dict:
-    """Exclude key from nested dictionary.
-
-    Args:
-        obj: (Nested) dictionary.
-        key_sequence: Sequence of keys, to be applied from outside to inside,
-            pointing to the key (and descendants) to delete.
-
-    Returns:
-        `obj` stripped of excluded key.
-    """
-    if len(key_sequence):
-        key = key_sequence.pop(0)
-        if len(key_sequence):
-            _exclude_key_nested_dict(obj[key], key_sequence)
-        else:
-            del obj[key]
-    return obj
-
-
-def _problem_handler_json(exception: Exception) -> Response:
+def _problem_handler_json(
+    exception: Exception,
+    conf: ExceptionConfig,
+) -> Response:
     """Generic JSON problem handler.
 
-    The exception is looked up in the exception mapping along its method
-    resolution order, i.e., exceptions not in the mapping are handled like
-    their closest mapped base class (e.g., a subclass of `NotFound` like
-    `NotFound`), falling back to `Exception`.
+    Logs the exception with its unfiltered problem details (unless disabled
+    via `conf.logging`) and responds with the filtered problem details.
 
     Args:
         exception: Raised exception.
+        conf: Exception handling settings.
 
     Returns:
-        JSON-formatted error response.
+        JSON-formatted error response (`application/problem+json`).
     """
-    # Look up exception & get status code
-    conf = current_app.config.foca.exceptions  # type: ignore[attr-defined]
-    exc = next(
-        (cls for cls in type(exception).__mro__ if cls in conf.mapping),
-        Exception,
+    _log_exception(
+        exc=exception,
+        format=conf.logging,
+        problem=_resolve_problem(exc=exception, conf=conf),
     )
-    try:
-        status = int(
-            _get_by_path(
-                obj=conf.mapping[exc],
-                key_sequence=conf.status_member,
-            )
-        )
-    except KeyError:
-        if conf.logging.value != "none":
-            _log_exception(exc=exception, format=conf.logging.value)
-        return Response(
-            status=500,
-            mimetype="application/problem+json",
-        )
-    # Log exception JSON & traceback
-    if conf.logging.value != "none":
-        _log_exception(
-            exc=exception,
-            format=conf.logging.value,
-            problem=conf.mapping[exc],
-        )
-    # Filter members to be returned to user
-    keep = deepcopy(conf.mapping[exc])
-    if conf.public_members is not None:
-        keep = {}
-        for member in deepcopy(conf.public_members):
-            keep.update(
-                _subset_nested_dict(
-                    obj=conf.mapping[exc],
-                    key_sequence=member,
-                )
-            )
-    elif conf.private_members is not None:
-        for member in deepcopy(conf.private_members):
-            keep.update(
-                _exclude_key_nested_dict(
-                    obj=keep,
-                    key_sequence=member,
-                )
-            )
-    # Return response
+    problem, status = build_problem(exc=exception, conf=conf)
     return Response(
-        response=dumps(keep),
+        response=dumps(problem),
         status=status,
         mimetype="application/problem+json",
     )

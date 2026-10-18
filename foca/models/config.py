@@ -1,11 +1,7 @@
 """FOCA config models."""
 
 import importlib
-import operator
-from contextlib import suppress
-from copy import deepcopy
 from enum import Enum
-from functools import reduce
 from importlib.resources import path as resource_path
 from pathlib import Path
 from typing import (
@@ -50,20 +46,6 @@ def _validate_log_level_choices(cls, level: int) -> int:
         raise ValueError(f"illegal log level specified: {level}")
 
     return level
-
-
-def _get_by_path(obj: dict, key_sequence: list[str]) -> Any:
-    """Access a nested dictionary by sequence of keys.
-
-    Args:
-        obj: (Nested) dictionary.
-        key_sequence: Sequence of keys, to be applied from outside to inside,
-            pointing to the key (and descendants) to retrieve.
-
-    Returns:
-        Value of innermost key.
-    """
-    return reduce(operator.getitem, key_sequence, obj)  # type: ignore
 
 
 class ExceptionLoggingEnum(Enum):
@@ -175,254 +157,118 @@ opment', testing=False, use_reloader=True)
 
 
 class ExceptionConfig(FOCABaseConfig):
-    """Model for JSON exceptions to be registered with a Connexion app.
+    """Model for mapping exceptions to JSON problem details.
+
+    Error responses are problem details as per RFC 9457
+    (`application/problem+json`). By default, exceptions with an HTTP error
+    status code (e.g., werkzeug and Connexion exceptions) are mapped to
+    problem details with that status and its standard reason phrase as
+    title, and all other exceptions to `500 Internal Server Error`. Use
+    `mapping` to define problem details for specific exceptions (cf.
+    :py:func:`foca.errors.exceptions.build_problem`).
 
     Args:
-        required_members: List of dictionary keys indicating which JSON members
-            are required for all exceptions. *Must* contain a member that
-            represents the HTTP response code (cf. `status_member`).
-        extension_members: Either a list of additionally allowed, optional
-            extension members, or a Boolean expression indicating whether
-            any (``True``) or no (``False``) additional members are allowed.
-        status_member: Sequence of dictionary keys indicating the member that
-            represents the HTTP response code (e.g, ``500``).
-        public_members: Filter to restrict which exception members are to be
-            included in the error response. Only members listed here, with each
-            one specified as a sequence of keys, are included. Specify an empty
-            list to prevent any members from being returned to the user. Set to
-            ``None`` to disable filtering. Note that only one of
-            `public_members` and `private_members` filters can be active.
-        private_members: Filter to restrict which exception members are to be
-            included in the error response. Members listed here, with each one
-            specified as a sequence of keys, are excluded. Set to ``None`` to
-            disable filtering. Note that only one of `public_members` and
-            `private_members` filters can be active.
-        exceptions: Path to dictionary containing the actual exception classes
-            as keys and a dictionary of JSON members (as per `required_members`
-            and `extension_members`) as values. Path should be a dot-separated
-            path to the module containing the dictionary (which needs to also
-            contain imports for all listed exceptions), followed by the name of
-            the dictionary itself. For example, for ``myapp.errors.exc_dict``,
-            the dictionary ``exc_dict`` would be attempted to be imported from
-            module ``myapp.errors`` (must be available in the Pythonpath). To
-            ensure that all exceptions arising during the app context are
-            handled, it is strongly advised to add the catch-all exception
-            ``Exception``. If missing, any exceptions not listed will only
-            provoke an empty JSON response.
-        logging: Specifies if and how exception details should be logged. Note
-            that unless :py:attr:`foca.models.config.ExceptionLoggingEnum.none`
-            is specified, a JSON representation of the error, as defined in
-            `exceptions`, and including _all_ members, unaffected by
-            `public_members` and `private_members` filters, will be logged on
-            an additional line.
-        mapping: The actual referenced dictionary from `exceptions`, populated
-            by FOCA.
+        mapping: Path to a dictionary mapping exception classes to problem
+            details, as a dot-separated path to the module, followed by the
+            name of the dictionary, e.g., ``myapp.errors.problems`` for
+            dictionary ``problems`` in module ``myapp.errors`` (must be
+            importable). Problem details are dictionaries with members
+            `status` (HTTP status code, 400 to 599) and `title`, and any
+            other members (e.g., `detail` or `type`). Exceptions that are
+            not listed are handled like their closest listed base class.
+        public_members: Members of problem details that are returned to
+            clients. If ``None``, all members are returned. Problem details
+            are logged with all members.
+        logging: Specifies if and how exceptions and their problem details
+            are logged.
 
     Attributes:
-        required_members: List of dictionary keys indicating which JSON members
-            are required for all exceptions. *Must* contain a member that
-            represents the HTTP response code (cf. `status_member`).
-        extension_members: Either a list of additionally allowed, optional
-            extension members, or a Boolean expression indicating whether
-            any (``True``) or no (``False``) additional members are allowed.
-        status_member: Sequence of dictionary keys indicating the member that
-            represents the HTTP response code (e.g, ``500``).
-        public_members: Filter to restrict which exception members are to be
-            included in the error response. Only members listed here, with each
-            one specified as a sequence of keys, are included. Specify an empty
-            list to prevent any members from being returned to the user. Set to
-            ``None`` to disable filtering. Note that only one of
-            `public_members` and `private_members` filters can be active.
-        private_members: Filter to restrict which exception members are to be
-            included in the error response. Members listed here, with each one
-            specified as a sequence of keys, are excluded. Set to ``None`` to
-            disable filtering. Note that only one of `public_members` and
-            `private_members` filters can be active.
-        exceptions: Path to dictionary containing the actual exception classes
-            as keys and a dictionary of JSON members (as per `required_members`
-            and `extension_members`) as values. Path should be a dot-separated
-            path to the module containing the dictionary (which needs to also
-            contain imports for all listed exceptions), followed by the name of
-            the dictionary itself. For example, for ``myapp.errors.exc_dict``,
-            the dictionary ``exc_dict`` would be attempted to be imported from
-            module ``myapp.errors`` (must be available in the Pythonpath). To
-            ensure that all exceptions arising during the app context are
-            handled, it is strongly advised to add the catch-all exception
-            ``Exception``. If missing, any exceptions not listed will only
-            provoke an empty JSON response.
-        logging: Specifies if and how exception details should be logged. Note
-            that unless :py:attr:`foca.models.config.ExceptionLoggingEnum.none`
-            is specified, a JSON representation of the error, as defined in
-            `exceptions`, and including _all_ members, unaffected by
-            `public_members` and `private_members` filters, will be logged on
-            an additional line.
-        mapping: The actual referenced dictionary from `exceptions`, populated
-            by FOCA.
+        mapping: Path to a dictionary mapping exception classes to problem
+            details.
+        public_members: Members of problem details that are returned to
+            clients.
+        logging: Specifies if and how exceptions and their problem details
+            are logged.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type.
+            data type, or the mapping cannot be imported or is invalid.
 
     Example:
-        >>> ExceptionConfig()
-        ExceptionConfig(required_members=[['title'], ['status']], extension_me\
-mbers=False, status_member=['status'], public_members=None, private_members=No\
-ne, exceptions='foca.errors.exceptions.exceptions', logging=<ExceptionLoggingE\
-num.oneline: 'oneline'>, mapping={<class 'Exception'>: {'title': 'Internal Ser\
-ver Error', 'status': 500}, <class 'werkzeug.exceptions.BadRequest'>: {'title'\
-: 'Bad Request', 'status': 400}, <class 'connexion.exceptions.ExtraParameterPr\
-oblem'>: {'title': 'Bad Request', 'status': 400}, <class 'werkzeug.exceptions.\
-Unauthorized'>: {'title': 'Unauthorized', 'status': 401}, <class 'connexion.ex\
-ceptions.OAuthProblem'>: {'title': 'Unauthorized', 'status': 401}, <class 'wer\
-kzeug.exceptions.Forbidden'>: {'title': 'Forbidden', 'status': 403}, <class 'w\
-erkzeug.exceptions.NotFound'>: {'title': 'Not Found', 'status': 404}, <class '\
-werkzeug.exceptions.InternalServerError'>: {'title': 'Internal Server Error', \
-'status': 500}, <class 'werkzeug.exceptions.BadGateway'>: {'title': 'Bad Gatew\
-ay', 'status': 502}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title\
-': 'Service Unavailable', 'status': 503}, <class 'werkzeug.exceptions.GatewayT\
-imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
+        >>> ExceptionConfig(
+        ...     mapping="myapp.errors.problems",
+        ...     public_members=["title", "status", "detail"],
+        ... )
+        ExceptionConfig(mapping='myapp.errors.problems', public_members=['ti\
+tle', 'status', 'detail'], logging=<ExceptionLoggingEnum.oneline: 'oneline'>)
     """
 
-    required_members: list[list[str]] = [["title"], ["status"]]
-    extension_members: bool | list[list[str]] = False
-    status_member: list[str] = ["status"]
-    public_members: list[list[str]] | None = None
-    private_members: list[list[str]] | None = None
-    exceptions: str = "foca.errors.exceptions.exceptions"
+    mapping: str | None = None
+    public_members: list[str] | None = None
     logging: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline
-    mapping: dict[type[BaseException], dict[str, Any]] | None = None
+    # Problem details by exception class, imported from `mapping`
+    _problems: dict[type[BaseException], dict[str, Any]] = PrivateAttr(
+        default_factory=dict
+    )
+
+    @property
+    def problems(self) -> dict[type[BaseException], dict[str, Any]]:
+        """Problem details by exception class, imported from `mapping`."""
+        return self._problems
 
     @model_validator(mode="after")
-    def validate_exceptions_mapping(self) -> Self:
-        """Validate exceptions mapping.
-
-        Make sure that the exceptions mapping is set and that it can be
-        imported. Ensure that all exceptions have all required members and no
-        additional members (unless specifically allowed). Replace default value
-        for field mapping to the contents of the exceptions dictionary.
+    def validate_mapping(self) -> Self:
+        """Import and validate the mapping of exceptions to problem details.
 
         Returns:
-            Model instance with exceptions mapping set.
+            Model instance with problem details imported.
+
+        Raises:
+            ValueError: The mapping cannot be imported or is not a dictionary
+                mapping exception classes to problem details with an integer
+                `status` between 400 and 599 and a string `title`.
         """
-        # Ensure that exceptions can be imported and are of the correct type
-        split_module = self.exceptions.split(".")
-        exc_dict_name = split_module.pop()
-        module_path = ".".join(split_module)
+        if self.mapping is None:
+            self._problems = {}
+            return self
+        module_path, _, name = self.mapping.rpartition(".")
         try:
-            mod = importlib.import_module(module_path)
-        except ModuleNotFoundError as exc:
+            problems = getattr(importlib.import_module(module_path), name)
+        except (ImportError, ValueError, AttributeError) as exc:
             raise ValueError(
-                f"Module '{module_path}' referenced in field 'exceptions' "
-                "could not be found."
+                f"Exception mapping '{self.mapping}' could not be imported."
             ) from exc
-        try:
-            exc_dict = getattr(mod, exc_dict_name)
-        except AttributeError as exc:
+        if not isinstance(problems, dict):
             raise ValueError(
-                f"Module '{module_path}' referenced in field 'exceptions' "
-                f"does not have attribute '{exc_dict_name}'."
-            ) from exc
-        if not isinstance(exc_dict, dict):
-            raise ValueError(
-                f"Attribute '{exc_dict_name}' in module '{module_path}' "
-                "referenced in field 'exceptions' is not a dictionary."
+                f"Exception mapping '{self.mapping}' is not a dictionary."
             )
-
-        # Set allowed exception members
-        allowed_members = deepcopy(self.required_members)
-        if isinstance(self.extension_members, list):
-            allowed_members += self.extension_members
-
-        # Set flag to determine if additional members are allowed
-        limited_members: bool = not (
-            isinstance(self.extension_members, bool) and self.extension_members
-        )
-
-        # Ensure that status member is among required members
-        if self.status_member not in self.required_members:
-            raise ValueError("Status member is not among required members.")
-
-        # Filter members that are returned to the user
-        if isinstance(self.public_members, list) and isinstance(
-            self.private_members, list
-        ):
-            raise ValueError(
-                "Both public and private member filters are active, but at "
-                "most one is allowed."
-            )
-        if (
-            limited_members
-            and self.public_members
-            and any(m not in allowed_members for m in self.public_members)
-        ):
-            raise ValueError(
-                "Public members have more fields than are allowed by "
-                "'required_members' and 'extension_members'."
-            )
-        if (
-            limited_members
-            and self.private_members
-            and any(m not in allowed_members for m in self.private_members)
-        ):
-            raise ValueError(
-                "Private members have more fields than are allowed by "
-                "'required_members' and 'extension_members'."
-            )
-
-        # Ensure that each exception fulfills all requirements
-        for key, val in exc_dict.items():
-            # Keys are exceptions
-            if not hasattr(key, "__cause__"):
+        for key, problem in problems.items():
+            if not (isinstance(key, type) and issubclass(key, BaseException)):
                 raise ValueError(
-                    f"Key '{key}' in 'exceptions' dictionary does not appear "
-                    "to be an Exception."
+                    f"Key '{key}' of exception mapping is not an exception "
+                    "class."
                 )
-            # Values are dictionaries
-            if not isinstance(val, dict):
+            if not isinstance(problem, dict):
                 raise ValueError(
-                    f"Exception '{key}' in 'exceptions' dictionary does not "
-                    "have member dictionary as its value."
+                    f"Problem details of exception '{key.__name__}' are not a "
+                    "dictionary."
                 )
-            # All required members are present
-            for keys in self.required_members:
-                try:
-                    _get_by_path(
-                        obj=val,
-                        key_sequence=keys,
-                    )
-                except (KeyError, ValueError) as exc:
-                    raise ValueError(
-                        f"Exception '{key}' in 'exceptions' dictionary does "
-                        "not have all fields required by 'required_members'."
-                    ) from exc
-            # No forbidden members are present
-            if limited_members:
-                members = deepcopy(val)
-                for keys in allowed_members:
-                    with suppress(KeyError):
-                        reduce(lambda v, k: v.pop(k), keys, members)
-                if members:
-                    raise ValueError(
-                        f"Exception '{key}' in 'exceptions' dictionary has "
-                        "more fields than are allowed by 'required_members' "
-                        "and 'extension_members'."
-                    )
-            # Status member values are integers
-            try:
-                status = _get_by_path(
-                    obj=val,
-                    key_sequence=self.status_member,
-                )
-                status = int(status)
-            except (KeyError, ValueError) as exc:
+            status = problem.get("status")
+            if (
+                not isinstance(status, int)
+                or isinstance(status, bool)
+                or not 400 <= status <= 599
+            ):
                 raise ValueError(
-                    f"Status member in exception '{key}' cannot be cast to "
-                    "type integer."
-                ) from exc
-
-        # Set mapping
-        self.mapping = exc_dict
-
+                    f"Problem details of exception '{key.__name__}' do not "
+                    "have an integer 'status' between 400 and 599."
+                )
+            if not isinstance(problem.get("title"), str):
+                raise ValueError(
+                    f"Problem details of exception '{key.__name__}' do not "
+                    "have a string 'title'."
+                )
+        self._problems = problems
         return self
 
 
@@ -1361,22 +1207,8 @@ class Config(FOCABaseConfig):
         >>> Config()
         Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
 ronment='development', testing=False, use_reloader=True), exceptions=Exception\
-Config(required_members=[['title'], ['status']], extension_members=False, stat\
-us_member=['status'], public_members=None, private_members=None, exceptions='f\
-oca.errors.exceptions.exceptions', logging=<ExceptionLoggingEnum.oneline: 'one\
-line'>, mapping={<class 'Exception'>: {'title': 'Internal Server Error', 'stat\
-us': 500}, <class 'werkzeug.exceptions.BadRequest'>: {'title': 'Bad Request', \
-'status': 400}, <class 'connexion.exceptions.ExtraParameterProblem'>: {'title'\
-: 'Bad Request', 'status': 400}, <class 'werkzeug.exceptions.Unauthorized'>: {\
-'title': 'Unauthorized', 'status': 401}, <class 'connexion.exceptions.OAuthPro\
-blem'>: {'title': 'Unauthorized', 'status': 401}, <class 'werkzeug.exceptions.\
-Forbidden'>: {'title': 'Forbidden', 'status': 403}, <class 'werkzeug.exception\
-s.NotFound'>: {'title': 'Not Found', 'status': 404}, <class 'werkzeug.exceptio\
-ns.InternalServerError'>: {'title': 'Internal Server Error', 'status': 500}, <\
-class 'werkzeug.exceptions.BadGateway'>: {'title': 'Bad Gateway', 'status': 50\
-2}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title': 'Service Unava\
-ilable', 'status': 503}, <class 'werkzeug.exceptions.GatewayTimeout'>: {'title\
-': 'Gateway Timeout', 'status': 504}}), api=APIConfig(specs=[]), security=Secu\
+Config(mapping=None, public_members=None, logging=<ExceptionLoggingEnum.onelin\
+e: 'oneline'>), api=APIConfig(specs=[]), security=Secu\
 rityConfig(auth=AuthConfig(issuers=[], add_key_to_claims=True, \
 allow_expired=False, audience=None, claim_identity='sub', algorithms=['RS256']\
 , validate_userinfo=False, timeout=10.0, cache_ttl=300.0), cors=CORSConfig(ena\

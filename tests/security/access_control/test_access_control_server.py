@@ -9,8 +9,8 @@ import mongomock
 import pytest
 from flask import Flask
 from pymongo import MongoClient
+from werkzeug.exceptions import BadRequest, NotFound
 
-from foca.errors.exceptions import BadRequest, NotFound
 from foca.models.config import AccessControlConfig, Config, MongoConfig
 from foca.security.access_control.access_control_server import (
     deletePermission,

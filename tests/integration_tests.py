@@ -60,8 +60,8 @@ def test_add_pet_required_arguments_missing_400():
     assert response.status_code == 400
     print(response.json())
     response_data = Error(**response.json())
-    assert response_data.code == 400
-    assert response_data.message == (
+    assert response_data.status == 400
+    assert response_data.detail == (
         "We don't quite understand what it is you are looking for."
     )
 
@@ -122,8 +122,8 @@ def test_get_pet_by_id_404():
     )
     assert response.status_code == 404
     response_data = Error(**response.json())
-    assert response_data.code == 404
-    assert response_data.message == "We have never heard of this pet! :-("
+    assert response_data.status == 404
+    assert response_data.detail == "We have never heard of this pet! :-("
 
 
 def test_delete_pet_204():
@@ -156,5 +156,5 @@ def test_delete_pet_404():
     )
     assert response.status_code == 404
     response_data = Error(**response.json())
-    assert response_data.code == 404
-    assert response_data.message == "We have never heard of this pet! :-("
+    assert response_data.status == 404
+    assert response_data.detail == "We have never heard of this pet! :-("

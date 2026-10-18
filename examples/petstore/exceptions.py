@@ -1,4 +1,4 @@
-"""Petstore exceptions."""
+"""Petstore exceptions, mapped to problem details (RFC 9457)."""
 
 from connexion.exceptions import BadRequestProblem
 from werkzeug.exceptions import (
@@ -8,19 +8,23 @@ from werkzeug.exceptions import (
 
 exceptions = {
     Exception: {
-        "message": "Oops, something unexpected happened.",
-        "code": 500,
+        "title": "Internal Server Error",
+        "status": 500,
+        "detail": "Oops, something unexpected happened.",
     },
     BadRequestProblem: {
-        "message": "We don't quite understand what it is you are looking for.",
-        "code": 400,
+        "title": "Bad Request",
+        "status": 400,
+        "detail": "We don't quite understand what it is you are looking for.",
     },
     NotFound: {
-        "message": "We have never heard of this pet! :-(",
-        "code": 404,
+        "title": "Not Found",
+        "status": 404,
+        "detail": "We have never heard of this pet! :-(",
     },
     InternalServerError: {
-        "message": "We seem to be having a problem here in the petstore.",
-        "code": 500,
+        "title": "Internal Server Error",
+        "status": 500,
+        "detail": "We seem to be having a problem here in the petstore.",
     },
 }

@@ -2,9 +2,11 @@
 
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 from pydantic import ValidationError
+from werkzeug.exceptions import NotFound
 
 from foca.models.config import (
     AccessControlConfig,
@@ -20,19 +22,6 @@ from foca.models.config import (
 )
 
 DIR = Path(__file__).parent / "test_files"
-EXCEPTIONS_NO_DICT = []
-EXCEPTIONS_NOT_NESTED = {Exception: "b"}
-EXCEPTIONS_NOT_EXC = {"a": {"status": 400, "title": "Bad Request"}}
-REQUIRED_MEMBERS = [["title"], ["status"]]
-MEMBER_TITLE = ["title"]
-MEMBER_STATUS = ["status"]
-MEMBER_NA = ["some", "field"]
-MEMBERS_NA = [MEMBER_NA, [*MEMBER_NA, "more"]]
-MODULE_NA = "some.unavailable.module"
-MODULE_WITHOUT_EXCEPTIONS = "foca.foca.exceptions"
-MODULE_PATCH_NO_DICT = "some.path.EXCEPTIONS_NO_DICT"
-MODULE_PATCH_NOT_NESTED = "some.path.EXCEPTIONS_NOT_NESTED"
-MODULE_PATCH_NOT_EXC = "some.path.EXCEPTIONS_NOT_EXC"
 PATH = str(DIR / "openapi_2_petstore.yaml")
 PATH_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
 PATH_ADDITION = str(DIR / "openapi_2_petstore.addition.yaml")
@@ -94,152 +83,90 @@ def test_config_empty():
     assert isinstance(res, Config)
 
 
+class PetNotFound(NotFound):
+    pass
+
+
+PROBLEMS = {
+    NotFound: {"title": "Not Found", "status": 404},
+    PetNotFound: {"title": "Pet Not Found", "status": 404, "detail": "x"},
+}
+
+
+@pytest.fixture
+def problems_module(monkeypatch):
+    """Register module `problems_module` with mappings as attributes."""
+    module = ModuleType("problems_module")
+    module.valid = PROBLEMS
+    module.not_dict = [NotFound]
+    module.not_exception = {"a": {"title": "A", "status": 400}}
+    module.not_class = {NotFound(): {"title": "A", "status": 400}}
+    module.problem_not_dict = {NotFound: "Not Found"}
+    module.no_status = {NotFound: {"title": "Not Found"}}
+    module.status_str = {NotFound: {"title": "Not Found", "status": "404"}}
+    module.status_bool = {NotFound: {"title": "Not Found", "status": True}}
+    module.status_200 = {NotFound: {"title": "OK", "status": 200}}
+    module.no_title = {NotFound: {"status": 404}}
+    monkeypatch.setitem(sys.modules, "problems_module", module)
+    return module
+
+
 def test_exception_config_empty():
     """Test basic creation of the ExceptionConfig model."""
     res = ExceptionConfig()
-    assert isinstance(res, ExceptionConfig)
+    assert res.mapping is None
+    assert res.problems == {}
+    assert res.public_members is None
 
 
-def test_exception_config_extension_members_selected():
-    """Test creation of the ExceptionConfig model with selected extension
-    members."""
+def test_exception_config_mapping(problems_module):
+    """Test creation of the ExceptionConfig model with a mapping."""
     res = ExceptionConfig(
-        extension_members=MEMBERS_NA,
+        mapping="problems_module.valid",
+        public_members=["title", "status"],
+        logging="minimal",
     )
-    assert isinstance(res, ExceptionConfig)
+    assert res.problems is PROBLEMS
+    assert res.public_members == ["title", "status"]
 
 
-def test_exception_config_extension_members_all():
-    """Test creation of the ExceptionConfig model with any extension
-    members."""
-    res = ExceptionConfig(
-        extension_members=True,
-    )
-    assert isinstance(res, ExceptionConfig)
-
-
-def test_exception_config_without_exceptions_dict():
-    """Test creation of the ExceptionConfig model; exceptions dictionary is
-    unavailable."""
+@pytest.mark.parametrize(
+    "mapping",
+    [
+        "some.unavailable.module.problems",
+        "problems_module.unavailable",
+        "problems",
+        "problems_module.not_dict",
+        "problems_module.not_exception",
+        "problems_module.not_class",
+        "problems_module.problem_not_dict",
+        "problems_module.no_status",
+        "problems_module.status_str",
+        "problems_module.status_bool",
+        "problems_module.status_200",
+        "problems_module.no_title",
+    ],
+)
+def test_exception_config_invalid_mapping(problems_module, mapping):
+    """Test creation of the ExceptionConfig model with invalid mappings."""
     with pytest.raises(ValidationError):
-        ExceptionConfig(
-            exceptions=MODULE_WITHOUT_EXCEPTIONS,
-        )
+        ExceptionConfig(mapping=mapping)
 
 
-def test_exception_config_without_exceptions_dict_module_na():
-    """Test creation of the ExceptionConfig model; module that should contain
-    exceptions dictionary is unavailable."""
+@pytest.mark.parametrize(
+    "field",
+    [
+        {"exceptions": "foca.errors.exceptions.exceptions"},
+        {"required_members": [["title"], ["status"]]},
+        {"status_member": ["status"]},
+        {"private_members": [["detail"]]},
+        {"public_members": [["title"]]},
+    ],
+)
+def test_exception_config_removed_fields(field):
+    """Test creation of the ExceptionConfig model with removed fields."""
     with pytest.raises(ValidationError):
-        ExceptionConfig(
-            exceptions=MODULE_NA,
-        )
-
-
-def test_exception_config_with_wrong_exceptions_type(monkeypatch):
-    """Test creation of the ExceptionConfig model; exceptions object is not
-    of dictionary type."""
-    monkeypatch.setattr(
-        "importlib.import_module",
-        lambda *args, **kwargs: sys.modules[__name__],
-    )
-    with pytest.raises(ValidationError):
-        ExceptionConfig(
-            exceptions=MODULE_PATCH_NO_DICT,
-        )
-
-
-def test_exception_config_with_optional_status_member():
-    """Test creation of the ExceptionConfig model; status member is not among
-    required members."""
-    with pytest.raises(ValidationError):
-        ExceptionConfig(
-            extension_members=True,
-            status_member=["sdf", "asd"],
-        )
-
-
-def test_exception_config_with_forbidden_public_members():
-    """Test creation of the ExceptionConfig model; public members are not
-    subset of allowed members."""
-    with pytest.raises(ValidationError):
-        ExceptionConfig(
-            extension_members=False,
-            public_members=MEMBERS_NA,
-        )
-
-
-def test_exception_config_with_forbidden_private_members():
-    """Test creation of the ExceptionConfig model; private members are not
-    subset of allowed members."""
-    with pytest.raises(ValidationError):
-        ExceptionConfig(
-            extension_members=False,
-            private_members=MEMBERS_NA,
-        )
-
-
-def test_exception_config_with_conflicting_public_and_private_members():
-    """Test creation of the ExceptionConfig model; both public and private
-    member filters active."""
-    with pytest.raises(ValidationError):
-        ExceptionConfig(
-            extension_members=True,
-            public_members=MEMBERS_NA,
-            private_members=MEMBERS_NA,
-        )
-
-
-def test_exception_config_status_member_not_integer():
-    """Test creation of the ExceptionConfig model; status member is not or
-    cannot be cast to type integer."""
-    with pytest.raises(ValidationError):
-        ExceptionConfig(
-            status_member=MEMBER_TITLE,
-        )
-
-
-def test_exception_config_with_wrong_exception_values(monkeypatch):
-    """Test creation of the ExceptionConfig model; exceptions object is not
-    a dictionary of dictionaries."""
-    monkeypatch.setattr(
-        "importlib.import_module",
-        lambda *args, **kwargs: sys.modules[__name__],
-    )
-    with pytest.raises(ValidationError):
-        ExceptionConfig(
-            exceptions=MODULE_PATCH_NOT_NESTED,
-        )
-
-
-def test_exception_config_with_wrong_exception_keys(monkeypatch):
-    """Test creation of the ExceptionConfig model; exceptions object is not
-    a dictionary of exceptions."""
-    monkeypatch.setattr(
-        "importlib.import_module",
-        lambda *args, **kwargs: sys.modules[__name__],
-    )
-    with pytest.raises(ValidationError):
-        ExceptionConfig(
-            exceptions=MODULE_PATCH_NOT_EXC,
-        )
-
-
-def test_exception_config_missing_required_members():
-    """Test creation of the ExceptionConfig model; required members are
-    missing."""
-    with pytest.raises(ValidationError):
-        ExceptionConfig(required_members=REQUIRED_MEMBERS + MEMBERS_NA)
-
-
-def test_exception_config_forbidden_extension_members():
-    """Test creation of the ExceptionConfig model; not all provided members
-    allowed by extension member settings."""
-    with pytest.raises(ValidationError):
-        ExceptionConfig(
-            required_members=[MEMBER_STATUS],
-            extension_members=False,
-        )
+        ExceptionConfig(**field)
 
 
 def test_index_config_empty():

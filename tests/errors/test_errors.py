@@ -3,205 +3,306 @@ Tests for exceptions.py
 """
 
 import json
-from copy import deepcopy
+import sys
+from types import ModuleType
 
 import pytest
 from connexion import App
-from connexion.exceptions import BadRequestProblem
-from flask import Flask, Response
+from connexion.exceptions import BadRequestProblem, OAuthProblem
 from werkzeug.exceptions import NotFound, ServiceUnavailable
 
+from foca.errors import exceptions as exceptions_module
 from foca.errors.exceptions import (
+    DEFAULT_PROBLEM,
     _exc_to_str,
-    _exclude_key_nested_dict,
     _log_exception,
-    _problem_handler_json,
-    _subset_nested_dict,
+    build_problem,
     register_exception_handler,
 )
-from foca.models.config import Config
+from foca.models.config import ExceptionConfig, ExceptionLoggingEnum
 
-EXCEPTION_INSTANCE = Exception()
-INVALID_LOG_FORMAT = "unknown_log_format"
-TEST_DICT = {
-    "title": "MyException",
-    "details": {
-        "code": 400,
-        "description": "Some exception",
-    },
-    "status": 400,
-}
-TEST_KEYS = ["details", "code"]
-EXPECTED_SUBSET_RESULT = {
-    "details": {
-        "code": 400,
-    },
-}
-EXPECTED_EXCLUDE_RESULT = {
-    "title": "MyException",
-    "details": {
-        "description": "Some exception",
-    },
-    "status": 400,
-}
-PUBLIC_MEMBERS = [["title"]]
-PRIVATE_MEMBERS = [["status"]]
+THIS_MODULE = __name__
+
+
+class PetNotFound(NotFound):
+    pass
+
+
+class PetGone(PetNotFound):
+    pass
+
+
+class PetstoreClosed(Exception):
+    pass
 
 
 class UnknownException(Exception):
     pass
 
 
-def test_register_exception_handler():
-    """Test exception handler registration with Connexion app."""
-    app = App(__name__)
-    ret = register_exception_handler(app)
-    assert isinstance(ret, App)
+class StarletteLikeException(Exception):
+    status_code = 409
+
+
+class InvalidStatusException(Exception):
+    code = True
+    status = 200
+    status_code = "418"
+
+
+class UnassignedStatusException(Exception):
+    status = 499
+
+
+PROBLEMS = {
+    NotFound: {"title": "Not Found", "status": 404},
+    PetNotFound: {
+        "title": "Pet Not Found",
+        "status": 404,
+        "detail": "We have never heard of this pet.",
+        "type": "https://example.org/problems/pet-not-found",
+    },
+    PetstoreClosed: {"title": "Closed", "status": 503},
+}
+PROBLEMS_CATCH_ALL = {
+    **PROBLEMS,
+    Exception: {"title": "Oops", "status": 500, "detail": "Unexpected."},
+}
+
+
+@pytest.fixture
+def logged(monkeypatch) -> list[str]:
+    """Messages logged via `logger.error()` of the exceptions module.
+
+    Captured directly, as other tests (re)configure logging.
+    """
+    messages: list[str] = []
+    monkeypatch.setattr(exceptions_module.logger, "error", messages.append)
+    return messages
+
+
+@pytest.fixture
+def conf(monkeypatch):
+    """Exception config with mapping `PROBLEMS`."""
+    module = ModuleType("problems_module")
+    module.problems = PROBLEMS
+    module.catch_all = PROBLEMS_CATCH_ALL
+    monkeypatch.setitem(sys.modules, "problems_module", module)
+    return ExceptionConfig(mapping="problems_module.problems")
+
+
+class TestBuildProblem:
+    """Tests for building problem details, without any app."""
+
+    @pytest.mark.parametrize(
+        "exception,problem",
+        [
+            # listed exceptions
+            (NotFound(), PROBLEMS[NotFound]),
+            (PetNotFound(), PROBLEMS[PetNotFound]),
+            (PetstoreClosed(), PROBLEMS[PetstoreClosed]),
+            # closest listed base class
+            (PetGone(), PROBLEMS[PetNotFound]),
+            # status codes of exceptions not listed
+            (
+                ServiceUnavailable(),
+                {"title": "Service Unavailable", "status": 503},
+            ),
+            (BadRequestProblem(), {"title": "Bad Request", "status": 400}),
+            (OAuthProblem(), {"title": "Unauthorized", "status": 401}),
+            (StarletteLikeException(), {"title": "Conflict", "status": 409}),
+            (UnassignedStatusException(), {"title": "Error", "status": 499}),
+            # no (valid) status code
+            (InvalidStatusException(), DEFAULT_PROBLEM),
+            (UnknownException(), DEFAULT_PROBLEM),
+            (KeyError("x"), DEFAULT_PROBLEM),
+        ],
+    )
+    def test_resolution(self, conf, exception, problem):
+        assert build_problem(exception, conf) == (problem, problem["status"])
+
+    def test_catch_all(self, conf):
+        """Catch-all entries apply only to exceptions without status."""
+        conf.mapping = "problems_module.catch_all"
+        conf = ExceptionConfig.model_validate(conf.model_dump())
+        catch_all = PROBLEMS_CATCH_ALL[Exception]
+        assert build_problem(UnknownException(), conf) == (catch_all, 500)
+        assert build_problem(PetGone(), conf)[0] == PROBLEMS[PetNotFound]
+        assert build_problem(ServiceUnavailable(), conf) == (
+            {"title": "Service Unavailable", "status": 503},
+            503,
+        )
+
+    def test_defaults(self):
+        assert build_problem(NotFound(), ExceptionConfig()) == (
+            {"title": "Not Found", "status": 404},
+            404,
+        )
+        assert build_problem(UnknownException(), ExceptionConfig()) == (
+            DEFAULT_PROBLEM,
+            500,
+        )
+
+    @pytest.mark.parametrize(
+        "public_members,expected",
+        [
+            (None, PROBLEMS[PetNotFound]),
+            (
+                ["title", "detail"],
+                {
+                    "title": "Pet Not Found",
+                    "detail": "We have never heard of this pet.",
+                },
+            ),
+            (["status", "instance"], {"status": 404}),
+            ([], {}),
+        ],
+    )
+    def test_public_members(self, conf, public_members, expected):
+        conf.public_members = public_members
+        assert build_problem(PetNotFound(), conf) == (expected, 404)
+
+    def test_mapping_not_modified(self, conf):
+        problem, _ = build_problem(PetNotFound(), conf)
+        problem["title"] = "changed"
+        assert PROBLEMS[PetNotFound]["title"] == "Pet Not Found"
 
 
 def test__exc_to_str():
     """Test exception reformatter function."""
-    res = _exc_to_str(exc=EXCEPTION_INSTANCE)
+    res = _exc_to_str(exc=Exception("x"))
     assert isinstance(res, str)
 
 
-@pytest.mark.parametrize("format", ["oneline", "minimal", "regular"])
-def test__log_exception(caplog, format):
-    """Test exception reformatter function."""
-    _log_exception(
-        exc=EXCEPTION_INSTANCE,
-        format=format,
-    )
-    assert "Exception" in caplog.text
-
-
-def test__log_exception_invalid_format(caplog):
-    """Test exception reformatter function with invalid format argument."""
-    _log_exception(
-        exc=EXCEPTION_INSTANCE,
-        format=INVALID_LOG_FORMAT,
-    )
-    assert "logging is misconfigured" in caplog.text
-
-
-def test__subset_nested_dict():
-    """Test nested dictionary subsetting function."""
-    res = _subset_nested_dict(obj=TEST_DICT, key_sequence=deepcopy(TEST_KEYS))
-    assert res == EXPECTED_SUBSET_RESULT
-
-
-def test__exclude_key_nested_dict():
-    """Test function to exclude a key from a nested dictionary."""
-    res = _exclude_key_nested_dict(
-        obj=TEST_DICT, key_sequence=deepcopy(TEST_KEYS)
-    )
-    assert res == EXPECTED_EXCLUDE_RESULT
-
-
-def test__problem_handler_json():
-    """Test problem handler with instance of custom, unlisted error."""
-    app = Flask(__name__)
-    setattr(app.config, "foca", Config())
-    EXPECTED_RESPONSE = app.config.foca.exceptions.mapping[Exception]
-    with app.app_context():
-        res = _problem_handler_json(UnknownException())
-        assert isinstance(res, Response)
-        assert res.status == "500 INTERNAL SERVER ERROR"
-        assert res.mimetype == "application/problem+json"
-        response = json.loads(res.data.decode("utf-8"))
-        assert response == EXPECTED_RESPONSE
-
-
-class ItemNotFound(NotFound):
-    pass
-
-
-class ItemGone(ItemNotFound):
-    pass
-
-
 @pytest.mark.parametrize(
-    "exception,status",
+    "format",
     [
-        (ServiceUnavailable(), 503),
-        (NotFound(), 404),
-        # subclasses of mapped exceptions are handled like their closest
-        # mapped base class
-        (ItemNotFound(), 404),
-        (ItemGone(), 404),
-        (UnknownException(), 500),
+        ExceptionLoggingEnum.oneline,
+        ExceptionLoggingEnum.minimal,
+        ExceptionLoggingEnum.regular,
     ],
 )
-def test__problem_handler_json_status(caplog, exception, status):
-    """Test problem handler; status codes and logging."""
-    app = Flask(__name__)
-    setattr(app.config, "foca", Config())
-    with app.app_context():
-        res = _problem_handler_json(exception)
-    assert res.status_code == status
-    assert json.loads(res.data.decode("utf-8"))["status"] == status
-    # one log record per handled exception, with problem details
-    assert len(caplog.records) == 1
-    assert f'"status": {status}' in caplog.records[0].getMessage()
+def test__log_exception(logged, format):
+    """Test logging exceptions in different formats."""
+    _log_exception(exc=UnknownException("x"), format=format, problem={"a": 1})
+    assert len(logged) == 1
+    assert "UnknownException" in logged[0]
+    assert logged[0].startswith('{"a": 1} ')
 
 
-def test__problem_handler_json_closest_base_class():
-    """Test problem handler; closest mapped base class is used."""
-    app = Flask(__name__)
-    setattr(app.config, "foca", Config())
-    app.config.foca.exceptions.mapping[ItemNotFound] = {
-        "title": "Item not found",
-        "status": 404,
+def test__log_exception_none(logged):
+    """Test disabled logging of exceptions."""
+    _log_exception(exc=UnknownException(), format=ExceptionLoggingEnum.none)
+    assert logged == []
+
+
+# Controllers of test API
+def get_pet():
+    raise PetGone
+
+
+def get_closed():
+    raise PetstoreClosed
+
+
+def get_error():
+    raise UnknownException("secret")
+
+
+def get_secured():
+    return "ok"
+
+
+def mock_token_info(token):
+    raise OAuthProblem(description="Invalid token")
+
+
+def _operation(operation_id: str, **extra) -> dict:
+    return {
+        "operationId": f"{THIS_MODULE}.{operation_id}",
+        "responses": {"200": {"description": "OK"}},
+        **extra,
     }
-    with app.app_context():
-        res = _problem_handler_json(ItemGone())
-    assert json.loads(res.data.decode("utf-8"))["title"] == "Item not found"
 
 
-def test__problem_handler_json_request_validation_error():
-    """Test problem handler with request validation error."""
-    app = Flask(__name__)
-    setattr(app.config, "foca", Config())
-    with app.app_context():
-        res = _problem_handler_json(BadRequestProblem(detail="invalid"))
-        assert res.status_code == 400
-        response = json.loads(res.data.decode("utf-8"))
-        assert response == {"title": "Bad Request", "status": 400}
+SPEC = {
+    "openapi": "3.0.2",
+    "info": {"title": "Test API", "version": "1.0.0"},
+    "paths": {
+        "/pet": {"get": _operation("get_pet")},
+        "/closed": {"get": _operation("get_closed")},
+        "/error": {"get": _operation("get_error")},
+        "/secured": {
+            "get": _operation("get_secured", security=[{"bearerAuth": []}])
+        },
+    },
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "x-bearerInfoFunc": f"{THIS_MODULE}.mock_token_info",
+            },
+        },
+    },
+}
 
 
-def test__problem_handler_json_no_fallback_exception():
-    """Test problem handler; unlisted error without fallback."""
-    app = Flask(__name__)
-    setattr(app.config, "foca", Config())
-    del app.config.foca.exceptions.mapping[Exception]
-    with app.app_context():
-        res = _problem_handler_json(UnknownException())
-        assert isinstance(res, Response)
-        assert res.status == "500 INTERNAL SERVER ERROR"
-        assert res.mimetype == "application/problem+json"
-        response = res.data.decode("utf-8")
-        assert response == ""
+class TestHandler:
+    """Tests for error responses of an app."""
 
+    @pytest.fixture
+    def client(self, conf):
+        app = App(__name__, skip_error_handlers=True)
+        # the handler does not depend on FOCA's app config
+        assert not hasattr(app.app.config, "foca")
+        register_exception_handler(app, conf)
+        app.add_api(SPEC)
+        return app.app.test_client()
 
-def test__problem_handler_json_with_public_members():
-    """Test problem handler with public members."""
-    app = Flask(__name__)
-    setattr(app.config, "foca", Config())
-    app.config.foca.exceptions.public_members = PUBLIC_MEMBERS
-    with app.app_context():
-        res = _problem_handler_json(UnknownException())
-        assert isinstance(res, Response)
-        assert res.status == "500 INTERNAL SERVER ERROR"
-        assert res.mimetype == "application/problem+json"
+    @pytest.mark.parametrize(
+        "path,headers,problem",
+        [
+            # werkzeug exception (route not found), mapped
+            ("/unknown", {}, PROBLEMS[NotFound]),
+            # Connexion exception, by status code
+            ("/secured", {}, {"title": "Unauthorized", "status": 401}),
+            (
+                "/secured",
+                {"Authorization": "Bearer x"},
+                {"title": "Unauthorized", "status": 401},
+            ),
+            # custom exceptions, mapped
+            ("/pet", {}, PROBLEMS[PetNotFound]),
+            ("/closed", {}, PROBLEMS[PetstoreClosed]),
+            # unmapped exception
+            ("/error", {}, DEFAULT_PROBLEM),
+        ],
+    )
+    def test_responses(self, client, path, headers, problem):
+        response = client.get(path, headers=headers)
+        assert response.status_code == problem["status"]
+        assert response.mimetype == "application/problem+json"
+        assert json.loads(response.data) == problem
+        assert "secret" not in response.get_data(as_text=True)
 
+    def test_default_config(self):
+        app = App(__name__, skip_error_handlers=True)
+        register_exception_handler(app)
+        app.add_api(SPEC)
+        response = app.app.test_client().get("/pet")
+        assert response.status_code == 404
+        assert json.loads(response.data) == {
+            "title": "Not Found",
+            "status": 404,
+        }
 
-def test__problem_handler_json_with_private_members():
-    """Test problem handler with private members."""
-    app = Flask(__name__)
-    setattr(app.config, "foca", Config())
-    app.config.foca.exceptions.private_members = PRIVATE_MEMBERS
-    with app.app_context():
-        res = _problem_handler_json(UnknownException())
-        assert isinstance(res, Response)
-        assert res.status == "500 INTERNAL SERVER ERROR"
-        assert res.mimetype == "application/problem+json"
+    def test_logged_once_unfiltered(self, conf, logged):
+        conf.public_members = ["title"]
+        app = App(__name__, skip_error_handlers=True)
+        register_exception_handler(app, conf)
+        app.add_api(SPEC)
+        response = app.app.test_client().get("/pet")
+        assert json.loads(response.data) == {"title": "Pet Not Found"}
+        assert len(logged) == 1
+        assert "pet-not-found" in logged[0]

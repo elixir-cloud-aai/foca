@@ -96,7 +96,7 @@ class Foca:
         logger.info("Connexion app created.")
 
         # Register error handlers
-        cnx_app = register_exception_handler(cnx_app)
+        cnx_app = register_exception_handler(cnx_app, self.conf.exceptions)
         logger.info("Error handler registered.")
 
         # Enable cross-origin resource sharing
@@ -170,7 +170,7 @@ class Foca:
         logger.info("Connexion app created.")
 
         # Register error handlers
-        cnx_app = register_exception_handler(cnx_app)
+        cnx_app = register_exception_handler(cnx_app, self.conf.exceptions)
         logger.info("Error handler registered.")
 
         # Register MongoDB

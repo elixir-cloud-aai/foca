@@ -140,13 +140,16 @@ components:
           type: string
 
     Error:
+      description: Problem details (RFC 9457).
       type: object
       required:
-        - code
-        - message
+        - title
+        - status
       properties:
-        code:
+        title:
+          type: string
+        status:
           type: integer
           format: int32
-        message:
+        detail:
           type: string

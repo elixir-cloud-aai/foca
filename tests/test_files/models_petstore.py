@@ -36,16 +36,19 @@ class Pets(BaseModel):
 
 
 class Error(BaseModel):
-    """Model for petstore error response.
+    """Model for petstore error response (problem details, RFC 9457).
 
     Args:
-        code: Status code.
-        message: Error message.
+        title: Short summary of the problem type.
+        status: Status code.
+        detail: Explanation of the problem.
 
     Attributes:
-        code: Status code.
-        message: Error message.
+        title: Short summary of the problem type.
+        status: Status code.
+        detail: Explanation of the problem.
     """
 
-    code: int
-    message: str
+    title: str
+    status: int
+    detail: str | None = None
