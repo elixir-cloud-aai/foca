@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import jwt
 import pytest
 from connexion.exceptions import Unauthorized
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from flask import Flask
 from flask import request as auth_request
 from pydantic import ValidationError
@@ -76,6 +76,7 @@ def idp(monkeypatch):
     """Mock identity provider; returns mock of `requests.get()`."""
     auth._oidc_configs.clear()
     auth._jwk_sets.clear()
+    auth._failed_fetches.clear()
     responses = {
         DISCOVERY_URI: MockResponse(
             {
@@ -93,6 +94,7 @@ def idp(monkeypatch):
     yield get
     auth._oidc_configs.clear()
     auth._jwk_sets.clear()
+    auth._failed_fetches.clear()
 
 
 def urls(get):
@@ -194,6 +196,49 @@ class TestValidateToken:
         with pytest.raises(Unauthorized):
             validate(make_app(), make_token())
 
+    @pytest.mark.parametrize("uri", [DISCOVERY_URI, JWKS_URI])
+    def test_failed_fetch_cooldown(self, idp, uri):
+        """Failed fetches are not repeated within cooldown."""
+        app = make_app()
+        ok = idp.responses[uri]
+        idp.responses[uri] = MockResponse({}, status_code=503)
+        for _ in range(3):
+            with pytest.raises(Unauthorized):
+                validate(app, make_token())
+        assert urls(idp).count(uri) == 1
+        # fetched again after cooldown
+        idp.responses[uri] = ok
+        auth._failed_fetches[uri] -= auth.JWKS_REFETCH_COOLDOWN
+        assert validate(app, make_token())["user_id"] == SUBJECT
+        assert urls(idp).count(uri) == 2
+        assert uri not in auth._failed_fetches
+
+    def test_failed_refetch_cooldown(self, idp):
+        """Failed refetches for unknown key IDs are not repeated within
+        cooldown."""
+        app = make_app()
+        validate(app, make_token())
+        idp.responses[JWKS_URI] = MockResponse({}, status_code=503)
+        auth._jwk_sets[JWKS_URI] = (
+            auth._jwk_sets[JWKS_URI][0] - auth.JWKS_REFETCH_COOLDOWN,
+            auth._jwk_sets[JWKS_URI][1],
+        )
+        for _ in range(3):
+            with pytest.raises(Unauthorized):
+                validate(app, make_token(kid="other-key"))
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI, JWKS_URI]
+        # known keys are still accepted
+        assert validate(app, make_token())["user_id"] == SUBJECT
+
+    def test_userinfo_failures_not_throttled(self, idp):
+        """Failed user info requests depend on the token, so are repeated."""
+        app = make_app(validate_userinfo=True)
+        idp.responses[USERINFO_URI] = MockResponse({}, status_code=401)
+        for _ in range(2):
+            with pytest.raises(Unauthorized):
+                validate(app, make_token())
+        assert urls(idp).count(USERINFO_URI) == 2
+
     def test_cached(self, idp):
         """Discovery documents and JWK sets are cached."""
         app = make_app()
@@ -244,8 +289,44 @@ class TestValidateToken:
 
     def test_no_key_id(self, idp):
         """Tokens without key ID are verified with all signing keys."""
+        idp.responses[JWKS_URI] = MockResponse(
+            {
+                "keys": [
+                    _public_jwk(OTHER_PRIVATE_KEY, "key-2"),
+                    _public_jwk(PRIVATE_KEY, KID),
+                ]
+            }
+        )
         res = validate(make_app(), make_token(kid=None))
         assert res["user_id"] == SUBJECT
+
+    def test_no_key_id_mixed_key_types(self, idp):
+        """Signing keys incompatible with the token's algorithm are
+        skipped."""
+        ec_key = ec.generate_private_key(ec.SECP256R1())
+        idp.responses[JWKS_URI] = MockResponse(
+            {
+                "keys": [
+                    {
+                        **jwt.algorithms.ECAlgorithm.to_jwk(
+                            ec_key.public_key(), as_dict=True
+                        ),
+                        "kid": "ec-key",
+                        "use": "sig",
+                    },
+                    _public_jwk(PRIVATE_KEY, KID),
+                ]
+            }
+        )
+        res = validate(make_app(), make_token(kid=None))
+        assert res["user_id"] == SUBJECT
+
+    def test_algorithm_not_allowed(self, idp):
+        """Tokens signed with algorithms that are not allowed are
+        rejected."""
+        app = make_app(algorithms=["RS512"])
+        with pytest.raises(Unauthorized):
+            validate(app, make_token(kid=None))
 
     def test_no_key_id_forged(self, idp):
         """Tokens without key ID signed with other keys are rejected."""
