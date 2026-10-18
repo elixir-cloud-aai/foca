@@ -8,8 +8,7 @@ import jwt
 import requests
 from connexion.exceptions import Unauthorized
 from cryptography.hazmat.primitives import serialization
-from flask import current_app, request
-from werkzeug.datastructures import ImmutableMultiDict
+from flask import current_app
 
 from foca.models.config import AuthConfig
 
@@ -51,12 +50,6 @@ def validate_token(token: str) -> dict:
     conf: AuthConfig = current_app.config.foca.security.auth  # type: ignore[attr-defined]
     claims = _validate(token=token, conf=conf)
     logger.debug(f"Access granted to user: {claims[conf.claim_identity]}")
-
-    req_headers = request.headers.__dict__
-    for key, val in claims.items():
-        req_headers[key] = val
-    req_headers["user_id"] = claims[conf.claim_identity]
-    request.headers = ImmutableMultiDict(req_headers)  # type: ignore[assignment]
 
     return {
         "jwt": token,

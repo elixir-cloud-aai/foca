@@ -14,5 +14,3 @@ security:
         db_name: test_db
         collection_name: test_collection
         model: foca/security/access_control/api/default_model.conf
-        owner_headers: ["owner"]
-        user_headers: ["user"]

@@ -1,16 +1,10 @@
 """Methods to manage permission management configuration."""
 
 import logging
-from collections.abc import Callable
-from functools import wraps
 from importlib.resources import path as resource_path
 from pathlib import Path
 
 from connexion import App
-from connexion.exceptions import Forbidden
-from flask import current_app
-from flask.wrappers import Response
-from flask_authz import CasbinEnforcer
 
 from foca.database.register_mongodb import (
     add_new_database,
@@ -222,16 +216,6 @@ def register_casbin_enforcer(
     logger.info("Setting casbin model.")
     app.app.config["CASBIN_MODEL"] = casbin_model
 
-    logger.info("Setting headers for owner operations.")
-    app.app.config["CASBIN_OWNER_HEADERS"] = (
-        access_control_config.owner_headers
-    )
-
-    logger.info("Setting headers for user operations.")
-    app.app.config["CASBIN_USER_NAME_HEADERS"] = (
-        access_control_config.user_headers
-    )
-
     logger.info("Setting up casbin enforcer.")
     adapter = Adapter(
         uri=get_mongo_uri(
@@ -246,58 +230,3 @@ def register_casbin_enforcer(
     logger.info("Casbin enforcer registered.")
 
     return app
-
-
-def check_permissions(
-    _fn: Callable | None = None,
-) -> Callable:
-    """Decorator for checking user access to resource.
-
-    Returns:
-        The decorated function.
-    """
-
-    def _decorator_check_permissions(fn):
-        """User access decorator.
-
-        Used to facilitate optional decorator arguments.
-
-        Args:
-            fn: The function to be decorated.
-
-        Returns:
-            The response returned from the input function.
-        """
-
-        @wraps(fn)
-        def _wrapper(*args, **kwargs) -> tuple[Response, int]:
-            """Wrapper for permissions decorator.
-
-            Args:
-                args: positional arguments passed through from
-                    `check_permissions`.
-                kwargs: keyword arguments passed through from
-                    `check_permissions`.
-
-            Returns:
-                Wrapper function.
-            """
-            adapter = current_app.config["casbin_adapter"]
-            casbin_enforcer = CasbinEnforcer(current_app, adapter)
-            response: tuple[Response, int] = casbin_enforcer.enforcer(func=fn)(
-                *args, **kwargs
-            )
-            if (
-                len(response) == 2
-                and response[0].status_code == 200
-                and response[1] == 401
-            ):
-                raise Forbidden
-            return response
-
-        return _wrapper
-
-    if _fn is None:
-        return _decorator_check_permissions
-    else:
-        return _decorator_check_permissions(_fn)

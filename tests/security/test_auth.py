@@ -9,6 +9,7 @@ import pytest
 from connexion.exceptions import Unauthorized
 from cryptography.hazmat.primitives.asymmetric import rsa
 from flask import Flask
+from flask import request as auth_request
 from pydantic import ValidationError
 
 from foca.models.config import AuthConfig, Config
@@ -125,6 +126,17 @@ class TestValidateToken:
         for call in idp.call_args_list:
             assert call.kwargs["allow_redirects"] is False
             assert call.kwargs["timeout"] == 10
+
+    def test_request_headers_unchanged(self, idp):
+        """Claims are not added to request headers."""
+        app = make_app()
+        headers = {"Authorization": "Bearer x", "Content-Type": "text/plain"}
+        with app.test_request_context(headers=headers):
+            before = dict(auth_request.headers)
+            validate_token(token=make_token())
+            assert dict(auth_request.headers) == before
+            assert "sub" not in auth_request.headers
+            assert "user_id" not in auth_request.headers
 
     def test_untrusted_issuer(self, idp):
         """Tokens of untrusted issuers are rejected without requests."""
