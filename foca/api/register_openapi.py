@@ -1,6 +1,7 @@
 """Register and modify OpenAPI specifications."""
 
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 from connexion import App
@@ -26,6 +27,26 @@ _OPERATION_OBJECT_FIELDS = frozenset(
         "trace",
     }
 )
+
+
+def _iter_operations(spec: dict) -> Iterator[dict]:
+    """Iterate over the Operation Objects of an OpenAPI specification.
+
+    Args:
+        spec: OpenAPI 2.x or 3.x specification.
+
+    Yields:
+        Operation Objects of all Path Item Objects, skipping other Path Item
+        Object fields (e.g., path-level `parameters`, `summary` or `$ref`).
+    """
+    for path_item_object in spec.get("paths", {}).values():
+        if not isinstance(path_item_object, dict):
+            continue
+        for field, operation_object in path_item_object.items():
+            if field in _OPERATION_OBJECT_FIELDS and isinstance(
+                operation_object, dict
+            ):
+                yield operation_object
 
 
 def register_openapi(
@@ -66,15 +87,8 @@ def register_openapi(
 
         # Add/replace fields to Operation Objects
         if spec.add_operation_fields is not None:
-            for key, val in spec.add_operation_fields.items():
-                for path_item_object in spec_parsed.get("paths", {}).values():
-                    for (
-                        operation,
-                        operation_object,
-                    ) in path_item_object.items():
-                        if operation not in _OPERATION_OBJECT_FIELDS:
-                            continue
-                        operation_object[key] = val
+            for operation_object in _iter_operations(spec_parsed):
+                operation_object.update(spec.add_operation_fields)
             logger.debug(
                 f"Added operation fields: {spec.add_operation_fields}"
             )
@@ -102,9 +116,8 @@ def register_openapi(
             spec_parsed.get("components", {}).pop("securitySchemes", None)
             # Open API 2/3
             spec_parsed.pop("security", None)
-            for path_item_object in spec_parsed.get("paths", {}).values():
-                for operation_object in path_item_object.values():
-                    operation_object.pop("security", None)
+            for operation_object in _iter_operations(spec_parsed):
+                operation_object.pop("security", None)
             logger.debug("Removed security fields")
 
         # Attach specs to connexion App

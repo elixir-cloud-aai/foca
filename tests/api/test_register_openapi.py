@@ -10,7 +10,7 @@ from connexion import App
 from connexion.exceptions import InvalidSpecification
 from yaml import YAMLError
 
-from foca.api.register_openapi import register_openapi
+from foca.api.register_openapi import _iter_operations, register_openapi
 from foca.models.config import SpecConfig
 
 # Define mock data
@@ -189,3 +189,71 @@ class TestRegisterOpenAPI:
         spec_configs = [SpecConfig(**SPEC_CONFIG_3_DISABLE_AUTH)]
         res = register_openapi(app=app, specs=spec_configs)
         assert isinstance(res, App)
+
+
+def _registered_spec(monkeypatch, spec_config: dict) -> dict:
+    """Register spec and return the specification passed to `add_api()`."""
+    specs = []
+    monkeypatch.setattr(
+        App,
+        "add_api",
+        lambda self, specification, **kwargs: specs.append(specification),
+    )
+    register_openapi(app=App(__name__), specs=[SpecConfig(**spec_config)])
+    assert len(specs) == 1
+    return specs[0]
+
+
+class TestModifiedSpecs:
+    """Tests for the specifications passed to Connexion."""
+
+    def test_disable_auth_path_item_fields(self, monkeypatch):
+        """Security is removed from specs with path-level fields."""
+        spec_config = deepcopy(SPEC_CONFIG_3_PATHITEMPARAM)
+        spec_config["disable_auth"] = True
+        spec = _registered_spec(monkeypatch, spec_config)
+        assert "security" not in spec
+        assert "securitySchemes" not in spec.get("components", {})
+        operations = list(_iter_operations(spec))
+        assert operations
+        assert all("security" not in op for op in operations)
+        # path-level parameters are kept
+        assert any(
+            isinstance(path_item.get("parameters"), list)
+            for path_item in spec["paths"].values()
+        )
+
+    def test_add_operation_fields_path_item_fields(self, monkeypatch):
+        """Operation fields are only added to operations."""
+        spec = _registered_spec(monkeypatch, SPEC_CONFIG_3_PATHITEMPARAM)
+        operations = list(_iter_operations(spec))
+        assert operations
+        assert all(
+            op["x-openapi-router-controller"] == "controllers"
+            for op in operations
+        )
+        assert any(
+            isinstance(path_item.get("parameters"), list)
+            for path_item in spec["paths"].values()
+        )
+
+
+def test_iter_operations():
+    """Only Operation Objects are yielded."""
+    get, post = {"operationId": "a"}, {"operationId": "b"}
+    spec = {
+        "paths": {
+            "/a": {
+                "summary": "A",
+                "description": "A",
+                "parameters": [{"name": "x", "in": "query"}],
+                "servers": [{"url": "/"}],
+                "get": get,
+                "x-extension": {"a": 1},
+            },
+            "/b": {"$ref": "#/x-path-items/b", "post": post},
+            "/c": None,
+        }
+    }
+    assert list(_iter_operations(spec)) == [get, post]
+    assert list(_iter_operations({})) == []
