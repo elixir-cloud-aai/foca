@@ -186,7 +186,8 @@ them.
 
 Rules created via `POST /permissions` get a random identifier of `id_length`
 characters (4 to 64, default: 6) drawn from `id_charset` (letters, digits,
-`-`, `.`, `_` and `~`; default: letters and digits). Identifiers are unique:
+`-`, `.`, `_` and `~`; default: letters and digits), which together must allow
+for at least one million different identifiers. Identifiers are unique:
 FOCA creates a unique index on them and retries with a new identifier if a
 generated one exists already. If stored rules share identifiers (e.g., rules
 stored by previous FOCA versions), the index cannot be created: FOCA logs an

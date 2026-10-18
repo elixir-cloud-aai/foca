@@ -19,3 +19,5 @@ GROUP_PREFIX = "group:"
 DEFAULT_ID_CHARSET = string.ascii_letters + string.digits
 DEFAULT_ID_LENGTH = 6
 ID_ATTEMPTS = 5
+# Minimum number of possible identifiers for configured characters and length
+MIN_ID_SPACE = 1_000_000
