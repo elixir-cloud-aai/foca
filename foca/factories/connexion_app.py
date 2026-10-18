@@ -85,10 +85,6 @@ def __add_config_to_connexion_app(
             "for local development."
         )
 
-    logger.debug("Flask app settings:")
-    for key, value in app.app.config.items():
-        logger.debug(f"* {key}: {value}")
-
     # Add user configuration to Flask app config
     set_app_config(app.app, config)
 

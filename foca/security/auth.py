@@ -12,6 +12,7 @@ from jwt.types import Options
 
 from foca.config.access import get_config
 from foca.models.config import AuthConfig
+from foca.utils.logging import escape_log_value
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -53,7 +54,10 @@ def validate_token(token: str) -> dict:
         log_auth_config_warnings(conf)
         conf._warnings_logged = True
     claims = _validate(token=token, conf=conf)
-    logger.debug(f"Access granted to user: {claims[conf.claim_identity]}")
+    logger.debug(
+        f"Token issued by '{escape_log_value(claims['iss'])}' validated for "
+        f"subject '{escape_log_value(claims[conf.claim_identity])}'"
+    )
 
     return {
         "jwt": token,

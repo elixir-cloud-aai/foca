@@ -125,6 +125,20 @@ class TestValidateToken:
         validate(app, make_token())
         assert calls == [app.config.foca.security.auth]
 
+    def test_no_claims_logged(self, idp, monkeypatch):
+        """Only issuer and subject are logged, not tokens or other claims."""
+        messages: list[str] = []
+        monkeypatch.setattr(auth.logger, "debug", messages.append)
+        token = make_token(email="alice@example.org", name="Alice A.")
+        validate(make_app(), token)
+        logged = " ".join(messages)
+        assert (
+            f"Token issued by '{ISSUER}' validated for subject '{SUBJECT}'"
+            in logged
+        )
+        for value in [token, "alice@example.org", "Alice A.", "openid"]:
+            assert value not in logged
+
     def test_success(self, idp):
         """Valid token is accepted; verified claims are returned."""
         res = validate(make_app(), make_token())

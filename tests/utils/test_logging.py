@@ -2,11 +2,12 @@
 
 import logging
 
+import pytest
 from connexion import App
-from flask import Flask
+from flask import Flask, Response
 
 from foca.utils import logging as module
-from foca.utils.logging import log_traffic
+from foca.utils.logging import escape_log_value, log_traffic
 
 app = Flask(__name__)
 REQ = {
@@ -113,5 +114,86 @@ def test_logging_decorator_in_app(monkeypatch):
     assert response.status_code == 200
     assert messages == [
         'Incoming request: "GET /items HTTP/1.1" from 10.0.0.1',
-        'Response to request "GET /items HTTP/1.1" from 10.0.0.1: ok',
+        'Response to request "GET /items HTTP/1.1" from 10.0.0.1: str, '
+        "status 200",
     ]
+
+
+@pytest.fixture
+def logged(monkeypatch) -> list[str]:
+    """Messages logged by `log_traffic`."""
+    messages: list[str] = []
+    monkeypatch.setattr(
+        module.logger, "log", lambda level, msg: messages.append(msg)
+    )
+    return messages
+
+
+SECRET_BODY = {"token": "s3cr3t"}
+
+
+@pytest.mark.parametrize(
+    "response,description",
+    [
+        (SECRET_BODY, "dict, status 200"),
+        ((SECRET_BODY, 201), "dict, status 201"),
+        ((SECRET_BODY, 201, {"X-Header": "x"}), "dict, status 201"),
+        ((SECRET_BODY,), "dict, status 200"),
+        (Response("s3cr3t", status=202), "Response, status 202"),
+        (None, "NoneType, status 200"),
+    ],
+)
+def test_logging_decorator_no_body(logged, response, description):
+    """Response bodies are not logged by default."""
+
+    @log_traffic
+    def mock_func():
+        return response
+
+    with app.test_request_context(environ_base=REQ):
+        mock_func()
+    assert logged[1].endswith(f": {description}")
+    assert "s3cr3t" not in " ".join(logged)
+
+
+def test_logging_decorator_body(logged):
+    """Response bodies are logged if requested."""
+
+    @log_traffic(log_response_body=True)
+    def mock_func():
+        return {"foo": "bar\nbaz"}
+
+    with app.test_request_context(environ_base=REQ):
+        mock_func()
+    assert logged[1].endswith(": dict, status 200: {'foo': 'bar\\nbaz'}")
+
+
+def test_logging_decorator_control_characters(logged):
+    """Encoded line breaks in paths are escaped."""
+
+    @log_traffic
+    def mock_func():
+        return "ok"
+
+    with app.test_request_context(
+        "/items%0d%0aFAKE%20log%20line", environ_base=REQ
+    ):
+        mock_func()
+    assert len(logged) == 2
+    assert all("\n" not in msg and "\r" not in msg for msg in logged)
+    assert "/items\\r\\nFAKE log line" in logged[0]
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("plain text", "plain text"),
+        ("a\r\nb", "a\\r\\nb"),
+        ("tab\there", "tab\\there"),
+        ("\x1b[31mred", "\\x1b[31mred"),
+        ("ünïcödé", "ünïcödé"),
+        (42, "42"),
+    ],
+)
+def test_escape_log_value(value, expected):
+    assert escape_log_value(value) == expected
