@@ -72,7 +72,7 @@ exceptions = {
     },
     ServiceUnavailable: {
         "title": "Service Unavailable",
-        "status": 502,
+        "status": 503,
     },
     GatewayTimeout: {
         "title": "Gateway Timeout",
@@ -121,6 +121,7 @@ def _exc_to_str(
 def _log_exception(
     exc: BaseException,
     format: str = "oneline",
+    problem: dict | None = None,
 ) -> None:
     """Log exception with indicated format.
 
@@ -132,6 +133,8 @@ def _log_exception(
             single line), ``minimal`` (log only exception title and message),
             or ``regular`` (exception logged with entire trace stack, typically
             across multiple lines).
+        problem: Problem details the exception is mapped to; logged in the
+            same record as the exception, if given.
     """
     exc_str = ""
     valid_formats = [
@@ -146,6 +149,8 @@ def _log_exception(
             exc_str = f"{type(exc).__name__}: {exc!s}"
         else:
             exc_str = _exc_to_str(exc=exc, delimiter="\n")
+        if problem is not None:
+            exc_str = f"{dumps(problem)} {exc_str}"
         logger.error(exc_str)
     else:
         logger.error("Error logging is misconfigured.")
@@ -200,6 +205,11 @@ def _exclude_key_nested_dict(
 def _problem_handler_json(exception: Exception) -> Response:
     """Generic JSON problem handler.
 
+    The exception is looked up in the exception mapping along its method
+    resolution order, i.e., exceptions not in the mapping are handled like
+    their closest mapped base class (e.g., a subclass of `NotFound` like
+    `NotFound`), falling back to `Exception`.
+
     Args:
         exception: Raised exception.
 
@@ -208,9 +218,10 @@ def _problem_handler_json(exception: Exception) -> Response:
     """
     # Look up exception & get status code
     conf = current_app.config.foca.exceptions  # type: ignore[attr-defined]
-    exc = type(exception)
-    if exc not in conf.mapping:
-        exc = Exception
+    exc = next(
+        (cls for cls in type(exception).__mro__ if cls in conf.mapping),
+        Exception,
+    )
     try:
         status = int(
             _get_by_path(
@@ -227,8 +238,11 @@ def _problem_handler_json(exception: Exception) -> Response:
         )
     # Log exception JSON & traceback
     if conf.logging.value != "none":
-        logger.error(conf.mapping[exc])
-        _log_exception(exc=exception, format=conf.logging.value)
+        _log_exception(
+            exc=exception,
+            format=conf.logging.value,
+            problem=conf.mapping[exc],
+        )
     # Filter members to be returned to user
     keep = deepcopy(conf.mapping[exc])
     if conf.public_members is not None:

@@ -9,6 +9,7 @@ import pytest
 from connexion import App
 from connexion.exceptions import BadRequestProblem
 from flask import Flask, Response
+from werkzeug.exceptions import NotFound, ServiceUnavailable
 
 from foca.errors.exceptions import (
     _exc_to_str,
@@ -109,6 +110,52 @@ def test__problem_handler_json():
         assert res.mimetype == "application/problem+json"
         response = json.loads(res.data.decode("utf-8"))
         assert response == EXPECTED_RESPONSE
+
+
+class ItemNotFound(NotFound):
+    pass
+
+
+class ItemGone(ItemNotFound):
+    pass
+
+
+@pytest.mark.parametrize(
+    "exception,status",
+    [
+        (ServiceUnavailable(), 503),
+        (NotFound(), 404),
+        # subclasses of mapped exceptions are handled like their closest
+        # mapped base class
+        (ItemNotFound(), 404),
+        (ItemGone(), 404),
+        (UnknownException(), 500),
+    ],
+)
+def test__problem_handler_json_status(caplog, exception, status):
+    """Test problem handler; status codes and logging."""
+    app = Flask(__name__)
+    setattr(app.config, "foca", Config())
+    with app.app_context():
+        res = _problem_handler_json(exception)
+    assert res.status_code == status
+    assert json.loads(res.data.decode("utf-8"))["status"] == status
+    # one log record per handled exception, with problem details
+    assert len(caplog.records) == 1
+    assert f'"status": {status}' in caplog.records[0].getMessage()
+
+
+def test__problem_handler_json_closest_base_class():
+    """Test problem handler; closest mapped base class is used."""
+    app = Flask(__name__)
+    setattr(app.config, "foca", Config())
+    app.config.foca.exceptions.mapping[ItemNotFound] = {
+        "title": "Item not found",
+        "status": 404,
+    }
+    with app.app_context():
+        res = _problem_handler_json(ItemGone())
+    assert json.loads(res.data.decode("utf-8"))["title"] == "Item not found"
 
 
 def test__problem_handler_json_request_validation_error():
