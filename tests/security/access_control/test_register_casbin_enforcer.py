@@ -26,7 +26,7 @@ def test_adapter_uri(monkeypatch):
         access_control_config=AccessControlConfig(
             db_name="access_control_db",
             collection_name="policy_rules",
-            id_charset="abc",
+            id_charset="abcdef",
             id_length=8,
         ),
         mongo_config=MongoConfig(),
@@ -35,7 +35,7 @@ def test_adapter_uri(monkeypatch):
         "uri": "mongodb://h1:1,h2:2/?replicaSet=rs",
         "dbname": "access_control_db",
         "collection": "policy_rules",
-        "id_charset": "abc",
+        "id_charset": "abcdef",
         "id_length": 8,
         # rules are validated against the app's model
         "model": AccessControlConfig().model,

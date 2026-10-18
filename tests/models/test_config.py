@@ -326,7 +326,8 @@ def test_AccessControlConfig_subject_prefix_invalid(prefix):
 
 
 @pytest.mark.parametrize(
-    "charset,length", [("abc", 4), ("0123456789", 64), ("a-._~", 6)]
+    "charset,length",
+    [("abcdef", 8), ("0123456789", 6), ("0123456789", 64), ("a-._~", 9)],
 )
 def test_AccessControlConfig_ids(charset, length):
     """Test AccessControlConfig instantiation; valid identifier settings."""
@@ -336,7 +337,18 @@ def test_AccessControlConfig_ids(charset, length):
 
 @pytest.mark.parametrize(
     "charset,length",
-    [("", 6), ("ab/", 6), ("a b", 6), ("äb", 6), ("ab", 3), ("ab", 65)],
+    [
+        ("", 6),
+        ("ab/", 6),
+        ("a b", 6),
+        ("äb", 6),
+        ("ab", 3),
+        ("ab", 65),
+        # too few different identifiers
+        ("a", 64),
+        ("aaaaaaaaaab", 19),
+        ("0123456789", 5),
+    ],
 )
 def test_AccessControlConfig_ids_invalid(charset, length):
     """Test AccessControlConfig instantiation; invalid identifier settings."""
