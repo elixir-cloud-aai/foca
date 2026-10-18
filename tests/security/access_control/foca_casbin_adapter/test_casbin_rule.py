@@ -1,7 +1,18 @@
-"""Tests for initialising casbin rule object."""
+"""Tests for casbin rule object and rule validation."""
 
+from importlib.resources import path as resource_path
+
+import pytest
+from casbin.model import Model
+
+from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH,
+    RESOURCE_ROLE_MODEL_FILE,
+)
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     CasbinRule,
+    validate_rule,
+    validate_rule_value,
 )
 
 # Define data
@@ -31,3 +42,96 @@ class TestCasbinRule:
         assert repr(test_rule) == BASE_RULE_REPRESENTATION
         assert test_rule.dict() == BASE_RULE_OBJECT
         assert test_rule.__str__() == BASE_RULE_STR_REPRESENTATION
+
+
+@pytest.fixture
+def model() -> Model:
+    """Reference model for resource-scoped roles."""
+    model = Model()
+    with resource_path(
+        ACCESS_CONTROL_BASE_PATH, RESOURCE_ROLE_MODEL_FILE
+    ) as _path:
+        model.load_model(str(_path))
+    return model
+
+
+class TestValidateRuleValue:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "alice",
+            "user:alice@example.org",
+            "/items/:id",
+            "(GET)|(POST)",
+            "a#",
+        ],
+    )
+    def test_valid(self, value):
+        assert validate_rule_value(value) == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            None,
+            1,
+            ["a"],
+            "",
+            "a,b",
+            "a\nb",
+            "a\rb",
+            "#a",
+            "a" * 1025,
+        ],
+    )
+    def test_invalid(self, value):
+        with pytest.raises(ValueError):
+            validate_rule_value(value)
+
+    def test_max_length(self):
+        assert validate_rule_value("a" * 1024) == "a" * 1024
+
+
+class TestValidateRule:
+    @pytest.mark.parametrize(
+        "ptype,values",
+        [
+            ("p", ["*", "/items", "GET"]),
+            ("p", ["owner", "/items/:id", "(GET)|(PUT)"]),
+            ("g", ["user:alice", "admin"]),
+            ("g2", ["user:alice", "owner", "/items/1"]),
+        ],
+    )
+    def test_valid(self, model, ptype, values):
+        assert validate_rule(ptype, values, model) == values
+
+    @pytest.mark.parametrize(
+        "ptype,values",
+        [
+            # invalid or undefined policy types
+            (None, ["a", "b", "GET"]),
+            ("", ["a", "b", "GET"]),
+            ("x", ["a", "b", "GET"]),
+            ("p ", ["a", "b", "GET"]),
+            ("p2", ["a", "b", "GET"]),
+            ("g3", ["a", "b"]),
+            # wrong number of values
+            ("p", []),
+            ("p", ["a", "b"]),
+            ("g", ["a", "b", "c"]),
+            ("p", ["a"] * 7),
+            # invalid values
+            ("p", ["a,b", "b", "GET"]),
+            ("g", ["a", None]),
+            # invalid action patterns
+            ("p", ["a", "b", "(GET"]),
+            ("p", ["a", "b", "*"]),
+        ],
+    )
+    def test_invalid(self, model, ptype, values):
+        with pytest.raises(ValueError):
+            validate_rule(ptype, values, model)
+
+    def test_without_model(self):
+        assert validate_rule("p9", ["a", "(b"]) == ["a", "(b"]
+        with pytest.raises(ValueError):
+            validate_rule("p9", ["a", "b,c"])

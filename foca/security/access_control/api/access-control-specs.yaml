@@ -274,6 +274,7 @@ components:
     Permission:
       description: Permission model.
       type: object
+      additionalProperties: false
       required:
         - policy_type
         - rule
@@ -281,14 +282,11 @@ components:
         id:
           type: string
           description: Unique identifier of the permission.
-        rule_section:
-          type: string
-          description: This defines the section for which the rule is being added.
-            Type `p` and `g` refer to policy and role sections respectively.
-          enum: ["p", "g"]
         policy_type:
           type: string
-          description: This defines the policy type of the permission (rule) definition.
+          description: Policy type of the rule, as defined in the access control
+            model, e.g., `p` for policy rules and `g` for role assignments.
+          pattern: '^[pg][0-9]*$'
         rule:
           $ref: '#/components/schemas/Rule'
       example:
@@ -298,8 +296,15 @@ components:
           v1: /pets
           v2: POST
     Rule:
-      description: Rule definition. These will be utilised as per the policy conf structure.
+      description: Rule definition, with values in the order of the fields of
+        the policy type's definition in the access control model. Values must
+        not be empty, must not contain commas or line breaks and must not start
+        with `#`. Values of `act` fields must be regular expressions that match
+        the whole action.
       type: object
+      additionalProperties: false
+      required:
+        - v0
       properties:
         v0:
           type: string

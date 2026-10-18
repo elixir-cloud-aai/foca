@@ -11,6 +11,10 @@ from flask import current_app, has_request_context, request
 from flask.globals import request_ctx
 
 from foca.security.access_control.constants import GROUP_PREFIX
+from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
+    validate_rule,
+    validate_rule_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +174,8 @@ def enforce_access_control(fn: Callable) -> Callable:
         connexion.exceptions.Unauthorized: The subject could not be
             identified.
         connexion.exceptions.Forbidden: The subject is not allowed to access
-            the resource.
+            the resource, or it is not a valid value for policy rules (cf.
+            :py:func:`validate_rule_value`).
     """
 
     @wraps(fn)
@@ -178,6 +183,11 @@ def enforce_access_control(fn: Callable) -> Callable:
         subject = get_current_subject()
         if subject is None:
             raise Unauthorized("Subject could not be identified")
+        try:
+            validate_rule_value(_prefix_subject(subject))
+        except ValueError as exc:
+            logger.info(f"Access denied: invalid subject: {exc}")
+            raise Forbidden from exc
         enforcer = get_enforcer()
         for _subject in [_prefix_subject(subject), *get_current_groups()]:
             if enforcer.enforce(_subject, request.path, request.method):
@@ -335,11 +345,15 @@ def add_resource_role(
         `True` if the role was granted, `False` if it already existed.
 
     Raises:
-        ValueError: The model does not define resource-scoped roles.
+        ValueError: The model does not define resource-scoped roles, or the
+            prefixed subject, role or resource is not a valid value for
+            policy rules (cf.
+            :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).
     """
-    return _get_resource_role_enforcer(ptype).add_named_grouping_policy(
-        ptype, _prefix_subject(subject), role, resource
-    )
+    enforcer = _get_resource_role_enforcer(ptype)
+    rule = [_prefix_subject(subject), role, resource]
+    validate_rule(ptype, rule, enforcer.get_model())
+    return enforcer.add_named_grouping_policy(ptype, *rule)
 
 
 def remove_resource_role(
@@ -360,11 +374,14 @@ def remove_resource_role(
         `True` if the role was revoked, `False` if it did not exist.
 
     Raises:
-        ValueError: The model does not define resource-scoped roles.
+        ValueError: The model does not define resource-scoped roles, or the
+            prefixed subject, role or resource is not a valid value for
+            policy rules.
     """
-    return _get_resource_role_enforcer(ptype).remove_named_grouping_policy(
-        ptype, _prefix_subject(subject), role, resource
-    )
+    enforcer = _get_resource_role_enforcer(ptype)
+    rule = [_prefix_subject(subject), role, resource]
+    validate_rule(ptype, rule, enforcer.get_model())
+    return enforcer.remove_named_grouping_policy(ptype, *rule)
 
 
 def list_resource_roles(

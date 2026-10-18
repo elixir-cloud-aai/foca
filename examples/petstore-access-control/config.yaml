@@ -24,6 +24,9 @@ security:
     access_control:
         model: petstore_policies.conf
         enforce: True
+        # Serve Swagger UI and specification of the permissions API
+        api_swagger_ui: True
+        api_serve_spec: True
         # Map group claims of the identity provider to roles, e.g., to make
         # members of a group admins:
         # claim_groups: eduperson_entitlement

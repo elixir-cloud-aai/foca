@@ -179,7 +179,10 @@ def register_permission_specs(
         connexion={
             "strict_validation": True,
             "validate_responses": True,
-            "options": {"swagger_ui": True, "serve_spec": True},
+            "options": {
+                "swagger_ui": access_control_config.api_swagger_ui,
+                "serve_spec": access_control_config.api_serve_spec,
+            },
         },
     )
 

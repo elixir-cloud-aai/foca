@@ -134,6 +134,8 @@ security:
     api_specs: 'path/to/your/access/control/specs'
     api_controllers: 'path/to/your/access/control/spec/controllers'
     api_route: '/path/to/access_control_api'
+    api_swagger_ui: False
+    api_serve_spec: False
     db_name: access_control_db_name
     collection_name: access_control_collection_name
     enforce: False
@@ -174,6 +176,10 @@ you can provide a custom [Swagger 2.x or OpenAPI 3.x][res-openapi] definition
 for `/permissions` endpoints via `api_specs`, provide a module containing
 custom controllers for the defined endpoints via the `api_controllers`
 parameter and tell FOCA where to host the endpoints via `api_route`.
+
+The Swagger UI and the specification of the permissions API are not served
+by default. Set `api_swagger_ui: True` and/or `api_serve_spec: True` to serve
+them.
 
 The specs and controllers used by default can be accessed via the links below:
 
@@ -284,6 +290,10 @@ g2, user:alice, owner, /services/123             # alice owns /services/123
 g, user:bob, admin                               # bob is an admin
 ```
 
+Actions (HTTP methods) in `p` rules are regular expressions that must match
+the _whole_ method: `GET` matches `GET` only (not, e.g., a method containing
+`GET`), and `(GET)|(PUT)` matches `GET` and `PUT`.
+
 Subjects with role `admin`, assigned via `g` rules or mapped from group
 claims, may do everything. Read operations can be made public via
 `security: []`. Note that the paths are the full request paths, including
@@ -342,7 +352,8 @@ The helpers manage `g2` rules by default. For models defining resource-scoped
 roles under another name, pass it via `ptype` (e.g., `ptype="g3"`). The
 helpers raise a `ValueError` if the model does not define that role type with
 three fields (subject, role, resource), e.g., with the default model, whose
-`g2` groups objects.
+`g2` groups objects, or if a value is not valid in rules (see [rule
+values](#rule-values)).
 
 ### Securing the permissions API
 
@@ -359,10 +370,31 @@ rules can be added via `group_mapping` (e.g., mapping an entitlement to
 > If you provide custom `api_specs` for the permissions API, make sure that
 > they require authentication; otherwise, all requests will be denied.
 
+### Rule values
+
+Rules are validated whenever they are written, i.e., via the permissions API,
+the resource role helpers or the Casbin adapter:
+
+* The policy type (`policy_type`) must be defined in the model (e.g., `p`,
+  `g` or `g2`), and the rule must have exactly as many values as the policy
+  type's definition has fields, given as `v0`, `v1`, ... in the permissions
+  API. Other keys are rejected.
+* Values must be non-empty strings of at most 1024 characters, must not
+  contain commas or line breaks, and must not start with `#`.
+* Values of `act` fields of policy definitions (e.g., `p = sub, obj, act`)
+  must be valid regular expressions.
+
+The permissions API responds with `400` to invalid rules. Requests to
+enforced operations whose subject is not a valid value (e.g., an identity
+claim containing a comma) are denied with `403`. Stored rules that are not
+valid (e.g., added to the database directly) are skipped with a warning when
+policies are loaded.
+
 ## Exploring the API
 
-Once your app is up and running, you can explore the access control API
-endpoints via a [Swagger UI][res-swagger] in your browser, e.g.:
+If `api_swagger_ui` is set, you can explore the access control API endpoints
+via a [Swagger UI][res-swagger] in your browser once your app is up and
+running, e.g.:
 
 ```bash
 firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
