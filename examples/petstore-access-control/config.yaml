@@ -1,10 +1,12 @@
 server:
     host: '0.0.0.0'
     port: 8080
-    debug: True
-    environment: development
+    # Enable for local development only: the debugger allows executing
+    # arbitrary code
+    debug: False
+    environment: production
     testing: False
-    use_reloader: True
+    use_reloader: False
 
 security:
     auth:
@@ -21,8 +23,13 @@ security:
           - public_key
         validation_checks: all
     access_control:
-        owner_headers: ['user_id']
-        user_headers: ['user_id']
+        model: petstore_policies.conf
+        enforce: True
+        # Map group claims of the identity provider to roles, e.g., to make
+        # members of a group admins:
+        # claim_groups: eduperson_entitlement
+        # group_mapping:
+        #     "urn:example:group:petstore-admins": admin
 
 api:
     specs:
@@ -48,6 +55,12 @@ db:
         petstore-access-control:
             collections:
                 pets:
+                    indexes:
+                        - keys:
+                              id: 1
+                          options:
+                              unique: True
+                counters:
                     indexes: null
 
 exceptions:

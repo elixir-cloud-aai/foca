@@ -1,25 +1,50 @@
-"""Petstore access control controllers."""
+"""Petstore access control controllers.
+
+Access control policies are enforced by FOCA for all operations
+(`security.access_control.enforce`). The controllers only manage ownership:
+creators of pets become their owners, and ownership is removed together with
+the pet.
+"""
 
 import logging
 
 from exceptions import NotFound
-from flask import current_app, make_response
+from flask import current_app, make_response, request
+from pymongo import ReturnDocument
 from pymongo.collection import Collection
 
-from foca.security.access_control.register_access_control import (
-    check_permissions,
+from foca.security.access_control import (
+    add_resource_role,
+    get_current_subject,
+    remove_resource,
 )
 
 logger = logging.getLogger(__name__)
 
 
-@check_permissions
-def findPets(limit=None, tags=None):
-    db_collection: Collection = (
+def _get_collection(name: str = "pets") -> Collection:
+    return (
         current_app.config.foca.db.dbs["petstore-access-control"]
-        .collections["pets"]
+        .collections[name]
         .client
     )
+
+
+def _next_pet_id() -> int:
+    # IDs are taken from an atomically incremented counter, so that they
+    # are never shared by concurrent requests or reused after deletion
+    # (roles are granted per pet ID)
+    counter = _get_collection("counters").find_one_and_update(
+        {"_id": "pets"},
+        {"$inc": {"value": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return counter["value"] - 1
+
+
+def findPets(limit=None, tags=None):
+    db_collection = _get_collection()
     filter_dict = {} if tags is None else {"tag": {"$in": tags}}
     if not limit:
         limit = 0
@@ -31,30 +56,34 @@ def findPets(limit=None, tags=None):
     return list(records)
 
 
-@check_permissions
+def _pet_path(id: int) -> str:
+    # Canonical resource path of a pet, independent of how the request path
+    # spells the ID (e.g., `/pets/00` for pet 0)
+    base_path = request.path.rstrip("/")
+    if request.view_args and "id" in request.view_args:
+        base_path = base_path.rsplit("/", 1)[0]
+    return f"{base_path}/{id}"
+
+
 def addPet(pet):
-    db_collection: Collection = (
-        current_app.config.foca.db.dbs["petstore-access-control"]
-        .collections["pets"]
-        .client
-    )
-    counter = 0
-    ctr = db_collection.find({}).sort([("$natural", -1)])
-    if db_collection.count_documents({}) != 0:
-        counter = ctr[0].get("id") + 1
-    record = {"id": counter, "name": pet["name"], "tag": pet["tag"]}
+    db_collection = _get_collection()
+    pet_id = _next_pet_id()
+    record = {"id": pet_id, "name": pet["name"]}
+    if "tag" in pet:
+        record["tag"] = pet["tag"]
     db_collection.insert_one(record)
     del record["_id"]
+    # Make the creator the owner of the new pet
+    add_resource_role(
+        subject=get_current_subject(),
+        role="owner",
+        resource=_pet_path(pet_id),
+    )
     return record
 
 
-@check_permissions
 def findPetById(id):
-    db_collection: Collection = (
-        current_app.config.foca.db.dbs["petstore-access-control"]
-        .collections["pets"]
-        .client
-    )
+    db_collection = _get_collection()
     record = db_collection.find_one(
         {"id": id},
         {"_id": False},
@@ -64,13 +93,8 @@ def findPetById(id):
     return record
 
 
-@check_permissions
 def deletePet(id):
-    db_collection: Collection = (
-        current_app.config.foca.db.dbs["petstore-access-control"]
-        .collections["pets"]
-        .client
-    )
+    db_collection = _get_collection()
     record = db_collection.find_one(
         {"id": id},
         {"_id": False},
@@ -80,5 +104,7 @@ def deletePet(id):
     db_collection.delete_one(
         {"id": id},
     )
+    # Remove all roles granted on the deleted pet
+    remove_resource(_pet_path(id))
     response = make_response("", 204)
     return response
