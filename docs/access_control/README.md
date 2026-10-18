@@ -188,7 +188,11 @@ Rules created via `POST /permissions` get a random identifier of `id_length`
 characters (4 to 64, default: 6) drawn from `id_charset` (letters, digits,
 `-`, `.`, `_` and `~`; default: letters and digits). Identifiers are unique:
 FOCA creates a unique index on them and retries with a new identifier if a
-generated one exists already. Identifiers supplied via `PUT
+generated one exists already. If stored rules share identifiers (e.g., rules
+stored by previous FOCA versions), the index cannot be created: FOCA logs an
+error and stores rules without guaranteeing unique identifiers. To resolve
+this, delete or re-create (e.g., via `POST /permissions`) the rules with
+duplicate identifiers and restart the app. Identifiers supplied via `PUT
 /permissions/{id}` must have the same length and characters; otherwise, the
 request is rejected with `400`.
 
