@@ -3,9 +3,14 @@
 from pathlib import Path
 from unittest import TestCase
 
+import mongomock
+import pytest
 from casbin import Enforcer, Model
 from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
 
+from foca.security.access_control.constants import ID_ATTEMPTS
+from foca.security.access_control.foca_casbin_adapter import adapter as module
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
 # Constants
@@ -44,22 +49,18 @@ class TestAdapter(TestCase):
         self.clear_db()
 
     def save_policies(
-        self, adapter: Adapter, model: Model, policy: tuple
+        self, adapter: Adapter, model: Model, policies: list
     ) -> None:
-        """Helper function for adding policy to a given model.
+        """Helper function for saving policies of a given model.
 
         Args:
             adapter: Casbin mongodb adapter.
             model: Casbin model configuration.
-            policy: New policy to be added.
-
-        Attributes:
-            adapter: Casbin mongodb adapter.
-            model: Casbin model configuration.
-            policy: New policy to be added.
+            policies: Policies to be saved.
         """
         model.clear_policy()
-        model.add_policy(*policy)
+        for policy in policies:
+            model.add_policy(*policy)
         adapter.save_policy(model)
 
     def get_enforcer(self, conf_file: str, policies: list) -> Enforcer:
@@ -80,8 +81,7 @@ class TestAdapter(TestCase):
         adapter = Adapter(f"mongodb://localhost:{self.db_port}", self.db_name)
         e = Enforcer(conf_file, adapter)
         model = e.get_model()
-        for _policy in policies:
-            self.save_policies(adapter=adapter, model=model, policy=_policy)
+        self.save_policies(adapter=adapter, model=model, policies=policies)
         return Enforcer(conf_file, adapter)
 
     def clear_db(self):
@@ -242,3 +242,72 @@ class TestAdapter(TestCase):
         assert e.enforce("bob", "data2", "write") is True
         assert e.enforce("alice", "data2", "read") is False
         assert e.enforce("alice", "data2", "write") is False
+
+
+@pytest.fixture
+def mock_adapter() -> Adapter:
+    """Adapter with in-memory collection."""
+    adapter = Adapter("mongodb://localhost:12345", "db")
+    adapter._collection = mongomock.MongoClient().db.policy_rules
+    return adapter
+
+
+class TestAdapterIdentifiers:
+    """Tests for identifiers of stored rules."""
+
+    def test_no_collection(self):
+        with pytest.raises(ValueError):
+            Adapter("mongodb://localhost:12345", "db", collection=None)
+
+    def test_unique_index(self, mock_adapter):
+        mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
+        indexes = mock_adapter._collection.index_information()
+        assert any(
+            index.get("unique") and index["key"] == [("id", 1)]
+            for index in indexes.values()
+        )
+
+    def test_retry_on_collision(self, mock_adapter, monkeypatch):
+        mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
+        ids = iter(["abcdef", "abcdef", "ghijkl"])
+        monkeypatch.setattr(module, "generate_id", lambda **kwargs: next(ids))
+        assert mock_adapter.save_policy_line("g", ["c", "d"]) == "ghijkl"
+        assert mock_adapter._collection.count_documents({}) == 2
+
+    def test_retries_exhausted(self, mock_adapter, monkeypatch):
+        mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
+        calls = []
+
+        def generate_id(**kwargs):
+            calls.append(kwargs)
+            return "abcdef"
+
+        monkeypatch.setattr(module, "generate_id", generate_id)
+        with pytest.raises(DuplicateKeyError):
+            mock_adapter.save_policy_line("g", ["c", "d"])
+        assert len(calls) == ID_ATTEMPTS
+        assert mock_adapter._collection.count_documents({}) == 1
+
+    def test_configured_ids(self, mock_adapter):
+        mock_adapter.id_charset = "xy"
+        mock_adapter.id_length = 12
+        id = mock_adapter.save_policy_line("g", ["a", "b"])
+        assert len(id) == 12 and set(id) <= {"x", "y"}
+
+    def test_replace_by_id(self, mock_adapter):
+        mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
+        mock_adapter.save_policy_line("g", ["c", "d"], id="abcdef")
+        assert list(
+            mock_adapter._collection.find({}, projection={"_id": False})
+        ) == [{"ptype": "g", "v0": "c", "v1": "d", "id": "abcdef"}]
+
+    def test_save_policy_no_duplicates(self, mock_adapter):
+        enforcer = Enforcer(MODEL_CONF_FILE, mock_adapter)
+        enforcer.add_policy("alice", "data1", "read")
+        enforcer.add_grouping_policy("alice", "admin")
+        enforcer.save_policy()
+        enforcer.save_policy()
+        collection = mock_adapter._collection
+        assert collection.count_documents({}) == 2
+        enforcer.load_policy()
+        assert enforcer.get_policy() == [["alice", "data1", "read"]]

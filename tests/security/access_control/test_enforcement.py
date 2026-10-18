@@ -534,6 +534,21 @@ class TestPermissionsApi:
         collection = app.config["casbin_adapter"]._collection
         assert collection.count_documents({}) == len(POLICIES)
 
+    def test_get_incomplete_permissions(self, app):
+        collection = app.config["casbin_adapter"]._collection
+        collection.insert_many(
+            [
+                {"ptype": "g", "v0": "user:x", "v1": "y"},
+                {"id": "abc", "v0": "x"},
+            ]
+        )
+        client = app.test_client()
+        response = client.get(self.url, headers=_headers("carol"))
+        assert response.status_code == 200
+        assert len(response.json) == len(POLICIES) + 1
+        response = client.get(f"{self.url}/abc", headers=_headers("carol"))
+        assert response.status_code == 404
+
     @pytest.mark.parametrize(
         "path",
         ["/admin/access-control/ui/", "/admin/access-control/openapi.json"],

@@ -27,7 +27,7 @@ ACCESS_CONTROL_CONFIG = {
     "model": MODEL_CONF_FILE,
 }
 
-MOCK_ID = "mock_id"
+MOCK_ID = "mockId"
 MOCK_RULE = {
     "ptype": "p1",
     "v0": "alice",

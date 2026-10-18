@@ -5,17 +5,35 @@ import logging
 from casbin.model import Model
 from flask import current_app, request
 from pymongo.collection import Collection
-from werkzeug.exceptions import InternalServerError, NotFound
+from werkzeug.exceptions import NotFound
 
 from foca.errors.exceptions import BadRequest
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
-    CasbinRule,
     validate_rule,
 )
 from foca.utils.logging import log_traffic
 
 logger = logging.getLogger(__name__)
+
+# Filter for stored policy rules that can be returned as permissions
+_PERMISSION_FILTER = {"ptype": {"$type": "string"}}
+
+
+def _get_permissions_collection() -> Collection:
+    """Get collection storing policy rules of the current app.
+
+    Returns:
+        Policy rule collection, as registered in the app's database
+        configuration.
+    """
+    conf = current_app.config.foca  # type: ignore[attr-defined]
+    access_control = conf.security.access_control
+    return (
+        conf.db.dbs[access_control.db_name]
+        .collections[access_control.collection_name]
+        .client
+    )
 
 
 def _get_rule() -> tuple[str, list[str]]:
@@ -63,17 +81,21 @@ def _to_permission(document: dict) -> dict:
 
     Returns:
         Permission with identifier, policy type and rule, built from fields
-        `id`, `ptype` and `v0` to `v5` of the stored rule only.
+        `id`, `ptype` and `v0` to `v5` of the stored rule only; the
+        identifier is omitted if the rule has none (e.g., if it was added to
+        the database directly), and values that are not strings are omitted.
     """
-    return {
-        "id": document.get("id"),
-        "policy_type": document.get("ptype"),
+    permission = {
+        "policy_type": document["ptype"],
         "rule": {
             f"v{index}": document[f"v{index}"]
             for index in range(MAX_RULE_VALUES)
-            if document.get(f"v{index}") is not None
+            if isinstance(document.get(f"v{index}"), str)
         },
     }
+    if isinstance(document.get("id"), str):
+        permission["id"] = document["id"]
+    return permission
 
 
 @log_traffic
@@ -84,17 +106,12 @@ def postPermission() -> str:
         Identifier of the new permission added.
     """
     ptype, values = _get_rule()
-    try:
-        access_control_adapter = current_app.config["casbin_adapter"]
-        permission_id = access_control_adapter.save_policy_line(
-            ptype=ptype,
-            rule=values,
-        )
-        logger.info("New policy added.")
-        return permission_id
-    except Exception as e:
-        logger.error(f"{type(e).__name__}: {e}")
-        raise InternalServerError from e
+    permission_id = current_app.config["casbin_adapter"].save_policy_line(
+        ptype=ptype,
+        rule=values,
+    )
+    logger.info(f"Policy rule '{permission_id}' added.")
+    return permission_id
 
 
 @log_traffic
@@ -108,30 +125,24 @@ def putPermission(
 
     Returns:
         Identifier of updated permission.
-    """
-    ptype, values = _get_rule()
-    app_config = current_app.config
-    try:
-        security_conf = app_config.foca.security  # type: ignore[attr-defined]
-        access_control_config = security_conf.access_control  # type: ignore[attr-defined]
-        db_coll_permission: Collection = (
-            app_config.foca.db.dbs[  # type: ignore[attr-defined]
-                access_control_config.db_name
-            ]
-            .collections[access_control_config.collection_name]
-            .client
-        )
 
-        permission_data = CasbinRule(ptype, *values).dict()
-        permission_data["id"] = id
-        db_coll_permission.replace_one(
-            filter={"id": id}, replacement=permission_data, upsert=True
-        )
-        logger.info("Policy updated.")
-        return id
-    except Exception as e:
-        logger.error(f"{type(e).__name__}: {e}")
-        raise InternalServerError from e
+    Raises:
+        foca.errors.exceptions.BadRequest: The identifier does not have the
+            length and characters configured via `access_control.id_length`
+            and `access_control.id_charset`, or the rule is invalid.
+    """
+    conf = current_app.config.foca.security.access_control  # type: ignore[attr-defined]
+    if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
+        logger.error(f"Invalid policy rule identifier: '{id}'")
+        raise BadRequest
+    ptype, values = _get_rule()
+    current_app.config["casbin_adapter"].save_policy_line(
+        ptype=ptype,
+        rule=values,
+        id=id,
+    )
+    logger.info(f"Policy rule '{id}' updated.")
+    return id
 
 
 @log_traffic
@@ -144,22 +155,11 @@ def getAllPermissions(limit=None) -> list[dict]:
     Returns:
         List of permission dicts.
     """
-    app_config = current_app.config
-    access_control_config = app_config.foca.security.access_control  # type: ignore[attr-defined]
-    db_coll_permission: Collection = (
-        app_config.foca.db.dbs[  # type: ignore[attr-defined]
-            access_control_config.db_name
-        ]
-        .collections[access_control_config.collection_name]
-        .client
-    )
-
-    if not limit:
-        limit = 0
-    permissions = list(
-        db_coll_permission.find(filter={}, projection={"_id": False})
+    permissions = (
+        _get_permissions_collection()
+        .find(filter=_PERMISSION_FILTER, projection={"_id": False})
         .sort([("$natural", -1)])
-        .limit(limit)
+        .limit(limit or 0)
     )
     return [_to_permission(permission) for permission in permissions]
 
@@ -176,17 +176,9 @@ def getPermission(
     Returns:
         Permission data for the given id.
     """
-    app_config = current_app.config
-    access_control_config = app_config.foca.security.access_control  # type: ignore[attr-defined]
-    db_coll_permission: Collection = (
-        app_config.foca.db.dbs[  # type: ignore[attr-defined]
-            access_control_config.db_name
-        ]
-        .collections[access_control_config.collection_name]
-        .client
+    permission = _get_permissions_collection().find_one(
+        filter={"id": id, **_PERMISSION_FILTER}
     )
-
-    permission = db_coll_permission.find_one(filter={"id": id})
     if permission is None:
         raise NotFound
     return _to_permission(permission)
@@ -204,19 +196,7 @@ def deletePermission(
     Returns:
         Delete permission identifier.
     """
-    app_config = current_app.config
-    access_control_config = app_config.foca.security.access_control  # type: ignore[attr-defined]
-    db_coll_permission: Collection = (
-        app_config.foca.db.dbs[  # type: ignore[attr-defined]
-            access_control_config.db_name
-        ]
-        .collections[access_control_config.collection_name]
-        .client
-    )
-
-    del_obj_permission = db_coll_permission.delete_one({"id": id})
-
-    if del_obj_permission.deleted_count:
-        return id
-    else:
+    if not _get_permissions_collection().delete_one({"id": id}).deleted_count:
         raise NotFound
+    logger.info(f"Policy rule '{id}' deleted.")
+    return id

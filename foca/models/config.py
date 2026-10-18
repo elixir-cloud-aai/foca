@@ -25,6 +25,8 @@ from typing_extensions import Self
 
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    DEFAULT_ID_CHARSET,
+    DEFAULT_ID_LENGTH,
     DEFAULT_MODEL_FILE,
     GROUP_PREFIX,
 )
@@ -656,6 +658,12 @@ class AccessControlConfig(FOCABaseConfig):
             `/services/ABC` also applies to `/services/ABC/permissions`, but
             not to `/services/ABCD`). What a role may do on a sub-path is
             still decided by policy rules.
+        id_charset: Characters of generated policy rule identifiers. Only
+            letters, digits, `-`, `.`, `_` and `~` are allowed, as
+            identifiers are used in URL paths.
+        id_length: Length of generated policy rule identifiers (4 to 64).
+            Identifiers supplied via `PUT /permissions/{id}` must have the
+            same length and characters.
 
     Attributes:
         api_specs: Path to API spec definition.
@@ -673,6 +681,8 @@ class AccessControlConfig(FOCABaseConfig):
         group_mapping: Mapping of values of `claim_groups` to roles.
         resource_roles_cover_subpaths: Whether resource-scoped roles apply to
             sub-paths of the resource path they were granted on.
+        id_charset: Characters of generated policy rule identifiers.
+        id_length: Length of generated policy rule identifiers.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -705,6 +715,8 @@ nf', ...)
     claim_groups: str | None = None
     group_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
+    id_charset: str = DEFAULT_ID_CHARSET
+    id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
     _registered_collection: tuple[str, str, bool] | None = PrivateAttr(
@@ -736,6 +748,30 @@ nf', ...)
             raise ValueError(
                 f"'subject_prefix' must not overlap with '{GROUP_PREFIX}', "
                 "as subjects could otherwise collide with groups"
+            )
+        return v
+
+    @field_validator("id_charset")
+    @classmethod
+    def validate_id_charset(cls, v: str) -> str:
+        """Validate the characters of policy rule identifiers.
+
+        Args:
+            v: Characters of policy rule identifiers.
+
+        Returns:
+            Characters of policy rule identifiers.
+
+        Raises:
+            ValueError: No characters are given, or characters other than
+                letters, digits, `-`, `.`, `_` and `~` are given.
+        """
+        if not v:
+            raise ValueError("'id_charset' must not be empty")
+        if not set(v) <= set(f"{DEFAULT_ID_CHARSET}-._~"):
+            raise ValueError(
+                "'id_charset' may only contain letters, digits, '-', '.', "
+                "'_' and '~'"
             )
         return v
 

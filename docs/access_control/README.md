@@ -145,6 +145,8 @@ security:
     group_mapping:
       group_claim_value: role
     resource_roles_cover_subpaths: True
+    id_charset: ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
+    id_length: 6
 ```
 
 > The application created with this config would provide an access control
@@ -180,6 +182,14 @@ parameter and tell FOCA where to host the endpoints via `api_route`.
 The Swagger UI and the specification of the permissions API are not served
 by default. Set `api_swagger_ui: True` and/or `api_serve_spec: True` to serve
 them.
+
+Rules created via `POST /permissions` get a random identifier of `id_length`
+characters (4 to 64, default: 6) drawn from `id_charset` (letters, digits,
+`-`, `.`, `_` and `~`; default: letters and digits). Identifiers are unique:
+FOCA creates a unique index on them and retries with a new identifier if a
+generated one exists already. Identifiers supplied via `PUT
+/permissions/{id}` must have the same length and characters; otherwise, the
+request is rejected with `400`.
 
 The specs and controllers used by default can be accessed via the links below:
 

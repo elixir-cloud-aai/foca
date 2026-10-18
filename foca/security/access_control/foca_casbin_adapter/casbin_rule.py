@@ -1,6 +1,7 @@
 """Casbin rule class and validation of rules."""
 
 import re
+from dataclasses import dataclass
 
 from casbin.model import Model
 
@@ -91,70 +92,87 @@ def validate_rule(
     return values
 
 
+@dataclass
 class CasbinRule:
-    """This class defines the basic structuring of a casbin rule object.
+    """Casbin rule, as stored in the database.
 
     Args:
-        ptype: Policy type for the given rule based on the given conf file.
-        v0: Policy parameter.
-        v1: Policy parameter.
-        v2: Policy parameter.
-        v3: Policy parameter.
-        v4: Policy parameter.
-        v5: Policy parameter.
+        ptype: Policy type of the rule, as defined in the model.
+        v0: Value of first field of the rule.
+        v1: Value of second field of the rule.
+        v2: Value of third field of the rule.
+        v3: Value of fourth field of the rule.
+        v4: Value of fifth field of the rule.
+        v5: Value of sixth field of the rule.
 
     Attributes:
-        ptype: Policy type for the given rule based on the given conf file.
-        v0: Policy parameter.
-        v1: Policy parameter.
-        v2: Policy parameter.
-        v3: Policy parameter.
-        v4: Policy parameter.
-        v5: Policy parameter.
+        ptype: Policy type of the rule, as defined in the model.
+        v0: Value of first field of the rule.
+        v1: Value of second field of the rule.
+        v2: Value of third field of the rule.
+        v3: Value of fourth field of the rule.
+        v4: Value of fifth field of the rule.
+        v5: Value of sixth field of the rule.
     """
 
-    def __init__(
-        self,
-        ptype: str | None = None,
-        v0: str | None = None,
-        v1: str | None = None,
-        v2: str | None = None,
-        v3: str | None = None,
-        v4: str | None = None,
-        v5: str | None = None,
-    ):
-        """Casbin rule object initializer."""
-        self.ptype = ptype
-        self.v0 = v0
-        self.v1 = v1
-        self.v2 = v2
-        self.v3 = v3
-        self.v4 = v4
-        self.v5 = v5
+    ptype: str | None = None
+    v0: str | None = None
+    v1: str | None = None
+    v2: str | None = None
+    v3: str | None = None
+    v4: str | None = None
+    v5: str | None = None
 
-    def dict(self) -> dict:
-        """Method to convert params into casbin rule object.
+    @classmethod
+    def from_values(cls, ptype: str, values: list[str]) -> "CasbinRule":
+        """Create rule from policy type and values.
+
+        Args:
+            ptype: Policy type of the rule.
+            values: Values of the rule, at most `MAX_RULE_VALUES`.
 
         Returns:
-            Casbin rule object.
+            Rule.
         """
-        rule_dict = {"ptype": self.ptype}
+        return cls(ptype, *values)
 
-        for value in dir(self):
-            if (
-                getattr(self, value) is not None
-                and value.startswith("v")
-                and value[1:].isnumeric()
-            ):
-                rule_dict[value] = getattr(self, value)
+    def _fields(self) -> dict[str, str | None]:
+        """Get fields `v0` to `v5` of the rule."""
+        return {
+            "v0": self.v0,
+            "v1": self.v1,
+            "v2": self.v2,
+            "v3": self.v3,
+            "v4": self.v4,
+            "v5": self.v5,
+        }
 
-        return rule_dict
+    def values(self) -> list[str]:
+        """Get values of the rule.
 
-    def __str__(self):
-        """Return rule values as comma-separated string."""
-        return ", ".join(self.dict().values())
+        Returns:
+            Values of fields `v0` to `v5` that are set, in order.
+        """
+        return [
+            value for value in self._fields().values() if value is not None
+        ]
 
-    def __repr__(self):
-        """Return representation of rule."""
-        print("self   ", self)
-        return f'<CasbinRule :"{self!s}">'
+    def to_dict(self) -> dict:
+        """Convert rule to dictionary.
+
+        Returns:
+            Policy type (key `ptype`) and values (keys `v0` to `v5`) of the
+            rule; values that are not set are omitted.
+        """
+        return {
+            "ptype": self.ptype,
+            **{
+                key: value
+                for key, value in self._fields().items()
+                if value is not None
+            },
+        }
+
+    def __str__(self) -> str:
+        """Return policy type and values as comma-separated string."""
+        return ", ".join([str(self.ptype), *self.values()])

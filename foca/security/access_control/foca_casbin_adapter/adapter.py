@@ -5,7 +5,13 @@ import logging
 from casbin import persist
 from casbin.model import Model
 from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
 
+from foca.security.access_control.constants import (
+    DEFAULT_ID_CHARSET,
+    DEFAULT_ID_LENGTH,
+    ID_ATTEMPTS,
+)
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
     CasbinRule,
@@ -28,24 +34,50 @@ class Adapter(persist.Adapter):
         dbname: Database to store policy.
         collection: Collection of the choosen database. Defaults to
             "casbin_rule".
+        id_charset: Characters of generated rule identifiers.
+        id_length: Length of generated rule identifiers.
 
     Attributes:
-        uri: This should be the same requiement as pymongo Client's 'uri'
-            parameter. See https://pymongo.readthedocs.io/en/stable/api/pymong\
-            o/mongo_client.html#pymongo.mongo_client.MongoClient.
-        dbname: Database to store policy.
-        collection: Collection of the choosen database. Defaults to
-            "casbin_rule".
+        id_charset: Characters of generated rule identifiers.
+        id_length: Length of generated rule identifiers.
+
+    Raises:
+        ValueError: No collection is given.
     """
 
     def __init__(
-        self, uri: str, dbname: str, collection: str | None = "casbin_rule"
+        self,
+        uri: str,
+        dbname: str,
+        collection: str | None = "casbin_rule",
+        id_charset: str = DEFAULT_ID_CHARSET,
+        id_length: int = DEFAULT_ID_LENGTH,
     ):
         """Create an adapter for Mongodb."""
+        if collection is None:
+            raise ValueError("No collection for policy rules given")
         client: MongoClient = MongoClient(uri)
-        db = client[dbname]
-        assert collection is not None
-        self._collection = db[collection]
+        self._collection = client[dbname][collection]
+        self.id_charset = id_charset
+        self.id_length = id_length
+        self._id_index_created = False
+
+    def _ensure_id_index(self) -> None:
+        """Ensure unique index on rule identifiers.
+
+        The index is created on the first write rather than when creating the
+        adapter, so that creating an adapter does not require a database
+        connection. Rules without string identifiers (e.g., added to the
+        database directly) are not indexed.
+        """
+        if self._id_index_created:
+            return
+        self._collection.create_index(
+            [("id", 1)],
+            unique=True,
+            partialFilterExpression={"id": {"$type": "string"}},
+        )
+        self._id_index_created = True
 
     def load_policy(self, model: Model):
         """Implementing add Interface for casbin.
@@ -74,27 +106,47 @@ class Adapter(persist.Adapter):
                 continue
             model.add_policy(ptype[0], ptype, values)
 
-    def save_policy_line(self, ptype: str, rule: list[str]):
+    def save_policy_line(
+        self, ptype: str, rule: list[str], id: str | None = None
+    ) -> str:
         """Method to save a policy.
 
         Args:
             ptype: Policy type for the given rule based on the given conf file.
             rule: List of policy attributes.
+            id: Identifier of the rule. If given, a stored rule with that
+                identifier is replaced. Otherwise, a unique identifier is
+                generated.
 
         Returns:
             Identifier of the stored rule.
 
         Raises:
             ValueError: The rule is invalid (cf. :py:func:`validate_rule`).
+            pymongo.errors.DuplicateKeyError: No unique identifier could be
+                generated in `ID_ATTEMPTS` attempts.
         """
         validate_rule(ptype, rule)
-        line = CasbinRule(ptype=ptype)
-        for index, value in enumerate(rule):
-            setattr(line, f"v{index}", value)
-        rule_dict: dict = line.dict()
-        rule_dict["id"] = generate_id()
-        self._collection.insert_one(rule_dict)
-        return rule_dict["id"]
+        self._ensure_id_index()
+        document = CasbinRule.from_values(ptype, rule).to_dict()
+        if id is not None:
+            document["id"] = id
+            self._collection.replace_one({"id": id}, document, upsert=True)
+            return id
+        attempts_left = ID_ATTEMPTS
+        while True:
+            document["id"] = generate_id(
+                charset=self.id_charset, length=self.id_length
+            )
+            try:
+                self._collection.insert_one(document)
+                return document["id"]
+            except DuplicateKeyError:
+                attempts_left -= 1
+                if not attempts_left:
+                    raise
+                logger.debug("Generated rule identifier exists; retrying")
+                document.pop("_id", None)
 
     def _delete_policy_lines(self, ptype: str, rule: list[str]) -> int:
         """Method to find a delete policies given a list of policy attributes.
@@ -106,16 +158,14 @@ class Adapter(persist.Adapter):
         Returns:
             Count of policies deleted.
         """
-        line = CasbinRule(ptype=ptype)
-        for index, value in enumerate(rule):
-            setattr(line, f"v{index}", value)
+        line = CasbinRule.from_values(ptype, rule)
 
         # if rule is empty, do nothing
         # else find all given rules and delete them
         if len(rule) == 0:
             return 0
         else:
-            line_dict = line.dict()
+            line_dict = line.to_dict()
             line_dict_keys_len = len(line_dict)
             results = self._collection.find(
                 filter=line_dict, projection={"id": False}
@@ -132,6 +182,8 @@ class Adapter(persist.Adapter):
     def save_policy(self, model: Model) -> bool:
         """Method to save a casbin model.
 
+        Replaces all stored rules with the rules of the model.
+
         Args:
             model: Casbin Model which loads from .conf file. For model
                 description, cf. https://github.com/casbin/pycasbin/blob/72571\
@@ -140,6 +192,7 @@ class Adapter(persist.Adapter):
         Returns:
             True if successfully created.
         """
+        self._collection.delete_many({})
         for section_type in ["p", "g"]:
             for ptype, ast in model.model[section_type].items():
                 for rule in ast.policy:

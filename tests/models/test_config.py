@@ -398,6 +398,25 @@ def test_AccessControlConfig_subject_prefix_invalid(prefix):
         AccessControlConfig(subject_prefix=prefix)
 
 
+@pytest.mark.parametrize(
+    "charset,length", [("abc", 4), ("0123456789", 64), ("a-._~", 6)]
+)
+def test_AccessControlConfig_ids(charset, length):
+    """Test AccessControlConfig instantiation; valid identifier settings."""
+    res = AccessControlConfig(id_charset=charset, id_length=length)
+    assert (res.id_charset, res.id_length) == (charset, length)
+
+
+@pytest.mark.parametrize(
+    "charset,length",
+    [("", 6), ("ab/", 6), ("a b", 6), ("äb", 6), ("ab", 3), ("ab", 65)],
+)
+def test_AccessControlConfig_ids_invalid(charset, length):
+    """Test AccessControlConfig instantiation; invalid identifier settings."""
+    with pytest.raises(ValidationError):
+        AccessControlConfig(id_charset=charset, id_length=length)
+
+
 def test_SecurityConfig_enforce_without_auth():
     """Test SecurityConfig instantiation; enforcing access control requires
     authentication."""

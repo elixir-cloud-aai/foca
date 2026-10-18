@@ -15,8 +15,10 @@ def test_adapter_uri(monkeypatch):
     monkeypatch.setenv("MONGO_URI", "mongodb://h1:1,h2:2/?replicaSet=rs")
     captured = {}
 
-    def mock_adapter(uri, dbname, collection):
-        captured.update(uri=uri, dbname=dbname, collection=collection)
+    def mock_adapter(uri, dbname, collection, **kwargs):
+        captured.update(
+            uri=uri, dbname=dbname, collection=collection, **kwargs
+        )
 
     monkeypatch.setattr(module, "Adapter", mock_adapter)
     module.register_casbin_enforcer(
@@ -24,6 +26,8 @@ def test_adapter_uri(monkeypatch):
         access_control_config=AccessControlConfig(
             db_name="access_control_db",
             collection_name="policy_rules",
+            id_charset="abc",
+            id_length=8,
         ),
         mongo_config=MongoConfig(),
     )
@@ -31,6 +35,8 @@ def test_adapter_uri(monkeypatch):
         "uri": "mongodb://h1:1,h2:2/?replicaSet=rs",
         "dbname": "access_control_db",
         "collection": "policy_rules",
+        "id_charset": "abc",
+        "id_length": 8,
     }
 
 
@@ -43,7 +49,7 @@ def test_adapter_uri_env_vars(monkeypatch):
     monkeypatch.setenv("MONGO_PASSWORD", "secret")
     captured = {}
 
-    def mock_adapter(uri, dbname, collection):
+    def mock_adapter(uri, dbname, collection, **kwargs):
         captured.update(uri=uri)
 
     monkeypatch.setattr(module, "Adapter", mock_adapter)
@@ -71,7 +77,7 @@ def test_adapter_dbname_override(monkeypatch):
     monkeypatch.setenv("MONGO_DBNAME", "other_db")
     captured = {}
 
-    def mock_adapter(uri, dbname, collection):
+    def mock_adapter(uri, dbname, collection, **kwargs):
         captured.update(uri=uri, dbname=dbname)
 
     monkeypatch.setattr(module, "Adapter", mock_adapter)
