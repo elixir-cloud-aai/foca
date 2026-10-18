@@ -43,23 +43,61 @@ def _describe_request() -> str:
     )
 
 
+def _get_status(response: object) -> object:
+    """Get the status code of a controller's return value.
+
+    Args:
+        response: Return value of a controller, e.g., a body, a tuple of
+            body, status (code or string, e.g., ``201 CREATED``) and/or
+            headers, or a response object.
+
+    Returns:
+        Status code, as sent by Flask (default: 200).
+    """
+    if isinstance(response, tuple):
+        status = response[1] if len(response) > 1 else 200
+        if isinstance(status, str):
+            code = status.split(maxsplit=1)[0] if status.strip() else ""
+            return int(code) if code.isdigit() else status
+        # Second element may be headers, as in `(body, headers)`
+        return status if isinstance(status, int) else 200
+    return getattr(response, "status_code", 200)
+
+
+def _get_body(response: object) -> object:
+    """Get the body of a controller's return value, without headers.
+
+    Args:
+        response: Return value of a controller.
+
+    Returns:
+        Body of the return value; the data of response objects, unless
+        streamed.
+    """
+    if isinstance(response, tuple):
+        return response[0] if response else None
+    if hasattr(response, "get_data"):
+        if getattr(response, "is_streamed", False):
+            return "<streamed>"
+        return response.get_data(as_text=True)
+    return response
+
+
 def _describe_response(response: object) -> str:
     """Describe a controller's return value for logging, without its body.
 
     Args:
-        response: Return value of a controller, e.g., a body, a tuple of body
-            and status code, or a response object.
+        response: Return value of a controller, e.g., a body, a tuple of
+            body, status and/or headers, or a response object.
 
     Returns:
-        Type of the body and status code, e.g., ``dict, status 200``.
+        Type of the body (or response object) and status code, e.g.,
+        ``dict, status 200``.
     """
-    body = response
-    status: object = getattr(response, "status_code", 200)
-    if isinstance(response, tuple) and response:
-        body = response[0]
-        if len(response) > 1 and isinstance(response[1], int):
-            status = response[1]
-    return f"{type(body).__name__}, status {status}"
+    body = (
+        response[0] if isinstance(response, tuple) and response else response
+    )
+    return f"{type(body).__name__}, status {_get_status(response)}"
 
 
 def log_traffic(
@@ -123,7 +161,7 @@ def log_traffic(
                     f"{_describe_response(response)}"
                 )
                 if log_response_body:
-                    msg += f": {escape_log_value(response)}"
+                    msg += f": {escape_log_value(_get_body(response))}"
                 logger.log(level=log_level, msg=msg)
             return response
 

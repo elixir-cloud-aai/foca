@@ -139,6 +139,12 @@ SECRET_BODY = {"token": "s3cr3t"}
         ((SECRET_BODY, 201), "dict, status 201"),
         ((SECRET_BODY, 201, {"X-Header": "x"}), "dict, status 201"),
         ((SECRET_BODY,), "dict, status 200"),
+        ((SECRET_BODY, "201 CREATED"), "dict, status 201"),
+        ((SECRET_BODY, "418"), "dict, status 418"),
+        ((SECRET_BODY, "teapot"), "dict, status teapot"),
+        ((SECRET_BODY, ""), "dict, status "),
+        ((SECRET_BODY, {"X-Header": "x"}), "dict, status 200"),
+        ((), "tuple, status 200"),
         (Response("s3cr3t", status=202), "Response, status 202"),
         (None, "NoneType, status 200"),
     ],
@@ -197,3 +203,25 @@ def test_logging_decorator_control_characters(logged):
 )
 def test_escape_log_value(value, expected):
     assert escape_log_value(value) == expected
+
+
+@pytest.mark.parametrize(
+    "response,body",
+    [
+        (({"a": 1}, 201, {"Set-Cookie": "session=s3cr3t"}), "{'a': 1}"),
+        (Response("hello", headers={"Set-Cookie": "s3cr3t"}), "hello"),
+        (Response(iter(["a", "b"])), "<streamed>"),
+        ((), "None"),
+    ],
+)
+def test_logging_decorator_body_without_headers(logged, response, body):
+    """Only response bodies are logged, without headers."""
+
+    @log_traffic(log_response_body=True)
+    def mock_func():
+        return response
+
+    with app.test_request_context(environ_base=REQ):
+        mock_func()
+    assert logged[1].endswith(f": {body}")
+    assert "s3cr3t" not in " ".join(logged)

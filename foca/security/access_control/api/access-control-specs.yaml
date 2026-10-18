@@ -36,25 +36,25 @@ paths:
         '400':
           description: The request is malformed.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
           description: The request is unauthorized.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
           description: The requester is not authorized to perform this action.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
           description: An unexpected error occurred.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
     get:
@@ -101,25 +101,25 @@ paths:
         '400':
           description: The request is malformed.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
           description: The request is unauthorized.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
           description: The requester is not authorized to perform this action.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
           description: An unexpected error occurred.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
   /permissions/{id}:
@@ -151,31 +151,31 @@ paths:
         '400':
           description: The request is malformed.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
           description: The requester is not authorized to perform this action.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
           description: The request is unauthorized.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
           description: An unexpected error occurred.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
           description: The permission cannot be found.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
     put:
@@ -210,25 +210,25 @@ paths:
         '400':
           description: The request is malformed.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
           description: The request is unauthorized.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
           description: The requester is not authorized to perform this action.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
           description: An unexpected error occurred.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
     delete:
@@ -255,31 +255,31 @@ paths:
         '400':
           description: The request is malformed.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
           description: The request is unauthorized.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
           description: The requester is not authorized to perform this action.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
           description: The requested permission was not found.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
           description: An unexpected error occurred.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
 servers:
@@ -388,14 +388,25 @@ components:
         v1: /pets
         v2: POST
     Error:
+      description: Problem details (RFC 9457).
       type: object
       required:
-        - code
+        - title
+        - status
       properties:
-        code:
+        title:
+          type: string
+          description: Short summary of the problem type.
+        status:
           type: integer
           format: int32
-          default: 500
-        message:
+          description: HTTP status code.
+        detail:
           type: string
-          default: Internal Server Error
+          description: Explanation of this occurrence of the problem.
+        type:
+          type: string
+          description: URI identifying the problem type.
+        instance:
+          type: string
+          description: URI identifying this occurrence of the problem.
