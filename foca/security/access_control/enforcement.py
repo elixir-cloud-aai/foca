@@ -10,6 +10,7 @@ from connexion.resolver import Resolution, Resolver
 from flask import current_app, has_request_context, request
 from flask.globals import request_ctx
 
+from foca.config.access import get_config
 from foca.security.access_control.constants import GROUP_PREFIX
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
@@ -24,7 +25,7 @@ RESOURCE_ROLE_PTYPE = "g2"
 
 def _get_access_control_config():
     """Get access control configuration of current app."""
-    return current_app.config.foca.security.access_control  # type: ignore[attr-defined]
+    return get_config().security.access_control
 
 
 def _get_claims() -> dict:
@@ -62,7 +63,7 @@ def get_current_subject() -> str | None:
     """
     claim = _get_access_control_config().claim_identity
     if claim is None:
-        claim = current_app.config.foca.security.auth.claim_identity  # type: ignore[attr-defined]
+        claim = get_config().security.auth.claim_identity
     subject = _get_claims().get(claim)
     return None if subject is None else str(subject)
 

@@ -8,6 +8,7 @@ from flask import current_app, request
 from pymongo.collection import Collection
 from werkzeug.exceptions import BadRequest, NotFound
 
+from foca.config.access import get_collection, get_config
 from foca.security.access_control.constants import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -37,12 +38,9 @@ def _get_permissions_collection() -> Collection:
         Policy rule collection, as registered in the app's database
         configuration.
     """
-    conf = current_app.config.foca  # type: ignore[attr-defined]
-    access_control = conf.security.access_control
-    return (
-        conf.db.dbs[access_control.db_name]
-        .collections[access_control.collection_name]
-        .client
+    access_control = get_config().security.access_control
+    return get_collection(
+        db=access_control.db_name, collection=access_control.collection_name
     )
 
 
@@ -62,7 +60,7 @@ def _get_visibility_filter() -> dict:
         connexion.exceptions.Unauthorized: The subject could not be
             identified.
     """
-    conf = current_app.config.foca.security.access_control  # type: ignore[attr-defined]
+    conf = get_config().security.access_control
     if not conf.self_service or is_permitted():
         return {}
     subject = get_current_subject()
@@ -165,7 +163,7 @@ def putPermission(
             length and characters configured via `access_control.id_length`
             and `access_control.id_charset`, or the rule is invalid.
     """
-    conf = current_app.config.foca.security.access_control  # type: ignore[attr-defined]
+    conf = get_config().security.access_control
     if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
         logger.error(f"Invalid policy rule identifier: '{id}'")
         raise BadRequest

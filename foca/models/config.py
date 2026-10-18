@@ -255,6 +255,57 @@ tle', 'status', 'detail'], logging=<ExceptionLoggingEnum.oneline: 'oneline'>)
         return self
 
 
+class ConnexionOptions(BaseModel):
+    """Model for options for registering an API specification with Connexion.
+
+    Options are translated to keyword arguments of Connexion's `add_api()` in
+    one place (cf. `foca.api.register_openapi._connexion_add_api_kwargs`).
+    Other keys are passed through to `add_api()` as they are.
+
+    Args:
+        strict_validation: Whether to reject requests with parameters not
+            defined in the specification.
+        validate_responses: Whether to validate responses against the
+            specification.
+        swagger_ui: Whether to serve the Swagger UI.
+        serve_spec: Whether to serve the specification.
+        swagger_ui_path: Path at which the Swagger UI is served.
+        base_path: Base path overriding that of the specification.
+        resolver: Resolver of operations to functions.
+        options: Further Connexion options; `swagger_ui`, `serve_spec` and
+            `swagger_ui_path` take precedence.
+
+    Attributes:
+        strict_validation: Whether to reject requests with parameters not
+            defined in the specification.
+        validate_responses: Whether to validate responses against the
+            specification.
+        swagger_ui: Whether to serve the Swagger UI.
+        serve_spec: Whether to serve the specification.
+        swagger_ui_path: Path at which the Swagger UI is served.
+        base_path: Base path overriding that of the specification.
+        resolver: Resolver of operations to functions.
+        options: Further Connexion options.
+
+    Example:
+        >>> ConnexionOptions(strict_validation=True, swagger_ui=False)
+        ConnexionOptions(strict_validation=True, validate_responses=None, swag\
+ger_ui=False, serve_spec=None, swagger_ui_path=None, base_path=None, resolver=\
+None, options=None)
+    """
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+    strict_validation: bool | None = None
+    validate_responses: bool | None = None
+    swagger_ui: bool | None = None
+    serve_spec: bool | None = None
+    swagger_ui_path: str | None = None
+    base_path: str | None = None
+    resolver: Any = None
+    options: dict[str, Any] | None = None
+
+
 class SpecConfig(FOCABaseConfig):
     """Model for an OpenAPI 2.x or 3.x specification for a Connexion app.
 
@@ -294,8 +345,8 @@ class SpecConfig(FOCABaseConfig):
             https://swagger.io/specification/v2/#securityDefinitionsObject. For
             OpenAPI 3.x, see
             https://swagger.io/docs/specification/authentication/.
-        connexion: Keyword arguments passed through to
-            `connexion.apps.flask_app.add_api()`.
+        connexion: Options for registering the specification with
+            Connexion (cf. :py:class:`ConnexionOptions`).
 
     Attributes:
         path: A single path or list of paths to OpenAPI 2.x or 3.x
@@ -333,8 +384,8 @@ class SpecConfig(FOCABaseConfig):
             https://swagger.io/specification/v2/#securityDefinitionsObject. For
             OpenAPI 3.x, see
             https://swagger.io/docs/specification/authentication/.
-        connexion: Keyword arguments passed through to
-            `connexion.apps.flask_app.add_api()`.
+        connexion: Options for registering the specification with
+            Connexion (cf. :py:class:`ConnexionOptions`).
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -385,7 +436,7 @@ disable_auth=False, connexion=None)
     add_operation_fields: dict | None = None
     add_security_fields: dict | None = None
     disable_auth: bool = False
-    connexion: dict | None = None
+    connexion: ConnexionOptions | None = None
 
     @model_validator(mode="after")
     def make_paths_absolute(self, info: ValidationInfo) -> Self:
@@ -1232,10 +1283,12 @@ onsole']))
     version: int = 1
     disable_existing_loggers: bool = False
     formatters: dict[str, LogFormatterConfig] | None = {
-        "standard": LogFormatterConfig(),  # type: ignore
+        # Validated from data, as the `class` alias is not a constructor
+        # argument for type checkers
+        "standard": LogFormatterConfig.model_validate({}),
     }
     handlers: dict[str, LogHandlerConfig] | None = {
-        "console": LogHandlerConfig(),  # type: ignore
+        "console": LogHandlerConfig.model_validate({}),
     }
     root: LogRootConfig | None = LogRootConfig()
 

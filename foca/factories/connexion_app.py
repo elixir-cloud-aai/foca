@@ -5,6 +5,7 @@ from ipaddress import ip_address
 
 from connexion import App
 
+from foca.config.access import set_app_config
 from foca.models.config import Config
 
 # Get logger instance
@@ -89,7 +90,7 @@ def __add_config_to_connexion_app(
         logger.debug(f"* {key}: {value}")
 
     # Add user configuration to Flask app config
-    setattr(app.app.config, "foca", config)
+    set_app_config(app.app, config)
 
     logger.debug("Connexion app configured.")
     return app

@@ -7,7 +7,7 @@ from pathlib import Path
 from connexion import App
 
 from foca.config.config_parser import ConfigParser
-from foca.models.config import SpecConfig
+from foca.models.config import ConnexionOptions, SpecConfig
 from foca.security.access_control.enforcement import AccessControlResolver
 
 # Get logger instance
@@ -27,6 +27,39 @@ _OPERATION_OBJECT_FIELDS = frozenset(
         "trace",
     }
 )
+
+
+# Options passed to Connexion 2 via the `options` argument of `add_api()`
+_UI_OPTIONS = ("swagger_ui", "serve_spec", "swagger_ui_path")
+
+
+def _connexion_add_api_kwargs(options: ConnexionOptions | None) -> dict:
+    """Translate options to keyword arguments of Connexion's `add_api()`.
+
+    This is the only place where FOCA's Connexion options are mapped to
+    Connexion's API.
+
+    Args:
+        options: Options for registering an API specification.
+
+    Returns:
+        Keyword arguments for `add_api()`; unset options are omitted.
+    """
+    if options is None:
+        return {}
+    values = options.model_dump(exclude_none=True)
+    kwargs = {
+        key: value
+        for key, value in values.items()
+        if key not in (*_UI_OPTIONS, "options")
+    }
+    ui_options = dict(values.get("options", {}))
+    ui_options.update(
+        {key: values[key] for key in _UI_OPTIONS if key in values}
+    )
+    if ui_options:
+        kwargs["options"] = ui_options
+    return kwargs
 
 
 def _iter_operations(spec: dict) -> Iterator[dict]:
@@ -101,9 +134,8 @@ def register_openapi(
                 for sec_def in sec_defs.values():
                     sec_def[key] = val
                 # OpenAPI 3
-                sec_schemes = spec_parsed.get(
-                    "components", {"securitySchemes": {}}
-                ).get("securitySchemes", {})  # type: ignore
+                components = spec_parsed.get("components") or {}
+                sec_schemes = components.get("securitySchemes") or {}
                 for sec_scheme in sec_schemes.values():
                     sec_scheme[key] = val
             logger.debug(f"Added security fields: {spec.add_security_fields}")
@@ -122,8 +154,7 @@ def register_openapi(
 
         # Attach specs to connexion App
         logger.debug(f"Modified specs: {spec_parsed}")
-        spec.connexion = {} if spec.connexion is None else spec.connexion
-        connexion_kwargs = spec.model_dump().get("connexion", {})
+        connexion_kwargs = _connexion_add_api_kwargs(spec.connexion)
         if enforce_access_control:
             connexion_kwargs["resolver"] = AccessControlResolver(
                 resolver=connexion_kwargs.get("resolver"),
