@@ -247,6 +247,23 @@ db:
 >  
 > Cf. the [API model][docs-models-db] for further options and details.
 
+All databases (including the access control database) share a single
+[PyMongo][res-pymongo] client per app. Configured indexes are created on
+startup if they do not exist yet; existing indexes, including ones created
+outside FOCA, are kept. If a configured index conflicts with an existing one
+(e.g., same name, different keys), FOCA refuses to start; drop or rename the
+existing index in that case. To use a client outside an app (e.g., in
+scripts), use `foca.database.register_mongodb.create_mongo_client()`:
+
+```python
+from foca.database.register_mongodb import (
+    create_mongo_client,
+    get_mongo_db_name,
+)
+
+db = create_mongo_client(host="mongodb", port=27017)[get_mongo_db_name("myDb")]
+```
+
 The connection can be configured through environment variables, e.g., to
 keep credentials out of configuration files:
 
@@ -257,7 +274,12 @@ keep credentials out of configuration files:
 | `MONGO_PORT` | Port; overrides `db.port`. |
 | `MONGO_USERNAME` | Username. |
 | `MONGO_PASSWORD` | Password. |
-| `MONGO_DBNAME` | Database name; overrides the names of _all_ configured databases. |
+| `MONGO_DBNAME` | Database name; overrides the names of _all_ configured databases, i.e., all of them (including the access control database) point to this one database. Useful for deployments with a single database per app. |
+
+If credentials are given via `MONGO_USERNAME` and `MONGO_PASSWORD`, the
+client authenticates against the database in `MONGO_DBNAME`, if set,
+otherwise against the first configured database. For other setups, use
+`MONGO_URI` (e.g., with option `authSource`).
 
 ### Configuring exceptions
 
@@ -338,7 +360,13 @@ jobs:
 > This config attaches the `rabbitmq` broker host running on port `5672` to
 > FOCA and registers the tasks found in modules `my_task_1` and `my_task_2`.  
 >  
-> Cf. the [API model][docs-models-jobs] for further details.  
+> Cf. the [API model][docs-models-jobs] for further details.
+
+To pass credentials or use TLS, set the broker URL via environment variable
+`CELERY_BROKER_URL` (e.g., `amqps://user:password@rabbitmq:5671//`), which
+takes precedence over `jobs.host` and `jobs.port`. Likewise,
+`CELERY_RESULT_BACKEND` takes precedence over `jobs.backend`. Both are logged
+without credentials.  
 
 The `foca.Foca` class provides a method `.create_celery_app()` that you can
 use in your Celery worker entry point to crate a Celery app, like so:
@@ -346,7 +374,7 @@ use in your Celery worker entry point to crate a Celery app, like so:
 ```py
 from foca import Foca
 
-foca = Foca(config="my_app/config.yaml")
+foca = Foca(config_file="my_app/config.yaml")
 my_celery_app = foca.create_celery_app()
 ```
 
@@ -726,5 +754,6 @@ question etc.
 [res-semver]: <https://semver.org/>
 [res-swagger]: <https://swagger.io/tools/swagger-ui/>
 [res-rfc-9457]: <https://www.rfc-editor.org/rfc/rfc9457>
+[res-pymongo]: <https://pymongo.readthedocs.io/>
 [res-using-foca]: <https://github.com/elixir-cloud-aai/foca/network/dependents>
 [res-yaml]: <https://yaml.org/>

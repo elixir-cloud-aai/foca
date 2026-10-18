@@ -323,9 +323,9 @@ class TestPostPermission(BaseTestAccessControl):
         ].client = mongomock.MongoClient().db.collection
         app.config["CASBIN_MODEL"] = self.access_control.model
         app.config["casbin_adapter"] = Adapter(
-            uri=f"mongodb://localhost:{self.db_port}/",
-            dbname=self.access_db,
-            collection=self.access_col,
+            collection=MongoClient(f"mongodb://localhost:{self.db_port}/")[
+                self.access_db
+            ][self.access_col],
         )
         return app
 
@@ -395,12 +395,7 @@ class TestPutPermission(BaseTestAccessControl):
             self.access_col
         ].client = collection
         app.config["CASBIN_MODEL"] = self.access_control.model
-        adapter = Adapter(
-            uri=f"mongodb://localhost:{self.db_port}/",
-            dbname=self.access_db,
-            collection=self.access_col,
-        )
-        adapter._collection = collection
+        adapter = Adapter(collection=collection)
         app.config["casbin_adapter"] = adapter
         return app
 

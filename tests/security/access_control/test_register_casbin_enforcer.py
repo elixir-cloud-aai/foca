@@ -1,26 +1,54 @@
 """Tests for registering the Casbin enforcer."""
 
-from urllib.parse import urlsplit
-
+import mongomock
+import pytest
 from connexion import App
 
+from foca.database import register_mongodb as db_module
 from foca.models.config import AccessControlConfig, MongoConfig
 from foca.security.access_control import register_access_control as module
 
+MONGO_ENV_VARS = [
+    "MONGO_URI",
+    "MONGO_HOST",
+    "MONGO_PORT",
+    "MONGO_DBNAME",
+    "MONGO_USERNAME",
+    "MONGO_PASSWORD",
+]
 
-def test_adapter_uri(monkeypatch):
-    """Casbin adapter connects with the app's MongoDB connection string."""
-    for var in ["MONGO_HOST", "MONGO_PORT", "MONGO_DBNAME", "MONGO_PASSWORD"]:
+
+@pytest.fixture
+def clients(monkeypatch):
+    """Replace MongoDB clients with in-memory clients; record their URIs."""
+    for var in MONGO_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("MONGO_URI", "mongodb://h1:1,h2:2/?replicaSet=rs")
-    captured = {}
+    created: list[tuple[str, mongomock.MongoClient]] = []
 
-    def mock_adapter(uri, dbname, collection, **kwargs):
-        captured.update(
-            uri=uri, dbname=dbname, collection=collection, **kwargs
-        )
+    def mongo_client(uri):
+        client = mongomock.MongoClient()
+        created.append((uri, client))
+        return client
+
+    monkeypatch.setattr(db_module, "MongoClient", mongo_client)
+    return created
+
+
+@pytest.fixture
+def captured(monkeypatch):
+    """Capture arguments passed to the Casbin adapter."""
+    captured: dict = {}
+
+    def mock_adapter(collection, **kwargs):
+        captured.update(collection=collection, **kwargs)
 
     monkeypatch.setattr(module, "Adapter", mock_adapter)
+    return captured
+
+
+def test_adapter_shares_app_client(clients, captured):
+    """Casbin adapter uses the app's MongoDB client and policy collection."""
+    mongo_config = MongoConfig()
     module.register_casbin_enforcer(
         app=App(__name__),
         access_control_config=AccessControlConfig(
@@ -29,12 +57,16 @@ def test_adapter_uri(monkeypatch):
             id_charset="abcdef",
             id_length=8,
         ),
-        mongo_config=MongoConfig(),
+        mongo_config=mongo_config,
+    )
+    assert len(clients) == 1
+    collection = captured.pop("collection")
+    assert collection.database.client is mongo_config._client
+    assert (collection.database.name, collection.name) == (
+        "access_control_db",
+        "policy_rules",
     )
     assert captured == {
-        "uri": "mongodb://h1:1,h2:2/?replicaSet=rs",
-        "dbname": "access_control_db",
-        "collection": "policy_rules",
         "id_charset": "abcdef",
         "id_length": 8,
         # rules are validated against the app's model
@@ -42,56 +74,13 @@ def test_adapter_uri(monkeypatch):
     }
 
 
-def test_adapter_uri_env_vars(monkeypatch):
-    """Casbin adapter honours individual MongoDB environment variables."""
-    for var in ["MONGO_URI", "MONGO_PORT", "MONGO_DBNAME"]:
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("MONGO_HOST", "other")
-    monkeypatch.setenv("MONGO_USERNAME", "user")
-    monkeypatch.setenv("MONGO_PASSWORD", "secret")
-    captured = {}
-
-    def mock_adapter(uri, dbname, collection, **kwargs):
-        captured.update(uri=uri)
-
-    monkeypatch.setattr(module, "Adapter", mock_adapter)
-    module.register_casbin_enforcer(
-        app=App(__name__),
-        access_control_config=AccessControlConfig(
-            db_name="access_control_db",
-            collection_name="policy_rules",
-        ),
-        mongo_config=MongoConfig(host="mongodb", port=27017),
-    )
-    uri = urlsplit(captured["uri"])
-    assert (uri.hostname, uri.port, uri.path) == (
-        "other",
-        27017,
-        "/access_control_db",
-    )
-    assert (uri.username, uri.password) == ("user", "secret")
-
-
-def test_adapter_dbname_override(monkeypatch):
+def test_adapter_dbname_override(clients, captured, monkeypatch):
     """Casbin adapter honours `MONGO_DBNAME`, like other database clients."""
-    for var in ["MONGO_URI", "MONGO_HOST", "MONGO_PORT", "MONGO_USERNAME"]:
-        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("MONGO_DBNAME", "other_db")
-    captured = {}
-
-    def mock_adapter(uri, dbname, collection, **kwargs):
-        captured.update(uri=uri, dbname=dbname)
-
-    monkeypatch.setattr(module, "Adapter", mock_adapter)
     module.register_casbin_enforcer(
         app=App(__name__),
-        access_control_config=AccessControlConfig(
-            db_name="access_control_db",
-            collection_name="policy_rules",
-        ),
+        access_control_config=AccessControlConfig(),
         mongo_config=MongoConfig(host="mongodb", port=27017),
     )
-    assert captured == {
-        "uri": "mongodb://mongodb:27017/other_db",
-        "dbname": "other_db",
-    }
+    assert clients[0][0] == "mongodb://mongodb:27017/other_db"
+    assert captured["collection"].database.name == "other_db"

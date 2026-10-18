@@ -256,12 +256,7 @@ def _create_app(
     config.db.dbs[DB_NAME].collections[  # type: ignore[union-attr,index]
         COLLECTION_NAME
     ].client = collection
-    adapter = Adapter(
-        uri="mongodb://localhost:12345/",
-        dbname=DB_NAME,
-        collection=COLLECTION_NAME,
-    )
-    adapter._collection = collection
+    adapter = Adapter(collection=collection)
     for ptype, rule in POLICIES:
         adapter.save_policy_line(ptype=ptype, rule=rule)
     cnx_app.app.config["CASBIN_MODEL"] = access_control.model
@@ -826,11 +821,8 @@ def helper_app():
         ),
     )
     adapter = Adapter(
-        uri="mongodb://localhost:12345/",
-        dbname=DB_NAME,
-        collection=COLLECTION_NAME,
+        collection=mongomock.MongoClient()[DB_NAME][COLLECTION_NAME]
     )
-    adapter._collection = mongomock.MongoClient()[DB_NAME][COLLECTION_NAME]
     app.config["CASBIN_MODEL"] = _model_path()
     app.config["casbin_adapter"] = adapter
     return app
@@ -1165,12 +1157,9 @@ class TestResourceRoles:
 
     def test_save_rule_invalid_for_model(self, helper_app):
         adapter = Adapter(
-            uri="mongodb://localhost:12345/",
-            dbname=DB_NAME,
-            collection=COLLECTION_NAME,
+            collection=mongomock.MongoClient()[DB_NAME][COLLECTION_NAME],
             model=_model_path(),
         )
-        adapter._collection = mongomock.MongoClient()[DB_NAME][COLLECTION_NAME]
         for ptype, rule in [
             ("p2", ["*", "/items", "GET"]),
             ("p", ["*", "/items"]),

@@ -17,7 +17,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pymongo import collection, database
+from pymongo import MongoClient, collection, database
 from typing_extensions import Self
 
 from foca.security.access_control.constants import (
@@ -1034,6 +1034,8 @@ class MongoConfig(FOCABaseConfig):
     host: str = "mongodb"
     port: int = 27017
     dbs: dict[str, DBConfig] | None = None
+    # MongoDB client shared by all databases; set on registration
+    _client: MongoClient | None = PrivateAttr(default=None)
 
 
 class JobsConfig(FOCABaseConfig):

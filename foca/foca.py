@@ -106,10 +106,7 @@ class Foca:
 
         # Register MongoDB
         if self.conf.db:
-            cnx_app.app.config.foca.db = register_mongodb(
-                app=cnx_app.app,
-                conf=self.conf.db,
-            )
+            cnx_app.app.config.foca.db = register_mongodb(self.conf.db)
             logger.info("Database registered.")
         else:
             logger.info("No database support configured.")

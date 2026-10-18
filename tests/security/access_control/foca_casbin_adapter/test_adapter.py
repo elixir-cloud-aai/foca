@@ -78,11 +78,16 @@ class TestAdapter(TestCase):
             Casbin enforcer object that validates against the registered
             policy model.
         """
-        adapter = Adapter(f"mongodb://localhost:{self.db_port}", self.db_name)
+        adapter = Adapter(self.collection())
         e = Enforcer(conf_file, adapter)
         model = e.get_model()
         self.save_policies(adapter=adapter, model=model, policies=policies)
         return Enforcer(conf_file, adapter)
+
+    def collection(self):
+        """Policy rule collection of the test database."""
+        client = MongoClient(f"mongodb://localhost:{self.db_port}")
+        return client[self.db_name]["casbin_rule"]
 
     def clear_db(self):
         """Helper to clear db after each test."""
@@ -146,7 +151,7 @@ class TestAdapter(TestCase):
         """Test to remove policy with incomplete rule. (Policy should not be
         removed)
         """
-        adapter = Adapter(f"mongodb://localhost:{self.db_port}", self.db_name)
+        adapter = Adapter(self.collection())
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
             conf_file=MODEL_ROLES_CONF_FILE,
@@ -175,7 +180,7 @@ class TestAdapter(TestCase):
         """Test to remove policy with empty rule. (Policy should not be
         removed)
         """
-        adapter = Adapter(f"mongodb://localhost:{self.db_port}", self.db_name)
+        adapter = Adapter(self.collection())
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
         e = self.get_enforcer(
             conf_file=MODEL_ROLES_CONF_FILE,
@@ -247,17 +252,11 @@ class TestAdapter(TestCase):
 @pytest.fixture
 def mock_adapter() -> Adapter:
     """Adapter with in-memory collection."""
-    adapter = Adapter("mongodb://localhost:12345", "db")
-    adapter._collection = mongomock.MongoClient().db.policy_rules
-    return adapter
+    return Adapter(mongomock.MongoClient().db.policy_rules)
 
 
 class TestAdapterIdentifiers:
     """Tests for identifiers of stored rules."""
-
-    def test_no_collection(self):
-        with pytest.raises(ValueError):
-            Adapter("mongodb://localhost:12345", "db", collection=None)
 
     def test_unique_index(self, mock_adapter):
         mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")

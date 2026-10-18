@@ -4,7 +4,7 @@ import logging
 
 from casbin import persist
 from casbin.model import Model
-from pymongo import MongoClient
+from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
 from foca.security.access_control.constants import (
@@ -28,12 +28,7 @@ class Adapter(persist.Adapter):
     Used for interactions between Casbin and MongoDB.
 
     Args:
-        uri: This should be the same requiement as pymongo Client's 'uri'
-            parameter. See https://pymongo.readthedocs.io/en/stable/api/pymong\
-            o/mongo_client.html#pymongo.mongo_client.MongoClient.
-        dbname: Database to store policy.
-        collection: Collection of the choosen database. Defaults to
-            "casbin_rule".
+        collection: MongoDB collection storing the policy rules.
         id_charset: Characters of generated rule identifiers.
         id_length: Length of generated rule identifiers.
         model: Path to the Casbin model file. If given, rules are validated
@@ -46,24 +41,17 @@ class Adapter(persist.Adapter):
         id_length: Length of generated rule identifiers.
         model: Casbin model to validate rules against, if any.
 
-    Raises:
-        ValueError: No collection is given.
     """
 
     def __init__(
         self,
-        uri: str,
-        dbname: str,
-        collection: str | None = "casbin_rule",
+        collection: Collection,
         id_charset: str = DEFAULT_ID_CHARSET,
         id_length: int = DEFAULT_ID_LENGTH,
         model: str | None = None,
     ):
         """Create an adapter for Mongodb."""
-        if collection is None:
-            raise ValueError("No collection for policy rules given")
-        client: MongoClient = MongoClient(uri)
-        self._collection = client[dbname][collection]
+        self._collection = collection
         self.id_charset = id_charset
         self.id_length = id_length
         self._id_index_created = False
