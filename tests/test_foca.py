@@ -88,6 +88,16 @@ def test_foca_create_app_output_defaults():
     assert isinstance(app, App)
 
 
+def test_foca_create_app_twice():
+    """Ensure an app can be created repeatedly from the same instance."""
+    foca = Foca(config_file=VALID_DB_CONF)
+    foca.create_app()
+    app = foca.create_app()
+    dbs = app.app.config.foca.db.dbs
+    assert set(dbs) == {"my-db", "access_control_db"}
+    assert set(dbs["access_control_db"].collections) == {"policy_rules"}
+
+
 def test_foca_create_app_jobs():
     """Ensure a Connexion app instance is returned; valid 'jobs' field."""
     foca = Foca(config_file=JOBS_CONF)

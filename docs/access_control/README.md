@@ -161,9 +161,15 @@ security:
 ### Configuring the database
 
 FOCA sets up a MongoDB database and collection to manage permission resources.
-Default names are set to `access_control_db` and `permission_rules`,
+Default names are set to `access_control_db` and `policy_rules`,
 respectively. To manually set the names, provide values for the `db_name` and
 `collection_name` parameters, respectively.
+
+If `db_name` is the name of one of the app's databases (as configured in
+`db.dbs`), the permission collection is added to that database, and the app's
+collections are kept. In that case, `collection_name` must differ from the
+names of the app's collections in that database; otherwise, FOCA refuses to
+start.
 
 ### Configuring the API
 
