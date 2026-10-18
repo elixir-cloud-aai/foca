@@ -25,17 +25,17 @@ not evaluated.
 Decorate controllers with `log_traffic` to log requests and responses:
 
 ```python
+import logging
+
 from foca.utils.logging import log_traffic
 
 
 @log_traffic
-def get_pet(pet_id: str) -> dict:
-    ...
+def get_pet(pet_id: str) -> dict: ...
 
 
 @log_traffic(log_request=False, log_level=logging.DEBUG)
-def list_pets() -> list[dict]:
-    ...
+def list_pets() -> list[dict]: ...
 ```
 
 Requests are logged with method, path, protocol and client address, and
