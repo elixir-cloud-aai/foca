@@ -554,25 +554,24 @@ obj_id = generate_id(charset=string.digits, length=6)
 
 ### Access Control utilities
 
-FOCA provides a decorator that can be used on any route to automatically
-validate request on the basis of permission rules.
+Set `security.access_control.enforce: True` to enforce access control
+policies on all operations requiring authentication, using the identity and
+group claims of validated bearer tokens. Alternatively, enforce policies on
+single controllers only:
 
 ```python
-from foca.security.access_control.register_access_control import (
-    check_permissions,
-)
+from foca.security.access_control import enforce_access_control
 
 
-@check_permissions
+@enforce_access_control
 def your_controller():
     pass
 ```
 
-Alternatively, set `security.access_control.enforce: True` to enforce
-policies on all operations requiring authentication, using identity and
-group claims of validated OIDC tokens. FOCA also provides helpers for
-managing resource-scoped roles, e.g., for resource ownership. See the [access
-control documentation][docs-access-control] for details.
+In your controllers, use `get_current_subject()` and `get_current_groups()`
+to get the identity and roles of the current request. FOCA also provides
+helpers for managing resource-scoped roles, e.g., for resource ownership. See
+the [access control documentation][docs-access-control] for details.
 
 ## Contributing
 

@@ -5,10 +5,10 @@ from collections.abc import Callable
 from functools import wraps
 
 from casbin import Enforcer
-from connexion import context
 from connexion.exceptions import Forbidden, Unauthorized
 from connexion.resolver import Resolution, Resolver
-from flask import current_app, request
+from flask import current_app, has_request_context, request
+from flask.globals import request_ctx
 
 from foca.security.access_control.constants import GROUP_PREFIX
 
@@ -28,12 +28,18 @@ def _get_claims() -> dict:
 
     Returns:
         Claims of the token validated by Connexion's security handler for the
-        current request, or an empty dictionary if not available.
+        current request, or an empty dictionary if not available, i.e., if
+        there is no request, the request was not handled by Connexion, or no
+        token was validated.
     """
-    try:
-        token_info = context.get("token_info")
-    except (AttributeError, RuntimeError):
+    if not has_request_context():
         return {}
+    # Connexion stores the request's context (including validated token
+    # info) on Flask's request context (cf. `connexion.context`)
+    connexion_context = getattr(request_ctx, "connexion_context", None)
+    if connexion_context is None:
+        return {}
+    token_info = connexion_context.get("token_info")
     if not isinstance(token_info, dict):
         return {}
     # FOCA's `validate_token()` returns claims under key `claims`

@@ -630,9 +630,6 @@ class AccessControlConfig(FOCABaseConfig):
             default specs.
         model: Path to access control model configuration file. If None,
             the use default specs.
-        owner_headers: Owner (Admin) specific header property requirements
-            for casbin.
-        user_headers: User specific header property requirements for casbin.
         enforce: Enforce policies on all operations of the app's API specs
             that require authentication, unless an operation sets
             `x-foca-access-control: false`. The permissions API is always
@@ -664,9 +661,6 @@ class AccessControlConfig(FOCABaseConfig):
         db_name: Access control database name.
         collection_name: Access control collection name.
         model: Path to access control model configuration file.
-        owner_headers: Owner (Admin) specific header property requirements
-            for casbin.
-        user_headers: User specific header property requirements for casbin.
         enforce: Enforce policies on all operations of the app's API specs
             that require authentication.
         claim_identity: JWT claim used as the subject for enforcing policies.
@@ -687,13 +681,11 @@ class AccessControlConfig(FOCABaseConfig):
         ...     db_name='access_control_db',
         ...     collection_name='access_control_collection',
         ...     model='/path/to/policy.conf',
-        ...     owner_headers={'X-User', 'X-Group'},
-        ...     user_headers={'X-User'}
         ... )
         AccessControlConfig(api_specs='/path/to/access_control_spec.yaml',api_\
 controllers='/path/to/access_control_spec_server.py', db_name='access_control_\
 db', collection_name='access_control_collection', model='/path/to/policy.co\
-nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
+nf', ...)
     """
 
     api_specs: str | None = None
@@ -701,8 +693,6 @@ nf', owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'})
     db_name: str | None = None
     collection_name: str | None = None
     model: str | None = Field(default=None, validate_default=True)
-    owner_headers: set | None = None
-    user_headers: set | None = None
     enforce: bool = False
     claim_identity: str | None = None
     subject_prefix: str = "user:"
@@ -897,7 +887,7 @@ CORSConfig(enabled=True), access_co\
 ntrol=AccessControlConfig(api_specs='/path/to/access_control_spec.yaml',api_co\
 ntrollers='/path/to/access_control_spec_server.py', db_name='access_control_db\
 ', collection_name='access_control_collection', model='/path/to/policy.conf', \
-owner_headers={'X-User', 'X-Group'}, user_headers={'X-User'}))
+...))
     """
 
     access_control: AccessControlConfig = AccessControlConfig()
@@ -1314,8 +1304,8 @@ allow_expired=False, audience=None, claim_identity='sub', algorithms=['RS256']\
 bled=True), access_control=Access\
 ControlConfig(api_specs='/path/to/access_control_spec.yaml', api_controllers='\
 /path/to/access_control_spec_server.py', db_name='access_control_db', collecti\
-on_name='access_control_collection', model='/path/to/policy.conf', owner_heade\
-rs={'X-User', 'X-Group'}, user_headers={'X-User'})), db=None, jobs=None, log=L\
+on_name='access_control_collection', model='/path/to/policy.conf', ...)), db=N\
+one, jobs=None, log=L\
 ogConfig(version=1, disable_existing_loggers=False, formatters={'standard': Lo\
 gFormatterConfig(class_formatter='logging.Formatter', style='{', format='[{asc\
 time}: {levelname:<8}] {message} [{name}]')}, handlers={'console': LogHandlerC\

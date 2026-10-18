@@ -24,8 +24,6 @@ MODEL_CONF_FILE = str(DIR / "rbac_model.conf")
 ACCESS_CONTROL_CONFIG = {
     "db_name": "access_control_db",
     "collection_name": "policy_rules",
-    "owner_headers": ["X-User", "X-Group"],
-    "user_headers": ["X-User"],
     "model": MODEL_CONF_FILE,
 }
 
@@ -42,10 +40,3 @@ MOCK_RULE_USER_INPUT_OUTPUT = {
     "rule": {"v0": "alice", "v1": "data1", "v2": "POST", "v3": "read"},
 }
 MOCK_RULE_INVALID = {"rule": []}
-MOCK_PERMISSION = ["alice", "/", "GET"]
-MOCK_REQUEST = {
-    "REQUEST_METHOD": "GET",
-    "PATH_INFO": "/",
-    "SERVER_PROTOCOL": "HTTP/1.1",
-    "REMOTE_ADDR": "192.168.1.1",
-}

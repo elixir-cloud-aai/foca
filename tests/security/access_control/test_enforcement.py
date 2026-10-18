@@ -9,7 +9,7 @@ from unittest import mock
 import mongomock
 import pytest
 import yaml
-from connexion.exceptions import Unauthorized
+from connexion.exceptions import Forbidden, Unauthorized
 from connexion.resolver import Resolution, Resolver
 from flask import Flask
 from flask.globals import request_ctx
@@ -29,6 +29,7 @@ from foca.models.config import (
 )
 from foca.security.access_control import (
     add_resource_role,
+    enforce_access_control,
     get_current_groups,
     get_current_subject,
     list_resource_roles,
@@ -40,7 +41,10 @@ from foca.security.access_control.constants import (
     DEFAULT_MODEL_FILE,
     RESOURCE_ROLE_MODEL_FILE,
 )
-from foca.security.access_control.enforcement import _is_within_path
+from foca.security.access_control.enforcement import (
+    _is_within_path,
+    get_enforcer,
+)
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
     register_permission_specs,
@@ -604,6 +608,22 @@ class TestCurrentSubject:
             assert get_current_subject() is None
             assert get_current_groups() == []
 
+    def test_outside_request(self, helper_app):
+        with helper_app.app_context():
+            assert get_current_subject() is None
+            assert get_current_groups() == []
+
+    def test_invalid_connexion_context(self, helper_app):
+        """Errors in claim retrieval are raised, not taken as no claims."""
+        ctx = helper_app.test_request_context()
+        ctx.push()
+        request_ctx.connexion_context = "invalid"  # type: ignore[attr-defined]
+        try:
+            with pytest.raises(AttributeError):
+                get_current_subject()
+        finally:
+            ctx.pop()
+
     def test_no_group_claim_configured(self, helper_app):
         helper_app.config.foca.security.access_control.claim_groups = None
         ctx = self._context(helper_app, mock_token_info("carol"))
@@ -611,6 +631,37 @@ class TestCurrentSubject:
             assert get_current_groups() == []
         finally:
             ctx.pop()
+
+
+class TestEnforceAccessControlDecorator:
+    """Tests for using `enforce_access_control` on single controllers."""
+
+    @staticmethod
+    def _call(app, method, path, token_info):
+        @enforce_access_control
+        def decorated():
+            return "ok"
+
+        with app.test_request_context(path, method=method):
+            request_ctx.connexion_context = (  # type: ignore[attr-defined]
+                {} if token_info is None else {"token_info": token_info}
+            )
+            return decorated()
+
+    def test_allowed(self, helper_app):
+        with helper_app.app_context():
+            get_enforcer().add_policy("user:alice", "/items", "GET")
+        token_info = mock_token_info("alice")
+        assert self._call(helper_app, "GET", "/items", token_info) == "ok"
+
+    def test_denied(self, helper_app):
+        token_info = mock_token_info("alice")
+        with pytest.raises(Forbidden):
+            self._call(helper_app, "DELETE", "/items", token_info)
+
+    def test_no_subject(self, helper_app):
+        with pytest.raises(Unauthorized):
+            self._call(helper_app, "GET", "/items", None)
 
 
 class TestResourceRoles:

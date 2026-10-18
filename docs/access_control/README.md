@@ -18,7 +18,6 @@ it can be configured for your needs.
 * [Configuration](#configuration)
   * [Configuring the database](#configuring-the-database)
   * [Configuring the API](#configuring-the-api)
-  * [Configuring header properties](#configuring-header-properties)
   * [Configuring the access control
     model](#configuring-the-access-control-model)
 * [Enforcing policies with OIDC tokens](#enforcing-policies-with-oidc-tokens)
@@ -136,8 +135,6 @@ security:
     api_route: '/path/to/access_control_api'
     db_name: access_control_db_name
     collection_name: access_control_collection_name
-    owner_headers: admin_identification_properties
-    user_headers: user_identification_properties
     enforce: False
     claim_identity: sub
     subject_prefix: "user:"
@@ -152,9 +149,7 @@ security:
 > by a user with admin permissions via the dedicated endpoints defined in the
 > `api_specs`, operationalized by the controllers in `api_controllers` and
 > hosted at `api_route`. Permissions will be stored in collection
-> `collection_name` of a dedicated MongoDB database `db_name`. The headers
-> `owner_headers` and `user_headers` would be set for admins and regular users,
-> respectively.
+> `collection_name` of a dedicated MongoDB database `db_name`.
 >  
 > Cf. the [API model][docs-models-access-control] for further options and details.
 
@@ -192,13 +187,6 @@ definition is not provided via parameter `model`, a [role-based access control
 on writing your own custom models, refer to the [Casbin
 documentation][res-casbin-models].
 
-### Configuring header properties
-
-For access control to work, we must provide specific properties for every
-request. These are used to validate the incoming request and to differentiate
-users and owners/admins. You can set up `owner_headers` and `user_headers` to
-specify custom owner and user properties, respectively.
-
 ## Enforcing policies with OIDC tokens
 
 Policies can be enforced on all operations of an app's API specifications
@@ -233,13 +221,10 @@ policy allows them.
   items defined via `$ref` are enforced, too.
 * `enforce: True` requires `security.auth.required: True`; FOCA refuses to
   start otherwise.
-* With `enforce: False` (default), policies are only enforced on controllers
-  decorated with `check_permissions`.
-
-`check_permissions` is a separate mechanism: it takes subjects from request
-headers (`owner_headers`), not from validated token claims, and does not
-apply the subject namespaces described below. Do not combine it with
-`enforce: True`; otherwise, both checks apply to decorated controllers.
+* With `enforce: False` (default), policies are only enforced on the
+  permissions API and on controllers decorated with
+  `foca.security.access_control.enforce_access_control`, which applies the
+  same checks to a single controller.
 
 ### Identity and group claims
 
