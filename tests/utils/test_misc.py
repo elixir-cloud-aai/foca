@@ -12,6 +12,7 @@ class TestGenerateId:
         """Use only default arguments."""
         res = generate_id()
         assert isinstance(res, str)
+        assert set(res) <= set(string.ascii_letters + string.digits)
 
     def test_charset_literal_string(self):
         """Argument to `charset` is non-default literal string."""
@@ -25,29 +26,55 @@ class TestGenerateId:
         res = generate_id(charset=charset)
         assert set(res) <= set(string.digits)
 
-    def test_charset_evaluates_to_string(self):
-        """Argument to `charset` evaluates to string."""
-        charset = "''.join([c for c in string.digits])"
-        res = generate_id(charset=charset)
-        assert set(res) <= set(string.digits)
-
-    def test_charset_evaluates_to_empty_string(self):
-        """Argument to `charset` evaluates to non-string."""
+    def test_charset_not_evaluated(self):
+        """Argument to `charset` is used literally, not evaluated."""
         charset = "''.join([])"
-        with pytest.raises(TypeError):
+        res = generate_id(charset=charset, length=20)
+        assert len(res) == 20
+        assert set(res) <= set(charset)
+
+    @pytest.mark.parametrize(
+        "charset",
+        [
+            "string.abc",
+            "my_string.xyz",
+            "substring.digits",
+        ],
+    )
+    def test_charset_literal_with_dot(self, charset):
+        """Literal charset resembling attribute access is used literally."""
+        res = generate_id(charset=charset, length=20)
+        assert len(res) == 20
+        assert set(res) <= set(charset)
+
+    def test_charset_digit_string(self):
+        """Argument to `charset` is a string of a single digit."""
+        res = generate_id(charset="1", length=3)
+        assert res == "111"
+
+    @pytest.mark.parametrize(
+        "charset",
+        [
+            "string.ascii_uppercase + string.digits",
+            "string.digits",
+            "''.join([string.ascii_letters, string.digits])",
+            "string . ascii_uppercase+string .digits",
+        ],
+    )
+    def test_charset_expression(self, charset):
+        """Argument to `charset` is a former `string` module expression."""
+        with pytest.raises(ValueError, match="no longer evaluated"):
             generate_id(charset=charset)
 
-    def test_charset_evaluates_to_non_string(self):
-        """Argument to `charset` evaluates to non-string."""
-        charset = "1"
+    def test_charset_empty(self):
+        """Argument to `charset` is an empty string."""
         with pytest.raises(TypeError):
-            generate_id(charset=charset)
+            generate_id(charset="")
 
-    def test_evaluation_error(self):
-        """Evaulation of `length` raises an exception."""
-        charset = int
+    def test_charset_not_string(self):
+        """Argument to `charset` is not a string."""
         with pytest.raises(TypeError):
-            generate_id(charset=charset)  # type: ignore
+            generate_id(charset=int)  # type: ignore
 
     def test_length(self):
         """Non-default argument to `length`."""
@@ -60,6 +87,11 @@ class TestGenerateId:
         length = ""
         with pytest.raises(TypeError):
             generate_id(length=length)  # type: ignore
+
+    def test_length_bool(self):
+        """Argument to `length` is a boolean."""
+        with pytest.raises(TypeError):
+            generate_id(length=True)
 
     def test_length_not_positive(self):
         """Argument to `length` is not a positive integer."""

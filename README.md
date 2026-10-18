@@ -527,7 +527,12 @@ obj_id = generate_id(charset=string.digits, length=6)
 ```
 
 > The above function processes and returns a random `obj_id` of length `6`
-> consisting of only digits (`string.digits`).
+> consisting of only digits (`string.digits`). Characters are drawn with the
+> cryptographically secure `secrets` module. The `charset` is used as is: if
+> it is read from a config file, list the allowed characters themselves (e.g.,
+> `ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`); expressions such as
+> `string.ascii_uppercase + string.digits` are no longer evaluated and raise a
+> `ValueError`.
 
 ### Access Control utilities
 
