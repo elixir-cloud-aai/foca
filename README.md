@@ -362,8 +362,6 @@ security:
   access_control:
     enabled: True
     api_specs: 'path/to/your/access/control/specs'
-    api_controllers: 'path/to/your/access/control/spec/controllers'
-    api_route: '/route/to/access_control_api'
     db_name: access_control_db_name
     collection_name: access_control_collection_name
     model: access_control_model_definition
@@ -385,11 +383,11 @@ security:
 > the security requirements of the operations in your API specifications
 > (e.g., via `x-bearerInfoFunc: foca.security.auth.validate_token`).
 > Furthermore, as access control is `enabled`, the application created with
-> this config would provide an access control model `model`. Corresponding permissions could be accessed
-> and altered by a user with admin permissions via the dedicated endpoints
-> defined in the `api_specs`, operationalized by the controllers in
-> `api_controllers` and hosted at `api_route`. Permissions will be stored in
-> collection `collection_name` of a dedicated MongoDB database `db_name`.
+> this config would provide an access control model `model`. Corresponding
+> permissions could be accessed and altered by a user with admin permissions
+> via the permissions API (`/admin/access-control/permissions`), defined in
+> `api_specs` (FOCA's default specification if not set). Permissions will be
+> stored in collection `collection_name` of MongoDB database `db_name`.
 > Finally, cross-origin requests would only be allowed from
 > `https://my-app.example.org`, including credentials. By default, CORS is
 > enabled for any origin, without credentials; allowing credentials requires

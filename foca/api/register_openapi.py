@@ -69,8 +69,8 @@ def register_openapi(
         Connexion application instance with registered OpenAPI specifications.
 
     Raises:
-        OSError: Modified specification cannot be written.
-        yaml.YAMLError: Modified specification cannot be serialized.
+        OSError: Specification cannot be read.
+        yaml.YAMLError: Specification cannot be parsed.
     """
     # Iterate over OpenAPI specs
     for spec in specs:
@@ -132,6 +132,6 @@ def register_openapi(
             specification=spec_parsed,
             **connexion_kwargs,
         )
-        logger.info(f"API endpoints added from spec: {spec.path_out}")
+        logger.info(f"API endpoints added from spec: {list_specs}")
 
     return app

@@ -1,7 +1,7 @@
 """Methods to manage permission management configuration."""
 
 import logging
-from importlib.resources import path as resource_path
+from importlib.resources import files
 from pathlib import Path
 
 from connexion import App
@@ -53,7 +53,7 @@ def register_access_control(
     if mongo_config.dbs is None:
         mongo_config.dbs = {}
 
-    access_control_db = str(access_control_config.db_name)
+    access_control_db = access_control_config.db_name
     access_control_collection = access_control_config.collection_name
 
     # Remove policy collection (and database) added by a previous
@@ -78,9 +78,7 @@ def register_access_control(
     if app_db_conf is None:
         # Register new database for access control.
         access_db_conf = DBConfig(
-            collections={access_control_collection: CollectionConfig()}
-            if access_control_collection is not None
-            else {},
+            collections={access_control_collection: CollectionConfig()},
             client=None,
         )
         mongo_config.dbs[access_control_db] = access_db_conf
@@ -90,7 +88,7 @@ def register_access_control(
             db_conf=access_db_conf,
             db_name=access_control_db,
         )
-    elif access_control_collection is not None:
+    else:
         # Add policy collection to app database of the same name, keeping
         # the app's collections.
         if app_db_conf.collections is None:
@@ -124,7 +122,7 @@ def register_access_control(
     # Remember what was added, once registration of the database succeeded
     access_control_config._registered_collection = (
         access_control_db,
-        str(access_control_collection),
+        access_control_collection,
         added_db,
     )
     cnx_app.app.config.foca.db = mongo_config
@@ -160,22 +158,15 @@ def register_permission_specs(
     Returns:
         Connexion app with updated permission specifications.
     """
-    # Check if default, get package path variables for specs.
     if access_control_config.api_specs is None:
-        with resource_path(
-            ACCESS_CONTROL_BASE_PATH, DEFAULT_API_SPEC_PATH
-        ) as _path:
-            spec_path = str(_path)
+        spec_path = str(
+            files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH)
+        )
     else:
         spec_path = access_control_config.api_specs
 
     spec = SpecConfig(
         path=Path(spec_path),
-        add_operation_fields={
-            "x-openapi-router-controller": (
-                access_control_config.api_controllers
-            )
-        },
         connexion={
             "strict_validation": True,
             "validate_responses": True,
@@ -227,9 +218,9 @@ def register_casbin_enforcer(
         uri=get_mongo_uri(
             host=mongo_config.host,
             port=mongo_config.port,
-            db=str(access_control_config.db_name),
+            db=access_control_config.db_name,
         ),
-        dbname=get_mongo_db_name(str(access_control_config.db_name)),
+        dbname=get_mongo_db_name(access_control_config.db_name),
         collection=access_control_config.collection_name,
         id_charset=access_control_config.id_charset,
         id_length=access_control_config.id_length,

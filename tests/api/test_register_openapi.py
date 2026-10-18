@@ -16,16 +16,11 @@ from foca.models.config import SpecConfig
 # Define mock data
 DIR = Path(__file__).parents[1].resolve() / "test_files"
 PATH_SPECS_2_YAML_ORIGINAL = DIR / "openapi_2_petstore.original.yaml"
-PATH_SPECS_2_YAML_MODIFIED = DIR / "openapi_2_petstore.modified.yaml"
 PATH_SPECS_2_JSON_ORIGINAL = DIR / "openapi_2_petstore.original.json"
 PATH_SPECS_2_YAML_ADDITION = DIR / "openapi_2_petstore.addition.yaml"
 PATH_SPECS_3_YAML_ORIGINAL = DIR / "openapi_3_petstore.original.yaml"
-PATH_SPECS_3_YAML_MODIFIED = DIR / "openapi_3_petstore.modified.yaml"
 PATH_SPECS_3_PATHITEMPARAM_YAML_ORIGINAL = (
     DIR / "openapi_3_petstore_pathitemparam.original.yaml"
-)
-PATH_SPECS_3_PATHITEMPARAM_YAML_MODIFIED = (
-    DIR / "openapi_3_petstore_pathitemparam.modified.yaml"
 )
 PATH_SPECS_INVALID_JSON = DIR / "invalid.json"
 PATH_SPECS_INVALID_YAML = DIR / "invalid.openapi.yaml"
@@ -52,7 +47,6 @@ CONNEXION_CONFIG = {
 }
 SPEC_CONFIG_2 = {
     "path": PATH_SPECS_2_YAML_ORIGINAL,
-    "path_out": PATH_SPECS_2_YAML_MODIFIED,
     "append": [APPEND],
     "add_operation_fields": OPERATION_FIELDS_2,
     "add_security_fields": SECURITY_FIELDS_2,
@@ -61,7 +55,6 @@ SPEC_CONFIG_2 = {
 }
 SPEC_CONFIG_3 = {
     "path": PATH_SPECS_3_YAML_ORIGINAL,
-    "path_out": PATH_SPECS_3_YAML_MODIFIED,
     "append": [APPEND],
     "add_operation_fields": OPERATION_FIELDS_3,
     "add_security_fields": SECURITY_FIELDS_3,
@@ -70,7 +63,6 @@ SPEC_CONFIG_3 = {
 }
 SPEC_CONFIG_3_PATHITEMPARAM = {
     "path": PATH_SPECS_3_PATHITEMPARAM_YAML_ORIGINAL,
-    "path_out": PATH_SPECS_3_PATHITEMPARAM_YAML_MODIFIED,
     "append": [APPEND],
     "add_operation_fields": OPERATION_FIELDS_3,
     "add_security_fields": SECURITY_FIELDS_3,

@@ -15,11 +15,10 @@ from yaml import (
 )
 
 from foca import Foca
-from foca.security.access_control.constants import DEFAULT_SPEC_CONTROLLER
+from foca.models.config import AccessControlConfig
 
 DIR = Path(__file__).parent / "test_files"
 PATH_SPECS_2_YAML_ORIGINAL = str(DIR / "openapi_2_petstore.original.yaml")
-PATH_SPECS_2_YAML_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
 EMPTY_CONF = DIR / "empty_conf.yaml"
 INVALID_CONF = DIR / "invalid_conf.yaml"
 VALID_DB_CONF = DIR / "conf_db.yaml"
@@ -39,7 +38,7 @@ ENFORCE_WITHOUT_ENABLED_CONF = (
 )
 
 
-def create_modified_api_conf(path, temp_dir, api_specs_in, api_specs_out):
+def create_modified_api_conf(path, temp_dir, api_specs_in):
     """Create a copy of a configuration YAML file."""
     temp_path = Path(temp_dir) / "temp_test.yaml"
     shutil.copy2(path, temp_path)
@@ -116,11 +115,27 @@ def test_foca_create_app_access_control_defaults():
     """Ensure access control is registered with defaults if only enabled."""
     foca = Foca(config_file=ACCESS_CONTROL_ENABLED_CONF)
     app = foca.create_app()
-    access_control = app.app.config.foca.security.access_control
-    assert access_control.api_controllers == DEFAULT_SPEC_CONTROLLER
     dbs = app.app.config.foca.db.dbs
     assert set(dbs) == {"access_control_db"}
     assert set(dbs["access_control_db"].collections) == {"policy_rules"}
+
+
+def test_foca_create_app_config_unchanged():
+    """Ensure creating apps does not change access control settings."""
+    foca = Foca(config_file=ACCESS_CONTROL_ENABLED_CONF)
+    before = foca.conf.security.model_dump()
+    foca.create_app()
+    foca.create_app()
+    assert foca.conf.security.model_dump() == before
+
+
+@pytest.mark.parametrize(
+    "field", ["api_controllers", "api_route", "nonexistent"]
+)
+def test_access_control_removed_fields(field):
+    """Removed access control settings fail validation."""
+    with pytest.raises(ValidationError):
+        AccessControlConfig(**{field: "x"})
 
 
 def test_foca_create_app_twice():
@@ -146,7 +161,6 @@ def test_foca_create_app_api(tmpdir):
         API_CONF,
         tmpdir,
         PATH_SPECS_2_YAML_ORIGINAL,
-        PATH_SPECS_2_YAML_MODIFIED,
     )
     foca = Foca(config_file=temp_file)
     app = foca.create_app()

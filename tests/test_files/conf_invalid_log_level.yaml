@@ -7,7 +7,6 @@ server:
 api:
     specs:
         - path: my_specs.yaml
-          path_out: my_specs.modified.yaml
           append: null
           add_operation_fields: null
           connexion: null

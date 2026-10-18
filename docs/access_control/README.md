@@ -150,8 +150,6 @@ security:
     enabled: True
     model: access_control_model_definition
     api_specs: 'path/to/your/access/control/specs'
-    api_controllers: 'path/to/your/access/control/spec/controllers'
-    api_route: '/path/to/access_control_api'
     api_swagger_ui: False
     api_serve_spec: False
     db_name: access_control_db_name
@@ -170,10 +168,10 @@ security:
 
 > The application created with this config would provide an access control
 > model `model`. Corresponding permissions could be accessed and altered
-> by a user with admin permissions via the dedicated endpoints defined in the
-> `api_specs`, operationalized by the controllers in `api_controllers` and
-> hosted at `api_route`. Permissions will be stored in collection
-> `collection_name` of a dedicated MongoDB database `db_name`.
+> by a user with admin permissions via the endpoints defined in `api_specs`
+> (FOCA's default specification if not set), at
+> `/admin/access-control/permissions` by default. Permissions will be stored
+> in collection `collection_name` of MongoDB database `db_name`.
 >  
 > Cf. the [API model][docs-models-access-control] for further options and details.
 
@@ -192,11 +190,13 @@ start.
 
 ### Configuring the API
 
-FOCA comes with a default API for configuring permission resources. However,
-you can provide a custom [Swagger 2.x or OpenAPI 3.x][res-openapi] definition
-for `/permissions` endpoints via `api_specs`, provide a module containing
-custom controllers for the defined endpoints via the `api_controllers`
-parameter and tell FOCA where to host the endpoints via `api_route`.
+FOCA comes with a default API for configuring permission resources, served
+at `/admin/access-control`. However, you can provide a custom [Swagger 2.x or
+OpenAPI 3.x][res-openapi] definition for `/permissions` endpoints via
+`api_specs`. Its `servers` (or `basePath`) define where the endpoints are
+served, and the `operationId` of each operation which controller handles it
+(e.g., FOCA's default controllers in
+`foca.security.access_control.access_control_server`, or your own).
 
 The Swagger UI and the specification of the permissions API are not served
 by default. Set `api_swagger_ui: True` and/or `api_serve_spec: True` to serve
@@ -494,8 +494,8 @@ running, e.g.:
 firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
 ```
 
-> The exact route at which endpoints are served depends on the value of
-> `AccessControlConfig.api_route`.
+> The exact route at which endpoints are served depends on the `servers`
+> (or `basePath`) of the permissions API specification (cf. `api_specs`).
 
 ![Logo_banner][img-logo-banner]
 
