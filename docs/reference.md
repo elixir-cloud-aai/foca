@@ -1,0 +1,80 @@
+# API reference
+
+Reference of FOCA's public Python API, generated from its docstrings. For
+configuration models, see [Configuration](configuration/index.md).
+
+## App factory
+
+::: foca.Foca
+
+## Configuration access
+
+::: foca.config.access
+    options:
+      members:
+        - get_config
+        - get_collection
+
+## Authentication
+
+::: foca.security.auth
+    options:
+      members:
+        - validate_token
+
+## Access control
+
+::: foca.security.access_control.enforcement
+    options:
+      members:
+        - enforce_access_control
+        - is_permitted
+        - get_current_subject
+        - get_current_groups
+        - get_enforcer
+        - add_resource_role
+        - remove_resource_role
+        - list_resource_roles
+        - remove_resource
+
+::: foca.security.access_control.foca_casbin_adapter.adapter
+    options:
+      members:
+        - Adapter
+
+::: foca.security.access_control.foca_casbin_adapter.casbin_rule
+    options:
+      members:
+        - CasbinRule
+        - validate_rule
+        - validate_rule_value
+
+## Errors
+
+::: foca.errors.exceptions
+    options:
+      members:
+        - build_problem
+        - register_exception_handler
+
+## Databases
+
+::: foca.database.register_mongodb
+    options:
+      members:
+        - create_mongo_client
+        - get_mongo_client
+        - get_mongo_db_name
+        - register_mongodb
+
+::: foca.utils.db
+
+## Utilities
+
+::: foca.utils.misc
+
+::: foca.utils.logging
+    options:
+      members:
+        - log_traffic
+        - escape_log_value

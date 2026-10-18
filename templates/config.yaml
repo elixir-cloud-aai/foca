@@ -2,13 +2,13 @@
 
 # Available in apps via `foca.get_config()`
 # Automatically validated via FOCA
-# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html
+# Cf. https://foca.readthedocs.io/en/latest/configuration/
 # Relative file paths are resolved against the directory of this file
 # Environment-specific overlays (e.g., `config.prod.yaml`) can be merged into
 # this file via environment variable `FOCA_CONFIG_OVERLAY`
 
 # SERVER CONFIGURATION
-# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ServerConfig
+# Cf. https://foca.readthedocs.io/en/latest/configuration/server/
 server:
   host: '0.0.0.0'
   port: 8080
@@ -17,14 +17,14 @@ server:
   testing: False
 
 # EXCEPTION CONFIGURATION
-# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ExceptionConfig
+# Cf. https://foca.readthedocs.io/en/latest/configuration/exceptions/
 exceptions:
   mapping: my_app.exceptions.problems
   public_members: null
   logging: oneline
 
 # SECURITY CONFIGURATION
-# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.SecurityConfig
+# Cf. https://foca.readthedocs.io/en/latest/configuration/auth/
 security:
   auth:
     add_key_to_claims: True
@@ -38,7 +38,7 @@ security:
       - https://login.example.org/oidc/
 
 # API CONFIGURATION
-# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.APIConfig
+# Cf. https://foca.readthedocs.io/en/latest/configuration/api/
 api:
   specs:
     - path:
@@ -56,7 +56,7 @@ api:
           serve_spec: True
 
 # DATABASE CONFIGURATION
-# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.DBConfig
+# Cf. https://foca.readthedocs.io/en/latest/configuration/db/
 db:
   host: mongodb
   port: 27017
@@ -71,7 +71,7 @@ db:
                 'unique': True
 
 # WORKER CONFIGURATION
-# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.JobsConfig
+# Cf. https://foca.readthedocs.io/en/latest/configuration/jobs/
 jobs:
   host: rabbitmq
   port: 5672
@@ -81,7 +81,7 @@ jobs:
     - my_app.tasks.my_task_2
 
 # LOGGING CONFIGURATION
-# Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.LogConfig
+# Cf. https://foca.readthedocs.io/en/latest/configuration/log/
 log:
   version: 1
   disable_existing_loggers: False

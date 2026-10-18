@@ -1,0 +1,100 @@
+site_name: FOCA
+site_description: >-
+  Develop OpenAPI-based Flask microservices quickly with Connexion
+site_url: https://foca.readthedocs.io/
+repo_url: https://github.com/elixir-cloud-aai/foca
+repo_name: elixir-cloud-aai/foca
+edit_uri: edit/dev/docs/
+copyright: Copyright &copy; ELIXIR Cloud & AAI
+
+theme:
+  name: material
+  logo: images/foca_logo_round.svg
+  favicon: images/foca_favicon.svg
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["."]
+          options:
+            docstring_style: google
+            # Fields of pydantic models are documented as `Args`, but have no
+            # signature that griffe could check them against
+            docstring_options:
+              warn_unknown_params: false
+              warn_missing_types: false
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+            merge_init_into_class: true
+            filters: ["!^_"]
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Configuration:
+      - configuration/index.md
+      - server: configuration/server.md
+      - api: configuration/api.md
+      - db: configuration/db.md
+      - exceptions: configuration/exceptions.md
+      - jobs: configuration/jobs.md
+      - log: configuration/log.md
+      - security.auth: configuration/auth.md
+      - security.access_control: configuration/access-control.md
+      - security.cors: configuration/cors.md
+      - custom: configuration/custom.md
+  - Authentication: authentication.md
+  - Access control: access-control.md
+  - Utilities: utilities.md
+  - Migrating to 0.14.0: migration-0.14.md
+  - API reference: reference.md
+  - Changelog: changelog.md

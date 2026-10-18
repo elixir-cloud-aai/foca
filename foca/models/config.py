@@ -896,14 +896,12 @@ class SecurityConfig(FOCABaseConfig):
         ...     auth=AuthConfig(),
         ...     cors=CORSConfig(),
         ... )
-        SecurityConfig(auth=AuthConfig(issuers=[], add_key_to_c\
-laims=True, allow_expired=False, audience=None, claim_identity='sub', algorit\
-hms=['RS256'], validate_userinfo=False, timeout=10.0, cache_ttl=300.0), cors=\
-CORSConfig(enabled=True), access_co\
-ntrol=AccessControlConfig(api_specs='/path/to/access_control_spec.yaml',api_co\
-ntrollers='/path/to/access_control_spec_server.py', db_name='access_control_db\
-', collection_name='access_control_collection', model='/path/to/policy.conf', \
-...))
+        SecurityConfig(access_control=AccessControlConfig(enabled=False, api\
+_specs=None, api_swagger_ui=False, api_serve_spec=False, db_name='access_contr\
+ol_db', collection_name='policy_rules', model='/path/to/default_model.conf', .\
+..), auth=AuthConfig(issuers=[], add_key_to_claims=True, allow_expired=False, \
+audience=None, claim_identity='sub', algorithms=['RS256'], validate_userinfo=F\
+alse, timeout=10.0, cache_ttl=300.0), cors=CORSConfig(enabled=True, ...))
     """
 
     access_control: AccessControlConfig = AccessControlConfig()
@@ -1321,23 +1319,16 @@ class Config(FOCABaseConfig):
     Example:
         >>> Config()
         Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=False, tes\
-ting=False), exceptions=Exception\
-Config(mapping=None, public_members=None, logging=<ExceptionLoggingEnum.onelin\
-e: 'oneline'>), api=APIConfig(specs=[]), security=Secu\
-rityConfig(auth=AuthConfig(issuers=[], add_key_to_claims=True, \
-allow_expired=False, audience=None, claim_identity='sub', algorithms=['RS256']\
-, validate_userinfo=False, timeout=10.0, cache_ttl=300.0), cors=CORSConfig(ena\
-bled=True), access_control=Access\
-ControlConfig(enabled=False, api_specs=None, api_swagger_ui=False, api_serve\
-_spec=False, db_name='access_control_db', collection_name='policy_rules', mode\
-l='/path/to/default_model.conf', ...)), db=N\
-one, jobs=None, log=L\
-ogConfig(version=1, disable_existing_loggers=False, formatters={'standard': Lo\
-gFormatterConfig(class_formatter='logging.Formatter', style='{', format='[{asc\
-time}: {levelname:<8}] {message} [{name}]')}, handlers={'console': LogHandlerC\
-onfig(class_handler='logging.StreamHandler', level=20, formatter='standard', s\
-tream='ext://sys.stderr')}, root=LogRootConfig(level=10, handlers=['console'])\
-))
+ting=False), exceptions=ExceptionConfig(mapping=None, public_members=None, log\
+ging=<ExceptionLoggingEnum.oneline: 'oneline'>), api=APIConfig(specs=[]), secu\
+rity=SecurityConfig(access_control=AccessControlConfig(enabled=False, ...), au\
+th=AuthConfig(issuers=[], ...), cors=CORSConfig(enabled=True, ...)), db=None, \
+jobs=None, log=LogConfig(version=1, disable_existing_loggers=False, formatters\
+={'standard': LogFormatterConfig(class_formatter='logging.Formatter', style='\
+{', format='[{asctime}: {levelname:<8}] {message} [{name}]')}, handlers={'cons\
+ole': LogHandlerConfig(class_handler='logging.StreamHandler', level=20, format\
+ter='standard', stream='ext://sys.stderr')}, root=LogRootConfig(level=10, hand\
+lers=['console'])))
     """
 
     server: ServerConfig = ServerConfig()
