@@ -9,10 +9,9 @@
 server:
   host: '0.0.0.0'
   port: 8080
-  debug: True
-  environment: development
+  # Debug mode exposes an interactive debugger; local development only
+  debug: False
   testing: False
-  use_reloader: False
 
 # EXCEPTION CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ExceptionConfig

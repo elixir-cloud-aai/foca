@@ -402,16 +402,16 @@ in your app configuration file:
 
 ```yaml
 server:
-  host: '0.0.0.0'
+  host: '127.0.0.1'
   port: 8080
   debug: True
-  environment: development
-  use_reloader: False
 ```
 
-> This config would create an application server hosting a Flask `development`
-> environment at `0.0.0.0:8080`, Flask's debugger switched on, and its reloader
-> off.
+> This config would create an application server at `127.0.0.1:8080` with
+> Flask's debug mode, including its interactive debugger, switched on. As the
+> debugger allows executing arbitrary code, debug mode is off by default and
+> should only be enabled for local development; FOCA logs a warning if it is
+> enabled on a host other than a loopback address (e.g., `0.0.0.0`).
 >  
 > Cf. the [API model][docs-models-server] for further options and details.
 

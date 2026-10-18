@@ -105,32 +105,19 @@ class ServerConfig(FOCABaseConfig):
         port: Port at which the application is exposed.
         debug: Flag to run application in debug mode. If ``True``, the
             application runs in debug mode and an interactive debugger will
-            be shown for unhandled exceptions. See Flask documentation for more
-            details.
-        environment: Variable to specify the application environment variable.
-            See Flask documentation for more details.
+            be shown for unhandled exceptions, which allows executing
+            arbitrary code. Only use for local development; FOCA logs a
+            warning if debug mode is enabled on a host other than a loopback
+            address. See Flask documentation for more details.
         testing: Enable/disable testing mode. If ``True``, exceptions are
             propagated rather than handled by the app's error handlers.
-        use_reloader: Enable/disable the application reloader. If
-            ``debug=True``, enabling this will allow the server to reload
-            automatically on code changes. See Flask documentation for more
-            details.
 
     Attributes:
         host: Host at which the application is exposed.
         port: Port at which the application is exposed.
-        debug: Flag to run application in debug mode. If ``True``, the
-            application runs in debug mode and an interactive debugger will
-            be shown for unhandled exceptions. See Flask documentation for more
-            details.
-        environment: Variable to specify the application environment variable.
-            See Flask documentation for more details.
+        debug: Flag to run application in debug mode.
         testing: Enable/disable testing mode. If ``True``, exceptions are
             propagated rather than handled by the app's error handlers.
-        use_reloader: Enable/disable the application reloader. If
-            ``debug=True``, enabling this will allow the server to reload
-            automatically on code changes. See Flask documentation for more
-            details.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -140,21 +127,16 @@ class ServerConfig(FOCABaseConfig):
         >>> ServerConfig(
         ...     host="0.0.0.0",
         ...     port=8080,
-        ...     debug=True,
-        ...     environment="development",
+        ...     debug=False,
         ...     testing=False,
-        ...     use_reloader=True,
         ... )
-        ServerConfig(host='0.0.0.0', port=8080, debug=True, environment='devel\
-opment', testing=False, use_reloader=True)
+        ServerConfig(host='0.0.0.0', port=8080, debug=False, testing=False)
     """
 
     host: str = "0.0.0.0"
     port: int = 8080
-    debug: bool = True
-    environment: str = "development"
+    debug: bool = False
     testing: bool = False
-    use_reloader: bool = True
 
 
 class ExceptionConfig(FOCABaseConfig):
@@ -1227,8 +1209,8 @@ class Config(FOCABaseConfig):
 
     Example:
         >>> Config()
-        Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
-ronment='development', testing=False, use_reloader=True), exceptions=Exception\
+        Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=False, tes\
+ting=False), exceptions=Exception\
 Config(mapping=None, public_members=None, logging=<ExceptionLoggingEnum.onelin\
 e: 'oneline'>), api=APIConfig(specs=[]), security=Secu\
 rityConfig(auth=AuthConfig(issuers=[], add_key_to_claims=True, \

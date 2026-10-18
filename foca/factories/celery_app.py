@@ -1,7 +1,6 @@
 """Factory for creating and configuring Celery application instances."""
 
 import logging
-from inspect import stack
 
 from celery import Celery
 from flask import Flask
@@ -28,8 +27,7 @@ def create_celery_app(app: Flask) -> Celery:
         backend=conf.backend,
         include=conf.include,
     )
-    calling_module = ":".join([stack()[1].filename, stack()[1].function])
-    logger.debug(f"Celery app created from '{calling_module}'.")
+    logger.debug("Celery app created.")
 
     # Update Celery app configuration with Flask app configuration
     setattr(celery.conf, "foca", app.config.foca)  # type: ignore[attr-defined]

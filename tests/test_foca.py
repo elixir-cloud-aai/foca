@@ -46,7 +46,6 @@ def create_modified_api_conf(path, temp_dir, api_specs_in, api_specs_out):
     with open(temp_path, "r+") as conf_file:
         conf = safe_load(conf_file)
         conf["api"]["specs"][0]["path"] = api_specs_in
-        conf["api"]["specs"][0]["path_out"] = api_specs_out
         conf_file.seek(0)
         safe_dump(conf, conf_file)
         conf_file.truncate()

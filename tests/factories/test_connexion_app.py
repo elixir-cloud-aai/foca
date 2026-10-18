@@ -1,12 +1,16 @@
 """Tests for foca.factories.connexion_app."""
 
+import pytest
 from connexion import App
+from pydantic import ValidationError
 
+from foca.factories import connexion_app as module
 from foca.factories.connexion_app import (
     __add_config_to_connexion_app,
+    _is_loopback,
     create_connexion_app,
 )
-from foca.models.config import Config
+from foca.models.config import Config, ServerConfig
 
 CONFIG = Config()
 ERROR_CODE = 400
@@ -38,3 +42,51 @@ def test_create_connexion_app_with_config():
     """Test Connexion app creation with config."""
     cnx_app = create_connexion_app(CONFIG)
     assert isinstance(cnx_app, App)
+
+
+def test_debug_off_by_default():
+    """Debug mode is off by default."""
+    cnx_app = create_connexion_app(Config())
+    assert cnx_app.debug is False
+    assert cnx_app.app.config["DEBUG"] is False
+
+
+@pytest.mark.parametrize(
+    "host,warned",
+    [
+        ("0.0.0.0", True),
+        ("::", True),
+        ("example.org", True),
+        ("10.0.0.1", True),
+        ("127.0.0.1", False),
+        ("127.1.2.3", False),
+        ("::1", False),
+        ("localhost", False),
+    ],
+)
+def test_debug_warning(monkeypatch, host, warned):
+    """Debug mode on non-loopback hosts is warned about."""
+    warnings = []
+    monkeypatch.setattr(module.logger, "warning", warnings.append)
+    cnx_app = create_connexion_app(
+        Config(server=ServerConfig(host=host, debug=True))
+    )
+    assert cnx_app.app.config["DEBUG"] is True
+    assert bool(warnings) is warned
+    create_connexion_app(Config(server=ServerConfig(host=host)))
+    assert len(warnings) == int(warned)
+
+
+@pytest.mark.parametrize(
+    "host,expected",
+    [("localhost", True), ("::1", True), ("0.0.0.0", False), ("x", False)],
+)
+def test_is_loopback(host, expected):
+    assert _is_loopback(host) is expected
+
+
+@pytest.mark.parametrize("field", ["environment", "use_reloader"])
+def test_removed_server_fields(field):
+    """Removed server settings fail validation."""
+    with pytest.raises(ValidationError):
+        ServerConfig(**{field: "x"})
