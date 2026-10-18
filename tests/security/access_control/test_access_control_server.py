@@ -336,13 +336,13 @@ class TestPostPermission(BaseTestAccessControl):
         configured characters and length."""
         app = self._app()
         app.config["casbin_adapter"].id_charset = "ab"
-        app.config["casbin_adapter"].id_length = 4
+        app.config["casbin_adapter"].id_length = 8
         ids = set()
         with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
             for _ in range(10):
                 ids.add(postPermission.__wrapped__())
         assert len(ids) == 10
-        assert all(len(id) == 4 and set(id) <= {"a", "b"} for id in ids)
+        assert all(len(id) == 8 and set(id) <= {"a", "b"} for id in ids)
 
     def test_postPermission_BadRequest(self):
         """Test for creating a permission for invalid request payload."""
