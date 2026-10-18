@@ -246,10 +246,8 @@ def _verify_signature(
         connexion.exceptions.Unauthorized: Raised if the JWT could not be
             verified.
     """
-    try:
-        key_id = jwt.get_unverified_header(token).get("kid")
-    except jwt.PyJWTError as exc:
-        raise Unauthorized("JWT header could not be decoded") from exc
+    # Header can be decoded, as the token was decoded before
+    key_id = jwt.get_unverified_header(token).get("kid")
 
     # Use key with matching ID, fetching JWK set again if key is unknown;
     # try all signing keys if token does not specify a key

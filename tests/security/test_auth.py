@@ -163,6 +163,19 @@ class TestValidateToken:
         with pytest.raises(Unauthorized):
             validate(make_app(), make_token())
 
+    def test_jwks_uri_missing(self, idp):
+        """Tokens are rejected if the issuer announces no JWK set."""
+        del idp.responses[DISCOVERY_URI].data["jwks_uri"]
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token())
+        assert urls(idp) == [DISCOVERY_URI]
+
+    def test_jwks_invalid(self, idp):
+        """Tokens are rejected if the JWK set is invalid."""
+        idp.responses[JWKS_URI] = MockResponse({"keys": []})
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token())
+
     def test_jwks_unavailable(self, idp):
         """Tokens are rejected if the JWK set is unavailable."""
         idp.responses[JWKS_URI] = MockResponse({}, status_code=500)
