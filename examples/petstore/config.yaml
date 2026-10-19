@@ -9,7 +9,11 @@ security:
     auth:
         add_key_to_claims: True
         allow_expired: False
-        audience: null
+        # Audiences of the app (`aud` claim, e.g., its client ID at the
+        # issuers); required if `issuers` are set, unless audience validation
+        # is disabled with `verify_audience: False` (not recommended)
+        audience:
+          - petstore
         claim_identity: sub
         algorithms:
           - RS256

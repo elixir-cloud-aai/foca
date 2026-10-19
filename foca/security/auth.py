@@ -81,11 +81,11 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
             "No trusted token issuers configured "
             "(`security.auth.issuers`): all bearer tokens will be rejected."
         )
-    if conf.audience is None:
+    if not conf.verify_audience:
         logger.warning(
             "Token audience validation is disabled "
-            "(`security.auth.audience`): tokens issued for other services "
-            "by trusted issuers are accepted."
+            "(`security.auth.verify_audience`): tokens issued for other "
+            "services by trusted issuers are accepted."
         )
     if conf.allow_expired:
         logger.warning(
@@ -294,7 +294,7 @@ def _verify_signature(
 
     options: Options = {
         "require": ["exp", "iat", "iss", conf.claim_identity],
-        "verify_aud": conf.audience is not None,
+        "verify_aud": conf.verify_audience,
         "verify_exp": not conf.allow_expired,
     }
     for key in keys:

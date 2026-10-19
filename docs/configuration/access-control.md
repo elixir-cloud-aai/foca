@@ -8,6 +8,8 @@ security:
   auth:
     issuers:
       - https://login.elixir-czech.org/oidc/
+    audience:
+      - my-app
   access_control:
     enabled: true
     enforce: true
