@@ -279,6 +279,27 @@ class TestModifiedSpecs:
             for path_item in spec["paths"].values()
         )
 
+    def test_add_operation_fields_kept(self, monkeypatch, tmp_path):
+        """Fields set on operations are not replaced by operation fields."""
+        spec_path = tmp_path / "addition.yaml"
+        spec_path.write_text(
+            "paths:\n"
+            "  /pets:\n"
+            "    get:\n"
+            "      x-openapi-router-controller: other_controllers\n"
+        )
+        spec_config = deepcopy(SPEC_CONFIG_3)
+        spec_config["path"] = [PATH_SPECS_3_YAML_ORIGINAL, spec_path]
+        spec = _registered_spec(monkeypatch, spec_config)
+        operations = spec["paths"]["/pets"]
+        assert (
+            operations["get"]["x-openapi-router-controller"]
+            == "other_controllers"
+        )
+        assert operations["post"]["x-openapi-router-controller"] == (
+            "controllers"
+        )
+
 
 def test_iter_operations():
     """Only Operation Objects are yielded."""
