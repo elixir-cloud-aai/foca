@@ -18,7 +18,6 @@ it can be configured for your needs.
 * [Configuration](#configuration)
   * [Configuring the database](#configuring-the-database)
   * [Configuring the API](#configuring-the-api)
-  * [Configuring header properties](#configuring-header-properties)
   * [Configuring the access control
     model](#configuring-the-access-control-model)
 * [Enforcing policies with OIDC tokens](#enforcing-policies-with-oidc-tokens)
