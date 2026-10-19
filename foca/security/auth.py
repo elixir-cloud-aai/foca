@@ -8,8 +8,9 @@ import jwt
 import requests
 from connexion.exceptions import Unauthorized
 from cryptography.hazmat.primitives import serialization
-from flask import current_app
+from jwt.types import Options
 
+from foca.config.access import get_config
 from foca.models.config import AuthConfig
 
 # Get logger instance
@@ -50,7 +51,7 @@ def validate_token(token: str) -> dict:
         connexion.exceptions.Unauthorized: Raised if the JWT could not be
             successfully validated.
     """
-    conf: AuthConfig = current_app.config.foca.security.auth  # type: ignore[attr-defined]
+    conf: AuthConfig = get_config().security.auth
     if not conf._warnings_logged:
         log_auth_config_warnings(conf)
         conf._warnings_logged = True
@@ -287,7 +288,7 @@ def _verify_signature(
     if not keys:
         raise Unauthorized("JWT signing key not found among issuer's JWKs")
 
-    options = {
+    options: Options = {
         "require": ["exp", "iat", "iss", conf.claim_identity],
         "verify_aud": conf.audience is not None,
         "verify_exp": not conf.allow_expired,
@@ -300,7 +301,7 @@ def _verify_signature(
                 algorithms=conf.algorithms,
                 audience=conf.audience,
                 issuer=issuer,
-                options=options,  # type: ignore[arg-type]
+                options=options,
             )
         # Try the next key if this one does not fit the token (e.g., another
         # key type or algorithm, if the token specifies no key ID); errors

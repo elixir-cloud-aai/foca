@@ -1,6 +1,6 @@
 # FOCA CONFIGURATION
 
-# Available in app context as attributes of `current_app.config.foca`
+# Available in apps via `foca.get_config()`
 # Automatically validated via FOCA
 # Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html
 # Relative file paths are resolved against the directory of this file
@@ -102,7 +102,7 @@ log:
 
 
 # CUSTOM APP CONFIGURATION
-# Available in app context as attributes of `current_app.config.foca`
+# Available in apps via `foca.get_config()`
 
 # Can be validated by FOCA by passing a Pydantic model class to the
 # `custom_config_model` parameter in the `foca.Foca()` constructor

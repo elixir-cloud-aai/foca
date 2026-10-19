@@ -2,8 +2,10 @@
 
 import logging
 
+from connexion import App
 from flask import Flask
 
+from foca.utils import logging as module
 from foca.utils.logging import log_traffic
 
 app = Flask(__name__)
@@ -76,3 +78,40 @@ def test_logging_decorator_res_only(caplog):
         "Incoming request" not in caplog.text
         and "Response to request" in caplog.text
     )
+
+
+@log_traffic
+def get_items():
+    """Controller of test API."""
+    return "ok"
+
+
+def test_logging_decorator_in_app(monkeypatch):
+    """Requests and responses of a running app are logged."""
+    messages = []
+    monkeypatch.setattr(
+        module.logger, "log", lambda level, msg: messages.append(msg)
+    )
+    app = App(__name__, skip_error_handlers=True)
+    app.add_api(
+        {
+            "openapi": "3.0.2",
+            "info": {"title": "Test API", "version": "1.0.0"},
+            "paths": {
+                "/items": {
+                    "get": {
+                        "operationId": f"{__name__}.get_items",
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+        }
+    )
+    response = app.app.test_client().get(
+        "/items", environ_base={"REMOTE_ADDR": "10.0.0.1"}
+    )
+    assert response.status_code == 200
+    assert messages == [
+        'Incoming request: "GET /items HTTP/1.1" from 10.0.0.1',
+        'Response to request "GET /items HTTP/1.1" from 10.0.0.1: ok',
+    ]

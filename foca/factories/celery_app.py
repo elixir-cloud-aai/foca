@@ -7,6 +7,8 @@ from urllib.parse import urlsplit, urlunsplit
 from celery import Celery
 from flask import Flask
 
+from foca.config.access import get_app_config
+
 # Get logger instance
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,10 @@ def create_celery_app(app: Flask) -> Celery:
     Returns:
         Celery application instance.
     """
-    conf = app.config.foca.jobs  # type: ignore[attr-defined]
+    config = get_app_config(app)
+    conf = config.jobs
+    if conf is None:
+        raise ValueError("No background task support configured")
     broker = os.environ.get(
         "CELERY_BROKER_URL", f"pyamqp://{conf.host}:{conf.port}//"
     )
@@ -59,10 +64,12 @@ def create_celery_app(app: Flask) -> Celery:
     )
 
     # Update Celery app configuration with Flask app configuration
-    setattr(celery.conf, "foca", app.config.foca)  # type: ignore[attr-defined]
+    setattr(celery.conf, "foca", config)
     logger.debug("Celery app configured.")
 
-    class ContextTask(celery.Task):  # type: ignore
+    # Celery's task base class is created dynamically
+    # Celery creates the task base class at runtime
+    class ContextTask(celery.Task):  # type: ignore[name-defined]
         # https://github.com/python/mypy/issues/4284)
         """Create task subclass that executes tasks in app context."""
 

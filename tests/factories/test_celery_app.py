@@ -49,3 +49,10 @@ def test_broker_env_vars(logged, monkeypatch):
         "'amqps://rabbitmq.example.org:5671/vhost' and result backend "
         "'redis://redis:6379/0'."
     ) in logged
+
+
+def test_create_celery_app_without_jobs(logged):
+    """Background tasks need to be configured."""
+    cnx_app = create_connexion_app(Config())
+    with pytest.raises(ValueError):
+        create_celery_app(cnx_app.app)

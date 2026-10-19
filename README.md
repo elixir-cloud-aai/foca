@@ -568,27 +568,34 @@ my_custom_param_section:
 
 ### Accessing configuration parameters
 
-Once the application is created using `foca()`, one can easily access any
-configuration parameters from within the [application
-context][res-flask-app-context] through `current_app.config.foca like so:
+Once the application is created via `Foca(...).create_app()`, use
+`foca.get_config()` to access the (validated and typed) configuration, e.g.,
+in controllers, security handlers or Celery tasks:
 
 ```python
-from flask import current_app
+from foca import get_collection, get_config
 
-app_config = current_app.config.foca
+config = get_config()
 
-db = app_config.db
-api = app_config.api
-server = app_config.server
-exceptions = app_config.exceptions
-security = app_config.security
-jobs = app_config.jobs
-log = app_config.log
-app_specific_param = current_app.config["app_specific_param"]
+db = config.db
+api = config.api
+server = config.server
+exceptions = config.exceptions
+security = config.security
+jobs = config.jobs
+log = config.log
+custom = config.custom  # if a `custom` section is configured
+
+# Registered MongoDB collections
+collection = get_collection(db="myDb", collection="myCollection")
 ```
 
-_Outside of the application context_, configuration parameters are available
-via `app.config.foca` in a similar way.
+Inside an [application context][res-flask-app-context], `get_config()`
+returns the configuration of that app; otherwise (e.g., in Celery workers or
+scripts), that of the most recently created FOCA app. It raises a
+`RuntimeError` if no FOCA app has been created. Outside of apps, the
+configuration is also available as `Foca(...).conf`. For backwards
+compatibility, it remains available as `current_app.config.foca`, too.
 
 ### More examples
 

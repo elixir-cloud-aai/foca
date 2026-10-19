@@ -10,8 +10,12 @@ from connexion import App
 from connexion.exceptions import InvalidSpecification
 from yaml import YAMLError
 
-from foca.api.register_openapi import _iter_operations, register_openapi
-from foca.models.config import SpecConfig
+from foca.api.register_openapi import (
+    _connexion_add_api_kwargs,
+    _iter_operations,
+    register_openapi,
+)
+from foca.models.config import ConnexionOptions, SpecConfig
 
 # Define mock data
 DIR = Path(__file__).parents[1].resolve() / "test_files"
@@ -249,3 +253,53 @@ def test_iter_operations():
     }
     assert list(_iter_operations(spec)) == [get, post]
     assert list(_iter_operations({})) == []
+
+
+class TestConnexionAddApiKwargs:
+    """Tests for translating Connexion options to `add_api()` arguments."""
+
+    def test_current_config(self):
+        """Today's `connexion` config yields the same arguments."""
+        assert (
+            _connexion_add_api_kwargs(ConnexionOptions(**CONNEXION_CONFIG))
+            == CONNEXION_CONFIG
+        )
+
+    def test_none(self):
+        assert _connexion_add_api_kwargs(None) == {}
+        assert _connexion_add_api_kwargs(ConnexionOptions()) == {}
+
+    def test_typed_options(self):
+        """Typed UI options are passed via `options`, overriding it."""
+        resolver = object()
+        kwargs = _connexion_add_api_kwargs(
+            ConnexionOptions(
+                strict_validation=False,
+                swagger_ui=False,
+                serve_spec=True,
+                swagger_ui_path="/docs",
+                base_path="/api",
+                resolver=resolver,
+                options={"swagger_ui": True, "other": 1},
+                resolver_error=501,
+            )
+        )
+        assert kwargs == {
+            "strict_validation": False,
+            "base_path": "/api",
+            "resolver": resolver,
+            "resolver_error": 501,
+            "options": {
+                "swagger_ui": False,
+                "serve_spec": True,
+                "swagger_ui_path": "/docs",
+                "other": 1,
+            },
+        }
+        assert kwargs["resolver"] is resolver
+
+    def test_spec_config(self):
+        """`SpecConfig.connexion` is parsed into typed options."""
+        spec = SpecConfig(**SPEC_CONFIG_3)
+        assert isinstance(spec.connexion, ConnexionOptions)
+        assert spec.connexion.strict_validation is True

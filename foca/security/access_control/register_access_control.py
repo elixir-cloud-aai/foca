@@ -6,6 +6,8 @@ from pathlib import Path
 
 from connexion import App
 
+from foca.api.register_openapi import _connexion_add_api_kwargs
+from foca.config.access import get_app_config
 from foca.database.register_mongodb import (
     _register_database,
     get_mongo_client,
@@ -14,9 +16,9 @@ from foca.database.register_mongodb import (
 from foca.models.config import (
     AccessControlConfig,
     CollectionConfig,
+    ConnexionOptions,
     DBConfig,
     MongoConfig,
-    SpecConfig,
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
@@ -123,7 +125,7 @@ def register_access_control(
         access_control_collection,
         added_db,
     )
-    cnx_app.app.config.foca.db = mongo_config
+    get_app_config(cnx_app.app).db = mongo_config
 
     # Register access control api specs and corresponding controller.
     cnx_app = register_casbin_enforcer(
@@ -163,25 +165,19 @@ def register_permission_specs(
     else:
         spec_path = access_control_config.api_specs
 
-    spec = SpecConfig(
-        path=Path(spec_path),
-        connexion={
-            "strict_validation": True,
-            "validate_responses": True,
-            "options": {
-                "swagger_ui": access_control_config.api_swagger_ui,
-                "serve_spec": access_control_config.api_serve_spec,
-            },
-        },
-    )
-
-    app.add_api(
-        specification=spec.path[0],  # type: ignore[index]
+    options = ConnexionOptions(
+        strict_validation=True,
+        validate_responses=True,
+        swagger_ui=access_control_config.api_swagger_ui,
+        serve_spec=access_control_config.api_serve_spec,
         resolver=AccessControlResolver(
             enforce_all=True,
             self_service=access_control_config.self_service,
         ),
-        **spec.model_dump().get("connexion", {}),
+    )
+    app.add_api(
+        specification=Path(spec_path),
+        **_connexion_add_api_kwargs(options),
     )
     logger.info(f"Permission management API registered from '{spec_path}'.")
     return app

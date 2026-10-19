@@ -4,9 +4,23 @@ import logging
 from collections.abc import Callable
 from functools import wraps
 
-from connexion import request
+from flask import request
 
 logger = logging.getLogger(__name__)
+
+
+def _describe_request() -> str:
+    """Describe the current request for logging.
+
+    Returns:
+        Method, path and protocol of the current request and the address of
+        the client, e.g., ``"GET /pets HTTP/1.1" from 127.0.0.1``.
+    """
+    protocol = request.environ.get("SERVER_PROTOCOL", "")
+    return (
+        f'"{request.method} {request.path} {protocol}" from '
+        f"{request.remote_addr}"
+    )
 
 
 def log_traffic(
@@ -48,12 +62,7 @@ def log_traffic(
             Returns:
                 Wrapper function.
             """
-            req = (
-                f'"{request.environ["REQUEST_METHOD"]} '
-                f"{request.environ['PATH_INFO']} "
-                f'{request.environ["SERVER_PROTOCOL"]}" from '
-                f"{request.environ['REMOTE_ADDR']}"
-            )
+            req = _describe_request()
             if log_request:
                 logger.log(
                     level=log_level,
