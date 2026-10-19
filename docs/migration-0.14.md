@@ -13,6 +13,9 @@ error, so start the app after each step to see what is left.
   [pydantic 2 API](https://docs.pydantic.dev/latest/migration/).
 - Flask-PyMongo and flask-authz are no longer installed. Install them
   yourself if your app uses them directly.
+- MongoDB 4.4 or later: current PyMongo releases refuse to connect to older
+  servers (e.g., MongoDB 3.6). FOCA is tested with MongoDB 7.0 and 8.0.
+  Upgrade existing databases one major version at a time.
 
 ## Authentication
 
@@ -239,8 +242,20 @@ RUN pip install --no-cache-dir .
 USER 1000
 ```
 
-The image no longer contains build tools (e.g., `gcc`, `git`, `curl`); add
-them in a build stage of your own image if needed.
+The image no longer contains build tools or utilities that apps may have
+relied on (e.g., `gcc`, `git`, `curl`, `jq`). Install utilities that your
+app needs at runtime in your own image, as `root`:
+
+```dockerfile
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl jq \
+    && rm -rf /var/lib/apt/lists/*
+USER 1000
+```
+
+Tools that are only needed to build your app (e.g., compilers) are better
+installed in a separate build stage that is not part of the final image.
 
 Release images are tagged with the FOCA version (e.g., `0.14.0`, or
 `0.14.0-py3.12` for other Python versions), and `latest` only refers to the
