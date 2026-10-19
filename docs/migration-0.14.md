@@ -192,7 +192,9 @@ Errors are returned as [problem details](configuration/exceptions.md):
 - `api.specs[].path_out` is removed (modified specifications were never
   written).
 - `add_operation_fields` only applies to operations, not to other members of
-  path items (e.g., `parameters`).
+  path items (e.g., `parameters`), and no longer replaces fields that
+  operations set themselves (e.g., `x-openapi-router-controller` of an
+  operation using another controller module).
 
 ## Databases
 

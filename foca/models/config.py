@@ -313,14 +313,14 @@ class SpecConfig(FOCABaseConfig):
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
             For OpenAPI 3.x, see https://swagger.io/specification/.
-        add_operation_fields: Fields to be added/modified to/in the Operation
-            Objects of each Path Info Object. An example use case for this is
-            the addition or replacement of the ``x-swagger-router-controller``
-            field. For OpenAPI 2.x, see
-            https://swagger.io/specification/v2/#operation-object. For OpenAPI
-            3.x, see https://swagger.io/specification/#operation-object. Note
-            that different operation fields for different Operation Objects are
-            currently not supported.
+        add_operation_fields: Fields to be added to the Operation Objects of
+            each Path Info Object, unless an operation sets them itself. An
+            example use case for this is the addition of the
+            ``x-openapi-router-controller`` field, so that operations can
+            still be routed to other controllers individually. For OpenAPI
+            2.x, see https://swagger.io/specification/v2/#operation-object.
+            For OpenAPI 3.x, see
+            https://swagger.io/specification/#operation-object.
         add_security_fields: Fields to be added/modified to/in each definition
             or scheme in the ``securityDefintions`` (OpenAPI 2.x) or
             ``securitySchemes`` (OpenAPI 3.x) objects. An example use case for
@@ -352,14 +352,14 @@ class SpecConfig(FOCABaseConfig):
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
             For OpenAPI 3.x, see https://swagger.io/specification/.
-        add_operation_fields: Fields to be added/modified to/in the Operation
-            Objects of each Path Info Object. An example use case for this is
-            the addition or replacement of the ``x-swagger-router-controller``
-            field. For OpenAPI 2.x, see
-            https://swagger.io/specification/v2/#operation-object. For OpenAPI
-            3.x, see https://swagger.io/specification/#operation-object. Note
-            that different operation fields for different Operation Objects are
-            currently not supported.
+        add_operation_fields: Fields to be added to the Operation Objects of
+            each Path Info Object, unless an operation sets them itself. An
+            example use case for this is the addition of the
+            ``x-openapi-router-controller`` field, so that operations can
+            still be routed to other controllers individually. For OpenAPI
+            2.x, see https://swagger.io/specification/v2/#operation-object.
+            For OpenAPI 3.x, see
+            https://swagger.io/specification/#operation-object.
         add_security_fields: Fields to be added/modified to/in each definition
             or scheme in the ``securityDefintions`` (OpenAPI 2.x) or
             ``securitySchemes`` (OpenAPI 3.x) objects. An example use case for
