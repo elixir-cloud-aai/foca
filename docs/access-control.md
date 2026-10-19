@@ -249,6 +249,9 @@ security:
       - https://login.example.org/oidc/
     audience:
       - my-app
+    # Only needed if group claims are not in access tokens
+    userinfo_claims:
+      - eduperson_entitlement
   access_control:
     enabled: True
     model: path/to/resource_role_model.conf
@@ -292,6 +295,9 @@ claim are denied with `401`.
 
 If `claim_groups` is set, the values of that claim (a list or a single
 string) are additionally checked as subjects, i.e., they act as roles. If
+the identity provider only provides the claim via user info, not in access
+tokens (e.g., `eduperson_entitlement` with LS Login), add it to
+[`security.auth.userinfo_claims`](configuration/auth.md). If
 `group_mapping` is set, claim values are mapped to roles, and values without
 mapping are ignored. Access is granted if any of the subjects is allowed.
 This way, no rules are needed per user for group-based access, e.g., for

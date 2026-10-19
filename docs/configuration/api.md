@@ -31,7 +31,9 @@ api:
 In this example, the first specification is merged from two files (later
 files update earlier ones). Root fields are added via `append` (here: a
 global security requirement), the controller module is added to every
-operation via `add_operation_fields`, and FOCA's
+operation via `add_operation_fields` (operations that set the field
+themselves keep their value, e.g., to use another controller module), and
+FOCA's
 [token validation](../authentication.md) is added to every security scheme via
 `add_security_fields`. `disable_auth: true` would remove all security
 requirements and schemes instead, e.g., for local development.

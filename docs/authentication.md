@@ -66,6 +66,11 @@ local development.
 5. If `validate_userinfo` is set, the token is additionally sent to the
    issuer's user info endpoint, which needs to report the token's subject.
    This detects revoked tokens, at the cost of a request per validation.
+6. Claims listed in `userinfo_claims` that the token lacks are added from
+   the issuer's user info endpoint, which needs to report the token's
+   subject. Claims of the token are never replaced. Unless
+   `validate_userinfo` is set, the user info is cached per token for
+   `cache_ttl` seconds, but not beyond the token's expiry.
 
 FOCA logs a warning on the first validation if no issuers are configured,
 audience validation is disabled, or expired tokens are accepted.
@@ -90,8 +95,23 @@ def get_pets(user: str, token_info: dict) -> list[dict]:
     ...
 ```
 
-`token_info` contains the token (`jwt`), the verified `claims`, the subject
-(`user_id`) and the token's `scope`.
+`token_info` contains the token (`jwt`), the verified `claims` (including
+any claims added from user info), the subject (`user_id`) and the token's
+`scope`.
+
+!!! tip "Claims from user info"
+    Some identity providers include claims in their user info only, not in
+    access tokens. For example, [LS Login](https://lifescience-ri.eu/ls-login/)
+    provides group memberships (`eduperson_entitlement`) via user info. To
+    use such claims, e.g., for [access control](access-control.md#identity-and-group-claims),
+    list them in `userinfo_claims`:
+
+    ```yaml
+    security:
+      auth:
+        userinfo_claims:
+          - eduperson_entitlement
+    ```
 
 To additionally restrict what authenticated subjects may do, use
 [access control](access-control.md).

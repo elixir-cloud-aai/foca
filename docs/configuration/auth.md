@@ -16,6 +16,7 @@ security:
       - RS256
     allow_expired: false
     validate_userinfo: false
+    userinfo_claims: []
     timeout: 10
     cache_ttl: 300
 ```

@@ -313,14 +313,14 @@ class SpecConfig(FOCABaseConfig):
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
             For OpenAPI 3.x, see https://swagger.io/specification/.
-        add_operation_fields: Fields to be added/modified to/in the Operation
-            Objects of each Path Info Object. An example use case for this is
-            the addition or replacement of the ``x-swagger-router-controller``
-            field. For OpenAPI 2.x, see
-            https://swagger.io/specification/v2/#operation-object. For OpenAPI
-            3.x, see https://swagger.io/specification/#operation-object. Note
-            that different operation fields for different Operation Objects are
-            currently not supported.
+        add_operation_fields: Fields to be added to the Operation Objects of
+            each Path Info Object, unless an operation sets them itself. An
+            example use case for this is the addition of the
+            ``x-openapi-router-controller`` field, so that operations can
+            still be routed to other controllers individually. For OpenAPI
+            2.x, see https://swagger.io/specification/v2/#operation-object.
+            For OpenAPI 3.x, see
+            https://swagger.io/specification/#operation-object.
         add_security_fields: Fields to be added/modified to/in each definition
             or scheme in the ``securityDefintions`` (OpenAPI 2.x) or
             ``securitySchemes`` (OpenAPI 3.x) objects. An example use case for
@@ -352,14 +352,14 @@ class SpecConfig(FOCABaseConfig):
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
             For OpenAPI 3.x, see https://swagger.io/specification/.
-        add_operation_fields: Fields to be added/modified to/in the Operation
-            Objects of each Path Info Object. An example use case for this is
-            the addition or replacement of the ``x-swagger-router-controller``
-            field. For OpenAPI 2.x, see
-            https://swagger.io/specification/v2/#operation-object. For OpenAPI
-            3.x, see https://swagger.io/specification/#operation-object. Note
-            that different operation fields for different Operation Objects are
-            currently not supported.
+        add_operation_fields: Fields to be added to the Operation Objects of
+            each Path Info Object, unless an operation sets them itself. An
+            example use case for this is the addition of the
+            ``x-openapi-router-controller`` field, so that operations can
+            still be routed to other controllers individually. For OpenAPI
+            2.x, see https://swagger.io/specification/v2/#operation-object.
+            For OpenAPI 3.x, see
+            https://swagger.io/specification/#operation-object.
         add_security_fields: Fields to be added/modified to/in each definition
             or scheme in the ``securityDefintions`` (OpenAPI 2.x) or
             ``securitySchemes`` (OpenAPI 3.x) objects. An example use case for
@@ -728,9 +728,17 @@ class AuthConfig(FOCABaseConfig):
         validate_userinfo: Whether to additionally validate tokens via the
             issuer's user info endpoint, which needs to report the token's
             subject.
+        userinfo_claims: Claims to add from the issuer's user info endpoint
+            if the token lacks them, e.g., `eduperson_entitlement`, for
+            access control based on group claims (cf.
+            `access_control.claim_groups`) with identity providers that
+            only provide them via user info. Claims of the token are never
+            replaced. The user info needs to report the token's subject; it
+            is cached per token for `cache_ttl` seconds (unless
+            `validate_userinfo` is set), but not beyond the token's expiry.
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
-            documents and public keys are cached.
+            documents and public keys, and user info, are cached.
 
     Attributes:
         issuers: Trusted token issuers.
@@ -743,9 +751,11 @@ class AuthConfig(FOCABaseConfig):
         algorithms: Lists the JWT-signing algorithms supported by the app.
         validate_userinfo: Whether to additionally validate tokens via the
             issuer's user info endpoint.
+        userinfo_claims: Claims to add from the issuer's user info endpoint
+            if the token lacks them.
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
-            documents and public keys are cached.
+            documents and public keys, and user info, are cached.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -771,6 +781,7 @@ class AuthConfig(FOCABaseConfig):
     claim_identity: str = "sub"
     algorithms: list[str] = ["RS256"]
     validate_userinfo: bool = False
+    userinfo_claims: list[str] = []
     timeout: float = Field(default=10, gt=0)
     cache_ttl: float = Field(default=300, ge=0)
     # Whether warnings about the settings were logged, i.e., on the first

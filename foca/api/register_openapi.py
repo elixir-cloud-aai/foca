@@ -118,10 +118,11 @@ def register_openapi(
                 spec_parsed.update(item)
             logger.debug(f"Appended spec: {spec.append}")
 
-        # Add/replace fields to Operation Objects
+        # Add fields to Operation Objects, keeping fields they set themselves
         if spec.add_operation_fields is not None:
             for operation_object in _iter_operations(spec_parsed):
-                operation_object.update(spec.add_operation_fields)
+                for key, val in spec.add_operation_fields.items():
+                    operation_object.setdefault(key, val)
             logger.debug(
                 f"Added operation fields: {spec.add_operation_fields}"
             )
