@@ -2,6 +2,8 @@
 Tests for config_parser.py
 """
 
+import os
+from copy import deepcopy
 from pathlib import Path
 from unittest import mock
 
@@ -11,7 +13,7 @@ from pydantic import (
     ValidationError,
 )
 
-from foca.config.config_parser import ConfigParser
+from foca.config.config_parser import ConfigParser, deep_merge
 from foca.models.config import Config
 
 DIR = Path(__file__).parent.parent / "test_files"
@@ -135,3 +137,119 @@ def test_parse_custom_config_invalid():
     conf = ConfigParser(config_file=Path(TEST_FILE_CUSTOM_INVALID))
     with pytest.raises(ValueError):
         conf.parse_custom_config(model=TEST_CONFIG_MODEL)
+
+
+@pytest.mark.parametrize(
+    "base,overlay,expected",
+    [
+        # nested mappings are merged
+        (
+            {"a": {"b": 1, "c": {"d": 2, "e": 3}}},
+            {"a": {"c": {"d": 4}, "f": 5}},
+            {"a": {"b": 1, "c": {"d": 4, "e": 3}, "f": 5}},
+        ),
+        # lists and scalars are replaced
+        ({"a": [1, 2], "b": 1}, {"a": [3], "b": 2}, {"a": [3], "b": 2}),
+        # null sets values to null
+        ({"a": {"b": 1}}, {"a": None}, {"a": None}),
+        # mappings replace other values and vice versa
+        ({"a": 1}, {"a": {"b": 1}}, {"a": {"b": 1}}),
+        ({"a": {"b": 1}}, {"a": [1]}, {"a": [1]}),
+        ({}, {"a": 1}, {"a": 1}),
+    ],
+)
+def test_deep_merge(base, overlay, expected):
+    """Test merging configurations."""
+    base_copy = deepcopy(base)
+    assert deep_merge(base, overlay) == expected
+    assert base == base_copy
+
+
+def _write(path: Path, content: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    return path
+
+
+@pytest.fixture
+def config_files(tmp_path, monkeypatch):
+    """Base config and overlays in different directories."""
+    monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
+    base = _write(
+        tmp_path / "app" / "config.yaml",
+        "server:\n  port: 8000\n  host: 127.0.0.1\n"
+        "custom:\n  a: [1, 2]\n  b: base\n",
+    )
+    dev = _write(
+        tmp_path / "deployment" / "config.dev.yaml",
+        "server:\n  debug: true\ncustom:\n  a: [3]\n",
+    )
+    prod = _write(
+        tmp_path / "deployment" / "config.prod.yaml",
+        "server:\n  port: 80\ncustom:\n  b: null\n",
+    )
+    return base, dev, prod
+
+
+class TestConfigFiles:
+    """Tests for merging config files and overlays."""
+
+    def test_multiple_files(self, config_files):
+        base, dev, prod = config_files
+        conf = ConfigParser(
+            config_file=[base, str(dev), prod], format_logs=False
+        )
+        assert conf.config_files == [base, dev, prod]
+        assert conf.config_dir == base.parent
+        server = conf.config.server
+        assert (server.host, server.port, server.debug) == (
+            "127.0.0.1",
+            80,
+            True,
+        )
+        assert conf.config.custom == {"a": [3], "b": None}
+
+    def test_overlay_env_var(self, config_files, monkeypatch, tmp_path):
+        base, dev, prod = config_files
+        # relative overlay paths are resolved against the working directory
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FOCA_CONFIG_OVERLAY", "deployment/config.dev.yaml")
+        conf = ConfigParser(config_file=base, format_logs=False)
+        assert conf.config_files == [base, dev]
+        assert conf.config.server.debug is True
+        assert conf.config.server.port == 8000
+        monkeypatch.setenv(
+            "FOCA_CONFIG_OVERLAY", f"{dev}:{prod}".replace(":", os.pathsep)
+        )
+        conf = ConfigParser(config_file=base, format_logs=False)
+        assert conf.config_files == [base, dev, prod]
+        assert conf.config.server.port == 80
+        assert conf.config.custom == {"a": [3], "b": None}
+
+    def test_overlay_without_config_file(self, config_files, monkeypatch):
+        _, dev, _ = config_files
+        monkeypatch.setenv("FOCA_CONFIG_OVERLAY", str(dev))
+        conf = ConfigParser(format_logs=False)
+        assert conf.config_files == [dev]
+        assert conf.config_dir == Path.cwd()
+        assert conf.config.server.debug is True
+
+    def test_overlay_missing(self, config_files, monkeypatch, tmp_path):
+        base, _, _ = config_files
+        monkeypatch.setenv(
+            "FOCA_CONFIG_OVERLAY", str(tmp_path / "missing.yaml")
+        )
+        with pytest.raises(FileNotFoundError, match="FOCA_CONFIG_OVERLAY"):
+            ConfigParser(config_file=base, format_logs=False)
+
+    def test_not_mapping(self, config_files, tmp_path):
+        base, _, _ = config_files
+        not_mapping = _write(tmp_path / "list.yaml", "- a\n- b\n")
+        with pytest.raises(ValueError, match="not a YAML mapping"):
+            ConfigParser(config_file=[base, not_mapping], format_logs=False)
+
+    def test_empty_overlay(self, config_files, tmp_path):
+        base, _, _ = config_files
+        empty = _write(tmp_path / "empty.yaml", "")
+        conf = ConfigParser(config_file=[base, empty], format_logs=False)
+        assert conf.config.server.port == 8000

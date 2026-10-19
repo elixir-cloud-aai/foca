@@ -3,6 +3,9 @@
 # Available in app context as attributes of `current_app.config.foca`
 # Automatically validated via FOCA
 # Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html
+# Relative file paths are resolved against the directory of this file
+# Environment-specific overlays (e.g., `config.prod.yaml`) can be merged into
+# this file via environment variable `FOCA_CONFIG_OVERLAY`
 
 # SERVER CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ServerConfig
