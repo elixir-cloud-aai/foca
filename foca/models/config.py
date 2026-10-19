@@ -862,7 +862,10 @@ class AuthConfig(FOCABaseConfig):
             an expired JWT.
         audience: List of audiences that the app identifies itself with. If
             specified, JWTs that do not contain any of the specified audiences
-            are rejected. If ``None``, audience validation is disabled.
+            are rejected. If ``None``, audience validation is disabled, i.e.,
+            tokens that trusted issuers issued for other services are
+            accepted, too. Set it whenever the issuer includes the app in
+            the audience of its tokens.
         claim_identity: The JWT claim used to identify the sender. Tokens
             without this claim are rejected.
         algorithms: Lists the JWT-signing algorithms supported by the app.
