@@ -13,6 +13,12 @@ on:
 permissions:
   contents: read
 
+# One release at a time, so that their Docker images and GitHub releases do
+# not interfere
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build distributions
@@ -112,6 +118,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # All tags, to check whether this is the latest release
+          fetch-depth: 0
       - name: Log in to Docker Hub
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -138,7 +146,11 @@ jobs:
           if [[ "${DEFAULT}" == "true" ]]; then
               docker tag "${IMAGE}:${VERSION}-py${PY_VERSION}" "${IMAGE}:${VERSION}"
               docker push "${IMAGE}:${VERSION}"
-              if [[ "${PRERELEASE}" == "false" ]]; then
+              # `latest` only for the highest stable release, e.g., not for
+              # a patch release of an older minor version
+              LATEST_TAG="$(git tag -l 'v*' --sort=-v:refname \
+                  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+              if [[ "${PRERELEASE}" == "false" && "${LATEST_TAG}" == "v${VERSION}" ]]; then
                   docker tag "${IMAGE}:${VERSION}" "${IMAGE}:latest"
                   docker push "${IMAGE}:latest"
               fi
@@ -164,6 +176,11 @@ jobs:
           TAG: ${{ github.ref_name }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
+          # On reruns, complete an existing release instead of failing
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+              gh release upload "${TAG}" dist/* --clobber
+              exit 0
+          fi
           args=()
           if [[ "${PRERELEASE}" == "true" ]]; then
               args+=(--prerelease)
