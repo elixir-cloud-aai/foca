@@ -298,6 +298,7 @@ ISSUERS = ["https://login.example.org/oidc/"]
         (ISSUERS, {"enforce": True}),
         (ISSUERS, {"api_specs": "specs.yaml"}),
         (ISSUERS, {"self_service": True}),
+        (ISSUERS, {"policies": [["p", "*", "/pets", "GET"]]}),
         # access control without trusted issuers
         ([], {"enabled": True}),
         ([], {"enabled": True, "enforce": True}),
@@ -325,6 +326,7 @@ def test_SecurityConfig_access_control_invalid(issuers, access_control):
                 "enforce": True,
                 "api_specs": "specs.yaml",
                 "self_service": True,
+                "policies": [["p", "*", "/pets", "GET"]],
             },
         ),
     ],

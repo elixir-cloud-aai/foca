@@ -48,8 +48,8 @@ to an operation that requires authentication against the policies, using the
 action. Requests that no policy allows are denied with `403`.
 
 The [access control model][app-model] supports resource-scoped roles. The
-[entry point module][app-entrypoint] adds the following policies when the app
-starts:
+following policies are configured (`security.access_control.policies`) and
+added when the app starts:
 
 | Rule | Meaning |
 | --- | --- |

@@ -1,10 +1,27 @@
 """Tests for registering the Casbin enforcer."""
 
+from unittest.mock import MagicMock
+
+import mongomock
 import pytest
 from connexion import App
 
+from foca.database import register_mongodb
 from foca.models.config import AccessControlConfig, MongoConfig
 from foca.security.access_control import register_access_control as module
+from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH,
+    RESOURCE_ROLE_MODEL_FILE,
+)
+
+RESOURCE_ROLE_MODEL = str(
+    module.files(ACCESS_CONTROL_BASE_PATH).joinpath(RESOURCE_ROLE_MODEL_FILE)
+)
+POLICIES = [
+    ["p", "*", "/pets", "(GET)|(POST)"],
+    ["p", "owner", "/pets/:id", "(GET)|(DELETE)"],
+    ["g", "user:bob", "admin"],
+]
 
 
 @pytest.fixture
@@ -20,6 +37,7 @@ def captured(monkeypatch):
 
     def mock_adapter(collection, **kwargs):
         captured.update(collection=collection, **kwargs)
+        return MagicMock(model=None)
 
     monkeypatch.setattr(module, "Adapter", mock_adapter)
     return captured
@@ -63,3 +81,138 @@ def test_adapter_dbname_override(clients, captured, monkeypatch):
     )
     assert clients[0][0] == "mongodb://mongodb:27017/other_db"
     assert captured["collection"].database.name == "other_db"
+
+
+def _register_policies(policies, model=RESOURCE_ROLE_MODEL):
+    """Register enforcer with policies; return stored rules."""
+    mongo_config = MongoConfig()
+    app = App(__name__)
+    module.register_casbin_enforcer(
+        app=app,
+        access_control_config=AccessControlConfig(
+            model=model, policies=policies
+        ),
+        mongo_config=mongo_config,
+    )
+    collection = app.app.config["casbin_adapter"]._collection
+    return collection, [
+        [rule["ptype"]]
+        + [rule[f"v{i}"] for i in range(6) if rule.get(f"v{i}") is not None]
+        for rule in collection.find()
+    ]
+
+
+class TestPolicies:
+    """Tests for adding configured policy rules."""
+
+    @pytest.fixture
+    def clients(self, monkeypatch, mongo_clients):
+        """Share one in-memory MongoDB client among app registrations, as
+        with a persistent database."""
+        client = mongomock.MongoClient()
+        monkeypatch.setattr(
+            register_mongodb, "MongoClient", lambda uri: client
+        )
+        return client
+
+    def test_added(self, clients):
+        """Configured rules are stored, with identifiers."""
+        collection, rules = _register_policies(POLICIES)
+        assert rules == POLICIES
+        assert all(rule["id"] for rule in collection.find())
+
+    def test_none(self, clients):
+        """No rules are stored by default."""
+        _, rules = _register_policies(None)
+        assert rules == []
+
+    def test_not_managed(self, clients):
+        """Stored rules are kept if policies are not set."""
+        _register_policies(POLICIES)
+        _, rules = _register_policies(None)
+        assert rules == POLICIES
+
+    def test_all_removed(self, clients):
+        """With empty policies, all configured rules are removed."""
+        _register_policies(POLICIES)
+        _, rules = _register_policies([])
+        assert rules == []
+
+    def test_marked(self, clients):
+        """Configured rules are marked as such."""
+        collection, _ = _register_policies(POLICIES)
+        assert all(rule["configured"] is True for rule in collection.find())
+
+    def test_not_duplicated(self, clients):
+        """Rules are only added if they are not stored yet; other stored rules
+        are kept."""
+        collection, _ = _register_policies(POLICIES[:1])
+        collection.insert_one(
+            {"id": "other1", "ptype": "p", "v0": "a", "v1": "/b", "v2": "GET"}
+        )
+        _, rules = _register_policies(POLICIES)
+        assert rules == [POLICIES[0], ["p", "a", "/b", "GET"], *POLICIES[1:]]
+
+    def test_removed(self, clients):
+        """Configured rules removed from the configuration are removed;
+        other rules are kept."""
+        collection, _ = _register_policies(POLICIES)
+        collection.insert_one(
+            {"id": "other1", "ptype": "p", "v0": "a", "v1": "/b", "v2": "GET"}
+        )
+        _, rules = _register_policies(POLICIES[1:])
+        assert rules == [*POLICIES[1:], ["p", "a", "/b", "GET"]]
+
+    def test_duplicates_removed(self, clients):
+        """Duplicates of configured rules (e.g., added by replicas starting
+        concurrently) are removed."""
+        collection, _ = _register_policies(POLICIES[:1])
+        duplicate = collection.find_one({}, projection={"_id": False})
+        collection.insert_one({**duplicate, "id": "dupl01"})
+        _, rules = _register_policies(POLICIES[:1])
+        assert rules == POLICIES[:1]
+
+    def test_adopted(self, clients):
+        """Stored rules with the values of configured rules (e.g., added via
+        the permissions API, also with unset values stored as null) become
+        configured rules instead of being duplicated."""
+        _, _ = _register_policies([])
+        collection = clients["access_control_db"]["policy_rules"]
+        collection.insert_one(
+            {
+                "id": "other1",
+                "ptype": "p",
+                "v0": "*",
+                "v1": "/pets",
+                "v2": "(GET)|(POST)",
+                "v3": None,
+            }
+        )
+        _, rules = _register_policies(POLICIES[:1])
+        assert rules == POLICIES[:1]
+        assert collection.find_one({"id": "other1"})["configured"] is True
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            ["x", "*", "/pets", "GET"],  # policy type not in model
+            ["p", "*", "/pets"],  # too few values
+            ["p", "*", "/pets", "("],  # invalid action
+            ["p", "a,b", "/pets", "GET"],  # invalid value
+            ["p"],  # no values
+        ],
+    )
+    def test_invalid(self, clients, rule):
+        """Invalid rules prevent startup; no rules are stored then."""
+        with pytest.raises(ValueError):
+            _register_policies([POLICIES[0], rule])
+        collection = clients["access_control_db"]["policy_rules"]
+        assert collection.count_documents({}) == 0
+
+    def test_invalid_keeps_stored(self, clients):
+        """Invalid configurations do not change stored rules."""
+        _register_policies(POLICIES)
+        with pytest.raises(ValueError):
+            _register_policies([["p", "*", "/pets"]])
+        collection = clients["access_control_db"]["policy_rules"]
+        assert collection.count_documents({}) == len(POLICIES)

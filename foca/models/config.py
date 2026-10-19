@@ -512,6 +512,14 @@ class AccessControlConfig(FOCABaseConfig):
             group claims, or `*`). Subjects allowed to list and get all
             permissions (e.g., admins) still get all of them. Write
             operations are not affected.
+        policies: Policy rules the app relies on, each given as its policy
+            type followed by its values (e.g., `["p", "*", "/pets", "GET"]`).
+            If set, they are validated against the model on startup, and the
+            stored rules set via the configuration are made to match them:
+            missing rules are added, and rules removed from the
+            configuration are removed. Configured rules cannot be changed or
+            deleted via the permissions API. Other stored rules are kept. If
+            not set, stored rules are not changed on startup.
 
     Attributes:
         enabled: Register access control.
@@ -534,6 +542,7 @@ class AccessControlConfig(FOCABaseConfig):
         id_length: Length of generated policy rule identifiers.
         self_service: Allow subjects to list and get the permissions that
             apply to them.
+        policies: Policy rules the app relies on, managed on startup.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -567,6 +576,7 @@ class AccessControlConfig(FOCABaseConfig):
     id_charset: str = DEFAULT_ID_CHARSET
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
     self_service: bool = False
+    policies: list[list[str]] | None = None
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
     _registered_collection: tuple[str, str, bool] | None = PrivateAttr(
@@ -940,6 +950,7 @@ class SecurityConfig(FOCABaseConfig):
                     ("enforce", access_control.enforce),
                     ("api_specs", access_control.api_specs),
                     ("self_service", access_control.self_service),
+                    ("policies", access_control.policies),
                 ]
                 if value
             ]

@@ -20,6 +20,8 @@ security:
     group_mapping:
       "urn:geant:elixir-europe.org:group:elixir:my-app:admins": admin
     self_service: true
+    policies:
+      - [p, "*", /pets, "(GET)|(POST)"]
     api_swagger_ui: true
     api_serve_spec: true
 ```

@@ -225,6 +225,12 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: The permission is set via the app's configuration and cannot be changed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           description: An unexpected error occurred.
           content:
@@ -272,6 +278,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: The requested permission was not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The permission is set via the app's configuration and cannot be changed.
           content:
             application/problem+json:
               schema:

@@ -26,6 +26,9 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.enforcement import AccessControlResolver
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
+    validate_rule,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +222,28 @@ def register_casbin_enforcer(
         model=casbin_model,
     )
     app.app.config["casbin_adapter"] = adapter
+    if access_control_config.policies is not None:
+        _add_policies(adapter=adapter, policies=access_control_config.policies)
     logger.info("Casbin enforcer registered.")
 
     return app
+
+
+def _add_policies(adapter: Adapter, policies: list[list[str]]) -> None:
+    """Make the stored configured policy rules match the configured ones.
+
+    All rules are validated before any stored rule is changed, so that
+    invalid configurations leave stored rules unchanged.
+
+    Args:
+        adapter: Casbin adapter of the app.
+        policies: Policy rules, each given as its policy type followed by its
+            values.
+
+    Raises:
+        ValueError: A rule is invalid for the adapter's model (cf.
+            :py:func:`validate_rule`).
+    """
+    for ptype, *rule in policies:
+        validate_rule(ptype, rule, adapter.model)
+    adapter.set_configured_policies(policies)
