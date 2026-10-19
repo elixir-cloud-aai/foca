@@ -53,14 +53,18 @@ jobs:
     name: Unit tests (Python ${{ matrix.python-version }}, MongoDB ${{ matrix.mongodb-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # MongoDB 8.0 refuses to start on Linux kernels 6.19 to 7.0.13, which
+    # some runners have (https://jira.mongodb.org/browse/SERVER-121912), so
+    # its failures do not fail the workflow
+    continue-on-error: ${{ matrix.mongodb-version == '8.0' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        mongodb-version: ["8.0"]
+        mongodb-version: ["7.0"]
         include:
           - python-version: "3.13"
-            mongodb-version: "7.0"
+            mongodb-version: "8.0"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,7 +88,7 @@ jobs:
           coverage run --source foca -m pytest
           coverage xml
       - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.13' && matrix.mongodb-version == '8.0'
+        if: matrix.python-version == '3.13' && matrix.mongodb-version == '7.0'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
