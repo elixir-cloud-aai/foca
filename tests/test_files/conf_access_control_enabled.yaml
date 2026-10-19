@@ -2,5 +2,7 @@ security:
     auth:
         issuers:
           - https://login.example.org/oidc/
+        audience:
+          - my-app
     access_control:
         enabled: True

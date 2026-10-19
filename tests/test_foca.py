@@ -280,6 +280,7 @@ def test_foca_relative_paths(tmp_path, monkeypatch):
         "security:\n"
         "  auth:\n"
         "    issuers: [https://login.example.org/oidc/]\n"
+        "    audience: [my-app]\n"
         "  access_control:\n"
         "    enabled: true\n"
         "    model: policies/model.conf\n"

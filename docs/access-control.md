@@ -123,6 +123,8 @@ security:
   auth:
     issuers:
       - https://login.example.org/oidc/
+    audience:
+      - my-app
   access_control:
     enabled: True
     model: access_control_model_definition
@@ -215,6 +217,8 @@ security:
   auth:
     issuers:
       - https://login.example.org/oidc/
+    audience:
+      - my-app
   access_control:
     enabled: True
     model: path/to/resource_role_model.conf

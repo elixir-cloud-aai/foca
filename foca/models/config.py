@@ -704,12 +704,14 @@ class AuthConfig(FOCABaseConfig):
         allow_expired: Allow/disallow expired JWTs. If ``False``, a ``401``
             authorization error is raised in response to a request containing
             an expired JWT.
-        audience: List of audiences that the app identifies itself with. If
-            specified, JWTs that do not contain any of the specified audiences
-            are rejected. If ``None``, audience validation is disabled, i.e.,
-            tokens that trusted issuers issued for other services are
-            accepted, too. Set it whenever the issuer includes the app in
-            the audience of its tokens.
+        audience: List of audiences that the app identifies itself with.
+            JWTs whose `aud` claim does not contain any of them are rejected.
+            Required if `issuers` are set, unless `verify_audience` is
+            ``False``.
+        verify_audience: Whether to validate the audience of JWTs. If
+            ``False``, tokens that trusted issuers issued for other services
+            are accepted, too; only disable it if the issuer does not include
+            the app in the audience of its tokens.
         claim_identity: The JWT claim used to identify the sender. Tokens
             without this claim are rejected.
         algorithms: Lists the JWT-signing algorithms supported by the app.
@@ -726,6 +728,7 @@ class AuthConfig(FOCABaseConfig):
             that the token was verified with, in PEM format, to the claims.
         allow_expired: Allow/disallow expired JWTs.
         audience: List of audiences that the app identifies itself with.
+        verify_audience: Whether to validate the audience of JWTs.
         claim_identity: The JWT claim used to identify the sender.
         algorithms: Lists the JWT-signing algorithms supported by the app.
         validate_userinfo: Whether to additionally validate tokens via the
@@ -736,7 +739,8 @@ class AuthConfig(FOCABaseConfig):
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type.
+            data type, or `issuers` are set without `audience` while
+            `verify_audience` is ``True``.
 
     Examples:
         >>> auth = AuthConfig(
@@ -753,6 +757,7 @@ class AuthConfig(FOCABaseConfig):
     add_key_to_claims: bool = True
     allow_expired: bool = False
     audience: list[str] | None = None
+    verify_audience: bool = True
     claim_identity: str = "sub"
     algorithms: list[str] = ["RS256"]
     validate_userinfo: bool = False
@@ -761,6 +766,31 @@ class AuthConfig(FOCABaseConfig):
     # Whether warnings about the settings were logged, i.e., on the first
     # token validation
     _warnings_logged: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="after")
+    def validate_audience(self) -> Self:
+        """Require an audience for trusted issuers, unless opted out.
+
+        Returns:
+            Model instance.
+
+        Raises:
+            ValueError: Trusted issuers are set without audience (or with
+                blank audiences), and audience validation is not disabled.
+        """
+        has_audience = bool(self.audience) and all(
+            aud.strip() for aud in self.audience or []
+        )
+        if self.issuers and self.verify_audience and not has_audience:
+            raise ValueError(
+                "Trusted token issuers require an audience: set "
+                "`security.auth.audience` to the (non-blank) audiences that "
+                "the issuers put into the `aud` claim of tokens for the app "
+                "(e.g., its client ID), or set "
+                "`security.auth.verify_audience: false` to accept tokens for "
+                "any audience (not recommended)."
+            )
+        return self
 
 
 class CORSConfig(FOCABaseConfig):

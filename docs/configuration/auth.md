@@ -10,6 +10,7 @@ security:
       - https://login.elixir-czech.org/oidc/
     audience:
       - my-app
+    verify_audience: true
     claim_identity: sub
     algorithms:
       - RS256
@@ -20,9 +21,10 @@ security:
 ```
 
 Only tokens issued by one of the trusted `issuers` are accepted; all others
-are rejected without contacting their issuers. Setting `audience` is strongly
-recommended, so that tokens issued for other apps by the same identity
-provider are rejected. See [Authentication](../authentication.md) for how
+are rejected without contacting their issuers. With trusted `issuers`,
+`audience` is required, so that tokens issued for other apps by the same
+identity provider are rejected; to accept tokens for any audience instead
+(not recommended), set `verify_audience: false`. See [Authentication](../authentication.md) for how
 tokens are validated and how to require them for operations.
 
 ::: foca.models.config.AuthConfig

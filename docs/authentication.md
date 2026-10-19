@@ -58,7 +58,9 @@ local development.
    provider are not repeated for every request either.
 3. The token's signature is verified locally with the issuer's public key,
    using one of the configured `algorithms`. Its expiry (unless
-   `allow_expired`) and, if `audience` is set, its audience are validated.
+   `allow_expired`) and its audience (unless `verify_audience: false`) are
+   validated: the `aud` claim must contain one of the configured `audience`
+   values.
 4. The token must contain the claims `exp`, `iat` and `iss`, and the claim
    configured as `claim_identity` (default: `sub`).
 5. If `validate_userinfo` is set, the token is additionally sent to the
@@ -68,11 +70,14 @@ local development.
 FOCA logs a warning on the first validation if no issuers are configured,
 audience validation is disabled, or expired tokens are accepted.
 
-!!! tip "Set an audience"
-    Without `audience`, any token issued by a trusted issuer is accepted,
-    including tokens issued for other apps. Register the app with the
-    identity provider and set its client ID (or the audience the provider
-    adds to tokens for the app) as `audience`.
+!!! warning "Audience required"
+    With trusted `issuers`, an `audience` is required; otherwise, FOCA
+    refuses to start. Register the app with the identity provider and set
+    its client ID (or the audience the provider adds to tokens for the app)
+    as `audience`. Only if the provider does not include the app in the
+    `aud` claim of its tokens, set `verify_audience: false`: then any token
+    issued by a trusted issuer is accepted, including tokens issued for
+    other apps.
 
 ## Using token claims
 

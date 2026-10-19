@@ -43,6 +43,9 @@ and set an audience:
     ```
 
 - Without `issuers`, **all tokens are rejected**.
+- With `issuers`, **`audience` is required**: tokens must be issued for
+  the app. Set `verify_audience: false` to accept tokens for any audience
+  (not recommended).
 - `validation_methods`, `validation_checks`, `claim_issuer` and `required`
   are removed. `validate_userinfo: true` additionally validates tokens via
   the issuer's user info endpoint.
@@ -78,6 +81,8 @@ Access control is now opt-in and requires trusted token issuers:
       auth:
         issuers:
           - https://login.elixir-czech.org/oidc/
+        audience:
+          - my-app
       access_control:
         enabled: true
         enforce: true

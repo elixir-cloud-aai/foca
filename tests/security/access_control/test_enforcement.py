@@ -229,7 +229,7 @@ def _create_app(
     spec_file.write_text(yaml.safe_dump(deepcopy(SPEC)))
     config = Config(
         security=SecurityConfig(
-            auth=AuthConfig(issuers=[ISSUER]),
+            auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
             access_control=access_control,
         ),
         db=MongoConfig(
@@ -816,7 +816,7 @@ def helper_app():
     app = Flask(__name__)
     app.config.foca = Config(  # type: ignore[attr-defined]
         security=SecurityConfig(
-            auth=AuthConfig(issuers=[ISSUER]),
+            auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
             access_control=_access_control_config(),
         ),
     )

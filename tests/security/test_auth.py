@@ -22,6 +22,7 @@ JWKS_URI = f"{ISSUER}/jwks"
 USERINFO_URI = f"{ISSUER}/userinfo"
 KID = "key-1"
 SUBJECT = "alice"
+AUDIENCE = "foca"
 
 
 def _private_key():
@@ -46,6 +47,7 @@ def make_token(key=PRIVATE_KEY, kid=KID, algorithm="RS256", **claims):
     payload = {
         "iss": ISSUER,
         "sub": SUBJECT,
+        "aud": AUDIENCE,
         "iat": now,
         "exp": now + 300,
         "scope": "openid",
@@ -105,7 +107,7 @@ def urls(get):
 def make_app(**auth_conf):
     """Create Flask app with FOCA config."""
     app = Flask(__name__)
-    auth_conf = {"issuers": [ISSUER], **auth_conf}
+    auth_conf = {"issuers": [ISSUER], "audience": [AUDIENCE], **auth_conf}
     app.config.foca = Config(security={"auth": auth_conf})
     return app
 
@@ -381,14 +383,27 @@ class TestValidateToken:
         assert res["user_id"] == "alice@example.org"
 
     def test_audience(self, idp):
-        """Tokens for the configured audience are accepted."""
-        res = validate(make_app(audience=["foca"]), make_token(aud="foca"))
+        """Tokens for any of the configured audiences are accepted."""
+        app = make_app(audience=["other", AUDIENCE])
+        res = validate(app, make_token(aud=[AUDIENCE, "more"]))
         assert res["user_id"] == SUBJECT
 
     def test_audience_mismatch(self, idp):
         """Tokens for other audiences are rejected."""
         with pytest.raises(Unauthorized):
-            validate(make_app(audience=["foca"]), make_token(aud="other"))
+            validate(make_app(), make_token(aud="other"))
+
+    def test_audience_missing(self, idp):
+        """Tokens without audience are rejected."""
+        with pytest.raises(Unauthorized):
+            validate(make_app(), make_token(aud=None))
+
+    @pytest.mark.parametrize("audience", [None, [AUDIENCE]])
+    def test_audience_not_verified(self, idp, audience):
+        """Audiences are not validated if disabled explicitly."""
+        app = make_app(audience=audience, verify_audience=False)
+        res = validate(app, make_token(aud="other"))
+        assert res["user_id"] == SUBJECT
 
     def test_add_key_to_claims(self, idp):
         """Public key used for verification is added to claims."""
@@ -438,7 +453,20 @@ class TestAuthConfig:
         """Defaults: no trusted issuers, local signature verification."""
         conf = AuthConfig()
         assert conf.issuers == []
+        assert conf.audience is None
+        assert conf.verify_audience is True
         assert conf.validate_userinfo is False
+
+    @pytest.mark.parametrize("audience", [None, [], [""], [AUDIENCE, " "]])
+    def test_audience_required(self, audience):
+        """Trusted issuers require an audience, unless opted out."""
+        with pytest.raises(ValidationError, match="verify_audience"):
+            AuthConfig(issuers=[ISSUER], audience=audience)
+
+    def test_audience_opt_out(self):
+        """Audience is not required if its validation is disabled."""
+        conf = AuthConfig(issuers=[ISSUER], verify_audience=False)
+        assert conf.audience is None
 
     @pytest.mark.parametrize(
         "field", ["validation_methods", "validation_checks", "claim_issuer"]
@@ -454,7 +482,9 @@ class TestLogAuthConfigWarnings:
 
     def test_warnings(self, caplog):
         """Insecure or incomplete settings are logged as warnings."""
-        conf = AuthConfig(issuers=[], audience=None, allow_expired=True)
+        conf = AuthConfig(
+            issuers=[], verify_audience=False, allow_expired=True
+        )
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
         assert "No trusted token issuers" in caplog.text
@@ -463,7 +493,7 @@ class TestLogAuthConfigWarnings:
 
     def test_no_warnings(self, caplog):
         """Complete and secure settings are not warned about."""
-        conf = AuthConfig(issuers=[ISSUER], audience=["foca"])
+        conf = AuthConfig(issuers=[ISSUER], audience=[AUDIENCE])
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
         assert caplog.text == ""

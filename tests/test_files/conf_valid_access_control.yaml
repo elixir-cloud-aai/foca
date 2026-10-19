@@ -2,11 +2,12 @@ security:
     auth:
         issuers:
           - https://login.example.org/oidc/
+        audience:
+          - my-app
         add_key_to_claims: True
         algorithms:
           - RS256
         allow_expired: False
-        audience: null
         claim_identity: sub
     cors:
       enabled: True
