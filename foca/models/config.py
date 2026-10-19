@@ -280,7 +280,7 @@ erkzeug.exceptions.NotFound'>: {'title': 'Not Found', 'status': 404}, <class '\
 werkzeug.exceptions.InternalServerError'>: {'title': 'Internal Server Error', \
 'status': 500}, <class 'werkzeug.exceptions.BadGateway'>: {'title': 'Bad Gatew\
 ay', 'status': 502}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title\
-': 'Service Unavailable', 'status': 502}, <class 'werkzeug.exceptions.GatewayT\
+': 'Service Unavailable', 'status': 503}, <class 'werkzeug.exceptions.GatewayT\
 imeout'>: {'title': 'Gateway Timeout', 'status': 504}})
     """
 
@@ -1400,7 +1400,7 @@ s.NotFound'>: {'title': 'Not Found', 'status': 404}, <class 'werkzeug.exceptio\
 ns.InternalServerError'>: {'title': 'Internal Server Error', 'status': 500}, <\
 class 'werkzeug.exceptions.BadGateway'>: {'title': 'Bad Gateway', 'status': 50\
 2}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title': 'Service Unava\
-ilable', 'status': 502}, <class 'werkzeug.exceptions.GatewayTimeout'>: {'title\
+ilable', 'status': 503}, <class 'werkzeug.exceptions.GatewayTimeout'>: {'title\
 ': 'Gateway Timeout', 'status': 504}}), api=APIConfig(specs=[]), security=Secu\
 rityConfig(auth=AuthConfig(issuers=[], add_key_to_claims=True, \
 allow_expired=False, audience=None, claim_identity='sub', algorithms=['RS256']\
