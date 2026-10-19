@@ -31,7 +31,11 @@ security:
     algorithms:
       - RS256
     allow_expired: False
-    audience: null
+    # Audiences of the app (`aud` claim, e.g., its client ID at the
+    # issuers); required if `issuers` are set, unless audience validation
+    # is disabled with `verify_audience: False` (not recommended)
+    audience:
+      - my-app
     # Trusted token issuers (`iss` claim); tokens of other issuers are
     # rejected
     issuers:

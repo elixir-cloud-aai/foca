@@ -1,5 +1,6 @@
 """Tests for config.py."""
 
+import doctest
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -8,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 from werkzeug.exceptions import NotFound
 
+import foca.models.config
 from foca.models.config import (
     AccessControlConfig,
     AuthConfig,
@@ -305,7 +307,7 @@ def test_SecurityConfig_access_control_invalid(issuers, access_control):
     """Test SecurityConfig instantiation; inconsistent access control."""
     with pytest.raises(ValidationError):
         SecurityConfig(
-            auth=AuthConfig(issuers=issuers),
+            auth=AuthConfig(issuers=issuers, audience=["my-app"]),
             access_control=AccessControlConfig(**access_control),
         )
 
@@ -330,7 +332,7 @@ def test_SecurityConfig_access_control_invalid(issuers, access_control):
 def test_SecurityConfig_access_control(issuers, access_control):
     """Test SecurityConfig instantiation; consistent access control."""
     res = SecurityConfig(
-        auth=AuthConfig(issuers=issuers),
+        auth=AuthConfig(issuers=issuers, audience=["my-app"]),
         access_control=AccessControlConfig(**access_control),
     )
     assert res.access_control.enabled is access_control.get("enabled", False)
@@ -362,3 +364,10 @@ def test_AccessControlConfig_absolute_model():
     """Test AccessControlConfig instantiation; absolute model path."""
     path = "/test/access_model.conf"
     assert AccessControlConfig(model=path).model == path
+
+
+def test_docstring_examples():
+    """Test that the examples in the docstrings of the config models run."""
+    results = doctest.testmod(foca.models.config)
+    assert results.attempted > 0
+    assert results.failed == 0
