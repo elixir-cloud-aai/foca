@@ -517,6 +517,17 @@ class TestUserinfoClaims:
         with pytest.raises(Unauthorized):
             validate(app, make_token())
 
+    def test_subject_missing(self, idp):
+        """User info is rejected if neither it nor the token has a subject."""
+        idp.responses[USERINFO_URI] = MockResponse(
+            {"eduperson_entitlement": ["urn:x"]}
+        )
+        app = make_app(
+            userinfo_claims=["eduperson_entitlement"], claim_identity="jti"
+        )
+        with pytest.raises(Unauthorized):
+            validate(app, make_token(sub=None, jti="j"))
+
     def test_unavailable(self, idp):
         """Tokens are rejected if user info cannot be fetched."""
         idp.responses[USERINFO_URI] = MockResponse({}, status_code=503)
@@ -553,6 +564,32 @@ class TestUserinfoClaims:
         validate(app, token)
         assert urls(idp).count(USERINFO_URI) == 2
 
+    def test_cache_ttl_per_app(self, idp):
+        """Cached user info is not used beyond the app's own TTL."""
+        token = make_token()
+        validate(make_app(userinfo_claims=["eduperson_entitlement"]), token)
+        app = make_app(userinfo_claims=["eduperson_entitlement"], cache_ttl=0)
+        validate(app, token)
+        assert urls(idp).count(USERINFO_URI) == 2
+
+    def test_claims_copied(self, idp):
+        """Changes to returned claims do not affect cached user info."""
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        token = make_token()
+        validate(app, token)["claims"]["eduperson_entitlement"].append("x")
+        res = validate(app, token)
+        assert res["claims"]["eduperson_entitlement"] == ["urn:example:admins"]
+
+    def test_invalid_expiry_not_cached(self, idp):
+        """User info is not cached for tokens with non-numeric expiry."""
+        app = make_app(
+            userinfo_claims=["eduperson_entitlement"], allow_expired=True
+        )
+        token = make_token(exp="never")
+        validate(app, token)
+        validate(app, token)
+        assert urls(idp).count(USERINFO_URI) == 2
+
     def test_cache_size(self, idp, monkeypatch):
         """Least recently added user info is evicted from full cache."""
         monkeypatch.setattr(auth, "USERINFO_CACHE_SIZE", 2)
@@ -566,7 +603,8 @@ class TestUserinfoClaims:
 
     def test_expired_evicted(self, idp):
         """Expired user info is evicted when user info is cached."""
-        auth._userinfo_cache["expired"] = (time.monotonic() - 1, {})
+        now = time.monotonic()
+        auth._userinfo_cache["expired"] = (now - 2, now - 1, {})
         app = make_app(userinfo_claims=["eduperson_entitlement"])
         validate(app, make_token())
         assert "expired" not in auth._userinfo_cache

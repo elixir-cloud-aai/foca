@@ -1,7 +1,9 @@
 """Functions for validating JWT Bearer tokens."""
 
+import copy
 import hashlib
 import logging
+import threading
 import time
 from typing import Any
 
@@ -37,7 +39,8 @@ _jwk_sets: dict[str, tuple[float, jwt.PyJWKSet]] = {}
 # Time of last failed attempt to fetch a discovery document or JWK set, by URL
 _failed_fetches: dict[str, float] = {}
 # User info, with time until which it is valid, by hash of token
-_userinfo_cache: dict[str, tuple[float, dict]] = {}
+_userinfo_cache: dict[str, tuple[float, float, dict]] = {}
+_userinfo_cache_lock = threading.Lock()
 
 
 def validate_token(token: str) -> dict:
@@ -145,7 +148,7 @@ def _validate(token: str, conf: AuthConfig) -> dict:
         )
         for claim in missing_claims:
             if claim in userinfo:
-                claims[claim] = userinfo[claim]
+                claims[claim] = copy.deepcopy(userinfo[claim])
     return claims
 
 
@@ -368,26 +371,39 @@ def _get_userinfo(
     """
     key = hashlib.sha256(token.encode("utf-8")).hexdigest()
     if not conf.validate_userinfo:
-        cached = _userinfo_cache.get(key)
-        if cached is not None and time.monotonic() < cached[0]:
-            return cached[1]
+        with _userinfo_cache_lock:
+            cached = _userinfo_cache.get(key)
+        now = time.monotonic()
+        if (
+            cached is not None
+            and now < cached[1]
+            and now - cached[0] < conf.cache_ttl
+        ):
+            return cached[2]
     userinfo = _fetch_json(
         url=url,
         conf=conf,
         headers={"Authorization": f"Bearer {token}"},
     )
-    if not isinstance(userinfo, dict) or userinfo.get("sub") != claims.get(
-        "sub"
+    subject = claims.get("sub")
+    if (
+        not isinstance(subject, str)
+        or not isinstance(userinfo, dict)
+        or userinfo.get("sub") != subject
     ):
         raise Unauthorized("User info does not match JWT subject")
-    lifetime = min(conf.cache_ttl, float(claims["exp"]) - time.time())
-    _userinfo_cache.pop(key, None)
-    if not conf.validate_userinfo and lifetime > 0:
-        now = time.monotonic()
-        for cached_key, (valid_until, _) in list(_userinfo_cache.items()):
-            if valid_until <= now:
-                del _userinfo_cache[cached_key]
-        while len(_userinfo_cache) >= USERINFO_CACHE_SIZE:
-            del _userinfo_cache[next(iter(_userinfo_cache))]
-        _userinfo_cache[key] = (now + lifetime, userinfo)
+    try:
+        lifetime = min(conf.cache_ttl, float(claims["exp"]) - time.time())
+    except (TypeError, ValueError):
+        lifetime = 0
+    with _userinfo_cache_lock:
+        _userinfo_cache.pop(key, None)
+        if not conf.validate_userinfo and lifetime > 0:
+            now = time.monotonic()
+            for cached_key, entry in list(_userinfo_cache.items()):
+                if entry[1] <= now:
+                    del _userinfo_cache[cached_key]
+            while len(_userinfo_cache) >= USERINFO_CACHE_SIZE:
+                del _userinfo_cache[next(iter(_userinfo_cache))]
+            _userinfo_cache[key] = (now, now + lifetime, userinfo)
     return userinfo
