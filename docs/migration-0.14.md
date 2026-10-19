@@ -14,7 +14,10 @@ error, so start the app after each step to see what is left.
 - Flask-PyMongo and flask-authz are no longer installed. Install them
   yourself if your app uses them directly.
 - MongoDB 4.4 or later: current PyMongo releases refuse to connect to older
-  servers (e.g., MongoDB 3.6). FOCA is tested with MongoDB 7.0 and 8.0.
+  servers (e.g., MongoDB 3.6). FOCA is tested with MongoDB 7.0 and 8.0. Note
+  that MongoDB 8.0 refuses to start on Linux kernels 6.19 to 7.0.13
+  ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)); use
+  MongoDB 7.0 on such hosts.
   Upgrade existing databases one major version at a time.
 
 ## Authentication

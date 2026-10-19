@@ -25,7 +25,11 @@ services:
       - "80:8080"
 
   mongodb:
-    image: mongo:8.0
+    # MongoDB 8.0 refuses to start on Linux kernels 6.19 to 7.0.13
+    # (https://jira.mongodb.org/browse/SERVER-121912). MongoDB 7.0 cannot
+    # use data written by MongoDB 8.0: delete the example's data directory
+    # (see `volumes`) if it was created with an earlier version of this file
+    image: mongo:7.0
     restart: unless-stopped
     volumes:
       - ./data/petstore-access-control/db:/data/db
