@@ -111,7 +111,7 @@ class TestGetPermission(BaseTestAccessControl):
         data["id"] = MOCK_ID
         with app.app_context():
             assert getPermission.__wrapped__(id=MOCK_ID) == data
-            assert getAllPermissions.__wrapped__() == [data]
+            assert getAllPermissions.__wrapped__()["results"] == [data]
 
     def test_getPermission_NotFound(self):
         """Test for getting a permission rule associated with a given
@@ -221,7 +221,15 @@ class TestGetAllPermissions(BaseTestAccessControl):
         data["id"] = MOCK_ID
         with app.app_context():
             res = getAllPermissions.__wrapped__()
-            assert res == [data]
+            assert res == {
+                "results": [data],
+                "pagination": {
+                    "page": 0,
+                    "page_size": 100,
+                    "total": 1,
+                    "total_pages": 1,
+                },
+            }
 
     def test_getAllPermissions_filters(self):
         """Test for getting a list of all available permissions.
@@ -246,8 +254,13 @@ class TestGetAllPermissions(BaseTestAccessControl):
         data = deepcopy(MOCK_RULE_USER_INPUT_OUTPUT)
         data["id"] = MOCK_ID
         with app.app_context():
-            res = getAllPermissions.__wrapped__(limit=1)
-            assert res == [data]
+            res = getAllPermissions.__wrapped__(page_size=1, page=0)
+            assert res["results"] == [data]
+            for page_size, page in [(0, 0), (1001, 0), (1, -1), (1, 1)]:
+                with pytest.raises(BadRequest):
+                    getAllPermissions.__wrapped__(
+                        page_size=page_size, page=page
+                    )
 
 
 class TestIncompletePermissions(TestCase):
@@ -272,16 +285,16 @@ class TestIncompletePermissions(TestCase):
             ]
         )
         with app.app_context():
-            assert getAllPermissions.__wrapped__() == [
+            assert getAllPermissions.__wrapped__()["results"] == [
+                {
+                    "policy_type": "p",
+                    "rule": {"v0": "a", "v1": "b", "v2": "GET"},
+                },
+                {"policy_type": "g", "rule": {"v0": "a"}},
                 {
                     "policy_type": "g",
                     "rule": {"v0": "a", "v1": "b"},
                     "id": MOCK_ID,
-                },
-                {"policy_type": "g", "rule": {"v0": "a"}},
-                {
-                    "policy_type": "p",
-                    "rule": {"v0": "a", "v1": "b", "v2": "GET"},
                 },
             ]
             assert getPermission.__wrapped__(id=MOCK_ID)["id"] == MOCK_ID

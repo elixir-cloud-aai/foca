@@ -21,3 +21,7 @@ DEFAULT_ID_LENGTH = 6
 ID_ATTEMPTS = 5
 # Minimum number of possible identifiers for configured characters and length
 MIN_ID_SPACE = 1_000_000
+
+# Default and maximum number of permissions per page of the permissions API
+DEFAULT_PAGE_SIZE = 100
+MAX_PAGE_SIZE = 1000

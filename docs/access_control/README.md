@@ -24,6 +24,8 @@ it can be configured for your needs.
   * [Identity and group claims](#identity-and-group-claims)
   * [Resource-scoped roles](#resource-scoped-roles)
   * [Securing the permissions API](#securing-the-permissions-api)
+  * [Listing permissions](#listing-permissions)
+  * [Self-service](#self-service)
   * [Rule values](#rule-values)
 * [Exploring the API](#exploring-the-api)
 
@@ -147,6 +149,7 @@ security:
     resource_roles_cover_subpaths: True
     id_charset: ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
     id_length: 6
+    self_service: False
 ```
 
 > The application created with this config would provide an access control
@@ -385,6 +388,63 @@ rules can be added via `group_mapping` (e.g., mapping an entitlement to
 > If you provide custom `api_specs` for the permissions API, make sure that
 > they require authentication; otherwise, all requests will be denied.
 
+### Listing permissions
+
+`GET /permissions` returns permissions page by page, as recommended by the
+[GA4GH API pagination guide][res-ga4gh-pagination] (page-based pagination):
+
+```console
+GET /admin/access-control/permissions?page_size=2&page=0
+```
+
+```json
+{
+  "results": [
+    {"id": "aB3dE9", "policy_type": "p", "rule": {"v0": "*", "v1": "/services", "v2": "POST"}},
+    {"id": "Xy7Qr2", "policy_type": "g", "rule": {"v0": "user:bob", "v1": "admin"}}
+  ],
+  "pagination": {"page": 0, "page_size": 2, "total": 16, "total_pages": 8}
+}
+```
+
+* `page_size` (default: 100, at most 1000) is the maximum number of
+  permissions per page; `page` (default: 0) is the page to return.
+* Permissions are returned in the order they were created.
+* Requests for pages beyond the last page (except page 0 if there are no
+  permissions) or with a `page_size` out of range are rejected with `400`.
+* Pages are not guaranteed to be consistent with each other: if permissions
+  are created or deleted while paging, permissions may be skipped or returned
+  twice.
+
+### Self-service
+
+With `self_service: True`, any authenticated subject may list and get the
+permissions that _apply to them_ via `GET /permissions` and
+`GET /permissions/{id}`, i.e., rules whose subject (`v0`) is
+
+* the subject's identifier, prefixed with `subject_prefix` (e.g.,
+  `user:alice`), including its role assignments (e.g., `g` and `g2` rules),
+* one of the subject's roles from group claims (cf. [identity and group
+  claims](#identity-and-group-claims)), or
+* `*` (any authenticated subject).
+
+Rules granted to roles that are themselves assigned via rules (e.g., rules for
+`owner`) are not included. Other permissions are not found (`404`), so that
+their identifiers are not disclosed. Subjects allowed by the policies to
+access the permissions API (e.g., admins) still get all permissions, and
+creating, updating and deleting permissions still requires being allowed by
+the policies.
+
+Self-service only lets subjects _see_ their permissions. To let users manage
+access to resources, e.g., resource owners granting roles on their resources
+to other users, expose endpoints in your app that use the [resource role
+helpers](#resource-scoped-roles), as these do not require access to the
+permissions API.
+
+Custom permissions API specifications can opt operations in to self-service
+via `x-foca-self-service: true`; their controllers must then restrict access
+themselves, e.g., via `foca.security.access_control.is_permitted()`.
+
 ### Rule values
 
 Rules are validated whenever they are written, i.e., via the permissions API,
@@ -431,5 +491,6 @@ firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
 [img-logo-banner]: ../../images/logo-banner.svg
 [res-casbin-models]: <https://casbin.org/docs/en/supported-models>
 [res-foca]: <https://pypi.org/project/foca/>
+[res-ga4gh-pagination]: <https://github.com/ga4gh/TASC/blob/main/recommendations/API%20pagination%20guide.md>
 [res-openapi]: <https://www.openapis.org/>
 [res-swagger]: <https://swagger.io/tools/swagger-ui/>

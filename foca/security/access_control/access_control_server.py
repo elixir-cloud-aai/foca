@@ -1,6 +1,7 @@
 """Controllers for permission management endpoints."""
 
 import logging
+from math import ceil
 
 from casbin.model import Model
 from flask import current_app, request
@@ -8,6 +9,16 @@ from pymongo.collection import Collection
 from werkzeug.exceptions import NotFound
 
 from foca.errors.exceptions import BadRequest
+from foca.security.access_control.constants import (
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+)
+from foca.security.access_control.enforcement import (
+    _prefix_subject,
+    get_current_groups,
+    get_current_subject,
+    is_permitted,
+)
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
     validate_rule,
@@ -34,6 +45,30 @@ def _get_permissions_collection() -> Collection:
         .collections[access_control.collection_name]
         .client
     )
+
+
+def _get_visibility_filter() -> dict:
+    """Get filter for the permissions visible to the current subject.
+
+    Returns:
+        Empty filter if the subject may access all permissions, i.e., if
+        `access_control.self_service` is disabled (then, the permissions API
+        is only accessible to subjects allowed by the policies) or if the
+        policies allow the subject to access the requested resource.
+        Otherwise, a filter for the rules that apply to the subject: rules
+        whose subject (`v0`) is the prefixed subject, one of its roles from
+        group claims, or `*`.
+
+    Raises:
+        connexion.exceptions.Unauthorized: The subject could not be
+            identified.
+    """
+    conf = current_app.config.foca.security.access_control  # type: ignore[attr-defined]
+    if not conf.self_service or is_permitted():
+        return {}
+    subject = get_current_subject()
+    subjects = [_prefix_subject(str(subject)), *get_current_groups(), "*"]
+    return {"v0": {"$in": subjects}}
 
 
 def _get_rule() -> tuple[str, list[str]]:
@@ -146,22 +181,53 @@ def putPermission(
 
 
 @log_traffic
-def getAllPermissions(limit=None) -> list[dict]:
-    """Method to fetch all permissions.
+def getAllPermissions(
+    page_size: int = DEFAULT_PAGE_SIZE,
+    page: int = 0,
+) -> dict:
+    """Method to fetch permissions page by page.
+
+    Permissions are returned in the order they were stored, as recommended
+    by the GA4GH API pagination guide (page-based pagination).
 
     Args:
-        limit: Number of objects requested.
+        page_size: Maximum number of permissions per page (1 to
+            `MAX_PAGE_SIZE`).
+        page: Page to return, starting at 0.
 
     Returns:
-        List of permission dicts.
+        Page of permissions (`results`) and pagination metadata
+        (`pagination`).
+
+    Raises:
+        foca.errors.exceptions.BadRequest: The page size is out of range, or
+            the page does not exist (except page 0 if there are no
+            permissions).
     """
+    if not 1 <= page_size <= MAX_PAGE_SIZE or page < 0:
+        raise BadRequest
+    collection = _get_permissions_collection()
+    query = {**_PERMISSION_FILTER, **_get_visibility_filter()}
+    total = collection.count_documents(query)
+    total_pages = ceil(total / page_size)
+    if page >= max(total_pages, 1):
+        logger.error(f"Page {page} out of range ({total_pages} pages)")
+        raise BadRequest
     permissions = (
-        _get_permissions_collection()
-        .find(filter=_PERMISSION_FILTER, projection={"_id": False})
-        .sort([("$natural", -1)])
-        .limit(limit or 0)
+        collection.find(filter=query, projection={"_id": False})
+        .sort([("_id", 1)])
+        .skip(page * page_size)
+        .limit(page_size)
     )
-    return [_to_permission(permission) for permission in permissions]
+    return {
+        "results": [_to_permission(permission) for permission in permissions],
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+        },
+    }
 
 
 @log_traffic
@@ -177,7 +243,7 @@ def getPermission(
         Permission data for the given id.
     """
     permission = _get_permissions_collection().find_one(
-        filter={"id": id, **_PERMISSION_FILTER}
+        filter={"id": id, **_PERMISSION_FILTER, **_get_visibility_filter()}
     )
     if permission is None:
         raise NotFound

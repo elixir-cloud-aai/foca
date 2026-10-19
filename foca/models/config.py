@@ -667,6 +667,12 @@ class AccessControlConfig(FOCABaseConfig):
             million different identifiers.
             Identifiers supplied via `PUT /permissions/{id}` must have the
             same length and characters.
+        self_service: Allow any authenticated subject to list and get the
+            permissions that apply to them via the permissions API (rules
+            whose subject is the prefixed subject, one of its roles from
+            group claims, or `*`). Subjects allowed to list and get all
+            permissions (e.g., admins) still get all of them. Write
+            operations are not affected.
 
     Attributes:
         api_specs: Path to API spec definition.
@@ -686,6 +692,8 @@ class AccessControlConfig(FOCABaseConfig):
             sub-paths of the resource path they were granted on.
         id_charset: Characters of generated policy rule identifiers.
         id_length: Length of generated policy rule identifiers.
+        self_service: Allow subjects to list and get the permissions that
+            apply to them.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -720,6 +728,7 @@ nf', ...)
     resource_roles_cover_subpaths: bool = True
     id_charset: str = DEFAULT_ID_CHARSET
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
+    self_service: bool = False
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
     _registered_collection: tuple[str, str, bool] | None = PrivateAttr(
