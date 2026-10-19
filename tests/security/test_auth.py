@@ -457,7 +457,7 @@ class TestAuthConfig:
         assert conf.verify_audience is True
         assert conf.validate_userinfo is False
 
-    @pytest.mark.parametrize("audience", [None, []])
+    @pytest.mark.parametrize("audience", [None, [], [""], [AUDIENCE, " "]])
     def test_audience_required(self, audience):
         """Trusted issuers require an audience, unless opted out."""
         with pytest.raises(ValidationError, match="verify_audience"):

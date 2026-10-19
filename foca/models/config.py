@@ -775,16 +775,20 @@ class AuthConfig(FOCABaseConfig):
             Model instance.
 
         Raises:
-            ValueError: Trusted issuers are set without audience, and
-                audience validation is not disabled.
+            ValueError: Trusted issuers are set without audience (or with
+                blank audiences), and audience validation is not disabled.
         """
-        if self.issuers and self.verify_audience and not self.audience:
+        has_audience = bool(self.audience) and all(
+            aud.strip() for aud in self.audience or []
+        )
+        if self.issuers and self.verify_audience and not has_audience:
             raise ValueError(
                 "Trusted token issuers require an audience: set "
-                "`security.auth.audience` to the audience that the issuers "
-                "put into the `aud` claim of tokens for the app (e.g., its "
-                "client ID), or set `security.auth.verify_audience: false` "
-                "to accept tokens for any audience (not recommended)."
+                "`security.auth.audience` to the (non-blank) audiences that "
+                "the issuers put into the `aud` claim of tokens for the app "
+                "(e.g., its client ID), or set "
+                "`security.auth.verify_audience: false` to accept tokens for "
+                "any audience (not recommended)."
             )
         return self
 
