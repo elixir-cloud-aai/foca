@@ -446,6 +446,182 @@ class TestValidateToken:
             validate(make_app(validate_userinfo=True), make_token())
 
 
+class TestUserinfoClaims:
+    """Tests for adding claims from the user info endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def userinfo(self, idp):
+        """User info with claims that are not in tokens."""
+        auth._userinfo_cache.clear()
+        idp.responses[USERINFO_URI] = MockResponse(
+            {
+                "sub": SUBJECT,
+                "eduperson_entitlement": ["urn:example:admins"],
+                "email": "alice@example.org",
+            }
+        )
+        yield
+        auth._userinfo_cache.clear()
+
+    def test_added(self, idp):
+        """Configured claims are added from user info, others are not."""
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        res = validate(app, make_token())
+        assert res["claims"]["eduperson_entitlement"] == ["urn:example:admins"]
+        assert "email" not in res["claims"]
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI, USERINFO_URI]
+        call = idp.call_args_list[-1]
+        assert call.kwargs["allow_redirects"] is False
+        assert call.kwargs["headers"]["Authorization"].startswith("Bearer ")
+
+    def test_not_configured(self, idp):
+        """User info is not requested by default."""
+        res = validate(make_app(), make_token())
+        assert "eduperson_entitlement" not in res["claims"]
+        assert USERINFO_URI not in urls(idp)
+
+    def test_token_claims_kept(self, idp):
+        """Claims of the token are not replaced by user info."""
+        app = make_app(userinfo_claims=["eduperson_entitlement", "email"])
+        token = make_token(email="a@example.org")
+        res = validate(app, token)
+        assert res["claims"]["email"] == "a@example.org"
+        assert res["claims"]["eduperson_entitlement"] == ["urn:example:admins"]
+
+    def test_in_token(self, idp):
+        """User info is not requested if the token has all claims."""
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        res = validate(app, make_token(eduperson_entitlement=["urn:x"]))
+        assert res["claims"]["eduperson_entitlement"] == ["urn:x"]
+        assert USERINFO_URI not in urls(idp)
+
+    def test_missing(self, idp):
+        """Claims missing from user info are not added."""
+        app = make_app(userinfo_claims=["eduperson_entitlement", "groups"])
+        res = validate(app, make_token())
+        assert "groups" not in res["claims"]
+
+    def test_after_signature(self, idp):
+        """Tokens are not sent to user info endpoint before verification."""
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        with pytest.raises(Unauthorized):
+            validate(app, make_token(key=OTHER_PRIVATE_KEY))
+        assert USERINFO_URI not in urls(idp)
+
+    def test_subject_mismatch(self, idp):
+        """User info must be for the token's subject."""
+        idp.responses[USERINFO_URI] = MockResponse(
+            {"sub": "mallory", "eduperson_entitlement": ["urn:x"]}
+        )
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        with pytest.raises(Unauthorized):
+            validate(app, make_token())
+
+    def test_subject_missing(self, idp):
+        """User info is rejected if neither it nor the token has a subject."""
+        idp.responses[USERINFO_URI] = MockResponse(
+            {"eduperson_entitlement": ["urn:x"]}
+        )
+        app = make_app(
+            userinfo_claims=["eduperson_entitlement"], claim_identity="jti"
+        )
+        with pytest.raises(Unauthorized):
+            validate(app, make_token(sub=None, jti="j"))
+
+    def test_unavailable(self, idp):
+        """Tokens are rejected if user info cannot be fetched."""
+        idp.responses[USERINFO_URI] = MockResponse({}, status_code=503)
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        with pytest.raises(Unauthorized):
+            validate(app, make_token())
+
+    def test_cached(self, idp):
+        """User info is cached per token."""
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        token = make_token()
+        for _ in range(2):
+            res = validate(app, token)
+            assert "eduperson_entitlement" in res["claims"]
+        assert urls(idp).count(USERINFO_URI) == 1
+        validate(app, make_token(jti="other"))
+        assert urls(idp).count(USERINFO_URI) == 2
+
+    def test_cache_expired(self, idp):
+        """User info is fetched again after TTL."""
+        app = make_app(userinfo_claims=["eduperson_entitlement"], cache_ttl=0)
+        token = make_token()
+        validate(app, token)
+        validate(app, token)
+        assert urls(idp).count(USERINFO_URI) == 2
+
+    def test_not_cached_beyond_expiry(self, idp):
+        """User info is not cached beyond the token's expiry."""
+        app = make_app(
+            userinfo_claims=["eduperson_entitlement"], allow_expired=True
+        )
+        token = make_token(exp=int(time.time()) - 10)
+        validate(app, token)
+        validate(app, token)
+        assert urls(idp).count(USERINFO_URI) == 2
+
+    def test_cache_ttl_per_app(self, idp):
+        """Cached user info is not used beyond the app's own TTL."""
+        token = make_token()
+        validate(make_app(userinfo_claims=["eduperson_entitlement"]), token)
+        app = make_app(userinfo_claims=["eduperson_entitlement"], cache_ttl=0)
+        validate(app, token)
+        assert urls(idp).count(USERINFO_URI) == 2
+
+    def test_claims_copied(self, idp):
+        """Changes to returned claims do not affect cached user info."""
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        token = make_token()
+        validate(app, token)["claims"]["eduperson_entitlement"].append("x")
+        res = validate(app, token)
+        assert res["claims"]["eduperson_entitlement"] == ["urn:example:admins"]
+
+    def test_invalid_expiry_not_cached(self, idp):
+        """User info is not cached for tokens with non-numeric expiry."""
+        app = make_app(
+            userinfo_claims=["eduperson_entitlement"], allow_expired=True
+        )
+        token = make_token(exp="never")
+        validate(app, token)
+        validate(app, token)
+        assert urls(idp).count(USERINFO_URI) == 2
+
+    def test_cache_size(self, idp, monkeypatch):
+        """Least recently added user info is evicted from full cache."""
+        monkeypatch.setattr(auth, "USERINFO_CACHE_SIZE", 2)
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        tokens = [make_token(jti=str(i)) for i in range(3)]
+        for token in tokens:
+            validate(app, token)
+        assert len(auth._userinfo_cache) == 2
+        validate(app, tokens[0])
+        assert urls(idp).count(USERINFO_URI) == 4
+
+    def test_expired_evicted(self, idp):
+        """Expired user info is evicted when user info is cached."""
+        now = time.monotonic()
+        auth._userinfo_cache["expired"] = (now - 2, now - 1, {})
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        validate(app, make_token())
+        assert "expired" not in auth._userinfo_cache
+        assert len(auth._userinfo_cache) == 1
+
+    def test_validate_userinfo_not_cached(self, idp):
+        """With `validate_userinfo`, user info is fetched every time."""
+        app = make_app(
+            userinfo_claims=["eduperson_entitlement"], validate_userinfo=True
+        )
+        token = make_token()
+        for _ in range(2):
+            res = validate(app, token)
+            assert "eduperson_entitlement" in res["claims"]
+        assert urls(idp).count(USERINFO_URI) == 2
+
+
 class TestAuthConfig:
     """Tests for authentication config."""
 
@@ -456,6 +632,7 @@ class TestAuthConfig:
         assert conf.audience is None
         assert conf.verify_audience is True
         assert conf.validate_userinfo is False
+        assert conf.userinfo_claims == []
 
     @pytest.mark.parametrize("audience", [None, [], [""], [AUDIENCE, " "]])
     def test_audience_required(self, audience):
