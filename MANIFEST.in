@@ -1,6 +1,14 @@
 # Files to include in source distributions in addition to the package, its
-# package data, README.md, LICENSE and pyproject.toml.
+# package data, README.md, LICENSE and pyproject.toml. setuptools-scm adds
+# all files tracked by git; exclude those not needed to build and test the
+# package.
 
 graft tests
 include templates/config.yaml
+prune .github
+prune docker
+prune docs
+prune examples
+prune images
+exclude .* mkdocs.yml PULL_REQUEST_TEMPLATE.md
 global-exclude *.py[cod] __pycache__

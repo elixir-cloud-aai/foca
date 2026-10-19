@@ -79,6 +79,12 @@ COPY ./ /app
 CMD ["python", "app.py"]
 ```
 
+Images of releases are tagged with the FOCA and Python versions (e.g.,
+`0.14.0-py3.12`); the FOCA version alone (e.g., `0.14.0`) tags the Python
+3.13 image, and `latest` that of the latest release. Images built from the
+`dev` branch are tagged with their date and the Python version (e.g.,
+`20261019-py3.13`).
+
 The image contains no build tools and runs as non-root user `foca` (UID
 `1000`, group `0`); `/app` and the home directory are writable by group `0`,
 so that the image also runs under arbitrary user IDs (e.g., on OpenShift).
@@ -111,6 +117,29 @@ mkdocs serve
 
 The project adopts [semantic versioning][res-semver]. Currently the service
 is in beta stage, so the API may change without further notice.
+
+The version is derived from git tags (via [setuptools-scm][res-setuptools-scm])
+and available as `foca.__version__`; builds between releases get
+development versions (e.g., `0.14.1.dev3+g1a2b3c4`).
+
+### Releasing
+
+Features and fixes are merged into `dev`. Branch `main` only ever moves
+forward to commits on `dev` that are released. To release version `X.Y.Z`
+from commit `<sha>` on `dev`, after CI passed for it:
+
+```bash
+git push origin <sha>:main  # fails unless it is a fast-forward
+git tag -s vX.Y.Z <sha> -m "vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+Pushing the tag triggers the [release workflow][release-workflow], which
+checks that the tagged commit is on `main`, publishes the distributions to
+PyPI (after approval in the `pypi` environment), pushes Docker images
+tagged `X.Y.Z` and `latest`, and creates a GitHub release with generated
+notes. Tags of pre-releases (e.g., `vX.Y.Zrc1`) create pre-releases and do
+not update `latest`.
 
 ## License
 
@@ -150,6 +179,7 @@ question etc.
 [license]: LICENSE
 [license-apache]: <https://www.apache.org/licenses/LICENSE-2.0>
 [org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
+[release-workflow]: .github/workflows/release.yml
 [res-casbin]: <https://casbin.org/>
 [res-celery]: <https://docs.celeryq.dev/>
 [res-connexion]: <https://github.com/spec-first/connexion>
@@ -164,3 +194,4 @@ question etc.
 [res-rabbitmq]: <https://www.rabbitmq.com/>
 [res-rfc-9457]: <https://www.rfc-editor.org/rfc/rfc9457>
 [res-semver]: <https://semver.org/>
+[res-setuptools-scm]: <https://setuptools-scm.readthedocs.io/>

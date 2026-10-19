@@ -19,10 +19,12 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Install FOCA and its dependencies
+# Install FOCA and its dependencies; without git history, the version needs
+# to be passed explicitly (e.g., `--build-arg FOCA_VERSION=1.2.3`)
 COPY pyproject.toml MANIFEST.in README.md LICENSE ./
 COPY foca/ ./foca/
-RUN pip install . \
+ARG FOCA_VERSION=0+unknown
+RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FOCA="${FOCA_VERSION}" pip install . \
         --no-warn-script-location \
         --prefix="/install"
 

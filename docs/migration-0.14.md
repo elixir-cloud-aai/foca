@@ -223,6 +223,8 @@ of its sections.
 `generate_id()` no longer evaluates `charset` expressions such as
 `string.ascii_uppercase + string.digits`; pass the characters themselves.
 
+The module `foca.version` is removed; use `foca.__version__` instead.
+
 ## Docker image
 
 Images built `FROM` the FOCA image run as non-root user `foca` (UID 1000,
@@ -239,3 +241,9 @@ USER 1000
 
 The image no longer contains build tools (e.g., `gcc`, `git`, `curl`); add
 them in a build stage of your own image if needed.
+
+Release images are tagged with the FOCA version (e.g., `0.14.0`, or
+`0.14.0-py3.12` for other Python versions), and `latest` only refers to the
+latest release; images of the `dev` branch keep their dated tags. To build
+the image yourself, pass the FOCA version with `--build-arg
+FOCA_VERSION=<version>`.
