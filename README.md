@@ -645,8 +645,21 @@ def your_controller():
     pass
 ```
 
-> The above decorater will log both requests and responses with the specified
-> logging level (`20`, or `INFO`).
+> The above decorator will log both requests and responses with the specified
+> logging level (`20`, or `INFO`). Requests are logged with method, path,
+> protocol and client address, responses with the type of the body and the
+> status code, e.g.:
+>
+> ```console
+> Incoming request: "GET /pets HTTP/1.1" from 127.0.0.1
+> Response to request "GET /pets HTTP/1.1" from 127.0.0.1: list, status 200
+> ```
+>
+> Response bodies are not logged by default, as they may contain secrets or
+> personal data; set `log_response_body=True` to log them, too. Control
+> characters (e.g., line breaks) in logged values are escaped, so that
+> requests cannot forge log lines; use `foca.utils.logging.escape_log_value()`
+> for the same in your own log messages.
 
 ### Miscellaneous utilities
 

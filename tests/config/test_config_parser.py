@@ -13,7 +13,10 @@ from pydantic import (
     ValidationError,
 )
 
+from foca.config import config_parser as parser_module
 from foca.config.config_parser import ConfigParser, deep_merge
+from foca.factories import connexion_app as factory_module
+from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
 
 DIR = Path(__file__).parent.parent / "test_files"
@@ -253,3 +256,26 @@ class TestConfigFiles:
         empty = _write(tmp_path / "empty.yaml", "")
         conf = ConfigParser(config_file=[base, empty], format_logs=False)
         assert conf.config.server.port == 8000
+
+
+def test_no_config_values_logged(tmp_path, monkeypatch):
+    """Only config section names are logged, not values."""
+    messages: list[str] = []
+    monkeypatch.setattr(parser_module.logger, "debug", messages.append)
+    monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("custom:\n  api_key: s3cr3t\n")
+    ConfigParser(config_file=config_file, format_logs=False)
+    logged = " ".join(messages)
+    assert "s3cr3t" not in logged
+    assert "custom" in logged
+
+
+def test_no_flask_config_logged(monkeypatch):
+    """The Flask config, including secrets, is not logged."""
+    messages: list[str] = []
+    monkeypatch.setattr(factory_module.logger, "debug", messages.append)
+    app = create_connexion_app(Config())
+    app.app.config["SECRET_KEY"] = "s3cr3t"
+    create_connexion_app(Config())
+    assert "SECRET_KEY" not in " ".join(messages)

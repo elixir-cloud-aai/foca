@@ -153,7 +153,11 @@ class ConfigParser:
                 "Configuration files merged: "
                 f"{', '.join(str(path) for path in self.config_files)}"
             )
-        logger.debug(f"Parsed config: {self.config.model_dump(by_alias=True)}")
+        # Section names only, as values (e.g., in `custom`) may be secrets
+        logger.debug(
+            "Parsed config sections: "
+            f"{', '.join(sorted(self.config.model_dump().keys()))}"
+        )
 
     def _configure_logging(self) -> None:
         """Configure logging."""
