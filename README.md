@@ -450,6 +450,9 @@ security:
 > OpenID Connect discovery), signed with the `RS256` algorithm, and expired
 > tokens would be rejected. Tokens of other issuers are rejected without
 > contacting them; if no `issuers` are configured, all tokens are rejected.
+> Set `audience` whenever your identity provider includes your app in the
+> audience of its tokens; without it, tokens that trusted issuers issued for
+> other services are accepted, too (FOCA logs a warning at startup).
 > Set `validate_userinfo: True` to additionally validate tokens via the
 > issuer's user info endpoint. Which operations require a token is defined by
 > the security requirements of the operations in your API specifications
