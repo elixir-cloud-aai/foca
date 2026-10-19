@@ -1,33 +1,11 @@
-# Access Control in FOCA
+# Access control
 
-## Description
-
-This document summarizes how access control works in [FOCA][res-foca], and how
-it can be configured for your needs.
-
-## Table of Contents
-
-* [Description](#description)
-* [Why do we need it?](#why-do-we-need-it)
-* [How does it work?](#how-does-it-work)
-  * [PERM Model](#perm-model)
-    * [Policy](#policy)
-    * [Effect](#effect)
-    * [Request](#request)
-    * [Matchers](#matchers)
-* [Configuration](#configuration)
-  * [Configuring the database](#configuring-the-database)
-  * [Configuring the API](#configuring-the-api)
-  * [Configuring the access control
-    model](#configuring-the-access-control-model)
-* [Enforcing policies with OIDC tokens](#enforcing-policies-with-oidc-tokens)
-  * [Identity and group claims](#identity-and-group-claims)
-  * [Resource-scoped roles](#resource-scoped-roles)
-  * [Securing the permissions API](#securing-the-permissions-api)
-  * [Listing permissions](#listing-permissions)
-  * [Self-service](#self-service)
-  * [Rule values](#rule-values)
-* [Exploring the API](#exploring-the-api)
+FOCA provides configurable, [Casbin][casbin-docs]-based access control:
+policies can be enforced on all operations of an app (using the claims of
+validated bearer tokens), managed via a permissions API and per resource
+(e.g., for resource owners). This guide explains how it works and how to
+configure it; the [configuration reference](configuration/access-control.md)
+lists all options.
 
 ## Why do we need it?
 
@@ -496,16 +474,13 @@ firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
 > The exact route at which endpoints are served depends on the `servers`
 > (or `basePath`) of the permissions API specification (cf. `api_specs`).
 
-![Logo_banner][img-logo-banner]
-
 [casbin-docs]: <https://casbin.org/docs/en/how-it-works>
-[docs-models-access-control]: <https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.AccessControlConfig>
-[default-specs]: ../../foca/security/access_control/api/access-control-specs.yaml
-[default-controllers]: ../../foca/security/access_control/access_control_server.py
-[default-model]: ../../foca/security/access_control/api/default_model.conf
-[resource-role-model]: ../../foca/security/access_control/api/resource_role_model.conf
-[img-casbin-flow]: ../../images/casbin_model.jpeg
-[img-logo-banner]: ../../images/logo-banner.svg
+[docs-models-access-control]: configuration/access-control.md
+[default-specs]: <https://github.com/elixir-cloud-aai/foca/blob/dev/foca/security/access_control/api/access-control-specs.yaml>
+[default-controllers]: <https://github.com/elixir-cloud-aai/foca/blob/dev/foca/security/access_control/access_control_server.py>
+[default-model]: <https://github.com/elixir-cloud-aai/foca/blob/dev/foca/security/access_control/api/default_model.conf>
+[resource-role-model]: <https://github.com/elixir-cloud-aai/foca/blob/dev/foca/security/access_control/api/resource_role_model.conf>
+[img-casbin-flow]: images/casbin_model.jpeg
 [res-casbin-models]: <https://casbin.org/docs/en/supported-models>
 [res-foca]: <https://pypi.org/project/foca/>
 [res-ga4gh-pagination]: <https://github.com/ga4gh/TASC/blob/main/recommendations/API%20pagination%20guide.md>

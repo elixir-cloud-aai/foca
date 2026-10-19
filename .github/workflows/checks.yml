@@ -1,4 +1,5 @@
-# Lint, type-check and test the package and build the distributions; run
+# Lint, type-check and test the package and build the docs and distributions;
+# run
 # integration tests on the petstore example; on pushes to the default branch,
 # build and push Docker images.
 
@@ -34,13 +35,15 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install package and tools
-        run: pip install -e .[dev] build twine
+        run: pip install -e .[dev,docs] build twine
       - name: Lint with ruff
         run: ruff check --output-format=github
       - name: Check formatting with ruff
         run: ruff format --check
       - name: Type-check with mypy
         run: mypy foca
+      - name: Build documentation
+        run: mkdocs build --strict
       - name: Build distributions
         run: python -m build
       - name: Check distributions

@@ -67,8 +67,9 @@ dev = [
     "types-requests",
 ]
 docs = [
-    "Sphinx>=8",
-    "sphinx-rtd-theme>=3",
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.7,<10",
+    "mkdocstrings[python]>=1.0,<2",
 ]
 
 [project.urls]
