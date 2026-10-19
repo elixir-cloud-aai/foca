@@ -1,3 +1,10 @@
-"""Tests for `version.py` module."""
+"""Tests for the package version."""
 
-from foca.version import __version__  # noqa: F401
+from importlib.metadata import version
+
+import foca
+
+
+def test_version():
+    """Version is taken from the package metadata."""
+    assert foca.__version__ == version("foca")

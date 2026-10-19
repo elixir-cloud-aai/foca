@@ -1,7 +1,7 @@
 # Lint, type-check and test the package and build the docs and distributions;
-# run
-# integration tests on the petstore example; on pushes to the default branch,
-# build and push Docker images.
+# run integration tests on the petstore example; on pushes to `dev`, build and
+# push Docker images with dated tags (release images are built by
+# `release.yml`).
 
 name: CI
 
@@ -156,14 +156,21 @@ jobs:
       fail-fast: true
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        include:
-          - python-version: "3.13"
-            latest: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Full history, to derive the version from git tags
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Determine version
+        run: |
+          pip install "setuptools-scm>=8"
+          echo "FOCA_VERSION=$(python -m setuptools_scm)" >> "${GITHUB_ENV}"
       - name: Log in to Docker Hub
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -174,7 +181,6 @@ jobs:
           DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
           REPO_NAME: ${{ github.event.repository.name }}
           PY_VERSION: ${{ matrix.python-version }}
-          LATEST: ${{ matrix.latest }}
           # Same date for all matrix jobs of a push, even across midnight
           COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
         run: |
@@ -185,9 +191,6 @@ jobs:
               -t "${IMAGE}:${TAG}" \
               -f docker/Dockerfile \
               --build-arg PY_IMAGE="${PY_VERSION}-slim-trixie" \
+              --build-arg FOCA_VERSION="${FOCA_VERSION}" \
               .
           docker push "${IMAGE}:${TAG}"
-          if [[ "${LATEST}" == "true" ]]; then
-              docker tag "${IMAGE}:${TAG}" "${IMAGE}:latest"
-              docker push "${IMAGE}:latest"
-          fi
