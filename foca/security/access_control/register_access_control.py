@@ -228,6 +228,8 @@ def register_casbin_enforcer(
         ),
         dbname=get_mongo_db_name(str(access_control_config.db_name)),
         collection=access_control_config.collection_name,
+        id_charset=access_control_config.id_charset,
+        id_length=access_control_config.id_length,
         model=casbin_model,
     )
     app.app.config["casbin_adapter"] = adapter

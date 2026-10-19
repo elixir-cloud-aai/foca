@@ -10,7 +10,7 @@ import pytest
 from flask import Flask
 from pymongo import MongoClient
 
-from foca.errors.exceptions import BadRequest, InternalServerError, NotFound
+from foca.errors.exceptions import BadRequest, NotFound
 from foca.models.config import AccessControlConfig, Config, MongoConfig
 from foca.security.access_control.access_control_server import (
     deletePermission,
@@ -250,6 +250,45 @@ class TestGetAllPermissions(BaseTestAccessControl):
             assert res == [data]
 
 
+class TestIncompletePermissions(TestCase):
+    """Test class for reading stored rules lacking fields."""
+
+    def test_incomplete(self):
+        access_control = AccessControlConfig(**ACCESS_CONTROL_CONFIG)
+        app = Flask(__name__)
+        base_config = Config(db=MongoConfig(**MONGO_CONFIG))
+        base_config.security.access_control = access_control
+        app.config.foca = base_config
+        collection = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[access_control.db_name].collections[
+            access_control.collection_name
+        ].client = collection
+        collection.insert_many(
+            [
+                {"ptype": "p", "v0": "a", "v1": "b", "v2": "GET"},
+                {"id": "noType", "v0": "a"},
+                {"id": 1, "ptype": "g", "v0": "a", "v1": 2},
+                {"id": "mockId", "ptype": "g", "v0": "a", "v1": "b"},
+            ]
+        )
+        with app.app_context():
+            assert getAllPermissions.__wrapped__() == [
+                {
+                    "policy_type": "g",
+                    "rule": {"v0": "a", "v1": "b"},
+                    "id": MOCK_ID,
+                },
+                {"policy_type": "g", "rule": {"v0": "a"}},
+                {
+                    "policy_type": "p",
+                    "rule": {"v0": "a", "v1": "b", "v2": "GET"},
+                },
+            ]
+            assert getPermission.__wrapped__(id=MOCK_ID)["id"] == MOCK_ID
+            with pytest.raises(NotFound):
+                getPermission.__wrapped__(id="noType")
+
+
 class TestPostPermission(BaseTestAccessControl):
     """Test class for post permission endpoint."""
 
@@ -292,15 +331,18 @@ class TestPostPermission(BaseTestAccessControl):
             "POST",
         ]
 
-    def test_postPermission_InternalServerError(self):
-        """Test for creating a permission if storing fails."""
+    def test_postPermission_unique_ids(self):
+        """Test that generated identifiers are unique and follow the
+        configured characters and length."""
         app = self._app()
-        del app.config["casbin_adapter"]
-        with (
-            app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
-            pytest.raises(InternalServerError),
-        ):
-            postPermission.__wrapped__()
+        app.config["casbin_adapter"].id_charset = "ab"
+        app.config["casbin_adapter"].id_length = 8
+        ids = set()
+        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
+            for _ in range(10):
+                ids.add(postPermission.__wrapped__())
+        assert len(ids) == 10
+        assert all(len(id) == 8 and set(id) <= {"a", "b"} for id in ids)
 
     def test_postPermission_BadRequest(self):
         """Test for creating a permission for invalid request payload."""
@@ -335,10 +377,18 @@ class TestPutPermission(BaseTestAccessControl):
             **ACCESS_CONTROL_CONFIG
         )
         app.config.foca = base_config
+        collection = mongomock.MongoClient().db.collection
         app.config.foca.db.dbs[self.access_db].collections[
             self.access_col
-        ].client = mongomock.MongoClient().db.collection
+        ].client = collection
         app.config["CASBIN_MODEL"] = self.access_control.model
+        adapter = Adapter(
+            uri=f"mongodb://localhost:{self.db_port}/",
+            dbname=self.access_db,
+            collection=self.access_col,
+        )
+        adapter._collection = collection
+        app.config["casbin_adapter"] = adapter
         return app
 
     def _collection(self, app: Flask):
@@ -369,17 +419,31 @@ class TestPutPermission(BaseTestAccessControl):
             "v2": "POST",
         }
 
-    def test_putPermission_InternalServerError(self):
-        """Test for updating a permission if storing fails."""
+    def test_putPermission_same_shape_as_post(self):
+        """Test that created and updated permissions are stored alike."""
         app = self._app()
-        app.config.foca.db.dbs[self.access_db].collections[
-            self.access_col
-        ].client = None
-        with (
-            app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
-            pytest.raises(InternalServerError),
-        ):
+        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
+            post_id = postPermission.__wrapped__()
             putPermission.__wrapped__(id=MOCK_ID)
+        posted, put = (
+            self._collection(app).find_one(
+                {"id": id}, projection={"_id": False, "id": False}
+            )
+            for id in [post_id, MOCK_ID]
+        )
+        assert posted == put
+
+    def test_putPermission_invalid_id(self):
+        """Test for updating a permission with an invalid identifier."""
+        app = self._app()
+        for id in ["mock_id", "mock", "mockIdentifier", "mock-1"]:
+            with (
+                self.subTest(id=id),
+                app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
+                pytest.raises(BadRequest),
+            ):
+                putPermission.__wrapped__(id=id)
+        assert self._collection(app).count_documents({}) == 0
 
     def test_putPermission_BadRequest(self):
         """Test for updating a permission for invalid request payload."""

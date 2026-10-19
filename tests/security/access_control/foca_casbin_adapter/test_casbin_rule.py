@@ -26,7 +26,6 @@ BASE_RULE_OBJECT = {
     "v5": "v5",
 }
 BASE_RULE_STR_REPRESENTATION = "ptype, v0, v1, v2, v3, v4, v5"
-BASE_RULE_REPRESENTATION = f'<CasbinRule :"{BASE_RULE_STR_REPRESENTATION}">'
 
 
 class TestCasbinRule:
@@ -39,9 +38,17 @@ class TestCasbinRule:
         assert test_rule.v3 == "v3"
         assert test_rule.v4 == "v4"
         assert test_rule.v5 == "v5"
-        assert repr(test_rule) == BASE_RULE_REPRESENTATION
-        assert test_rule.dict() == BASE_RULE_OBJECT
-        assert test_rule.__str__() == BASE_RULE_STR_REPRESENTATION
+        assert test_rule.to_dict() == BASE_RULE_OBJECT
+        assert str(test_rule) == BASE_RULE_STR_REPRESENTATION
+        assert test_rule == CasbinRule.from_values(
+            "ptype", ["v0", "v1", "v2", "v3", "v4", "v5"]
+        )
+
+    def test_unset_values(self):
+        test_rule = CasbinRule(ptype="g", v0="a", v2="c")
+        assert test_rule.values() == ["a", "c"]
+        assert test_rule.to_dict() == {"ptype": "g", "v0": "a", "v2": "c"}
+        assert str(test_rule) == "g, a, c"
 
 
 @pytest.fixture
