@@ -17,9 +17,9 @@ server:
 # EXCEPTION CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.ExceptionConfig
 exceptions:
-  required_members: [['msg'], ['status']]
-  status_member: ['status']
-  exceptions: my_app.exceptions.exceptions
+  mapping: my_app.exceptions.problems
+  public_members: null
+  logging: oneline
 
 # SECURITY CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/modules/foca.models.html#foca.models.config.SecurityConfig

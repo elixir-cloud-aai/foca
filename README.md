@@ -217,33 +217,61 @@ keep credentials out of configuration files:
 
 ### Configuring exceptions
 
-FOCA provides a convenient, configurable exception handler and a simple way
-of adding new exceptions to be used with that handler. To use it, specify a
-top-level `exceptions` section in the app configuration file.
+FOCA registers an exception handler that responds to all exceptions with
+[problem details][res-rfc-9457] (`application/problem+json`), e.g.:
+
+```json
+{"title": "Not Found", "status": 404}
+```
+
+By default, exceptions with an HTTP error status code (e.g., werkzeug and
+Connexion exceptions, such as `werkzeug.exceptions.NotFound`) get that status
+and its standard reason phrase as title, and all other exceptions `500
+Internal Server Error`. To customize problem details, map exception classes
+to problem details in a dictionary and specify it in the top-level
+`exceptions` section of the app configuration:
 
 _Example:_
 
 ```yaml
 exceptions:
-  required_members: [['msg'], ['status']]
-  status_member: ['status']
-  exceptions: my_app.exceptions.exceptions
-  logging: one_line
+  mapping: my_app.exceptions.problems
+  public_members: [title, status, detail]
+  logging: oneline
 ```
 
-> This example configuration would attach the exceptions defined in the
-> `my_app.exceptions.exceptions` dictionary to the exception handler. The
-> exception handler ensures that every exception in that dictionary defines
-> at least members `msg` and `status`. Out of these, `status` will be used
-> to inform the status code for the error response. Exceptions processed via
-> FOCA's exception handler will be automatically logged, if requested. In this
-> case, the handler is configured to log all errors verbosely (including any
-> traceback information, if applicable) on a single line (other rendering
-> options are also supported).
->  
-> You may further configure optional members, a list of `public members` (to be
-> included in error responses) and `private members` (only visible in logs).
-> Cf. the [API model][docs-models-exceptions] for further options and details.
+```python
+# my_app/exceptions.py
+from werkzeug.exceptions import NotFound
+
+
+class PetNotFound(NotFound):
+    pass
+
+
+problems = {
+    NotFound: {"title": "Not Found", "status": 404},
+    PetNotFound: {
+        "title": "Pet Not Found",
+        "status": 404,
+        "detail": "We have never heard of this pet.",
+        "type": "https://example.org/problems/pet-not-found",
+    },
+}
+```
+
+> Each entry must have an integer `status` (400 to 599, used as the
+> response's status code) and a string `title`; other members are optional.
+> Exceptions that are not listed are handled like their closest listed base
+> class, so a subclass of `PetNotFound` gets the problem details of
+> `PetNotFound`, and other subclasses of `NotFound` those of `NotFound`. An
+> entry for `Exception` is only used for exceptions without status code. With
+> `public_members`, only the listed members are returned to clients (by
+> default, all are). Exceptions are logged with their full problem details,
+> here on a single line, including any traceback (`logging`: `oneline`,
+> `minimal`, `regular` or `none`).
+>
+> Cf. the [API model][docs-models-exceptions] for further details.
 
 ### Configuring asynchronous tasks
 
@@ -651,5 +679,6 @@ question etc.
 [res-rabbitmq]: <https://www.rabbitmq.com/>
 [res-semver]: <https://semver.org/>
 [res-swagger]: <https://swagger.io/tools/swagger-ui/>
+[res-rfc-9457]: <https://www.rfc-editor.org/rfc/rfc9457>
 [res-using-foca]: <https://github.com/elixir-cloud-aai/foca/network/dependents>
 [res-yaml]: <https://yaml.org/>

@@ -6,9 +6,8 @@ from math import ceil
 from casbin.model import Model
 from flask import current_app, request
 from pymongo.collection import Collection
-from werkzeug.exceptions import NotFound
+from werkzeug.exceptions import BadRequest, NotFound
 
-from foca.errors.exceptions import BadRequest
 from foca.security.access_control.constants import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,

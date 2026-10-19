@@ -66,6 +66,4 @@ db:
                     indexes: null
 
 exceptions:
-    required_members: [['message'], ['code']]
-    status_member: ['code']
-    exceptions: exceptions.exceptions
+    mapping: exceptions.exceptions

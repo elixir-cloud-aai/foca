@@ -44,7 +44,7 @@ paths:
         default:
           description: unexpected error
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
     post:
@@ -68,7 +68,7 @@ paths:
         default:
           description: unexpected error
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
   /pets/{id}:
@@ -93,7 +93,7 @@ paths:
         default:
           description: unexpected error
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
     delete:
@@ -113,7 +113,7 @@ paths:
         default:
           description: unexpected error
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
 components:
@@ -140,13 +140,25 @@ components:
           type: string
 
     Error:
+      description: Problem details (RFC 9457).
       type: object
       required:
-        - code
-        - message
+        - title
+        - status
       properties:
-        code:
+        title:
+          type: string
+          description: Short summary of the problem type.
+        status:
           type: integer
           format: int32
-        message:
+          description: HTTP status code.
+        detail:
           type: string
+          description: Explanation of this occurrence of the problem.
+        type:
+          type: string
+          description: URI identifying the problem type.
+        instance:
+          type: string
+          description: URI identifying this occurrence of the problem.
