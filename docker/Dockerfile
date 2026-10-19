@@ -26,19 +26,18 @@ RUN pip install . \
         --no-warn-script-location \
         --prefix="/install"
 
-# Final image
+# Final image: runtime only, no build tools
 FROM base
-
-# Python UserID workaround for OpenShift/K8S
-ENV LOGNAME=ipython
-ENV USER=ipython
-ENV HOME=/tmp/user
-
-# Install general dependencies
-ENV PACKAGES="openssl git build-essential python3-dev curl jq"
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ${PACKAGES} && \
-    rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages
 COPY --from=builder /install /usr/local
+
+# Run as non-root user; group 0 owns the home and app directories, so that
+# arbitrary user IDs (e.g., on OpenShift, always in group 0) can write there
+ENV HOME=/home/foca
+RUN useradd --uid 1000 --gid 0 --create-home --home-dir "${HOME}" foca && \
+    mkdir -p /app && \
+    chown -R 1000:0 "${HOME}" /app && \
+    chmod -R g=u "${HOME}" /app
+WORKDIR /app
+USER 1000
