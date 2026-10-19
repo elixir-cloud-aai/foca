@@ -564,6 +564,14 @@ class TestUserinfoClaims:
         validate(app, tokens[0])
         assert urls(idp).count(USERINFO_URI) == 4
 
+    def test_expired_evicted(self, idp):
+        """Expired user info is evicted when user info is cached."""
+        auth._userinfo_cache["expired"] = (time.monotonic() - 1, {})
+        app = make_app(userinfo_claims=["eduperson_entitlement"])
+        validate(app, make_token())
+        assert "expired" not in auth._userinfo_cache
+        assert len(auth._userinfo_cache) == 1
+
     def test_validate_userinfo_not_cached(self, idp):
         """With `validate_userinfo`, user info is fetched every time."""
         app = make_app(
