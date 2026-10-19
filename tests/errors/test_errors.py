@@ -170,8 +170,15 @@ class TestBuildProblem:
 
 def test__exc_to_str():
     """Test exception reformatter function."""
-    res = _exc_to_str(exc=Exception("x"))
-    assert isinstance(res, str)
+    try:
+        raise UnknownException("x")
+    except UnknownException as raised:
+        exc = raised
+    res = _exc_to_str(exc=exc)
+    assert res.startswith("Traceback (most recent call last):\\n")
+    assert res.endswith("UnknownException: x")
+    assert "\n" not in res
+    assert "\n" in _exc_to_str(exc=exc, delimiter="\n")
 
 
 @pytest.mark.parametrize(

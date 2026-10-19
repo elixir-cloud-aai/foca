@@ -4,6 +4,7 @@ import pytest
 from connexion import App
 from pydantic import ValidationError
 
+from foca.config.access import get_app_config
 from foca.factories import connexion_app as module
 from foca.factories.connexion_app import (
     __add_config_to_connexion_app,
@@ -28,20 +29,29 @@ def test_add_config_to_connexion_app():
     """Test if app config is updated."""
     cnx_app = App(__name__)
     cnx_app = __add_config_to_connexion_app(cnx_app, CONFIG)
-    assert isinstance(cnx_app, App)
-    assert cnx_app.app.config.foca == CONFIG
+    assert cnx_app.app.config.foca is CONFIG
 
 
 def test_create_connexion_app_without_config():
     """Test Connexion app creation without config."""
     cnx_app = create_connexion_app()
-    assert isinstance(cnx_app, App)
+    with pytest.raises(RuntimeError):
+        get_app_config(cnx_app.app)
 
 
 def test_create_connexion_app_with_config():
-    """Test Connexion app creation with config."""
-    cnx_app = create_connexion_app(CONFIG)
-    assert isinstance(cnx_app, App)
+    """Test Connexion app creation with config; server settings applied."""
+    config = Config(
+        server=ServerConfig(host="127.0.0.1", port=1234, testing=True)
+    )
+    cnx_app = create_connexion_app(config)
+    assert get_app_config(cnx_app.app) is config
+    assert (cnx_app.host, cnx_app.port, cnx_app.debug) == (
+        "127.0.0.1",
+        1234,
+        False,
+    )
+    assert cnx_app.app.config["TESTING"] is True
 
 
 def test_debug_off_by_default():

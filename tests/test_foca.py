@@ -3,10 +3,8 @@
 import shutil
 from pathlib import Path
 
-import mongomock
 import pytest
 from celery import Celery
-from connexion import App
 from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -16,7 +14,6 @@ from yaml import (
 )
 
 from foca import Foca
-from foca.database import register_mongodb as db_module
 from foca.models.config import AccessControlConfig
 
 DIR = Path(__file__).parent / "test_files"
@@ -84,10 +81,19 @@ def test_foca_constructor_invalid_conf_db():
 
 
 def test_foca_create_app_output_defaults():
-    """Ensure a Connexion app instance is returned; defaults only."""
+    """Ensure an app with FOCA's error handler, CORS and no access control
+    is created; defaults only."""
     foca = Foca()
     app = foca.create_app()
-    assert isinstance(app, App)
+    assert app.app.config.foca is foca.conf
+    response = app.app.test_client().get(
+        "/unknown", headers={"Origin": "https://example.org"}
+    )
+    assert response.status_code == 404
+    assert response.mimetype == "application/problem+json"
+    assert response.json == {"title": "Not Found", "status": 404}
+    assert "Access-Control-Allow-Origin" in response.headers
+    assert "casbin_adapter" not in app.app.config
 
 
 def test_foca_create_app_no_access_control():
@@ -154,7 +160,8 @@ def test_foca_create_app_jobs():
     """Ensure a Connexion app instance is returned; valid 'jobs' field."""
     foca = Foca(config_file=JOBS_CONF)
     app = foca.create_app()
-    assert isinstance(app, App)
+    assert app.app.config.foca.jobs == foca.conf.jobs
+    assert foca.conf.jobs is not None
 
 
 def test_foca_create_app_api(tmpdir):
@@ -166,7 +173,8 @@ def test_foca_create_app_api(tmpdir):
     )
     foca = Foca(config_file=temp_file)
     app = foca.create_app()
-    assert isinstance(app, App)
+    rules = {rule.rule for rule in app.app.url_map.iter_rules()}
+    assert {"/v1/pets", "/v1/pets/<petId>"} <= rules
 
 
 def test_foca_db():
@@ -177,21 +185,22 @@ def test_foca_db():
     my_coll = my_db.collections["my-col-1"]
     assert isinstance(my_db.client, Database)
     assert isinstance(my_coll.client, Collection)
-    assert isinstance(app, App)
+    assert (my_db.client.name, my_coll.client.name) == ("my-db", "my-col-1")
 
 
-def test_foca_cors_config_flag_enabled():
-    """Ensures CORS config flag is set correctly (enabled)."""
-    foca = Foca(config_file=VALID_CORS_CONF_ENABLED)
+@pytest.mark.parametrize(
+    "config_file,enabled",
+    [(VALID_CORS_CONF_ENABLED, True), (VALID_CORS_CONF_DISABLED, False)],
+)
+def test_foca_cors(config_file, enabled):
+    """Ensures CORS is enabled or disabled as configured."""
+    foca = Foca(config_file=config_file)
     app = foca.create_app()
-    assert app.app.config.foca.security.cors.enabled is True
-
-
-def test_foca_CORS_disabled():
-    """Ensures CORS config flag is set correctly (disabled)."""
-    foca = Foca(config_file=VALID_CORS_CONF_DISABLED)
-    app = foca.create_app()
-    assert app.app.config.foca.security.cors.enabled is False
+    assert app.app.config.foca.security.cors.enabled is enabled
+    response = app.app.test_client().get(
+        "/unknown", headers={"Origin": "https://example.org"}
+    )
+    assert ("Access-Control-Allow-Origin" in response.headers) is enabled
 
 
 def test_foca_invalid_access_control():
@@ -216,7 +225,8 @@ def test_foca_valid_access_control():
     my_coll = my_db.collections["test_collection"]
     assert isinstance(my_db.client, Database)
     assert isinstance(my_coll.client, Collection)
-    assert isinstance(app, App)
+    adapter = app.app.config["casbin_adapter"]
+    assert adapter._collection.full_name == "test_db.test_collection"
 
 
 def test_foca_create_celery_app():
@@ -224,6 +234,9 @@ def test_foca_create_celery_app():
     foca = Foca(config_file=JOBS_CONF)
     app = foca.create_celery_app()
     assert isinstance(app, Celery)
+    assert app.conf.foca is foca.conf
+    jobs = foca.conf.jobs
+    assert app.conf.broker_url == f"pyamqp://{jobs.host}:{jobs.port}//"
 
 
 def test_foca_create_celery_app_without_jobs_field():
@@ -233,23 +246,17 @@ def test_foca_create_celery_app_without_jobs_field():
         foca.create_celery_app()
 
 
-def test_foca_one_mongo_client(monkeypatch):
+def test_foca_one_mongo_client(mongo_clients):
     """Ensure app databases and the Casbin adapter share one client."""
-    clients = []
-
-    def mongo_client(uri):
-        clients.append(mongomock.MongoClient())
-        return clients[-1]
-
-    monkeypatch.setattr(db_module, "MongoClient", mongo_client)
     foca = Foca(config_file=[VALID_DB_CONF, ACCESS_CONTROL_ENABLED_CONF])
     app = foca.create_app()
-    assert len(clients) == 1
+    assert len(mongo_clients) == 1
+    client = mongo_clients[0][1]
     dbs = app.app.config.foca.db.dbs
     assert set(dbs) == {"my-db", "access_control_db"}
-    assert all(db.client.client is clients[0] for db in dbs.values())
+    assert all(db.client.client is client for db in dbs.values())
     adapter = app.app.config["casbin_adapter"]
-    assert adapter._collection.database.client is clients[0]
+    assert adapter._collection.database.client is client
 
 
 def test_foca_relative_paths(tmp_path, monkeypatch):

@@ -129,6 +129,9 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "mongodb: needs a MongoDB server on localhost:12345 (deselect with '-m \"not mongodb\"')",
+]
 filterwarnings = [
     # Connexion 2 uses deprecated jsonschema APIs
     "ignore:jsonschema\\.(RefResolver|exceptions\\.RefResolutionError) is deprecated:DeprecationWarning",
