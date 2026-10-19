@@ -222,17 +222,18 @@ def register_casbin_enforcer(
         model=casbin_model,
     )
     app.app.config["casbin_adapter"] = adapter
-    _add_policies(adapter=adapter, policies=access_control_config.policies)
+    if access_control_config.policies is not None:
+        _add_policies(adapter=adapter, policies=access_control_config.policies)
     logger.info("Casbin enforcer registered.")
 
     return app
 
 
 def _add_policies(adapter: Adapter, policies: list[list[str]]) -> None:
-    """Add configured policy rules that are not stored yet.
+    """Make the stored configured policy rules match the configured ones.
 
-    All rules are validated before any is added, so that invalid
-    configurations do not leave rules behind.
+    All rules are validated before any stored rule is changed, so that
+    invalid configurations leave stored rules unchanged.
 
     Args:
         adapter: Casbin adapter of the app.
@@ -245,8 +246,4 @@ def _add_policies(adapter: Adapter, policies: list[list[str]]) -> None:
     """
     for ptype, *rule in policies:
         validate_rule(ptype, rule, adapter.model)
-    for ptype, *rule in policies:
-        if adapter.has_policy_line(ptype, rule):
-            continue
-        adapter.save_policy_line(ptype, rule)
-        logger.info(f"Added policy rule: {', '.join([ptype, *rule])}")
+    adapter.set_configured_policies(policies)

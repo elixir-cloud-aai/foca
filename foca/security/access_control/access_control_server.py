@@ -6,7 +6,7 @@ from math import ceil
 from casbin.model import Model
 from flask import current_app, request
 from pymongo.collection import Collection
-from werkzeug.exceptions import BadRequest, NotFound
+from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from foca.config.access import get_collection, get_config
 from foca.security.access_control.constants import (
@@ -105,6 +105,26 @@ def _get_rule() -> tuple[str, list[str]]:
     return str(ptype), values
 
 
+def _check_not_configured(id: str) -> None:
+    """Ensure that a rule is not set via the app's configuration.
+
+    Args:
+        id: Identifier of the rule.
+
+    Raises:
+        werkzeug.exceptions.Conflict: The rule is set via the app's
+            configuration (`access_control.policies`), so that changes via
+            the permissions API would be reverted on startup.
+    """
+    if current_app.config["casbin_adapter"].is_configured(id):
+        logger.error(f"Policy rule '{id}' is set via the configuration")
+        raise Conflict(
+            "Policy rule is set via the app's configuration "
+            "('access_control.policies') and cannot be changed or deleted "
+            "via the permissions API"
+        )
+
+
 def _to_permission(document: dict) -> dict:
     """Convert stored policy rule to permission.
 
@@ -162,12 +182,15 @@ def putPermission(
         foca.errors.exceptions.BadRequest: The identifier does not have the
             length and characters configured via `access_control.id_length`
             and `access_control.id_charset`, or the rule is invalid.
+        werkzeug.exceptions.Conflict: The rule is set via the app's
+            configuration (`access_control.policies`).
     """
     conf = get_config().security.access_control
     if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
         logger.error(f"Invalid policy rule identifier: '{id}'")
         raise BadRequest
     ptype, values = _get_rule()
+    _check_not_configured(id)
     current_app.config["casbin_adapter"].save_policy_line(
         ptype=ptype,
         rule=values,
@@ -258,7 +281,12 @@ def deletePermission(
 
     Returns:
         Delete permission identifier.
+
+    Raises:
+        werkzeug.exceptions.Conflict: The rule is set via the app's
+            configuration (`access_control.policies`).
     """
+    _check_not_configured(id)
     if not _get_permissions_collection().delete_one({"id": id}).deleted_count:
         raise NotFound
     logger.info(f"Policy rule '{id}' deleted.")

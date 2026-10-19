@@ -216,13 +216,18 @@ security:
 ```
 
 On startup, FOCA validates the rules against the model (cf. [rule
-values](#rule-values)), refusing to start if any rule is invalid, and adds
-those that are not stored yet. Stored rules, including those added or changed
-via the permissions API, are never removed or changed on startup: to remove a
-configured rule, remove it from the configuration _and_ via the permissions
-API. Rules that depend on the app's data, such as roles on resources, are
-better managed by the app (cf. [resource-scoped
-roles](#resource-scoped-roles)).
+values](#rule-values)), refusing to start if any rule is invalid. It then
+makes the stored configured rules match the configuration: missing rules are
+added (or, if stored already, e.g., via the permissions API, marked as
+configured), and configured rules that were removed from the configuration,
+as well as duplicates, are removed. The configuration is the only place to
+change configured rules: the permissions API responds with `409` to requests
+to change or delete them. Other stored rules are kept. Without `policies`,
+stored rules are not changed on startup; with `policies: []`, all configured
+rules are removed.
+
+Rules that depend on the app's data, such as roles on resources, are better
+managed by the app (cf. [resource-scoped roles](#resource-scoped-roles)).
 
 ### Configuring the access control model
 

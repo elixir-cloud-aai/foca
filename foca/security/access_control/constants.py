@@ -10,6 +10,9 @@ RESOURCE_ROLE_MODEL_FILE = "resource_role_model.conf"
 
 ACCESS_CONTROL_BASE_PATH = "foca.security.access_control.api"
 
+# Field marking stored policy rules set via `access_control.policies`
+CONFIGURED_FIELD = "configured"
+
 # Prefix of group claim values used as roles without `group_mapping`
 GROUP_PREFIX = "group:"
 

@@ -5,7 +5,7 @@ from copy import deepcopy
 import mongomock
 import pytest
 from flask import Flask
-from werkzeug.exceptions import BadRequest, NotFound
+from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from foca.config.access import set_app_config
 from foca.models.config import AccessControlConfig, Config, MongoConfig
@@ -91,6 +91,15 @@ class TestDeletePermission:
     def test_not_found(self, app, collection):
         collection.insert_one(deepcopy(MOCK_RULE))
         with app.app_context(), pytest.raises(NotFound):
+            deletePermission.__wrapped__(id=MOCK_ID)
+        assert collection.count_documents({}) == 1
+
+    def test_configured(self, app, collection):
+        """Configured rules cannot be deleted."""
+        collection.insert_one(
+            {**deepcopy(MOCK_RULE), "id": MOCK_ID, "configured": True}
+        )
+        with app.app_context(), pytest.raises(Conflict):
             deletePermission.__wrapped__(id=MOCK_ID)
         assert collection.count_documents({}) == 1
 
@@ -188,6 +197,18 @@ class TestPostPermission:
 
 class TestPutPermission:
     """Tests for updating permissions."""
+
+    def test_configured(self, app, collection):
+        """Configured rules cannot be replaced."""
+        collection.insert_one(
+            {**deepcopy(MOCK_RULE), "id": MOCK_ID, "configured": True}
+        )
+        with (
+            app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
+            pytest.raises(Conflict),
+        ):
+            putPermission.__wrapped__(id=MOCK_ID)
+        assert collection.find_one({"id": MOCK_ID})["configured"] is True
 
     def test_put(self, app, collection):
         """Only rule fields are stored."""

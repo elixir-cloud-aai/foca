@@ -9,6 +9,7 @@ from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
 from foca.security.access_control.constants import (
+    CONFIGURED_FIELD,
     DEFAULT_ID_CHARSET,
     DEFAULT_ID_LENGTH,
     ID_ATTEMPTS,
@@ -105,11 +106,7 @@ class Adapter(persist.Adapter):
         """
         for document in self._collection.find():
             ptype = document.get("ptype")
-            values = [
-                document.get(f"v{index}") for index in range(MAX_RULE_VALUES)
-            ]
-            while values and values[-1] is None:
-                values.pop()
+            values = _rule_values(document)
             try:
                 validate_rule(ptype, values, model)
             except ValueError as exc:
@@ -121,7 +118,11 @@ class Adapter(persist.Adapter):
             model.add_policy(ptype[0], ptype, values)
 
     def save_policy_line(
-        self, ptype: str, rule: list[str], id: str | None = None
+        self,
+        ptype: str,
+        rule: list[str],
+        id: str | None = None,
+        configured: bool = False,
     ) -> str:
         """Method to save a policy.
 
@@ -131,6 +132,9 @@ class Adapter(persist.Adapter):
             id: Identifier of the rule. If given, a stored rule with that
                 identifier is replaced. Otherwise, a unique identifier is
                 generated.
+            configured: Whether the rule is set via the app's configuration
+                (`access_control.policies`), so that it is managed on
+                startup and cannot be changed via the permissions API.
 
         Returns:
             Identifier of the stored rule.
@@ -144,6 +148,8 @@ class Adapter(persist.Adapter):
         validate_rule(ptype, rule, self.model)
         self._ensure_id_index()
         document = CasbinRule.from_values(ptype, rule).to_dict()
+        if configured:
+            document[CONFIGURED_FIELD] = True
         if id is not None:
             document["id"] = id
             self._collection.replace_one({"id": id}, document, upsert=True)
@@ -179,20 +185,48 @@ class Adapter(persist.Adapter):
             _rule_query(ptype, rule)
         ).deleted_count
 
-    def has_policy_line(self, ptype: str, rule: list[str]) -> bool:
-        """Check whether a policy rule is stored.
+    def is_configured(self, id: str) -> bool:
+        """Check whether a stored rule is set via the app's configuration.
 
         Args:
-            ptype: Policy type of the rule.
-            rule: Values of the rule.
+            id: Identifier of the rule.
 
         Returns:
-            Whether a rule with exactly these values is stored.
+            Whether a rule with identifier `id` is stored and marked as
+            configured.
         """
-        return (
-            self._collection.count_documents(_rule_query(ptype, rule), limit=1)
-            > 0
-        )
+        query = {"id": id, CONFIGURED_FIELD: True}
+        return self._collection.count_documents(query, limit=1) > 0
+
+    def set_configured_policies(self, rules: list[list[str]]) -> None:
+        """Make the stored configured rules match the given rules.
+
+        Stored rules marked as configured that are not given, and duplicates
+        of configured rules (e.g., added by app instances starting
+        concurrently), are removed. Given rules that are stored without the
+        mark (e.g., added via the permissions API) are marked; others are
+        added. Other stored rules are kept.
+
+        Args:
+            rules: Configured rules, each given as its policy type followed
+                by its values; they need to be valid (cf.
+                :py:func:`validate_rule`).
+        """
+        missing = {tuple(rule): rule for rule in rules}
+        for document in self._collection.find({CONFIGURED_FIELD: True}):
+            key = (document.get("ptype"), *_rule_values(document))
+            if missing.pop(key, None) is None:
+                self._collection.delete_one({"_id": document["_id"]})
+                logger.info(
+                    f"Removed configured policy rule '{document.get('id')}'"
+                )
+        for ptype, *rule in missing.values():
+            if self._collection.update_many(
+                _rule_query(ptype, rule), {"$set": {CONFIGURED_FIELD: True}}
+            ).matched_count:
+                continue
+            id = self.save_policy_line(ptype, rule, configured=True)
+            logger.info(f"Added configured policy rule '{id}'")
 
     def save_policy(self, model: Model) -> bool:
         """Method to save a casbin model.
@@ -281,9 +315,27 @@ def _rule_query(ptype: str, rule: list[str]) -> dict:
 
     Returns:
         Query matching the rule's values exactly, i.e., without further
-        values, but irrespective of other stored fields (e.g., identifiers).
+        values, but irrespective of other stored fields (e.g., identifiers
+        or the configured mark).
     """
     query: dict = CasbinRule.from_values(ptype, rule).to_dict()
+    # Match fields that are not set or null, as when loading rules
     for index in range(len(rule), MAX_RULE_VALUES):
-        query[f"v{index}"] = {"$exists": False}
+        query[f"v{index}"] = None
     return query
+
+
+def _rule_values(document: dict) -> list:
+    """Get values of a stored rule.
+
+    Args:
+        document: Stored rule.
+
+    Returns:
+        Values of fields `v0` to `v5`, without trailing values that are not
+        set or null.
+    """
+    values = [document.get(f"v{index}") for index in range(MAX_RULE_VALUES)]
+    while values and values[-1] is None:
+        values.pop()
+    return values

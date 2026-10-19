@@ -26,8 +26,9 @@ security:
         enabled: True
         model: petstore_policies.conf
         enforce: True
-        # Policy rules the app relies on, added on startup unless stored
-        # already; ownership rules are added by the controllers
+        # Policy rules the app relies on, managed on startup (they cannot be
+        # changed via the permissions API); ownership rules are added by the
+        # controllers
         policies:
           - [p, "*", /pets, "(GET)|(POST)"]
           - [p, owner, "/pets/:id", "(GET)|(DELETE)"]
