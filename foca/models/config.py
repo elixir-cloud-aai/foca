@@ -393,13 +393,13 @@ class SpecConfig(FOCABaseConfig):
         >>> spec = SpecConfig(
         ...     path=["/path/to/specs.yaml", "/path/to/more_specs.yaml"],
         ...     add_operation_fields={
-        ...         "x-openapi-router-controller": "myapp.controllers",
+        ...         "x-my-field": "some value",
         ...     },
         ... )
         >>> [path.name for path in spec.path]
         ['specs.yaml', 'more_specs.yaml']
         >>> spec.add_operation_fields
-        {'x-openapi-router-controller': 'myapp.controllers'}
+        {'x-my-field': 'some value'}
         >>> spec.disable_auth
         False
     """
