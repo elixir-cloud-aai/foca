@@ -23,7 +23,6 @@ from foca.models.config import (
 
 DIR = Path(__file__).parent / "test_files"
 PATH = str(DIR / "openapi_2_petstore.yaml")
-PATH_MODIFIED = str(DIR / "openapi_2_petstore.modified.yaml")
 PATH_ADDITION = str(DIR / "openapi_2_petstore.addition.yaml")
 INDEX_CONFIG = {
     "keys": {"last_name": -1},
@@ -51,30 +50,11 @@ MONGO_CONFIG = {
 }
 SPEC_CONFIG = {
     "path": "/my/abs/path",
-    "path_out": "/my/abs/out/path",
 }
-SPEC_CONFIG_REL_IN = {
-    "path": "path",
-    "path_out": "/my/abs/out/path",
-}
-SPEC_CONFIG_REL_OUT = {
-    "path": "/my/abs/path",
-    "path_out": "path",
-}
-SPEC_CONFIG_REL_IO = {
-    "path": "/my/abs/path",
-    "path_out": "/my/abs/out/path",
-}
-SPEC_CONFIG_NO_OUT = {
-    "path": "/my/abs/path",
-}
-SPEC_CONFIG_REL_IN_NO_OUT = {
+SPEC_CONFIG_REL = {
     "path": "path",
 }
-SPEC_CONFIG_NO_IN = {
-    "path_out": "/my/abs/out/path",
-}
-SPEC_CONFIG_LIST_NO_OUT = {"path": ["path1", "path2"]}
+SPEC_CONFIG_LIST = {"path": ["path1", "/my/abs/path2"]}
 
 
 def test_config_empty():
@@ -220,88 +200,38 @@ def test_mongo_config_with_data():
 def test_spec_config():
     """Test creation of the SpecConfig model with valid data."""
     res = SpecConfig(**SPEC_CONFIG)
-    assert isinstance(res, SpecConfig)
-    assert Path(res.path[0]).is_absolute()
-    assert res.path_out is not None
-    assert Path(res.path_out).is_absolute()
+    assert res.path == [Path(SPEC_CONFIG["path"])]
 
 
-def test_spec_config_rel_in():
-    """Test creation of the SpecConfig model with relative input file path."""
-    res = SpecConfig(**SPEC_CONFIG_REL_IN)
-    assert isinstance(res, SpecConfig)
-    assert Path(res.path[0]).is_absolute()
-    assert res.path_out is not None
-    assert Path(res.path_out).is_absolute()
+def test_spec_config_rel():
+    """Test creation of the SpecConfig model with relative file path."""
+    res = SpecConfig(**SPEC_CONFIG_REL)
+    assert res.path == [Path(SPEC_CONFIG_REL["path"]).resolve()]
 
 
-def test_spec_config_rel_out():
-    """Test creation of the SpecConfig model with relative output file path."""
-    res = SpecConfig(**SPEC_CONFIG_REL_OUT)
-    assert isinstance(res, SpecConfig)
-    assert Path(res.path[0]).is_absolute()
-    assert res.path_out is not None
-    assert Path(res.path_out).is_absolute()
+def test_spec_config_list():
+    """Test creation of SpecConfig model with list of paths."""
+    res = SpecConfig(**SPEC_CONFIG_LIST)
+    assert all(Path(path).is_absolute() for path in res.path)
+    assert res.path[1] == Path("/my/abs/path2")
 
 
-def test_spec_config_rel_io():
-    """Test creation of the SpecConfig model with relative input and output
-    file paths."""
-    res = SpecConfig(**SPEC_CONFIG_REL_IO)
-    assert isinstance(res, SpecConfig)
-    assert Path(res.path[0]).is_absolute()
-    assert res.path_out is not None
-    assert Path(res.path_out).is_absolute()
-
-
-def test_spec_config_no_out():
-    """Test creation of the SpecConfig model with valid data."""
-    res = SpecConfig(**SPEC_CONFIG_NO_OUT)
-    assert isinstance(res, SpecConfig)
-    assert Path(res.path[0]).is_absolute()
-    assert res.path_out is not None
-    assert Path(res.path_out).is_absolute()
-
-
-def test_spec_config_rel_in_no_out():
-    """Test creation of the SpecConfig model with valid data."""
-    res = SpecConfig(**SPEC_CONFIG_REL_IN_NO_OUT)
-    assert isinstance(res, SpecConfig)
-    assert Path(res.path[0]).is_absolute()
-    assert res.path_out is not None
-    assert Path(res.path_out).is_absolute()
-
-
-def test_spec_config_no_in():
-    """Test creation of the SpecConfig model with valid data."""
+def test_spec_config_no_path():
+    """Test creation of the SpecConfig model without path."""
     with pytest.raises(ValidationError):
-        SpecConfig(**SPEC_CONFIG_NO_IN)
+        SpecConfig()
 
 
-def test_spec_config_list_no_out():
-    """Test creation of SpecConfig model with valid list data in path"""
-    res = SpecConfig(**SPEC_CONFIG_LIST_NO_OUT)
-    assert isinstance(res, SpecConfig)
-    assert res.path_out is not None
-    assert Path(res.path_out).is_absolute()
-
-
-def test_SpecConfig_full():
-    """Test SpecConfig instantiation; full example"""
-    res = SpecConfig(**SPEC_CONFIG)
-    assert str(res.path_out) == SPEC_CONFIG["path_out"]
-
-
-def test_SpecConfig_minimal():
-    """Test SpecConfig instantiation; minimal example"""
-    res = SpecConfig(path=PATH)
-    assert str(res.path_out) == PATH_MODIFIED
+def test_spec_config_path_out_removed():
+    """Test creation of the SpecConfig model with removed `path_out`."""
+    with pytest.raises(ValidationError):
+        SpecConfig(path=PATH, path_out="/my/abs/out/path")
 
 
 def test_SpecConfig_merge():
     """Test SpecConfig instantiation; multiple config files"""
     res = SpecConfig(path=[PATH, PATH_ADDITION])
-    assert str(res.path_out) == PATH_MODIFIED
+    assert res.path == [Path(PATH), Path(PATH_ADDITION)]
 
 
 def test_SpecConfig_extra_arg():
@@ -365,7 +295,6 @@ ISSUERS = ["https://login.example.org/oidc/"]
         # access control options without access control
         (ISSUERS, {"enforce": True}),
         (ISSUERS, {"api_specs": "specs.yaml"}),
-        (ISSUERS, {"api_controllers": "my.controllers"}),
         (ISSUERS, {"self_service": True}),
         # access control without trusted issuers
         ([], {"enabled": True}),
@@ -393,7 +322,6 @@ def test_SecurityConfig_access_control_invalid(issuers, access_control):
                 "enabled": True,
                 "enforce": True,
                 "api_specs": "specs.yaml",
-                "api_controllers": "my.controllers",
                 "self_service": True,
             },
         ),

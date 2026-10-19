@@ -2,14 +2,11 @@ server:
     host: '0.0.0.0'
     port: 8080
     debug: True
-    environment: development
     testing: False
-    use_reloader: True
 
 api:
     specs:
         - path: my_specs.yaml
-          path_out: my_specs.modified.yaml
           append: null
           add_operation_fields: null
           disable_auth: False

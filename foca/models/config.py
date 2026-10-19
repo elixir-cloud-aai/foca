@@ -2,7 +2,7 @@
 
 import importlib
 from enum import Enum
-from importlib.resources import path as resource_path
+from importlib.resources import files
 from pathlib import Path
 from typing import (
     Any,
@@ -21,6 +21,8 @@ from typing_extensions import Self
 
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    DEFAULT_ACCESS_CONTROL_COLLECTION_NAME,
+    DEFAULT_ACCESS_CONTROL_DB_NAME,
     DEFAULT_ID_CHARSET,
     DEFAULT_ID_LENGTH,
     DEFAULT_MODEL_FILE,
@@ -66,31 +68,6 @@ class ExceptionLoggingEnum(Enum):
     oneline = "oneline"
 
 
-class PymongoDirectionEnum(Enum):
-    """Enumerator for supported Pymongo index directions.
-
-    Cf.
-    https://pymongo.readthedocs.io/en/3.10.1/api/pymongo/collection.html#pymongo.collection.Collection.create_index
-
-    Attributes:
-        ASCENDING: Ascending sort order.
-        DESCENDING: Descending sort order.
-        GEO2D: Index specifier for a 2-dimensional geospatial index.
-        GEOHAYSTACK: Index specifier for a 2-dimensional haystack index.
-        GEOSPHERE: Index specifier for a spherical geospatial index.
-        HASHED: Index specifier for a hashed index.
-        TEXT: Index specifier for a text index.
-    """
-
-    ASCENDING = 1
-    DESCENDING = -1
-    GEO2D = "2d"
-    GEOHAYSTACK = "geoHaystack"
-    GEOSPHERE = "2dsphere"
-    HASHED = "hashed"
-    TEXT = "text"
-
-
 class FOCABaseConfig(BaseModel):
     """Base configuration for FOCA models."""
 
@@ -105,32 +82,19 @@ class ServerConfig(FOCABaseConfig):
         port: Port at which the application is exposed.
         debug: Flag to run application in debug mode. If ``True``, the
             application runs in debug mode and an interactive debugger will
-            be shown for unhandled exceptions. See Flask documentation for more
-            details.
-        environment: Variable to specify the application environment variable.
-            See Flask documentation for more details.
+            be shown for unhandled exceptions, which allows executing
+            arbitrary code. Only use for local development; FOCA logs a
+            warning if debug mode is enabled on a host other than a loopback
+            address. See Flask documentation for more details.
         testing: Enable/disable testing mode. If ``True``, exceptions are
             propagated rather than handled by the app's error handlers.
-        use_reloader: Enable/disable the application reloader. If
-            ``debug=True``, enabling this will allow the server to reload
-            automatically on code changes. See Flask documentation for more
-            details.
 
     Attributes:
         host: Host at which the application is exposed.
         port: Port at which the application is exposed.
-        debug: Flag to run application in debug mode. If ``True``, the
-            application runs in debug mode and an interactive debugger will
-            be shown for unhandled exceptions. See Flask documentation for more
-            details.
-        environment: Variable to specify the application environment variable.
-            See Flask documentation for more details.
+        debug: Flag to run application in debug mode.
         testing: Enable/disable testing mode. If ``True``, exceptions are
             propagated rather than handled by the app's error handlers.
-        use_reloader: Enable/disable the application reloader. If
-            ``debug=True``, enabling this will allow the server to reload
-            automatically on code changes. See Flask documentation for more
-            details.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -140,21 +104,16 @@ class ServerConfig(FOCABaseConfig):
         >>> ServerConfig(
         ...     host="0.0.0.0",
         ...     port=8080,
-        ...     debug=True,
-        ...     environment="development",
+        ...     debug=False,
         ...     testing=False,
-        ...     use_reloader=True,
         ... )
-        ServerConfig(host='0.0.0.0', port=8080, debug=True, environment='devel\
-opment', testing=False, use_reloader=True)
+        ServerConfig(host='0.0.0.0', port=8080, debug=False, testing=False)
     """
 
     host: str = "0.0.0.0"
     port: int = 8080
-    debug: bool = True
-    environment: str = "development"
+    debug: bool = False
     testing: bool = False
-    use_reloader: bool = True
 
 
 class ExceptionConfig(FOCABaseConfig):
@@ -279,10 +238,6 @@ class SpecConfig(FOCABaseConfig):
     Args:
         path: A single path or list of paths to OpenAPI 2.x or 3.x
             specification in YAML format.
-        path_out: Output path for modified specification file. Ignored if specs
-            are not modified. If not specified, the original file path is
-            stripped of the file extension and the suffix ``.modified.yaml`` is
-            appended.
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
             For OpenAPI 3.x, see https://swagger.io/specification/.
@@ -322,10 +277,6 @@ class SpecConfig(FOCABaseConfig):
     Attributes:
         path: A single path or list of paths to OpenAPI 2.x or 3.x
             specification in YAML format.
-        path_out: Output path for modified specification file. Ignored if specs
-            are not modified. If not specified, the original file path is
-            stripped of the file extension and the suffix ``.modified.yaml`` is
-            appended.
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
             For OpenAPI 3.x, see https://swagger.io/specification/.
@@ -368,13 +319,11 @@ class SpecConfig(FOCABaseConfig):
 
     Example:
         >>> SpecConfig(path="/my/path.yaml")
-        SpecConfig(path=[PosixPath('/my/path.yaml')], path_out=PosixPath('/my/\
-path.modified.yaml'), append=None, add_operation_fields=None, add_security_fie\
-lds=None, disable_auth=False, connexion=None)
+        SpecConfig(path=[PosixPath('/my/path.yaml')], append=None, add_operati\
+on_fields=None, add_security_fields=None, disable_auth=False, connexion=None)
 
         >>> SpecConfig(
         ...     path=["/path/to/specs.yaml", "/path/to/add_specs.yaml"],
-        ...     path_out="/path/to/specs.modified.yaml",
         ...     append=[
         ...         {
         ...             "security": {
@@ -400,17 +349,15 @@ lds=None, disable_auth=False, connexion=None)
         ...     disable_auth = False
         ... )
         SpecConfig(path=[PosixPath('/path/to/specs.yaml'), PosixPath('/path/to\
-/add_specs.yaml')], path_out=PosixPath('/path/to/specs.modified.yaml'), append\
-=[{'security': {'jwt': {'type': 'apiKey', 'name': 'Authorization', 'in': 'head\
-er'}}}, {'my_other_root_field': 'some_value'}], add_operation_fields={'x-swagg\
-er-router-controller': 'controllers.my_specs', 'x-some-other-custom-field': 's\
-ome_value'}, add_security_fields={'x-apikeyInfoFunc': 'security.auth.validate_\
-token', 'x-some-other-custom-field': 'some_value'}, disable_auth=False, connex\
-ion=None)
+/add_specs.yaml')], append=[{'security': {'jwt': {'type': 'apiKey', 'name': 'A\
+uthorization', 'in': 'header'}}}, {'my_other_root_field': 'some_value'}], add_\
+operation_fields={'x-swagger-router-controller': 'controllers.my_specs', 'x-so\
+me-other-custom-field': 'some_value'}, add_security_fields={'x-apikeyInfoFunc'\
+: 'security.auth.validate_token', 'x-some-other-custom-field': 'some_value'}, \
+disable_auth=False, connexion=None)
     """
 
     path: Path | list[Path]
-    path_out: Path | None = None
     append: list[dict] | None = None
     add_operation_fields: dict | None = None
     add_security_fields: dict | None = None
@@ -418,22 +365,16 @@ ion=None)
     connexion: dict | None = None
 
     @model_validator(mode="after")
-    def make_paths_absolute_and_set_path_out(self) -> Self:
-        """Make paths absolute and set output path if not specified.
+    def make_paths_absolute(self) -> Self:
+        """Make paths absolute.
 
         Returns:
-            Model instance with absolute paths and output path set.
+            Model instance with absolute paths.
         """
         paths = self.path if isinstance(self.path, list) else [self.path]
         self.path = [
             path if path.is_absolute() else path.resolve() for path in paths
         ]
-        if self.path_out is None:
-            _path = self.path[0].resolve()
-            self.path_out = _path.parent / f"{_path.stem}.modified.yaml"
-        else:
-            self.path_out = Path(self.path_out).resolve()
-
         return self
 
 
@@ -456,9 +397,9 @@ class APIConfig(FOCABaseConfig):
         >>> APIConfig(
         ...     specs=[SpecConfig(path='/path/to/specs.yaml')],
         ... )
-        APIConfig(specs=[SpecConfig(path=[PosixPath('/path/to/specs.yaml')], p\
-ath_out=PosixPath('/path/to/specs.modified.yaml'), append=None, add_operation_\
-fields=None, add_security_fields=None, disable_auth=False, connexion=None)])
+        APIConfig(specs=[SpecConfig(path=[PosixPath('/path/to/specs.yaml')], a\
+ppend=None, add_operation_fields=None, add_security_fields=None, disable_auth=\
+False, connexion=None)])
     """
 
     specs: list[SpecConfig] = []
@@ -474,15 +415,15 @@ class AccessControlConfig(FOCABaseConfig):
             Casbin adapter and the permissions API. Required for all other
             options to take effect; requires trusted token issuers
             (`AuthConfig.issuers`).
-        api_specs: Path to API spec definition. If None, the use default
-            specs.
-        api_controllers: Path to API spec controller. If None, the use default
-            specs.
+        api_specs: Path to a custom API specification of the permissions
+            API. If None, the default specification is used. Controllers are
+            resolved via the `operationId` of each operation.
         api_swagger_ui: Serve the Swagger UI of the permissions API.
         api_serve_spec: Serve the API specification of the permissions API.
-        db_name: Access control database name. If None, the use default specs.
-        collection_name: Access control collection name. If None, the use
-            default specs.
+        db_name: Name of the database of the policy collection. If it is the
+            name of one of the app's databases, the policy collection is
+            added to that database.
+        collection_name: Name of the policy collection.
         model: Path to access control model configuration file. If None,
             the use default specs.
         enforce: Enforce policies on all operations of the app's API specs
@@ -526,12 +467,12 @@ class AccessControlConfig(FOCABaseConfig):
 
     Attributes:
         enabled: Register access control.
-        api_specs: Path to API spec definition.
-        api_controllers: Path to API spec controller.
+        api_specs: Path to a custom API specification of the permissions
+            API.
         api_swagger_ui: Serve the Swagger UI of the permissions API.
         api_serve_spec: Serve the API specification of the permissions API.
-        db_name: Access control database name.
-        collection_name: Access control collection name.
+        db_name: Name of the database of the policy collection.
+        collection_name: Name of the policy collection.
         model: Path to access control model configuration file.
         enforce: Enforce policies on all operations of the app's API specs
             that require authentication.
@@ -552,25 +493,22 @@ class AccessControlConfig(FOCABaseConfig):
 
     Example:
         >>> AccessControlConfig(
-        ...     api_specs='/path/to/spec.yaml',
-        ...     api_controllers='/path/to/spec_server.py',
+        ...     enabled=True,
         ...     db_name='access_control_db',
         ...     collection_name='access_control_collection',
         ...     model='/path/to/policy.conf',
         ... )
-        AccessControlConfig(api_specs='/path/to/access_control_spec.yaml',api_\
-controllers='/path/to/access_control_spec_server.py', db_name='access_control_\
-db', collection_name='access_control_collection', model='/path/to/policy.co\
-nf', ...)
+        AccessControlConfig(enabled=True, api_specs=None, api_swagger_ui=Fals\
+e, api_serve_spec=False, db_name='access_control_db', collection_name='access_\
+control_collection', model='/path/to/policy.conf', ...)
     """
 
     enabled: bool = False
     api_specs: str | None = None
-    api_controllers: str | None = None
     api_swagger_ui: bool = False
     api_serve_spec: bool = False
-    db_name: str | None = None
-    collection_name: str | None = None
+    db_name: str = DEFAULT_ACCESS_CONTROL_DB_NAME
+    collection_name: str = DEFAULT_ACCESS_CONTROL_COLLECTION_NAME
     model: str | None = Field(default=None, validate_default=True)
     enforce: bool = False
     claim_identity: str | None = None
@@ -673,10 +611,9 @@ nf', ...)
 
         """
         if v is None:
-            with resource_path(
-                ACCESS_CONTROL_BASE_PATH, DEFAULT_MODEL_FILE
-            ) as _path:
-                return str(_path)
+            return str(
+                files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE)
+            )
 
         model_path = Path(v)
         if not model_path.is_absolute():
@@ -768,20 +705,82 @@ _ttl=300.0)
 class CORSConfig(FOCABaseConfig):
     """Model for Cross Origin Resource Sharing (CORS) configuration.
 
+    Field names follow Starlette's `CORSMiddleware`. By default, requests
+    from any origin are allowed, without credentials.
+
     Args:
-        enabled: Enable/disable the CORS for the application.
+        enabled: Enable/disable CORS for the application.
+        allow_origins: Origins allowed to make cross-origin requests (e.g.,
+            ``https://example.org``), or ``*`` for any origin.
+        allow_methods: HTTP methods allowed in cross-origin requests.
+        allow_headers: Request headers allowed in cross-origin requests, or
+            ``*`` for any header.
+        expose_headers: Response headers exposed to the browser.
+        allow_credentials: Whether cross-origin requests may include
+            credentials (e.g., cookies). Requires explicit `allow_origins`.
+        max_age: Time (in seconds) for which browsers may cache preflight
+            responses. If ``None``, no `Access-Control-Max-Age` header is
+            sent.
 
     Attributes:
-        enabled: Enable/disable the CORS for the application.
+        enabled: Enable/disable CORS for the application.
+        allow_origins: Origins allowed to make cross-origin requests.
+        allow_methods: HTTP methods allowed in cross-origin requests.
+        allow_headers: Request headers allowed in cross-origin requests.
+        expose_headers: Response headers exposed to the browser.
+        allow_credentials: Whether cross-origin requests may include
+            credentials.
+        max_age: Time (in seconds) for which browsers may cache preflight
+            responses.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type, or credentials are allowed for any origin.
 
     Example:
         >>> CORSConfig(
-        ...     enabled=True,
+        ...     allow_origins=["https://example.org"],
+        ...     allow_credentials=True,
         ... )
-        CORSConfig(enabled=True)
+        CORSConfig(enabled=True, allow_origins=['https://example.org'], allow_\
+methods=['GET', 'HEAD', 'POST', 'OPTIONS', 'PUT', 'PATCH', 'DELETE'], allow_he\
+aders=['*'], expose_headers=[], allow_credentials=True, max_age=None)
     """
 
     enabled: bool = True
+    allow_origins: list[str] = ["*"]
+    allow_methods: list[str] = [
+        "GET",
+        "HEAD",
+        "POST",
+        "OPTIONS",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    ]
+    allow_headers: list[str] = ["*"]
+    expose_headers: list[str] = []
+    allow_credentials: bool = False
+    max_age: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_credentials(self) -> Self:
+        """Ensure that credentials are not allowed for any origin.
+
+        Returns:
+            Validated CORS configuration.
+
+        Raises:
+            ValueError: Credentials are allowed for any origin (``*``), which
+                would let any website make authenticated requests on behalf
+                of users.
+        """
+        if self.allow_credentials and "*" in self.allow_origins:
+            raise ValueError(
+                "'allow_credentials' requires explicit 'allow_origins' "
+                "instead of '*'"
+            )
+        return self
 
 
 class SecurityConfig(FOCABaseConfig):
@@ -845,7 +844,6 @@ ntrollers='/path/to/access_control_spec_server.py', db_name='access_control_db\
                 for name, value in [
                     ("enforce", access_control.enforce),
                     ("api_specs", access_control.api_specs),
-                    ("api_controllers", access_control.api_controllers),
                     ("self_service", access_control.self_service),
                 ]
                 if value
@@ -896,10 +894,10 @@ sparse': False})
 
     @field_validator("keys", mode="after")
     @classmethod
-    def store_enum_value(
+    def keys_to_list(
         cls, v: dict | list[tuple] | None
     ) -> dict | list[tuple] | None:
-        """Convert dict values of keys into list of tuples."""
+        """Convert a dictionary of keys into a list of tuples."""
         if v is not None and isinstance(v, dict):
             v = [(key, val) for key, val in v.items()]
         return v
@@ -1230,17 +1228,17 @@ class Config(FOCABaseConfig):
 
     Example:
         >>> Config()
-        Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=True, envi\
-ronment='development', testing=False, use_reloader=True), exceptions=Exception\
+        Config(server=ServerConfig(host='0.0.0.0', port=8080, debug=False, tes\
+ting=False), exceptions=Exception\
 Config(mapping=None, public_members=None, logging=<ExceptionLoggingEnum.onelin\
 e: 'oneline'>), api=APIConfig(specs=[]), security=Secu\
 rityConfig(auth=AuthConfig(issuers=[], add_key_to_claims=True, \
 allow_expired=False, audience=None, claim_identity='sub', algorithms=['RS256']\
 , validate_userinfo=False, timeout=10.0, cache_ttl=300.0), cors=CORSConfig(ena\
 bled=True), access_control=Access\
-ControlConfig(api_specs='/path/to/access_control_spec.yaml', api_controllers='\
-/path/to/access_control_spec_server.py', db_name='access_control_db', collecti\
-on_name='access_control_collection', model='/path/to/policy.conf', ...)), db=N\
+ControlConfig(enabled=False, api_specs=None, api_swagger_ui=False, api_serve\
+_spec=False, db_name='access_control_db', collection_name='policy_rules', mode\
+l='/path/to/default_model.conf', ...)), db=N\
 one, jobs=None, log=L\
 ogConfig(version=1, disable_existing_loggers=False, formatters={'standard': Lo\
 gFormatterConfig(class_formatter='logging.Formatter', style='{', format='[{asc\

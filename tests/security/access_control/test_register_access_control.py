@@ -14,7 +14,6 @@ from foca.models.config import (
     IndexConfig,
     MongoConfig,
 )
-from foca.security.access_control.constants import DEFAULT_SPEC_CONTROLLER
 from foca.security.access_control.register_access_control import (
     register_access_control,
 )
@@ -31,7 +30,6 @@ class TestRegisterAccessControlSetup:
             **access_control_kwargs,
         }
         access_control_config = AccessControlConfig(
-            api_controllers=DEFAULT_SPEC_CONTROLLER,
             **access_control_kwargs,
         )
         for _ in range(times):
@@ -119,7 +117,6 @@ class TestRegisterAccessControlSetup:
         """Rejected registration does not affect repeated registration."""
         mongo_config = self._app_db_config()
         access_control_config = AccessControlConfig(
-            api_controllers=DEFAULT_SPEC_CONTROLLER,
             db_name="app_db",
             collection_name="items",
         )

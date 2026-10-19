@@ -123,6 +123,13 @@ def test_parse_custom_config_model_not_exists():
         conf.parse_custom_config(model=TEST_CONFIG_MODEL_NOT_EXISTS)
 
 
+def test_parse_custom_config_model_not_dotted():
+    """Test ``.parse_custom_config()`` when model path has no module."""
+    conf = ConfigParser(config_file=Path(TEST_FILE))
+    with pytest.raises(ValueError):
+        conf.parse_custom_config(model="CustomConfig")
+
+
 def test_parse_custom_config_invalid():
     """Test ``.parse_custom_config()`` when model class does not exist."""
     conf = ConfigParser(config_file=Path(TEST_FILE_CUSTOM_INVALID))

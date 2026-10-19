@@ -4,9 +4,7 @@ server:
     # Enable for local development only: the debugger allows executing
     # arbitrary code
     debug: False
-    environment: production
     testing: False
-    use_reloader: False
 
 security:
     auth:

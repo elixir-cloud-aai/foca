@@ -1,7 +1,6 @@
 api:
     specs:
         - path: openapi_2_petstore.yaml
-          path_out: openapi_2_petstore.modified.yaml
           append:
               - securityDefinitions:
                   jwt:
@@ -10,9 +9,12 @@ api:
                       in: header
           add_operation_fields:
             x-swagger-router-controller: controllers
+          disable_auth: True
           connexion:
               strict_validation: True
               validate_responses: False
+              # Controllers do not exist; respond with 501
+              resolver_error: 501
               options:
                 swagger_ui: True
                 swagger_json: True

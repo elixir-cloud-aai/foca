@@ -117,9 +117,9 @@ class ConfigParser:
             *args: One or more paths to YAML files.
 
         Returns:
-            Dictionary of merged YAML file contents, or ``None`` if no
-            arguments have been supplied; if only a single YAML file path is
-            provided, no merging is done.
+            Dictionary of merged YAML file contents, or an empty dictionary if
+            no arguments have been supplied; if only a single YAML file path
+            is provided, no merging is done.
         """
         args_list = list(args)
         if not args_list:
@@ -151,8 +151,7 @@ class ConfigParser:
             Custom configuration model instantiated with the parameters listed
             in the app configuration's ``custom``.
         """
-        module = Path(model).stem
-        model_class = Path(model).suffix[1:]
+        module, _, model_class = model.rpartition(".")
         try:
             model_class = getattr(import_module(module), model_class)
         except ModuleNotFoundError as exc:
@@ -160,7 +159,7 @@ class ConfigParser:
                 f"failed validating custom configuration: module '{module}' "
                 "not available"
             ) from exc
-        except (AttributeError, ImportError) as exc:
+        except (AttributeError, ImportError, ValueError) as exc:
             raise ValueError(
                 f"failed validating custom configuration: module '{module}' "
                 f"has no class {model_class} or could not be imported"

@@ -1,7 +1,7 @@
 """Factory for creating and configuring Connexion application instances."""
 
 import logging
-from inspect import stack
+from ipaddress import ip_address
 
 from connexion import App
 
@@ -25,9 +25,7 @@ def create_connexion_app(config: Config | None = None) -> App:
         __name__,
         skip_error_handlers=True,
     )
-
-    calling_module = ":".join([stack()[1].filename, stack()[1].function])
-    logger.debug(f"Connexion app created from '{calling_module}'.")
+    logger.debug("Connexion app created.")
 
     # Configure Connexion app
     if config is not None:
@@ -37,6 +35,23 @@ def create_connexion_app(config: Config | None = None) -> App:
         )
 
     return app
+
+
+def _is_loopback(host: str) -> bool:
+    """Check whether a host is a loopback address.
+
+    Args:
+        host: Host name or IP address.
+
+    Returns:
+        `True` if `host` is `localhost` or a loopback IP address.
+    """
+    if host == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def __add_config_to_connexion_app(
@@ -61,8 +76,13 @@ def __add_config_to_connexion_app(
 
     # replace Flask app settings
     app.app.config["DEBUG"] = conf.debug
-    app.app.config["ENV"] = conf.environment
     app.app.config["TESTING"] = conf.testing
+    if conf.debug and not _is_loopback(conf.host):
+        logger.warning(
+            f"Debug mode is enabled on host '{conf.host}': the interactive "
+            "debugger allows executing arbitrary code. Only use debug mode "
+            "for local development."
+        )
 
     logger.debug("Flask app settings:")
     for key, value in app.app.config.items():

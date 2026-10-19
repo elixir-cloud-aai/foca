@@ -10,7 +10,6 @@ security:
       enabled: True
     access_control:
         api_specs: foca/security/access_control/api/access-control-specs.yaml
-        api_controllers: foca/security/access_control/access_control_server.py
         db_name: test_db
         collection_name: test_collection
         model: foca/security/access_control/api/default_model.conf
