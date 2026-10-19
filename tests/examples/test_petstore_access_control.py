@@ -1,6 +1,5 @@
 """Smoke test of the access control petstore example app."""
 
-import importlib.util
 import sys
 from pathlib import Path
 
@@ -9,7 +8,6 @@ from connexion.exceptions import OAuthProblem
 
 from foca import Foca
 from foca.security import auth
-from foca.security.access_control.enforcement import get_enforcer
 
 EXAMPLE_DIR = (
     Path(__file__).parents[2] / "examples" / "petstore-access-control"
@@ -39,16 +37,7 @@ def client(monkeypatch, mongo_clients):
         monkeypatch.delitem(sys.modules, name, raising=False)
     monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
     monkeypatch.setattr(auth, "validate_token", mock_validate_token)
-    spec = importlib.util.spec_from_file_location(
-        "petstore_access_control_app", EXAMPLE_DIR / "app.py"
-    )
-    example_app = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(example_app)  # type: ignore[union-attr]
     app = Foca(config_file=EXAMPLE_DIR / "config.yaml").create_app()
-    with app.app.app_context():
-        enforcer = get_enforcer()
-        for policy in example_app.POLICIES:
-            enforcer.add_policy(*policy)
     return app.app.test_client()
 
 

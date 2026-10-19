@@ -175,12 +175,24 @@ class Adapter(persist.Adapter):
         """
         if not rule:
             return 0
-        # Match the rule's values exactly, i.e., without further values, but
-        # irrespective of other stored fields (e.g., identifiers)
-        query: dict = CasbinRule.from_values(ptype, rule).to_dict()
-        for index in range(len(rule), MAX_RULE_VALUES):
-            query[f"v{index}"] = {"$exists": False}
-        return self._collection.delete_many(query).deleted_count
+        return self._collection.delete_many(
+            _rule_query(ptype, rule)
+        ).deleted_count
+
+    def has_policy_line(self, ptype: str, rule: list[str]) -> bool:
+        """Check whether a policy rule is stored.
+
+        Args:
+            ptype: Policy type of the rule.
+            rule: Values of the rule.
+
+        Returns:
+            Whether a rule with exactly these values is stored.
+        """
+        return (
+            self._collection.count_documents(_rule_query(ptype, rule), limit=1)
+            > 0
+        )
 
     def save_policy(self, model: Model) -> bool:
         """Method to save a casbin model.
@@ -258,3 +270,20 @@ class Adapter(persist.Adapter):
 
         results = self._collection.delete_many(query)
         return results.deleted_count > 0
+
+
+def _rule_query(ptype: str, rule: list[str]) -> dict:
+    """Get query matching stored rules with exactly the given values.
+
+    Args:
+        ptype: Policy type of the rule.
+        rule: Values of the rule.
+
+    Returns:
+        Query matching the rule's values exactly, i.e., without further
+        values, but irrespective of other stored fields (e.g., identifiers).
+    """
+    query: dict = CasbinRule.from_values(ptype, rule).to_dict()
+    for index in range(len(rule), MAX_RULE_VALUES):
+        query[f"v{index}"] = {"$exists": False}
+    return query

@@ -143,6 +143,8 @@ security:
     id_charset: ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
     id_length: 6
     self_service: False
+    policies:
+      - [p, "*", /pets, GET]
 ```
 
 > The application created with this config would provide an access control
@@ -198,6 +200,29 @@ The specs and controllers used by default can be accessed via the links below:
 
 * [Default Specifications][default-specs]
 * [Default Controller Definitions][default-controllers]
+
+### Configuring policies
+
+Policy rules the app relies on (e.g., which roles may do what) can be set via
+`policies`, each given as its policy type followed by its values:
+
+```yaml
+security:
+  access_control:
+    policies:
+      - [p, "*", /services, POST]
+      - [p, owner, "/services/:id", "(PUT)|(DELETE)"]
+      - [g, "user:alice", admin]
+```
+
+On startup, FOCA validates the rules against the model (cf. [rule
+values](#rule-values)), refusing to start if any rule is invalid, and adds
+those that are not stored yet. Stored rules, including those added or changed
+via the permissions API, are never removed or changed on startup: to remove a
+configured rule, remove it from the configuration _and_ via the permissions
+API. Rules that depend on the app's data, such as roles on resources, are
+better managed by the app (cf. [resource-scoped
+roles](#resource-scoped-roles)).
 
 ### Configuring the access control model
 
@@ -381,8 +406,9 @@ policies are always enforced on it, irrespective of `enforce`. With the
 manage rules. With other models, rules allowing access to the permissions API
 routes (e.g., `/admin/access-control/permissions`) are required, naming
 prefixed subjects (e.g., `user:alice`) or roles. Initial
-rules can be added via `group_mapping` (e.g., mapping an entitlement to
-`admin`) or directly to the access control database.
+rules can be added via [`policies`](#configuring-policies), via
+`group_mapping` (e.g., mapping an entitlement to `admin`) or directly to the
+access control database.
 
 > If you provide custom `api_specs` for the permissions API, make sure that
 > they require authentication; otherwise, all requests will be denied.

@@ -26,6 +26,11 @@ security:
         enabled: True
         model: petstore_policies.conf
         enforce: True
+        # Policy rules the app relies on, added on startup unless stored
+        # already; ownership rules are added by the controllers
+        policies:
+          - [p, "*", /pets, "(GET)|(POST)"]
+          - [p, owner, "/pets/:id", "(GET)|(DELETE)"]
         # Serve Swagger UI and specification of the permissions API
         api_swagger_ui: True
         api_serve_spec: True
