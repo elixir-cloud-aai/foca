@@ -118,6 +118,15 @@ def validate(app, token):
 class TestValidateToken:
     """Tests for `validate_token()`."""
 
+    def test_warnings_logged_once(self, idp, monkeypatch):
+        """Settings are checked for warnings on the first validation."""
+        calls = []
+        monkeypatch.setattr(auth, "log_auth_config_warnings", calls.append)
+        app = make_app()
+        validate(app, make_token())
+        validate(app, make_token())
+        assert calls == [app.config.foca.security.auth]
+
     def test_success(self, idp):
         """Valid token is accepted; verified claims are returned."""
         res = validate(make_app(), make_token())

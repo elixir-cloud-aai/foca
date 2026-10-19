@@ -39,7 +39,9 @@ details.**_
 ## Access control
 
 Access control is configured entirely in the [configuration file][app-config]
-(`security.access_control`): with `enforce: True`, FOCA checks every request
+(`security.access_control`): `enabled: True` registers access control (the
+policy collection and the permissions API), which requires trusted token
+issuers (`security.auth.issuers`), and with `enforce: True`, FOCA checks every request
 to an operation that requires authentication against the policies, using the
 `sub` claim of the validated bearer token as the subject (e.g.,
 `user:alice`), the request path as the object and the HTTP method as the

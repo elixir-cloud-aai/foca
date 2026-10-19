@@ -1,0 +1,6 @@
+security:
+    auth:
+        issuers:
+          - https://login.example.org/oidc/
+    access_control:
+        enabled: True

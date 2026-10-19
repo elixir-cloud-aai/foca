@@ -20,7 +20,6 @@ from foca.security.access_control.constants import (
 from foca.security.access_control.register_access_control import (
     register_access_control,
 )
-from foca.security.auth import log_auth_config_warnings
 from foca.security.cors import enable_cors
 
 # Get logger instance
@@ -130,8 +129,7 @@ class Foca:
             logger.info("No database support configured.")
 
         # Register permission management and casbin enforcer
-        if self.conf.security.auth.required:
-            log_auth_config_warnings(self.conf.security.auth)
+        if self.conf.security.access_control.enabled:
             if (
                 self.conf.security.access_control.api_specs is None
                 or self.conf.security.access_control.api_controllers is None
@@ -156,13 +154,8 @@ class Foca:
                 access_control_config=self.conf.security.access_control,
             )
             logger.info("Access control registered.")
-        elif (
-            self.conf.security.access_control.api_specs
-            or self.conf.security.access_control.api_controllers
-        ):
-            logger.error(
-                "Please enable security config to register access control."
-            )
+        else:
+            logger.info("Access control not enabled.")
 
         return cnx_app
 

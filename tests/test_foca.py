@@ -15,6 +15,7 @@ from yaml import (
 )
 
 from foca import Foca
+from foca.security.access_control.constants import DEFAULT_SPEC_CONTROLLER
 
 DIR = Path(__file__).parent / "test_files"
 PATH_SPECS_2_YAML_ORIGINAL = str(DIR / "openapi_2_petstore.original.yaml")
@@ -32,8 +33,9 @@ VALID_CORS_CONF_DISABLED = DIR / "conf_valid_cors_disabled.yaml"
 VALID_CORS_CONF_ENABLED = DIR / "conf_valid_cors_enabled.yaml"
 INVALID_ACCESS_CONTROL_CONF = DIR / "conf_invalid_access_control.yaml"
 VALID_ACCESS_CONTROL_CONF = DIR / "conf_valid_access_control.yaml"
-ENFORCE_WITHOUT_AUTH_CONF = (
-    DIR / "conf_enforce_access_control_without_auth.yaml"
+ACCESS_CONTROL_ENABLED_CONF = DIR / "conf_access_control_enabled.yaml"
+ENFORCE_WITHOUT_ENABLED_CONF = (
+    DIR / "conf_enforce_access_control_without_enabled.yaml"
 )
 
 
@@ -88,23 +90,48 @@ def test_foca_create_app_output_defaults():
     assert isinstance(app, App)
 
 
-def test_foca_create_app_auth_warnings(monkeypatch):
-    """Ensure authentication settings are checked for warnings."""
-    calls = []
-    monkeypatch.setattr("foca.foca.log_auth_config_warnings", calls.append)
-    foca = Foca()
-    foca.create_app()
-    assert calls == [foca.conf.security.auth]
+def test_foca_create_app_no_access_control():
+    """Ensure access control is not registered by default."""
+    foca = Foca(config_file=VALID_DB_CONF)
+    app = foca.create_app()
+    assert set(app.app.config.foca.db.dbs) == {"my-db"}
+    assert "casbin_adapter" not in app.app.config
+    assert not any(
+        "permissions" in rule.rule for rule in app.app.url_map.iter_rules()
+    )
+
+
+def test_foca_create_app_access_control():
+    """Ensure access control is registered if enabled."""
+    foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
+    app = foca.create_app()
+    assert "test_db" in app.app.config.foca.db.dbs
+    assert "casbin_adapter" in app.app.config
+    assert any(
+        rule.rule == "/admin/access-control/permissions"
+        for rule in app.app.url_map.iter_rules()
+    )
+
+
+def test_foca_create_app_access_control_defaults():
+    """Ensure access control is registered with defaults if only enabled."""
+    foca = Foca(config_file=ACCESS_CONTROL_ENABLED_CONF)
+    app = foca.create_app()
+    access_control = app.app.config.foca.security.access_control
+    assert access_control.api_controllers == DEFAULT_SPEC_CONTROLLER
+    dbs = app.app.config.foca.db.dbs
+    assert set(dbs) == {"access_control_db"}
+    assert set(dbs["access_control_db"].collections) == {"policy_rules"}
 
 
 def test_foca_create_app_twice():
     """Ensure an app can be created repeatedly from the same instance."""
-    foca = Foca(config_file=VALID_DB_CONF)
+    foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
     foca.create_app()
     app = foca.create_app()
     dbs = app.app.config.foca.db.dbs
-    assert set(dbs) == {"my-db", "access_control_db"}
-    assert set(dbs["access_control_db"].collections) == {"policy_rules"}
+    assert set(dbs) == {"test_db"}
+    assert set(dbs["test_db"].collections) == {"test_collection"}
 
 
 def test_foca_create_app_jobs():
@@ -153,16 +180,17 @@ def test_foca_CORS_disabled():
 
 
 def test_foca_invalid_access_control():
-    """Ensures access control is not enabled if auth flag is disabled."""
-    foca = Foca(config_file=INVALID_ACCESS_CONTROL_CONF)
-    app = foca.create_app()
-    assert app.app.config.foca.db is None
-
-
-def test_foca_enforce_access_control_without_auth():
-    """Ensures app refuses to start if enforcement is enabled without auth."""
+    """Ensures app refuses to start if access control options are set
+    without enabling access control."""
     with pytest.raises(ValidationError):
-        Foca(config_file=ENFORCE_WITHOUT_AUTH_CONF)
+        Foca(config_file=INVALID_ACCESS_CONTROL_CONF)
+
+
+def test_foca_enforce_access_control_without_enabled():
+    """Ensures app refuses to start if enforcement is enabled without access
+    control."""
+    with pytest.raises(ValidationError):
+        Foca(config_file=ENFORCE_WITHOUT_ENABLED_CONF)
 
 
 def test_foca_valid_access_control():

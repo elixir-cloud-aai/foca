@@ -624,6 +624,10 @@ class AccessControlConfig(FOCABaseConfig):
     For exact behaviour cf. https://github.com/casbin/pycasbin.
 
     Args:
+        enabled: Register access control, i.e., the policy collection, the
+            Casbin adapter and the permissions API. Required for all other
+            options to take effect; requires trusted token issuers
+            (`AuthConfig.issuers`).
         api_specs: Path to API spec definition. If None, the use default
             specs.
         api_controllers: Path to API spec controller. If None, the use default
@@ -675,6 +679,7 @@ class AccessControlConfig(FOCABaseConfig):
             operations are not affected.
 
     Attributes:
+        enabled: Register access control.
         api_specs: Path to API spec definition.
         api_controllers: Path to API spec controller.
         api_swagger_ui: Serve the Swagger UI of the permissions API.
@@ -713,6 +718,7 @@ db', collection_name='access_control_collection', model='/path/to/policy.co\
 nf', ...)
     """
 
+    enabled: bool = False
     api_specs: str | None = None
     api_controllers: str | None = None
     api_swagger_ui: bool = False
@@ -841,9 +847,11 @@ class AuthConfig(FOCABaseConfig):
     obtained via OpenID Connect discovery, and, if `validate_userinfo` is
     set, additionally via the issuer's user info endpoint.
 
+    Which operations require a bearer token is defined by the security
+    requirements of the operations in the API specifications (e.g., via
+    `x-bearerInfoFunc: foca.security.auth.validate_token`).
+
     Args:
-        required: Boolean to define the auth configuration for the app.
-            Defaults to true.
         issuers: Trusted token issuers, i.e., values of the `iss` claim of
             accepted tokens. Tokens of other issuers are rejected without
             contacting them. If empty, all tokens are rejected.
@@ -869,7 +877,6 @@ class AuthConfig(FOCABaseConfig):
             documents and public keys are cached.
 
     Attributes:
-        required: Boolean to define the auth configuration for the app.
         issuers: Trusted token issuers.
         add_key_to_claims: Whether to add the identity provider's public key
             that the token was verified with, in PEM format, to the claims.
@@ -892,13 +899,12 @@ class AuthConfig(FOCABaseConfig):
         ...     issuers=["https://login.example.org/oidc/"],
         ...     audience=["my-app"],
         ... )
-        AuthConfig(required=True, issuers=['https://login.example.org/oidc/']\
+        AuthConfig(issuers=['https://login.example.org/oidc/']\
 , add_key_to_claims=True, allow_expired=False, audience=['my-app'], claim_iden\
 tity='sub', algorithms=['RS256'], validate_userinfo=False, timeout=10.0, cache\
 _ttl=300.0)
     """
 
-    required: bool = True
     issuers: list[str] = []
     add_key_to_claims: bool = True
     allow_expired: bool = False
@@ -908,6 +914,9 @@ _ttl=300.0)
     validate_userinfo: bool = False
     timeout: float = Field(default=10, gt=0)
     cache_ttl: float = Field(default=300, ge=0)
+    # Whether warnings about the settings were logged, i.e., on the first
+    # token validation
+    _warnings_logged: bool = PrivateAttr(default=False)
 
 
 class CORSConfig(FOCABaseConfig):
@@ -944,8 +953,9 @@ class SecurityConfig(FOCABaseConfig):
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type, or access control is enforced while authentication is
-            disabled.
+            data type, access control options are set while access control
+            is not enabled, or access control is enabled without trusted
+            token issuers.
 
     Example:
         >>> SecurityConfig(
@@ -953,7 +963,7 @@ class SecurityConfig(FOCABaseConfig):
         ...     auth=AuthConfig(),
         ...     cors=CORSConfig(),
         ... )
-        SecurityConfig(auth=AuthConfig(required=True, issuers=[], add_key_to_c\
+        SecurityConfig(auth=AuthConfig(issuers=[], add_key_to_c\
 laims=True, allow_expired=False, audience=None, claim_identity='sub', algorit\
 hms=['RS256'], validate_userinfo=False, timeout=10.0, cache_ttl=300.0), cors=\
 CORSConfig(enabled=True), access_co\
@@ -968,20 +978,41 @@ ntrollers='/path/to/access_control_spec_server.py', db_name='access_control_db\
     cors: CORSConfig = CORSConfig()
 
     @model_validator(mode="after")
-    def validate_enforce_access_control(self) -> Self:
-        """Ensure that access control is only enforced with authentication.
+    def validate_access_control(self) -> Self:
+        """Ensure that access control settings are consistent.
 
         Returns:
             Validated security configuration.
 
         Raises:
-            ValueError: Enforcing access control is enabled while
-                authentication is disabled, in which case access control is
-                not registered, and policies would not be enforced.
+            ValueError: Access control options are set while access control
+                is not enabled, in which case they would not take effect
+                (e.g., policies would not be enforced), or access control is
+                enabled without trusted token issuers, in which case all
+                requests to the permissions API and to enforced operations
+                would be rejected.
         """
-        if self.access_control.enforce and not self.auth.required:
+        access_control = self.access_control
+        if not access_control.enabled:
+            options = [
+                name
+                for name, value in [
+                    ("enforce", access_control.enforce),
+                    ("api_specs", access_control.api_specs),
+                    ("api_controllers", access_control.api_controllers),
+                    ("self_service", access_control.self_service),
+                ]
+                if value
+            ]
+            if options:
+                raise ValueError(
+                    "Access control options require "
+                    f"'access_control.enabled': {', '.join(options)}"
+                )
+        elif not self.auth.issuers:
             raise ValueError(
-                "'access_control.enforce' requires 'auth.required'"
+                "'access_control.enabled' requires trusted token issuers "
+                "('auth.issuers')"
             )
         return self
 
@@ -1371,7 +1402,7 @@ class 'werkzeug.exceptions.BadGateway'>: {'title': 'Bad Gateway', 'status': 50\
 2}, <class 'werkzeug.exceptions.ServiceUnavailable'>: {'title': 'Service Unava\
 ilable', 'status': 502}, <class 'werkzeug.exceptions.GatewayTimeout'>: {'title\
 ': 'Gateway Timeout', 'status': 504}}), api=APIConfig(specs=[]), security=Secu\
-rityConfig(auth=AuthConfig(required=True, issuers=[], add_key_to_claims=True, \
+rityConfig(auth=AuthConfig(issuers=[], add_key_to_claims=True, \
 allow_expired=False, audience=None, claim_identity='sub', algorithms=['RS256']\
 , validate_userinfo=False, timeout=10.0, cache_ttl=300.0), cors=CORSConfig(ena\
 bled=True), access_control=Access\

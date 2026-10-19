@@ -429,28 +429,59 @@ def test_AccessControlConfig_ids_invalid(charset, length):
         AccessControlConfig(id_charset=charset, id_length=length)
 
 
-def test_SecurityConfig_enforce_without_auth():
-    """Test SecurityConfig instantiation; enforcing access control requires
-    authentication."""
+ISSUERS = ["https://login.example.org/oidc/"]
+
+
+@pytest.mark.parametrize(
+    "issuers,access_control",
+    [
+        # access control options without access control
+        (ISSUERS, {"enforce": True}),
+        (ISSUERS, {"api_specs": "specs.yaml"}),
+        (ISSUERS, {"api_controllers": "my.controllers"}),
+        (ISSUERS, {"self_service": True}),
+        # access control without trusted issuers
+        ([], {"enabled": True}),
+        ([], {"enabled": True, "enforce": True}),
+    ],
+)
+def test_SecurityConfig_access_control_invalid(issuers, access_control):
+    """Test SecurityConfig instantiation; inconsistent access control."""
     with pytest.raises(ValidationError):
         SecurityConfig(
-            auth=AuthConfig(required=False),
-            access_control=AccessControlConfig(enforce=True),
+            auth=AuthConfig(issuers=issuers),
+            access_control=AccessControlConfig(**access_control),
         )
 
 
 @pytest.mark.parametrize(
-    "required,enforce",
+    "issuers,access_control",
     [
-        (True, True),
-        (True, False),
-        (False, False),
+        ([], {}),
+        (ISSUERS, {}),
+        (ISSUERS, {"enabled": True}),
+        (
+            ISSUERS,
+            {
+                "enabled": True,
+                "enforce": True,
+                "api_specs": "specs.yaml",
+                "api_controllers": "my.controllers",
+                "self_service": True,
+            },
+        ),
     ],
 )
-def test_SecurityConfig_enforce(required, enforce):
-    """Test SecurityConfig instantiation; valid auth and enforcement."""
+def test_SecurityConfig_access_control(issuers, access_control):
+    """Test SecurityConfig instantiation; consistent access control."""
     res = SecurityConfig(
-        auth=AuthConfig(required=required),
-        access_control=AccessControlConfig(enforce=enforce),
+        auth=AuthConfig(issuers=issuers),
+        access_control=AccessControlConfig(**access_control),
     )
-    assert res.access_control.enforce is enforce
+    assert res.access_control.enabled is access_control.get("enabled", False)
+
+
+def test_AuthConfig_required_removed():
+    """Test AuthConfig instantiation; `required` is no longer supported."""
+    with pytest.raises(ValidationError):
+        AuthConfig(required=True)
