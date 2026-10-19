@@ -243,9 +243,19 @@ USER 1000
 ```
 
 The image no longer contains build tools or utilities that apps may have
-relied on (e.g., `gcc`, `git`, `curl`, `jq`). Install what your app needs
-as `root` (e.g., `apt-get install --no-install-recommends curl jq`), or add
-it in a build stage of your own image.
+relied on (e.g., `gcc`, `git`, `curl`, `jq`). Install utilities that your
+app needs at runtime in your own image, as `root`:
+
+```dockerfile
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl jq \
+    && rm -rf /var/lib/apt/lists/*
+USER 1000
+```
+
+Tools that are only needed to build your app (e.g., compilers) are better
+installed in a separate build stage that is not part of the final image.
 
 Release images are tagged with the FOCA version (e.g., `0.14.0`, or
 `0.14.0-py3.12` for other Python versions), and `latest` only refers to the
