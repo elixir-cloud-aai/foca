@@ -40,3 +40,34 @@ MOCK_RULE_USER_INPUT_OUTPUT = {
     "rule": {"v0": "alice", "v1": "data1", "v2": "POST", "v3": "read"},
 }
 MOCK_RULE_INVALID = {"rule": []}
+# Permission valid for model `MODEL_CONF_FILE`
+MOCK_PERMISSION = {
+    "policy_type": "p",
+    "rule": {"v0": "alice", "v1": "data1", "v2": "POST"},
+}
+# Permissions invalid for model `MODEL_CONF_FILE`
+MOCK_PERMISSIONS_INVALID = [
+    MOCK_RULE_INVALID,
+    {"policy_type": "p"},
+    # policy type not defined in model
+    {"policy_type": "p2", "rule": {"v0": "a", "v1": "b", "v2": "GET"}},
+    {"policy_type": "x", "rule": {"v0": "a", "v1": "b", "v2": "GET"}},
+    {"rule": {"v0": "a", "v1": "b", "v2": "GET"}},
+    # wrong number of values
+    {"policy_type": "p", "rule": {"v0": "a", "v1": "b"}},
+    {"policy_type": "g", "rule": {"v0": "a", "v1": "b", "v2": "c"}},
+    {"policy_type": "p", "rule": {}},
+    # unknown and non-consecutive keys
+    {"policy_type": "p", "rule": {"v0": "a", "v1": "b", "v3": "GET"}},
+    {"policy_type": "p", "rule": {"v0": "a", "v1": "b", "act": "GET"}},
+    # invalid values
+    {"policy_type": "p", "rule": {"v0": "a,b", "v1": "b", "v2": "GET"}},
+    {"policy_type": "p", "rule": {"v0": "a\nb", "v1": "b", "v2": "GET"}},
+    {"policy_type": "p", "rule": {"v0": "a\rb", "v1": "b", "v2": "GET"}},
+    {"policy_type": "p", "rule": {"v0": "#a", "v1": "b", "v2": "GET"}},
+    {"policy_type": "p", "rule": {"v0": "", "v1": "b", "v2": "GET"}},
+    {"policy_type": "p", "rule": {"v0": 1, "v1": "b", "v2": "GET"}},
+    {"policy_type": "p", "rule": {"v0": "a" * 1025, "v1": "b", "v2": "GET"}},
+    # invalid action pattern
+    {"policy_type": "p", "rule": {"v0": "a", "v1": "b", "v2": "(GET"}},
+]

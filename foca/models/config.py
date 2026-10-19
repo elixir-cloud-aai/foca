@@ -625,6 +625,8 @@ class AccessControlConfig(FOCABaseConfig):
             specs.
         api_controllers: Path to API spec controller. If None, the use default
             specs.
+        api_swagger_ui: Serve the Swagger UI of the permissions API.
+        api_serve_spec: Serve the API specification of the permissions API.
         db_name: Access control database name. If None, the use default specs.
         collection_name: Access control collection name. If None, the use
             default specs.
@@ -658,6 +660,8 @@ class AccessControlConfig(FOCABaseConfig):
     Attributes:
         api_specs: Path to API spec definition.
         api_controllers: Path to API spec controller.
+        api_swagger_ui: Serve the Swagger UI of the permissions API.
+        api_serve_spec: Serve the API specification of the permissions API.
         db_name: Access control database name.
         collection_name: Access control collection name.
         model: Path to access control model configuration file.
@@ -690,6 +694,8 @@ nf', ...)
 
     api_specs: str | None = None
     api_controllers: str | None = None
+    api_swagger_ui: bool = False
+    api_serve_spec: bool = False
     db_name: str | None = None
     collection_name: str | None = None
     model: str | None = Field(default=None, validate_default=True)

@@ -207,7 +207,7 @@ The permissions API can only be used by admins:
       --header "Authorization: Bearer ${TOKEN}" \
       --header 'Accept: application/json' \
       --header 'Content-Type: application/json' \
-      -d '{"policy_type":"g","rule":{"v0":"user:bob","v1":"admin"},"rule_section":"g"}' \
+      -d '{"policy_type":"g","rule":{"v0":"user:bob","v1":"admin"}}' \
       'http://localhost/admin/access-control/permissions'
   ```
 
@@ -218,7 +218,7 @@ The permissions API can only be used by admins:
       --header "Authorization: Bearer ${TOKEN}" \
       --header 'Accept: application/json' \
       --header 'Content-Type: application/json' \
-      -d '{"policy_type":"p","rule":{"v0":"*","v1":"/pets","v2":"GET"},"rule_section":"p"}' \
+      -d '{"policy_type":"p","rule":{"v0":"*","v1":"/pets","v2":"GET"}}' \
       'http://localhost/admin/access-control/permissions/abc123' # replace abc123 with the permission ID of choice
   ```
 

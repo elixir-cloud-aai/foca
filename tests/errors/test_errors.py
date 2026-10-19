@@ -7,6 +7,7 @@ from copy import deepcopy
 
 import pytest
 from connexion import App
+from connexion.exceptions import BadRequestProblem
 from flask import Flask, Response
 
 from foca.errors.exceptions import (
@@ -108,6 +109,17 @@ def test__problem_handler_json():
         assert res.mimetype == "application/problem+json"
         response = json.loads(res.data.decode("utf-8"))
         assert response == EXPECTED_RESPONSE
+
+
+def test__problem_handler_json_request_validation_error():
+    """Test problem handler with request validation error."""
+    app = Flask(__name__)
+    setattr(app.config, "foca", Config())
+    with app.app_context():
+        res = _problem_handler_json(BadRequestProblem(detail="invalid"))
+        assert res.status_code == 400
+        response = json.loads(res.data.decode("utf-8"))
+        assert response == {"title": "Bad Request", "status": 400}
 
 
 def test__problem_handler_json_no_fallback_exception():

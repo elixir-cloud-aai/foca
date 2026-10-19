@@ -27,8 +27,9 @@ from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
     MOCK_ID,
+    MOCK_PERMISSION,
+    MOCK_PERMISSIONS_INVALID,
     MOCK_RULE,
-    MOCK_RULE_INVALID,
     MOCK_RULE_USER_INPUT_OUTPUT,
     MONGO_CONFIG,
 )
@@ -88,6 +89,29 @@ class TestGetPermission(BaseTestAccessControl):
         with app.app_context():
             res = getPermission.__wrapped__(id=MOCK_ID)
             assert res == data
+
+    def test_getPermission_extra_fields(self):
+        """Test that only rule fields of stored permissions are returned."""
+        app = Flask(__name__)
+        base_config = Config(db=self.db)
+        base_config.security.access_control = self.access_control
+        app.config.foca = base_config
+        mock_resp = deepcopy(MOCK_RULE)
+        mock_resp["id"] = MOCK_ID
+        mock_resp["foo"] = "bar"
+        mock_resp["v5"] = None
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client.insert_one(mock_resp)
+
+        data = deepcopy(MOCK_RULE_USER_INPUT_OUTPUT)
+        data["id"] = MOCK_ID
+        with app.app_context():
+            assert getPermission.__wrapped__(id=MOCK_ID) == data
+            assert getAllPermissions.__wrapped__() == [data]
 
     def test_getPermission_NotFound(self):
         """Test for getting a permission rule associated with a given
@@ -237,67 +261,60 @@ class TestPostPermission(BaseTestAccessControl):
         self.db = MongoConfig(**MONGO_CONFIG)
         self.db_port = self.db.port
 
+    def _app(self) -> Flask:
+        app = Flask(__name__)
+        base_config = Config(db=self.db)
+        base_config.security.access_control = self.access_control
+        app.config.foca = base_config
+        app.config.foca.db.dbs[self.access_db].collections[
+            self.access_col
+        ].client = mongomock.MongoClient().db.collection
+        app.config["CASBIN_MODEL"] = self.access_control.model
+        app.config["casbin_adapter"] = Adapter(
+            uri=f"mongodb://localhost:{self.db_port}/",
+            dbname=self.access_db,
+            collection=self.access_col,
+        )
+        return app
+
     def test_postPermission(self):
         """Test for creating a permission; identifier assigned by
         implementation."""
-        app = Flask(__name__)
-        base_config = Config(db=self.db)
-        base_config.security.access_control = self.access_control
-        app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[
-            self.access_col
-        ].client = mongomock.MongoClient().db.collection
-        app.config["casbin_adapter"] = Adapter(
-            uri=f"mongodb://localhost:{self.db_port}/",
-            dbname=self.access_db,
-            collection=self.access_col,
-        )
-
-        with app.test_request_context(json=deepcopy(MOCK_RULE)):
+        app = self._app()
+        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
             res = postPermission.__wrapped__()
             assert isinstance(res, str)
+        stored = app.config["casbin_adapter"]._collection.find_one({"id": res})
+        assert stored["ptype"] == "p"
+        assert [stored["v0"], stored["v1"], stored["v2"]] == [
+            "alice",
+            "data1",
+            "POST",
+        ]
 
     def test_postPermission_InternalServerError(self):
-        """Test for creating a permission for invalid request."""
-        app = Flask(__name__)
-        base_config = Config(db=self.db)
-        base_config.security.access_control = self.access_control
-        app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[
-            self.access_col
-        ].client = mongomock.MongoClient().db.collection
-        app.config["casbin_adapter"] = Adapter(
-            uri=f"mongodb://localhost:{self.db_port}/",
-            dbname=self.access_db,
-            collection=self.access_col,
-        )
-
+        """Test for creating a permission if storing fails."""
+        app = self._app()
+        del app.config["casbin_adapter"]
         with (
-            app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)),
+            app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
             pytest.raises(InternalServerError),
         ):
             postPermission.__wrapped__()
 
     def test_postPermission_BadRequest(self):
         """Test for creating a permission for invalid request payload."""
-        app = Flask(__name__)
-        base_config = Config(db=self.db)
-        base_config.security.access_control = self.access_control
-        app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[
-            self.access_col
-        ].client = mongomock.MongoClient().db.collection
-        app.config["casbin_adapter"] = Adapter(
-            uri=f"mongodb://localhost:{self.db_port}/",
-            dbname=self.access_db,
-            collection=self.access_col,
+        app = self._app()
+        for payload in ["", *MOCK_PERMISSIONS_INVALID]:
+            with (
+                self.subTest(payload=payload),
+                app.test_request_context(json=deepcopy(payload)),
+                pytest.raises(BadRequest),
+            ):
+                postPermission.__wrapped__()
+        assert (
+            app.config["casbin_adapter"]._collection.count_documents({}) == 0
         )
-
-        with (
-            app.test_request_context(json=""),
-            pytest.raises(BadRequest),
-        ):
-            postPermission.__wrapped__()
 
 
 class TestPutPermission(BaseTestAccessControl):
@@ -311,9 +328,7 @@ class TestPutPermission(BaseTestAccessControl):
         self.db = MongoConfig(**MONGO_CONFIG)
         self.db_port = self.db.port
 
-    def test_putPermission(self):
-        """Test for updating a permission; identifier assigned by
-        implementation."""
+    def _app(self) -> Flask:
         app = Flask(__name__)
         base_config = Config(db=MongoConfig(**MONGO_CONFIG))
         base_config.security.access_control = AccessControlConfig(
@@ -323,47 +338,60 @@ class TestPutPermission(BaseTestAccessControl):
         app.config.foca.db.dbs[self.access_db].collections[
             self.access_col
         ].client = mongomock.MongoClient().db.collection
+        app.config["CASBIN_MODEL"] = self.access_control.model
+        return app
 
-        with app.test_request_context(json=deepcopy(MOCK_RULE)):
+    def _collection(self, app: Flask):
+        return (
+            app.config.foca.db.dbs[self.access_db]
+            .collections[self.access_col]
+            .client
+        )
+
+    def test_putPermission(self):
+        """Test for updating a permission; only rule fields are stored."""
+        app = self._app()
+        self._collection(app).insert_one(
+            {"id": MOCK_ID, "ptype": "g", "v0": "a", "v1": "b", "foo": "bar"}
+        )
+        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
             res = putPermission.__wrapped__(id=MOCK_ID)
             assert isinstance(res, str)
             assert res == MOCK_ID
+        stored = self._collection(app).find_one(
+            {"id": MOCK_ID}, projection={"_id": False}
+        )
+        assert stored == {
+            "id": MOCK_ID,
+            "ptype": "p",
+            "v0": "alice",
+            "v1": "data1",
+            "v2": "POST",
+        }
 
     def test_putPermission_InternalServerError(self):
-        """Test for updating a permission for invalid request."""
-        app = Flask(__name__)
-        base_config = Config(db=MongoConfig(**MONGO_CONFIG))
-        base_config.security.access_control = AccessControlConfig(
-            **ACCESS_CONTROL_CONFIG
-        )
-        app.config.foca = base_config
+        """Test for updating a permission if storing fails."""
+        app = self._app()
         app.config.foca.db.dbs[self.access_db].collections[
             self.access_col
-        ].client = mongomock.MongoClient().db.collection
-
+        ].client = None
         with (
-            app.test_request_context(json=deepcopy(MOCK_RULE_INVALID)),
+            app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
             pytest.raises(InternalServerError),
         ):
             putPermission.__wrapped__(id=MOCK_ID)
 
     def test_putPermission_BadRequest(self):
         """Test for updating a permission for invalid request payload."""
-        app = Flask(__name__)
-        base_config = Config(db=MongoConfig(**MONGO_CONFIG))
-        base_config.security.access_control = AccessControlConfig(
-            **ACCESS_CONTROL_CONFIG
-        )
-        app.config.foca = base_config
-        app.config.foca.db.dbs[self.access_db].collections[
-            self.access_col
-        ].client = mongomock.MongoClient().db.collection
-
-        with (
-            app.test_request_context(json=""),
-            pytest.raises(BadRequest),
-        ):
-            putPermission.__wrapped__(id=MOCK_ID)
+        app = self._app()
+        for payload in ["", *MOCK_PERMISSIONS_INVALID]:
+            with (
+                self.subTest(payload=payload),
+                app.test_request_context(json=deepcopy(payload)),
+                pytest.raises(BadRequest),
+            ):
+                putPermission.__wrapped__(id=MOCK_ID)
+        assert self._collection(app).count_documents({}) == 0
 
 
 class TestModelPathResolution(TestCase):

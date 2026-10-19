@@ -1,13 +1,19 @@
 """Casbin rule adapter."""
 
+import logging
+
 from casbin import persist
 from casbin.model import Model
 from pymongo import MongoClient
 
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
+    MAX_RULE_VALUES,
     CasbinRule,
+    validate_rule,
 )
 from foca.utils.misc import generate_id
+
+logger = logging.getLogger(__name__)
 
 
 class Adapter(persist.Adapter):
@@ -22,39 +28,58 @@ class Adapter(persist.Adapter):
         dbname: Database to store policy.
         collection: Collection of the choosen database. Defaults to
             "casbin_rule".
+        model: Path to the Casbin model file. If given, rules are validated
+            against the model before they are stored (cf.
+            :py:func:`validate_rule`), so that rules that would be skipped
+            when loading policies are not stored in the first place.
 
     Attributes:
-        uri: This should be the same requiement as pymongo Client's 'uri'
-            parameter. See https://pymongo.readthedocs.io/en/stable/api/pymong\
-            o/mongo_client.html#pymongo.mongo_client.MongoClient.
-        dbname: Database to store policy.
-        collection: Collection of the choosen database. Defaults to
-            "casbin_rule".
+        model: Casbin model to validate rules against, if any.
     """
 
     def __init__(
-        self, uri: str, dbname: str, collection: str | None = "casbin_rule"
+        self,
+        uri: str,
+        dbname: str,
+        collection: str | None = "casbin_rule",
+        model: str | None = None,
     ):
         """Create an adapter for Mongodb."""
         client: MongoClient = MongoClient(uri)
         db = client[dbname]
         assert collection is not None
         self._collection = db[collection]
+        self.model: Model | None = None
+        if model is not None:
+            self.model = Model()
+            self.model.load_model(model)
 
-    def load_policy(self, model: CasbinRule):
+    def load_policy(self, model: Model):
         """Implementing add Interface for casbin.
 
-        Load all policy rules from MongoDB.
+        Load all policy rules from MongoDB. Rules are built from the fields
+        `ptype` and `v0` to `v5` of stored documents only. Invalid rules
+        (cf. :py:func:`validate_rule`) are skipped with a warning.
 
         Args:
-            model: CasbinRule object.
+            model: Casbin model to load rules into.
         """
-        for line in self._collection.find():
-            rule = CasbinRule(line["ptype"])
-            for key, value in line.items():
-                setattr(rule, key, value)
-
-            persist.load_policy_line(str(rule), model)
+        for document in self._collection.find():
+            ptype = document.get("ptype")
+            values = [
+                document.get(f"v{index}") for index in range(MAX_RULE_VALUES)
+            ]
+            while values and values[-1] is None:
+                values.pop()
+            try:
+                validate_rule(ptype, values, model)
+            except ValueError as exc:
+                logger.warning(
+                    f"Skipping invalid policy rule '{document.get('id')}': "
+                    f"{exc}"
+                )
+                continue
+            model.add_policy(ptype[0], ptype, values)
 
     def save_policy_line(self, ptype: str, rule: list[str]):
         """Method to save a policy.
@@ -62,7 +87,15 @@ class Adapter(persist.Adapter):
         Args:
             ptype: Policy type for the given rule based on the given conf file.
             rule: List of policy attributes.
+
+        Returns:
+            Identifier of the stored rule.
+
+        Raises:
+            ValueError: The rule is invalid (cf. :py:func:`validate_rule`),
+                also for the adapter's model, if set.
         """
+        validate_rule(ptype, rule, self.model)
         line = CasbinRule(ptype=ptype)
         for index, value in enumerate(rule):
             setattr(line, f"v{index}", value)

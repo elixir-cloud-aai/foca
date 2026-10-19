@@ -179,7 +179,10 @@ def register_permission_specs(
         connexion={
             "strict_validation": True,
             "validate_responses": True,
-            "options": {"swagger_ui": True, "serve_spec": True},
+            "options": {
+                "swagger_ui": access_control_config.api_swagger_ui,
+                "serve_spec": access_control_config.api_serve_spec,
+            },
         },
     )
 
@@ -225,6 +228,7 @@ def register_casbin_enforcer(
         ),
         dbname=get_mongo_db_name(str(access_control_config.db_name)),
         collection=access_control_config.collection_name,
+        model=casbin_model,
     )
     app.app.config["casbin_adapter"] = adapter
     logger.info("Casbin enforcer registered.")

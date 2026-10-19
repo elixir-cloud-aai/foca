@@ -9,6 +9,7 @@ from unittest import mock
 import mongomock
 import pytest
 import yaml
+from casbin import Enforcer
 from connexion.exceptions import Forbidden, Unauthorized
 from connexion.resolver import Resolution, Resolver
 from flask import Flask
@@ -447,7 +448,7 @@ class TestPermissionsApi:
     url = "/admin/access-control/permissions"
     payload: ClassVar[dict] = {
         "policy_type": "p",
-        "rule": {"v0": "dave", "v1": "/items/:id"},
+        "rule": {"v0": "dave", "v1": "/items/:id", "v2": "GET"},
     }
 
     @pytest.mark.parametrize(
@@ -478,6 +479,79 @@ class TestPermissionsApi:
             self.url, json=self.payload, headers=_headers("dave")
         )
         assert response.status_code == 403
+
+    def test_post_permission_applied(self, app):
+        payload = deepcopy(self.payload)
+        payload["rule"]["v0"] = "user:dave"
+        response = app.test_client().post(
+            self.url, json=payload, headers=_headers("carol")
+        )
+        assert response.status_code == 200
+        response = app.test_client().get("/items/2", headers=_headers("dave"))
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            # unknown policy type
+            {
+                "policy_type": "p2",
+                "rule": {"v0": "a", "v1": "/b", "v2": "GET"},
+            },
+            {"policy_type": "x", "rule": {"v0": "a", "v1": "/b", "v2": "GET"}},
+            # extra keys
+            {
+                "policy_type": "p",
+                "rule": {"v0": "a", "v1": "/b", "v2": "GET", "v6": "x"},
+            },
+            {
+                "policy_type": "p",
+                "rule": {"v0": "a", "v1": "/b", "v2": "GET"},
+                "rule_section": "p",
+            },
+            # missing values
+            {"policy_type": "g2", "rule": {"v0": "user:a", "v1": "owner"}},
+            # invalid values
+            {
+                "policy_type": "p",
+                "rule": {"v0": "a,b", "v1": "/b", "v2": "GET"},
+            },
+            {"policy_type": "g", "rule": {"v0": "user:a\np", "v1": "admin"}},
+            {"policy_type": "g", "rule": {"v0": "#user:a", "v1": "admin"}},
+            # invalid action pattern
+            {
+                "policy_type": "p",
+                "rule": {"v0": "a", "v1": "/b", "v2": "(GET"},
+            },
+        ],
+    )
+    @pytest.mark.parametrize("method", ["post", "put"])
+    def test_invalid_permission(self, app, method, payload):
+        url = self.url if method == "post" else f"{self.url}/abc"
+        response = getattr(app.test_client(), method)(
+            url, json=payload, headers=_headers("carol")
+        )
+        assert response.status_code == 400
+        collection = app.config["casbin_adapter"]._collection
+        assert collection.count_documents({}) == len(POLICIES)
+
+    @pytest.mark.parametrize(
+        "path",
+        ["/admin/access-control/ui/", "/admin/access-control/openapi.json"],
+    )
+    def test_ui_and_spec_not_served_by_default(self, app, path):
+        assert app.test_client().get(path).status_code == 404
+
+    def test_ui_and_spec_served(self, tmp_path):
+        app = _create_app(
+            tmp_path,
+            _access_control_config(api_swagger_ui=True, api_serve_spec=True),
+        )
+        client = app.test_client()
+        assert client.get("/admin/access-control/ui/").status_code == 200
+        assert (
+            client.get("/admin/access-control/openapi.json").status_code == 200
+        )
 
 
 @pytest.mark.parametrize(
@@ -663,6 +737,101 @@ class TestEnforceAccessControlDecorator:
         with pytest.raises(Unauthorized):
             self._call(helper_app, "GET", "/items", None)
 
+    @pytest.mark.parametrize(
+        "subject", ["alice,/items,GET", "alice\n", "a" * 1024]
+    )
+    def test_invalid_subject(self, helper_app, subject):
+        with helper_app.app_context():
+            get_enforcer().add_policy("*", "/items", "GET")
+        with pytest.raises(Forbidden):
+            self._call(helper_app, "GET", "/items", {"sub": subject})
+
+
+class TestActionMatching:
+    """Tests for matching actions in the reference model."""
+
+    @pytest.mark.parametrize(
+        "pattern,method,expected",
+        [
+            ("GET", "GET", True),
+            ("GET", "XGETX", False),
+            ("GET", "GETX", False),
+            ("GET", "XGET", False),
+            ("(GET)|(POST)", "GET", True),
+            ("(GET)|(POST)", "POST", True),
+            ("(GET)|(POST)", "PUT", False),
+            ("(GET)|(POST)", "GETPOST", False),
+            ("GET|POST", "POST", True),
+            ("GET|POST", "XPOST", False),
+            (".*", "DELETE", True),
+        ],
+    )
+    def test_actions_anchored(self, helper_app, pattern, method, expected):
+        with helper_app.app_context():
+            enforcer = get_enforcer()
+            enforcer.add_policy("*", "/x", pattern)
+            assert enforcer.enforce("user:alice", "/x", method) is expected
+
+
+class TestLoadPolicy:
+    """Tests for loading stored policy rules."""
+
+    def test_extra_fields_ignored(self, helper_app):
+        collection = helper_app.config["casbin_adapter"]._collection
+        collection.insert_one(
+            {
+                "id": "1",
+                "ptype": "p",
+                "v0": "user:alice",
+                "v1": "/items",
+                "v2": "GET",
+                "v5": None,
+                "foo": "bar",
+                "v": "x",
+            }
+        )
+        with helper_app.app_context():
+            assert get_enforcer().get_policy() == [
+                ["user:alice", "/items", "GET"]
+            ]
+
+    @pytest.mark.parametrize(
+        "document",
+        [
+            {"ptype": "p", "v0": "user:a,/x", "v1": "/items", "v2": "GET"},
+            {"ptype": "p", "v0": "#user:a", "v1": "/items", "v2": "GET"},
+            {"ptype": "p", "v0": "user:a", "v1": "/items"},
+            {"ptype": "p", "v0": "user:a", "v1": "/items", "v3": "GET"},
+            {"ptype": "p", "v0": "user:a", "v1": "/items", "v2": "(GET"},
+            {"ptype": "p", "v0": "user:a", "v1": "/items", "v2": 1},
+            {"ptype": "p9", "v0": "user:a", "v1": "/items", "v2": "GET"},
+            {"ptype": None, "v0": "user:a", "v1": "/items", "v2": "GET"},
+            {"v0": "user:a", "v1": "/items", "v2": "GET"},
+            {"ptype": "g2", "v0": "user:a", "v1": "owner"},
+        ],
+    )
+    def test_invalid_rules_skipped(self, helper_app, caplog, document):
+        collection = helper_app.config["casbin_adapter"]._collection
+        collection.insert_one({"id": "invalid", **document})
+        collection.insert_one(
+            {"id": "2", "ptype": "p", "v0": "*", "v1": "/x", "v2": "GET"}
+        )
+        with helper_app.app_context():
+            enforcer = get_enforcer()
+            assert enforcer.get_policy() == [["*", "/x", "GET"]]
+            assert enforcer.get_named_grouping_policy("g2") == []
+            assert enforcer.enforce("user:a", "/x", "GET")
+        assert "Skipping invalid policy rule 'invalid'" in caplog.text
+
+    def test_duplicates_loaded_once(self, helper_app):
+        adapter = helper_app.config["casbin_adapter"]
+        for _ in range(2):
+            adapter.save_policy_line("g", ["user:alice", "admin"])
+        with helper_app.app_context():
+            assert get_enforcer().get_grouping_policy() == [
+                ["user:alice", "admin"]
+            ]
+
 
 class TestResourceRoles:
     """Tests for resource role helpers."""
@@ -733,6 +902,57 @@ class TestResourceRoles:
                 "alice", "owner", "/items/1", ptype="g3"
             )
             assert not remove_resource("/items/1", ptype="g3")
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ("alice,owner,/items/2", "owner", "/items/1"),
+            ("alice\n", "owner", "/items/1"),
+            ("alice", "#owner", "/items/1"),
+            ("alice", "owner", "/items/1,/items/2"),
+            ("alice", "", "/items/1"),
+        ],
+    )
+    def test_invalid_values(self, helper_app, args):
+        with helper_app.app_context():
+            for helper in [add_resource_role, remove_resource_role]:
+                with pytest.raises(ValueError):
+                    helper(*args)
+            collection = helper_app.config["casbin_adapter"]._collection
+            assert collection.count_documents({}) == 0
+
+    def test_save_rule_invalid_for_model(self, helper_app):
+        adapter = Adapter(
+            uri="mongodb://localhost:12345/",
+            dbname=DB_NAME,
+            collection=COLLECTION_NAME,
+            model=_model_path(),
+        )
+        adapter._collection = mongomock.MongoClient()[DB_NAME][COLLECTION_NAME]
+        for ptype, rule in [
+            ("p2", ["*", "/items", "GET"]),
+            ("p", ["*", "/items"]),
+            ("p", ["*", "/items", "(GET"]),
+            ("g2", ["user:a", "owner"]),
+        ]:
+            with pytest.raises(ValueError):
+                adapter.save_policy_line(ptype, rule)
+        enforcer = Enforcer(_model_path(), adapter)
+        with pytest.raises(ValueError):
+            enforcer.add_policy("*", "/items", "(GET")
+        assert adapter._collection.count_documents({}) == 0
+        assert adapter.save_policy_line("p", ["*", "/items", "GET"])
+
+    def test_save_invalid_rule(self, helper_app):
+        adapter = helper_app.config["casbin_adapter"]
+        for ptype, rule in [
+            ("g2", ["user:a,b", "owner", "/items/1"]),
+            ("g2", ["user:a", None, "/items/1"]),
+            ("x", ["user:a", "owner"]),
+        ]:
+            with pytest.raises(ValueError):
+                adapter.save_policy_line(ptype, rule)
+        assert adapter._collection.count_documents({}) == 0
 
     @pytest.mark.parametrize(
         "ptype,model_file",
