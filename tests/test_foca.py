@@ -3,6 +3,7 @@
 import shutil
 from pathlib import Path
 
+import mongomock
 import pytest
 from celery import Celery
 from connexion import App
@@ -15,6 +16,7 @@ from yaml import (
 )
 
 from foca import Foca
+from foca.database import register_mongodb as db_module
 from foca.models.config import AccessControlConfig
 
 DIR = Path(__file__).parent / "test_files"
@@ -229,6 +231,25 @@ def test_foca_create_celery_app_without_jobs_field():
     foca = Foca(config_file=NO_JOBS_CONF)
     with pytest.raises(ValueError):
         foca.create_celery_app()
+
+
+def test_foca_one_mongo_client(monkeypatch):
+    """Ensure app databases and the Casbin adapter share one client."""
+    clients = []
+
+    def mongo_client(uri):
+        clients.append(mongomock.MongoClient())
+        return clients[-1]
+
+    monkeypatch.setattr(db_module, "MongoClient", mongo_client)
+    foca = Foca(config_file=[VALID_DB_CONF, ACCESS_CONTROL_ENABLED_CONF])
+    app = foca.create_app()
+    assert len(clients) == 1
+    dbs = app.app.config.foca.db.dbs
+    assert set(dbs) == {"my-db", "access_control_db"}
+    assert all(db.client.client is clients[0] for db in dbs.values())
+    adapter = app.app.config["casbin_adapter"]
+    assert adapter._collection.database.client is clients[0]
 
 
 def test_foca_relative_paths(tmp_path, monkeypatch):

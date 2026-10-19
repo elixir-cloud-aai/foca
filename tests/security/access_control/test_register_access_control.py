@@ -5,6 +5,7 @@ import logging
 import mongomock
 import pytest
 
+from foca.database import register_mongodb as db_module
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
     AccessControlConfig,
@@ -21,6 +22,13 @@ from foca.security.access_control.register_access_control import (
 
 class TestRegisterAccessControlSetup:
     """Tests for registering the access control database and API."""
+
+    @pytest.fixture(autouse=True)
+    def mongo_client(self, monkeypatch):
+        """Use in-memory MongoDB clients, as indexes are created."""
+        monkeypatch.setattr(
+            db_module, "MongoClient", lambda uri: mongomock.MongoClient()
+        )
 
     @staticmethod
     def _register(mongo_config, times=1, **access_control_kwargs):

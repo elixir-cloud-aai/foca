@@ -1,14 +1,13 @@
 """Tests for register_mongodb.py"""
 
-import logging
 from urllib.parse import unquote, urlsplit
 
+import mongomock
 import pytest
-from flask import Flask
-from flask_pymongo import PyMongo
 
+from foca.database import register_mongodb as module
 from foca.database.register_mongodb import (
-    _create_mongo_client,
+    create_mongo_client,
     get_mongo_db_name,
     get_mongo_uri,
     register_mongodb,
@@ -108,146 +107,133 @@ class TestGetMongoDbName:
         assert get_mongo_db_name("my_db") == "other_db"
 
 
-@pytest.mark.parametrize(
-    "uri",
-    [
-        "mongodb://h1:1/?tls=false",
-        "mongodb://h1:1/admin?tls=false",
-    ],
-)
-def test__create_mongo_client_uri(clean_env, uri):
-    """Client uses `MONGO_URI` unchanged and selects configured database."""
-    clean_env.setenv("MONGO_URI", uri)
-    app = Flask(__name__)
-    res = _create_mongo_client(app=app, db="my_db")
-    assert isinstance(res, PyMongo)
-    assert app.config["MONGO_URI"] == uri
-    assert res.db.name == "my_db"
+@pytest.fixture
+def clients(clean_env, monkeypatch):
+    """Replace MongoDB clients with in-memory clients; record their URIs."""
+    created: list[tuple[str, mongomock.MongoClient]] = []
+
+    def mongo_client(uri):
+        client = mongomock.MongoClient()
+        created.append((uri, client))
+        return client
+
+    monkeypatch.setattr(module, "MongoClient", mongo_client)
+    return created
 
 
-def test__create_mongo_client_dbname(clean_env):
-    """Client selects database from `MONGO_DBNAME`."""
-    clean_env.setenv("MONGO_URI", "mongodb://h1:1/admin")
-    clean_env.setenv("MONGO_DBNAME", "other_db")
-    res = _create_mongo_client(app=Flask(__name__), db="my_db")
-    assert res.db.name == "other_db"
+class TestCreateMongoClient:
+    def test_uri(self, clients):
+        """Client is created from the connection string."""
+        res = create_mongo_client(host="db", port=1234, db="my_db")
+        assert clients == [("mongodb://db:1234/my_db", res)]
 
+    def test_no_db(self, clients):
+        """Connection string names no database by default."""
+        create_mongo_client(host="db", port=1234)
+        assert clients[0][0] == "mongodb://db:1234/"
 
-def test__create_mongo_client_no_secrets_logged(clean_env, caplog):
-    """Credentials and options are not logged."""
-    clean_env.setenv(
-        "MONGO_URI",
-        "mongodb://u:secret@h1:1/?tlsCertificateKeyFilePassword=secret",
+    @pytest.mark.parametrize(
+        "uri", ["mongodb://h1:1/?tls=false", "mongodb://h1:1/admin"]
     )
-    with caplog.at_level(logging.INFO):
-        _create_mongo_client(app=Flask(__name__), db="my_db")
-    assert "'my_db' at URI 'mongodb://h1:1/'" in caplog.text
-    assert "secret" not in caplog.text
+    def test_mongo_uri(self, clients, monkeypatch, uri):
+        """`MONGO_URI` is used unchanged."""
+        monkeypatch.setenv("MONGO_URI", uri)
+        create_mongo_client(db="my_db")
+        assert clients[0][0] == uri
+
+    def test_no_secrets_logged(self, clients, monkeypatch):
+        """Credentials and options are not logged."""
+        monkeypatch.setenv(
+            "MONGO_URI",
+            "mongodb://u:secret@h1:1/?tlsCertificateKeyFilePassword=secret",
+        )
+        messages = []
+        monkeypatch.setattr(module.logger, "info", messages.append)
+        create_mongo_client(db="my_db")
+        assert messages == ["Created MongoDB client for 'mongodb://h1:1/'."]
 
 
 MONGO_DICT_MIN = {
     "host": "mongodb",
     "port": 27017,
 }
-DB_DICT_NO_COLL = {"my_db": {"collections": None}}
-DB_DICT_DEF_COLL = {
-    "my_db": {
-        "collections": {
-            "my_collection": {
-                "indexes": None,
-            }
+INDEX = {"keys": {"indexed_field": 1}, "options": {"name": "my_index"}}
+
+
+def _config(**dbs) -> MongoConfig:
+    return MongoConfig(**MONGO_DICT_MIN, dbs=dbs or None)
+
+
+class TestRegisterMongodb:
+    def test_no_database(self, clients):
+        """No client is created without databases."""
+        res = register_mongodb(_config())
+        assert isinstance(res, MongoConfig)
+        assert clients == []
+
+    def test_one_client(self, clients):
+        """All databases share one client."""
+        conf = _config(
+            db1={"collections": {"c1": {}, "c2": {"indexes": None}}},
+            db2={"collections": None},
+        )
+        register_mongodb(conf)
+        assert len(clients) == 1
+        uri, client = clients[0]
+        # authenticates against the first database
+        assert uri == "mongodb://mongodb:27017/db1"
+        assert conf._client is client
+        db1 = conf.dbs["db1"]
+        assert db1.client.name == "db1"
+        assert db1.client.client is client
+        assert db1.collections["c1"].client.name == "c1"
+        assert conf.dbs["db2"].client.name == "db2"
+        # repeated registration reuses the client
+        register_mongodb(conf)
+        assert len(clients) == 1
+
+    def test_dbname_override(self, clients, monkeypatch):
+        """`MONGO_DBNAME` points all databases to the same database."""
+        monkeypatch.setenv("MONGO_DBNAME", "other_db")
+        conf = _config(db1={}, db2={})
+        register_mongodb(conf)
+        assert clients[0][0] == "mongodb://mongodb:27017/other_db"
+        assert {db.client.name for db in conf.dbs.values()} == {"other_db"}
+
+    def test_indexes_created_and_kept(self, clients):
+        """Indexes are created; other existing indexes are kept."""
+        conf = _config(db1={"collections": {"c1": {"indexes": [INDEX]}}})
+        register_mongodb(conf)
+        collection = conf.dbs["db1"].collections["c1"].client
+        collection.create_index("other_field", name="manual_index")
+        # restart: new config, same database
+        conf = _config(db1={"collections": {"c1": {"indexes": [INDEX]}}})
+        conf._client = clients[0][1]
+        register_mongodb(conf)
+        assert set(collection.index_information()) == {
+            "_id_",
+            "my_index",
+            "manual_index",
         }
-    }
-}
-DB_DICT_CUST_COLL = {
-    "my_db": {
-        "collections": {
-            "my_collection": {
-                "indexes": [
-                    {
-                        "keys": {"indexed_field": 1},
-                        "options": {"sparse": False},
-                    }
-                ]
-            }
+
+    def test_index_conflict(self, clients):
+        """Conflicting indexes fail with a clear message."""
+        conf = _config(db1={"collections": {"c1": {"indexes": [INDEX]}}})
+        register_mongodb(conf)
+        conflicting = {
+            "keys": {"other_field": 1},
+            "options": {"name": "my_index"},
         }
-    }
-}
-MONGO_CONFIG_MINIMAL = MongoConfig(**MONGO_DICT_MIN, dbs=None)
-MONGO_CONFIG_NO_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_NO_COLL)
-MONGO_CONFIG_DEF_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_DEF_COLL)
-MONGO_CONFIG_CUST_COLL = MongoConfig(**MONGO_DICT_MIN, dbs=DB_DICT_CUST_COLL)
+        conf = _config(db1={"collections": {"c1": {"indexes": [conflicting]}}})
+        conf._client = clients[0][1]
+        with pytest.raises(
+            ValueError, match="conflicts with an existing index"
+        ):
+            register_mongodb(conf)
 
-
-def test__create_mongo_client(monkeypatch):
-    """When MONGO_USERNAME environement variable is NOT defined"""
-    monkeypatch.setenv("MONGO_USERNAME", "None")
-    app = Flask(__name__)
-    res = _create_mongo_client(
-        app=app,
-    )
-    assert isinstance(res, PyMongo)
-
-
-def test__create_mongo_client_auth(monkeypatch):
-    """When MONGO_USERNAME environement variable IS defined"""
-    monkeypatch.setenv("MONGO_USERNAME", "TestingUser")
-    app = Flask(__name__)
-    res = _create_mongo_client(app)
-    assert isinstance(res, PyMongo)
-
-
-def test__create_mongo_client_auth_empty(monkeypatch):
-    """When MONGO_USERNAME environment variable IS defined but empty"""
-    monkeypatch.setenv("MONGO_USERNAME", "")
-    app = Flask(__name__)
-    res = _create_mongo_client(app)
-    assert isinstance(res, PyMongo)
-
-
-def test_register_mongodb_no_database():
-    """Skip MongoDB client registration"""
-    app = Flask(__name__)
-    res = register_mongodb(
-        app=app,
-        conf=MONGO_CONFIG_MINIMAL,
-    )
-    assert isinstance(res, MongoConfig)
-
-
-def test_register_mongodb_no_collections():
-    """Register MongoDB database without any collections"""
-    app = Flask(__name__)
-    res = register_mongodb(
-        app=app,
-        conf=MONGO_CONFIG_NO_COLL,
-    )
-    assert isinstance(res, MongoConfig)
-
-
-def test_register_mongodb_def_collections():
-    """Register MongoDB with collection and default index"""
-    app = Flask(__name__)
-    res = register_mongodb(
-        app=app,
-        conf=MONGO_CONFIG_DEF_COLL,
-    )
-    assert isinstance(res, MongoConfig)
-
-
-def test_register_mongodb_cust_collections(monkeypatch):
-    """Register MongoDB with collections and custom indexes"""
-    monkeypatch.setattr(
-        "pymongo.collection.Collection.create_index",
-        lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "pymongo.collection.Collection.drop_indexes",
-        lambda *args, **kwargs: None,
-    )
-    app = Flask(__name__)
-    res = register_mongodb(
-        app=app,
-        conf=MONGO_CONFIG_CUST_COLL,
-    )
-    assert isinstance(res, MongoConfig)
+    def test_index_without_keys(self, clients):
+        """Indexes without keys are skipped."""
+        conf = _config(db1={"collections": {"c1": {"indexes": [{}]}}})
+        register_mongodb(conf)
+        collection = conf.dbs["db1"].collections["c1"].client
+        assert set(collection.index_information()) <= {"_id_"}

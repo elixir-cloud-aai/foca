@@ -7,9 +7,9 @@ from pathlib import Path
 from connexion import App
 
 from foca.database.register_mongodb import (
-    add_new_database,
+    _register_database,
+    get_mongo_client,
     get_mongo_db_name,
-    get_mongo_uri,
 )
 from foca.models.config import (
     AccessControlConfig,
@@ -82,11 +82,10 @@ def register_access_control(
             client=None,
         )
         mongo_config.dbs[access_control_db] = access_db_conf
-        add_new_database(
-            app=cnx_app.app,
-            conf=mongo_config,
-            db_conf=access_db_conf,
+        _register_database(
+            client=get_mongo_client(mongo_config),
             db_name=access_control_db,
+            db_conf=access_db_conf,
         )
     else:
         # Add policy collection to app database of the same name, keeping
@@ -104,11 +103,10 @@ def register_access_control(
         policy_collection = CollectionConfig()
         app_db_conf.collections[access_control_collection] = policy_collection
         if app_db_conf.client is None:
-            add_new_database(
-                app=cnx_app.app,
-                conf=mongo_config,
-                db_conf=app_db_conf,
+            _register_database(
+                client=get_mongo_client(mongo_config),
                 db_name=access_control_db,
+                db_conf=app_db_conf,
             )
         else:
             policy_collection.client = app_db_conf.client[
@@ -214,14 +212,12 @@ def register_casbin_enforcer(
     app.app.config["CASBIN_MODEL"] = casbin_model
 
     logger.info("Setting up casbin enforcer.")
+    # Same client and collection as registered for the app's databases
+    collection = get_mongo_client(mongo_config)[
+        get_mongo_db_name(access_control_config.db_name)
+    ][access_control_config.collection_name]
     adapter = Adapter(
-        uri=get_mongo_uri(
-            host=mongo_config.host,
-            port=mongo_config.port,
-            db=access_control_config.db_name,
-        ),
-        dbname=get_mongo_db_name(access_control_config.db_name),
-        collection=access_control_config.collection_name,
+        collection=collection,
         id_charset=access_control_config.id_charset,
         id_length=access_control_config.id_length,
         model=casbin_model,
