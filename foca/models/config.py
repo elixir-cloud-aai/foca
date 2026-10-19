@@ -718,9 +718,17 @@ class AuthConfig(FOCABaseConfig):
         validate_userinfo: Whether to additionally validate tokens via the
             issuer's user info endpoint, which needs to report the token's
             subject.
+        userinfo_claims: Claims to add from the issuer's user info endpoint
+            if the token lacks them, e.g., `eduperson_entitlement`, for
+            access control based on group claims (cf.
+            `access_control.claim_groups`) with identity providers that
+            only provide them via user info. Claims of the token are never
+            replaced. The user info needs to report the token's subject; it
+            is cached per token for `cache_ttl` seconds (unless
+            `validate_userinfo` is set), but not beyond the token's expiry.
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
-            documents and public keys are cached.
+            documents and public keys, and user info, are cached.
 
     Attributes:
         issuers: Trusted token issuers.
@@ -733,9 +741,11 @@ class AuthConfig(FOCABaseConfig):
         algorithms: Lists the JWT-signing algorithms supported by the app.
         validate_userinfo: Whether to additionally validate tokens via the
             issuer's user info endpoint.
+        userinfo_claims: Claims to add from the issuer's user info endpoint
+            if the token lacks them.
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
-            documents and public keys are cached.
+            documents and public keys, and user info, are cached.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -761,6 +771,7 @@ class AuthConfig(FOCABaseConfig):
     claim_identity: str = "sub"
     algorithms: list[str] = ["RS256"]
     validate_userinfo: bool = False
+    userinfo_claims: list[str] = []
     timeout: float = Field(default=10, gt=0)
     cache_ttl: float = Field(default=300, ge=0)
     # Whether warnings about the settings were logged, i.e., on the first

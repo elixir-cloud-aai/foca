@@ -1,6 +1,9 @@
 """Functions for validating JWT Bearer tokens."""
 
+import copy
+import hashlib
 import logging
+import threading
 import time
 from typing import Any
 
@@ -26,12 +29,18 @@ OIDC_CONFIG_PATH = ".well-known/openid-configuration"
 # between attempts to fetch a discovery document or JWK set after a failure
 JWKS_REFETCH_COOLDOWN = 30
 
+# Maximum number of tokens whose user info is cached
+USERINFO_CACHE_SIZE = 1000
+
 # OpenID Connect discovery documents and JWK sets, with time of retrieval,
 # by issuer and JWK set URL, respectively
 _oidc_configs: dict[str, tuple[float, dict]] = {}
 _jwk_sets: dict[str, tuple[float, jwt.PyJWKSet]] = {}
 # Time of last failed attempt to fetch a discovery document or JWK set, by URL
 _failed_fetches: dict[str, float] = {}
+# User info, with time until which it is valid, by hash of token
+_userinfo_cache: dict[str, tuple[float, float, dict]] = {}
+_userinfo_cache_lock = threading.Lock()
 
 
 def validate_token(token: str) -> dict:
@@ -40,7 +49,9 @@ def validate_token(token: str) -> dict:
     Only tokens issued by one of the trusted issuers configured via
     `security.auth.issuers` are accepted. Tokens are verified locally with
     the issuer's public keys, obtained via OpenID Connect discovery, and,
-    if configured, additionally via the issuer's user info endpoint.
+    if configured, additionally via the issuer's user info endpoint. Claims
+    configured via `security.auth.userinfo_claims` that the token lacks are
+    added from the issuer's user info endpoint.
 
     Args:
         token: JSON Web Token (JWT).
@@ -125,13 +136,19 @@ def _validate(token: str, conf: AuthConfig) -> dict:
         jwks_uri=oidc_config.get("jwks_uri"),
         conf=conf,
     )
-    if conf.validate_userinfo:
-        _validate_userinfo(
+    missing_claims = [
+        claim for claim in conf.userinfo_claims if claim not in claims
+    ]
+    if conf.validate_userinfo or missing_claims:
+        userinfo = _get_userinfo(
             token=token,
-            subject=claims.get("sub"),
+            claims=claims,
             url=oidc_config.get("userinfo_endpoint"),
             conf=conf,
         )
+        for claim in missing_claims:
+            if claim in userinfo:
+                claims[claim] = copy.deepcopy(userinfo[claim])
     return claims
 
 
@@ -327,28 +344,66 @@ def _verify_signature(
     raise Unauthorized("JWT signature could not be verified")
 
 
-def _validate_userinfo(
+def _get_userinfo(
     token: str,
-    subject: Any,
+    claims: dict,
     url: Any,
     conf: AuthConfig,
-) -> None:
-    """Validate JSON Web Token (JWT) via the issuer's user info endpoint.
+) -> dict:
+    """Get user info for a JSON Web Token (JWT) from the issuer.
+
+    With `validate_userinfo`, user info is fetched for every validation, so
+    that revoked tokens are detected. Otherwise, it is cached per token for
+    `cache_ttl` seconds, but not beyond the token's expiry.
 
     Args:
         token: JSON Web Token (JWT), already verified locally.
-        subject: Subject (`sub` claim) of the token.
+        claims: Verified claims of the token.
         url: URL of the issuer's user info endpoint.
         conf: Authentication settings.
+
+    Returns:
+        User info.
 
     Raises:
         connexion.exceptions.Unauthorized: Raised if the user info could not
             be fetched or is not about the subject of the token.
     """
+    key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    if not conf.validate_userinfo:
+        with _userinfo_cache_lock:
+            cached = _userinfo_cache.get(key)
+        now = time.monotonic()
+        if (
+            cached is not None
+            and now < cached[1]
+            and now - cached[0] < conf.cache_ttl
+        ):
+            return cached[2]
     userinfo = _fetch_json(
         url=url,
         conf=conf,
         headers={"Authorization": f"Bearer {token}"},
     )
-    if not isinstance(userinfo, dict) or userinfo.get("sub") != subject:
+    subject = claims.get("sub")
+    if (
+        not isinstance(subject, str)
+        or not isinstance(userinfo, dict)
+        or userinfo.get("sub") != subject
+    ):
         raise Unauthorized("User info does not match JWT subject")
+    try:
+        lifetime = min(conf.cache_ttl, float(claims["exp"]) - time.time())
+    except (TypeError, ValueError):
+        lifetime = 0
+    with _userinfo_cache_lock:
+        _userinfo_cache.pop(key, None)
+        if not conf.validate_userinfo and lifetime > 0:
+            now = time.monotonic()
+            for cached_key, entry in list(_userinfo_cache.items()):
+                if entry[1] <= now:
+                    del _userinfo_cache[cached_key]
+            while len(_userinfo_cache) >= USERINFO_CACHE_SIZE:
+                del _userinfo_cache[next(iter(_userinfo_cache))]
+            _userinfo_cache[key] = (now, now + lifetime, userinfo)
+    return userinfo
