@@ -1,6 +1,7 @@
 """Tests for config-driven access control enforcement and helpers."""
 
 import logging
+from contextlib import contextmanager
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
@@ -287,6 +288,30 @@ def _create_app(
     return cnx_app.app
 
 
+@contextmanager
+def _capture_warnings(caplog):
+    """Capture warnings of the enforcement module, also if app creation
+    (i.e., logging configuration) disabled its logger or propagation."""
+    logger = enforcement.logger
+    disabled, propagate = logger.disabled, logger.propagate
+    logger.disabled, logger.propagate = False, True
+    try:
+        with caplog.at_level(logging.WARNING, logger=logger.name):
+            yield
+    finally:
+        logger.disabled, logger.propagate = disabled, propagate
+
+
+def _warnings(caplog) -> list[str]:
+    """Messages of warnings of the enforcement module."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == enforcement.logger.name
+        and record.levelno == logging.WARNING
+    ]
+
+
 def _headers(user: str | None) -> dict:
     return {} if user is None else {"Authorization": f"Bearer {user}"}
 
@@ -511,7 +536,7 @@ class TestEnforcement:
         response = app.test_client().get("/items/2", headers=_headers("henry"))
         assert response.status_code == 403
 
-    def test_warn_subject_like_roles(self, tmp_path):
+    def test_warn_subject_like_roles(self, tmp_path, caplog):
         """Stored roles that are subjects are warned about once."""
         app = _create_app(
             tmp_path, _access_control_config(subject_prefix="u.")
@@ -530,28 +555,30 @@ class TestEnforcement:
         ]:
             adapter.save_policy_line(ptype, rule)
         client = app.test_client()
-        # logger patched, as app creation may reconfigure logging
-        with mock.patch.object(enforcement.logger, "warning") as warning:
+        with _capture_warnings(caplog):
             for _ in range(2):
                 client.get("/items/1", headers=_headers("alice"))
-        messages = [call.args[0] for call in warning.call_args_list]
+        messages = _warnings(caplog)
         # once, irrespective of the number of requests
-        assert sorted(
-            message.split(" grants ")[0] for message in messages
-        ) == [
-            "Policy rule (g2, 'group:devs', 'u.bob', '/items/2')",
-            "Policy rule (g2, 'u.eve', 'group:a\\tb', '/items/2')",
-            "Policy rule (g2, 'u.mallory', 'group:auditors', '/items/1')",
-        ]
+        assert len(messages) == 3
+        for values in [
+            "'u.mallory', 'group:auditors', '/items/1'",
+            "'group:devs', 'u.bob', '/items/2'",
+            # control characters are escaped
+            "'u.eve', 'group:a\\tb', '/items/2'",
+        ]:
+            assert (
+                sum(f"(g2, {values})" in message for message in messages) == 1
+            )
         assert all("remove_resource_role()" in message for message in messages)
 
-    def test_no_warning_without_subject_like_roles(self, app):
-        with mock.patch.object(enforcement.logger, "warning") as warning:
+    def test_no_warning_without_subject_like_roles(self, app, caplog):
+        with _capture_warnings(caplog):
             response = app.test_client().get(
                 "/items/1", headers=_headers("alice")
             )
         assert response.status_code == 200
-        warning.assert_not_called()
+        assert _warnings(caplog) == []
 
 
 class TestPermissionsApi:

@@ -1,6 +1,7 @@
 """Enforcement of access control policies and helpers for managing them."""
 
 import logging
+import threading
 from collections.abc import Callable
 from functools import wraps
 from typing import Literal
@@ -27,6 +28,7 @@ RESOURCE_ROLE_PTYPE = "g2"
 # Key of the app config marking that loaded resource-scoped roles were
 # checked for roles that are subjects
 _SUBJECT_ROLES_CHECKED_KEY = "FOCA_ACCESS_CONTROL_SUBJECT_ROLES_CHECKED"
+_subject_roles_check_lock = threading.Lock()
 
 SubjectType = Literal["user", "group"]
 """Types of subjects of resource role helpers: users or groups."""
@@ -178,7 +180,7 @@ def _is_within_path(request_path: str, resource_path: str) -> bool:
     )
 
 
-def get_resource_role_ptypes(model: Model) -> list[str]:
+def _get_resource_role_ptypes(model: Model) -> list[str]:
     """Get policy types of resource-scoped role definitions of a model.
 
     Args:
@@ -203,17 +205,21 @@ def _warn_subject_like_roles(enforcer: Enforcer) -> None:
     rights of that subject on the resource, as Casbin resolves roles
     transitively. Such rules are rejected by :py:func:`add_resource_role`,
     but may have been stored before, or directly. They are not removed
-    automatically. Checked once per app, on the policy rules already
-    loaded by `enforcer`, i.e., without accessing the database.
+    automatically. Checked on the first policy load of each app instance
+    (per worker process), on the policy rules already loaded by
+    `enforcer`, i.e., without accessing the database.
 
     Args:
         enforcer: Casbin enforcer with loaded policy rules.
     """
-    if current_app.config.get(_SUBJECT_ROLES_CHECKED_KEY):
+    # Locked, so that concurrent first requests do not warn twice
+    with _subject_roles_check_lock:
+        checked = current_app.config.get(_SUBJECT_ROLES_CHECKED_KEY, False)
+        current_app.config[_SUBJECT_ROLES_CHECKED_KEY] = True
+    if checked:
         return
-    current_app.config[_SUBJECT_ROLES_CHECKED_KEY] = True
     prefixes = (_get_subject_prefix("user"), _get_subject_prefix("group"))
-    for ptype in get_resource_role_ptypes(enforcer.get_model()):
+    for ptype in _get_resource_role_ptypes(enforcer.get_model()):
         for subject, role, resource in enforcer.get_named_grouping_policy(
             ptype
         ):
@@ -247,7 +253,7 @@ def get_enforcer() -> Enforcer:
         current_app.config["casbin_adapter"],
     )
     if _get_access_control_config().resource_roles_cover_subpaths:
-        for ptype in get_resource_role_ptypes(enforcer.get_model()):
+        for ptype in _get_resource_role_ptypes(enforcer.get_model()):
             enforcer.add_named_domain_matching_func(ptype, _is_within_path)
     _warn_subject_like_roles(enforcer)
     return enforcer
@@ -446,7 +452,7 @@ def _get_resource_role_enforcer(ptype: str) -> Enforcer:
             with three fields (subject, role, resource).
     """
     enforcer = get_enforcer()
-    if ptype not in get_resource_role_ptypes(enforcer.get_model()):
+    if ptype not in _get_resource_role_ptypes(enforcer.get_model()):
         raise ValueError(
             f"Access control model does not define resource-scoped roles: "
             f"expected role definition '{ptype} = _, _, _'"
@@ -550,6 +556,8 @@ def add_resource_role(
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).
     """
+    # Only checked when granting roles, so that rules with empty subjects
+    # (e.g., stored by previous versions) can still be revoked
     if not subject:
         raise ValueError("Subjects must not be empty")
     enforcer = _get_resource_role_enforcer(ptype)
@@ -603,9 +611,7 @@ def remove_resource_role(
             so that such rules (e.g., stored before they were rejected) can
             be revoked.
     """
-    # Unlike when granting roles, empty subjects and roles that are
-    # subjects are not rejected, so that such rules (e.g., stored by
-    # previous versions) can be revoked
+    # Subject and role checks of `add_resource_role()` do not apply here
     enforcer = _get_resource_role_enforcer(ptype)
     rule = _get_resource_role_rule(
         subject, role, resource, ptype, subject_type, enforcer

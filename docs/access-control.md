@@ -501,8 +501,12 @@ Also keep in mind that:
   before this check was added, look for resource-scoped role rules (by
   default `g2`) whose role (`v1`) starts with `subject_prefix` or `group:`
   and remove them (e.g., via `remove_resource_role()` or the permissions
-  API). FOCA logs a warning for each such rule when policies are first
-  loaded (once per app), but does not remove them.
+  API). To revoke a rule whose subject starts with `group:`, pass
+  `subject_type="group"`. FOCA logs a warning for each such rule on the
+  first policy load of each app instance (per worker process), but does not
+  remove them. The permissions API stores rules as given, i.e., it does not
+  apply this check, so only let trusted administrators (by default, subjects
+  with role `admin`) write rules via it.
 * Only map group claim values via `group_mapping` to global roles such as
   `admin`, not to names of resource-scoped roles such as `owner` or
   `maintainer`: a mapped role is a subject of its own, which matches the `p`
