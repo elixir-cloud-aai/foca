@@ -177,7 +177,9 @@ Errors are returned as [problem details](configuration/exceptions.md):
   dictionary or re-exports werkzeug exceptions; import these from
   `werkzeug.exceptions`.
 - Update the error responses in your API specifications to
-  `application/problem+json`, and clients that read `message` or `code`.
+  `application/problem+json` (or, since FOCA 0.15, set
+  [`exceptions.media_type`](configuration/exceptions.md#media-type) to the
+  media type they declare), and clients that read `message` or `code`.
 
 ## Server
 

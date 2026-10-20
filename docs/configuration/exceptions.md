@@ -81,9 +81,12 @@ The media type must be a JSON media type without parameters, i.e., of the
 form `type/json` or `type/subtype+json` (e.g., `application/json`,
 `application/problem+json` or `application/vnd.example.error+json`), as the
 body is JSON; other values raise a `pydantic.ValidationError`. Media types
-are case-insensitive and stored in lower case. FOCA's permissions API
-specification declares `application/problem+json` for its error responses,
-whatever the configured media type.
+are case-insensitive and stored in lower case.
+
+FOCA's default [permissions API](access-control.md) specification declares
+the configured media type for its error responses. Custom specifications
+(`security.access_control.api_specs`) and your own specifications must
+declare it themselves.
 
 ::: foca.models.config.ExceptionConfig
     options:

@@ -221,6 +221,7 @@ def get_secured():
 
 
 def get_validated(limit):
+    # never called: requests without the required `limit` fail validation
     return "ok"
 
 
@@ -275,15 +276,18 @@ SPEC = {
 class TestHandler:
     """Tests for error responses of an app."""
 
-    @pytest.fixture(params=[None, "application/json"])
-    def media_type(self, request) -> str | None:
-        """Configured media type of error responses (`None`: default)."""
+    @pytest.fixture(
+        params=["application/problem+json", "application/json", "text/json"]
+    )
+    def media_type(self, request) -> str:
+        """Configured media type of error responses (default first; `text/*`
+        without charset).
+        """
         return request.param
 
     @pytest.fixture
     def client(self, conf, media_type):
-        if media_type is not None:
-            conf.media_type = media_type
+        conf.media_type = media_type
         app = App(__name__, skip_error_handlers=True)
         # the handler does not depend on FOCA's app config
         assert not hasattr(app.app.config, "foca")
@@ -330,9 +334,7 @@ class TestHandler:
     ):
         response = client.open(path, method=method, headers=headers)
         assert response.status_code == problem["status"]
-        assert response.content_type == (
-            media_type or "application/problem+json"
-        )
+        assert response.content_type == media_type
         assert json.loads(response.data) == problem
         assert "secret" not in response.get_data(as_text=True)
 

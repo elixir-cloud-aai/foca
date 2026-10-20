@@ -226,5 +226,6 @@ def _problem_handler_json(
     return Response(
         response=dumps(problem),
         status=status,
-        mimetype=conf.media_type,
+        # exactly as configured (`mimetype` adds a charset to `text/*`)
+        content_type=conf.media_type,
     )

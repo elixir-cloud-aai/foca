@@ -32,12 +32,13 @@ from foca.security.access_control.constants import (
     MIN_ID_SPACE,
 )
 
-# JSON media types of error responses: `type/subtype`, with names as per RFC
-# 6838, section 4.2, and subtype `json` or with suffix `+json`; parameters
-# are not allowed, as JSON does not define any (RFC 8259, section 11)
+# Default media type of error responses
+DEFAULT_ERROR_MEDIA_TYPE = "application/problem+json"
+# JSON media types of error responses: `type/json` or `type/subtype+json`,
+# with characters as per RFC 6838, section 4.2; without parameters, as JSON
+# defines none (RFC 8259, section 11)
 _JSON_MEDIA_TYPE = re.compile(
-    r"[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/"
-    r"(?:[a-z0-9][a-z0-9!#$&^_.+-]{0,121}\+)?json"
+    r"[a-z0-9][a-z0-9!#$&^_.+-]*/(?:[a-z0-9][a-z0-9!#$&^_.+-]*\+)?json"
 )
 
 
@@ -201,10 +202,13 @@ class ExceptionConfig(FOCABaseConfig):
         'application/problem+json'
     """
 
+    # Validate media types set after creation, too
+    model_config = ConfigDict(validate_assignment=True)
+
     mapping: str | None = None
     public_members: list[str] | None = None
     logging: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline
-    media_type: str = "application/problem+json"
+    media_type: str = DEFAULT_ERROR_MEDIA_TYPE
     # Problem details by exception class, imported from `mapping`
     _problems: dict[type[BaseException], dict[str, Any]] = PrivateAttr(
         default_factory=dict

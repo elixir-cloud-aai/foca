@@ -1,6 +1,8 @@
 """Tests for registering access control."""
 
 import logging
+from importlib.resources import files
+from pathlib import Path
 
 import mongomock
 import pytest
@@ -14,9 +16,75 @@ from foca.models.config import (
     IndexConfig,
     MongoConfig,
 )
-from foca.security.access_control.register_access_control import (
-    register_access_control,
+from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH,
+    DEFAULT_API_SPEC_PATH,
 )
+from foca.security.access_control.register_access_control import (
+    _with_error_media_type,
+    register_access_control,
+    register_permission_specs,
+)
+
+DEFAULT_SPEC = Path(
+    str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH))
+)
+
+
+def _error_media_types(spec: dict) -> set[str]:
+    """Media types of the error responses of a specification's operations."""
+    return {
+        media_type
+        for path_item in spec["paths"].values()
+        for operation in path_item.values()
+        if isinstance(operation, dict)
+        for status, response in operation["responses"].items()
+        if str(status)[0] in "45"
+        for media_type in response.get("content", {})
+    }
+
+
+def test_with_error_media_type():
+    """Error responses of the permissions API declare the media type."""
+    spec = _with_error_media_type(
+        spec_path=DEFAULT_SPEC, media_type="application/json"
+    )
+    assert _error_media_types(spec) == {"application/json"}
+    assert spec["paths"]["/permissions"]["post"]["responses"]["200"][
+        "content"
+    ].keys() == {"application/json"}
+
+
+@pytest.mark.parametrize(
+    "media_type,api_specs,expected",
+    [
+        ("application/problem+json", None, Path),
+        ("application/json", None, dict),
+        ("application/json", str(DEFAULT_SPEC), Path),
+    ],
+)
+def test_register_permission_specs_media_type(
+    monkeypatch, media_type, api_specs, expected
+):
+    """Only the default specification is changed, and only for other media
+    types than the default.
+    """
+    cnx_app = create_connexion_app(
+        Config(exceptions={"media_type": media_type})
+    )
+    specs = []
+    monkeypatch.setattr(
+        cnx_app,
+        "add_api",
+        lambda specification, **kwargs: specs.append(specification),
+    )
+    register_permission_specs(
+        app=cnx_app,
+        access_control_config=AccessControlConfig(api_specs=api_specs),
+    )
+    assert isinstance(specs[0], expected)
+    if expected is dict:
+        assert _error_media_types(specs[0]) == {media_type}
 
 
 class TestRegisterAccessControlSetup:
