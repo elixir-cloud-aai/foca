@@ -99,12 +99,15 @@ config:
 and applies changes with:
 
 ```bash
-helm upgrade --install my-app ./chart -f values-prod.yaml
+helm upgrade --install my-app ./chart -f values-prod.yaml --wait
 ```
 
 FOCA reads its configuration on startup only. The `checksum/config`
 annotation makes `helm upgrade` restart the pods whenever the rendered
-configuration changes, so new values take effect without further steps.
+configuration changes, so new values take effect without further steps. With
+`--wait`, Helm waits until the new pods are ready and reports an error if they
+are not, e.g., because FOCA rejects an invalid overlay; give the app container
+a readiness probe for this to work.
 
 Things to keep in mind:
 
@@ -126,6 +129,14 @@ Things to keep in mind:
   i.e., they refer to files in the image.
 - **Missing overlays fail fast:** FOCA raises an error on startup if a file
   listed in `FOCA_CONFIG_OVERLAY` does not exist.
+- **Rolling updates mix configurations:** while new pods replace old ones,
+  requests are served by pods with the old and the new configuration. Keep
+  configuration changes backward compatible, or use the `Recreate` deployment
+  strategy if that is not acceptable.
+- **Secrets are read on startup, too:** after rotating credentials in a
+  Secret, restart the pods (e.g., `kubectl rollout restart deployment/my-app`),
+  or reference a version of the Secret in the pod template, so that a change
+  restarts them.
 - The [FOCA image](getting-started.md#docker) runs as a non-root user that
   also works with arbitrary user IDs, e.g., on OpenShift.
 
@@ -133,10 +144,12 @@ Things to keep in mind:
 
 For local development, `docker compose up` uses the base configuration as is.
 To try other settings without changing the repository, put them into a
-`config.local.yaml` and mount it with a `compose.override.yaml`, which Docker
-Compose picks up automatically (add both files to `.gitignore`):
+`config.local.yaml` and mount it with an override file, which Docker Compose
+picks up automatically if it is named after the Compose file, e.g.,
+`docker-compose.override.yaml` for `docker-compose.yaml` (add both files to
+`.gitignore`; replace `app` with the name of your app's service):
 
-```yaml title="compose.override.yaml"
+```yaml title="docker-compose.override.yaml"
 services:
   app:
     environment:
