@@ -232,6 +232,22 @@ class TestRegisterAccessControlSetup:
         db = self._register(None)
         assert set(db.dbs) == {"access_control_db"}
 
+    @pytest.mark.parametrize(
+        "group_mapping,warned", [(None, True), ({"a": "admin"}, False)]
+    )
+    def test_keep_group_subjects_without_mapping(
+        self, caplog, group_mapping, warned
+    ):
+        """Setting `keep_group_subjects` without effect is warned about."""
+        with caplog.at_level(logging.WARNING):
+            self._register(
+                None,
+                claim_groups="groups",
+                group_mapping=group_mapping,
+                keep_group_subjects=True,
+            )
+        assert ("keep_group_subjects' has no effect" in caplog.text) is warned
+
     def test_logs(self, caplog):
         """Successful registration steps are logged."""
         with caplog.at_level(logging.INFO):

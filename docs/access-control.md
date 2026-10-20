@@ -299,7 +299,11 @@ the identity provider only provides the claim via user info, not in access
 tokens (e.g., `eduperson_entitlement` with LS Login), add it to
 [`security.auth.userinfo_claims`](configuration/auth.md). If
 `group_mapping` is set, claim values are mapped to roles, and values without
-mapping are ignored. Access is granted if any of the subjects is allowed.
+mapping are ignored, unless `keep_group_subjects` is set: then all claim
+values are _additionally_ used as group subjects (e.g., `group:vo-members`),
+as without `group_mapping` (see [granting roles to
+groups](#granting-roles-to-groups)). Access is granted if any of the subjects
+is allowed.
 This way, no rules are needed per user for group-based access, e.g., for
 administrators.
 
@@ -308,7 +312,7 @@ To keep users, groups and roles apart, subjects are namespaced in rules:
 | Subject | In rules | Example |
 | --- | --- | --- |
 | User identifier | prefixed with `subject_prefix` (default: `user:`) | `user:alice` |
-| Group claim value without `group_mapping` | prefixed with `group:` | `group:vo-members` |
+| Group claim value without `group_mapping` or with `keep_group_subjects` | prefixed with `group:` | `group:vo-members` |
 | Role (from `group_mapping` or `g` rules) | as is | `admin` |
 
 This way, a user whose identifier equals a role name (e.g., `admin`), or an
@@ -319,10 +323,13 @@ forms (e.g., `p, user:alice, /admin/access-control/permissions, GET`); rules
 naming unprefixed user identifiers do not match.
 
 In your controllers, use `get_current_subject()` and `get_current_groups()`
-to get the subject (without prefix) and roles of the current request:
+to get the subject (without prefix) and roles of the current request, and
+`get_current_group_values()` to get the values of its group claim as is
+(neither mapped nor prefixed):
 
 ```python
 from foca.security.access_control import (
+    get_current_group_values,
     get_current_groups,
     get_current_subject,
 )
@@ -340,6 +347,7 @@ p, maintainer, /services/:id, (GET)|(PUT)        # maintainers: read/update
 p, owner, /services/:id/permissions, (GET)|(PUT) # owners: manage access
 p, group:vo-members, /services/:id, GET          # raw group claim value
 g2, user:alice, owner, /services/123             # alice owns /services/123
+g2, group:team-x, maintainer, /services/123      # team-x maintains it
 g, user:bob, admin                               # bob is an admin
 ```
 
@@ -399,7 +407,127 @@ def deleteService(id, **kwargs):
 `list_resource_roles(resource)` returns the subjects and roles granted on a
 resource, and `remove_resource_role(subject, role, resource)` revokes a
 single role. The helpers take and return user identifiers without prefix and
-add `subject_prefix` to the rules themselves.
+add `subject_prefix` to the rules themselves. `add_resource_role()` raises a
+`ValueError` for empty subjects and for roles starting with
+`subject_prefix` or `group:`: as Casbin resolves roles transitively,
+granting, e.g., the "role" `group:auditors` to a user would otherwise give
+the user all rights of that group. `remove_resource_role()` accepts both, so
+that existing rules with them can be revoked; it removes all stored copies of
+a rule, and `list_resource_roles()` returns each subject and role pair
+once, also if a rule was stored more than once (e.g., by concurrent
+requests).
+
+#### Granting roles to groups
+
+Resource-scoped roles can also be granted to groups, e.g., to let a team
+maintained as a group in the identity provider own a resource. Pass
+`subject_type="group"` and the group claim value (as is, without `group:`)
+to `add_resource_role()` and `remove_resource_role()`; the helpers prefix it
+with `group:` in the rule (e.g., `g2, group:<value>, owner, /services/123`).
+As users and groups are prefixed differently, a user and a group of the same
+name never get each other's roles. Roles granted to a group apply to every
+user whose group claim (`claim_groups`) contains the value. If you also map
+group claim values to roles via `group_mapping`, set `keep_group_subjects:
+True`, as group claim values are otherwise not used as subjects:
+
+```yaml
+security:
+  access_control:
+    claim_groups: eduperson_entitlement
+    group_mapping:
+      "urn:geant:example.org:group:admins#example.org": admin
+    keep_group_subjects: True
+```
+
+When running several instances of your app (e.g., during rolling updates),
+only enable `keep_group_subjects` once all instances run a FOCA version that
+supports it: older versions reject the option, and instances without it deny
+access via roles granted to groups.
+
+`list_resource_roles(resource, subject_type="group")` lists the groups
+(without `group:`) and their roles on a resource, `subject_type="user"` the
+users (without `subject_prefix`). Without `subject_type`, all subjects are
+listed, users without prefix and all other subjects as is (e.g.,
+`group:<value>`), as in previous versions; as a user identifier may start
+with `group:`, this is ambiguous, so new code should always pass
+`subject_type`.
+
+`add_resource_role()` logs a warning when granting a role to a group while
+`group_mapping` is set and `keep_group_subjects` is not, as the role would
+not apply.
+
+Which users may grant roles to which groups is up to your app. FOCA does not
+check whether a group exists or who may grant roles to it; anyone allowed to
+call your endpoint could otherwise grant, e.g., ownership of their resource
+to any group, or roles that give members access they should not have. A
+sensible default is to only let users grant roles to groups they are members
+of, and only roles meant to be granted:
+
+```python
+from connexion.exceptions import BadRequestProblem, Forbidden
+from flask import request
+
+from foca.security.access_control import (
+    add_resource_role,
+    get_current_group_values,
+)
+
+GRANTABLE_ROLES = {"owner", "maintainer"}
+
+
+def putServicePermissions(id, body, **kwargs):
+    if body["subject_type"] not in {"user", "group"}:
+        raise BadRequestProblem(detail="Invalid subject type")
+    if body["role"] not in GRANTABLE_ROLES:
+        raise BadRequestProblem(detail="Invalid role")
+    if body["subject_type"] == "group" and (
+        body["subject"] not in get_current_group_values()
+    ):
+        raise Forbidden
+    add_resource_role(
+        subject=body["subject"],
+        role=body["role"],
+        resource=request.path.rsplit("/", 1)[0],
+        subject_type=body["subject_type"],
+    )
+```
+
+Also keep in mind that:
+
+* Only accept roles from an allowlist of roles users may grant (e.g., not
+  `admin`). The helpers already reject roles starting with `subject_prefix`
+  or `group:`, so that users cannot make themselves members of other groups,
+  but any other role is granted as given. If your app stored resource roles
+  before this check was added, look for resource-scoped role rules (by
+  default `g2`) whose role (`v1`) starts with `subject_prefix` or `group:`
+  and remove them (e.g., via `remove_resource_role()` or the permissions
+  API). To revoke a rule whose subject starts with `group:`, pass
+  `subject_type="group"`. FOCA logs a warning for each such rule on the
+  first policy load of each app instance (per worker process), but does not
+  remove them. The permissions API stores rules as given, i.e., it does not
+  apply this check, so only let trusted administrators (by default, subjects
+  with role `admin`) write rules via it.
+* Only map group claim values via `group_mapping` to global roles such as
+  `admin`, not to names of resource-scoped roles such as `owner` or
+  `maintainer`: a mapped role is a subject of its own, which matches the `p`
+  rules of that role on _every_ resource (e.g., all members of the group
+  would own all services).
+* Declare `subject_type` (and, ideally, `role`) as an `enum` in your API
+  specification, so that invalid values are rejected with `400` before your
+  controller is called; the helpers raise a `ValueError` for unsupported
+  subject types, which would otherwise result in `500`.
+* Group membership is taken from the claims of each request's token (or user
+  info), so a role granted to a group applies as long as the identity
+  provider lists the user as a member; removing a user from the group only
+  takes effect once their tokens (or cached user info) no longer list it.
+* Only use group claims whose values are controlled by the identity provider
+  or group managers you trust (e.g., `eduperson_entitlement`), not values
+  users may choose themselves.
+* Group claim values containing commas or line breaks, or longer than
+  allowed for rule values (see [rule values](#rule-values)), cannot be used
+  in rules; the helpers raise a `ValueError` for them.
+
+#### Policy types
 
 The helpers manage `g2` rules by default. For models defining resource-scoped
 roles under another name, pass it via `ptype` (e.g., `ptype="g3"`). The

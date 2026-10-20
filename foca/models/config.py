@@ -543,7 +543,14 @@ class AccessControlConfig(FOCABaseConfig):
             enforcing policies, prefixed with `group:` unless
             `group_mapping` is set.
         group_mapping: Mapping of values of `claim_groups` to roles. If set,
-            only mapped values are used as roles.
+            only mapped values are used as roles, unless
+            `keep_group_subjects` is set.
+        keep_group_subjects: Whether to also use all values of
+            `claim_groups`, prefixed with `group:`, as subjects if
+            `group_mapping` is set, i.e., in addition to the roles they are
+            mapped to (e.g., to grant resource-scoped roles to groups). Has
+            no effect without `group_mapping`, as values are then always
+            used as such.
         resource_roles_cover_subpaths: Whether resource-scoped roles (role
             definitions with three fields, e.g., `g2 = _, _, _`) granted on
             a resource path also apply to its sub-paths (e.g., a role on
@@ -588,6 +595,8 @@ class AccessControlConfig(FOCABaseConfig):
         subject_prefix: Prefix added to the subject in policy rules.
         claim_groups: JWT claim listing groups or entitlements of the subject.
         group_mapping: Mapping of values of `claim_groups` to roles.
+        keep_group_subjects: Whether to also use values of `claim_groups`
+            as subjects if `group_mapping` is set.
         resource_roles_cover_subpaths: Whether resource-scoped roles apply to
             sub-paths of the resource path they were granted on.
         id_charset: Characters of generated policy rule identifiers.
@@ -624,6 +633,7 @@ class AccessControlConfig(FOCABaseConfig):
     subject_prefix: str = "user:"
     claim_groups: str | None = None
     group_mapping: dict[str, str] | None = None
+    keep_group_subjects: bool = False
     resource_roles_cover_subpaths: bool = True
     id_charset: str = DEFAULT_ID_CHARSET
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)

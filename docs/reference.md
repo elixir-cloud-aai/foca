@@ -31,11 +31,13 @@ configuration models, see [Configuration](configuration/index.md).
         - is_permitted
         - get_current_subject
         - get_current_groups
+        - get_current_group_values
         - get_enforcer
         - add_resource_role
         - remove_resource_role
         - list_resource_roles
         - remove_resource
+        - SubjectType
 
 ::: foca.security.access_control.foca_casbin_adapter.adapter
     options:
