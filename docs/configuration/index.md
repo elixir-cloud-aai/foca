@@ -70,6 +70,9 @@ The merged configuration is validated once, and the merged files are logged.
 If your app needs to know its environment, define a value in your
 [custom configuration](custom.md) and set it in the overlays.
 
+See [Deployment](../deployment.md) for how to split the configuration between
+the app and its deployments, e.g., with Helm on Kubernetes.
+
 ## Environment variables
 
 | Variable | Description |
