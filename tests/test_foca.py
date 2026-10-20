@@ -96,6 +96,27 @@ def test_foca_create_app_output_defaults():
     assert "casbin_adapter" not in app.app.config
 
 
+def test_foca_create_app_error_media_type(tmp_path):
+    """Ensure error responses have the configured media type."""
+    conf = tmp_path / "config.yaml"
+    conf.write_text(
+        safe_dump({"exceptions": {"media_type": "application/json"}})
+    )
+    app = Foca(config_file=conf).create_app()
+    response = app.app.test_client().get("/unknown")
+    assert response.status_code == 404
+    assert response.content_type == "application/json"
+    assert response.json == {"title": "Not Found", "status": 404}
+
+
+def test_foca_constructor_invalid_error_media_type(tmp_path):
+    """Invalid 'exceptions.media_type' field."""
+    conf = tmp_path / "config.yaml"
+    conf.write_text(safe_dump({"exceptions": {"media_type": "text/plain"}}))
+    with pytest.raises(ValidationError):
+        Foca(config_file=conf)
+
+
 def test_foca_create_app_no_access_control():
     """Ensure access control is not registered by default."""
     foca = Foca(config_file=VALID_DB_CONF)

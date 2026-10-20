@@ -22,6 +22,10 @@ exceptions:
   mapping: my_app.exceptions.problems
   public_members: null
   logging: oneline
+  # Media type of all error responses; set to `application/json` only if
+  # your API specifications declare it for error responses (e.g., some GA4GH
+  # APIs)
+  media_type: application/problem+json
 
 # SECURITY CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/auth/

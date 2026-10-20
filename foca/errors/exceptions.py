@@ -215,7 +215,7 @@ def _problem_handler_json(
         conf: Exception handling settings.
 
     Returns:
-        JSON-formatted error response (`application/problem+json`).
+        JSON-formatted error response, with media type `conf.media_type`.
     """
     _log_exception(
         exc=exception,
@@ -226,5 +226,5 @@ def _problem_handler_json(
     return Response(
         response=dumps(problem),
         status=status,
-        mimetype="application/problem+json",
+        mimetype=conf.media_type,
     )

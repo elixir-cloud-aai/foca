@@ -1,6 +1,7 @@
 """FOCA config models."""
 
 import importlib
+import re
 from enum import Enum
 from importlib.resources import files
 from pathlib import Path
@@ -29,6 +30,14 @@ from foca.security.access_control.constants import (
     DEFAULT_MODEL_FILE,
     GROUP_PREFIX,
     MIN_ID_SPACE,
+)
+
+# JSON media types of error responses: `type/subtype`, with names as per RFC
+# 6838, section 4.2, and subtype `json` or with suffix `+json`; parameters
+# are not allowed, as JSON does not define any (RFC 8259, section 11)
+_JSON_MEDIA_TYPE = re.compile(
+    r"[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/"
+    r"(?:[a-z0-9][a-z0-9!#$&^_.+-]{0,121}\+)?json"
 )
 
 
@@ -140,13 +149,13 @@ class ServerConfig(FOCABaseConfig):
 class ExceptionConfig(FOCABaseConfig):
     """Model for mapping exceptions to JSON problem details.
 
-    Error responses are problem details as per RFC 9457
-    (`application/problem+json`). By default, exceptions with an HTTP error
-    status code (e.g., werkzeug and Connexion exceptions) are mapped to
-    problem details with that status and its standard reason phrase as
-    title, and all other exceptions to `500 Internal Server Error`. Use
-    `mapping` to define problem details for specific exceptions (cf.
-    :py:func:`foca.errors.exceptions.build_problem`).
+    Error responses are problem details as per RFC 9457, by default with
+    media type `application/problem+json` (cf. `media_type`). By default,
+    exceptions with an HTTP error status code (e.g., werkzeug and Connexion
+    exceptions) are mapped to problem details with that status and its
+    standard reason phrase as title, and all other exceptions to `500
+    Internal Server Error`. Use `mapping` to define problem details for
+    specific exceptions (cf. :py:func:`foca.errors.exceptions.build_problem`).
 
     Args:
         mapping: Path to a dictionary mapping exception classes to problem
@@ -162,6 +171,11 @@ class ExceptionConfig(FOCABaseConfig):
             are logged with all members.
         logging: Specifies if and how exceptions and their problem details
             are logged.
+        media_type: Media type (`Content-Type`) of all error responses, as
+            `type/subtype`, with subtype `json` or suffix `+json`, e.g.,
+            ``application/json`` for APIs whose specifications declare it for
+            error responses (as many GA4GH API specifications do). The body
+            is the same for all media types.
 
     Attributes:
         mapping: Path to a dictionary mapping exception classes to problem
@@ -170,10 +184,12 @@ class ExceptionConfig(FOCABaseConfig):
             clients.
         logging: Specifies if and how exceptions and their problem details
             are logged.
+        media_type: Media type of all error responses, in lower case.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type, or the mapping cannot be imported or is invalid.
+            data type, the mapping cannot be imported or is invalid, or the
+            media type is not a JSON media type.
 
     Examples:
         >>> exceptions = ExceptionConfig(public_members=["title", "status"])
@@ -181,11 +197,14 @@ class ExceptionConfig(FOCABaseConfig):
         ['title', 'status']
         >>> exceptions.logging
         <ExceptionLoggingEnum.oneline: 'oneline'>
+        >>> exceptions.media_type
+        'application/problem+json'
     """
 
     mapping: str | None = None
     public_members: list[str] | None = None
     logging: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline
+    media_type: str = "application/problem+json"
     # Problem details by exception class, imported from `mapping`
     _problems: dict[type[BaseException], dict[str, Any]] = PrivateAttr(
         default_factory=dict
@@ -195,6 +214,31 @@ class ExceptionConfig(FOCABaseConfig):
     def problems(self) -> dict[type[BaseException], dict[str, Any]]:
         """Problem details by exception class, imported from `mapping`."""
         return self._problems
+
+    @field_validator("media_type")
+    @classmethod
+    def validate_media_type(cls, v: str) -> str:
+        """Validate the media type of error responses.
+
+        Args:
+            v: Media type.
+
+        Returns:
+            Media type, in lower case (media types are case-insensitive).
+
+        Raises:
+            ValueError: The media type is not of the form `type/subtype`,
+                with subtype `json` or suffix `+json`, or has parameters.
+        """
+        v = v.lower()
+        if not _JSON_MEDIA_TYPE.fullmatch(v):
+            raise ValueError(
+                "'media_type' must be a JSON media type without parameters, "
+                "i.e., 'type/json' or 'type/subtype+json' (e.g., "
+                "'application/problem+json' or 'application/json'), not "
+                f"'{v}'"
+            )
+        return v
 
     @model_validator(mode="after")
     def validate_mapping(self) -> Self:
