@@ -37,6 +37,7 @@ configuration models, see [Configuration](configuration/index.md).
         - remove_resource_role
         - list_resource_roles
         - remove_resource
+        - SubjectType
 
 ::: foca.security.access_control.foca_casbin_adapter.adapter
     options:

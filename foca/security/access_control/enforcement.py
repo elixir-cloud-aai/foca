@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # Policy type of resource-scoped role rules: subject, role, resource
 RESOURCE_ROLE_PTYPE = "g2"
 
-# Types of subjects managed via resource role helpers
 SubjectType = Literal["user", "group"]
+"""Types of subjects of resource role helpers: users or groups."""
 
 
 def _get_access_control_config():
@@ -422,21 +422,35 @@ def _get_resource_role_rule(
 
     Raises:
         ValueError: The subject is empty, the subject type is not supported,
-            the role starts with the prefix of a subject type (so that,
-            e.g., a role granted to a user could not be a group, giving the
-            user the group's roles), or the rule is not valid (cf.
+            or the rule is not valid (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule`).
     """
     if not subject:
         raise ValueError("Subjects must not be empty")
     rule = [_prefix_subject(subject, subject_type), role, resource]
+    validate_rule(ptype, rule, enforcer.get_model())
+    return rule
+
+
+def _validate_grantable_role(role: str) -> None:
+    """Ensure that a role to grant is not a subject.
+
+    As Casbin resolves roles transitively, granting a subject a role that is
+    a subject (e.g., `group:auditors`) would give it all roles of that
+    subject.
+
+    Args:
+        role: Role to grant.
+
+    Raises:
+        ValueError: The role starts with `access_control.subject_prefix` or
+            `group:`.
+    """
     for prefix in [_get_subject_prefix("user"), _get_subject_prefix("group")]:
-        if isinstance(role, str) and role.startswith(prefix):
+        if role.startswith(prefix):
             raise ValueError(
                 f"Roles must not start with '{prefix}', the prefix of subjects"
             )
-    validate_rule(ptype, rule, enforcer.get_model())
-    return rule
 
 
 def add_resource_role(
@@ -454,7 +468,8 @@ def add_resource_role(
     Roles granted to a group apply to all subjects whose group claim
     (`access_control.claim_groups`) contains the group, if group claim
     values are used as subjects, i.e., if `access_control.group_mapping` is
-    not set, or if `access_control.keep_group_subjects` is set. Which
+    not set, or if `access_control.keep_group_subjects` is set; otherwise,
+    a warning is logged, as the role would not apply. Which
     subjects may grant roles to which groups is up to the app (e.g., only
     to groups they are members of, cf.
     :py:func:`get_current_group_values`).
@@ -486,6 +501,19 @@ def add_resource_role(
     rule = _get_resource_role_rule(
         subject, role, resource, ptype, subject_type, enforcer
     )
+    _validate_grantable_role(role)
+    conf = _get_access_control_config()
+    if (
+        subject_type == "group"
+        and conf.group_mapping is not None
+        and not conf.keep_group_subjects
+    ):
+        logger.warning(
+            f"Role '{role}' granted to group '{subject}' on '{resource}' "
+            "does not apply: group claim values are not used as subjects "
+            "with 'access_control.group_mapping', unless "
+            "'access_control.keep_group_subjects' is set"
+        )
     return enforcer.add_named_grouping_policy(ptype, *rule)
 
 
@@ -511,10 +539,12 @@ def remove_resource_role(
 
     Raises:
         ValueError: The model does not define resource-scoped roles, the
-            subject is empty, the subject type is not supported, the role
-            starts with `access_control.subject_prefix` or `group:`, or the
+            subject is empty, the subject type is not supported, or the
             prefixed subject, role or resource is not a valid value for
-            policy rules.
+            policy rules. Unlike :py:func:`add_resource_role`, roles
+            starting with `access_control.subject_prefix` or `group:` are
+            accepted, so that such rules (e.g., added before they were
+            rejected) can be revoked.
     """
     enforcer = _get_resource_role_enforcer(ptype)
     rule = _get_resource_role_rule(

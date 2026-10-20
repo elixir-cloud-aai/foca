@@ -1,5 +1,6 @@
 """Tests for config-driven access control enforcement and helpers."""
 
+import logging
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
@@ -1363,21 +1364,60 @@ class TestResourceRoles:
     )
     @pytest.mark.parametrize("subject_type", ["user", "group"])
     def test_subject_like_roles(self, helper_app, role, subject_type):
-        """Roles cannot be subjects, so that their roles are not passed on."""
+        """Roles cannot be subjects, so that their roles are not passed on,
+        but existing rules with such roles can be revoked."""
+        prefix = "user:" if subject_type == "user" else "group:"
         with helper_app.app_context():
-            for helper in [add_resource_role, remove_resource_role]:
-                with pytest.raises(ValueError, match="must not start with"):
-                    helper(
-                        "grace", role, "/items/5", subject_type=subject_type
-                    )
+            with pytest.raises(ValueError, match="must not start with"):
+                add_resource_role(
+                    "grace", role, "/items/5", subject_type=subject_type
+                )
+            assert get_enforcer().get_named_grouping_policy("g2") == []
+            helper_app.config["casbin_adapter"].save_policy_line(
+                "g2", [f"{prefix}grace", role, "/items/5"]
+            )
+            assert remove_resource_role(
+                "grace", role, "/items/5", subject_type=subject_type
+            )
             assert get_enforcer().get_named_grouping_policy("g2") == []
 
     def test_subject_like_roles_custom_prefix(self, helper_app):
+        """Roles starting with a custom subject prefix are rejected, too."""
         helper_app.config.foca.security.access_control.subject_prefix = "u/"
         with helper_app.app_context():
-            with pytest.raises(ValueError):
-                add_resource_role("grace", "u/alice", "/items/5")
+            for role in ["u/alice", "group:auditors"]:
+                with pytest.raises(ValueError, match="must not start with"):
+                    add_resource_role("grace", role, "/items/5")
+                helper_app.config["casbin_adapter"].save_policy_line(
+                    "g2", ["u/grace", role, "/items/5"]
+                )
+                assert remove_resource_role("grace", role, "/items/5")
             assert add_resource_role("grace", "user:alice", "/items/5")
+            assert get_enforcer().get_named_grouping_policy("g2") == [
+                ["u/grace", "user:alice", "/items/5"]
+            ]
+
+    @pytest.mark.parametrize(
+        "group_mapping,keep_group_subjects,warned",
+        [
+            ({"a": "admin"}, False, True),
+            ({"a": "admin"}, True, False),
+            (None, False, False),
+        ],
+    )
+    def test_group_role_without_group_subjects(
+        self, helper_app, caplog, group_mapping, keep_group_subjects, warned
+    ):
+        """Granting roles to groups that are not subjects is warned about."""
+        conf = helper_app.config.foca.security.access_control
+        conf.group_mapping = group_mapping
+        conf.keep_group_subjects = keep_group_subjects
+        with helper_app.app_context(), caplog.at_level(logging.WARNING):
+            assert add_resource_role(
+                "devs", "owner", "/items/1", subject_type="group"
+            )
+            assert add_resource_role("devs", "maintainer", "/items/1")
+        assert ("does not apply" in caplog.text) is warned
 
     def test_subject_like_roles_not_chained(self, helper_app):
         """Users cannot get the rights of groups via resource roles."""

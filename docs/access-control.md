@@ -408,10 +408,11 @@ def deleteService(id, **kwargs):
 resource, and `remove_resource_role(subject, role, resource)` revokes a
 single role. The helpers take and return user identifiers without prefix and
 add `subject_prefix` to the rules themselves. They raise a `ValueError` for
-empty subjects and for roles starting with `subject_prefix` or `group:`: as
-Casbin resolves roles transitively, granting, e.g., the "role"
-`group:auditors` to a user would otherwise give the user all rights of that
-group.
+empty subjects, and `add_resource_role()` also for roles starting with
+`subject_prefix` or `group:`: as Casbin resolves roles transitively,
+granting, e.g., the "role" `group:auditors` to a user would otherwise give
+the user all rights of that group. `remove_resource_role()` accepts such
+roles, so that existing rules with them can be revoked.
 
 #### Granting roles to groups
 
@@ -440,7 +441,12 @@ security:
 users (without `subject_prefix`). Without `subject_type`, all subjects are
 listed, users without prefix and all other subjects as is (e.g.,
 `group:<value>`), as in previous versions; as a user identifier may start
-with `group:`, pass `subject_type` to tell users and groups apart.
+with `group:`, this is ambiguous, so new code should always pass
+`subject_type`.
+
+`add_resource_role()` logs a warning when granting a role to a group while
+`group_mapping` is set and `keep_group_subjects` is not, as the role would
+not apply.
 
 Which users may grant roles to which groups is up to your app. FOCA does not
 check whether a group exists or who may grant roles to it; anyone allowed to
@@ -483,7 +489,15 @@ Also keep in mind that:
 * Only accept roles from an allowlist of roles users may grant (e.g., not
   `admin`). The helpers already reject roles starting with `subject_prefix`
   or `group:`, so that users cannot make themselves members of other groups,
-  but any other role is granted as given.
+  but any other role is granted as given. If your app stored resource roles
+  before this check was added, look for `g2` rules whose role (`v1`) starts
+  with `subject_prefix` or `group:` and remove them (e.g., via
+  `remove_resource_role()` or the permissions API).
+* Only map group claim values via `group_mapping` to global roles such as
+  `admin`, not to names of resource-scoped roles such as `owner` or
+  `maintainer`: a mapped role is a subject of its own, which matches the `p`
+  rules of that role on _every_ resource (e.g., all members of the group
+  would own all services).
 * Declare `subject_type` (and, ideally, `role`) as an `enum` in your API
   specification, so that invalid values are rejected with `400` before your
   controller is called; the helpers raise a `ValueError` for unsupported
