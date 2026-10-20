@@ -1356,7 +1356,8 @@ class ServiceInfoConfig(FOCABaseConfig):
     built from, in order of precedence, `service`,
     the fields returned by `runtime_fields`, and the version of `package`.
     Fields and list items set to ``None`` (e.g., in config overlays) are
-    removed, also if set at a lower precedence. The service info must be
+    removed, also if set at a lower precedence, except for `version`, which
+    is then taken from the next source. The service info must be
     valid as per the `Service` schema of the GA4GH service-info
     specification, version 1.0.0.
 
@@ -1383,6 +1384,10 @@ class ServiceInfoConfig(FOCABaseConfig):
         package: Name of the app's distribution package.
         runtime_fields: Path to a function returning fields that are computed
             at runtime.
+        package_version: Version of `package`, if used for `version` (set on
+            validation).
+        runtime_function: Function imported from `runtime_fields`, if set
+            (set on validation).
 
     Raises:
         pydantic.ValidationError: The class was instantiated with an illegal

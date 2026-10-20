@@ -26,9 +26,12 @@ from jsonschema.exceptions import best_match
 # GA4GH service-info specification, version 1.0.0, with the `Service` schema
 SPEC_FILE = "service-info.yaml"
 SCHEMA = "Service"
-# Formats used by the `Service` schema; `jsonschema` only checks them if
-# optional packages are installed (`rfc3987`, `rfc3339-validator`), so they
-# are checked here
+# Formats used by the `Service` schema (`uri`, `date-time`). `jsonschema`
+# only checks them if optional packages are installed (`rfc3987`,
+# `rfc3339-validator`), and silently skips them otherwise. To check them
+# without depending on these packages, they are checked by the hand-written
+# checkers below: strictly for date-times (RFC 3339), and leniently, by
+# design, for URIs (any absolute URI, e.g., also `mailto:` or `urn:`).
 FORMAT_CHECKER = FormatChecker(formats=())
 # Lenient check for absolute URIs: a scheme, followed by a colon and any
 # characters other than whitespace (not a full RFC 3986 check)
@@ -123,6 +126,15 @@ def without_nulls(data: Any) -> Any:
     return data
 
 
+def _without_null_version(fields: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy fields (shallowly) without `version` if it is ``None``."""
+    return {
+        key: value
+        for key, value in fields.items()
+        if key != "version" or value is not None
+    }
+
+
 def merge_service_info(
     service: Mapping[str, Any],
     package_version: str | None = None,
@@ -132,9 +144,9 @@ def merge_service_info(
 
     Fields are taken, in order of precedence, from `service`, `runtime` and
     `package_version`. Fields and list items set to ``None`` are then
-    removed, also if set at a lower precedence, except for `version` of
-    `service`: as `version` is required, ``None`` means that it is not set,
-    so that it is taken from `runtime` or `package_version`.
+    removed, also if set at a lower precedence, except for `version`: as
+    `version` is required, ``None`` means that it is not set, so that it is
+    taken from the next source (`runtime`, then `package_version`).
 
     Args:
         service: Configured service info fields.
@@ -145,12 +157,13 @@ def merge_service_info(
         Service info, as a copy.
     """
     package = {} if package_version is None else {"version": package_version}
-    configured = {
-        key: value
-        for key, value in service.items()
-        if key != "version" or value is not None
-    }
-    return without_nulls({**package, **(runtime or {}), **configured})
+    return without_nulls(
+        {
+            **package,
+            **_without_null_version(runtime or {}),
+            **_without_null_version(service),
+        }
+    )
 
 
 def validate_service_info(

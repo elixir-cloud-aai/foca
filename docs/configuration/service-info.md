@@ -58,10 +58,12 @@ paths:
 
 The controller set on the operation takes precedence over one added to all
 operations via [`add_operation_fields`](api.md). Without such a field, a full
-`operationId: foca.api.service_info.getServiceInfo` works as well. Most GA4GH
-API specifications already define the operation (with `operationId:
-getServiceInfo`), so it is enough to add `x-openapi-router-controller`, e.g.,
-in a [merged file](api.md). `security: []` makes the service info public;
+`operationId: foca.api.service_info.getServiceInfo` works as well. GA4GH API
+specifications usually define the operation already, with `operationId:
+GetServiceInfo` (e.g., WES and TES) or `getServiceInfo` (e.g., the
+service-info specification itself). FOCA's controller is available under both
+names, so it is enough to add `x-openapi-router-controller`, e.g., in a
+[merged file](api.md). `security: []` makes the service info public;
 leave it out if your specification requires authentication for it.
 
 If an operation is routed to `getServiceInfo`, but `service_info` is not
@@ -75,8 +77,9 @@ your app's distribution package (as installed, e.g., with `pip install`, and
 as in the `name` of its `pyproject.toml`) to serve its version, unless
 `service.version` is set. The package must then be installed; otherwise the
 app refuses to start. `version: null` (e.g., in a [config
-overlay](index.md#environment-specific-configuration)) counts as not set, so
-the version is then taken from the `runtime_fields` function or `package`.
+overlay](index.md#environment-specific-configuration), or returned by the
+`runtime_fields` function) counts as not set, so the version is then taken
+from the next source (the function, then `package`).
 
 ## Fields computed at runtime
 
@@ -119,7 +122,8 @@ service-info specification, version 1.0.0, which is bundled with FOCA:
   the app refuses to start.
 - On each request, service info that has become invalid (via the function),
   or a failing function, is not served; the request fails with a generic
-  `500 Internal Server Error`, and the error is logged.
+  `500 Internal Server Error` (also if your app maps `ValueError` to other
+  problem details), and the error is logged.
 
 The service info must also be serializable as JSON (e.g., no dates as
 values: quote date-times in YAML, and return them as strings from the
@@ -128,16 +132,10 @@ function).
 Use `foca.api.service_info.get_service_info()` to get the service info of the
 current app in your own code.
 
-## Upgrading from earlier FOCA versions
-
-Earlier versions of FOCA accepted any top-level config section, including
-`service_info`, and left it to the app. Now, `service_info` is FOCA's own,
-validated section. Apps that kept the GA4GH service info fields directly
-under `service_info` must move them to `service_info.service`; apps that use
-`service_info` for anything else must rename it (e.g., to a key in a section
-of their own). Otherwise, the configuration fails validation.
-
 ## Migrating an app
+
+Upgrading an app that used `service_info` as a section of its own? See
+[Migrating to 0.14.0](../migration-0.14.md#service-info).
 
 Apps that implemented the service info themselves, e.g., with
 `POST /service-info` storing it in a database, can serve it from the

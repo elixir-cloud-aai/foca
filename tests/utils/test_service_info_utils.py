@@ -15,7 +15,13 @@ from foca.utils.service_info import (
     validate_service_info,
     without_nulls,
 )
-from tests.test_files.service_info import FIELDS, REQUIRED, SERVICE, service
+from tests.test_files.service_info_data import (
+    FIELDS,
+    REMOVE,
+    REQUIRED,
+    SERVICE,
+    service,
+)
 
 
 @pytest.mark.parametrize(
@@ -102,8 +108,8 @@ def test_merge_service_info():
     version, in this order; `None` removes fields of lower precedence.
     """
     configured = {"a": 1, "b": None}
-    runtime = {"a": 2, "b": 2, "c": 2, "d": None, "version": None}
-    assert merge_service_info(configured, "1.0", runtime) == {"a": 1, "c": 2}
+    runtime = {"a": 2, "b": 2, "c": 2, "d": None}
+    assert merge_service_info(configured, runtime=runtime) == {"a": 1, "c": 2}
     assert merge_service_info({"a": 1}, "1.0", {"version": "2.0"}) == {
         "a": 1,
         "version": "2.0",
@@ -115,6 +121,9 @@ def test_merge_service_info():
     assert merge_service_info(unset, "1.0", {"version": "2.0"}) == {
         "version": "2.0"
     }
+    # Also if returned at runtime
+    assert merge_service_info({}, "1.0", unset) == {"version": "1.0"}
+    assert merge_service_info(unset, "1.0", unset) == {"version": "1.0"}
     assert merge_service_info({"a": [None, 1]}) == {"a": [1]}
 
 
@@ -230,14 +239,14 @@ def test_validate_service_info_missing(field):
         match=rf"in `service_info\.service`: '{field}' is a required property",
     ):
         validate_service_info(
-            service(**{field: None}), prefix="service_info.service"
+            service(**{field: REMOVE}), prefix="service_info.service"
         )
 
 
 @pytest.mark.parametrize("field", REQUIRED)
 def test_validate_service_info_ignore_missing(field):
     """Missing required fields can be ignored."""
-    validate_service_info(service(**{field: None}), ignore_missing=True)
+    validate_service_info(service(**{field: REMOVE}), ignore_missing=True)
 
 
 @pytest.mark.parametrize(

@@ -110,15 +110,13 @@ log:
 # Cf. https://foca.readthedocs.io/en/latest/configuration/service-info/
 # Served by `foca.api.service_info.getServiceInfo` (route `GET /service-info`
 # of your specs there); validated against the GA4GH `Service` schema
-# `package` and `runtime_fields` are placeholders: adjust or remove them, as
-# the app refuses to start if the package is not installed or the function
-# cannot be imported
 service_info:
   # Distribution package whose version is served, unless `service.version`
-  # is set
-  package: my-app
-  # Function returning fields computed at runtime (optional)
-  runtime_fields: my_app.service_info.runtime_fields
+  # is set (optional; the package must be installed)
+  # package: my-app
+  # Function returning fields computed at runtime (optional; must be
+  # importable)
+  # runtime_fields: my_app.service_info.runtime_fields
   service:
     id: org.example.my-service
     name: My service
@@ -133,6 +131,8 @@ service_info:
     contactUrl: mailto:support@example.org
     documentationUrl: https://docs.example.org
     environment: prod
+    # Remove if served from `package`
+    version: 1.0.0
 
 
 # CUSTOM APP CONFIGURATION

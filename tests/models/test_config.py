@@ -7,6 +7,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+import yaml
 from pydantic import ValidationError
 from werkzeug.exceptions import NotFound
 
@@ -25,7 +26,7 @@ from foca.models.config import (
     ServiceInfoConfig,
     SpecConfig,
 )
-from tests.test_files.service_info import FIELDS, SERVICE, service
+from tests.test_files.service_info_data import FIELDS, REMOVE, SERVICE, service
 
 DIR = Path(__file__).parent / "test_files"
 PATH = str(DIR / "openapi_2_petstore.yaml")
@@ -429,7 +430,7 @@ def test_ServiceInfoConfig(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "configured", [service(version=None), {**SERVICE, "version": None}]
+    "configured", [service(version=REMOVE), service(version=None)]
 )
 def test_ServiceInfoConfig_package(monkeypatch, configured):
     """Test ServiceInfoConfig instantiation; version from package, also if
@@ -445,7 +446,7 @@ def test_ServiceInfoConfig_package_not_installed():
         ValidationError, match=r"Package 'not-installed-app' .* not installed"
     ):
         ServiceInfoConfig(
-            service=service(version=None), package="not-installed-app"
+            service=service(version=REMOVE), package="not-installed-app"
         )
 
 
@@ -453,7 +454,7 @@ def test_ServiceInfoConfig_runtime_fields():
     """Test ServiceInfoConfig instantiation; required fields may be
     computed at runtime."""
     res = ServiceInfoConfig(
-        service=service(name=None), runtime_fields=RUNTIME_FIELDS
+        service=service(name=REMOVE), runtime_fields=RUNTIME_FIELDS
     )
     assert res.runtime_function is not None
     assert res.runtime_function.__name__ == "runtime_fields"
@@ -476,12 +477,12 @@ def test_ServiceInfoConfig_runtime_fields_invalid():
     "configured,runtime_fields,match",
     [
         (
-            service(name=None),
+            service(name=REMOVE),
             None,
             r"`service_info\.service`: 'name' is a required property",
         ),
         (
-            {**SERVICE, "name": None},
+            service(name=None),
             None,
             r"`service_info\.service`: 'name' is a required property",
         ),
@@ -515,6 +516,16 @@ def test_ServiceInfoConfig_fields_invalid(data):
     unknown keys."""
     with pytest.raises(ValidationError):
         ServiceInfoConfig(**data)
+
+
+def test_ServiceInfoConfig_template():
+    """Test ServiceInfoConfig instantiation; section of the config template
+    validates as is."""
+    template = Path(__file__).parents[2] / "templates" / "config.yaml"
+    data = yaml.safe_load(template.read_text(encoding="utf-8"))
+    res = ServiceInfoConfig(**data["service_info"])
+    assert res.package is None
+    assert res.runtime_fields is None
 
 
 def test_Config_service_info():

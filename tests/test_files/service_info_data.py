@@ -20,13 +20,15 @@ SERVICE = {
     "version": "1.2.3",
 }
 REQUIRED = ("id", "name", "type", "organization", "version")
+# Value removing a field in `service()`
+REMOVE = object()
 
 
 def service(**fields) -> dict:
-    """Copy the service info, with fields replaced (`None` removes them)."""
+    """Copy the service info, with fields replaced, or removed if `REMOVE`."""
     copy = deepcopy(SERVICE)
     for field, value in fields.items():
-        if value is None:
+        if value is REMOVE:
             copy.pop(field, None)
         else:
             copy[field] = value

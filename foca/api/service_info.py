@@ -15,6 +15,7 @@ from inspect import unwrap
 from typing import TYPE_CHECKING, Any
 
 from flask import Flask
+from werkzeug.exceptions import InternalServerError
 
 from foca.config.access import get_config
 from foca.utils.service_info import (
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from foca.models.config import ServiceInfoConfig
 
 __all__ = [
+    "GetServiceInfo",
     "InvalidServiceInfo",
     "build_service_info",
     "check_service_info",
@@ -56,15 +58,15 @@ def build_service_info(conf: ServiceInfoConfig) -> dict[str, Any]:
         InvalidServiceInfo: The function returning fields at runtime failed
             or did not return a dictionary, or the service info is invalid.
     """
-    if conf.runtime_function is None or conf.runtime_fields is None:
+    if conf.runtime_function is None:
         info = merge_service_info(conf.service, conf.package_version)
         validate_service_info(info, prefix="service_info.service")
         return info
-    runtime = call_runtime_function(conf.runtime_function, conf.runtime_fields)
+    path = str(conf.runtime_fields)
+    runtime = call_runtime_function(conf.runtime_function, path)
     info = merge_service_info(conf.service, conf.package_version, runtime)
     validate_service_info(
-        info,
-        note=f" (from `service_info.service` and `{conf.runtime_fields}`)",
+        info, note=f" (from `service_info.service` and `{path}`)"
     )
     return info
 
@@ -93,12 +95,26 @@ def getServiceInfo() -> dict[str, Any]:
 
     Route the operation of your API specifications here, e.g., with
     `x-openapi-router-controller: foca.api.service_info` and `operationId:
-    getServiceInfo`.
+    getServiceInfo` (or `GetServiceInfo`, as in the GA4GH WES and TES
+    specifications).
 
     Returns:
         Service info of the current app.
+
+    Raises:
+        werkzeug.exceptions.InternalServerError: The service info cannot be
+            built (the error is logged), whatever exceptions apps map to
+            other problem details (e.g., `ValueError`).
     """
-    return get_service_info()
+    try:
+        return get_service_info()
+    except (InvalidServiceInfo, RuntimeError) as exc:
+        logger.exception(f"Service info not served: {exc}")
+        raise InternalServerError() from exc
+
+
+# Spelling of the operation in the GA4GH WES and TES specifications
+GetServiceInfo = getServiceInfo
 
 
 def _routes_to_controller(app: Flask) -> list[str]:
