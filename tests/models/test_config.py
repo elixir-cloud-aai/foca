@@ -2,14 +2,17 @@
 
 import doctest
 import sys
+from datetime import date
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+import yaml
 from pydantic import ValidationError
 from werkzeug.exceptions import NotFound
 
 import foca.models.config
+import foca.utils.service_info
 from foca.models.config import (
     AccessControlConfig,
     AuthConfig,
@@ -20,8 +23,10 @@ from foca.models.config import (
     IndexConfig,
     MongoConfig,
     SecurityConfig,
+    ServiceInfoConfig,
     SpecConfig,
 )
+from tests.test_files.service_info_data import FIELDS, REMOVE, SERVICE, service
 
 DIR = Path(__file__).parent / "test_files"
 PATH = str(DIR / "openapi_2_petstore.yaml")
@@ -406,6 +411,128 @@ def test_AccessControlConfig_absolute_model():
     """Test AccessControlConfig instantiation; absolute model path."""
     path = "/test/access_model.conf"
     assert AccessControlConfig(model=path).model == path
+
+
+RUNTIME_FIELDS = f"{FIELDS}.runtime_fields"
+
+
+def _no_version(name):
+    raise AssertionError(f"version of '{name}' looked up")
+
+
+def test_ServiceInfoConfig(monkeypatch):
+    """Test ServiceInfoConfig instantiation; configured version."""
+    monkeypatch.setattr(foca.utils.service_info, "version", _no_version)
+    res = ServiceInfoConfig(service=SERVICE, package="my-app")
+    assert res.service == SERVICE
+    assert res.package_version is None
+    assert res.runtime_function is None
+
+
+@pytest.mark.parametrize(
+    "configured", [service(version=REMOVE), service(version=None)]
+)
+def test_ServiceInfoConfig_package(monkeypatch, configured):
+    """Test ServiceInfoConfig instantiation; version from package, also if
+    `version` is `None` (e.g., in a config overlay)."""
+    monkeypatch.setattr(foca.utils.service_info, "version", lambda name: "2.0")
+    res = ServiceInfoConfig(service=configured, package="my-app")
+    assert res.package_version == "2.0"
+
+
+def test_ServiceInfoConfig_package_not_installed():
+    """Test ServiceInfoConfig instantiation; package not installed."""
+    with pytest.raises(
+        ValidationError, match=r"Package 'not-installed-app' .* not installed"
+    ):
+        ServiceInfoConfig(
+            service=service(version=REMOVE), package="not-installed-app"
+        )
+
+
+def test_ServiceInfoConfig_runtime_fields():
+    """Test ServiceInfoConfig instantiation; required fields may be
+    computed at runtime."""
+    res = ServiceInfoConfig(
+        service=service(name=REMOVE), runtime_fields=RUNTIME_FIELDS
+    )
+    assert res.runtime_function is not None
+    assert res.runtime_function.__name__ == "runtime_fields"
+
+
+def test_ServiceInfoConfig_runtime_fields_invalid():
+    """Test ServiceInfoConfig instantiation; runtime fields function cannot
+    be imported."""
+    with pytest.raises(
+        ValidationError,
+        match=(
+            r"Runtime fields function 'not_a_module\.f' "
+            r"\(`service_info\.runtime_fields`\) could not be imported"
+        ),
+    ):
+        ServiceInfoConfig(service=SERVICE, runtime_fields="not_a_module.f")
+
+
+@pytest.mark.parametrize(
+    "configured,runtime_fields,match",
+    [
+        (
+            service(name=REMOVE),
+            None,
+            r"`service_info\.service`: 'name' is a required property",
+        ),
+        (
+            service(name=None),
+            None,
+            r"`service_info\.service`: 'name' is a required property",
+        ),
+        (
+            {**SERVICE, "name": 1},
+            RUNTIME_FIELDS,
+            r"`service_info\.service\.name`: 1 is not of type 'string'",
+        ),
+        (
+            {**SERVICE, "organization": {"name": "x", "url": "x"}},
+            None,
+            r"`service_info\.service\.organization\.url`: 'x' is not a 'uri'",
+        ),
+        (
+            {**SERVICE, "x-date": date(2026, 10, 20)},
+            None,
+            r"`service_info\.service`: not JSON-serializable",
+        ),
+    ],
+)
+def test_ServiceInfoConfig_invalid(configured, runtime_fields, match):
+    """Test ServiceInfoConfig instantiation; invalid service info, with
+    `None` removing fields."""
+    with pytest.raises(ValidationError, match=match):
+        ServiceInfoConfig(service=configured, runtime_fields=runtime_fields)
+
+
+@pytest.mark.parametrize("data", [{}, {"service": SERVICE, "x": 1}])
+def test_ServiceInfoConfig_fields_invalid(data):
+    """Test ServiceInfoConfig instantiation; service info missing or
+    unknown keys."""
+    with pytest.raises(ValidationError):
+        ServiceInfoConfig(**data)
+
+
+def test_ServiceInfoConfig_template():
+    """Test ServiceInfoConfig instantiation; section of the config template
+    validates as is."""
+    template = Path(__file__).parents[2] / "templates" / "config.yaml"
+    data = yaml.safe_load(template.read_text(encoding="utf-8"))
+    res = ServiceInfoConfig(**data["service_info"])
+    assert res.package is None
+    assert res.runtime_fields is None
+
+
+def test_Config_service_info():
+    """Test Config instantiation; service info section."""
+    assert Config().service_info is None
+    res = Config.model_validate({"service_info": {"service": SERVICE}})
+    assert isinstance(res.service_info, ServiceInfoConfig)
 
 
 def test_docstring_examples():

@@ -135,6 +135,18 @@ def test_foca_constructor_invalid_error_media_type(tmp_path):
         Foca(config_file=conf)
 
 
+def test_foca_constructor_invalid_service_info(tmp_path):
+    """Invalid 'service_info' field, naming the invalid field."""
+    conf = tmp_path / "config.yaml"
+    conf.write_text(
+        safe_dump({"service_info": {"service": {"id": "my-service"}}})
+    )
+    with pytest.raises(
+        ValidationError, match=r"`service_info\.service`: 'name' is a"
+    ):
+        Foca(config_file=conf)
+
+
 def test_foca_create_app_no_access_control():
     """Ensure access control is not registered by default."""
     foca = Foca(config_file=VALID_DB_CONF)

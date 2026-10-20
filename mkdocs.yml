@@ -88,6 +88,7 @@ nav:
       - exceptions: configuration/exceptions.md
       - jobs: configuration/jobs.md
       - log: configuration/log.md
+      - service_info: configuration/service-info.md
       - security.auth: configuration/auth.md
       - security.access_control: configuration/access-control.md
       - security.cors: configuration/cors.md

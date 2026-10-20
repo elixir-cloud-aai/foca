@@ -2,6 +2,7 @@
 
 import importlib
 import re
+from collections.abc import Callable, Mapping
 from enum import Enum
 from importlib.resources import files
 from pathlib import Path
@@ -30,6 +31,12 @@ from foca.security.access_control.constants import (
     DEFAULT_MODEL_FILE,
     GROUP_PREFIX,
     MIN_ID_SPACE,
+)
+from foca.utils.service_info import (
+    import_runtime_function,
+    lookup_package_version,
+    merge_service_info,
+    validate_service_info,
 )
 
 # Default media type of error responses
@@ -1341,6 +1348,131 @@ class LogConfig(FOCABaseConfig):
     root: LogRootConfig | None = LogRootConfig()
 
 
+class ServiceInfoConfig(FOCABaseConfig):
+    """Model for the GA4GH service info of an app.
+
+    The service info is served by
+    :py:func:`foca.api.service_info.getServiceInfo` (`GET /service-info`),
+    built from, in order of precedence, `service`,
+    the fields returned by `runtime_fields`, and the version of `package`.
+    Fields and list items set to ``None`` (e.g., in config overlays) are
+    removed, also if set at a lower precedence, except for `version`, which
+    is then taken from the next source. The service info must be
+    valid as per the `Service` schema of the GA4GH service-info
+    specification, version 1.0.0.
+
+    Args:
+        service: Service info, as per the GA4GH `Service` schema, e.g., with
+            `id`, `name`, `type`, `organization` and `version` (required) and
+            `description`, `contactUrl`, `documentationUrl`, `environment`,
+            `createdAt` and `updatedAt` (optional, served only if set). Other
+            fields are served as they are.
+        package: Name of the app's distribution package (as installed, e.g.,
+            with `pip install`), whose version is served as `version`,
+            unless `service` sets `version` (to a value other than ``None``).
+            The package must then be installed.
+        runtime_fields: Path to a function returning a dictionary of fields
+            that are computed at runtime, as a dot-separated path to the
+            module, followed by the name of the function, e.g.,
+            ``my_app.service_info.runtime_fields`` (must be importable). It
+            is called without arguments, in an app context, on startup and
+            for each request. Required fields that it returns may be missing
+            from `service`.
+
+    Attributes:
+        service: Service info, as per the GA4GH `Service` schema.
+        package: Name of the app's distribution package.
+        runtime_fields: Path to a function returning fields that are computed
+            at runtime.
+        package_version: Version of `package`, if used for `version` (set on
+            validation).
+        runtime_function: Function imported from `runtime_fields`, if set
+            (set on validation).
+
+    Raises:
+        pydantic.ValidationError: The class was instantiated with an illegal
+            data type, `package` is not installed although needed, the
+            function cannot be imported, or the service info is invalid (when
+            `runtime_fields` is set, required fields are only checked on
+            startup).
+
+    Examples:
+        >>> service_info = ServiceInfoConfig(
+        ...     service={
+        ...         "id": "org.example.my-service",
+        ...         "name": "My service",
+        ...         "type": {
+        ...             "group": "org.example",
+        ...             "artifact": "my-api",
+        ...             "version": "1.0.0",
+        ...         },
+        ...         "organization": {
+        ...             "name": "Example",
+        ...             "url": "https://example.org",
+        ...         },
+        ...         "version": "1.0.0",
+        ...     },
+        ... )
+        >>> service_info.service["version"]
+        '1.0.0'
+        >>> service_info.package is None
+        True
+    """
+
+    service: dict[str, Any]
+    package: str | None = None
+    runtime_fields: str | None = None
+    # Version of `package`, if used; set on validation
+    _package_version: str | None = PrivateAttr(default=None)
+    # Function imported from `runtime_fields`; set on validation
+    _runtime_function: Callable[[], Mapping[str, Any]] | None = PrivateAttr(
+        default=None
+    )
+
+    @property
+    def package_version(self) -> str | None:
+        """Version of `package`, if used for `version`."""
+        return self._package_version
+
+    @property
+    def runtime_function(self) -> Callable[[], Mapping[str, Any]] | None:
+        """Function imported from `runtime_fields`, if set."""
+        return self._runtime_function
+
+    @model_validator(mode="after")
+    def validate_service_info(self) -> Self:
+        """Validate the service info.
+
+        Returns:
+            Model instance with the package version looked up and the runtime
+            fields function imported.
+
+        Raises:
+            ValueError: `package` is needed but not installed, the runtime
+                fields function cannot be imported or is not callable, or the
+                service info is invalid, naming the first invalid field.
+                Missing required fields are ignored if `runtime_fields` is
+                set.
+        """
+        self._runtime_function = (
+            None
+            if self.runtime_fields is None
+            else import_runtime_function(self.runtime_fields)
+        )
+        # `version: null` (e.g., in a config overlay) is the same as unset
+        self._package_version = (
+            lookup_package_version(self.package)
+            if self.package is not None and self.service.get("version") is None
+            else None
+        )
+        validate_service_info(
+            merge_service_info(self.service, self._package_version),
+            prefix="service_info.service",
+            ignore_missing=self.runtime_fields is not None,
+        )
+        return self
+
+
 class Config(FOCABaseConfig):
     """Model for all app configuration parameters.
 
@@ -1352,6 +1484,7 @@ class Config(FOCABaseConfig):
         db: Database config parameters.
         jobs: Background job config parameters.
         log: Logger config parameters.
+        service_info: GA4GH service info parameters.
 
     Attributes:
         server: Server config parameters.
@@ -1361,6 +1494,7 @@ class Config(FOCABaseConfig):
         db: Database config parameters.
         jobs: Background job config parameters.
         log: Logger config parameters.
+        service_info: GA4GH service info parameters.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -1383,4 +1517,5 @@ class Config(FOCABaseConfig):
     db: MongoConfig | None = None
     jobs: JobsConfig | None = None
     log: LogConfig = LogConfig()
+    service_info: ServiceInfoConfig | None = None
     model_config = ConfigDict(extra="allow")

@@ -1,0 +1,164 @@
+# `service_info`
+
+Service info as per the
+[GA4GH service-info specification](https://github.com/ga4gh-discovery/ga4gh-service-info)
+(version 1.0.0), served at `GET /service-info` from the configuration, without
+a database and without code of your own:
+
+```yaml
+service_info:
+  package: my-app
+  runtime_fields: my_app.service_info.runtime_fields
+  service:
+    id: org.example.my-service
+    name: My service
+    type:
+      group: org.ga4gh
+      artifact: wes
+      version: 1.1.0
+    description: Runs workflows.
+    organization:
+      name: Example
+      url: https://example.org
+    contactUrl: mailto:support@example.org
+    documentationUrl: https://docs.example.org
+    environment: prod
+    # Optional; served only if set
+    createdAt: "2026-10-20T00:00:00Z"
+    updatedAt: "2026-10-20T00:00:00Z"
+```
+
+`service` is the service info itself: `id`, `name`, `type`, `organization`
+and `version` are required, the other fields of the GA4GH `Service` schema
+are optional and only served if set (including `createdAt` and `updatedAt`,
+which must be [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339) date-times),
+and any other fields (e.g., `x-logo`) are served as they are.
+
+## Serving the service info
+
+Route the `GET /service-info` operation of your API specification to FOCA's
+controller, `foca.api.service_info.getServiceInfo`:
+
+```yaml title="api/openapi.yaml"
+paths:
+  /service-info:
+    get:
+      operationId: getServiceInfo
+      x-openapi-router-controller: foca.api.service_info
+      security: []
+      responses:
+        '200':
+          description: Service info
+          content:
+            application/json:
+              schema:
+                # Or the GA4GH `Service` schema
+                type: object
+```
+
+The controller set on the operation takes precedence over one added to all
+operations via [`add_operation_fields`](api.md). Without such a field, a full
+`operationId: foca.api.service_info.getServiceInfo` works as well. GA4GH API
+specifications usually define the operation already, with `operationId:
+GetServiceInfo` (e.g., WES and TES) or `getServiceInfo` (e.g., the
+service-info specification itself). FOCA's controller is available under both
+names, so it is enough to add `x-openapi-router-controller`, e.g., in a
+[merged file](api.md). `security: []` makes the service info public;
+leave it out if your specification requires authentication for it.
+
+If an operation is routed to `getServiceInfo`, but `service_info` is not
+configured, the app refuses to start (`Foca.create_app()` raises a
+`foca.api.service_info.InvalidServiceInfo` naming the routes).
+
+## Version
+
+`version` is the version of the deployed app. Set `package` to the name of
+your app's distribution package (as installed, e.g., with `pip install`, and
+as in the `name` of its `pyproject.toml`) to serve its version, unless
+`service.version` is set. The package must then be installed; otherwise the
+app refuses to start. `version: null` (e.g., in a [config
+overlay](index.md#environment-specific-configuration), or returned by the
+`runtime_fields` function) counts as not set, so the version is then taken
+from the next source (the function, then `package`).
+
+## Fields computed at runtime
+
+For fields that are only known at runtime (e.g., from the environment, or
+from other services), set `runtime_fields` to the dotted path of a function
+that returns them as a dictionary:
+
+```python title="my_app/service_info.py"
+import os
+
+
+def runtime_fields() -> dict:
+    return {"environment": os.environ.get("DEPLOYMENT", "dev")}
+```
+
+The function is called without arguments, in an app context (e.g., with
+access to [`get_config()`](index.md#accessing-the-configuration)), on startup
+and for each request; keep it fast. FOCA does not time it out, so if it calls
+other services, set timeouts on those calls (or cache their results), so that
+a slow service neither delays startup nor ties up workers. Fields are taken, in order of
+precedence, from `service`, the function and the package version. Fields and
+list items set to `null` (e.g., in a [config
+overlay](index.md#environment-specific-configuration)) are removed, also if
+the function or the package set them (except for `version`, cf.
+[above](#version)). Exceptions raised by the function are raised as
+`foca.api.service_info.InvalidServiceInfo` (with the original exception as
+its cause).
+
+## Validation
+
+The service info is validated against the `Service` schema of the GA4GH
+service-info specification, version 1.0.0, which is bundled with FOCA:
+
+- When the configuration is validated, the configured fields (and the
+  package version) raise a `pydantic.ValidationError` naming the first
+  invalid field, e.g., ``Invalid service info in
+  `service_info.service.organization.url`: 'example.org' is not a 'uri'``.
+  Required fields may be missing if `runtime_fields` is set.
+- When the app is created (`Foca.create_app()`), the complete service info,
+  including the fields computed at runtime, raises a
+  `foca.api.service_info.InvalidServiceInfo` (a `ValueError`) if invalid, so
+  the app refuses to start.
+- On each request, service info that has become invalid (via the function),
+  or a failing function, is not served; the request fails with a generic
+  `500 Internal Server Error` (also if your app maps `ValueError` to other
+  problem details; unless it maps `werkzeug.exceptions.InternalServerError`
+  itself), and the error is logged.
+
+The service info must also be serializable as JSON (e.g., no dates as
+values: quote date-times in YAML, and return them as strings from the
+function).
+
+Use `foca.api.service_info.get_service_info()` to get the service info of the
+current app in your own code.
+
+## Migrating an app
+
+Upgrading an app that used `service_info` as a section of its own? See
+[Migrating to 0.14.0](../migration-0.14.md#service-info).
+
+Apps that implemented the service info themselves, e.g., with
+`POST /service-info` storing it in a database, can serve it from the
+configuration instead:
+
+1. Move the service info into `service_info.service` of the configuration
+   (e.g., from a `custom` section or the database). Set `package` instead of
+   `service.version` to serve the app's version, and move code computing
+   fields into a `runtime_fields` function.
+2. Route `GET /service-info` to `foca.api.service_info.getServiceInfo` (cf.
+   [above](#serving-the-service-info)), and remove the `POST /service-info`
+   operation from your API specification.
+3. Remove your controllers for `GET` and `POST /service-info`, any code
+   checking or storing the service info, and its database collection from
+   `db` (drop the collection from existing databases if you like; stored
+   service info is no longer served).
+4. Start the app: invalid service info now fails startup, naming the invalid
+   field. To change the service info, change the configuration and restart
+   the app.
+
+::: foca.models.config.ServiceInfoConfig
+    options:
+      members: false
