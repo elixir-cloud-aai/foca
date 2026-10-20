@@ -106,6 +106,31 @@ log:
     level: 10
     handlers: [console]
 
+# SERVICE INFO CONFIGURATION
+# Cf. https://foca.readthedocs.io/en/latest/configuration/service-info/
+# Served by `foca.api.service_info.getServiceInfo` (route `GET /service-info`
+# of your specs there); validated against the GA4GH `Service` schema
+service_info:
+  # Distribution package whose version is served, unless `service.version`
+  # is set
+  package: my-app
+  # Function returning fields computed at runtime (optional)
+  runtime_fields: my_app.service_info.runtime_fields
+  service:
+    id: org.example.my-service
+    name: My service
+    type:
+      group: org.ga4gh
+      artifact: wes
+      version: 1.1.0
+    description: Runs workflows.
+    organization:
+      name: Example
+      url: https://example.org
+    contactUrl: mailto:support@example.org
+    documentationUrl: https://docs.example.org
+    environment: prod
+
 
 # CUSTOM APP CONFIGURATION
 # Available in apps via `foca.get_config()`

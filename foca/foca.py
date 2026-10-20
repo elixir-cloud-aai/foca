@@ -8,6 +8,7 @@ from celery import Celery
 from connexion import App
 
 from foca.api.register_openapi import register_openapi
+from foca.api.service_info import check_service_info
 from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
 from foca.errors.exceptions import register_exception_handler
@@ -118,6 +119,10 @@ class Foca:
 
         Returns:
             Connexion application instance.
+
+        Raises:
+            foca.api.service_info.InvalidServiceInfo: The service info,
+                including fields computed at runtime, is invalid.
         """
         cnx_app = self._create_base_app()
 
@@ -150,6 +155,12 @@ class Foca:
             logger.info("Access control registered.")
         else:
             logger.info("Access control not enabled.")
+
+        # Check service info, including fields computed at runtime
+        if self.conf.service_info is not None:
+            check_service_info(cnx_app.app)
+        else:
+            logger.info("No service info configured.")
 
         return cnx_app
 

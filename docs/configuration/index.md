@@ -11,6 +11,7 @@ top-level sections are interpreted by FOCA; all of them are optional:
 | [`exceptions`](exceptions.md) | Problem details for errors |
 | [`jobs`](jobs.md) | Background tasks with Celery |
 | [`log`](log.md) | Logging |
+| [`service_info`](service-info.md) | GA4GH service info |
 | [`security.auth`](auth.md) | Bearer token validation |
 | [`security.access_control`](access-control.md) | Access control |
 | [`security.cors`](cors.md) | Cross-origin resource sharing |

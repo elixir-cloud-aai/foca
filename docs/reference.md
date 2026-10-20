@@ -57,6 +57,17 @@ configuration models, see [Configuration](configuration/index.md).
         - build_problem
         - register_exception_handler
 
+## Service info
+
+::: foca.api.service_info
+    options:
+      members:
+        - getServiceInfo
+        - get_service_info
+        - build_service_info
+        - validate_service_info
+        - InvalidServiceInfo
+
 ## Databases
 
 ::: foca.database.register_mongodb

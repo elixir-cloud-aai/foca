@@ -30,6 +30,7 @@ Features:
 * [MongoDB][res-mongo-db] databases, collections and indexes
 * Background tasks with [RabbitMQ][res-rabbitmq] & [Celery][res-celery]
 * Configurable [CORS][res-cors]
+* [GA4GH service info][res-service-info] served from the configuration
 
 **Read the [documentation][docs] for details.** Upgrading from an earlier
 version? See [Migrating to 0.14.0][docs-migration].
@@ -194,4 +195,5 @@ question etc.
 [res-rabbitmq]: <https://www.rabbitmq.com/>
 [res-rfc-9457]: <https://www.rfc-editor.org/rfc/rfc9457>
 [res-semver]: <https://semver.org/>
+[res-service-info]: <https://github.com/ga4gh-discovery/ga4gh-service-info>
 [res-setuptools-scm]: <https://setuptools-scm.readthedocs.io/>
