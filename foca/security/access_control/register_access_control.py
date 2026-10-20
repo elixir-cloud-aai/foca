@@ -1,7 +1,6 @@
 """Methods to manage permission management configuration."""
 
 import logging
-import re
 from importlib.resources import files
 from pathlib import Path
 
@@ -27,7 +26,6 @@ from foca.models.config import (
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
-    GROUP_PREFIX,
 )
 from foca.security.access_control.enforcement import AccessControlResolver
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
@@ -292,48 +290,9 @@ def register_casbin_enforcer(
     app.app.config["casbin_adapter"] = adapter
     if access_control_config.policies is not None:
         _add_policies(adapter=adapter, policies=access_control_config.policies)
-    _warn_subject_like_roles(
-        adapter=adapter, subject_prefix=access_control_config.subject_prefix
-    )
     logger.info("Casbin enforcer registered.")
 
     return app
-
-
-def _warn_subject_like_roles(adapter: Adapter, subject_prefix: str) -> None:
-    """Warn about stored resource-scoped roles that are subjects.
-
-    Granting a subject a resource-scoped role that is itself a subject
-    (e.g., `g2, user:alice, group:auditors, /services/1`) gives it the
-    rights of that subject on the resource, as Casbin resolves roles
-    transitively. Such rules are rejected by
-    :py:func:`foca.security.access_control.enforcement.add_resource_role`,
-    but may have been stored before, or directly. They are not removed
-    automatically.
-
-    Args:
-        adapter: Casbin adapter of the app.
-        subject_prefix: Prefix of user identifiers in policy rules.
-    """
-    roles = adapter.model.model.get("g", {}) if adapter.model else {}
-    ptypes = [
-        ptype
-        for ptype, assertion in roles.items()
-        if assertion.value.count("_") == 3
-    ]
-    if not ptypes:
-        return
-    prefixes = "|".join(re.escape(p) for p in [subject_prefix, GROUP_PREFIX])
-    query = {"ptype": {"$in": ptypes}, "v1": {"$regex": f"^(?:{prefixes})"}}
-    for document in adapter._collection.find(query):
-        logger.warning(
-            f"Policy rule '{document.get('id')}' ({document['ptype']}, "
-            f"{document.get('v0')}, {document['v1']}, {document.get('v2')}) "
-            f"grants a role that is a subject, giving "
-            f"'{document.get('v0')}' the rights of '{document['v1']}' on "
-            f"'{document.get('v2')}'. Revoke it, if not intended, via "
-            "`remove_resource_role()` or the permissions API."
-        )
 
 
 def _add_policies(adapter: Adapter, policies: list[list[str]]) -> None:

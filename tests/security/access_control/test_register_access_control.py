@@ -3,7 +3,6 @@
 import logging
 from importlib.resources import files
 from pathlib import Path
-from typing import ClassVar
 
 import mongomock
 import pytest
@@ -22,12 +21,8 @@ from foca.models.config import (
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
-    DEFAULT_MODEL_FILE,
-    RESOURCE_ROLE_MODEL_FILE,
 )
-from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
-    _warn_subject_like_roles,
     _with_error_media_type,
     register_access_control,
     register_permission_specs,
@@ -259,56 +254,3 @@ class TestRegisterAccessControlSetup:
             self._register(None)
         assert "Casbin enforcer registered." in caplog.text
         assert "Permission management API registered" in caplog.text
-
-
-class TestWarnSubjectLikeRoles:
-    """Tests for warning about stored resource roles that are subjects."""
-
-    RULES: ClassVar[list[tuple[str, list[str]]]] = [
-        ("g2", ["user:a", "group:auditors", "/items/1"]),
-        ("g2", ["group:devs", "u/b", "/items/2"]),
-        ("g2", ["user:a", "owner", "/items/1"]),
-        # resource-scoped roles only
-        ("g", ["user:a", "group:auditors"]),
-        ("p", ["group:auditors", "/items/:id", "GET"]),
-    ]
-
-    @staticmethod
-    def _adapter(model_file: str | None) -> Adapter:
-        model = (
-            None
-            if model_file is None
-            else str(files(ACCESS_CONTROL_BASE_PATH).joinpath(model_file))
-        )
-        adapter = Adapter(
-            collection=mongomock.MongoClient()["db"]["rules"], model=model
-        )
-        for ptype, rule in TestWarnSubjectLikeRoles.RULES:
-            adapter._collection.insert_one(
-                {
-                    "id": rule[0],
-                    "ptype": ptype,
-                    **{f"v{i}": value for i, value in enumerate(rule)},
-                }
-            )
-        return adapter
-
-    def test_warn(self, caplog):
-        with caplog.at_level(logging.WARNING):
-            _warn_subject_like_roles(
-                self._adapter(RESOURCE_ROLE_MODEL_FILE), subject_prefix="u/"
-            )
-        messages = [record.getMessage() for record in caplog.records]
-        assert len(messages) == 2
-        assert "(g2, user:a, group:auditors, /items/1)" in messages[0]
-        assert "the rights of 'group:auditors' on '/items/1'" in messages[0]
-        assert "remove_resource_role()" in messages[0]
-        assert "(g2, group:devs, u/b, /items/2)" in messages[1]
-
-    @pytest.mark.parametrize("model_file", [DEFAULT_MODEL_FILE, None])
-    def test_no_resource_roles(self, caplog, model_file):
-        with caplog.at_level(logging.WARNING):
-            _warn_subject_like_roles(
-                self._adapter(model_file), subject_prefix="user:"
-            )
-        assert caplog.records == []

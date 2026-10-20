@@ -413,8 +413,9 @@ add `subject_prefix` to the rules themselves. `add_resource_role()` raises a
 granting, e.g., the "role" `group:auditors` to a user would otherwise give
 the user all rights of that group. `remove_resource_role()` accepts both, so
 that existing rules with them can be revoked; it removes all stored copies of
-a rule, and `list_resource_roles()` lists each role once, also if stored
-more than once (e.g., by concurrent requests).
+a rule, and `list_resource_roles()` returns each subject and role pair
+once, also if a rule was stored more than once (e.g., by concurrent
+requests).
 
 #### Granting roles to groups
 
@@ -497,10 +498,11 @@ Also keep in mind that:
   `admin`). The helpers already reject roles starting with `subject_prefix`
   or `group:`, so that users cannot make themselves members of other groups,
   but any other role is granted as given. If your app stored resource roles
-  before this check was added, look for `g2` rules whose role (`v1`) starts
-  with `subject_prefix` or `group:` and remove them (e.g., via
-  `remove_resource_role()` or the permissions API). FOCA logs a warning for
-  each such rule on startup, but does not remove them.
+  before this check was added, look for resource-scoped role rules (by
+  default `g2`) whose role (`v1`) starts with `subject_prefix` or `group:`
+  and remove them (e.g., via `remove_resource_role()` or the permissions
+  API). FOCA logs a warning for each such rule when policies are first
+  loaded (once per app), but does not remove them.
 * Only map group claim values via `group_mapping` to global roles such as
   `admin`, not to names of resource-scoped roles such as `owner` or
   `maintainer`: a mapped role is a subject of its own, which matches the `p`

@@ -33,6 +33,7 @@ configuration models, see [Configuration](configuration/index.md).
         - get_current_groups
         - get_current_group_values
         - get_enforcer
+        - get_resource_role_ptypes
         - add_resource_role
         - remove_resource_role
         - list_resource_roles

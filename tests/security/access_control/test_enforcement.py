@@ -32,6 +32,7 @@ from foca.models.config import (
 from foca.security.access_control import (
     add_resource_role,
     enforce_access_control,
+    enforcement,
     get_current_group_values,
     get_current_groups,
     get_current_subject,
@@ -509,6 +510,48 @@ class TestEnforcement:
         )
         response = app.test_client().get("/items/2", headers=_headers("henry"))
         assert response.status_code == 403
+
+    def test_warn_subject_like_roles(self, tmp_path):
+        """Stored roles that are subjects are warned about once."""
+        app = _create_app(
+            tmp_path, _access_control_config(subject_prefix="u.")
+        )
+        adapter = app.config["casbin_adapter"]
+        for ptype, rule in [
+            ("g2", ["u.mallory", "group:auditors", "/items/1"]),
+            ("g2", ["group:devs", "u.bob", "/items/2"]),
+            ("g2", ["u.eve", "group:a\tb", "/items/2"]),
+            # the prefix is not a pattern
+            ("g2", ["u.eve", "uXbob", "/items/2"]),
+            # roles of other subject types are ordinary roles
+            ("g2", ["u.eve", "user:bob", "/items/2"]),
+            # global roles are not checked
+            ("g", ["u.eve", "group:auditors"]),
+        ]:
+            adapter.save_policy_line(ptype, rule)
+        client = app.test_client()
+        # logger patched, as app creation may reconfigure logging
+        with mock.patch.object(enforcement.logger, "warning") as warning:
+            for _ in range(2):
+                client.get("/items/1", headers=_headers("alice"))
+        messages = [call.args[0] for call in warning.call_args_list]
+        # once, irrespective of the number of requests
+        assert sorted(
+            message.split(" grants ")[0] for message in messages
+        ) == [
+            "Policy rule (g2, 'group:devs', 'u.bob', '/items/2')",
+            "Policy rule (g2, 'u.eve', 'group:a\\tb', '/items/2')",
+            "Policy rule (g2, 'u.mallory', 'group:auditors', '/items/1')",
+        ]
+        assert all("remove_resource_role()" in message for message in messages)
+
+    def test_no_warning_without_subject_like_roles(self, app):
+        with mock.patch.object(enforcement.logger, "warning") as warning:
+            response = app.test_client().get(
+                "/items/1", headers=_headers("alice")
+            )
+        assert response.status_code == 200
+        warning.assert_not_called()
 
 
 class TestPermissionsApi:
@@ -1483,8 +1526,8 @@ class TestResourceRoles:
             assert get_enforcer().get_named_grouping_policy("g2") == []
 
     def test_duplicate_rules(self, helper_app):
-        """Rules stored twice (e.g., concurrently) are listed and revoked
-        once."""
+        """Rules stored more than once (e.g., by concurrent requests) are
+        listed once and revoked completely."""
         adapter = helper_app.config["casbin_adapter"]
         for _ in range(2):
             adapter.save_policy_line("g2", ["user:alice", "owner", "/items/1"])
@@ -1496,10 +1539,10 @@ class TestResourceRoles:
                     subject_type=subject_type,  # type: ignore[arg-type]
                 ) == [("alice", "owner"), ("bob", "owner")]
             assert remove_resource_role("alice", "owner", "/items/1")
-            assert (
-                adapter._collection.count_documents({"v0": "user:alice"}) == 0
-            )
-            assert list_resource_roles("/items/1") == [("bob", "owner")]
+            # policies are loaded anew, so a remaining copy would be listed
+            assert get_enforcer().get_named_grouping_policy("g2") == [
+                ["user:bob", "owner", "/items/1"]
+            ]
 
     def test_list_invalid_subject_type(self, helper_app):
         with helper_app.app_context(), pytest.raises(ValueError):

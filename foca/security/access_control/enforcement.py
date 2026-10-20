@@ -6,6 +6,7 @@ from functools import wraps
 from typing import Literal
 
 from casbin import Enforcer
+from casbin.model import Model
 from connexion.exceptions import Forbidden, Unauthorized
 from connexion.resolver import Resolution, Resolver
 from flask import current_app, has_request_context, request
@@ -22,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 # Policy type of resource-scoped role rules: subject, role, resource
 RESOURCE_ROLE_PTYPE = "g2"
+
+# Key of the app config marking that loaded resource-scoped roles were
+# checked for roles that are subjects
+_SUBJECT_ROLES_CHECKED_KEY = "FOCA_ACCESS_CONTROL_SUBJECT_ROLES_CHECKED"
 
 SubjectType = Literal["user", "group"]
 """Types of subjects of resource role helpers: users or groups."""
@@ -173,13 +178,65 @@ def _is_within_path(request_path: str, resource_path: str) -> bool:
     )
 
 
+def get_resource_role_ptypes(model: Model) -> list[str]:
+    """Get policy types of resource-scoped role definitions of a model.
+
+    Args:
+        model: Casbin model.
+
+    Returns:
+        Policy types of role definitions with three fields (subject, role,
+        resource), e.g., `g2` for `g2 = _, _, _`.
+    """
+    return [
+        ptype
+        for ptype, assertion in model.model.get("g", {}).items()
+        if assertion.value.count("_") == 3
+    ]
+
+
+def _warn_subject_like_roles(enforcer: Enforcer) -> None:
+    """Warn about loaded resource-scoped roles that are subjects.
+
+    Granting a subject a resource-scoped role that is itself a subject
+    (e.g., `g2, user:alice, group:auditors, /services/1`) gives it the
+    rights of that subject on the resource, as Casbin resolves roles
+    transitively. Such rules are rejected by :py:func:`add_resource_role`,
+    but may have been stored before, or directly. They are not removed
+    automatically. Checked once per app, on the policy rules already
+    loaded by `enforcer`, i.e., without accessing the database.
+
+    Args:
+        enforcer: Casbin enforcer with loaded policy rules.
+    """
+    if current_app.config.get(_SUBJECT_ROLES_CHECKED_KEY):
+        return
+    current_app.config[_SUBJECT_ROLES_CHECKED_KEY] = True
+    prefixes = (_get_subject_prefix("user"), _get_subject_prefix("group"))
+    for ptype in get_resource_role_ptypes(enforcer.get_model()):
+        for subject, role, resource in enforcer.get_named_grouping_policy(
+            ptype
+        ):
+            if role.startswith(prefixes):
+                # Values are quoted, so that they cannot forge log lines
+                logger.warning(
+                    f"Policy rule ({ptype}, {subject!r}, {role!r}, "
+                    f"{resource!r}) grants a role that is a subject, giving "
+                    f"{subject!r} the rights of {role!r} on {resource!r}. "
+                    "Revoke it, if not intended, via "
+                    "`remove_resource_role()` or the permissions API."
+                )
+
+
 def get_enforcer() -> Enforcer:
     """Get Casbin enforcer with current policies of the app.
 
     If `access_control.resource_roles_cover_subpaths` is set, roles of
     resource-scoped role definitions (with three fields, e.g.,
     `g2 = _, _, _`) also apply to sub-paths of the resource path they were
-    granted on.
+    granted on. When policies are first loaded, a warning is logged for
+    each stored resource-scoped role that is a subject (cf.
+    :py:func:`add_resource_role`).
 
     Returns:
         Casbin enforcer for the app's model with policies loaded from the
@@ -190,10 +247,9 @@ def get_enforcer() -> Enforcer:
         current_app.config["casbin_adapter"],
     )
     if _get_access_control_config().resource_roles_cover_subpaths:
-        roles = enforcer.get_model().model.get("g", {})
-        for ptype, assertion in roles.items():
-            if assertion.value.count("_") == 3:
-                enforcer.add_named_domain_matching_func(ptype, _is_within_path)
+        for ptype in get_resource_role_ptypes(enforcer.get_model()):
+            enforcer.add_named_domain_matching_func(ptype, _is_within_path)
+    _warn_subject_like_roles(enforcer)
     return enforcer
 
 
@@ -390,8 +446,7 @@ def _get_resource_role_enforcer(ptype: str) -> Enforcer:
             with three fields (subject, role, resource).
     """
     enforcer = get_enforcer()
-    assertion = enforcer.get_model().model.get("g", {}).get(ptype)
-    if assertion is None or assertion.value.count("_") != 3:
+    if ptype not in get_resource_role_ptypes(enforcer.get_model()):
         raise ValueError(
             f"Access control model does not define resource-scoped roles: "
             f"expected role definition '{ptype} = _, _, _'"
@@ -548,6 +603,9 @@ def remove_resource_role(
             so that such rules (e.g., stored before they were rejected) can
             be revoked.
     """
+    # Unlike when granting roles, empty subjects and roles that are
+    # subjects are not rejected, so that such rules (e.g., stored by
+    # previous versions) can be revoked
     enforcer = _get_resource_role_enforcer(ptype)
     rule = _get_resource_role_rule(
         subject, role, resource, ptype, subject_type, enforcer
