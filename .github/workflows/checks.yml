@@ -97,6 +97,31 @@ jobs:
           fail_ci_if_error: true
           verbose: true
 
+  test-lowest:
+    name: Unit tests (lowest direct dependencies)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+      - name: Install package with lowest direct dependency versions
+        run: |
+          pip install uv
+          uv pip install --system --resolution lowest-direct -e .[dev]
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@315db7fe45ac2880b7758f1933e6e5d59afd5e94 # 1.12.1
+        with:
+          mongodb-version: "7.0"
+          mongodb-port: 12345
+      - name: Run unit tests
+        run: pytest
+
   integration:
     name: Integration tests (petstore)
     runs-on: ubuntu-latest
@@ -153,7 +178,7 @@ jobs:
   docker:
     name: Publish image (Python ${{ matrix.python-version }})
     if: github.event_name == 'push'
-    needs: [lint, test, integration]
+    needs: [lint, test, test-lowest, integration]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
