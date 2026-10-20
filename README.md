@@ -22,7 +22,7 @@ Features:
 
 * Validated, typed app configuration, with environment-specific overlays
 * OpenAPI 2.x/3.x specifications, merged and modified on the fly
-* Errors as [problem details][res-rfc-9457]
+* Errors as [problem details][res-rfc-9457], with configurable media type
 * Bearer token ([JWT][res-jwt]) validation for trusted OpenID Connect
   issuers
 * Policy-based access control with [Casbin][res-casbin], including a

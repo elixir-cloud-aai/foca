@@ -1,9 +1,13 @@
 """Tests for registering access control."""
 
 import logging
+from importlib.resources import files
+from pathlib import Path
 
 import mongomock
 import pytest
+import yaml
+from connexion import App
 
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -14,9 +18,98 @@ from foca.models.config import (
     IndexConfig,
     MongoConfig,
 )
-from foca.security.access_control.register_access_control import (
-    register_access_control,
+from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH,
+    DEFAULT_API_SPEC_PATH,
 )
+from foca.security.access_control.register_access_control import (
+    _with_error_media_type,
+    register_access_control,
+    register_permission_specs,
+)
+
+DEFAULT_SPEC = Path(
+    str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH))
+)
+
+
+def _content(spec: dict, path: str, method: str, status: str) -> set[str]:
+    """Media types of a response of a specification."""
+    return set(spec["paths"][path][method]["responses"][status]["content"])
+
+
+@pytest.mark.parametrize(
+    "path,method,status",
+    [
+        ("/permissions", "post", "400"),
+        ("/permissions", "post", "401"),
+        ("/permissions", "get", "500"),
+        ("/permissions/{id}", "delete", "404"),
+    ],
+)
+def test_with_error_media_type(path, method, status):
+    """Error responses of the permissions API declare the media type."""
+    default = yaml.safe_load(DEFAULT_SPEC.read_text(encoding="utf-8"))
+    assert _content(default, path, method, status) == {
+        "application/problem+json"
+    }
+    spec = _with_error_media_type(
+        spec_path=DEFAULT_SPEC, media_type="application/json"
+    )
+    assert _content(spec, path, method, status) == {"application/json"}
+    assert "application/problem+json" not in str(spec)
+    assert _content(spec, "/permissions", "post", "200") == {
+        "application/json"
+    }
+
+
+@pytest.mark.parametrize("api_specs", [None, str(DEFAULT_SPEC)])
+def test_register_permission_specs_without_config(monkeypatch, api_specs):
+    """Apps without FOCA configuration get the specification unchanged."""
+    cnx_app = App(__name__)
+    specs = []
+    monkeypatch.setattr(
+        cnx_app,
+        "add_api",
+        lambda specification, **kwargs: specs.append(specification),
+    )
+    register_permission_specs(
+        app=cnx_app,
+        access_control_config=AccessControlConfig(api_specs=api_specs),
+    )
+    assert specs == [DEFAULT_SPEC]
+
+
+@pytest.mark.parametrize(
+    "media_type,api_specs,expected",
+    [
+        ("application/problem+json", None, Path),
+        ("application/json", None, dict),
+        ("application/json", str(DEFAULT_SPEC), Path),
+    ],
+)
+def test_register_permission_specs_media_type(
+    monkeypatch, media_type, api_specs, expected
+):
+    """Only the default specification is changed, and only for other media
+    types than the default.
+    """
+    cnx_app = create_connexion_app(
+        Config(exceptions={"media_type": media_type})
+    )
+    specs = []
+    monkeypatch.setattr(
+        cnx_app,
+        "add_api",
+        lambda specification, **kwargs: specs.append(specification),
+    )
+    register_permission_specs(
+        app=cnx_app,
+        access_control_config=AccessControlConfig(api_specs=api_specs),
+    )
+    assert isinstance(specs[0], expected)
+    if expected is dict:
+        assert "application/problem+json" not in str(specs[0])
 
 
 class TestRegisterAccessControlSetup:

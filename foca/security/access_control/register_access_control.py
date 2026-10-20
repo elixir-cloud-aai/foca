@@ -4,6 +4,7 @@ import logging
 from importlib.resources import files
 from pathlib import Path
 
+import yaml
 from connexion import App
 
 from foca.api.register_openapi import _connexion_add_api_kwargs
@@ -14,8 +15,10 @@ from foca.database.register_mongodb import (
     get_mongo_db_name,
 )
 from foca.models.config import (
+    DEFAULT_ERROR_MEDIA_TYPE,
     AccessControlConfig,
     CollectionConfig,
+    Config,
     ConnexionOptions,
     DBConfig,
     MongoConfig,
@@ -150,7 +153,9 @@ def register_permission_specs(
     """Register open api specs for permission management.
 
     Access control policies are enforced on all operations of the permissions
-    API, irrespective of `access_control.enforce`.
+    API, irrespective of `access_control.enforce`. The default specification
+    declares the configured media type of error responses
+    (`exceptions.media_type`).
 
     Args:
         app: Connexion application instance.
@@ -161,12 +166,28 @@ def register_permission_specs(
     Returns:
         Connexion app with updated permission specifications.
     """
+    specification: Path | dict
     if access_control_config.api_specs is None:
         spec_path = str(
             files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH)
         )
+        specification = Path(spec_path)
+        # apps without FOCA configuration use the default media type
+        config = getattr(app.app.config, "foca", None)
+        media_type = (
+            config.exceptions.media_type
+            if isinstance(config, Config)
+            else DEFAULT_ERROR_MEDIA_TYPE
+        )
+        # as a dictionary only if needed, keeping Connexion's handling of
+        # specification files otherwise
+        if media_type != DEFAULT_ERROR_MEDIA_TYPE:
+            specification = _with_error_media_type(
+                spec_path=specification, media_type=media_type
+            )
     else:
         spec_path = access_control_config.api_specs
+        specification = Path(spec_path)
 
     options = ConnexionOptions(
         strict_validation=True,
@@ -179,11 +200,46 @@ def register_permission_specs(
         ),
     )
     app.add_api(
-        specification=Path(spec_path),
+        specification=specification,
         **_connexion_add_api_kwargs(options),
     )
     logger.info(f"Permission management API registered from '{spec_path}'.")
     return app
+
+
+# Fields of OpenAPI 3.x Path Item Objects holding Operation Objects
+_HTTP_METHODS = frozenset(
+    ("get", "put", "post", "delete", "options", "head", "patch", "trace")
+)
+
+
+def _with_error_media_type(spec_path: Path, media_type: str) -> dict:
+    """Load an API specification with another error response media type.
+
+    Args:
+        spec_path: Path to an OpenAPI 3.x specification declaring
+            `application/problem+json` for its error responses.
+        media_type: Media type of error responses.
+
+    Returns:
+        Specification, with `media_type` instead of `application/problem+json`
+        for all `4xx` and `5xx` responses of its operations (defined in the
+        operations, not referenced via `$ref`).
+    """
+    with spec_path.open(encoding="utf-8") as spec_file:
+        spec = yaml.safe_load(spec_file)
+    operations = (
+        operation
+        for path_item in spec["paths"].values()
+        for method, operation in path_item.items()
+        if method in _HTTP_METHODS
+    )
+    for operation in operations:
+        for status, response in operation.get("responses", {}).items():
+            content = response.get("content", {})
+            if str(status)[0] in "45" and DEFAULT_ERROR_MEDIA_TYPE in content:
+                content[media_type] = content.pop(DEFAULT_ERROR_MEDIA_TYPE)
+    return spec
 
 
 def register_casbin_enforcer(

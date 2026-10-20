@@ -99,6 +99,46 @@ def test_exception_config_empty():
     assert res.mapping is None
     assert res.problems == {}
     assert res.public_members is None
+    assert res.media_type == "application/problem+json"
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    [
+        "application/json",
+        "application/problem+json",
+        "application/vnd.example.error+json",
+        "Application/JSON",
+    ],
+)
+def test_exception_config_media_type(media_type):
+    """Test creation of the ExceptionConfig model with a media type."""
+    res = ExceptionConfig(media_type=media_type)
+    assert res.media_type == media_type.lower()
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    [
+        "",
+        "json",
+        "application/",
+        "/json",
+        "application/xml",
+        "application/problem+xml",
+        "text/plain",
+        "application/jsonx",
+        "application/json; charset=utf-8",
+        "application/json\nX-Injected: 1",
+        " application/json",
+        "application/x+y/json",
+        1,
+    ],
+)
+def test_exception_config_invalid_media_type(media_type):
+    """Test creation of the ExceptionConfig model with invalid media types."""
+    with pytest.raises(ValidationError, match="media_type"):
+        ExceptionConfig(media_type=media_type)
 
 
 def test_exception_config_mapping(problems_module):

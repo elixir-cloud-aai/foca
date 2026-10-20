@@ -22,6 +22,8 @@ exceptions:
   mapping: my_app.exceptions.problems
   public_members: null
   logging: oneline
+  # `application/json` if your specs declare it for errors (cf. docs)
+  media_type: application/problem+json
 
 # SECURITY CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/auth/

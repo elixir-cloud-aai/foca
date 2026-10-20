@@ -220,6 +220,11 @@ def get_secured():
     return "ok"
 
 
+def get_validated(limit):
+    # never called: requests without the required `limit` fail validation
+    return "ok"
+
+
 def mock_token_info(token):
     raise OAuthProblem(description="Invalid token")
 
@@ -239,6 +244,19 @@ SPEC = {
         "/pet": {"get": _operation("get_pet")},
         "/closed": {"get": _operation("get_closed")},
         "/error": {"get": _operation("get_error")},
+        "/validated": {
+            "get": _operation(
+                "get_validated",
+                parameters=[
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": True,
+                        "schema": {"type": "integer"},
+                    }
+                ],
+            )
+        },
         "/secured": {
             "get": _operation("get_secured", security=[{"bearerAuth": []}])
         },
@@ -258,8 +276,18 @@ SPEC = {
 class TestHandler:
     """Tests for error responses of an app."""
 
+    @pytest.fixture(
+        params=["application/problem+json", "application/json", "text/json"]
+    )
+    def media_type(self, request) -> str:
+        """Configured media type of error responses (default first; `text/*`
+        without charset).
+        """
+        return request.param
+
     @pytest.fixture
-    def client(self, conf):
+    def client(self, conf, media_type):
+        conf.media_type = media_type
         app = App(__name__, skip_error_handlers=True)
         # the handler does not depend on FOCA's app config
         assert not hasattr(app.app.config, "foca")
@@ -268,28 +296,45 @@ class TestHandler:
         return app.app.test_client()
 
     @pytest.mark.parametrize(
-        "path,headers,problem",
+        "method,path,headers,problem",
         [
-            # werkzeug exception (route not found), mapped
-            ("/unknown", {}, PROBLEMS[NotFound]),
-            # Connexion exception, by status code
-            ("/secured", {}, {"title": "Unauthorized", "status": 401}),
+            # werkzeug exceptions (route or method not found), mapped or by
+            # status code
+            ("get", "/unknown", {}, PROBLEMS[NotFound]),
             (
+                "post",
+                "/pet",
+                {},
+                {"title": "Method Not Allowed", "status": 405},
+            ),
+            # Connexion request validation exception, by status code
+            (
+                "get",
+                "/validated",
+                {},
+                {"title": "Bad Request", "status": 400},
+            ),
+            # Connexion security exceptions, by status code
+            ("get", "/secured", {}, {"title": "Unauthorized", "status": 401}),
+            (
+                "get",
                 "/secured",
                 {"Authorization": "Bearer x"},
                 {"title": "Unauthorized", "status": 401},
             ),
             # custom exceptions, mapped
-            ("/pet", {}, PROBLEMS[PetNotFound]),
-            ("/closed", {}, PROBLEMS[PetstoreClosed]),
+            ("get", "/pet", {}, PROBLEMS[PetNotFound]),
+            ("get", "/closed", {}, PROBLEMS[PetstoreClosed]),
             # unmapped exception
-            ("/error", {}, DEFAULT_PROBLEM),
+            ("get", "/error", {}, DEFAULT_PROBLEM),
         ],
     )
-    def test_responses(self, client, path, headers, problem):
-        response = client.get(path, headers=headers)
+    def test_responses(
+        self, client, media_type, method, path, headers, problem
+    ):
+        response = client.open(path, method=method, headers=headers)
         assert response.status_code == problem["status"]
-        assert response.mimetype == "application/problem+json"
+        assert response.content_type == media_type
         assert json.loads(response.data) == problem
         assert "secret" not in response.get_data(as_text=True)
 
