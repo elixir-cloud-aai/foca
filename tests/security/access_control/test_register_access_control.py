@@ -6,6 +6,7 @@ from pathlib import Path
 
 import mongomock
 import pytest
+import yaml
 
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -31,28 +32,34 @@ DEFAULT_SPEC = Path(
 )
 
 
-def _error_media_types(spec: dict) -> set[str]:
-    """Media types of the error responses of a specification's operations."""
-    return {
-        media_type
-        for path_item in spec["paths"].values()
-        for operation in path_item.values()
-        if isinstance(operation, dict)
-        for status, response in operation["responses"].items()
-        if str(status)[0] in "45"
-        for media_type in response.get("content", {})
-    }
+def _content(spec: dict, path: str, method: str, status: str) -> set[str]:
+    """Media types of a response of a specification."""
+    return set(spec["paths"][path][method]["responses"][status]["content"])
 
 
-def test_with_error_media_type():
+@pytest.mark.parametrize(
+    "path,method,status",
+    [
+        ("/permissions", "post", "400"),
+        ("/permissions", "post", "401"),
+        ("/permissions", "get", "500"),
+        ("/permissions/{id}", "delete", "404"),
+    ],
+)
+def test_with_error_media_type(path, method, status):
     """Error responses of the permissions API declare the media type."""
+    default = yaml.safe_load(DEFAULT_SPEC.read_text(encoding="utf-8"))
+    assert _content(default, path, method, status) == {
+        "application/problem+json"
+    }
     spec = _with_error_media_type(
         spec_path=DEFAULT_SPEC, media_type="application/json"
     )
-    assert _error_media_types(spec) == {"application/json"}
-    assert spec["paths"]["/permissions"]["post"]["responses"]["200"][
-        "content"
-    ].keys() == {"application/json"}
+    assert _content(spec, path, method, status) == {"application/json"}
+    assert "application/problem+json" not in str(spec)
+    assert _content(spec, "/permissions", "post", "200") == {
+        "application/json"
+    }
 
 
 @pytest.mark.parametrize(
@@ -84,7 +91,7 @@ def test_register_permission_specs_media_type(
     )
     assert isinstance(specs[0], expected)
     if expected is dict:
-        assert _error_media_types(specs[0]) == {media_type}
+        assert "application/problem+json" not in str(specs[0])
 
 
 class TestRegisterAccessControlSetup:

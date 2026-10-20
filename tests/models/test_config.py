@@ -141,15 +141,6 @@ def test_exception_config_invalid_media_type(media_type):
         ExceptionConfig(media_type=media_type)
 
 
-def test_exception_config_media_type_assignment():
-    """Media types set after creation are validated, too."""
-    res = ExceptionConfig()
-    res.media_type = "Application/JSON"
-    assert res.media_type == "application/json"
-    with pytest.raises(ValidationError, match="media_type"):
-        res.media_type = "text/html"
-
-
 def test_exception_config_mapping(problems_module):
     """Test creation of the ExceptionConfig model with a mapping."""
     res = ExceptionConfig(

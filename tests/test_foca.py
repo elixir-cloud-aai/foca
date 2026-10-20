@@ -109,6 +109,24 @@ def test_foca_create_app_error_media_type(tmp_path):
     assert response.json == {"title": "Not Found", "status": 404}
 
 
+def test_foca_create_app_error_media_type_access_control(tmp_path):
+    """Ensure errors of the permissions API have the configured media type,
+    as declared in its specification.
+    """
+    conf_dict = safe_load(ACCESS_CONTROL_ENABLED_CONF.read_text())
+    conf_dict["exceptions"] = {"media_type": "application/json"}
+    conf_dict["security"]["access_control"]["api_serve_spec"] = True
+    conf = tmp_path / "config.yaml"
+    conf.write_text(safe_dump(conf_dict))
+    client = Foca(config_file=conf).create_app().app.test_client()
+    response = client.get("/admin/access-control/permissions")
+    assert response.status_code == 401
+    assert response.content_type == "application/json"
+    spec = client.get("/admin/access-control/openapi.json").json
+    responses = spec["paths"]["/permissions"]["get"]["responses"]
+    assert set(responses["401"]["content"]) == {"application/json"}
+
+
 def test_foca_constructor_invalid_error_media_type(tmp_path):
     """Invalid 'exceptions.media_type' field."""
     conf = tmp_path / "config.yaml"

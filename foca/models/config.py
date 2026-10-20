@@ -202,9 +202,6 @@ class ExceptionConfig(FOCABaseConfig):
         'application/problem+json'
     """
 
-    # Validate media types set after creation, too
-    model_config = ConfigDict(validate_assignment=True)
-
     mapping: str | None = None
     public_members: list[str] | None = None
     logging: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline

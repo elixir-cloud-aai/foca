@@ -33,10 +33,6 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
 )
 
 logger = logging.getLogger(__name__)
-# Fields of OpenAPI 3.x Path Item Objects holding Operation Objects
-HTTP_METHODS = frozenset(
-    ("get", "put", "post", "delete", "options", "head", "patch", "trace")
-)
 
 
 def register_access_control(
@@ -176,6 +172,8 @@ def register_permission_specs(
             files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH)
         )
         specification = Path(spec_path)
+        # as a dictionary only if needed, keeping Connexion's handling of
+        # specification files otherwise
         if media_type != DEFAULT_ERROR_MEDIA_TYPE:
             specification = _with_error_media_type(
                 spec_path=specification, media_type=media_type
@@ -202,6 +200,12 @@ def register_permission_specs(
     return app
 
 
+# Fields of OpenAPI 3.x Path Item Objects holding Operation Objects
+_HTTP_METHODS = frozenset(
+    ("get", "put", "post", "delete", "options", "head", "patch", "trace")
+)
+
+
 def _with_error_media_type(spec_path: Path, media_type: str) -> dict:
     """Load an API specification with another error response media type.
 
@@ -212,7 +216,8 @@ def _with_error_media_type(spec_path: Path, media_type: str) -> dict:
 
     Returns:
         Specification, with `media_type` instead of `application/problem+json`
-        for all `4xx` and `5xx` responses of its operations.
+        for all `4xx` and `5xx` responses of its operations (defined in the
+        operations, not referenced via `$ref`).
     """
     with spec_path.open(encoding="utf-8") as spec_file:
         spec = yaml.safe_load(spec_file)
@@ -220,7 +225,7 @@ def _with_error_media_type(spec_path: Path, media_type: str) -> dict:
         operation
         for path_item in spec["paths"].values()
         for method, operation in path_item.items()
-        if method in HTTP_METHODS
+        if method in _HTTP_METHODS
     )
     for operation in operations:
         for status, response in operation.get("responses", {}).items():
