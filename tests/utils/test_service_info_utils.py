@@ -127,6 +127,14 @@ def test_merge_service_info():
     assert merge_service_info({"a": [None, 1]}) == {"a": [1]}
 
 
+def test_merge_service_info_cyclic():
+    """Self-referring fields raise an error, not a `RecursionError`."""
+    runtime: dict = {}
+    runtime["x-self"] = runtime
+    with pytest.raises(InvalidServiceInfo, match="refer to themselves"):
+        merge_service_info({}, runtime=runtime)
+
+
 def test_merge_service_info_copy():
     """The merged service info is a copy."""
     configured = service()

@@ -97,7 +97,9 @@ def runtime_fields() -> dict:
 
 The function is called without arguments, in an app context (e.g., with
 access to [`get_config()`](index.md#accessing-the-configuration)), on startup
-and for each request; keep it fast. Fields are taken, in order of
+and for each request; keep it fast. FOCA does not time it out, so if it calls
+other services, set timeouts on those calls (or cache their results), so that
+a slow service neither delays startup nor ties up workers. Fields are taken, in order of
 precedence, from `service`, the function and the package version. Fields and
 list items set to `null` (e.g., in a [config
 overlay](index.md#environment-specific-configuration)) are removed, also if
@@ -123,7 +125,8 @@ service-info specification, version 1.0.0, which is bundled with FOCA:
 - On each request, service info that has become invalid (via the function),
   or a failing function, is not served; the request fails with a generic
   `500 Internal Server Error` (also if your app maps `ValueError` to other
-  problem details), and the error is logged.
+  problem details; unless it maps `werkzeug.exceptions.InternalServerError`
+  itself), and the error is logged.
 
 The service info must also be serializable as JSON (e.g., no dates as
 values: quote date-times in YAML, and return them as strings from the

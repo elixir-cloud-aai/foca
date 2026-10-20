@@ -155,15 +155,25 @@ def merge_service_info(
 
     Returns:
         Service info, as a copy.
+
+    Raises:
+        InvalidServiceInfo: The fields are nested too deeply, e.g., because
+            the fields computed at runtime refer to themselves.
     """
     package = {} if package_version is None else {"version": package_version}
-    return without_nulls(
-        {
-            **package,
-            **_without_null_version(runtime or {}),
-            **_without_null_version(service),
-        }
-    )
+    try:
+        return without_nulls(
+            {
+                **package,
+                **_without_null_version(runtime or {}),
+                **_without_null_version(service),
+            }
+        )
+    except RecursionError as exc:
+        raise InvalidServiceInfo(
+            "Invalid service info: fields are nested too deeply or refer to "
+            "themselves"
+        ) from exc
 
 
 def validate_service_info(
