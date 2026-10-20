@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Callable
 from functools import wraps
+from typing import Literal, get_args
 
 from casbin import Enforcer
 from connexion.exceptions import Forbidden, Unauthorized
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 # Policy type of resource-scoped role rules: subject, role, resource
 RESOURCE_ROLE_PTYPE = "g2"
+
+# Types of subjects managed via resource role helpers
+SubjectType = Literal["user", "group"]
 
 
 def _get_access_control_config():
@@ -68,29 +72,47 @@ def get_current_subject() -> str | None:
     return None if subject is None else str(subject)
 
 
-def _prefix_subject(subject: str) -> str:
-    """Add configured prefix to a subject, as used in policy rules."""
-    return f"{_get_access_control_config().subject_prefix}{subject}"
+def _get_subject_prefix(subject_type: SubjectType) -> str:
+    """Get prefix of subjects of a type, as used in policy rules.
+
+    Args:
+        subject_type: Type of subjects: `user` for user identifiers (prefixed
+            with `access_control.subject_prefix`) or `group` for group claim
+            values (prefixed with `group:`).
+
+    Returns:
+        Prefix of subjects of the type.
+
+    Raises:
+        ValueError: The subject type is not supported.
+    """
+    if subject_type == "user":
+        return _get_access_control_config().subject_prefix
+    if subject_type == "group":
+        return GROUP_PREFIX
+    raise ValueError(
+        f"Unsupported subject type '{subject_type}': expected one of "
+        f"{', '.join(repr(_type) for _type in get_args(SubjectType))}"
+    )
 
 
-def _unprefix_subject(subject: str) -> str:
-    """Remove configured prefix from a subject used in policy rules."""
-    prefix = _get_access_control_config().subject_prefix
-    if prefix and subject.startswith(prefix):
-        return subject[len(prefix) :]
-    return subject
+def _prefix_subject(subject: str, subject_type: SubjectType = "user") -> str:
+    """Add prefix of a subject type to a subject, as used in policy rules."""
+    return f"{_get_subject_prefix(subject_type)}{subject}"
 
 
-def get_current_groups() -> list[str]:
-    """Get roles of the subject of the current request from group claims.
+def get_current_group_values() -> list[str]:
+    """Get values of the group claim of the current request.
+
+    Use this, e.g., to only let users grant roles to groups they are members
+    of (cf. :py:func:`add_resource_role`).
 
     Returns:
         Values of the claim configured via `access_control.claim_groups` of
-        the validated token of the current request, mapped to roles via
-        `access_control.group_mapping`, if set. Values without a mapping are
-        dropped if a mapping is set. Without a mapping, values are prefixed
-        with `group:` (e.g., `group:vo-members`), so that they cannot
-        collide with role names.
+        the validated token of the current request, as is, i.e., neither
+        mapped nor prefixed, and without duplicates. Empty if the claim is
+        not configured or not available, or if its value is neither a
+        string nor a list.
     """
     conf = _get_access_control_config()
     if conf.claim_groups is None:
@@ -100,15 +122,34 @@ def get_current_groups() -> list[str]:
         values = [values]
     if not isinstance(values, (list, tuple)):
         return []
-    groups = [str(value) for value in values]
+    return list(dict.fromkeys(str(value) for value in values))
+
+
+def get_current_groups() -> list[str]:
+    """Get roles of the subject of the current request from group claims.
+
+    Returns:
+        Values of the claim configured via `access_control.claim_groups` of
+        the validated token of the current request (cf.
+        :py:func:`get_current_group_values`), mapped to roles via
+        `access_control.group_mapping`, if set. Values without a mapping are
+        dropped if a mapping is set. Without a mapping, values are prefixed
+        with `group:` (e.g., `group:vo-members`), so that they cannot
+        collide with role names. If a mapping and
+        `access_control.keep_group_subjects` are set, all values are
+        additionally returned with that prefix, after the mapped roles.
+    """
+    conf = _get_access_control_config()
+    values = get_current_group_values()
+    groups = []
     if conf.group_mapping is not None:
         groups = [
-            conf.group_mapping[group]
-            for group in groups
-            if group in conf.group_mapping
+            conf.group_mapping[value]
+            for value in values
+            if value in conf.group_mapping
         ]
-    else:
-        groups = [f"{GROUP_PREFIX}{group}" for group in groups]
+    if conf.group_mapping is None or conf.keep_group_subjects:
+        groups.extend(_prefix_subject(value, "group") for value in values)
     return list(dict.fromkeys(groups))
 
 
@@ -358,37 +399,85 @@ def _get_resource_role_enforcer(ptype: str) -> Enforcer:
     return enforcer
 
 
+def _get_resource_role_rule(
+    subject: str,
+    role: str,
+    resource: str,
+    ptype: str,
+    subject_type: SubjectType,
+    enforcer: Enforcer,
+) -> list[str]:
+    """Get and validate a resource-scoped role rule.
+
+    Args:
+        subject: Subject without prefix.
+        role: Role.
+        resource: Resource, i.e., its full request path.
+        ptype: Policy type of resource-scoped role rules.
+        subject_type: Type of the subject (cf. :py:func:`add_resource_role`).
+        enforcer: Casbin enforcer.
+
+    Returns:
+        Values of the rule, with the subject prefixed according to its type.
+
+    Raises:
+        ValueError: The subject type is not supported, the subject is empty,
+            or the rule is not valid (cf.
+            :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule`).
+    """
+    prefixed_subject = _prefix_subject(subject, subject_type)
+    if not subject:
+        raise ValueError("Subjects must not be empty")
+    rule = [prefixed_subject, role, resource]
+    validate_rule(ptype, rule, enforcer.get_model())
+    return rule
+
+
 def add_resource_role(
     subject: str,
     role: str,
     resource: str,
     ptype: str = RESOURCE_ROLE_PTYPE,
+    subject_type: SubjectType = "user",
 ) -> bool:
     """Grant a subject a role on a resource.
 
     Requires a model with resource-scoped roles, i.e., a role definition
     `<ptype> = _, _, _` (e.g., `g2` in `resource_role_model.conf`).
 
+    Roles granted to a group apply to all subjects whose group claim
+    (`access_control.claim_groups`) contains the group, if group claim
+    values are used as subjects, i.e., if `access_control.group_mapping` is
+    not set, or if `access_control.keep_group_subjects` is set. Which
+    subjects may grant roles to which groups is up to the app (e.g., only
+    to groups they are members of, cf.
+    :py:func:`get_current_group_values`).
+
     Args:
-        subject: Subject (e.g., user identifier as returned by
-            :py:func:`get_current_subject`) to grant role to. It is prefixed
-            with `access_control.subject_prefix` in the rule.
+        subject: Subject to grant role to, without prefix: a user identifier
+            (e.g., as returned by :py:func:`get_current_subject`), or a group
+            claim value if `subject_type` is `group`. It is prefixed with
+            `access_control.subject_prefix` or `group:`, respectively, in the
+            rule.
         role: Role to grant (e.g., `owner`).
         resource: Resource to grant role on, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
+        subject_type: Type of the subject: `user` or `group`.
 
     Returns:
         `True` if the role was granted, `False` if it already existed.
 
     Raises:
-        ValueError: The model does not define resource-scoped roles, or the
+        ValueError: The model does not define resource-scoped roles, the
+            subject type is not supported, the subject is empty, or the
             prefixed subject, role or resource is not a valid value for
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).
     """
     enforcer = _get_resource_role_enforcer(ptype)
-    rule = [_prefix_subject(subject), role, resource]
-    validate_rule(ptype, rule, enforcer.get_model())
+    rule = _get_resource_role_rule(
+        subject, role, resource, ptype, subject_type, enforcer
+    )
     return enforcer.add_named_grouping_policy(ptype, *rule)
 
 
@@ -397,53 +486,67 @@ def remove_resource_role(
     role: str,
     resource: str,
     ptype: str = RESOURCE_ROLE_PTYPE,
+    subject_type: SubjectType = "user",
 ) -> bool:
     """Revoke a role of a subject on a resource.
 
     Args:
-        subject: Subject (e.g., user identifier) to revoke role from.
+        subject: Subject to revoke role from, without prefix: a user
+            identifier, or a group claim value if `subject_type` is `group`.
         role: Role to revoke (e.g., `owner`).
         resource: Resource to revoke role on, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
+        subject_type: Type of the subject: `user` or `group`.
 
     Returns:
         `True` if the role was revoked, `False` if it did not exist.
 
     Raises:
-        ValueError: The model does not define resource-scoped roles, or the
+        ValueError: The model does not define resource-scoped roles, the
+            subject type is not supported, the subject is empty, or the
             prefixed subject, role or resource is not a valid value for
             policy rules.
     """
     enforcer = _get_resource_role_enforcer(ptype)
-    rule = [_prefix_subject(subject), role, resource]
-    validate_rule(ptype, rule, enforcer.get_model())
+    rule = _get_resource_role_rule(
+        subject, role, resource, ptype, subject_type, enforcer
+    )
     return enforcer.remove_named_grouping_policy(ptype, *rule)
 
 
 def list_resource_roles(
     resource: str,
     ptype: str = RESOURCE_ROLE_PTYPE,
+    subject_type: SubjectType | None = None,
 ) -> list[tuple[str, str]]:
     """List roles granted on a resource.
 
     Args:
         resource: Resource to list roles of, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
+        subject_type: Type of subjects to list roles of: `user` or `group`.
+            If `None`, roles of all subjects are listed, with user
+            identifiers without `access_control.subject_prefix` and all other
+            subjects as is (e.g., `group:vo-members`), so that a user whose
+            identifier starts with `group:` cannot be told apart from a
+            group; pass the type to tell them apart.
 
     Returns:
-        Subject (without `access_control.subject_prefix`) and role of each
-        role granted on the resource.
+        Subject and role of each role granted on the resource. Subjects are
+        returned without the prefix of `subject_type`, if given.
 
     Raises:
-        ValueError: The model does not define resource-scoped roles.
+        ValueError: The model does not define resource-scoped roles, or the
+            subject type is not supported.
     """
     enforcer = _get_resource_role_enforcer(ptype)
-    return [
-        (_unprefix_subject(rule[0]), rule[1])
-        for rule in enforcer.get_filtered_named_grouping_policy(
-            ptype, 2, resource
-        )
-    ]
+    rules = enforcer.get_filtered_named_grouping_policy(ptype, 2, resource)
+    prefix = _get_subject_prefix(
+        "user" if subject_type is None else subject_type
+    )
+    if subject_type is not None:
+        rules = [rule for rule in rules if rule[0].startswith(prefix)]
+    return [(rule[0].removeprefix(prefix), rule[1]) for rule in rules]
 
 
 def remove_resource(
