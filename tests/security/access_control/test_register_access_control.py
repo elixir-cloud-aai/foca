@@ -7,6 +7,7 @@ from pathlib import Path
 import mongomock
 import pytest
 import yaml
+from connexion import App
 
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -60,6 +61,23 @@ def test_with_error_media_type(path, method, status):
     assert _content(spec, "/permissions", "post", "200") == {
         "application/json"
     }
+
+
+@pytest.mark.parametrize("api_specs", [None, str(DEFAULT_SPEC)])
+def test_register_permission_specs_without_config(monkeypatch, api_specs):
+    """Apps without FOCA configuration get the specification unchanged."""
+    cnx_app = App(__name__)
+    specs = []
+    monkeypatch.setattr(
+        cnx_app,
+        "add_api",
+        lambda specification, **kwargs: specs.append(specification),
+    )
+    register_permission_specs(
+        app=cnx_app,
+        access_control_config=AccessControlConfig(api_specs=api_specs),
+    )
+    assert specs == [DEFAULT_SPEC]
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,7 @@ from foca.models.config import (
     DEFAULT_ERROR_MEDIA_TYPE,
     AccessControlConfig,
     CollectionConfig,
+    Config,
     ConnexionOptions,
     DBConfig,
     MongoConfig,
@@ -165,13 +166,19 @@ def register_permission_specs(
     Returns:
         Connexion app with updated permission specifications.
     """
-    media_type = get_app_config(app.app).exceptions.media_type
     specification: Path | dict
     if access_control_config.api_specs is None:
         spec_path = str(
             files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH)
         )
         specification = Path(spec_path)
+        # apps without FOCA configuration use the default media type
+        config = getattr(app.app.config, "foca", None)
+        media_type = (
+            config.exceptions.media_type
+            if isinstance(config, Config)
+            else DEFAULT_ERROR_MEDIA_TYPE
+        )
         # as a dictionary only if needed, keeping Connexion's handling of
         # specification files otherwise
         if media_type != DEFAULT_ERROR_MEDIA_TYPE:
