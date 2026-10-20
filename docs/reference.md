@@ -65,8 +65,18 @@ configuration models, see [Configuration](configuration/index.md).
         - getServiceInfo
         - get_service_info
         - build_service_info
-        - validate_service_info
+        - check_service_info
+
+::: foca.utils.service_info
+    options:
+      members:
         - InvalidServiceInfo
+        - merge_service_info
+        - validate_service_info
+        - without_nulls
+        - lookup_package_version
+        - import_runtime_function
+        - call_runtime_function
 
 ## Databases
 

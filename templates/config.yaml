@@ -110,6 +110,9 @@ log:
 # Cf. https://foca.readthedocs.io/en/latest/configuration/service-info/
 # Served by `foca.api.service_info.getServiceInfo` (route `GET /service-info`
 # of your specs there); validated against the GA4GH `Service` schema
+# `package` and `runtime_fields` are placeholders: adjust or remove them, as
+# the app refuses to start if the package is not installed or the function
+# cannot be imported
 service_info:
   # Distribution package whose version is served, unless `service.version`
   # is set

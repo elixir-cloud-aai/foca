@@ -228,6 +228,14 @@ Errors are returned as [problem details](configuration/exceptions.md):
 to keep logging them. The configuration is no longer logged, only the names
 of its sections.
 
+## Service info
+
+`service_info` is a FOCA config section for serving GA4GH service info
+([details](configuration/service-info.md)), no longer a free-form section
+left to apps. Move service info fields kept directly under `service_info`
+to `service_info.service`, or rename the section if your app uses it for
+anything else.
+
 ## Utilities
 
 `generate_id()` no longer evaluates `charset` expressions such as

@@ -122,7 +122,10 @@ class Foca:
 
         Raises:
             foca.api.service_info.InvalidServiceInfo: The service info,
-                including fields computed at runtime, is invalid.
+                including fields computed at runtime, is invalid, or the API
+                specifications route operations to
+                `foca.api.service_info.getServiceInfo`, but no service info is
+                configured.
         """
         cnx_app = self._create_base_app()
 
@@ -156,11 +159,9 @@ class Foca:
         else:
             logger.info("Access control not enabled.")
 
-        # Check service info, including fields computed at runtime
-        if self.conf.service_info is not None:
-            check_service_info(cnx_app.app)
-        else:
-            logger.info("No service info configured.")
+        # Check service info, including fields computed at runtime, and that
+        # it is configured if served
+        check_service_info(cnx_app.app)
 
         return cnx_app
 

@@ -64,13 +64,19 @@ getServiceInfo`), so it is enough to add `x-openapi-router-controller`, e.g.,
 in a [merged file](api.md). `security: []` makes the service info public;
 leave it out if your specification requires authentication for it.
 
+If an operation is routed to `getServiceInfo`, but `service_info` is not
+configured, the app refuses to start (`Foca.create_app()` raises a
+`foca.api.service_info.InvalidServiceInfo` naming the routes).
+
 ## Version
 
 `version` is the version of the deployed app. Set `package` to the name of
 your app's distribution package (as installed, e.g., with `pip install`, and
 as in the `name` of its `pyproject.toml`) to serve its version, unless
 `service.version` is set. The package must then be installed; otherwise the
-app refuses to start.
+app refuses to start. `version: null` (e.g., in a [config
+overlay](index.md#environment-specific-configuration)) counts as not set, so
+the version is then taken from the `runtime_fields` function or `package`.
 
 ## Fields computed at runtime
 
@@ -92,7 +98,10 @@ and for each request; keep it fast. Fields are taken, in order of
 precedence, from `service`, the function and the package version. Fields and
 list items set to `null` (e.g., in a [config
 overlay](index.md#environment-specific-configuration)) are removed, also if
-the function or the package set them.
+the function or the package set them (except for `version`, cf.
+[above](#version)). Exceptions raised by the function are raised as
+`foca.api.service_info.InvalidServiceInfo` (with the original exception as
+its cause).
 
 ## Validation
 
@@ -108,12 +117,25 @@ service-info specification, version 1.0.0, which is bundled with FOCA:
   including the fields computed at runtime, raises a
   `foca.api.service_info.InvalidServiceInfo` (a `ValueError`) if invalid, so
   the app refuses to start.
-- On each request, service info that has become invalid (via the function)
-  is not served; the request fails with `500 Internal Server Error`, and the
-  error is logged.
+- On each request, service info that has become invalid (via the function),
+  or a failing function, is not served; the request fails with a generic
+  `500 Internal Server Error`, and the error is logged.
+
+The service info must also be serializable as JSON (e.g., no dates as
+values: quote date-times in YAML, and return them as strings from the
+function).
 
 Use `foca.api.service_info.get_service_info()` to get the service info of the
 current app in your own code.
+
+## Upgrading from earlier FOCA versions
+
+Earlier versions of FOCA accepted any top-level config section, including
+`service_info`, and left it to the app. Now, `service_info` is FOCA's own,
+validated section. Apps that kept the GA4GH service info fields directly
+under `service_info` must move them to `service_info.service`; apps that use
+`service_info` for anything else must rename it (e.g., to a key in a section
+of their own). Otherwise, the configuration fails validation.
 
 ## Migrating an app
 

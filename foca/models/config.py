@@ -22,12 +22,6 @@ from pydantic import (
 from pymongo import MongoClient, collection, database
 from typing_extensions import Self
 
-from foca.api.service_info import (
-    import_runtime_fields,
-    package_fields,
-    validate_service_info,
-    without_nulls,
-)
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_ACCESS_CONTROL_COLLECTION_NAME,
@@ -37,6 +31,12 @@ from foca.security.access_control.constants import (
     DEFAULT_MODEL_FILE,
     GROUP_PREFIX,
     MIN_ID_SPACE,
+)
+from foca.utils.service_info import (
+    import_runtime_function,
+    lookup_package_version,
+    merge_service_info,
+    validate_service_info,
 )
 
 # Default media type of error responses
@@ -1368,8 +1368,8 @@ class ServiceInfoConfig(FOCABaseConfig):
             fields are served as they are.
         package: Name of the app's distribution package (as installed, e.g.,
             with `pip install`), whose version is served as `version`,
-            unless `service` sets `version`. The package must then be
-            installed.
+            unless `service` sets `version` (to a value other than ``None``).
+            The package must then be installed.
         runtime_fields: Path to a function returning a dictionary of fields
             that are computed at runtime, as a dot-separated path to the
             module, followed by the name of the function, e.g.,
@@ -1417,17 +1417,17 @@ class ServiceInfoConfig(FOCABaseConfig):
     service: dict[str, Any]
     package: str | None = None
     runtime_fields: str | None = None
-    # Fields from the package metadata; set on validation
-    _package_fields: dict[str, Any] = PrivateAttr(default_factory=dict)
+    # Version of `package`, if used; set on validation
+    _package_version: str | None = PrivateAttr(default=None)
     # Function imported from `runtime_fields`; set on validation
     _runtime_function: Callable[[], Mapping[str, Any]] | None = PrivateAttr(
         default=None
     )
 
     @property
-    def package_fields(self) -> dict[str, Any]:
-        """Fields from the metadata of `package`, i.e., `version`, if used."""
-        return self._package_fields
+    def package_version(self) -> str | None:
+        """Version of `package`, if used for `version`."""
+        return self._package_version
 
     @property
     def runtime_function(self) -> Callable[[], Mapping[str, Any]] | None:
@@ -1439,8 +1439,8 @@ class ServiceInfoConfig(FOCABaseConfig):
         """Validate the service info.
 
         Returns:
-            Model instance with the package fields and the runtime fields
-            function imported.
+            Model instance with the package version looked up and the runtime
+            fields function imported.
 
         Raises:
             ValueError: `package` is needed but not installed, the runtime
@@ -1452,15 +1452,16 @@ class ServiceInfoConfig(FOCABaseConfig):
         self._runtime_function = (
             None
             if self.runtime_fields is None
-            else import_runtime_fields(self.runtime_fields)
+            else import_runtime_function(self.runtime_fields)
         )
-        self._package_fields = (
-            package_fields(self.package)
-            if self.package is not None and "version" not in self.service
-            else {}
+        # `version: null` (e.g., in a config overlay) is the same as unset
+        self._package_version = (
+            lookup_package_version(self.package)
+            if self.package is not None and self.service.get("version") is None
+            else None
         )
         validate_service_info(
-            without_nulls({**self._package_fields, **self.service}),
+            merge_service_info(self.service, self._package_version),
             prefix="service_info.service",
             ignore_missing=self.runtime_fields is not None,
         )

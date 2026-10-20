@@ -2,68 +2,36 @@
 
 import logging
 from copy import deepcopy
-from importlib.metadata import PackageNotFoundError
+from datetime import date
 
 import pytest
 from flask import Flask
 from yaml import safe_dump
 
 from foca import Foca
-from foca.api import service_info as module
 from foca.api.service_info import (
     InvalidServiceInfo,
     check_service_info,
     get_service_info,
     getServiceInfo,
-    import_runtime_fields,
-    package_fields,
-    validate_service_info,
-    without_nulls,
 )
 from foca.config.access import set_app_config
 from foca.models.config import Config
+from foca.utils import service_info as utils
+from tests.test_files import service_info_fields
+from tests.test_files.service_info import FIELDS, SERVICE, service
 
-FIELDS = "tests.test_files.service_info_fields"
-SERVICE = {
-    "id": "org.example.my-service",
-    "name": "My service",
-    "type": {
-        "group": "org.example",
-        "artifact": "my-api",
-        "version": "1.0.0",
-    },
-    "description": "Serves examples.",
-    "organization": {"name": "Example", "url": "https://example.org"},
-    "contactUrl": "mailto:support@example.org",
-    "documentationUrl": "https://docs.example.org",
-    "environment": "dev",
-    "version": "1.2.3",
+OPERATION = {
+    "operationId": "getServiceInfo",
+    "x-openapi-router-controller": "foca.api.service_info",
+    "responses": {"200": {"description": "Service info"}},
 }
-REQUIRED = ("id", "name", "type", "organization", "version")
 SPEC = {
     "openapi": "3.0.2",
     "info": {"title": "My service", "version": "1.0.0"},
-    "paths": {
-        "/service-info": {
-            "get": {
-                "operationId": "getServiceInfo",
-                "x-openapi-router-controller": "foca.api.service_info",
-                "responses": {"200": {"description": "Service info"}},
-            },
-        },
-    },
+    "paths": {"/service-info": {"get": OPERATION}},
 }
-
-
-def _service(**fields) -> dict:
-    """Copy the service info, with fields replaced (`None` removes them)."""
-    service = deepcopy(SERVICE)
-    for field, value in fields.items():
-        if value is None:
-            service.pop(field, None)
-        else:
-            service[field] = value
-    return service
+TOGGLED = f"{FIELDS}.toggled_fields"
 
 
 def _app(service_info: dict) -> Flask:
@@ -73,23 +41,29 @@ def _app(service_info: dict) -> Flask:
     return app
 
 
-def _foca(tmp_path, service_info: dict | None) -> Foca:
-    """Create a FOCA instance with an API serving the service info."""
-    spec = tmp_path / "openapi.yaml"
-    spec.write_text(safe_dump(SPEC))
-    conf: dict = {
+def _foca(
+    tmp_path,
+    service_info: dict | None,
+    spec: dict = SPEC,
+    add_controller: bool = True,
+    **conf,
+) -> Foca:
+    """Create a FOCA instance with an API serving the service info.
+
+    Unless `add_controller` is false, another controller is added to all
+    operations; the operation's own controller takes precedence.
+    """
+    spec_file = tmp_path / "openapi.yaml"
+    spec_file.write_text(safe_dump(spec))
+    spec_conf: dict = {"path": "openapi.yaml"}
+    if add_controller:
+        spec_conf["add_operation_fields"] = {
+            "x-openapi-router-controller": "tests.api.controllers"
+        }
+    conf = {
         "server": {"port": 8000},
-        "api": {
-            "specs": [
-                {
-                    "path": "openapi.yaml",
-                    # The operation's own controller takes precedence
-                    "add_operation_fields": {
-                        "x-openapi-router-controller": "tests.api.controllers"
-                    },
-                },
-            ],
-        },
+        "api": {"specs": [spec_conf]},
+        **conf,
     }
     if service_info is not None:
         conf["service_info"] = service_info
@@ -98,182 +72,20 @@ def _foca(tmp_path, service_info: dict | None) -> Foca:
     return Foca(config_file=config_file)
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        "https://example.org",
-        "mailto:support@example.org",
-        "urn:isbn:0451450523",
-        "x:",
-        1,
-    ],
-)
-def test_is_uri(value):
-    """Absolute URIs with any scheme pass; non-strings are left to the
-    schema.
-    """
-    assert module._is_uri(value)
+@pytest.fixture
+def log(caplog):
+    """Capture logs, also after FOCA configured logging."""
+    caplog.set_level(logging.INFO)
+    root = logging.getLogger()
+    yield caplog
+    root.removeHandler(caplog.handler)
 
 
-@pytest.mark.parametrize(
-    "value",
-    ["support", "/org", "docs example org", "https://example.org/a b", ""],
-)
-def test_is_uri_invalid(value):
-    """Relative URIs and strings with whitespace fail."""
-    assert not module._is_uri(value)
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        "2020-11-08T10:20:30Z",
-        "2020-11-08T10:20:30.123+01:00",
-        "2020-11-08t10:20:30z",
-        "2020-02-29T10:20:30.1234567-05:30",
-        "2016-12-31T23:59:60Z",
-        1,
-    ],
-)
-def test_is_date_time(value):
-    """RFC 3339 date-times pass, including leap seconds; non-strings are left
-    to the schema.
-    """
-    assert module._is_date_time(value)
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        "yesterday",
-        "2020-11-08",
-        "2020-11-08T00:00:00",
-        "2020-13-45T25:99:99Z",
-        "2021-02-29T00:00:00Z",
-        "2020-11-08T24:00:00Z",
-        "2020-11-08T00:60:00Z",
-        "2020-11-08T00:00:61Z",
-        "2020-11-08T00:00:00+00:60",
-        "2020-11-08T00:00:00+24:00",
-        "2020-11-08 00:00:00Z",
-        # Fullwidth digits
-        "".join(chr(0xFF10 + int(digit)) for digit in "2020")
-        + "-11-08T00:00:00Z",
-    ],
-)
-def test_is_date_time_invalid(value):
-    """Other strings fail, also with non-ASCII digits."""
-    assert not module._is_date_time(value)
-
-
-def test_without_nulls():
-    """Fields and list items set to `None` are removed recursively, from a
-    copy.
-    """
-    data = {"a": None, "b": [None, {"c": None, "d": 1}], "e": {"f": None}}
-    copy = without_nulls(data)
-    assert copy == {"b": [{"d": 1}], "e": {}}
-    copy["b"][0]["d"] = 2
-    assert data["b"][1]["d"] == 1
-
-
-def test_package_fields(monkeypatch):
-    """The version is taken from the package metadata."""
-    monkeypatch.setattr(module, "version", lambda name: f"{name}-1.2.3")
-    assert package_fields("my-app") == {"version": "my-app-1.2.3"}
-
-
-def test_package_fields_not_installed(monkeypatch):
-    """Packages that are not installed are named."""
-
-    def not_installed(name):
-        raise PackageNotFoundError(name)
-
-    monkeypatch.setattr(module, "version", not_installed)
-    with pytest.raises(InvalidServiceInfo, match=r"'my-app' .* not installed"):
-        package_fields("my-app")
-
-
-def test_import_runtime_fields():
-    """Functions are imported by their dotted path."""
-    func = import_runtime_fields(f"{FIELDS}.version_field")
-    assert func() == {"version": "2.0.0-runtime"}
-
-
-@pytest.mark.parametrize(
-    "path",
-    [f"{FIELDS}.missing", "tests.test_files.missing.func", "func", ""],
-)
-def test_import_runtime_fields_missing(path):
-    """Paths that cannot be imported are named."""
-    with pytest.raises(InvalidServiceInfo, match="could not be imported"):
-        import_runtime_fields(path)
-
-
-def test_import_runtime_fields_not_callable():
-    """Imported objects must be callable."""
-    with pytest.raises(InvalidServiceInfo, match="is not callable"):
-        import_runtime_fields(f"{FIELDS}.NOT_CALLABLE")
-
-
-def test_validate_service_info():
-    """Valid service info passes, also with the required fields only and
-    with extra fields.
-    """
-    validate_service_info(SERVICE)
-    validate_service_info({field: SERVICE[field] for field in REQUIRED})
-    validate_service_info(_service(**{"x-custom": {"any": "value"}}))
-    validate_service_info(
-        _service(
-            createdAt="2020-11-08T10:20:30Z", updatedAt="2026-10-20T00:00:00Z"
-        )
-    )
-
-
-@pytest.mark.parametrize("field", REQUIRED)
-def test_validate_service_info_missing(field):
-    """Missing required fields are named."""
-    with pytest.raises(
-        InvalidServiceInfo,
-        match=rf"in `service_info.service`: '{field}' is a required",
-    ):
-        validate_service_info(
-            _service(**{field: None}), prefix="service_info.service"
-        )
-
-
-@pytest.mark.parametrize("field", REQUIRED)
-def test_validate_service_info_ignore_missing(field):
-    """Missing required fields can be ignored."""
-    validate_service_info(_service(**{field: None}), ignore_missing=True)
-
-
-@pytest.mark.parametrize(
-    "fields,path",
-    [
-        ({"contactUrl": "support"}, "contactUrl"),
-        ({"documentationUrl": "docs example org"}, "documentationUrl"),
-        ({"organization": {"name": "org", "url": "/org"}}, "organization.url"),
-        ({"organization": {"name": "org"}}, "organization"),
-        ({"createdAt": "yesterday"}, "createdAt"),
-        ({"updatedAt": "2020-11-08"}, "updatedAt"),
-        ({"type": {"group": "org.ga4gh", "artifact": "x"}}, "type"),
-        ({"name": 1}, "name"),
-    ],
-)
-def test_validate_service_info_invalid(fields, path):
-    """Invalid fields are named, also when ignoring missing fields."""
-    service = _service(**fields)
-    with pytest.raises(InvalidServiceInfo, match=rf"in `x\.{path}`"):
-        validate_service_info(service, prefix="x")
-    with pytest.raises(InvalidServiceInfo, match=rf"in `{path}`"):
-        validate_service_info(service, ignore_missing=True)
-
-
-def test_validate_service_info_not_an_object():
-    """Service info must be an object."""
-    with pytest.raises(InvalidServiceInfo, match=r"in `\(root\)`"):
-        validate_service_info([])  # type: ignore[arg-type]
+def _capture(caplog) -> None:
+    """Re-attach the log capturing handler, e.g., after `Foca()`."""
+    root = logging.getLogger()
+    if caplog.handler not in root.handlers:
+        root.addHandler(caplog.handler)
 
 
 def test_get_service_info():
@@ -290,17 +102,17 @@ def test_get_service_info_nulls():
     """Fields and list items set to `None` (e.g., by config overlays) are
     not served.
     """
-    service = _service(
+    configured = service(
         contactUrl=None,
         organization={**SERVICE["organization"], "x-logo": None},
         **{"x-links": [None, {"url": "https://example.org", "title": None}]},
     )
-    service["contactUrl"] = None
-    app = _app({"service": service})
+    configured["contactUrl"] = None
+    app = _app({"service": configured})
     with app.app_context():
         info = get_service_info()
     assert info == {
-        **_service(contactUrl=None),
+        **service(contactUrl=None),
         "x-links": [{"url": "https://example.org"}],
     }
 
@@ -309,16 +121,16 @@ def test_get_service_info_runtime_fields():
     """Runtime fields are computed per request, in the app context, and
     added unless configured; configured `None` values remove them.
     """
-    service = _service(description=None)
-    service["x-runtime"] = None
+    configured = service(description=None)
+    configured["x-runtime"] = None
     app = _app(
-        {"service": service, "runtime_fields": f"{FIELDS}.runtime_fields"}
+        {"service": configured, "runtime_fields": f"{FIELDS}.runtime_fields"}
     )
     with app.app_context():
-        assert get_service_info() == _service(description="From runtime")
+        assert get_service_info() == service(description="From runtime")
         app.config.foca.server.port = 9000
         app.config.foca.service_info.service.pop("environment")
-        assert get_service_info() == _service(
+        assert get_service_info() == service(
             description="From runtime", environment="port-9000"
         )
 
@@ -327,21 +139,24 @@ def test_get_service_info_runtime_version():
     """Runtime fields take precedence over the package version."""
     app = _app(
         {
-            "service": _service(version=None),
+            "service": service(version=None),
             "package": "foca",
             "runtime_fields": f"{FIELDS}.version_field",
         }
     )
     with app.app_context():
-        assert get_service_info() == _service(version="2.0.0-runtime")
+        assert get_service_info() == service(version="2.0.0-runtime")
 
 
 def test_get_service_info_package_version(monkeypatch):
-    """The package version is served unless configured."""
-    monkeypatch.setattr(module, "version", lambda name: "3.0.0")
-    app = _app({"service": _service(version=None), "package": "my-app"})
-    with app.app_context():
-        assert get_service_info() == _service(version="3.0.0")
+    """The package version is served unless configured; `version: null`
+    counts as not configured.
+    """
+    monkeypatch.setattr(utils, "version", lambda name: "3.0.0")
+    for configured in (service(version=None), {**SERVICE, "version": None}):
+        app = _app({"service": configured, "package": "my-app"})
+        with app.app_context():
+            assert get_service_info() == service(version="3.0.0")
     app = _app({"service": SERVICE, "package": "my-app"})
     with app.app_context():
         assert get_service_info() == SERVICE
@@ -375,6 +190,41 @@ def test_get_service_info_runtime_not_a_dict():
         get_service_info()
 
 
+def test_get_service_info_runtime_failed(monkeypatch):
+    """Exceptions raised by the runtime fields function are chained."""
+    error = KeyError("missing")
+    monkeypatch.setitem(service_info_fields.TOGGLE, "error", error)
+    app = _app({"service": SERVICE, "runtime_fields": TOGGLED})
+    with (
+        app.app_context(),
+        pytest.raises(
+            InvalidServiceInfo,
+            match=rf"Runtime fields function '{TOGGLED}' .* failed",
+        ) as exc_info,
+    ):
+        get_service_info()
+    assert exc_info.value.__cause__ is error
+
+
+def test_get_service_info_runtime_not_json(monkeypatch):
+    """Runtime fields must be serializable as JSON."""
+    monkeypatch.setitem(
+        service_info_fields.TOGGLE, "fields", {"x-date": date(2026, 10, 20)}
+    )
+    app = _app({"service": SERVICE, "runtime_fields": TOGGLED})
+    with (
+        app.app_context(),
+        pytest.raises(
+            InvalidServiceInfo,
+            match=(
+                rf"in `\(root\)` \(from `service_info.service` and "
+                rf"`{TOGGLED}`\): not JSON-serializable"
+            ),
+        ),
+    ):
+        get_service_info()
+
+
 def test_get_service_info_not_configured():
     """Service info must be configured."""
     app = Flask(__name__)
@@ -393,12 +243,20 @@ def test_getServiceInfo():
         assert getServiceInfo() == SERVICE
 
 
-def test_check_service_info(caplog):
+def test_check_service_info(log):
     """Valid service info is logged."""
-    caplog.set_level(logging.INFO)
     check_service_info(_app({"service": SERVICE}))
     message = "Serving service info 'org.example.my-service', version '1.2.3'"
-    assert message in caplog.text
+    assert message in log.text
+
+
+def test_check_service_info_not_configured(log):
+    """Apps without service info pass if they do not serve it."""
+    app = Flask(__name__)
+    set_app_config(app, Config())
+    app.add_url_rule("/other", "other", lambda: "")
+    check_service_info(app)
+    assert "No service info configured." in log.text
 
 
 def test_service_info_endpoint(tmp_path):
@@ -408,7 +266,7 @@ def test_service_info_endpoint(tmp_path):
     foca = _foca(
         tmp_path,
         {
-            "service": _service(environment=None),
+            "service": service(environment=None),
             "runtime_fields": f"{FIELDS}.runtime_fields",
         },
     )
@@ -417,33 +275,106 @@ def test_service_info_endpoint(tmp_path):
     assert response.status_code == 200
     assert response.mimetype == "application/json"
     assert response.json == {
-        **_service(environment="port-8000"),
+        **service(environment="port-8000"),
         "x-runtime": {},
     }
     assert client.post("/service-info").status_code == 405
 
 
-def test_service_info_endpoint_invalid_at_runtime(tmp_path, monkeypatch):
-    """Service info that becomes invalid at runtime is not served."""
+def test_service_info_endpoint_full_operation_id(tmp_path):
+    """Operations can be routed with a full `operationId`."""
+    spec = deepcopy(SPEC)
+    spec["paths"]["/service-info"]["get"] = {
+        "operationId": "foca.api.service_info.getServiceInfo",
+        "responses": OPERATION["responses"],
+    }
+    foca = _foca(tmp_path, {"service": SERVICE}, spec, add_controller=False)
+    response = foca.create_app().app.test_client().get("/service-info")
+    assert response.status_code == 200
+    assert response.json == SERVICE
+
+
+def test_service_info_endpoint_public(tmp_path):
+    """`security: []` serves the service info without authentication."""
+    spec = deepcopy(SPEC)
+    spec["components"] = {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "x-bearerInfoFunc": "foca.security.auth.validate_token",
+            },
+        },
+    }
+    spec["security"] = [{"bearerAuth": []}]
+    spec["paths"]["/service-info"]["get"] = {**OPERATION, "security": []}
+    # Other operations require authentication
+    spec["paths"]["/pets"] = {
+        "get": {"operationId": "listPets", "responses": OPERATION["responses"]}
+    }
     foca = _foca(
         tmp_path,
-        {"service": SERVICE, "runtime_fields": f"{FIELDS}.version_field"},
+        {"service": SERVICE},
+        spec=spec,
+        security={
+            "auth": {
+                "issuers": ["https://login.example.org"],
+                "audience": ["my-app"],
+            },
+        },
     )
     client = foca.create_app().app.test_client()
-    monkeypatch.setattr(
-        foca.conf.service_info,
-        "_runtime_function",
-        lambda: {"createdAt": "yesterday"},
+    response = client.get("/service-info")
+    assert response.status_code == 200
+    assert response.json == SERVICE
+    assert client.get("/pets").status_code == 401
+
+
+def test_service_info_endpoint_invalid_at_runtime(tmp_path, monkeypatch, log):
+    """Service info that becomes invalid at runtime is not served, and the
+    error is logged.
+    """
+    foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})
+    client = foca.create_app().app.test_client()
+    _capture(log)
+    monkeypatch.setitem(
+        service_info_fields.TOGGLE, "fields", {"createdAt": "yesterday"}
     )
     response = client.get("/service-info")
     assert response.status_code == 500
     assert response.mimetype == "application/problem+json"
+    assert "yesterday" not in response.get_data(as_text=True)
+    assert "Invalid service info in `createdAt`" in log.text
+
+
+def test_service_info_endpoint_runtime_failed(tmp_path, monkeypatch, log):
+    """Failures of the runtime fields function fail the request with a
+    generic error, and are logged.
+    """
+    foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})
+    client = foca.create_app().app.test_client()
+    _capture(log)
+    monkeypatch.setitem(
+        service_info_fields.TOGGLE, "error", KeyError("secret detail")
+    )
+    response = client.get("/service-info")
+    assert response.status_code == 500
+    assert "secret detail" not in response.get_data(as_text=True)
+    assert f"Runtime fields function '{TOGGLED}'" in log.text
 
 
 def test_service_info_endpoint_not_configured(tmp_path):
-    """Without service info configured, the endpoint fails."""
-    client = _foca(tmp_path, None).create_app().app.test_client()
-    assert client.get("/service-info").status_code == 500
+    """Apps serving the service info refuse to start without it."""
+    foca = _foca(tmp_path, None)
+    with pytest.raises(
+        InvalidServiceInfo,
+        match=(
+            r"Routes \['/service-info'\] are served by "
+            r"`foca\.api\.service_info\.getServiceInfo`, but no service info "
+            r"is configured"
+        ),
+    ):
+        foca.create_app()
 
 
 def test_service_info_invalid_at_startup(tmp_path):
@@ -451,9 +382,17 @@ def test_service_info_invalid_at_startup(tmp_path):
     foca = _foca(
         tmp_path,
         {
-            "service": _service(version=None),
+            "service": service(version=None),
             "runtime_fields": f"{FIELDS}.runtime_fields",
         },
     )
     with pytest.raises(InvalidServiceInfo, match="'version' is a required"):
+        foca.create_app()
+
+
+def test_service_info_runtime_failed_at_startup(tmp_path, monkeypatch):
+    """Apps whose runtime fields function fails refuse to start."""
+    monkeypatch.setitem(service_info_fields.TOGGLE, "error", RuntimeError())
+    foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})
+    with pytest.raises(InvalidServiceInfo, match="failed"):
         foca.create_app()
