@@ -10,7 +10,7 @@ import mongomock
 import pytest
 import yaml
 from casbin import Enforcer
-from connexion.exceptions import Forbidden, Unauthorized
+from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, request
 from flask.globals import request_ctx
@@ -55,6 +55,7 @@ from foca.security.access_control.register_access_control import (
 DB_NAME = "access_control_db"
 COLLECTION_NAME = "policy_rules"
 ADMIN_ENTITLEMENT = "urn:example:group:admins"
+GROUP = "urn:geant:example.org:group:team#example.org"
 ISSUER = "https://login.example.org/oidc/"
 THIS_MODULE = __name__
 
@@ -111,6 +112,11 @@ def update_item_permissions(id, *args, **kwargs) -> str:
     body = request.get_json(silent=True)
     if body:
         subject_type = body.get("subject_type", "user")
+        # only accept known subject types and grantable roles
+        if subject_type not in {"user", "group"}:
+            raise BadRequestProblem(detail="Invalid subject type")
+        if body["role"] not in {"owner", "maintainer"}:
+            raise BadRequestProblem(detail="Invalid role")
         # only let users grant roles to groups they are members of
         if (
             subject_type == "group"
@@ -881,9 +887,21 @@ class TestSelfService:
                 headers=headers,
             )
             assert response.status_code == (200 if group == "devs" else 403)
+        # only known subject types and grantable roles, so that, e.g.,
+        # owners cannot make themselves members of other groups
+        for payload in [
+            {"subject": "devs", "role": "maintainer", "subject_type": "role"},
+            {"subject": "grace", "role": "group:testers"},
+            {"subject": "devs", "role": "admin", "subject_type": "group"},
+        ]:
+            response = client.put(url, json=payload, headers=headers)
+            assert response.status_code == 400
         with app.app_context():
             assert list_resource_roles("/items/5", subject_type="group") == [
                 ("devs", "maintainer")
+            ]
+            assert list_resource_roles("/items/5", subject_type="user") == [
+                ("grace", "owner")
             ]
         # roles granted to groups apply to members if groups are subjects
         expected = 200 if keep_group_subjects else 403
@@ -1282,48 +1300,93 @@ class TestResourceRoles:
                 ("alice", "owner"),
             ]
 
-    def test_group_subjects(self, helper_app):
-        group = "urn:geant:example.org:group:team#example.org"
+    def test_add_remove_group_roles(self, helper_app):
         with helper_app.app_context():
             assert add_resource_role(
-                group, "owner", "/items/1", subject_type="group"
+                GROUP, "owner", "/items/1", subject_type="group"
             )
             assert not add_resource_role(
-                group, "owner", "/items/1", subject_type="group"
+                GROUP, "owner", "/items/1", subject_type="group"
             )
-            # users and groups of the same name do not collide
-            assert add_resource_role(group, "owner", "/items/1")
-            assert add_resource_role("bob", "maintainer", "/items/1")
-            collection = helper_app.config["casbin_adapter"]._collection
-            assert [
-                rule["v0"] for rule in collection.find({"ptype": "g2"})
-            ] == [f"group:{group}", f"user:{group}", "user:bob"]
+            assert get_enforcer().get_named_grouping_policy("g2") == [
+                [f"group:{GROUP}", "owner", "/items/1"]
+            ]
+            assert remove_resource_role(
+                GROUP, "owner", "/items/1", subject_type="group"
+            )
+            assert not remove_resource_role(
+                GROUP, "owner", "/items/1", subject_type="group"
+            )
+            assert get_enforcer().get_named_grouping_policy("g2") == []
+
+    def test_list_group_roles(self, helper_app):
+        with helper_app.app_context():
+            add_resource_role(GROUP, "owner", "/items/1", subject_type="group")
+            add_resource_role("bob", "maintainer", "/items/1")
             assert list_resource_roles("/items/1", subject_type="group") == [
-                (group, "owner")
+                (GROUP, "owner")
             ]
             assert list_resource_roles("/items/1", subject_type="user") == [
-                (group, "owner"),
-                ("bob", "maintainer"),
+                ("bob", "maintainer")
             ]
             # without type, other subjects are listed as is
             assert list_resource_roles("/items/1") == [
-                (f"group:{group}", "owner"),
-                (group, "owner"),
-                ("bob", "maintainer"),
-            ]
-            assert remove_resource_role(
-                group, "owner", "/items/1", subject_type="group"
-            )
-            assert not remove_resource_role(
-                group, "owner", "/items/1", subject_type="group"
-            )
-            assert list_resource_roles("/items/1", subject_type="group") == []
-            assert list_resource_roles("/items/1", subject_type="user") == [
-                (group, "owner"),
+                (f"group:{GROUP}", "owner"),
                 ("bob", "maintainer"),
             ]
             assert remove_resource("/items/1")
-            assert list_resource_roles("/items/1") == []
+            assert list_resource_roles("/items/1", subject_type="group") == []
+
+    def test_users_and_groups_do_not_collide(self, helper_app):
+        with helper_app.app_context():
+            assert add_resource_role(
+                GROUP, "owner", "/items/1", subject_type="group"
+            )
+            assert add_resource_role(GROUP, "maintainer", "/items/1")
+            assert get_enforcer().get_named_grouping_policy("g2") == [
+                [f"group:{GROUP}", "owner", "/items/1"],
+                [f"user:{GROUP}", "maintainer", "/items/1"],
+            ]
+            assert list_resource_roles("/items/1", subject_type="group") == [
+                (GROUP, "owner")
+            ]
+            assert list_resource_roles("/items/1", subject_type="user") == [
+                (GROUP, "maintainer")
+            ]
+            assert remove_resource_role(GROUP, "maintainer", "/items/1")
+            assert list_resource_roles("/items/1", subject_type="group") == [
+                (GROUP, "owner")
+            ]
+
+    @pytest.mark.parametrize(
+        "role", ["group:auditors", "group:", "user:alice", "user:"]
+    )
+    @pytest.mark.parametrize("subject_type", ["user", "group"])
+    def test_subject_like_roles(self, helper_app, role, subject_type):
+        """Roles cannot be subjects, so that their roles are not passed on."""
+        with helper_app.app_context():
+            for helper in [add_resource_role, remove_resource_role]:
+                with pytest.raises(ValueError, match="must not start with"):
+                    helper(
+                        "grace", role, "/items/5", subject_type=subject_type
+                    )
+            assert get_enforcer().get_named_grouping_policy("g2") == []
+
+    def test_subject_like_roles_custom_prefix(self, helper_app):
+        helper_app.config.foca.security.access_control.subject_prefix = "u/"
+        with helper_app.app_context():
+            with pytest.raises(ValueError):
+                add_resource_role("grace", "u/alice", "/items/5")
+            assert add_resource_role("grace", "user:alice", "/items/5")
+
+    def test_subject_like_roles_not_chained(self, helper_app):
+        """Users cannot get the rights of groups via resource roles."""
+        with helper_app.app_context():
+            enforcer = get_enforcer()
+            enforcer.add_policy("group:auditors", "/items/:id", "GET")
+            with pytest.raises(ValueError):
+                add_resource_role("grace", "group:auditors", "/items/5")
+            assert not get_enforcer().enforce("user:grace", "/items/5", "GET")
 
     def test_list_by_subject_type_skips_other_subjects(self, helper_app):
         with helper_app.app_context():
@@ -1341,6 +1404,7 @@ class TestResourceRoles:
         "subject,subject_type",
         [
             ("devs", "role"),
+            # `None` is not a subject type for granting or revoking roles
             ("devs", None),
             ("", "user"),
             ("", "group"),
@@ -1354,10 +1418,12 @@ class TestResourceRoles:
             for helper in [add_resource_role, remove_resource_role]:
                 with pytest.raises(ValueError):
                     helper(
-                        subject, "owner", "/items/1", subject_type=subject_type
+                        subject,
+                        "owner",
+                        "/items/1",
+                        subject_type=subject_type,  # type: ignore[arg-type]
                     )
-            collection = helper_app.config["casbin_adapter"]._collection
-            assert collection.count_documents({}) == 0
+            assert get_enforcer().get_named_grouping_policy("g2") == []
 
     def test_list_invalid_subject_type(self, helper_app):
         with helper_app.app_context(), pytest.raises(ValueError):

@@ -407,7 +407,11 @@ def deleteService(id, **kwargs):
 `list_resource_roles(resource)` returns the subjects and roles granted on a
 resource, and `remove_resource_role(subject, role, resource)` revokes a
 single role. The helpers take and return user identifiers without prefix and
-add `subject_prefix` to the rules themselves.
+add `subject_prefix` to the rules themselves. They raise a `ValueError` for
+empty subjects and for roles starting with `subject_prefix` or `group:`: as
+Casbin resolves roles transitively, granting, e.g., the "role"
+`group:auditors` to a user would otherwise give the user all rights of that
+group.
 
 #### Granting roles to groups
 
@@ -443,10 +447,10 @@ check whether a group exists or who may grant roles to it; anyone allowed to
 call your endpoint could otherwise grant, e.g., ownership of their resource
 to any group, or roles that give members access they should not have. A
 sensible default is to only let users grant roles to groups they are members
-of:
+of, and only roles meant to be granted:
 
 ```python
-from connexion.exceptions import Forbidden
+from connexion.exceptions import BadRequestProblem, Forbidden
 from flask import request
 
 from foca.security.access_control import (
@@ -454,8 +458,14 @@ from foca.security.access_control import (
     get_current_group_values,
 )
 
+GRANTABLE_ROLES = {"owner", "maintainer"}
+
 
 def putServicePermissions(id, body, **kwargs):
+    if body["subject_type"] not in {"user", "group"}:
+        raise BadRequestProblem(detail="Invalid subject type")
+    if body["role"] not in GRANTABLE_ROLES:
+        raise BadRequestProblem(detail="Invalid role")
     if body["subject_type"] == "group" and (
         body["subject"] not in get_current_group_values()
     ):
@@ -470,6 +480,14 @@ def putServicePermissions(id, body, **kwargs):
 
 Also keep in mind that:
 
+* Only accept roles from an allowlist of roles users may grant (e.g., not
+  `admin`). The helpers already reject roles starting with `subject_prefix`
+  or `group:`, so that users cannot make themselves members of other groups,
+  but any other role is granted as given.
+* Declare `subject_type` (and, ideally, `role`) as an `enum` in your API
+  specification, so that invalid values are rejected with `400` before your
+  controller is called; the helpers raise a `ValueError` for unsupported
+  subject types, which would otherwise result in `500`.
 * Group membership is taken from the claims of each request's token (or user
   info), so a role granted to a group applies as long as the identity
   provider lists the user as a member; removing a user from the group only

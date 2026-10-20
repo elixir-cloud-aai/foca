@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Callable
 from functools import wraps
-from typing import Literal, get_args
+from typing import Literal
 
 from casbin import Enforcer
 from connexion.exceptions import Forbidden, Unauthorized
@@ -91,8 +91,8 @@ def _get_subject_prefix(subject_type: SubjectType) -> str:
     if subject_type == "group":
         return GROUP_PREFIX
     raise ValueError(
-        f"Unsupported subject type '{subject_type}': expected one of "
-        f"{', '.join(repr(_type) for _type in get_args(SubjectType))}"
+        f"Unsupported subject type '{subject_type}': expected 'user' or "
+        "'group'"
     )
 
 
@@ -421,14 +421,20 @@ def _get_resource_role_rule(
         Values of the rule, with the subject prefixed according to its type.
 
     Raises:
-        ValueError: The subject type is not supported, the subject is empty,
-            or the rule is not valid (cf.
+        ValueError: The subject is empty, the subject type is not supported,
+            the role starts with the prefix of a subject type (so that,
+            e.g., a role granted to a user could not be a group, giving the
+            user the group's roles), or the rule is not valid (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule`).
     """
-    prefixed_subject = _prefix_subject(subject, subject_type)
     if not subject:
         raise ValueError("Subjects must not be empty")
-    rule = [prefixed_subject, role, resource]
+    rule = [_prefix_subject(subject, subject_type), role, resource]
+    for prefix in [_get_subject_prefix("user"), _get_subject_prefix("group")]:
+        if isinstance(role, str) and role.startswith(prefix):
+            raise ValueError(
+                f"Roles must not start with '{prefix}', the prefix of subjects"
+            )
     validate_rule(ptype, rule, enforcer.get_model())
     return rule
 
@@ -469,8 +475,10 @@ def add_resource_role(
 
     Raises:
         ValueError: The model does not define resource-scoped roles, the
-            subject type is not supported, the subject is empty, or the
-            prefixed subject, role or resource is not a valid value for
+            subject is empty, the subject type is not supported, the role
+            starts with `access_control.subject_prefix` or `group:` (so that
+            subjects cannot get the roles of other subjects through it), or
+            the prefixed subject, role or resource is not a valid value for
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).
     """
@@ -503,7 +511,8 @@ def remove_resource_role(
 
     Raises:
         ValueError: The model does not define resource-scoped roles, the
-            subject type is not supported, the subject is empty, or the
+            subject is empty, the subject type is not supported, the role
+            starts with `access_control.subject_prefix` or `group:`, or the
             prefixed subject, role or resource is not a valid value for
             policy rules.
     """
@@ -541,10 +550,10 @@ def list_resource_roles(
     """
     enforcer = _get_resource_role_enforcer(ptype)
     rules = enforcer.get_filtered_named_grouping_policy(ptype, 2, resource)
-    prefix = _get_subject_prefix(
-        "user" if subject_type is None else subject_type
-    )
-    if subject_type is not None:
+    if subject_type is None:
+        prefix = _get_subject_prefix("user")
+    else:
+        prefix = _get_subject_prefix(subject_type)
         rules = [rule for rule in rules if rule[0].startswith(prefix)]
     return [(rule[0].removeprefix(prefix), rule[1]) for rule in rules]
 

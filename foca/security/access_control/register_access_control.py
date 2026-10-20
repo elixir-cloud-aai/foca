@@ -55,6 +55,16 @@ def register_access_control(
     Returns:
         Connexion application instance with registered access control config.
     """
+    if (
+        access_control_config.keep_group_subjects
+        and access_control_config.group_mapping is None
+    ):
+        logger.warning(
+            "'security.access_control.keep_group_subjects' has no effect "
+            "without 'security.access_control.group_mapping', as group claim "
+            "values are then always used as group subjects."
+        )
+
     # Set default db attributes if config not present.
     if mongo_config is None:
         mongo_config = MongoConfig()
