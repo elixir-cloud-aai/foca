@@ -1446,8 +1446,6 @@ class TestResourceRoles:
             ("devs", "role"),
             # `None` is not a subject type for granting or revoking roles
             ("devs", None),
-            ("", "user"),
-            ("", "group"),
             ("a,b", "group"),
             ("a\n", "group"),
             ("a" * 1024, "group"),
@@ -1464,6 +1462,44 @@ class TestResourceRoles:
                         subject_type=subject_type,  # type: ignore[arg-type]
                     )
             assert get_enforcer().get_named_grouping_policy("g2") == []
+
+    @pytest.mark.parametrize(
+        "subject_type,prefix", [("user", "user:"), ("group", "group:")]
+    )
+    def test_empty_subjects(self, helper_app, subject_type, prefix):
+        """Empty subjects cannot be granted roles, but can be revoked."""
+        with helper_app.app_context():
+            with pytest.raises(ValueError, match="must not be empty"):
+                add_resource_role(
+                    "", "owner", "/items/1", subject_type=subject_type
+                )
+            assert get_enforcer().get_named_grouping_policy("g2") == []
+            helper_app.config["casbin_adapter"].save_policy_line(
+                "g2", [prefix, "owner", "/items/1"]
+            )
+            assert remove_resource_role(
+                "", "owner", "/items/1", subject_type=subject_type
+            )
+            assert get_enforcer().get_named_grouping_policy("g2") == []
+
+    def test_duplicate_rules(self, helper_app):
+        """Rules stored twice (e.g., concurrently) are listed and revoked
+        once."""
+        adapter = helper_app.config["casbin_adapter"]
+        for _ in range(2):
+            adapter.save_policy_line("g2", ["user:alice", "owner", "/items/1"])
+        adapter.save_policy_line("g2", ["user:bob", "owner", "/items/1"])
+        with helper_app.app_context():
+            for subject_type in [None, "user"]:
+                assert list_resource_roles(
+                    "/items/1",
+                    subject_type=subject_type,  # type: ignore[arg-type]
+                ) == [("alice", "owner"), ("bob", "owner")]
+            assert remove_resource_role("alice", "owner", "/items/1")
+            assert (
+                adapter._collection.count_documents({"v0": "user:alice"}) == 0
+            )
+            assert list_resource_roles("/items/1") == [("bob", "owner")]
 
     def test_list_invalid_subject_type(self, helper_app):
         with helper_app.app_context(), pytest.raises(ValueError):

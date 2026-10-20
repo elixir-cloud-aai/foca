@@ -407,12 +407,14 @@ def deleteService(id, **kwargs):
 `list_resource_roles(resource)` returns the subjects and roles granted on a
 resource, and `remove_resource_role(subject, role, resource)` revokes a
 single role. The helpers take and return user identifiers without prefix and
-add `subject_prefix` to the rules themselves. They raise a `ValueError` for
-empty subjects, and `add_resource_role()` also for roles starting with
+add `subject_prefix` to the rules themselves. `add_resource_role()` raises a
+`ValueError` for empty subjects and for roles starting with
 `subject_prefix` or `group:`: as Casbin resolves roles transitively,
 granting, e.g., the "role" `group:auditors` to a user would otherwise give
-the user all rights of that group. `remove_resource_role()` accepts such
-roles, so that existing rules with them can be revoked.
+the user all rights of that group. `remove_resource_role()` accepts both, so
+that existing rules with them can be revoked; it removes all stored copies of
+a rule, and `list_resource_roles()` lists each role once, also if stored
+more than once (e.g., by concurrent requests).
 
 #### Granting roles to groups
 
@@ -435,6 +437,11 @@ security:
       "urn:geant:example.org:group:admins#example.org": admin
     keep_group_subjects: True
 ```
+
+When running several instances of your app (e.g., during rolling updates),
+only enable `keep_group_subjects` once all instances run a FOCA version that
+supports it: older versions reject the option, and instances without it deny
+access via roles granted to groups.
 
 `list_resource_roles(resource, subject_type="group")` lists the groups
 (without `group:`) and their roles on a resource, `subject_type="user"` the
@@ -492,7 +499,8 @@ Also keep in mind that:
   but any other role is granted as given. If your app stored resource roles
   before this check was added, look for `g2` rules whose role (`v1`) starts
   with `subject_prefix` or `group:` and remove them (e.g., via
-  `remove_resource_role()` or the permissions API).
+  `remove_resource_role()` or the permissions API). FOCA logs a warning for
+  each such rule on startup, but does not remove them.
 * Only map group claim values via `group_mapping` to global roles such as
   `admin`, not to names of resource-scoped roles such as `owner` or
   `maintainer`: a mapped role is a subject of its own, which matches the `p`

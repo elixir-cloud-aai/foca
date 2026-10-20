@@ -421,12 +421,10 @@ def _get_resource_role_rule(
         Values of the rule, with the subject prefixed according to its type.
 
     Raises:
-        ValueError: The subject is empty, the subject type is not supported,
-            or the rule is not valid (cf.
+        ValueError: The subject type is not supported, or the rule is not
+            valid (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule`).
     """
-    if not subject:
-        raise ValueError("Subjects must not be empty")
     rule = [_prefix_subject(subject, subject_type), role, resource]
     validate_rule(ptype, rule, enforcer.get_model())
     return rule
@@ -497,6 +495,8 @@ def add_resource_role(
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).
     """
+    if not subject:
+        raise ValueError("Subjects must not be empty")
     enforcer = _get_resource_role_enforcer(ptype)
     rule = _get_resource_role_rule(
         subject, role, resource, ptype, subject_type, enforcer
@@ -535,16 +535,18 @@ def remove_resource_role(
         subject_type: Type of the subject: `user` or `group`.
 
     Returns:
-        `True` if the role was revoked, `False` if it did not exist.
+        `True` if the role was revoked, `False` if it did not exist. All
+        stored copies of the rule are removed (e.g., if it was stored twice
+        by concurrent requests).
 
     Raises:
         ValueError: The model does not define resource-scoped roles, the
-            subject is empty, the subject type is not supported, or the
-            prefixed subject, role or resource is not a valid value for
-            policy rules. Unlike :py:func:`add_resource_role`, roles
-            starting with `access_control.subject_prefix` or `group:` are
-            accepted, so that such rules (e.g., added before they were
-            rejected) can be revoked.
+            subject type is not supported, or the prefixed subject, role or
+            resource is not a valid value for policy rules. Unlike
+            :py:func:`add_resource_role`, empty subjects and roles starting
+            with `access_control.subject_prefix` or `group:` are accepted,
+            so that such rules (e.g., stored before they were rejected) can
+            be revoked.
     """
     enforcer = _get_resource_role_enforcer(ptype)
     rule = _get_resource_role_rule(
@@ -571,8 +573,9 @@ def list_resource_roles(
             group; pass the type to tell them apart.
 
     Returns:
-        Subject and role of each role granted on the resource. Subjects are
-        returned without the prefix of `subject_type`, if given.
+        Subject and role of each role granted on the resource, without
+        duplicates. Subjects are returned without the prefix of
+        `subject_type`, if given.
 
     Raises:
         ValueError: The model does not define resource-scoped roles, or the
@@ -585,7 +588,12 @@ def list_resource_roles(
     else:
         prefix = _get_subject_prefix(subject_type)
         rules = [rule for rule in rules if rule[0].startswith(prefix)]
-    return [(rule[0].removeprefix(prefix), rule[1]) for rule in rules]
+    # Rules may be stored more than once (e.g., by concurrent requests)
+    return list(
+        dict.fromkeys(
+            (rule[0].removeprefix(prefix), rule[1]) for rule in rules
+        )
+    )
 
 
 def remove_resource(
