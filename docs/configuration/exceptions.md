@@ -91,6 +91,31 @@ the configured media type for its error responses. Custom specifications
 (`security.access_control.api_specs`) and your own specifications must
 declare it themselves.
 
+## Headers
+
+Error responses keep the headers of werkzeug HTTP exceptions and of
+Connexion's `ProblemException` (`headers`), except `Content-Type` (cf.
+[Media type](#media-type)), e.g.:
+
+- `Allow` for `405 Method Not Allowed` (unknown methods, or
+  `MethodNotAllowed(valid_methods=[...])`)
+- `WWW-Authenticate` for `401 Unauthorized`
+  (`Unauthorized(www_authenticate=...)`)
+- `Retry-After` for, e.g., `503 Service Unavailable`, if set
+  (`ServiceUnavailable(retry_after=120)`)
+
+Headers are dropped if the exception is mapped to problem details with
+another status, as they may not apply to it.
+
+`401 Unauthorized` responses to tokens rejected by FOCA's
+[token validation](../authentication.md) and access control carry a Bearer
+challenge as per [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3),
+so that clients can tell, e.g., that they need to log in again:
+`WWW-Authenticate: Bearer error="invalid_token", error_description="The
+access token could not be validated"` if a token was given, and
+`WWW-Authenticate: Bearer` if not (security errors raised by Connexion, e.g.,
+for a missing token, without a challenge of their own).
+
 ::: foca.models.config.ExceptionConfig
     options:
       members: false

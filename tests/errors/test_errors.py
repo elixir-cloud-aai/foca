@@ -9,13 +9,20 @@ from types import ModuleType
 
 import pytest
 from connexion import App
-from connexion.exceptions import BadRequestProblem, OAuthProblem
+from connexion.exceptions import (
+    BadRequestProblem,
+    OAuthProblem,
+    ProblemException,
+)
+from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.exceptions import (
+    MethodNotAllowed,
     NotFound,
     RequestedRangeNotSatisfiable,
     RequestEntityTooLarge,
     RequestURITooLarge,
     ServiceUnavailable,
+    Unauthorized,
     UnprocessableEntity,
 )
 
@@ -23,6 +30,7 @@ from foca.errors import exceptions as exceptions_module
 from foca.errors.exceptions import (
     _RFC_9110_PHRASES,
     DEFAULT_PROBLEM,
+    _build_headers,
     _exc_to_str,
     _log_exception,
     build_problem,
@@ -201,6 +209,55 @@ class TestBuildProblem:
         assert PROBLEMS[PetNotFound]["title"] == "Pet Not Found"
 
 
+class TestBuildHeaders:
+    """Tests for building headers of error responses, without any app."""
+
+    @pytest.mark.parametrize(
+        "exception,headers",
+        [
+            (MethodNotAllowed(["GET", "PUT"]), [("Allow", "GET, PUT")]),
+            (
+                Unauthorized(www_authenticate=WWWAuthenticate("basic")),
+                [("WWW-Authenticate", "Basic")],
+            ),
+            (ServiceUnavailable(retry_after=120), [("Retry-After", "120")]),
+            (
+                ProblemException(
+                    status=429,
+                    headers={"Retry-After": "60", "content-type": "text/x"},
+                ),
+                [("Retry-After", "60")],
+            ),
+            # Connexion's security exceptions get a Bearer challenge
+            (OAuthProblem(), [("WWW-Authenticate", "Bearer")]),
+            (
+                OAuthProblem(www_authenticate=WWWAuthenticate("basic")),
+                [("WWW-Authenticate", "Basic")],
+            ),
+            # no headers (besides `Content-Type`)
+            (Unauthorized(), []),
+            (ProblemException(status=429), []),
+            (NotFound(), []),
+            (UnknownException(), []),
+        ],
+    )
+    def test_headers(self, exception, headers):
+        status = exceptions_module._get_status(exception) or 500
+        assert _build_headers(exception, status).to_wsgi_list() == headers
+
+    @pytest.mark.parametrize(
+        "exception",
+        [
+            MethodNotAllowed(["GET"]),
+            OAuthProblem(),
+            ProblemException(status=429, headers={"Retry-After": "60"}),
+        ],
+    )
+    def test_other_status(self, exception):
+        """Headers are dropped if the response has another status."""
+        assert _build_headers(exception, 500).to_wsgi_list() == []
+
+
 def test__exc_to_str():
     """Test exception reformatter function."""
     try:
@@ -263,6 +320,16 @@ def get_secured():
     return "ok"
 
 
+def get_unavailable():
+    raise ServiceUnavailable(retry_after=120)
+
+
+def get_rate_limited():
+    raise ProblemException(
+        status=429, headers={"Retry-After": "60", "Content-Type": "text/x"}
+    )
+
+
 def get_validated(limit):
     # never called: requests without the required `limit` fail validation
     return "ok"
@@ -287,6 +354,8 @@ SPEC = {
         "/pet": {"get": _operation("get_pet")},
         "/closed": {"get": _operation("get_closed")},
         "/error": {"get": _operation("get_error")},
+        "/unavailable": {"get": _operation("get_unavailable")},
+        "/rate-limited": {"get": _operation("get_rate_limited")},
         "/validated": {
             "get": _operation(
                 "get_validated",
@@ -380,6 +449,35 @@ class TestHandler:
         assert response.content_type == media_type
         assert json.loads(response.data) == problem
         assert "secret" not in response.get_data(as_text=True)
+
+    @pytest.mark.parametrize(
+        "method,path,headers,name,value",
+        [
+            # werkzeug exceptions
+            ("post", "/pet", {}, "Allow", "GET, HEAD, OPTIONS"),
+            ("get", "/unavailable", {}, "Retry-After", "120"),
+            # Connexion exceptions
+            ("get", "/rate-limited", {}, "Retry-After", "60"),
+            ("get", "/secured", {}, "WWW-Authenticate", "Bearer"),
+            (
+                "get",
+                "/secured",
+                {"Authorization": "Bearer x"},
+                "WWW-Authenticate",
+                "Bearer",
+            ),
+        ],
+    )
+    def test_headers(
+        self, client, media_type, method, path, headers, name, value
+    ):
+        """Headers of exceptions are kept, except `Content-Type`."""
+        response = client.open(path, method=method, headers=headers)
+        values = response.headers.getlist(name)
+        assert len(values) == 1
+        # order of allowed methods is not defined
+        assert sorted(values[0].split(", ")) == sorted(value.split(", "))
+        assert response.headers.getlist("Content-Type") == [media_type]
 
     def test_default_config(self):
         app = App(__name__, skip_error_handlers=True)
