@@ -18,7 +18,7 @@ from foca.api.service_info import (
     get_service_info,
     getServiceInfo,
 )
-from foca.config import config_parser
+from foca.config import access, config_parser
 from foca.config.access import set_app_config
 from foca.models.config import Config
 from foca.utils import service_info as utils
@@ -291,6 +291,24 @@ def test_getServiceInfo_not_configured(log):
     assert "No service info configured" in log.text
 
 
+@pytest.mark.parametrize("config", [Config(), None])
+def test_getServiceInfo_not_configured_request(log, monkeypatch, config):
+    """Requests fail with a generic server error, and are logged, without
+    service info or without FOCA configuration.
+    """
+    monkeypatch.setattr(access, "_configs", {})
+    app = Flask(__name__)
+    if config is not None:
+        set_app_config(app, config)
+    with (
+        app.test_request_context("/service-info"),
+        pytest.raises(InternalServerError),
+    ):
+        getServiceInfo()
+    assert "Service info not served" in log.text
+    assert 'Incoming request: "GET /service-info' in log.text
+
+
 def test_check_service_info(log):
     """Valid service info is logged."""
     check_service_info(_app({"service": SERVICE}))
@@ -327,6 +345,26 @@ def test_service_info_endpoint(tmp_path):
         "x-runtime": {},
     }
     assert client.post("/service-info").status_code == 405
+
+
+@pytest.mark.parametrize("log_traffic", [None, True, False])
+def test_service_info_endpoint_logged(tmp_path, log, log_traffic):
+    """Requests for the service info and their responses are logged, unless
+    disabled via `service_info.log_traffic`.
+    """
+    service_info: dict = {"service": SERVICE}
+    if log_traffic is not None:
+        service_info["log_traffic"] = log_traffic
+    foca = _foca(tmp_path, service_info)
+    client = foca.create_app().app.test_client()
+    assert client.get("/service-info").status_code == 200
+    request = '"GET /service-info HTTP/1.1" from 127.0.0.1'
+    logged = [
+        f"Incoming request: {request}",
+        f"Response to request {request}: dict, status 200",
+    ]
+    for message in logged:
+        assert (message in log.text) is (log_traffic is not False)
 
 
 def test_service_info_endpoint_full_operation_id(tmp_path):

@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 from functools import wraps
 
-from flask import request
+from flask import has_request_context, request
 
 logger = logging.getLogger(__name__)
 
@@ -171,3 +171,73 @@ def log_traffic(
         return _decorator_log_traffic
     else:
         return _decorator_log_traffic(_fn)
+
+
+def log_traffic_if(
+    enabled: Callable[[], bool],
+    log_request: bool = True,
+    log_response: bool = True,
+    log_response_body: bool = False,
+    log_level: int = logging.INFO,
+) -> Callable[[Callable], Callable]:
+    """Decorator for logging service requests and responses if enabled.
+
+    Like :py:func:`log_traffic`, but whether traffic is logged is decided on
+    each request, e.g., from the configuration of the current app. Outside
+    of request contexts (e.g., when called in an app context by a CLI
+    command), the decorated function is called without logging. The
+    decorated function is available as `__wrapped__` of the returned
+    function.
+
+    Args:
+        enabled: Function returning whether traffic should be logged; called
+            without arguments on each request, in the request context (so
+            that, e.g., :py:func:`foca.config.access.get_config` works).
+        log_request: Whether or not the request should be logged.
+        log_response: Whether or not the response should be logged.
+        log_response_body: Whether to also log the response body (escaped).
+            Only use if the bodies of the decorated controllers never
+            contain secrets or personal data.
+        log_level: Logging level, cf.
+            https://docs.python.org/3/library/logging.html#logging-levels
+
+    Returns:
+        Decorator for logging the traffic of the decorated function if
+        enabled.
+    """
+
+    def _decorator_log_traffic_if(fn: Callable) -> Callable:
+        """Decorate a function for logging its traffic if enabled.
+
+        Args:
+            fn: The function to be decorated.
+
+        Returns:
+            The decorated function.
+        """
+        logged = log_traffic(
+            fn,
+            log_request=log_request,
+            log_response=log_response,
+            log_response_body=log_response_body,
+            log_level=log_level,
+        )
+
+        @wraps(fn)
+        def _wrapper(*args, **kwargs):
+            """Call the function, logging its traffic if enabled.
+
+            Args:
+                args: Positional arguments passed to the function.
+                kwargs: Keyword arguments passed to the function.
+
+            Returns:
+                Return value of the function.
+            """
+            if has_request_context() and enabled():
+                return logged(*args, **kwargs)
+            return fn(*args, **kwargs)
+
+        return _wrapper
+
+    return _decorator_log_traffic_if

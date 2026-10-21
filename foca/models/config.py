@@ -587,6 +587,9 @@ class AccessControlConfig(FOCABaseConfig):
             configuration are removed. Configured rules cannot be changed or
             deleted via the permissions API. Other stored rules are kept. If
             not set, stored rules are not changed on startup.
+        log_traffic: Whether requests to the permissions API and their
+            responses are logged (cf.
+            :py:func:`foca.utils.logging.log_traffic`).
 
     Attributes:
         enabled: Register access control.
@@ -612,6 +615,8 @@ class AccessControlConfig(FOCABaseConfig):
         self_service: Allow subjects to list and get the permissions that
             apply to them.
         policies: Policy rules the app relies on, managed on startup.
+        log_traffic: Whether requests to the permissions API and their
+            responses are logged.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -647,6 +652,7 @@ class AccessControlConfig(FOCABaseConfig):
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
     self_service: bool = False
     policies: list[list[str]] | None = None
+    log_traffic: bool = True
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
     _registered_collection: tuple[str, str, bool] | None = PrivateAttr(
@@ -1396,12 +1402,17 @@ class ServiceInfoConfig(FOCABaseConfig):
             is called without arguments, in an app context, on startup and
             for each request. Required fields that it returns may be missing
             from `service`.
+        log_traffic: Whether requests for the service info and their
+            responses are logged (cf.
+            :py:func:`foca.utils.logging.log_traffic`).
 
     Attributes:
         service: Service info, as per the GA4GH `Service` schema.
         package: Name of the app's distribution package.
         runtime_fields: Path to a function returning fields that are computed
             at runtime.
+        log_traffic: Whether requests for the service info and their
+            responses are logged.
         package_version: Version of `package`, if used for `version` (set on
             validation).
         runtime_function: Function imported from `runtime_fields`, if set
@@ -1440,6 +1451,7 @@ class ServiceInfoConfig(FOCABaseConfig):
     service: dict[str, Any]
     package: str | None = None
     runtime_fields: str | None = None
+    log_traffic: bool = True
     # Version of `package`, if used; set on validation
     _package_version: str | None = PrivateAttr(default=None)
     # Function imported from `runtime_fields`; set on validation

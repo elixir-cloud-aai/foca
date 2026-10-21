@@ -7,7 +7,7 @@ from connexion import App
 from flask import Flask, Response
 
 from foca.utils import logging as module
-from foca.utils.logging import escape_log_value, log_traffic
+from foca.utils.logging import escape_log_value, log_traffic, log_traffic_if
 
 app = Flask(__name__)
 REQ = {
@@ -188,6 +188,89 @@ def test_logging_decorator_control_characters(logged):
     assert len(logged) == 2
     assert all("\n" not in msg and "\r" not in msg for msg in logged)
     assert "/items\\r\\nFAKE log line" in logged[0]
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_log_traffic_if(logged, enabled):
+    """Traffic is logged only if enabled, as decided on each request."""
+    calls: list[None] = []
+    runs: list[str] = []
+
+    def is_enabled() -> bool:
+        calls.append(None)
+        return enabled
+
+    @log_traffic_if(is_enabled)
+    def mock_func(value):
+        runs.append(value)
+        return value
+
+    with app.test_request_context(environ_base=REQ):
+        assert mock_func("ok") == "ok"
+        assert mock_func("ok") == "ok"
+    assert len(calls) == 2
+    assert runs == ["ok", "ok"]
+    assert len(logged) == (4 if enabled else 0)
+
+
+def test_log_traffic_if_wrapped():
+    """The decorated function is kept as `__wrapped__`, with its metadata."""
+
+    def mock_func(value):
+        """Mock controller."""
+        return value
+
+    decorated = log_traffic_if(lambda: True)(mock_func)
+    assert decorated.__wrapped__ is mock_func
+    assert decorated.__doc__ == "Mock controller."
+    assert decorated.__name__ == "mock_func"
+
+
+def test_log_traffic_if_no_request_context(logged):
+    """Without a request context, the function is called without logging,
+    and without deciding whether to log."""
+
+    def is_enabled() -> bool:
+        raise AssertionError("called")
+
+    runs: list[None] = []
+
+    @log_traffic_if(is_enabled)
+    def mock_func():
+        runs.append(None)
+        return "ok"
+
+    assert mock_func() == "ok"
+    with app.app_context():
+        assert mock_func() == "ok"
+    assert len(runs) == 2
+    assert logged == []
+
+
+def test_log_traffic_if_options(logged):
+    """Options are passed to `log_traffic`."""
+
+    @log_traffic_if(lambda: True, log_request=False, log_response_body=True)
+    def mock_func():
+        return "ok"
+
+    with app.test_request_context(environ_base=REQ):
+        mock_func()
+    assert len(logged) == 1
+    assert logged[0].startswith("Response to request")
+    assert logged[0].endswith(": str, status 200: ok")
+
+
+def test_log_traffic_if_log_level(caplog):
+    """The log level is passed to `log_traffic`."""
+
+    @log_traffic_if(lambda: True, log_level=logging.WARNING)
+    def mock_func():
+        return "ok"
+
+    with app.test_request_context(environ_base=REQ):
+        mock_func()
+    assert "WARNING" in caplog.text
 
 
 @pytest.mark.parametrize(

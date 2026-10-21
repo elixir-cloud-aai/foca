@@ -120,6 +120,8 @@ service_info:
   # Function returning fields computed at runtime (optional; must be
   # importable)
   # runtime_fields: my_app.service_info.runtime_fields
+  # Log requests and responses (default: True)
+  # log_traffic: False
   service:
     id: org.example.my-service
     name: My service

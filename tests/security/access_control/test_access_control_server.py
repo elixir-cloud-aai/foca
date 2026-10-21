@@ -19,6 +19,7 @@ from foca.security.access_control.access_control_server import (
     putPermission,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.utils import logging as logging_module
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
     MOCK_ID,
@@ -308,3 +309,70 @@ class TestLogging:
         ):
             putPermission.__wrapped__(id=self.ID)
         self._assert_escaped(caplog)
+
+
+class TestTrafficLogging:
+    """Tests for logging requests and responses of the permissions API."""
+
+    @pytest.fixture(autouse=True)
+    def _logger(self, caplog):
+        """Capture records of `log_traffic`, also if its logger was
+        disabled."""
+        logger = logging_module.logger
+        disabled = logger.disabled
+        logger.disabled = False
+        with caplog.at_level(logging.INFO, logger=logger.name):
+            yield
+        logger.disabled = disabled
+
+    @pytest.fixture
+    def client(self, app):
+        """Client of an app routing requests to the controllers."""
+        for path, method, controller in [
+            ("/permissions", "POST", postPermission),
+            ("/permissions", "GET", getAllPermissions),
+            ("/permissions/<id>", "PUT", putPermission),
+            ("/permissions/<id>", "GET", getPermission),
+            ("/permissions/<id>", "DELETE", deletePermission),
+        ]:
+            app.add_url_rule(
+                path,
+                endpoint=controller.__name__,
+                view_func=controller,
+                methods=[method],
+            )
+        return app.test_client()
+
+    @pytest.mark.parametrize(
+        "method,path,body",
+        [
+            ("post", "/permissions", "str"),
+            ("get", "/permissions", "dict"),
+            ("put", f"/permissions/{MOCK_ID}", "str"),
+            ("get", f"/permissions/{MOCK_ID}", "dict"),
+            ("delete", f"/permissions/{MOCK_ID}", "str"),
+        ],
+    )
+    @pytest.mark.parametrize("log_traffic", [None, True, False])
+    def test_logged(
+        self, app, client, stored, caplog, method, path, body, log_traffic
+    ):
+        """Traffic is logged unless disabled via
+        `access_control.log_traffic`, as configured at request time."""
+        if log_traffic is not None:
+            app.config.foca.security.access_control.log_traffic = log_traffic
+        response = getattr(client, method)(
+            path, json=deepcopy(MOCK_PERMISSION)
+        )
+        assert response.status_code == 200
+        request = f'"{method.upper()} {path} HTTP/1.1" from 127.0.0.1'
+        expected = [
+            f"Incoming request: {request}",
+            f"Response to request {request}: {body}, status 200",
+        ]
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == logging_module.logger.name
+        ]
+        assert messages == ([] if log_traffic is False else expected)
