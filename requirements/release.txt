@@ -1,0 +1,10 @@
+# Tools for building and checking release distributions, pinned so that
+# releases can be reproduced from their tag; updated by Dependabot. Also
+# used as constraints (`PIP_CONSTRAINT`) for the build requirements of
+# `pyproject.toml`, which `python -m build` installs in an isolated
+# environment. Used by `.github/workflows/release.yml` and `checks.yml`.
+build==1.6.1
+setuptools==84.2.1
+setuptools-scm==10.3.4
+twine==7.0.0
+vcs-versioning==2.6.0

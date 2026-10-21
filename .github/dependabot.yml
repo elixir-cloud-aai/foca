@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # Also updates the pinned release tools in `requirements/release.txt`
   - package-ecosystem: pip
     directory: /
     target-branch: dev
