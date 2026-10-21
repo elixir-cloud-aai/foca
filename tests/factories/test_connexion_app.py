@@ -293,6 +293,58 @@ def test_max_content_length_declared_at_limit(size):
     assert response.data == b"x" * size
 
 
+def _send_declared(client, body: bytes, content_length: str):
+    """Send a request body with the given `Content-Length` value, with a
+    stream terminated by the server; return the response and the number of
+    bytes read.
+    """
+    stream = io.BytesIO(body)
+    response = client.post(
+        "/data",
+        input_stream=stream,
+        environ_overrides={
+            "CONTENT_LENGTH": content_length,
+            "wsgi.input_terminated": True,
+        },
+    )
+    return response, stream.tell()
+
+
+@pytest.mark.parametrize("content_length", ["abc", "-1", "+5", " 5", "5 "])
+def test_max_content_length_invalid_declared(content_length):
+    """Bodies with an invalid declared size are rejected (`400`) without
+    reading them.
+    """
+    client = _limited_app().test_client()
+    response, read = _send_declared(client, b"x" * 10 * LIMIT, content_length)
+    status = HTTPStatus.BAD_REQUEST
+    assert response.status_code == status
+    assert response.content_type == "application/json"
+    assert response.get_json() == {"title": status.phrase, "status": status}
+    assert read == 0
+
+
+def test_max_content_length_valid_declared():
+    """Bodies with a valid declared size are handled normally."""
+    client = _limited_app().test_client()
+    response, _ = _send_declared(client, b"x" * LIMIT, str(LIMIT))
+    assert response.status_code == 200
+    assert response.data == b"x" * LIMIT
+
+
+def test_max_content_length_empty_declared():
+    """Bodies with an empty declared size are of unknown size (cf. PEP
+    3333), i.e., checked like chunked bodies.
+    """
+    client = _limited_app().test_client()
+    response, read = _send_declared(client, b"x" * 10 * LIMIT, "")
+    _assert_too_large(response)
+    assert read == LIMIT + 1
+    response, _ = _send_declared(client, b"x" * LIMIT, "")
+    assert response.status_code == 200
+    assert response.data == b"x" * LIMIT
+
+
 def test_max_content_length_no_body():
     """Requests without a body are handled normally."""
     client = _limited_app().test_client()

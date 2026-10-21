@@ -1,18 +1,22 @@
 """Factory for creating and configuring Connexion application instances."""
 
 import logging
+import re
 from io import BytesIO
 from ipaddress import ip_address
 
 from connexion import App
 from flask import current_app, request
-from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 
 from foca.config.access import set_app_config
 from foca.models.config import Config
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+# Valid declared sizes of request bodies (`Content-Length`)
+_DECIMAL = re.compile(r"[0-9]+")
 
 
 def create_connexion_app(config: Config | None = None) -> App:
@@ -72,12 +76,22 @@ def _check_body_size() -> None:
     request (parsing them, e.g., as form data, may need about as much again)
     and remain readable via `get_data()`, `form`, `files` and `stream`.
 
+    Declared sizes that are not plain decimal integers are rejected (`400`),
+    as Werkzeug takes them as `0` and then reads the body up to the limit.
+    An empty declared size is taken as no declared size (cf. PEP 3333).
+
     Raises:
+        werkzeug.exceptions.BadRequest: The declared size of the request body
+            is invalid.
         werkzeug.exceptions.RequestEntityTooLarge: The request body is larger
             than `MAX_CONTENT_LENGTH`.
     """
     limit = current_app.config["MAX_CONTENT_LENGTH"]
-    if request.content_length is not None:
+    declared = request.environ.get("CONTENT_LENGTH")
+    if declared and _DECIMAL.fullmatch(declared) is None:
+        raise BadRequest()
+    # `content_length` is `None` for chunked bodies
+    if declared and request.content_length is not None:
         if request.content_length > limit:
             raise RequestEntityTooLarge()
         return
