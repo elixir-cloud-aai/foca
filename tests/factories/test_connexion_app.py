@@ -1,6 +1,7 @@
 """Tests for foca.factories.connexion_app."""
 
 import io
+import json
 from http import HTTPStatus
 
 import pytest
@@ -138,10 +139,39 @@ def test_invalid_max_content_length(value):
         ServerConfig(max_content_length=value)
 
 
+def _read_data() -> bytes:
+    """Return the request body, read via `get_data()`."""
+    return request.get_data()
+
+
+def _read_stream() -> bytes:
+    """Return the request body, read via `stream`."""
+    return request.stream.read()
+
+
+def _read_form() -> dict[str, str]:
+    """Return the form data of the request."""
+    return request.form.to_dict()
+
+
+def _read_files() -> dict[str, str]:
+    """Return the contents of the uploaded files of the request."""
+    return {key: file.read().decode() for key, file in request.files.items()}
+
+
+# Views returning the request body, read in different ways
+VIEWS = {
+    "data": _read_data,
+    "stream": _read_stream,
+    "form": _read_form,
+    "files": _read_files,
+}
+
+
 def _limited_app(limit: int | None = LIMIT):
     """Create a Flask app with the given size limit of request bodies, with
-    routes that read the body (`/echo`, returning its size) or don't
-    (`/ignore`), and FOCA's problem handler.
+    routes that read the body in different ways (returning what they read)
+    or don't (`/ignore`), and FOCA's problem handler.
     """
     cnx_app = create_connexion_app(
         Config(server=ServerConfig(max_content_length=limit))
@@ -150,19 +180,17 @@ def _limited_app(limit: int | None = LIMIT):
         cnx_app, ExceptionConfig(media_type="application/json")
     )
     app = cnx_app.app
-    app.add_url_rule(
-        "/echo",
-        "echo",
-        lambda: str(len(request.get_data())),
-        methods=["POST"],
-    )
+    for name, view in VIEWS.items():
+        app.add_url_rule(f"/{name}", name, view, methods=["POST"])
     app.add_url_rule(
         "/ignore", "ignore", lambda: "ok", methods=["GET", "POST"]
     )
     return app
 
 
-def _send_chunked(client, body: bytes, path: str = "/echo"):
+def _send_chunked(
+    client, body: bytes, path: str = "/data", content_type: str | None = None
+):
     """Send a chunked request body (of unknown size), with a stream
     terminated by the server (as by Werkzeug's and Gunicorn's servers);
     return the response and the number of bytes read.
@@ -171,6 +199,7 @@ def _send_chunked(client, body: bytes, path: str = "/echo"):
     response = client.post(
         path,
         input_stream=stream,
+        content_type=content_type,
         headers={"Transfer-Encoding": "chunked"},
         environ_overrides={"wsgi.input_terminated": True},
     )
@@ -187,25 +216,55 @@ def _assert_too_large(response) -> None:
     assert response.get_json() == {"title": status.phrase, "status": status}
 
 
-@pytest.mark.parametrize("size", [LIMIT + 1, 10 * LIMIT])
-@pytest.mark.parametrize("path", ["/echo", "/ignore"])
-def test_max_content_length_chunked(size, path):
+@pytest.mark.parametrize("path", ["/data", "/ignore"])
+def test_max_content_length_chunked(path):
     """Chunked bodies over the limit are rejected (`413`) after reading at
     most one byte more than the limit, also by routes not reading them.
     """
     client = _limited_app().test_client()
-    response, read = _send_chunked(client, b"x" * size, path=path)
+    response, read = _send_chunked(client, b"x" * 10 * LIMIT, path=path)
     _assert_too_large(response)
     assert read == LIMIT + 1
 
 
 @pytest.mark.parametrize("size", [0, LIMIT])
-def test_max_content_length_chunked_at_limit(size):
-    """Chunked bodies up to the limit are passed on in full."""
+@pytest.mark.parametrize("path", ["/data", "/stream"])
+def test_max_content_length_chunked_at_limit(size, path):
+    """Chunked bodies up to the limit are passed on in full, both as data
+    and as stream.
+    """
     client = _limited_app().test_client()
-    response, _ = _send_chunked(client, b"x" * size)
+    response, _ = _send_chunked(client, b"x" * size, path=path)
     assert response.status_code == 200
-    assert response.text == str(size)
+    assert response.data == b"x" * size
+
+
+@pytest.mark.parametrize(
+    "path,content_type,body,expected",
+    [
+        (
+            "/form",
+            "application/x-www-form-urlencoded",
+            b"a=1&b=2",
+            {"a": "1", "b": "2"},
+        ),
+        (
+            "/files",
+            "multipart/form-data; boundary=B",
+            b"--B\r\nContent-Disposition: form-data; name=f; filename=x"
+            b"\r\n\r\nyy\r\n--B--\r\n",
+            {"f": "yy"},
+        ),
+    ],
+)
+def test_max_content_length_chunked_form(path, content_type, body, expected):
+    """Chunked form data up to the limit is parsed in full."""
+    app = _limited_app(limit=len(body))
+    response, _ = _send_chunked(
+        app.test_client(), body, path=path, content_type=content_type
+    )
+    assert response.status_code == 200
+    assert response.get_json() == expected
 
 
 @pytest.mark.parametrize("method", ["GET", "POST"])
@@ -229,40 +288,125 @@ def test_max_content_length_declared_unread(method):
 def test_max_content_length_declared_at_limit(size):
     """Bodies with a declared size up to the limit are handled normally."""
     client = _limited_app().test_client()
-    response = client.post("/echo", data=b"x" * size)
+    response = client.post("/data", data=b"x" * size)
     assert response.status_code == 200
-    assert response.text == str(size)
+    assert response.data == b"x" * size
 
 
 def test_max_content_length_no_body():
     """Requests without a body are handled normally."""
     client = _limited_app().test_client()
-    response = client.get("/ignore")
-    assert response.status_code == 200
-    response = client.get(
-        "/ignore", environ_overrides={"wsgi.input_terminated": True}
-    )
-    assert response.status_code == 200
+    assert client.get("/ignore").status_code == 200
 
 
 def test_max_content_length_unset_chunked():
-    """Without a limit, no check is registered and chunked bodies are passed
-    on in full.
-    """
+    """Without a limit, chunked bodies are passed on in full."""
     app = _limited_app(limit=None)
-    assert not any(app.before_request_funcs.values())
     response, read = _send_chunked(app.test_client(), b"x" * 10 * LIMIT)
     assert response.status_code == 200
-    assert response.text == str(10 * LIMIT)
+    assert response.data == b"x" * 10 * LIMIT
     assert read == 10 * LIMIT
 
 
-def test_max_content_length_removed():
-    """If the limit is removed from the Flask config after the app was
-    created, bodies are no longer checked.
-    """
-    app = _limited_app()
-    app.config["MAX_CONTENT_LENGTH"] = None
-    response, read = _send_chunked(app.test_client(), b"x" * 10 * LIMIT)
-    assert response.status_code == 200
-    assert read == 10 * LIMIT
+# Calls of the security handler and operation of `SPEC`
+CALLS: list[str] = []
+
+
+def mock_api_key_info(api_key, required_scopes=None):
+    """Accept any API key."""
+    CALLS.append("auth")
+    return {"sub": "user"}
+
+
+def post_items(body):
+    """Return the request body."""
+    CALLS.append("operation")
+    return body, 200
+
+
+SPEC = {
+    "openapi": "3.0.2",
+    "info": {"title": "Test API", "version": "1.0.0"},
+    "paths": {
+        "/items": {
+            "post": {
+                "operationId": f"{__name__}.post_items",
+                "security": [{"apiKey": []}],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {"name": {"type": "string"}},
+                                "required": ["name"],
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "OK"}},
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "apiKey": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Key",
+                "x-apikeyInfoFunc": f"{__name__}.mock_api_key_info",
+            }
+        }
+    },
+}
+
+
+class TestMaxContentLengthOperation:
+    """Size limit of request bodies of a Connexion operation."""
+
+    BODY = json.dumps({"name": "x" * LIMIT}).encode()
+
+    @pytest.fixture
+    def client(self):
+        CALLS.clear()
+        cnx_app = create_connexion_app(
+            Config(server=ServerConfig(max_content_length=len(self.BODY)))
+        )
+        register_exception_handler(
+            cnx_app, ExceptionConfig(media_type="application/json")
+        )
+        cnx_app.add_api(SPEC)
+        return cnx_app.app.test_client()
+
+    def _post(self, client, body: bytes, chunked: bool):
+        headers = {"X-API-Key": "key"}
+        overrides = {}
+        if chunked:
+            headers["Transfer-Encoding"] = "chunked"
+            overrides["wsgi.input_terminated"] = True
+        else:
+            overrides["CONTENT_LENGTH"] = str(len(body))
+        return client.post(
+            "/items",
+            input_stream=io.BytesIO(body),
+            content_type="application/json",
+            headers=headers,
+            environ_overrides=overrides,
+        )
+
+    @pytest.mark.parametrize("chunked", [False, True])
+    def test_too_large(self, client, chunked):
+        """Bodies over the limit are rejected before authentication and
+        validation, and the operation is not called.
+        """
+        response = self._post(client, self.BODY + b" ", chunked=chunked)
+        _assert_too_large(response)
+        assert CALLS == []
+
+    @pytest.mark.parametrize("chunked", [False, True])
+    def test_at_limit(self, client, chunked):
+        """Bodies up to the limit reach the operation intact."""
+        response = self._post(client, self.BODY, chunked=chunked)
+        assert response.status_code == 200
+        assert response.get_json() == json.loads(self.BODY)
+        assert CALLS == ["auth", "operation"]

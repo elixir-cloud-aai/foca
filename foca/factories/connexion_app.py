@@ -1,6 +1,7 @@
 """Factory for creating and configuring Connexion application instances."""
 
 import logging
+from io import BytesIO
 from ipaddress import ip_address
 
 from connexion import App
@@ -67,24 +68,29 @@ def _check_body_size() -> None:
     rest. Bodies with a larger declared size are thus rejected here without
     reading them, also for operations that don't read their body, and bodies
     without a declared size are read up to one byte more than the limit, to
-    tell whether they are larger. The body is cached for the request, i.e.,
-    at most the limit plus one byte is kept in memory.
+    tell whether they are larger. Such bodies are kept in memory for the
+    request (parsing them, e.g., as form data, may need about as much again)
+    and remain readable via `get_data()`, `form`, `files` and `stream`.
 
     Raises:
         werkzeug.exceptions.RequestEntityTooLarge: The request body is larger
             than `MAX_CONTENT_LENGTH`.
     """
     limit = current_app.config["MAX_CONTENT_LENGTH"]
-    if limit is None:
-        return
     if request.content_length is not None:
         if request.content_length > limit:
             raise RequestEntityTooLarge()
         return
     request.max_content_length = limit + 1
-    # cached (`cache=True`, the default), so Connexion reads the same data
-    if len(request.get_data()) > limit:
+    # cached (`cache=True`, the default), so `get_data()`, `form` and
+    # `files` (e.g., as read by Connexion) get the same data
+    data = request.get_data()
+    if len(data) > limit:
         raise RequestEntityTooLarge()
+    # `stream` (a cached property) is consumed; clear it, so that it serves
+    # the data again from a new input stream
+    request.environ["wsgi.input"] = BytesIO(data)
+    del request.stream
 
 
 def __add_config_to_connexion_app(
