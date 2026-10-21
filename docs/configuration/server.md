@@ -35,8 +35,9 @@ binds to the address and port it is configured with.
     validated), also for operations that don't read their body: bodies with a
     larger declared size (`Content-Length`) are rejected without reading them,
     and bodies without a declared size (e.g., `Transfer-Encoding: chunked`)
-    are read up to one byte more than the limit (and kept in memory for the
-    request) to tell whether they are larger.
+    are read up to one byte more than the limit to tell whether they are
+    larger. Such bodies are kept in memory for the request, and parsing them
+    (e.g., as form data) may need about as much memory again.
 
 ::: foca.models.config.ServerConfig
     options:

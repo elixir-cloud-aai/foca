@@ -134,9 +134,8 @@ class ServerConfig(FOCABaseConfig):
             `413` before requests are handled, also if their size is not
             declared (e.g., chunked bodies, which are read up to one byte
             more than the limit). If ``None``, bodies are not limited by the
-            app. As bodies
-            may be read before requests are authenticated, limit them here
-            or in a reverse proxy or ingress.
+            app. As bodies may be read before requests are authenticated,
+            limit them here or in a reverse proxy or ingress.
 
     Attributes:
         host: Host at which the application is exposed.
