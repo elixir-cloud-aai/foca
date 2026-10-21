@@ -722,6 +722,8 @@ def remove_resource(
     )
     for rule in configured:
         _warn_configured_rule(ptype, rule)
+    # Unmarked copies of configured rules are removed, but their roles still
+    # apply, so they don't count as revoked
     revoked = [
         rule
         for rule in adapter.get_filtered_rules(
@@ -729,6 +731,7 @@ def remove_resource(
         )
         if rule not in configured
     ]
+    # The section (first argument) is not used by the adapter
     adapter.remove_filtered_policy(
         ptype[0], ptype, 2, resource, keep_configured=True
     )
