@@ -38,7 +38,8 @@ security:
     allow_expired: False
     # Audiences of the app (`aud` claim, e.g., its client ID at the
     # issuers); required if `issuers` are set, unless audience validation
-    # is disabled with `verify_audience: False` (not recommended)
+    # is disabled with `verify_audience: False` (not recommended, unless
+    # `clients` are restricted instead)
     audience:
       - my-app
     # Trusted token issuers (`iss` claim); tokens of other issuers are

@@ -435,22 +435,20 @@ def _verify_client(claims: dict[str, Any], conf: AuthConfig) -> None:
     """Verify that a JSON Web Token (JWT) was obtained by an accepted client.
 
     The client is identified by the `client_id` claim (RFC 9068, §2.2) or,
-    with identity providers that use it, the `azp` claim (OpenID Connect
-    Core 1.0, §2); either may name an accepted client.
+    if the token has no `client_id` claim, by the `azp` claim (OpenID
+    Connect Core 1.0, §2), which some identity providers use instead.
 
     Args:
         claims: Verified claims of the token.
         conf: Authentication settings; `clients` is set.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if neither claim names an
-            accepted client.
+        connexion.exceptions.Unauthorized: Raised if the client is not
+            accepted or the token has neither claim.
     """
-    clients = conf.clients or []
-    if not any(
-        isinstance(client, str) and client in clients
-        for client in (claims.get("client_id"), claims.get("azp"))
-    ):
+    client = claims["client_id"] if "client_id" in claims else claims.get("azp")
+    # Claim values may be of any type; only strings can name a client
+    if not isinstance(client, str) or client not in (conf.clients or []):
         raise _unauthorized("JWT client is not accepted")
 
 

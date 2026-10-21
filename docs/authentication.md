@@ -73,8 +73,8 @@ local development.
    configured as `claim_identity` (default: `sub`).
 6. If `clients` are configured, the token must have been obtained by one of
    them: its `client_id` claim ([RFC 9068](https://www.rfc-editor.org/rfc/rfc9068))
-   or, with identity providers that use it, its `azp` claim must be one of
-   the configured client IDs.
+   or, if it has none, its `azp` claim (used by some identity providers
+   instead) must be one of the configured client IDs.
 7. If `validate_userinfo` is set, the token is additionally sent to the
    issuer's user info endpoint, which needs to report the token's subject.
    This detects revoked tokens, at the cost of a request per validation.
@@ -120,10 +120,13 @@ validation is disabled, or expired tokens are accepted.
           - protes-client-id
     ```
 
-    Tokens whose `client_id` claim (RFC 9068; LS Login) or `azp` claim
-    (OpenID Connect; used by some identity providers instead) is not listed,
-    and tokens with neither claim, are rejected with `401`. With `clients`,
-    FOCA does not warn about disabled audience validation.
+    Tokens whose `client_id` claim (RFC 9068; LS Login) or, if they have
+    none, `azp` claim (OpenID Connect; used by some identity providers
+    instead) is not listed, and tokens with neither claim, are rejected with
+    `401`. With `clients`, FOCA does not warn about disabled audience
+    validation. Client IDs are matched for all trusted `issuers`: if you
+    trust several, make sure that the listed IDs cannot be claimed by clients
+    of another issuer (cf. the note on several trusted issuers above).
 
 !!! warning "Access tokens only"
     Identity providers issue other JWTs than access tokens, e.g., ID tokens,

@@ -791,7 +791,8 @@ class AuthConfig(FOCABaseConfig):
         verify_audience: Whether to validate the audience of JWTs. If
             ``False``, tokens that trusted issuers issued for other services
             are accepted, too; only disable it if the issuer does not include
-            the app in the audience of its tokens.
+            the app in the audience of its tokens, or if `clients` are
+            restricted instead.
         token_types: Accepted values of the `typ` header of JWTs, compared
             case-insensitively. By default, only OAuth 2.0 access tokens as
             per RFC 9068 (`at+jwt` or `application/at+jwt`) are accepted, so
@@ -803,13 +804,16 @@ class AuthConfig(FOCABaseConfig):
             disable it if the issuer does not set the `typ` header of its
             access tokens.
         clients: Accepted clients, i.e., IDs of the clients that obtained
-            the tokens, as per the `client_id` claim (RFC 9068) or the `azp`
-            claim (OpenID Connect) of JWTs. If set, JWTs of other clients,
-            and JWTs with neither claim, are rejected, e.g., so that a
-            service behind a gateway accepts only tokens obtained by the
-            gateway. Can be used in addition to `audience`, or instead of it
-            with `verify_audience` set to ``False``. If ``None``, clients
-            are not restricted.
+            the tokens, as per the `client_id` claim (RFC 9068) of JWTs or,
+            if they have none, the `azp` claim (OpenID Connect), compared
+            exactly. If set, JWTs of other clients, and JWTs with neither
+            claim, are rejected, e.g., so that a service behind a gateway
+            accepts only tokens obtained by the gateway. Can be used in
+            addition to `audience`, or instead of it with `verify_audience`
+            set to ``False``. Client IDs are matched for all trusted
+            `issuers`, so with several issuers, make sure that the listed
+            IDs cannot be claimed by clients of another issuer. If ``None``,
+            clients are not restricted.
         claim_identity: The JWT claim used to identify the sender. Tokens
             without this claim are rejected.
         algorithms: Lists the JWT-signing algorithms supported by the app.

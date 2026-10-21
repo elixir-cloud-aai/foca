@@ -503,11 +503,13 @@ class TestValidateToken:
         res = validate(app, make_token(**claims))
         assert res["user_id"] == SUBJECT
 
-    def test_clients_either_claim(self, idp: MagicMock) -> None:
-        """Tokens are accepted if either client claim names a listed client."""
+    def test_clients_client_id_precedence(self, idp: MagicMock) -> None:
+        """The `client_id` claim takes precedence over the `azp` claim."""
         app = make_app(clients=[CLIENT])
-        res = validate(app, make_token(client_id="other", azp=CLIENT))
+        res = validate(app, make_token(client_id=CLIENT, azp="other"))
         assert res["user_id"] == SUBJECT
+        with raises_unauthorized():
+            validate(app, make_token(client_id="other", azp=CLIENT))
 
     @pytest.mark.parametrize(
         "claims",
@@ -525,11 +527,25 @@ class TestValidateToken:
         with raises_unauthorized():
             validate(app, make_token(**claims))
 
-    def test_clients_after_signature(self, idp: MagicMock) -> None:
-        """Client claims are only trusted after signature verification."""
+    def test_clients_after_signature(
+        self, idp: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Client claims are only checked after signature verification."""
+        checks: list[dict[str, Any]] = []
+        verify_client = auth._verify_client
+
+        def record(claims: dict[str, Any], conf: AuthConfig) -> None:
+            checks.append(claims)
+            verify_client(claims, conf)
+
+        monkeypatch.setattr(auth, "_verify_client", record)
         app = make_app(clients=[CLIENT])
         with raises_unauthorized():
             validate(app, make_token(key=OTHER_PRIVATE_KEY, client_id=CLIENT))
+        assert checks == []
+        validate(app, make_token(client_id=CLIENT))
+        assert len(checks) == 1
+        assert "public_key" in checks[0]  # added by signature verification
 
     def test_clients_not_configured(self, idp: MagicMock) -> None:
         """Clients are not checked by default."""
@@ -816,7 +832,7 @@ class TestAuthConfig:
 
     def test_clients_audience_required(self) -> None:
         """Restricting clients does not replace the audience by itself."""
-        with pytest.raises(ValidationError, match="clients"):
+        with pytest.raises(ValidationError, match="verify_audience"):
             AuthConfig(issuers=[ISSUER], clients=[CLIENT])
 
     @pytest.mark.parametrize(
@@ -843,6 +859,7 @@ class TestLogAuthConfigWarnings:
             log_auth_config_warnings(conf)
         assert "No trusted token issuers" in caplog.text
         assert "audience" in caplog.text
+        assert "clients are not restricted" in caplog.text
         assert "verify_token_type" in caplog.text
         assert "Expired" in caplog.text
 
