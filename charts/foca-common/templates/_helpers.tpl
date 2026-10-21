@@ -64,6 +64,8 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 Fails unless the settings of the app chart are valid; renders nothing. The
 settings are a dict with the keys:
 
+The app's values must contain the map `mongodb` (see the docs).
+
 - `valuesKey` (required): key of the app's values (e.g., `cloudRegistry`), a
   map with the settings of its container (`image`, `tag`, `probePath`,
   `ingress`, `networkPolicy`, `podSecurityContext`, `securityContext`,
@@ -85,12 +87,18 @@ settings are a dict with the keys:
 {{- if not (kindIs "map" .settings) -}}
 {{- fail "foca-common: templates must be called with a dict of the root context (root) and the app's settings (settings)" -}}
 {{- end -}}
+{{- if hasKey .settings "Error" -}}
+{{- fail (printf "foca-common: the app's settings are not valid YAML: %s" .settings.Error) -}}
+{{- end -}}
 {{- $key := .settings.valuesKey -}}
 {{- if not (and (kindIs "string" $key) $key) -}}
 {{- fail "foca-common: the app's settings must set valuesKey, the key of the app's values" -}}
 {{- end -}}
 {{- if not (kindIs "map" (index .root.Values $key)) -}}
 {{- fail (printf "%s must be a map with the settings of the app's container" $key) -}}
+{{- end -}}
+{{- if not (kindIs "map" .root.Values.mongodb) -}}
+{{- fail "mongodb must be a map with the settings of MongoDB (also for an external one: mongodb.enabled, mongodb.auth)" -}}
 {{- end -}}
 {{- end -}}
 
@@ -125,6 +133,13 @@ ConfigMap template, which every app chart renders.
 {{- if and (include "foca-common.mongodbEnabled" .root) (eq $fullname (include "foca-common.mongodbFullname" .root)) -}}
 {{- fail (printf "the app and MongoDB resources would both be named %s: choose a fullnameOverride that does not end in -mongodb" $fullname) -}}
 {{- end -}}
+{{- if not (include "foca-common.mongodbEnabled" .root) -}}
+{{- $db := get (.root.Values.config | default dict) "db" -}}
+{{- $host := and (kindIs "map" $db) (get $db "host") -}}
+{{- if not (and (kindIs "string" $host) (trim $host)) -}}
+{{- fail "config.db.host must be set to the host of the external MongoDB if mongodb.enabled is false" -}}
+{{- end -}}
+{{- end -}}
 {{- if .settings.requireAudience -}}
 {{- include "foca-common.checkAudience" .root -}}
 {{- end -}}
@@ -140,14 +155,21 @@ overlay is checked, so the app's settings opt in (`requireAudience`) if the
 app needs token issuers.
 */}}
 {{- define "foca-common.checkAudience" -}}
-{{- $config := .Values.config | default dict -}}
-{{- $verifyAudience := dig "security" "auth" "verify_audience" true $config -}}
+{{- $auth := dict -}}
+{{- $security := get (.Values.config | default dict) "security" -}}
+{{- if and (kindIs "map" $security) (kindIs "map" (get $security "auth")) -}}
+{{- $auth = get $security "auth" -}}
+{{- end -}}
+{{- $verifyAudience := true -}}
+{{- if hasKey $auth "verify_audience" -}}
+{{- $verifyAudience = get $auth "verify_audience" -}}
+{{- end -}}
 {{- if kindIs "invalid" $verifyAudience -}}
 {{- $verifyAudience = true -}}
 {{- else if kindIs "string" $verifyAudience -}}
 {{- $verifyAudience = not (has (lower $verifyAudience) (list "0" "off" "f" "false" "n" "no")) -}}
 {{- end -}}
-{{- $audience := dig "security" "auth" "audience" (list) $config -}}
+{{- $audience := get $auth "audience" -}}
 {{- $hasAudience := and (kindIs "slice" $audience) (gt (len $audience) 0) -}}
 {{- range $client := (ternary $audience (list) $hasAudience) -}}
 {{- if not (and (kindIs "string" $client) (trim $client)) -}}

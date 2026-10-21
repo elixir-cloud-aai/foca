@@ -42,8 +42,8 @@ spec:
       # No `<SERVICE>_PORT` etc. variables of the Services in the namespace
       enableServiceLinks: false
       containers:
-      - image: {{ $mongodb.image }}
-        imagePullPolicy: Always
+      - image: {{ required "mongodb.image must be set" $mongodb.image }}
+        imagePullPolicy: {{ $mongodb.imagePullPolicy | default "Always" }}
         name: mongodb
         {{- if $mongodb.auth.enabled }}
         env:

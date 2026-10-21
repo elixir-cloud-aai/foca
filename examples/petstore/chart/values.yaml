@@ -27,12 +27,16 @@ config: {}
 #         level: 20
 
 petstore:
-  # Image repository; may include a tag or digest instead of setting `tag`
-  image: elixircloud/foca-petstore
+  # Image repository; may include a tag or digest instead of setting `tag`.
+  # The example's image is not published: build it from `examples/petstore`
+  # (`Dockerfile`, on the FOCA image built by `docker-compose.yaml`), which
+  # serves the app with Gunicorn
+  image: foca-petstore
   # Image tag; defaults to the chart's `appVersion`
   tag: ""
-  # Pull policy of the image (`Always`, `IfNotPresent` or `Never`)
-  imagePullPolicy: Always
+  # Pull policy of the image (`Always`, `IfNotPresent` or `Never`);
+  # `IfNotPresent` for the locally built image, `Always` if not set
+  imagePullPolicy: IfNotPresent
   # Path of the app's startup, readiness and liveness probes
   probePath: /ui/
   # Ingress for `hostName`; if disabled, an OpenShift Route is created
@@ -128,6 +132,8 @@ mongodb:
   # (https://jira.mongodb.org/browse/SERVER-121912)
   # Pinned to a minor version; patch versions are updated on restarts
   image: docker.io/library/mongo:7.0
+  # Pull policy of the image (`Always`, `IfNotPresent` or `Never`)
+  imagePullPolicy: Always
   auth:
     # Require credentials (set `existingSecret`); enforced on every start,
     # but users are only created when MongoDB starts with an empty data

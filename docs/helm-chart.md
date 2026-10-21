@@ -21,7 +21,8 @@ chart: its values, a few settings and one line per resource. It renders:
 
 The library chart lives in [`charts/foca-common`][library] and is versioned
 independently of FOCA. The [petstore example][petstore-chart] has a thin chart
-built on it, which you can copy as a starting point.
+built on it, which you can copy as a starting point; its image (not
+published) is built from `examples/petstore` and serves the app with Gunicorn.
 
 ## Building an app chart
 
@@ -40,8 +41,11 @@ dependencies:
     repository: oci://ghcr.io/elixir-cloud-aai/charts
 ```
 
-Run `helm dependency update` to download it (into `charts/`, which you may
-add to `.gitignore`) and to create `Chart.lock`, which you commit.
+The library chart is published to this OCI repository from its first release
+on; until then, use a `file://` repository in a clone of FOCA, as the
+petstore example does. Run `helm dependency update` to download it (into
+`charts/`, which you may add to `.gitignore`) and to create `Chart.lock`,
+which you commit.
 
 ### Settings
 
@@ -172,7 +176,9 @@ library's schema of these values is
 ## Developing the library chart
 
 The tests of the library chart are in `charts/foca-common/tests`; they render
-the petstore chart with `helm template` and need [Helm][helm-install]:
+the petstore chart with `helm template` and need [Helm][helm-install], the
+version used in CI (see `.github/workflows/charts.yml`) for the snapshot
+tests, as other versions may render whitespace or comments differently:
 
 ```bash
 pytest charts/foca-common/tests

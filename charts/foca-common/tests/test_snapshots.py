@@ -52,7 +52,10 @@ def test_snapshot(chart: Path, name: str) -> None:
         SNAPSHOTS.mkdir(exist_ok=True)
         snapshot.write_text(rendered)
     assert snapshot.exists(), f"no snapshot {snapshot.name}"
-    assert rendered == snapshot.read_text()
+    assert rendered == snapshot.read_text(), (
+        f"output differs from {snapshot.name}; if intended, update the "
+        "snapshots (with the Helm version of CI, see charts.yml)"
+    )
 
 
 def test_no_stale_snapshots() -> None:

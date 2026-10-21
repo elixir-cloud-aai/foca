@@ -1,6 +1,7 @@
 """Fixtures for the tests of the library chart foca-common."""
 
-from collections.abc import Callable, Iterator
+import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -43,19 +44,12 @@ def render_error(chart: Path) -> Callable[..., str]:
 
 
 @pytest.fixture
-def chart_with_settings(
-    tmp_path: Path,
-) -> Iterator[Callable[[str], Path]]:
+def chart_with_settings(tmp_path: Path) -> Callable[[str], Path]:
     """Build copies of the app chart with other settings of the app."""
     if HELM is None:
         pytest.skip("helm not installed")
-    count = 0
 
     def _build(settings: str) -> Path:
-        nonlocal count
-        count += 1
-        directory = tmp_path / str(count)
-        directory.mkdir()
-        return build_chart(directory, settings)
+        return build_chart(Path(tempfile.mkdtemp(dir=tmp_path)), settings)
 
-    yield _build
+    return _build

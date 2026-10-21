@@ -235,6 +235,10 @@
           "type": "string",
           "description": "MongoDB image, pinned to a minor version"
         },
+        "imagePullPolicy": {
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "description": "Pull policy of the MongoDB image; Always if not set"
+        },
         "auth": {
           "type": "object",
           "properties": {

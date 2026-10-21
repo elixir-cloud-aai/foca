@@ -143,6 +143,20 @@ def test_name_collision_fails(render_error: Callable[..., str]) -> None:
     assert "would both be named" in error
 
 
+def test_external_mongodb_needs_host(
+    render_error: Callable[..., str],
+) -> None:
+    error = render_error("--set", "mongodb.enabled=false")
+    assert "config.db.host must be set" in error
+
+
+def test_settings_must_be_yaml(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    chart = chart_with_settings("valuesKey: [")
+    assert "settings are not valid YAML" in template_error(chart)
+
+
 def test_mongodb_disabled(render: Callable[..., Docs]) -> None:
     docs = render(
         "--set",
@@ -192,25 +206,30 @@ def test_all_settings(chart_with_settings: Callable[[str], Path]) -> None:
 
 
 @pytest.mark.parametrize(
-    "args",
+    "config",
     [
-        (),
-        ("--set-json", "config.security.auth.audience=[]"),
-        ("--set-json", 'config.security.auth.audience=[" "]'),
-        ("--set-json", "config.security.auth.audience=null"),
-        ("--set-json", "config.security.auth.verify_audience=null", *AUDIENCE),
-        ("--set-json", 'config.security.auth.audience="petstore"'),
+        {},
+        {"security": {"auth": {"audience": []}}},
+        {"security": {"auth": {"audience": [" "]}}},
+        {"security": {"auth": {"audience": None}}},
+        {"security": {"auth": {"audience": "petstore"}}},
+        # `null` doesn't disable the validation (FOCA refuses it)
+        {"security": {"auth": {"verify_audience": None}}},
+        {"security": {"auth": None}},
+        {"security": None},
     ],
 )
 def test_audience_required(
-    chart_with_settings: Callable[[str], Path], args: tuple[str, ...]
+    chart_with_settings: Callable[[str], Path],
+    tmp_path: Path,
+    config: dict[str, Any],
 ) -> None:
     chart = chart_with_settings(FULL_SETTINGS)
-    if "verify_audience" in " ".join(args):
-        # `null` doesn't disable the validation, but the audience is set
-        template(chart, *args)
-        return
-    assert re.search("audience must list", template_error(chart, *args))
+    # A values file, as `--set` removes keys set to `null`
+    values = tmp_path / "values.yaml"
+    values.write_text(yaml.safe_dump({"config": config}))
+    error = template_error(chart, "-f", str(values))
+    assert "audience must list" in error
 
 
 @pytest.mark.parametrize("value", ["false", '"False"', '"off"', '"0"'])
@@ -279,8 +298,8 @@ def test_checksum_follows_config(render: Callable[..., Docs]) -> None:
 def test_container(render: Callable[..., Docs]) -> None:
     docs = render()
     container = _container(docs)
-    assert container["image"] == "elixircloud/foca-petstore:latest"
-    assert container["imagePullPolicy"] == "Always"
+    assert container["image"] == "foca-petstore:latest"
+    assert container["imagePullPolicy"] == "IfNotPresent"
     assert container["name"] == "petstore"
     env = _env(container)
     assert env["FOCA_CONFIG_OVERLAY"] == "/etc/petstore/overlay.yaml"
@@ -315,7 +334,7 @@ def test_container(render: Callable[..., Docs]) -> None:
 @pytest.mark.parametrize(
     ("args", "image"),
     [
-        (("--set", "petstore.tag=1.2.3"), "elixircloud/foca-petstore:1.2.3"),
+        (("--set", "petstore.tag=1.2.3"), "foca-petstore:1.2.3"),
         (
             ("--set", "petstore.image=registry:5000/pets"),
             "registry:5000/pets:latest",
@@ -338,8 +357,10 @@ def test_image_with_tag_and_tag_fails(render_error: Callable[..., str]):
 
 
 def test_image_pull_policy(render: Callable[..., Docs]) -> None:
-    docs = render("--set", "petstore.imagePullPolicy=IfNotPresent")
-    assert _container(docs)["imagePullPolicy"] == "IfNotPresent"
+    docs = render("--set", "petstore.imagePullPolicy=Never")
+    assert _container(docs)["imagePullPolicy"] == "Never"
+    docs = render("--set-json", "petstore.imagePullPolicy=null")
+    assert _container(docs)["imagePullPolicy"] == "Always"
 
 
 def test_without_gunicorn(render: Callable[..., Docs]) -> None:
@@ -444,6 +465,127 @@ def test_mongodb_credentials(render: Callable[..., Docs]) -> None:
         "MONGO_INITDB_ROOT_PASSWORD": "root-password",
         "MONGO_INITDB_ROOT_USERNAME": "root-username",
     }
+
+
+def test_probe_path(render: Callable[..., Docs]) -> None:
+    container = _container(render("--set", "petstore.probePath=/health"))
+    for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
+        assert container[probe]["httpGet"]["path"] == "/health"
+
+
+@pytest.mark.parametrize(
+    ("args", "seconds"),
+    [
+        ((), 35),
+        (
+            (
+                "--set",
+                "petstore.preStopSleepSeconds=7",
+                "--set",
+                "petstore.gunicorn.gracefulTimeout=60",
+            ),
+            77,
+        ),
+        (("--set", "petstore.gunicorn=null"), 35),
+        (
+            (
+                "--set",
+                "petstore.gunicorn=null",
+                "--set",
+                "petstore.preStopSleepSeconds=0",
+            ),
+            30,
+        ),
+    ],
+)
+def test_termination_grace_period(
+    render: Callable[..., Docs], args: tuple[str, ...], seconds: int
+) -> None:
+    spec = _pod_spec(render(*args))
+    assert spec["terminationGracePeriodSeconds"] == seconds
+
+
+def test_gunicorn_settings(render: Callable[..., Docs]) -> None:
+    docs = render(
+        "--set",
+        "petstore.gunicorn.workers=2",
+        "--set",
+        "petstore.gunicorn.threads=8",
+        "--set",
+        "petstore.gunicorn.timeout=60",
+        "--set",
+        "petstore.gunicorn.gracefulTimeout=15",
+        "--set",
+        "petstore.gunicorn.keepalive=0",
+    )
+    assert _env(_container(docs))["GUNICORN_CMD_ARGS"] == (
+        "--workers 2 --threads 8 --timeout 60 --graceful-timeout 15 "
+        "--keep-alive 0"
+    )
+
+
+def test_service(render: Callable[..., Docs]) -> None:
+    docs = render()
+    for name, component, port in [
+        (APP, "app", {"name": "http", "port": 8080, "targetPort": "http"}),
+        (
+            MONGODB,
+            "mongodb",
+            {"name": "mongodb", "port": 27017, "targetPort": "mongodb"},
+        ),
+    ]:
+        spec = docs[("Service", name)]["spec"]
+        assert spec["type"] == "ClusterIP"
+        assert spec["ports"] == [{**port, "protocol": "TCP"}]
+        assert spec["selector"] == {
+            "app.kubernetes.io/name": "petstore",
+            "app.kubernetes.io/instance": "petstore",
+            "app.kubernetes.io/component": component,
+        }
+        # The Service selects the pods of its Deployment
+        selector = docs[("Deployment", name)]["spec"]["selector"]
+        assert selector["matchLabels"] == spec["selector"]
+
+
+def test_overlay_db_host_is_mongodb_service(
+    render: Callable[..., Docs],
+) -> None:
+    docs = render("--set", "fullnameOverride=shop")
+    overlay = yaml.safe_load(
+        docs[("ConfigMap", "shop-config")]["data"]["overlay.yaml"]
+    )
+    assert overlay["db"]["host"] == "shop-mongodb"
+    assert ("Service", "shop-mongodb") in docs
+
+
+def test_mongodb_settings(render: Callable[..., Docs]) -> None:
+    docs = render(
+        "--set",
+        "mongodb.volumeSize=5Gi",
+        "--set",
+        "mongodb.image=mongo:7.0.1",
+        "--set",
+        "mongodb.imagePullPolicy=IfNotPresent",
+    )
+    pvc = docs[("PersistentVolumeClaim", MONGODB)]["spec"]
+    assert pvc["resources"]["requests"]["storage"] == "5Gi"
+    assert pvc["accessModes"] == ["ReadWriteOnce"]
+    container = _container(docs, MONGODB)
+    assert container["image"] == "mongo:7.0.1"
+    assert container["imagePullPolicy"] == "IfNotPresent"
+    assert _container(render(), MONGODB)["imagePullPolicy"] == "Always"
+
+
+def test_mongodb_values_required(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    chart = chart_with_settings("valuesKey: petstore")
+    (chart / "values.schema.json").unlink()
+    values = yaml.safe_load((chart / "values.yaml").read_text())
+    del values["mongodb"]
+    (chart / "values.yaml").write_text(yaml.safe_dump(values))
+    error = template_error(chart, "--set", "hostName=x", required=False)
+    assert "mongodb must be a map" in error
 
 
 # Ingress and Route

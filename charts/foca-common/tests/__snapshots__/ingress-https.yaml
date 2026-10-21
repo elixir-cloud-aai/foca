@@ -184,8 +184,8 @@ spec:
       # `mongo`, which isn't a port)
       enableServiceLinks: false
       containers:
-      - image: "elixircloud/foca-petstore:latest"
-        imagePullPolicy: Always
+      - image: "foca-petstore:latest"
+        imagePullPolicy: IfNotPresent
         name: petstore
         env:
         - name: FOCA_CONFIG_OVERLAY
