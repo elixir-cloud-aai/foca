@@ -1,10 +1,9 @@
-"""Tests for the registration of OpenAPI specifications with a Connexion app
-instance.
-"""
+"""Tests for the registration of OpenAPI specifications with a Connexion app."""
 
 import logging
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import pytest
 from connexion import App
@@ -43,7 +42,7 @@ APPEND = {
         "license": {"name": "MIT"},
     }
 }
-CONNEXION_CONFIG = {
+CONNEXION_CONFIG: dict[str, Any] = {
     "strict_validation": True,
     "validate_responses": False,
     "options": {
@@ -51,7 +50,7 @@ CONNEXION_CONFIG = {
         "serve_spec": True,
     },
 }
-SPEC_CONFIG_2 = {
+SPEC_CONFIG_2: dict[str, Any] = {
     "path": PATH_SPECS_2_YAML_ORIGINAL,
     "append": [APPEND],
     "add_operation_fields": OPERATION_FIELDS_2,
@@ -59,7 +58,7 @@ SPEC_CONFIG_2 = {
     "disable_auth": False,
     "connexion": CONNEXION_CONFIG,
 }
-SPEC_CONFIG_3 = {
+SPEC_CONFIG_3: dict[str, Any] = {
     "path": PATH_SPECS_3_YAML_ORIGINAL,
     "append": [APPEND],
     "add_operation_fields": OPERATION_FIELDS_3,
@@ -67,7 +66,7 @@ SPEC_CONFIG_3 = {
     "disable_auth": False,
     "connexion": CONNEXION_CONFIG,
 }
-SPEC_CONFIG_3_PATHITEMPARAM = {
+SPEC_CONFIG_3_PATHITEMPARAM: dict[str, Any] = {
     "path": PATH_SPECS_3_PATHITEMPARAM_YAML_ORIGINAL,
     "append": [APPEND],
     "add_operation_fields": OPERATION_FIELDS_3,
@@ -98,7 +97,9 @@ def _routes(app: App) -> set[str]:
 
 
 class TestRegisterOpenAPI:
-    def test_openapi_2_yaml(self):
+    """Tests for `register_openapi()`."""
+
+    def test_openapi_2_yaml(self) -> None:
         """Successfully register OpenAPI 2 YAML specs with Connexion app."""
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2)]
@@ -109,7 +110,7 @@ class TestRegisterOpenAPI:
             "GET /v1/pets/<petId>",
         }
 
-    def test_openapi_3_yaml(self):
+    def test_openapi_3_yaml(self) -> None:
         """Successfully register OpenAPI 3 YAML specs with Connexion app."""
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_3)]
@@ -120,10 +121,10 @@ class TestRegisterOpenAPI:
             "GET /v2/pets/<petId>",
         }
 
-    def test_openapi_3_pathitemparam_yaml(self):
-        """
-        Successfully register OpenAPI 3 YAML specs with PathItem.parameters
-        field with Connexion app.
+    def test_openapi_3_pathitemparam_yaml(self) -> None:
+        """Successfully register OpenAPI 3 YAML specs with Connexion app.
+
+        The specs have a `PathItem.parameters` field.
         """
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_3_PATHITEMPARAM)]
@@ -134,7 +135,7 @@ class TestRegisterOpenAPI:
             "GET /v2/pets/<petId>",
         }
 
-    def test_openapi_2_json(self):
+    def test_openapi_2_json(self) -> None:
         """Successfully register OpenAPI 2 JSON specs with Connexion app."""
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_JSON)]
@@ -145,9 +146,10 @@ class TestRegisterOpenAPI:
             "GET /v1/pets/<petId>",
         }
 
-    def test_openapi_2_json_and_3_yaml(self):
-        """Successfully register both OpenAPI2 JSON and OpenAPI3 YAML specs
-        with Connexion app.
+    def test_openapi_2_json_and_3_yaml(self) -> None:
+        """Successfully register OpenAPI2 JSON and OpenAPI3 YAML specs together.
+
+        Both are registered with the Connexion app.
         """
         app = App(__name__)
         spec_configs = [
@@ -161,30 +163,31 @@ class TestRegisterOpenAPI:
             "GET /v1/pets/<petId>",
         } | {"GET /v2/pets", "POST /v2/pets", "GET /v2/pets/<petId>"}
 
-    def test_openapi_2_invalid(self):
+    def test_openapi_2_invalid(self) -> None:
         """Registration failing because of invalid OpenAPI 2 spec file."""
         app = App(__name__)
         spec_configs = [SpecConfig(path=PATH_SPECS_INVALID_YAML)]
         with pytest.raises(InvalidSpecification):
             register_openapi(app=app, specs=spec_configs)
 
-    def test_openapi_2_json_invalid(self):
+    def test_openapi_2_json_invalid(self) -> None:
         """Registration failing because of invalid JSON spec file."""
         app = App(__name__)
         spec_configs = [SpecConfig(path=PATH_SPECS_INVALID_JSON)]
         with pytest.raises(ValueError):
             register_openapi(app=app, specs=spec_configs)
 
-    def test_openapi_not_found(self):
+    def test_openapi_not_found(self) -> None:
         """Registration failing because spec file is unavailable."""
         app = App(__name__)
         spec_configs = [SpecConfig(path=PATH_NOT_FOUND)]
         with pytest.raises(OSError):
             register_openapi(app=app, specs=spec_configs)
 
-    def test_openapi_2_list(self):
-        """Successfully register OpenAPI 2 JSON specs with Connexion app;
-        specs provided as list.
+    def test_openapi_2_list(self) -> None:
+        """Successfully register OpenAPI 2 JSON specs with Connexion app.
+
+        Specs provided as list.
         """
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_LIST)]
@@ -195,9 +198,10 @@ class TestRegisterOpenAPI:
             "GET /v1/pets/<petId>",
         }
 
-    def test_openapi_2_fragments(self):
-        """Successfully register OpenAPI 2 JSON specs with Connexion app;
-        specs provided as multiple fragments.
+    def test_openapi_2_fragments(self) -> None:
+        """Successfully register OpenAPI 2 JSON specs with Connexion app.
+
+        Specs provided as multiple fragments.
         """
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_MULTI)]
@@ -208,9 +212,10 @@ class TestRegisterOpenAPI:
             "GET /v1/pets/<petId>",
         } | {"PUT /v1/pets/<petId>"}
 
-    def test_openapi_2_yaml_no_auth(self):
-        """Successfully register OpenAPI 2 YAML specs with Connexion app;
-        no security definitions/fields.
+    def test_openapi_2_yaml_no_auth(self) -> None:
+        """Successfully register OpenAPI 2 YAML specs with Connexion app.
+
+        No security definitions/fields.
         """
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_2_DISABLE_AUTH)]
@@ -221,9 +226,10 @@ class TestRegisterOpenAPI:
             "GET /v1/pets/<petId>",
         }
 
-    def test_openapi_3_yaml_no_auth(self):
-        """Successfully register OpenAPI 3 YAML specs with Connexion app;
-        no security schemes/fields.
+    def test_openapi_3_yaml_no_auth(self) -> None:
+        """Successfully register OpenAPI 3 YAML specs with Connexion app.
+
+        No security schemes/fields.
         """
         app = App(__name__)
         spec_configs = [SpecConfig(**SPEC_CONFIG_3_DISABLE_AUTH)]
@@ -235,9 +241,11 @@ class TestRegisterOpenAPI:
         }
 
 
-def _registered_spec(monkeypatch, spec_config: dict) -> dict:
+def _registered_spec(
+    monkeypatch: pytest.MonkeyPatch, spec_config: dict[str, Any]
+) -> dict[str, Any]:
     """Register spec and return the specification passed to `add_api()`."""
-    specs = []
+    specs: list[dict[str, Any]] = []
     monkeypatch.setattr(
         App,
         "add_api",
@@ -253,10 +261,16 @@ def _registered_spec(monkeypatch, spec_config: dict) -> dict:
     [(True, True, True), (True, False, False), (False, True, False)],
 )
 def test_disable_auth_with_enforcement(
-    monkeypatch, caplog, disable_auth, enforce, warned
-):
-    """Disabling authentication while enforcing policies is warned about,
-    as operations without security requirements are not enforced."""
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    disable_auth: bool,
+    enforce: bool,
+    warned: bool,
+) -> None:
+    """Disabling authentication while enforcing policies is warned about.
+
+    Operations without security requirements are not enforced.
+    """
     monkeypatch.setattr(App, "add_api", lambda self, **kwargs: None)
     monkeypatch.setattr(module.logger, "disabled", False)
     spec_config = {**SPEC_CONFIG_3, "disable_auth": disable_auth}
@@ -272,7 +286,9 @@ def test_disable_auth_with_enforcement(
 class TestModifiedSpecs:
     """Tests for the specifications passed to Connexion."""
 
-    def test_disable_auth_path_item_fields(self, monkeypatch):
+    def test_disable_auth_path_item_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Security is removed from specs with path-level fields."""
         spec_config = deepcopy(SPEC_CONFIG_3_PATHITEMPARAM)
         spec_config["disable_auth"] = True
@@ -288,7 +304,9 @@ class TestModifiedSpecs:
             for path_item in spec["paths"].values()
         )
 
-    def test_add_operation_fields_path_item_fields(self, monkeypatch):
+    def test_add_operation_fields_path_item_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Operation fields are only added to operations."""
         spec = _registered_spec(monkeypatch, SPEC_CONFIG_3_PATHITEMPARAM)
         operations = list(_iter_operations(spec))
@@ -301,7 +319,9 @@ class TestModifiedSpecs:
             for path_item in spec["paths"].values()
         )
 
-    def test_add_operation_fields_kept(self, monkeypatch, tmp_path):
+    def test_add_operation_fields_kept(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Fields set on operations are not replaced by operation fields."""
         spec_path = tmp_path / "addition.yaml"
         spec_path.write_text(
@@ -318,7 +338,7 @@ class TestModifiedSpecs:
         assert operations["post"]["x-openapi-router-controller"] == ("controllers")
 
 
-def test_iter_operations():
+def test_iter_operations() -> None:
     """Only Operation Objects are yielded."""
     get, post = {"operationId": "a"}, {"operationId": "b"}
     spec = {
@@ -342,22 +362,23 @@ def test_iter_operations():
 class TestConnexionAddApiKwargs:
     """Tests for translating Connexion options to `add_api()` arguments."""
 
-    def test_current_config(self):
+    def test_current_config(self) -> None:
         """Today's `connexion` config yields the same arguments."""
         assert (
             _connexion_add_api_kwargs(ConnexionOptions(**CONNEXION_CONFIG))
             == CONNEXION_CONFIG
         )
 
-    def test_none(self):
+    def test_none(self) -> None:
+        """Missing or default options yield no arguments."""
         assert _connexion_add_api_kwargs(None) == {}
         assert _connexion_add_api_kwargs(ConnexionOptions()) == {}
 
-    def test_typed_options(self):
+    def test_typed_options(self) -> None:
         """Typed UI options are passed via `options`, overriding it."""
         resolver = object()
         kwargs = _connexion_add_api_kwargs(
-            ConnexionOptions(
+            ConnexionOptions(  # type: ignore[call-arg]  # extra fields allowed
                 strict_validation=False,
                 swagger_ui=False,
                 serve_spec=True,
@@ -382,7 +403,7 @@ class TestConnexionAddApiKwargs:
         }
         assert kwargs["resolver"] is resolver
 
-    def test_spec_config(self):
+    def test_spec_config(self) -> None:
         """`SpecConfig.connexion` is parsed into typed options."""
         spec = SpecConfig(**SPEC_CONFIG_3)
         assert isinstance(spec.connexion, ConnexionOptions)

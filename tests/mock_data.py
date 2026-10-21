@@ -1,6 +1,20 @@
 """Mock data for testing."""
 
 from pathlib import Path
+from typing import Any
+
+from pymongo import MongoClient
+
+# Connection strings and in-memory clients created by FOCA (cf. fixture
+# `mongo_clients`)
+MongoClients = list[tuple[str, MongoClient[dict[str, Any]]]]
+
+# Challenge of `401 Unauthorized` responses for invalid tokens
+INVALID_TOKEN_CHALLENGE = (
+    'Bearer error="invalid_token", '  # noqa: S105 (not a password)
+    'error_description="The access token could not be validated"'
+)
+
 
 INDEX_CONFIG = {"keys": [("id", 1)]}
 COLLECTION_CONFIG = {
@@ -39,7 +53,7 @@ MOCK_RULE_USER_INPUT_OUTPUT = {
     "policy_type": "p1",
     "rule": {"v0": "alice", "v1": "data1", "v2": "POST", "v3": "read"},
 }
-MOCK_RULE_INVALID = {"rule": []}
+MOCK_RULE_INVALID: dict[str, Any] = {"rule": []}
 # Permission valid for model `MODEL_CONF_FILE`
 MOCK_PERMISSION = {
     "policy_type": "p",

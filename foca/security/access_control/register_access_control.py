@@ -3,6 +3,7 @@
 import logging
 from importlib.resources import files
 from pathlib import Path
+from typing import Any
 
 import yaml
 from connexion import App
@@ -136,8 +137,9 @@ def register_access_control(
         else:
             policy_collection.client = app_db_conf.client[access_control_collection]
         logger.info(
-            f"Added access control collection '{access_control_collection}' "
-            f"to database '{access_control_db}'."
+            "Added access control collection '%s' to database '%s'.",
+            access_control_collection,
+            access_control_db,
         )
 
     # Remember what was added, once registration of the database succeeded
@@ -198,7 +200,9 @@ def _check_collection_clash(
             )
 
 
-def register_permission_specs(app: App, access_control_config: AccessControlConfig):
+def register_permission_specs(
+    app: App, access_control_config: AccessControlConfig
+) -> App:
     """Register open api specs for permission management.
 
     Access control policies are enforced on all operations of the permissions
@@ -215,7 +219,7 @@ def register_permission_specs(app: App, access_control_config: AccessControlConf
     Returns:
         Connexion app with updated permission specifications.
     """
-    specification: Path | dict
+    specification: Path | dict[str, Any]
     if access_control_config.api_specs is None:
         spec_path = str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH))
         specification = Path(spec_path)
@@ -250,7 +254,7 @@ def register_permission_specs(app: App, access_control_config: AccessControlConf
         specification=specification,
         **_connexion_add_api_kwargs(options),
     )
-    logger.info(f"Permission management API registered from '{spec_path}'.")
+    logger.info("Permission management API registered from '%s'.", spec_path)
     return app
 
 
@@ -260,7 +264,7 @@ _HTTP_METHODS = frozenset(
 )
 
 
-def _with_error_media_type(spec_path: Path, media_type: str) -> dict:
+def _with_error_media_type(spec_path: Path, media_type: str) -> dict[str, Any]:
     """Load an API specification with another error response media type.
 
     Args:

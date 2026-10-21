@@ -1,7 +1,7 @@
 """Casbin rule adapter."""
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from casbin import persist
 from casbin.model import Assertion, Model
@@ -48,7 +48,7 @@ class Adapter(persist.Adapter):
 
     def __init__(
         self,
-        collection: Collection,
+        collection: Collection[dict[str, Any]],
         id_charset: str = DEFAULT_ID_CHARSET,
         id_length: int = DEFAULT_ID_LENGTH,
         model: str | None = None,
@@ -87,15 +87,17 @@ class Adapter(persist.Adapter):
         except DuplicateKeyError as exc:
             logger.error(
                 "Unique index on policy rule identifiers could not be "
-                f"created, as rules in collection '{self._collection.name}' "
+                "created, as rules in collection '%s' "
                 "share identifiers; identifiers of new rules are not "
                 "guaranteed to be unique. Delete or re-create the rules "
-                f"with duplicate identifiers and restart the app: {exc}"
+                "with duplicate identifiers and restart the app: %s",
+                self._collection.name,
+                exc,
             )
         # Other errors propagate, so that the next write tries again
         self._id_index_created = True
 
-    def load_policy(self, model: Model):
+    def load_policy(self, model: Model) -> None:
         """Implementing add Interface for casbin.
 
         Load all policy rules from MongoDB. Rules are built from the fields
@@ -115,16 +117,18 @@ class Adapter(persist.Adapter):
                 validate_rule(ptype, values, model)
             except ValueError as exc:
                 logger.warning(
-                    f"Skipping invalid policy rule '{document.get('id')}': {exc}"
+                    "Skipping invalid policy rule '%s': %s", document.get("id"), exc
                 )
                 continue
-            assertion = model[ptype[0]][ptype]
-            if ptype not in loaded:
-                loaded[ptype] = {tuple(rule) for rule in assertion.policy}
+            # Policy type is a string, as validated above
+            rule_type = cast(str, ptype)
+            assertion = model[rule_type[0]][rule_type]
+            if rule_type not in loaded:
+                loaded[rule_type] = {tuple(rule) for rule in assertion.policy}
             key = tuple(values)
-            if key in loaded[ptype]:
+            if key in loaded[rule_type]:
                 continue
-            loaded[ptype].add(key)
+            loaded[rule_type].add(key)
             _append_rule(assertion, values)
 
     def save_policy_line(
@@ -250,7 +254,7 @@ class Adapter(persist.Adapter):
         )
         return [list(rule) for rule in rules]
 
-    def _has_configured(self, query: dict) -> bool:
+    def _has_configured(self, query: dict[str, Any]) -> bool:
         """Check whether a stored rule matching a query is configured.
 
         Args:
@@ -282,14 +286,14 @@ class Adapter(persist.Adapter):
             key = (document.get("ptype"), *_rule_values(document))
             if missing.pop(key, None) is None:
                 self._collection.delete_one({"_id": document["_id"]})
-                logger.info(f"Removed configured policy rule '{document.get('id')}'")
+                logger.info("Removed configured policy rule '%s'", document.get("id"))
         for ptype, *rule in missing.values():
             if self._collection.update_many(
                 _rule_query(ptype, rule), {"$set": {CONFIGURED_FIELD: True}}
             ).matched_count:
                 continue
             id = self.save_policy_line(ptype, rule, configured=True)
-            logger.info(f"Added configured policy rule '{id}'")
+            logger.info("Added configured policy rule '%s'", id)
 
     def save_policy(self, model: Model) -> bool:
         """Method to save a casbin model.
@@ -325,7 +329,7 @@ class Adapter(persist.Adapter):
         self.save_policy_line(ptype, rule)
         return True
 
-    def remove_policy(self, sec: str, ptype: str, rule: list[str]):
+    def remove_policy(self, sec: str, ptype: str, rule: list[str]) -> bool:
         """Remove policy rules from mongodb(duplicate rules are also removed).
 
         Copies marked as set via the app's configuration are kept (cf.
@@ -349,7 +353,7 @@ class Adapter(persist.Adapter):
         field_index: int,
         *field_values: str,
         keep_configured: bool = False,
-    ):
+    ) -> bool:
         """Remove policy rules that match the filter from the storage.
 
         This is part of the Auto-Save feature.
@@ -395,7 +399,7 @@ def _append_rule(assertion: Assertion, values: list[str]) -> None:
     assertion.policy_map[DEFAULT_SEP.join(values)] = len(assertion.policy) - 1
 
 
-def _rule_query(ptype: str, rule: list[str]) -> dict:
+def _rule_query(ptype: str, rule: list[str]) -> dict[str, Any]:
     """Get query matching stored rules with exactly the given values.
 
     Args:
@@ -407,14 +411,16 @@ def _rule_query(ptype: str, rule: list[str]) -> dict:
         values, but irrespective of other stored fields (e.g., identifiers
         or the configured mark).
     """
-    query: dict = CasbinRule.from_values(ptype, rule).to_dict()
+    query: dict[str, Any] = CasbinRule.from_values(ptype, rule).to_dict()
     # Match fields that are not set or null, as when loading rules
     for index in range(len(rule), MAX_RULE_VALUES):
         query[f"v{index}"] = None
     return query
 
 
-def _filter_query(ptype: str, field_index: int, field_values: tuple[str, ...]) -> dict:
+def _filter_query(
+    ptype: str, field_index: int, field_values: tuple[str, ...]
+) -> dict[str, Any]:
     """Get query matching stored rules with the given values.
 
     Args:
@@ -432,7 +438,7 @@ def _filter_query(ptype: str, field_index: int, field_values: tuple[str, ...]) -
     return query
 
 
-def _rule_values(document: dict) -> list:
+def _rule_values(document: dict[str, Any]) -> list[Any]:
     """Get values of a stored rule.
 
     Args:

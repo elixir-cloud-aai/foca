@@ -3,11 +3,14 @@
 import io
 import json
 from http import HTTPStatus
+from typing import Any
 
 import pytest
 from connexion import App
-from flask import request
+from flask import Flask, request
+from flask.testing import FlaskClient
 from pydantic import ValidationError
+from werkzeug.test import TestResponse
 
 from foca.config.access import get_app_config
 from foca.errors.exceptions import register_exception_handler
@@ -32,21 +35,21 @@ ERROR_REWRITTEN = {
 }
 
 
-def test_add_config_to_connexion_app():
+def test_add_config_to_connexion_app() -> None:
     """Test if app config is updated."""
     cnx_app = App(__name__)
     cnx_app = __add_config_to_connexion_app(cnx_app, CONFIG)
     assert cnx_app.app.config.foca is CONFIG
 
 
-def test_create_connexion_app_without_config():
+def test_create_connexion_app_without_config() -> None:
     """Test Connexion app creation without config."""
     cnx_app = create_connexion_app()
     with pytest.raises(RuntimeError):
         get_app_config(cnx_app.app)
 
 
-def test_create_connexion_app_with_config():
+def test_create_connexion_app_with_config() -> None:
     """Test Connexion app creation with config; server settings applied."""
     config = Config(server=ServerConfig(host="127.0.0.1", port=1234, testing=True))
     cnx_app = create_connexion_app(config)
@@ -59,7 +62,7 @@ def test_create_connexion_app_with_config():
     assert cnx_app.app.config["TESTING"] is True
 
 
-def test_debug_off_by_default():
+def test_debug_off_by_default() -> None:
     """Debug mode is off by default."""
     cnx_app = create_connexion_app(Config())
     assert cnx_app.debug is False
@@ -69,7 +72,7 @@ def test_debug_off_by_default():
 @pytest.mark.parametrize(
     "host,warned",
     [
-        ("0.0.0.0", True),
+        ("0.0.0.0", True),  # noqa: S104 (host value, nothing is bound)
         ("::", True),
         ("example.org", True),
         ("10.0.0.1", True),
@@ -79,10 +82,16 @@ def test_debug_off_by_default():
         ("localhost", False),
     ],
 )
-def test_debug_warning(monkeypatch, host, warned):
+def test_debug_warning(
+    monkeypatch: pytest.MonkeyPatch, host: str, warned: bool
+) -> None:
     """Debug mode on non-loopback hosts is warned about."""
-    warnings = []
-    monkeypatch.setattr(module.logger, "warning", warnings.append)
+    warnings: list[str] = []
+
+    def warning(msg: str, *args: object) -> None:
+        warnings.append(msg % args)
+
+    monkeypatch.setattr(module.logger, "warning", warning)
     cnx_app = create_connexion_app(Config(server=ServerConfig(host=host, debug=True)))
     assert cnx_app.app.config["DEBUG"] is True
     assert bool(warnings) is warned
@@ -92,26 +101,32 @@ def test_debug_warning(monkeypatch, host, warned):
 
 @pytest.mark.parametrize(
     "host,expected",
-    [("localhost", True), ("::1", True), ("0.0.0.0", False), ("x", False)],
+    [
+        ("localhost", True),
+        ("::1", True),
+        ("0.0.0.0", False),  # noqa: S104 (host value, nothing is bound)
+        ("x", False),
+    ],
 )
-def test_is_loopback(host, expected):
+def test_is_loopback(host: str, expected: bool) -> None:
+    """Loopback hosts are detected."""
     assert _is_loopback(host) is expected
 
 
 @pytest.mark.parametrize("field", ["environment", "use_reloader"])
-def test_removed_server_fields(field):
+def test_removed_server_fields(field: str) -> None:
     """Removed server settings fail validation."""
     with pytest.raises(ValidationError):
-        ServerConfig(**{field: "x"})
+        ServerConfig(**{field: "x"})  # type: ignore[arg-type]  # invalid on purpose
 
 
-def test_max_content_length_unset_by_default():
+def test_max_content_length_unset_by_default() -> None:
     """Request bodies are not limited by default."""
     cnx_app = create_connexion_app(Config())
     assert cnx_app.app.config["MAX_CONTENT_LENGTH"] is None
 
 
-def test_max_content_length():
+def test_max_content_length() -> None:
     """Larger request bodies are rejected with 413."""
     cnx_app = create_connexion_app(Config(server=ServerConfig(max_content_length=10)))
     app = cnx_app.app
@@ -128,9 +143,10 @@ def test_max_content_length():
 
 
 @pytest.mark.parametrize("value", [0, -1, "x"])
-def test_invalid_max_content_length(value):
+def test_invalid_max_content_length(value: int | str) -> None:
+    """Invalid size limits fail validation."""
     with pytest.raises(ValidationError):
-        ServerConfig(max_content_length=value)
+        ServerConfig(max_content_length=value)  # type: ignore[arg-type]  # invalid on purpose
 
 
 def _read_data() -> bytes:
@@ -162,10 +178,11 @@ VIEWS = {
 }
 
 
-def _limited_app(limit: int | None = LIMIT):
-    """Create a Flask app with the given size limit of request bodies, with
-    routes that read the body in different ways (returning what they read)
-    or don't (`/ignore`), and FOCA's problem handler.
+def _limited_app(limit: int | None = LIMIT) -> Flask:
+    """Create a Flask app with the given size limit of request bodies.
+
+    The app has routes that read the body in different ways (returning what
+    they read) or don't (`/ignore`), and FOCA's problem handler.
     """
     cnx_app = create_connexion_app(
         Config(server=ServerConfig(max_content_length=limit))
@@ -179,11 +196,15 @@ def _limited_app(limit: int | None = LIMIT):
 
 
 def _send_chunked(
-    client, body: bytes, path: str = "/data", content_type: str | None = None
-):
-    """Send a chunked request body (of unknown size), with a stream
-    terminated by the server (as by Werkzeug's and Gunicorn's servers);
-    return the response and the number of bytes read.
+    client: FlaskClient,
+    body: bytes,
+    path: str = "/data",
+    content_type: str | None = None,
+) -> tuple[TestResponse, int]:
+    """Send a chunked request body (of unknown size).
+
+    The stream is terminated by the server (as by Werkzeug's and Gunicorn's
+    servers). Return the response and the number of bytes read.
     """
     stream = io.BytesIO(body)
     response = client.post(
@@ -196,9 +217,10 @@ def _send_chunked(
     return response, stream.tell()
 
 
-def _assert_too_large(response) -> None:
-    """Assert that a response rejects a request body as too large, with
-    problem details of the configured media type.
+def _assert_too_large(response: TestResponse) -> None:
+    """Assert that a response rejects a request body as too large.
+
+    The response has problem details of the configured media type.
     """
     assert response.status_code == 413
     assert response.content_type == "application/json"
@@ -206,9 +228,11 @@ def _assert_too_large(response) -> None:
 
 
 @pytest.mark.parametrize("path", ["/data", "/ignore"])
-def test_max_content_length_chunked(path):
-    """Chunked bodies over the limit are rejected (`413`) after reading at
-    most one byte more than the limit, also by routes not reading them.
+def test_max_content_length_chunked(path: str) -> None:
+    """Chunked bodies over the limit are rejected (`413`).
+
+    This happens after reading at most one byte more than the limit, also
+    by routes not reading them.
     """
     client = _limited_app().test_client()
     response, read = _send_chunked(client, b"x" * 10 * LIMIT, path=path)
@@ -218,9 +242,10 @@ def test_max_content_length_chunked(path):
 
 @pytest.mark.parametrize("size", [0, LIMIT])
 @pytest.mark.parametrize("path", ["/data", "/stream"])
-def test_max_content_length_chunked_at_limit(size, path):
-    """Chunked bodies up to the limit are passed on in full, both as data
-    and as stream.
+def test_max_content_length_chunked_at_limit(size: int, path: str) -> None:
+    """Chunked bodies up to the limit are passed on in full.
+
+    This holds both as data and as stream.
     """
     client = _limited_app().test_client()
     response, _ = _send_chunked(client, b"x" * size, path=path)
@@ -246,7 +271,9 @@ def test_max_content_length_chunked_at_limit(size, path):
         ),
     ],
 )
-def test_max_content_length_chunked_form(path, content_type, body, expected):
+def test_max_content_length_chunked_form(
+    path: str, content_type: str, body: bytes, expected: dict[str, str]
+) -> None:
     """Chunked form data up to the limit is parsed in full."""
     app = _limited_app(limit=len(body))
     response, _ = _send_chunked(
@@ -257,9 +284,10 @@ def test_max_content_length_chunked_form(path, content_type, body, expected):
 
 
 @pytest.mark.parametrize("method", ["GET", "POST"])
-def test_max_content_length_declared_unread(method):
-    """Bodies with a declared size over the limit are rejected (`413`)
-    without reading them, also by routes not reading them.
+def test_max_content_length_declared_unread(method: str) -> None:
+    """Bodies with a declared size over the limit are rejected (`413`).
+
+    This happens without reading them, also by routes not reading them.
     """
     client = _limited_app().test_client()
     stream = io.BytesIO(b"x" * (LIMIT + 1))
@@ -274,7 +302,7 @@ def test_max_content_length_declared_unread(method):
 
 
 @pytest.mark.parametrize("size", [0, LIMIT - 1, LIMIT])
-def test_max_content_length_declared_at_limit(size):
+def test_max_content_length_declared_at_limit(size: int) -> None:
     """Bodies with a declared size up to the limit are handled normally."""
     client = _limited_app().test_client()
     response = client.post("/data", data=b"x" * size)
@@ -282,10 +310,13 @@ def test_max_content_length_declared_at_limit(size):
     assert response.data == b"x" * size
 
 
-def _send_declared(client, body: bytes, content_length: str):
-    """Send a request body with the given `Content-Length` value, with a
-    stream terminated by the server; return the response and the number of
-    bytes read.
+def _send_declared(
+    client: FlaskClient, body: bytes, content_length: str
+) -> tuple[TestResponse, int]:
+    """Send a request body with the given `Content-Length` value.
+
+    The stream is terminated by the server. Return the response and the
+    number of bytes read.
     """
     stream = io.BytesIO(body)
     response = client.post(
@@ -304,9 +335,10 @@ def _send_declared(client, body: bytes, content_length: str):
     ["abc", "-1", "+5", "5 5", "0" * 4400 + "5"],
     ids=["letters", "negative", "sign", "inner space", "too many digits"],
 )
-def test_max_content_length_invalid_declared(content_length):
-    """Bodies with an invalid declared size are rejected (`400`) without
-    reading them.
+def test_max_content_length_invalid_declared(content_length: str) -> None:
+    """Bodies with an invalid declared size are rejected (`400`).
+
+    This happens without reading them.
     """
     client = _limited_app().test_client()
     response, read = _send_declared(client, b"x" * 10 * LIMIT, content_length)
@@ -318,9 +350,10 @@ def test_max_content_length_invalid_declared(content_length):
 
 
 @pytest.mark.parametrize("content_length", [str(LIMIT), f" {LIMIT}\t"])
-def test_max_content_length_valid_declared(content_length):
-    """Bodies with a valid declared size, also with surrounding whitespace
-    (cf. RFC 9110), are handled normally.
+def test_max_content_length_valid_declared(content_length: str) -> None:
+    """Bodies with a valid declared size are handled normally.
+
+    This includes sizes with surrounding whitespace (cf. RFC 9110).
     """
     client = _limited_app().test_client()
     response, _ = _send_declared(client, b"x" * LIMIT, content_length)
@@ -328,9 +361,10 @@ def test_max_content_length_valid_declared(content_length):
     assert response.data == b"x" * LIMIT
 
 
-def test_max_content_length_removed():
-    """If the limit is removed from the Flask config after the app was
-    created, bodies are no longer checked.
+def test_max_content_length_removed() -> None:
+    """Bodies are no longer checked if the limit is removed.
+
+    The limit is removed from the Flask config after the app was created.
     """
     app = _limited_app()
     app.config["MAX_CONTENT_LENGTH"] = None
@@ -339,9 +373,10 @@ def test_max_content_length_removed():
     assert read == 10 * LIMIT
 
 
-def test_max_content_length_added():
-    """If a limit is set in the Flask config after the app was created,
-    bodies are checked.
+def test_max_content_length_added() -> None:
+    """Bodies are checked if a limit is added.
+
+    The limit is set in the Flask config after the app was created.
     """
     app = _limited_app(limit=None)
     app.config["MAX_CONTENT_LENGTH"] = LIMIT
@@ -350,9 +385,10 @@ def test_max_content_length_added():
     assert read == LIMIT + 1
 
 
-def test_max_content_length_empty_declared():
-    """Bodies with an empty declared size are of unknown size (cf. PEP
-    3333), i.e., checked like chunked bodies.
+def test_max_content_length_empty_declared() -> None:
+    """Bodies with an empty declared size are of unknown size (cf. PEP 3333).
+
+    I.e., they are checked like chunked bodies.
     """
     client = _limited_app().test_client()
     response, read = _send_declared(client, b"x" * 10 * LIMIT, "")
@@ -363,13 +399,13 @@ def test_max_content_length_empty_declared():
     assert response.data == b"x" * LIMIT
 
 
-def test_max_content_length_no_body():
+def test_max_content_length_no_body() -> None:
     """Requests without a body are handled normally."""
     client = _limited_app().test_client()
     assert client.get("/ignore").status_code == 200
 
 
-def test_max_content_length_unset_chunked():
+def test_max_content_length_unset_chunked() -> None:
     """Without a limit, chunked bodies are passed on in full."""
     app = _limited_app(limit=None)
     response, read = _send_chunked(app.test_client(), b"x" * 10 * LIMIT)
@@ -382,13 +418,15 @@ def test_max_content_length_unset_chunked():
 CALLS: list[str] = []
 
 
-def mock_api_key_info(api_key, required_scopes=None):
+def mock_api_key_info(
+    api_key: str, required_scopes: list[str] | None = None
+) -> dict[str, str]:
     """Accept any API key."""
     CALLS.append("auth")
     return {"sub": "user"}
 
 
-def post_items(body):
+def post_items(body: dict[str, Any]) -> tuple[dict[str, Any], int]:
     """Return the request body."""
     CALLS.append("operation")
     return body, 200
@@ -437,7 +475,8 @@ class TestMaxContentLengthOperation:
     BODY = json.dumps({"name": "x" * LIMIT}).encode()
 
     @pytest.fixture
-    def client(self):
+    def client(self) -> FlaskClient:
+        """Client of an app with a test API and a size limit of the body."""
         CALLS.clear()
         cnx_app = create_connexion_app(
             Config(server=ServerConfig(max_content_length=len(self.BODY)))
@@ -448,9 +487,9 @@ class TestMaxContentLengthOperation:
         cnx_app.add_api(SPEC)
         return cnx_app.app.test_client()
 
-    def _post(self, client, body: bytes, chunked: bool):
+    def _post(self, client: FlaskClient, body: bytes, chunked: bool) -> TestResponse:
         headers = {"X-API-Key": "key"}
-        overrides = {}
+        overrides: dict[str, str | bool] = {}
         if chunked:
             headers["Transfer-Encoding"] = "chunked"
             overrides["wsgi.input_terminated"] = True
@@ -465,16 +504,17 @@ class TestMaxContentLengthOperation:
         )
 
     @pytest.mark.parametrize("chunked", [False, True])
-    def test_too_large(self, client, chunked):
-        """Bodies over the limit are rejected before authentication and
-        validation, and the operation is not called.
+    def test_too_large(self, client: FlaskClient, chunked: bool) -> None:
+        """Bodies over the limit are rejected before authentication and validation.
+
+        The operation is not called.
         """
         response = self._post(client, self.BODY + b" ", chunked=chunked)
         _assert_too_large(response)
         assert CALLS == []
 
     @pytest.mark.parametrize("chunked", [False, True])
-    def test_at_limit(self, client, chunked):
+    def test_at_limit(self, client: FlaskClient, chunked: bool) -> None:
         """Bodies up to the limit reach the operation intact."""
         response = self._post(client, self.BODY, chunked=chunked)
         assert response.status_code == 200

@@ -1,11 +1,10 @@
-"""
-Tests for exceptions.py
-"""
+"""Tests for exceptions.py."""
 
 import json
 import sys
 from http import HTTPStatus
 from types import ModuleType
+from typing import Any, NoReturn
 
 import pytest
 from connexion import App
@@ -14,6 +13,7 @@ from connexion.exceptions import (
     OAuthProblem,
     ProblemException,
 )
+from flask.testing import FlaskClient
 from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.exceptions import (
     MethodNotAllowed,
@@ -42,36 +42,42 @@ THIS_MODULE = __name__
 
 
 class PetNotFound(NotFound):
-    pass
+    """Pet not found, a listed exception."""
 
 
 class PetGone(PetNotFound):
-    pass
+    """Pet gone, an unlisted subclass of a listed exception."""
 
 
 class PetstoreClosed(Exception):
-    pass
+    """Petstore closed, a listed exception without status."""
 
 
 class UnknownException(Exception):
-    pass
+    """Exception without status that is not listed."""
 
 
 class StarletteLikeException(Exception):
+    """Exception with a Starlette-like `status_code`."""
+
     status_code = 409
 
 
 class InvalidStatusException(Exception):
+    """Exception with invalid status attributes."""
+
     code = True
     status = 200
     status_code = "418"
 
 
 class UnassignedStatusException(Exception):
+    """Exception with an unassigned status code."""
+
     status = 499
 
 
-PROBLEMS = {
+PROBLEMS: dict[type[Exception], dict[str, Any]] = {
     NotFound: {"title": "Not Found", "status": 404},
     PetNotFound: {
         "title": "Pet Not Found",
@@ -81,14 +87,14 @@ PROBLEMS = {
     },
     PetstoreClosed: {"title": "Closed", "status": 503},
 }
-PROBLEMS_CATCH_ALL = {
+PROBLEMS_CATCH_ALL: dict[type[Exception], dict[str, Any]] = {
     **PROBLEMS,
     Exception: {"title": "Oops", "status": 500, "detail": "Unexpected."},
 }
 
 
 @pytest.fixture
-def logged(monkeypatch) -> list[str]:
+def logged(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Messages logged via `logger.error()` of the exceptions module.
 
     Captured directly, as other tests (re)configure logging.
@@ -99,11 +105,10 @@ def logged(monkeypatch) -> list[str]:
 
 
 @pytest.fixture
-def conf(monkeypatch):
+def conf(monkeypatch: pytest.MonkeyPatch) -> ExceptionConfig:
     """Exception config with mapping `PROBLEMS`."""
     module = ModuleType("problems_module")
-    module.problems = PROBLEMS
-    module.catch_all = PROBLEMS_CATCH_ALL
+    vars(module).update(problems=PROBLEMS, catch_all=PROBLEMS_CATCH_ALL)
     monkeypatch.setitem(sys.modules, "problems_module", module)
     return ExceptionConfig(mapping="problems_module.problems")
 
@@ -149,20 +154,23 @@ class TestBuildProblem:
             (KeyError("x"), DEFAULT_PROBLEM),
         ],
     )
-    def test_resolution(self, conf, exception, problem):
+    def test_resolution(
+        self, conf: ExceptionConfig, exception: Exception, problem: dict[str, Any]
+    ) -> None:
+        """Problem details are resolved from the mapping or the status."""
         assert build_problem(exception, conf) == (problem, problem["status"])
 
     @pytest.mark.skipif(
         sys.version_info < (3, 13),
         reason="HTTPStatus has RFC 9110 phrases since Python 3.13",
     )
-    def test_rfc_9110_phrases(self):
+    def test_rfc_9110_phrases(self) -> None:
         """Overridden phrases are those of `HTTPStatus` on newer Pythons."""
         assert {
             status: HTTPStatus(status).phrase for status in _RFC_9110_PHRASES
         } == _RFC_9110_PHRASES
 
-    def test_catch_all(self, conf):
+    def test_catch_all(self, conf: ExceptionConfig) -> None:
         """Catch-all entries apply only to exceptions without status."""
         conf.mapping = "problems_module.catch_all"
         conf = ExceptionConfig.model_validate(conf.model_dump())
@@ -174,7 +182,8 @@ class TestBuildProblem:
             503,
         )
 
-    def test_defaults(self):
+    def test_defaults(self) -> None:
+        """Without a mapping, problem details are resolved by status."""
         assert build_problem(NotFound(), ExceptionConfig()) == (
             {"title": "Not Found", "status": 404},
             404,
@@ -199,11 +208,18 @@ class TestBuildProblem:
             ([], {}),
         ],
     )
-    def test_public_members(self, conf, public_members, expected):
+    def test_public_members(
+        self,
+        conf: ExceptionConfig,
+        public_members: list[str] | None,
+        expected: dict[str, Any],
+    ) -> None:
+        """Only public members of problem details are returned."""
         conf.public_members = public_members
         assert build_problem(PetNotFound(), conf) == (expected, 404)
 
-    def test_mapping_not_modified(self, conf):
+    def test_mapping_not_modified(self, conf: ExceptionConfig) -> None:
+        """Changing returned problem details does not modify the mapping."""
         problem, _ = build_problem(PetNotFound(), conf)
         problem["title"] = "changed"
         assert PROBLEMS[PetNotFound]["title"] == "Pet Not Found"
@@ -247,7 +263,10 @@ class TestBuildHeaders:
             (UnknownException(), []),
         ],
     )
-    def test_headers(self, exception, headers):
+    def test_headers(
+        self, exception: Exception, headers: list[tuple[str, str]]
+    ) -> None:
+        """Headers of exceptions are kept, except those describing the body."""
         status = exceptions_module._get_status(exception) or 500
         assert _build_headers(exception, status).to_wsgi_list() == headers
 
@@ -259,12 +278,12 @@ class TestBuildHeaders:
             ProblemException(status=429, headers={"Retry-After": "60"}),
         ],
     )
-    def test_other_status(self, exception):
+    def test_other_status(self, exception: Exception) -> None:
         """Headers are dropped if the response has another status."""
         assert _build_headers(exception, 500).to_wsgi_list() == []
 
 
-def test__exc_to_str():
+def test__exc_to_str() -> None:
     """Test exception reformatter function."""
     try:
         raise UnknownException("x")
@@ -285,7 +304,7 @@ def test__exc_to_str():
         ExceptionLoggingEnum.regular,
     ],
 )
-def test__log_exception(logged, format):
+def test__log_exception(logged: list[str], format: ExceptionLoggingEnum) -> None:
     """Test logging exceptions in different formats."""
     _log_exception(exc=UnknownException("x"), format=format, problem={"a": 1})
     assert len(logged) == 1
@@ -296,56 +315,66 @@ def test__log_exception(logged, format):
 @pytest.mark.parametrize(
     "format", [ExceptionLoggingEnum.oneline, ExceptionLoggingEnum.minimal]
 )
-def test__log_exception_escaped(logged, format):
+def test__log_exception_escaped(
+    logged: list[str], format: ExceptionLoggingEnum
+) -> None:
     """Messages cannot forge log lines in single-line formats."""
     _log_exception(exc=UnknownException("x\nforged\x1b"), format=format)
     assert "\n" not in logged[0]
     assert "x\\nforged\\x1b" in logged[0]
 
 
-def test__log_exception_none(logged):
+def test__log_exception_none(logged: list[str]) -> None:
     """Test disabled logging of exceptions."""
     _log_exception(exc=UnknownException(), format=ExceptionLoggingEnum.none)
     assert logged == []
 
 
 # Controllers of test API
-def get_pet():
+def get_pet() -> NoReturn:
+    """Raise an unlisted subclass of a listed exception."""
     raise PetGone
 
 
-def get_closed():
+def get_closed() -> NoReturn:
+    """Raise a listed exception without status."""
     raise PetstoreClosed
 
 
-def get_error():
+def get_error() -> NoReturn:
+    """Raise an unlisted exception with a secret message."""
     raise UnknownException("secret")
 
 
-def get_secured():
+def get_secured() -> str:
+    """Return a response, if authorized."""
     return "ok"
 
 
-def get_unavailable():
+def get_unavailable() -> NoReturn:
+    """Raise a werkzeug exception with a `Retry-After` header."""
     raise ServiceUnavailable(retry_after=120)
 
 
-def get_rate_limited():
+def get_rate_limited() -> NoReturn:
+    """Raise a Connexion exception with headers."""
     raise ProblemException(
         status=429, headers={"Retry-After": "60", "Content-Type": "text/x"}
     )
 
 
-def get_validated(limit):
+def get_validated(limit: int) -> str:
+    """Return a response, if the request is valid."""
     # never called: requests without the required `limit` fail validation
     return "ok"
 
 
-def mock_token_info(token):
+def mock_token_info(token: str) -> NoReturn:
+    """Reject any token."""
     raise OAuthProblem(description="Invalid token")
 
 
-def _operation(operation_id: str, **extra) -> dict:
+def _operation(operation_id: str, **extra: Any) -> dict[str, Any]:
     return {
         "operationId": f"{THIS_MODULE}.{operation_id}",
         "responses": {"200": {"description": "OK"}},
@@ -395,14 +424,16 @@ class TestHandler:
     @pytest.fixture(
         params=["application/problem+json", "application/json", "text/json"]
     )
-    def media_type(self, request) -> str:
-        """Configured media type of error responses (default first; `text/*`
-        without charset).
+    def media_type(self, request: pytest.FixtureRequest) -> str:
+        """Configured media type of error responses.
+
+        The default comes first; `text/*` is without charset.
         """
         return request.param
 
     @pytest.fixture
-    def client(self, conf, media_type):
+    def client(self, conf: ExceptionConfig, media_type: str) -> FlaskClient:
+        """Client of an app with the test API and the given media type."""
         conf.media_type = media_type
         app = App(__name__, skip_error_handlers=True)
         # the handler does not depend on FOCA's app config
@@ -445,7 +476,16 @@ class TestHandler:
             ("get", "/error", {}, DEFAULT_PROBLEM),
         ],
     )
-    def test_responses(self, client, media_type, method, path, headers, problem):
+    def test_responses(
+        self,
+        client: FlaskClient,
+        media_type: str,
+        method: str,
+        path: str,
+        headers: dict[str, str],
+        problem: dict[str, Any],
+    ) -> None:
+        """Error responses have problem details of the configured media type."""
         response = client.open(path, method=method, headers=headers)
         assert response.status_code == problem["status"]
         assert response.content_type == media_type
@@ -470,7 +510,16 @@ class TestHandler:
             ),
         ],
     )
-    def test_headers(self, client, media_type, method, path, headers, name, value):
+    def test_headers(
+        self,
+        client: FlaskClient,
+        media_type: str,
+        method: str,
+        path: str,
+        headers: dict[str, str],
+        name: str,
+        value: str,
+    ) -> None:
         """Headers of exceptions are kept, except `Content-Type`."""
         response = client.open(path, method=method, headers=headers)
         values = response.headers.getlist(name)
@@ -479,7 +528,8 @@ class TestHandler:
         assert sorted(values[0].split(", ")) == sorted(value.split(", "))
         assert response.headers.getlist("Content-Type") == [media_type]
 
-    def test_default_config(self):
+    def test_default_config(self) -> None:
+        """Without config, problem details are resolved by status."""
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app)
         app.add_api(SPEC)
@@ -490,7 +540,10 @@ class TestHandler:
             "status": 404,
         }
 
-    def test_logged_once_unfiltered(self, conf, logged):
+    def test_logged_once_unfiltered(
+        self, conf: ExceptionConfig, logged: list[str]
+    ) -> None:
+        """Exceptions are logged once, with unfiltered problem details."""
         conf.public_members = ["title"]
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app, conf)

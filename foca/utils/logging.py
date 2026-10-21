@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Callable
 from functools import wraps
+from typing import Any
 
 from flask import has_request_context, request
 
@@ -98,12 +99,12 @@ def _describe_response(response: object) -> str:
 
 
 def log_traffic(
-    _fn: Callable | None = None,
+    _fn: Callable[..., Any] | None = None,
     log_request: bool = True,
     log_response: bool = True,
     log_response_body: bool = False,
     log_level: int = logging.INFO,
-) -> Callable:
+) -> Callable[..., Any]:
     """Decorator for logging service requests and responses.
 
     Request method, path, protocol and client address are logged with
@@ -123,7 +124,7 @@ def log_traffic(
         The decorated function.
     """
 
-    def _decorator_log_traffic(fn):
+    def _decorator_log_traffic(fn: Callable[..., Any]) -> Callable[..., Any]:
         """Logging decorator. Used to facilitate optional decorator arguments.
 
         Args:
@@ -134,7 +135,7 @@ def log_traffic(
         """
 
         @wraps(fn)
-        def _wrapper(*args, **kwargs):
+        def _wrapper(*args: Any, **kwargs: Any) -> Any:
             """Wrapper for logging decorator.
 
             Args:
@@ -146,10 +147,7 @@ def log_traffic(
             """
             req = _describe_request()
             if log_request:
-                logger.log(
-                    level=log_level,
-                    msg=f"Incoming request: {req}",
-                )
+                logger.log(log_level, "Incoming request: %s", req)
 
             response = fn(*args, **kwargs)
             if log_response:
@@ -173,7 +171,7 @@ def log_traffic_if(
     log_response: bool = True,
     log_response_body: bool = False,
     log_level: int = logging.INFO,
-) -> Callable[[Callable], Callable]:
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for logging service requests and responses if enabled.
 
     Like :py:func:`log_traffic`, but whether traffic is logged is decided on
@@ -200,7 +198,7 @@ def log_traffic_if(
         enabled.
     """
 
-    def _decorator_log_traffic_if(fn: Callable) -> Callable:
+    def _decorator_log_traffic_if(fn: Callable[..., Any]) -> Callable[..., Any]:
         """Decorate a function for logging its traffic if enabled.
 
         Args:
@@ -218,7 +216,7 @@ def log_traffic_if(
         )
 
         @wraps(fn)
-        def _wrapper(*args, **kwargs):
+        def _wrapper(*args: Any, **kwargs: Any) -> Any:
             """Call the function, logging its traffic if enabled.
 
             Args:

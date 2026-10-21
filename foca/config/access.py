@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from flask import Flask, current_app, has_app_context
 from pymongo.collection import Collection
@@ -74,7 +74,7 @@ def get_config() -> Config:
     return _configs["latest"]
 
 
-def get_collection(db: str, collection: str) -> Collection:
+def get_collection(db: str, collection: str) -> Collection[dict[str, Any]]:
     """Get a registered MongoDB collection of the current FOCA app.
 
     Args:

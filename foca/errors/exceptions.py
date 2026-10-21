@@ -5,6 +5,7 @@ from copy import deepcopy
 from http import HTTPStatus
 from json import dumps
 from traceback import format_exception
+from typing import Any
 
 from connexion import App
 from connexion.exceptions import OAuthProblem, ProblemException
@@ -101,7 +102,7 @@ def _get_status(exc: BaseException) -> int | None:
     return None
 
 
-def _resolve_problem(exc: BaseException, conf: ExceptionConfig) -> dict:
+def _resolve_problem(exc: BaseException, conf: ExceptionConfig) -> dict[str, Any]:
     """Resolve problem details of an exception (cf. :py:func:`build_problem`).
 
     Args:
@@ -141,7 +142,7 @@ def _resolve_problem(exc: BaseException, conf: ExceptionConfig) -> dict:
 def build_problem(
     exc: BaseException,
     conf: ExceptionConfig,
-) -> tuple[dict, int]:
+) -> tuple[dict[str, Any], int]:
     """Build problem details for an exception.
 
     Problem details are resolved as follows:
@@ -242,7 +243,7 @@ def _exc_to_str(
 def _log_exception(
     exc: BaseException,
     format: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline,
-    problem: dict | None = None,
+    problem: dict[str, Any] | None = None,
 ) -> None:
     """Log exception with indicated format.
 

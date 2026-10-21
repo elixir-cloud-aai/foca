@@ -7,7 +7,7 @@ from bson.objectid import ObjectId
 from pymongo.collection import Collection
 
 
-def find_one_latest(collection: Collection) -> Mapping[Any, Any] | None:
+def find_one_latest(collection: Collection[dict[str, Any]]) -> Mapping[Any, Any] | None:
     """Return newest document, stripped of `ObjectId`.
 
     Args:
@@ -23,7 +23,7 @@ def find_one_latest(collection: Collection) -> Mapping[Any, Any] | None:
         return None
 
 
-def find_id_latest(collection: Collection) -> ObjectId | None:
+def find_id_latest(collection: Collection[dict[str, Any]]) -> ObjectId | None:
     """Return `ObjectId` of newest document.
 
     Args:

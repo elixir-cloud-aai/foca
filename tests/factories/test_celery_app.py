@@ -13,16 +13,20 @@ CONFIG.jobs = JobsConfig()
 
 
 @pytest.fixture
-def logged(monkeypatch) -> list[str]:
+def logged(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Messages logged via `logger.info()` of the Celery factory module."""
     for var in ["CELERY_BROKER_URL", "CELERY_RESULT_BACKEND"]:
         monkeypatch.delenv(var, raising=False)
     messages: list[str] = []
-    monkeypatch.setattr(module.logger, "info", messages.append)
+
+    def info(msg: str, *args: object) -> None:
+        messages.append(msg % args)
+
+    monkeypatch.setattr(module.logger, "info", info)
     return messages
 
 
-def test_create_celery_app(logged):
+def test_create_celery_app(logged: list[str]) -> None:
     """Test Connexion app creation."""
     cnx_app = create_connexion_app(CONFIG)
     cel_app = create_celery_app(cnx_app.app)
@@ -32,9 +36,11 @@ def test_create_celery_app(logged):
     assert cel_app.conf.result_backend == "rpc://"
 
 
-def test_broker_env_vars(logged, monkeypatch):
-    """Broker and backend URLs from environment variables are used, but not
-    logged with credentials."""
+def test_broker_env_vars(logged: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Broker and backend URLs from environment variables are used.
+
+    They are not logged with credentials.
+    """
     broker = "amqps://user:secret@rabbitmq.example.org:5671/vhost?ssl=1"
     backend = "redis://:secret@redis:6379/0"
     monkeypatch.setenv("CELERY_BROKER_URL", broker)
@@ -51,7 +57,7 @@ def test_broker_env_vars(logged, monkeypatch):
     ) in logged
 
 
-def test_create_celery_app_without_jobs(logged):
+def test_create_celery_app_without_jobs(logged: list[str]) -> None:
     """Background tasks need to be configured."""
     cnx_app = create_connexion_app(Config())
     with pytest.raises(ValueError):

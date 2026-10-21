@@ -2,32 +2,40 @@
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from connexion.exceptions import OAuthProblem
+from flask.testing import FlaskClient
 
 from foca import Foca
 from foca.security import auth
+from tests.mock_data import MongoClients
 
 EXAMPLE_DIR = Path(__file__).parents[2] / "examples" / "petstore-access-control"
 ISSUER = "https://login.example.org/oidc/"
 
 
-def mock_validate_token(token: str) -> dict:
+def mock_validate_token(token: str) -> dict[str, Any]:
     """Accept bearer tokens `alice` and `bob` as their user identifiers."""
     if token not in {"alice", "bob"}:
         raise OAuthProblem(description="Invalid token")
     return {"claims": {"iss": ISSUER, "sub": token}, "user_id": token}
 
 
-def _headers(user: str | None) -> dict:
+def _headers(user: str | None) -> dict[str, str]:
     return {} if user is None else {"Authorization": f"Bearer {user}"}
 
 
 @pytest.fixture
-def client(monkeypatch, mongo_clients):
-    """Client of the example app, with in-memory MongoDB and stubbed token
-    validation."""
+def client(
+    monkeypatch: pytest.MonkeyPatch,
+    mongo_clients: MongoClients,
+) -> FlaskClient:
+    """Client of the example app.
+
+    With in-memory MongoDB and stubbed token validation.
+    """
     # The example's modules `controllers` and `exceptions` are imported by
     # name from the example directory
     monkeypatch.syspath_prepend(str(EXAMPLE_DIR))
@@ -39,10 +47,11 @@ def client(monkeypatch, mongo_clients):
     return app.app.test_client()
 
 
-def test_owners_manage_their_pets(client):
+def test_owners_manage_their_pets(client: FlaskClient) -> None:
     """Owners can get and delete their pets; others get 403."""
     response = client.post("/pets", json={"name": "Rex"}, headers=_headers("alice"))
     assert response.status_code == 200
+    assert response.json is not None
     pet_id = response.json["id"]
     url = f"/pets/{pet_id}"
 
@@ -54,6 +63,7 @@ def test_owners_manage_their_pets(client):
     # the owner may
     response = client.get(url, headers=_headers("alice"))
     assert response.status_code == 200
+    assert response.json is not None
     assert response.json["name"] == "Rex"
     assert client.delete(url, headers=_headers("alice")).status_code == 204
 
@@ -61,10 +71,11 @@ def test_owners_manage_their_pets(client):
     assert client.get(url, headers=_headers("alice")).status_code == 403
 
 
-def test_unauthenticated(client):
+def test_unauthenticated(client: FlaskClient) -> None:
     """Requests without valid tokens are rejected with problem details."""
     for headers in [_headers(None), _headers("mallory")]:
         response = client.get("/pets", headers=headers)
         assert response.status_code == 401
         assert response.mimetype == "application/problem+json"
+        assert response.json is not None
         assert response.json["status"] == 401

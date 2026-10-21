@@ -2,6 +2,7 @@
 
 import logging
 import os
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from celery import Celery
@@ -57,8 +58,9 @@ def create_celery_app(app: Flask) -> Celery:
         include=conf.include,
     )
     logger.info(
-        f"Celery app created with broker '{_redact_url(broker)}' and result "
-        f"backend '{_redact_url(backend)}'."
+        "Celery app created with broker '%s' and result backend '%s'.",
+        _redact_url(broker),
+        _redact_url(backend),
     )
 
     # Update Celery app configuration with Flask app configuration
@@ -71,7 +73,7 @@ def create_celery_app(app: Flask) -> Celery:
         # https://github.com/python/mypy/issues/4284)
         """Create task subclass that executes tasks in app context."""
 
-        def __call__(self, *args, **kwargs):
+        def __call__(self, *args: Any, **kwargs: Any) -> Any:
             """Wrap task execution in application context."""
             with app.app_context():  # pragma: no cover
                 return self.run(*args, **kwargs)

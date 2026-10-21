@@ -1,3 +1,5 @@
+"""Valid custom configuration model."""
+
 from pydantic import BaseModel
 
 

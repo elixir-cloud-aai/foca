@@ -44,7 +44,8 @@ jobs:
       - name: Check formatting with ruff
         run: ruff format --check
       - name: Type-check with mypy
-        run: mypy foca
+        # Checks the files configured in `pyproject.toml` (package and tests)
+        run: mypy
       - name: Build documentation
         run: mkdocs build --strict
       - name: Build distributions
