@@ -37,8 +37,10 @@ _JOINERS = frozenset("\u200c\u200d")
 _PERCENT_ENCODED = re.compile(r"%([0-9A-Fa-f]{2})")
 # Percent signs not starting a percent-encoding
 _MALFORMED_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
-# IPv6 zone identifiers (RFC 6874), after `%25`
-_ZONE_ID = re.compile(r"(?:[A-Za-z0-9\-._~]|%[0-9A-Fa-f]{2})+")
+# IPv6 zone identifiers (RFC 6874), after `%25`; unreserved characters only,
+# without percent-encodings, as checked by `urlsplit()` of newer Python
+# versions (3.11.4 and later)
+_ZONE_ID = re.compile(r"[A-Za-z0-9\-._~]+")
 # Labels of domain names (letters, digits, hyphens; RFC 1123, section 2.1)
 _LDH_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 # Registered names (RFC 3986, section 3.2.2), without percent-encodings,
@@ -135,7 +137,7 @@ def normalize_url(
     The URL is checked like by :py:func:`check_url`. Normalization (cf.
     RFC 3986, section 6.2.2) lowercases the scheme and host, encodes
     international host names (IDNA 2008, UTS 46), writes IPv6 addresses in
-    canonical form, removes trailing dots of hosts and default ports (`80`
+    canonical form, removes a trailing dot of hosts and default ports (`80`
     for `http`, `443` for `https`), percent-encodes non-ASCII characters
     (UTF-8), decodes percent-encoded unreserved characters, uppercases other
     percent-encodings, and resolves dot segments. Repeated and trailing
@@ -419,14 +421,15 @@ def _normalize_host(host: str, bracketed: bool, name: str) -> str:
         name: Name of the URLs in messages.
 
     Returns:
-        Host without trailing dots; IPv6 addresses in canonical form, in
+        Host without a trailing dot; IPv6 addresses in canonical form, in
         brackets; international host names encoded (IDNA 2008, UTS 46).
 
     Raises:
         InvalidURL: The host is invalid or empty, e.g., an IP literal in
             brackets other than an IPv6 address (e.g., IPvFuture), an IPv6
             address with a `%` not followed by `25` and a zone identifier
-            (`_ZONE_ID`, non-empty), a host with percent-encodings, or a host
+            (`_ZONE_ID`, non-empty), a host with percent-encodings or empty
+            labels (other than a trailing dot), or a host
             whose last label is numeric (cf. `_NUMERIC_LABEL`) but that is not
             an IPv4 address in dotted-decimal form.
     """
@@ -448,9 +451,14 @@ def _normalize_host(host: str, bracketed: bool, name: str) -> str:
             raise InvalidURL(f"{name} need a valid host: {exc}.") from exc
     if not _REG_NAME.fullmatch(host):
         raise InvalidURL(f"{name} need a valid host: '{host}'.")
-    host = host.rstrip(".")
+    # One trailing dot (of a fully qualified domain name) is removed; empty
+    # labels otherwise (e.g., `a..org`, `.a.org`, `a.org..`) are rejected, as
+    # removing them would make different hosts equal
+    host = host.removesuffix(".")
     if not host:
         raise InvalidURL(f"{name} need a scheme and a host.")
+    if "" in host.split("."):
+        raise InvalidURL(f"{name} need a valid host: '{host}'.")
     if _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
         try:
             return str(ipaddress.IPv4Address(host))

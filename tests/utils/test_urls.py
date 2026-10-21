@@ -122,6 +122,11 @@ def test_normalize_url_keep_query_only() -> None:
         "https://[fe80::1%25]/v1",
         "https://[fe80::1%eth0]/v1",
         "https://[fe80::1%]/v1",
+        # empty labels would be removed, making different hosts equal
+        "https://a..example.org/v1",
+        "https://.example.org/v1",
+        "https://example.org../v1",
+        "http://127.0.0.1../v1",
         # IPvFuture literals would lose their brackets
         "https://[v1.example.org]/v1",
         # percent-encoded hosts would not be normalized or checked
@@ -155,6 +160,16 @@ def test_normalize_host_invalid_ipv6() -> None:
     """Invalid IPv6 addresses are rejected (`urlsplit()` rejects most)."""
     with pytest.raises(InvalidURL, match="need a valid host"):
         normalize_host("::g", bracketed=True, name="URLs")
+
+
+@pytest.mark.parametrize("zone", ["%25%0a", "%25eth%30"])
+def test_normalize_host_invalid_zone(zone: str) -> None:
+    """Zone identifiers must not be percent-encoded.
+
+    Python 3.11.4 and later reject them already in `urlsplit()`, 3.10 does not.
+    """
+    with pytest.raises(InvalidURL, match="need a valid host"):
+        normalize_host(f"fe80::1{zone}", bracketed=True, name="URLs")
 
 
 def test_normalize_url_schemes() -> None:
