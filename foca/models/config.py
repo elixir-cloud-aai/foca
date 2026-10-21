@@ -8,6 +8,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import (
     Any,
+    Self,
 )
 
 from pydantic import (
@@ -21,7 +22,6 @@ from pydantic import (
     model_validator,
 )
 from pymongo import MongoClient, collection, database
-from typing_extensions import Self
 
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
