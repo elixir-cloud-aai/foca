@@ -81,6 +81,10 @@ service_info:
   service: ...
 ```
 
+Do not wrap FOCA's controller with your own `log_traffic` (e.g., in a
+controller of your own calling it); use `service_info.log_traffic` instead,
+as requests are otherwise logged twice.
+
 ## Version
 
 `version` is the version of the deployed app. Set `package` to the name of

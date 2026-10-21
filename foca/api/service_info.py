@@ -91,18 +91,23 @@ def get_service_info() -> dict[str, Any]:
     return build_service_info(conf)
 
 
-def _log_traffic_enabled() -> bool:
+def _service_info_traffic_logged() -> bool:
     """Check whether the traffic of :py:func:`getServiceInfo` is logged.
 
     Returns:
         Whether config option `service_info.log_traffic` of the current app
-        is set (default: ``True``, also if no service info is configured).
+        is set. Also ``True`` (the default of the option) if no service info
+        or no FOCA configuration is available, so that requests failing for
+        that reason are logged, too.
     """
-    conf = get_config().service_info
+    try:
+        conf = get_config().service_info
+    except RuntimeError:
+        return True
     return conf is None or conf.log_traffic
 
 
-@log_traffic_if(_log_traffic_enabled)
+@log_traffic_if(_service_info_traffic_logged)
 def getServiceInfo() -> dict[str, Any]:
     """Controller for `GET /service-info`.
 
@@ -146,10 +151,11 @@ def _routes_to_controller(app: Flask) -> list[str]:
     Returns:
         Routes, e.g., ``['/ga4gh/wes/v1/service-info']``.
     """
+    controller = unwrap(getServiceInfo)
     return sorted(
         rule.rule
         for rule in app.url_map.iter_rules()
-        if unwrap(app.view_functions[rule.endpoint]) is unwrap(getServiceInfo)
+        if unwrap(app.view_functions[rule.endpoint]) is controller
     )
 
 

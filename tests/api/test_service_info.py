@@ -18,7 +18,7 @@ from foca.api.service_info import (
     get_service_info,
     getServiceInfo,
 )
-from foca.config import config_parser
+from foca.config import access, config_parser
 from foca.config.access import set_app_config
 from foca.models.config import Config
 from foca.utils import service_info as utils
@@ -262,7 +262,7 @@ def test_get_service_info_not_configured():
 def test_getServiceInfo():
     """The controller returns the service info, under both names."""
     app = _app({"service": SERVICE})
-    with app.test_request_context():
+    with app.app_context():
         assert getServiceInfo() == SERVICE
     assert GetServiceInfo is getServiceInfo
 
@@ -272,7 +272,7 @@ def test_getServiceInfo_invalid(monkeypatch, log):
     monkeypatch.setitem(service_info_fields.TOGGLE, "error", KeyError("x"))
     app = _app({"service": SERVICE, "runtime_fields": TOGGLED})
     with (
-        app.test_request_context(),
+        app.app_context(),
         pytest.raises(InternalServerError) as exc_info,
     ):
         getServiceInfo()
@@ -286,9 +286,27 @@ def test_getServiceInfo_not_configured(log):
     """
     app = Flask(__name__)
     set_app_config(app, Config())
-    with app.test_request_context(), pytest.raises(InternalServerError):
+    with app.app_context(), pytest.raises(InternalServerError):
         getServiceInfo()
     assert "No service info configured" in log.text
+
+
+@pytest.mark.parametrize("config", [Config(), None])
+def test_getServiceInfo_not_configured_request(log, monkeypatch, config):
+    """Requests fail with a generic server error, and are logged, without
+    service info or without FOCA configuration.
+    """
+    monkeypatch.setattr(access, "_configs", {})
+    app = Flask(__name__)
+    if config is not None:
+        set_app_config(app, config)
+    with (
+        app.test_request_context("/service-info"),
+        pytest.raises(InternalServerError),
+    ):
+        getServiceInfo()
+    assert "Service info not served" in log.text
+    assert 'Incoming request: "GET /service-info' in log.text
 
 
 def test_check_service_info(log):
