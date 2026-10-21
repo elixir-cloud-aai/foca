@@ -250,6 +250,7 @@ def _fetch_json(
                 f"{url}",
                 invalid_token=False,
             )
+    status = None
     try:
         response = requests.get(
             url,
@@ -257,16 +258,17 @@ def _fetch_json(
             allow_redirects=False,
             **kwargs,
         )
+        status = response.status_code
         response.raise_for_status()
         document = response.json()
     except Exception as exc:
         if throttle:
             _failed_fetches[url] = time.monotonic()
-        # Documents that do not depend on the token (throttled ones) say
-        # nothing about it; user info is not available for invalid tokens
+        # Only rejections of the token by the identity provider (e.g., of
+        # the user info endpoint) make it invalid, not failures to respond
         raise _unauthorized(
             f"Could not fetch document from identity provider: {url}",
-            invalid_token=not throttle,
+            invalid_token=status in (401, 403),
         ) from exc
     _failed_fetches.pop(url, None)
     return document

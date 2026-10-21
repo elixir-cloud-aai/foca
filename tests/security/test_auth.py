@@ -461,10 +461,19 @@ class TestValidateToken:
         with raises_unauthorized():
             validate(make_app(validate_userinfo=True), make_token())
 
-    def test_userinfo_unavailable(self, idp):
-        """Tokens are rejected if user info cannot be fetched."""
+    def test_userinfo_rejected(self, idp):
+        """Tokens are invalid if the user info endpoint rejects them."""
         idp.responses[USERINFO_URI] = MockResponse({}, status_code=401)
         with raises_unauthorized():
+            validate(make_app(validate_userinfo=True), make_token())
+
+    @pytest.mark.parametrize("status_code", [500, 503])
+    def test_userinfo_unavailable(self, idp, status_code):
+        """Tokens are rejected, but not invalid, if user info cannot be
+        fetched.
+        """
+        idp.responses[USERINFO_URI] = MockResponse({}, status_code=status_code)
+        with raises_unauthorized("Bearer"):
             validate(make_app(validate_userinfo=True), make_token())
 
 
@@ -554,7 +563,7 @@ class TestUserinfoClaims:
         """Tokens are rejected if user info cannot be fetched."""
         idp.responses[USERINFO_URI] = MockResponse({}, status_code=503)
         app = make_app(userinfo_claims=["eduperson_entitlement"])
-        with raises_unauthorized():
+        with raises_unauthorized("Bearer"):
             validate(app, make_token())
 
     def test_cached(self, idp):
@@ -709,9 +718,9 @@ class TestUnauthorized:
             ("WWW-Authenticate", INVALID_TOKEN_CHALLENGE)
         ]
 
-    def test_no_token(self):
+    def test_not_invalid_token(self):
         """No error code if the token is not invalid (RFC 6750, §3.1)."""
-        exc = auth._unauthorized("No token", invalid_token=False)
+        exc = auth._unauthorized("IdP unavailable", invalid_token=False)
         assert exc.get_headers()[1:] == [("WWW-Authenticate", "Bearer")]
 
     def test_quoted(self):
