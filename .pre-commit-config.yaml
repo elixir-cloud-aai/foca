@@ -6,8 +6,16 @@ repos:
     hooks:
       - id: check-toml
       - id: check-yaml
-        # Deliberately malformed YAML for negative tests
-        exclude: ^tests/test_files/invalid_conf\.yaml$
+        # Deliberately malformed YAML for negative tests; `mkdocs.yml` uses
+        # MkDocs' `!ENV` tag (the docs build checks it); Helm templates (not
+        # YAML before rendering) and their rendered snapshots
+        exclude: >-
+          (?x)^(
+            tests/test_files/invalid_conf\.yaml|
+            mkdocs\.yml|
+            (charts/[^/]+|examples/petstore/chart)/templates/.*|
+            charts/[^/]+/tests/__snapshots__/.*
+          )$
       - id: end-of-file-fixer
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
