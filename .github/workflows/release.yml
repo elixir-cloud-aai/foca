@@ -56,12 +56,12 @@ jobs:
           # `stable`: not an alpha, beta or release candidate (decides
           # `latest`); `prerelease`: GitHub pre-release, also for all
           # releases before 1.0.0
+          stable=true
           if [[ "${TAG}" =~ (a|b|rc)[0-9]+$ ]]; then
-              echo "stable=false" >> "${GITHUB_OUTPUT}"
-          else
-              echo "stable=true" >> "${GITHUB_OUTPUT}"
+              stable=false
           fi
-          if [[ "${TAG}" =~ (a|b|rc)[0-9]+$ || "${TAG}" == v0.* ]]; then
+          echo "stable=${stable}" >> "${GITHUB_OUTPUT}"
+          if [[ "${stable}" == "false" || "${TAG}" == v0.* ]]; then
               echo "prerelease=true" >> "${GITHUB_OUTPUT}"
           else
               echo "prerelease=false" >> "${GITHUB_OUTPUT}"
