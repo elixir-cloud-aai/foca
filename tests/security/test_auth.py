@@ -28,6 +28,7 @@ USERINFO_URI = f"{ISSUER}/userinfo"
 KID = "key-1"
 SUBJECT = "alice"
 AUDIENCE = "foca"
+CLIENT = "gateway"
 
 
 def _private_key() -> rsa.RSAPrivateKey:
@@ -50,9 +51,10 @@ def make_token(
     key: rsa.RSAPrivateKey | None = PRIVATE_KEY,
     kid: str | None = KID,
     algorithm: str = "RS256",
+    typ: Any = "at+jwt",
     **claims: Any,
 ) -> str:
-    """Create signed token with valid default claims."""
+    """Create signed access token (RFC 9068) with valid default claims."""
     now = int(time.time())
     payload: dict[str, Any] = {
         "iss": ISSUER,
@@ -64,7 +66,10 @@ def make_token(
     }
     payload.update(claims)
     payload = {key: val for key, val in payload.items() if val is not None}
-    headers = {"kid": kid} if kid is not None else {}
+    # PyJWT omits the `typ` header if it is `None`
+    headers: dict[str, Any] = {"typ": typ}
+    if kid is not None:
+        headers["kid"] = kid
     # no key for unsigned tokens (algorithm `none`)
     return jwt.encode(
         payload,
@@ -447,6 +452,123 @@ class TestValidateToken:
         res = validate(app, make_token(aud="other"))
         assert res["user_id"] == SUBJECT
 
+    @pytest.mark.parametrize(
+        "typ", ["at+jwt", "application/at+jwt", "AT+JWT", "Application/AT+JWT"]
+    )
+    def test_token_type(self, idp: MagicMock, typ: str) -> None:
+        """Access tokens (RFC 9068) of either `typ` are accepted."""
+        res = validate(make_app(), make_token(typ=typ))
+        assert res["user_id"] == SUBJECT
+
+    @pytest.mark.parametrize("typ", ["JWT", "id_token+jwt", None, 1, ["at+jwt"]])
+    def test_token_type_rejected(self, idp: MagicMock, typ: Any) -> None:
+        """Tokens of other or no type (e.g., ID tokens) are rejected.
+
+        They are rejected without requests to the identity provider.
+        """
+        with raises_unauthorized():
+            validate(make_app(), make_token(typ=typ))
+        idp.assert_not_called()
+
+    @pytest.mark.parametrize("token_types", [["JWT"], [" jwt "]])
+    def test_token_type_configured(
+        self, idp: MagicMock, token_types: list[str]
+    ) -> None:
+        """Only tokens of the configured types are accepted.
+
+        Configured types are compared case-insensitively, ignoring surrounding
+        whitespace.
+        """
+        app = make_app(token_types=token_types)
+        assert validate(app, make_token(typ="JWT"))["user_id"] == SUBJECT
+        with raises_unauthorized():
+            validate(app, make_token(typ="at+jwt"))
+
+    @pytest.mark.parametrize("typ", ["JWT", None])
+    def test_token_type_not_verified(self, idp: MagicMock, typ: str | None) -> None:
+        """Token types are not validated if disabled explicitly."""
+        app = make_app(verify_token_type=False)
+        res = validate(app, make_token(typ=typ))
+        assert res["user_id"] == SUBJECT
+
+    @pytest.mark.parametrize("claim", ["client_id", "azp"])
+    def test_clients(self, idp: MagicMock, claim: str) -> None:
+        """Tokens of any of the configured clients are accepted.
+
+        The client is identified by the `client_id` claim (RFC 9068) or the
+        `azp` claim (OpenID Connect).
+        """
+        app = make_app(clients=["other", CLIENT])
+        claims: dict[str, Any] = {claim: CLIENT}
+        res = validate(app, make_token(**claims))
+        assert res["user_id"] == SUBJECT
+
+    def test_clients_client_id_precedence(self, idp: MagicMock) -> None:
+        """The `client_id` claim takes precedence over the `azp` claim."""
+        app = make_app(clients=[CLIENT])
+        res = validate(app, make_token(client_id=CLIENT, azp="other"))
+        assert res["user_id"] == SUBJECT
+        with raises_unauthorized():
+            validate(app, make_token(client_id="other", azp=CLIENT))
+
+    @pytest.mark.parametrize(
+        "claims",
+        [
+            {"client_id": "other"},
+            {"azp": "other"},
+            {"client_id": "other", "azp": "other"},
+            {"client_id": [CLIENT]},
+            # no fallback to `azp` for invalid `client_id`
+            {"client_id": [CLIENT], "azp": CLIENT},
+            {"client_id": "", "azp": CLIENT},
+            {},
+        ],
+    )
+    def test_clients_rejected(self, idp: MagicMock, claims: dict[str, Any]) -> None:
+        """Tokens of other clients or without client claims are rejected."""
+        app = make_app(clients=[CLIENT])
+        with raises_unauthorized():
+            validate(app, make_token(**claims))
+
+    def test_clients_after_signature(
+        self, idp: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Client claims are only checked after signature verification."""
+        checks: list[dict[str, Any]] = []
+        verify_client = auth._verify_client
+
+        def record(claims: dict[str, Any], conf: AuthConfig) -> None:
+            checks.append(claims)
+            verify_client(claims, conf)
+
+        monkeypatch.setattr(auth, "_verify_client", record)
+        app = make_app(clients=[CLIENT])
+        with raises_unauthorized():
+            validate(app, make_token(key=OTHER_PRIVATE_KEY, client_id=CLIENT))
+        assert checks == []
+        validate(app, make_token(client_id=CLIENT))
+        assert len(checks) == 1
+        assert "public_key" in checks[0]  # added by signature verification
+
+    def test_clients_null_client_id(self) -> None:
+        """A null `client_id` claim is not replaced by the `azp` claim."""
+        conf = AuthConfig(clients=[CLIENT])
+        with raises_unauthorized():
+            auth._verify_client({"client_id": None, "azp": CLIENT}, conf)
+
+    def test_clients_not_configured(self, idp: MagicMock) -> None:
+        """Clients are not checked by default."""
+        res = validate(make_app(), make_token(client_id="other"))
+        assert res["user_id"] == SUBJECT
+
+    def test_clients_without_audience(self, idp: MagicMock) -> None:
+        """Clients can be restricted instead of the audience."""
+        app = make_app(audience=None, verify_audience=False, clients=[CLIENT])
+        res = validate(app, make_token(aud="other", client_id=CLIENT))
+        assert res["user_id"] == SUBJECT
+        with raises_unauthorized():
+            validate(app, make_token(aud="other", client_id="other"))
+
     def test_add_key_to_claims(self, idp: MagicMock) -> None:
         """Public key used for verification is added to claims."""
         res = validate(make_app(add_key_to_claims=True), make_token())
@@ -684,6 +806,44 @@ class TestAuthConfig:
         conf = AuthConfig(issuers=[ISSUER], verify_audience=False)
         assert conf.audience is None
 
+    def test_token_types_default(self) -> None:
+        """Access tokens as per RFC 9068 are required by default."""
+        conf = AuthConfig()
+        assert conf.verify_token_type is True
+        assert conf.token_types == ["at+jwt", "application/at+jwt"]
+
+    @pytest.mark.parametrize("token_types", [[], [""], ["at+jwt", " "]])
+    def test_token_types_required(self, token_types: list[str]) -> None:
+        """Token type validation requires token types, unless opted out."""
+        with pytest.raises(ValidationError, match="verify_token_type"):
+            AuthConfig(token_types=token_types)
+
+    def test_token_types_opt_out(self) -> None:
+        """Token types are not required if their validation is disabled."""
+        conf = AuthConfig(token_types=[], verify_token_type=False)
+        assert conf.token_types == []
+
+    def test_clients_default(self) -> None:
+        """Clients are not restricted by default."""
+        assert AuthConfig().clients is None
+
+    @pytest.mark.parametrize("clients", [[], [""], [CLIENT, " "]])
+    def test_clients_blank(self, clients: list[str]) -> None:
+        """Restricting clients requires non-blank client IDs."""
+        with pytest.raises(ValidationError, match="clients"):
+            AuthConfig(clients=clients)
+
+    def test_clients_without_audience(self) -> None:
+        """Clients can be restricted instead of the audience."""
+        conf = AuthConfig(issuers=[ISSUER], verify_audience=False, clients=[CLIENT])
+        assert conf.audience is None
+        assert conf.clients == [CLIENT]
+
+    def test_clients_audience_required(self) -> None:
+        """Restricting clients does not replace the audience by itself."""
+        with pytest.raises(ValidationError, match="verify_audience"):
+            AuthConfig(issuers=[ISSUER], clients=[CLIENT])
+
     @pytest.mark.parametrize(
         "field", ["validation_methods", "validation_checks", "claim_issuer"]
     )
@@ -698,16 +858,32 @@ class TestLogAuthConfigWarnings:
 
     def test_warnings(self, caplog: pytest.LogCaptureFixture) -> None:
         """Insecure or incomplete settings are logged as warnings."""
-        conf = AuthConfig(issuers=[], verify_audience=False, allow_expired=True)
+        conf = AuthConfig(
+            issuers=[],
+            verify_audience=False,
+            verify_token_type=False,
+            allow_expired=True,
+        )
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
         assert "No trusted token issuers" in caplog.text
         assert "audience" in caplog.text
+        assert "clients are not restricted" in caplog.text
+        assert "verify_token_type" in caplog.text
         assert "Expired" in caplog.text
 
     def test_no_warnings(self, caplog: pytest.LogCaptureFixture) -> None:
         """Complete and secure settings are not warned about."""
         conf = AuthConfig(issuers=[ISSUER], audience=[AUDIENCE])
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert caplog.text == ""
+
+    def test_clients_instead_of_audience(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Disabled audience validation is not warned about with clients."""
+        conf = AuthConfig(issuers=[ISSUER], verify_audience=False, clients=[CLIENT])
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
         assert caplog.text == ""

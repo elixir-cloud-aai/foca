@@ -53,29 +53,40 @@ local development.
    [`issuers`](configuration/auth.md). Tokens of other issuers are rejected
    without contacting the issuer, so that clients cannot make the app send
    requests to arbitrary hosts.
-2. The issuer's [discovery document](https://openid.net/specs/openid-connect-discovery-1_0.html)
+2. The token must be an OAuth 2.0 access token as per
+   [RFC 9068](https://www.rfc-editor.org/rfc/rfc9068): its `typ` header must be
+   one of the configured `token_types` (default: `at+jwt` and
+   `application/at+jwt`, compared case-insensitively), unless
+   `verify_token_type: false`. Other JWTs of the issuer, such as ID tokens,
+   are rejected without contacting the issuer.
+3. The issuer's [discovery document](https://openid.net/specs/openid-connect-discovery-1_0.html)
    and public keys (JWK set) are fetched and cached (`cache_ttl`). If a token
    was signed with an unknown key (e.g., after key rotation), the keys are
    fetched again, at most every 30 seconds. Failed requests to an identity
    provider are not repeated for every request either.
-3. The token's signature is verified locally with the issuer's public key,
+4. The token's signature is verified locally with the issuer's public key,
    using one of the configured `algorithms`. Its expiry (unless
    `allow_expired`) and its audience (unless `verify_audience: false`) are
    validated: the `aud` claim must contain one of the configured `audience`
    values.
-4. The token must contain the claims `exp`, `iat` and `iss`, and the claim
+5. The token must contain the claims `exp`, `iat` and `iss`, and the claim
    configured as `claim_identity` (default: `sub`).
-5. If `validate_userinfo` is set, the token is additionally sent to the
+6. If `clients` are configured, the token must have been obtained by one of
+   them: its `client_id` claim ([RFC 9068](https://www.rfc-editor.org/rfc/rfc9068))
+   or, if it has none, its `azp` claim (used by some identity providers
+   instead) must be one of the configured client IDs.
+7. If `validate_userinfo` is set, the token is additionally sent to the
    issuer's user info endpoint, which needs to report the token's subject.
    This detects revoked tokens, at the cost of a request per validation.
-6. Claims listed in `userinfo_claims` that the token lacks are added from
+8. Claims listed in `userinfo_claims` that the token lacks are added from
    the issuer's user info endpoint, which needs to report the token's
    subject. Claims of the token are never replaced. Unless
    `validate_userinfo` is set, the user info is cached per token for
    `cache_ttl` seconds, but not beyond the token's expiry.
 
 FOCA logs a warning on the first validation if no issuers are configured,
-audience validation is disabled, or expired tokens are accepted.
+audience validation is disabled without restricting `clients`, token type
+validation is disabled, or expired tokens are accepted.
 
 !!! note "Several trusted issuers"
     Validated tokens of all trusted issuers are treated alike: their subjects
@@ -91,7 +102,43 @@ audience validation is disabled, or expired tokens are accepted.
     as `audience`. Only if the provider does not include the app in the
     `aud` claim of its tokens, set `verify_audience: false`: then any token
     issued by a trusted issuer is accepted, including tokens issued for
-    other apps.
+    other apps, unless you restrict the `clients` (below).
+
+!!! tip "Accepting tokens of specific clients"
+    Some apps must accept tokens by the client that obtained them rather
+    than by audience. For example, task execution services behind the
+    [proTES](https://github.com/elixir-cloud-aai/proTES) gateway of ELIXIR
+    On-Cloud should accept only tokens obtained by proTES, whose audience is
+    proTES's client ID. List the accepted client IDs in `clients`, and
+    disable audience validation if the audience is not the app itself:
+
+    ```yaml
+    security:
+      auth:
+        verify_audience: false
+        clients:
+          - protes-client-id
+    ```
+
+    Tokens whose `client_id` claim (RFC 9068; LS Login) or, if they have
+    none, `azp` claim (OpenID Connect; used by some identity providers
+    instead) is not listed, and tokens with neither claim, are rejected with
+    `401`. With `clients`, FOCA does not warn about disabled audience
+    validation. Client IDs are matched for all trusted `issuers`: if you
+    trust several, make sure that the listed IDs cannot be claimed by clients
+    of another issuer (cf. the note on several trusted issuers above).
+
+!!! warning "Access tokens only"
+    Identity providers issue other JWTs than access tokens, e.g., ID tokens,
+    which contain user information for the client and are not meant to be
+    sent to resource servers. FOCA tells access tokens apart by their `typ`
+    header, as required by RFC 9068; LS Login, for example, sets it to
+    `at+jwt`. Only if your identity provider does not set the `typ` header of
+    its access tokens, set `verify_token_type: false`: then any JWT issued by
+    a trusted issuer is accepted, including ID tokens. If it sets another
+    value, list it in `token_types` instead; note that a generic type such as
+    `JWT` does not tell access tokens apart from ID tokens either, so that
+    the `audience` is then the only safeguard.
 
 ## Using token claims
 

@@ -1,0 +1,23 @@
+apiVersion: v2
+name: foca-common
+description: >-
+  Library chart for FOCA apps by ELIXIR On-Cloud: the app's Deployment,
+  config overlay, Service, Ingress or OpenShift Route and NetworkPolicy, and
+  an optional MongoDB
+type: library
+# Independent of FOCA's version; bump it with every change, following
+# semantic versioning (see docs/helm-chart.md)
+version: 0.1.0
+home: https://foca.readthedocs.io/en/latest/helm-chart/
+icon: https://raw.githubusercontent.com/elixir-cloud-aai/foca/dev/docs/images/foca_logo_round.svg
+sources:
+  - https://github.com/elixir-cloud-aai/foca/tree/dev/charts/foca-common
+keywords:
+  - foca
+  - flask
+  - connexion
+  - mongodb
+  - elixir
+maintainers:
+  - name: ELIXIR Cloud & AAI
+    url: https://github.com/elixir-cloud-aai

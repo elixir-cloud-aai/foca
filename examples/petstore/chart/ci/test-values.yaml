@@ -1,0 +1,4 @@
+hostName: petstore.example.org
+mongodb:
+  auth:
+    existingSecret: mongodb
