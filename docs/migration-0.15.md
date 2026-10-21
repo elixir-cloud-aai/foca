@@ -77,8 +77,9 @@ anything else; otherwise, the configuration fails validation on startup:
   removed rules: `True` only if it revoked a role.
 - Rules set via [`access_control.policies`](access-control.md#configuring-policies)
   are no longer removed by `remove_resource_role()`, `remove_resource()` or
-  FOCA's Casbin adapter (e.g., `enforcer.remove_grouping_policy()`), as they
-  would be added again on the next start; a warning is logged instead, and
+  single-rule removals via FOCA's Casbin adapter (e.g.,
+  `enforcer.remove_grouping_policy()`; filtered removals still remove them),
+  as they would be added again on the next start; a warning is logged instead, and
   `remove_resource_role()` returns `False`. Remove such rules from the
   configuration ([details](access-control.md#resource-scoped-roles)).
 
