@@ -328,8 +328,8 @@ def _append_rule(assertion: Assertion, values: list[str]) -> None:
     # without the latter's duplicate scan, which makes loading quadratic.
     # `Enforcer.load_policy()` re-sorts the rules after loading (for priority
     # models), rebuilding `policy_map`, which pycasbin 2.8.0 never reads.
-    # Re-check when bumping pycasbin: 2.8.0 is the only release in the
-    # allowed range `>=2.8,<3` (per PyPI).
+    # pycasbin is capped at `<2.9` in `pyproject.toml`; re-check this when
+    # raising the cap.
     assertion.policy.append(values)
     assertion.policy_map[DEFAULT_SEP.join(values)] = len(assertion.policy) - 1
 
