@@ -27,6 +27,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
+      stable: ${{ steps.version.outputs.stable }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +53,15 @@ jobs:
               exit 1
           fi
           echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
+          # `stable`: not an alpha, beta or release candidate (decides
+          # `latest`); `prerelease`: GitHub pre-release, also for all
+          # releases before 1.0.0
           if [[ "${TAG}" =~ (a|b|rc)[0-9]+$ ]]; then
+              echo "stable=false" >> "${GITHUB_OUTPUT}"
+          else
+              echo "stable=true" >> "${GITHUB_OUTPUT}"
+          fi
+          if [[ "${TAG}" =~ (a|b|rc)[0-9]+$ || "${TAG}" == v0.* ]]; then
               echo "prerelease=true" >> "${GITHUB_OUTPUT}"
           else
               echo "prerelease=false" >> "${GITHUB_OUTPUT}"
@@ -135,7 +144,7 @@ jobs:
           PY_VERSION: ${{ matrix.python-version }}
           DEFAULT: ${{ matrix.default }}
           VERSION: ${{ needs.build.outputs.version }}
-          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+          STABLE: ${{ needs.build.outputs.stable }}
         run: |
           set -x
           IMAGE="${DOCKERHUB_ORG}/${REPO_NAME}"
@@ -153,7 +162,7 @@ jobs:
               # a patch release of an older minor version
               LATEST_TAG="$(git tag -l 'v*' --sort=-v:refname \
                   | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
-              if [[ "${PRERELEASE}" == "false" && "${LATEST_TAG}" == "v${VERSION}" ]]; then
+              if [[ "${STABLE}" == "true" && "${LATEST_TAG}" == "v${VERSION}" ]]; then
                   docker tag "${IMAGE}:${VERSION}" "${IMAGE}:latest"
                   docker push "${IMAGE}:latest"
               fi
@@ -184,6 +193,7 @@ jobs:
               gh release upload "${TAG}" dist/* --clobber
               exit 0
           fi
+          # GitHub never marks pre-releases as the latest release
           args=()
           if [[ "${PRERELEASE}" == "true" ]]; then
               args+=(--prerelease)

@@ -145,8 +145,10 @@ Pushing the tag triggers the [release workflow][release-workflow], which
 checks that the tagged commit is on `main`, publishes the distributions to
 PyPI (after approval in the `pypi` environment), pushes Docker images
 tagged `X.Y.Z` and `latest`, and creates a GitHub release with generated
-notes. Tags of pre-releases (e.g., `vX.Y.Zrc1`) create pre-releases and do
-not update `latest`.
+notes. Tags of pre-releases (e.g., `vX.Y.Zrc1`) create GitHub pre-releases
+and do not update `latest`. Until 1.0.0, all releases are GitHub pre-releases
+(never marked as the latest release), but `vX.Y.Z` tags still update the
+`latest` image.
 
 ## License
 
