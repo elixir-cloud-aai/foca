@@ -18,12 +18,7 @@ def find_one_latest(collection: Collection) -> Mapping[Any, Any] | None:
         Newest document or ``None``, if no document exists.
     """
     try:
-        return (
-            collection.find({}, {"_id": False})
-            .sort([("_id", -1)])
-            .limit(1)
-            .next()
-        )
+        return collection.find({}, {"_id": False}).sort([("_id", -1)]).limit(1).next()
     except StopIteration:
         return None
 

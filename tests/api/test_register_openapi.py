@@ -294,8 +294,7 @@ class TestModifiedSpecs:
         operations = list(_iter_operations(spec))
         assert operations
         assert all(
-            op["x-openapi-router-controller"] == "controllers"
-            for op in operations
+            op["x-openapi-router-controller"] == "controllers" for op in operations
         )
         assert any(
             isinstance(path_item.get("parameters"), list)
@@ -315,13 +314,8 @@ class TestModifiedSpecs:
         spec_config["path"] = [PATH_SPECS_3_YAML_ORIGINAL, spec_path]
         spec = _registered_spec(monkeypatch, spec_config)
         operations = spec["paths"]["/pets"]
-        assert (
-            operations["get"]["x-openapi-router-controller"]
-            == "other_controllers"
-        )
-        assert operations["post"]["x-openapi-router-controller"] == (
-            "controllers"
-        )
+        assert operations["get"]["x-openapi-router-controller"] == "other_controllers"
+        assert operations["post"]["x-openapi-router-controller"] == ("controllers")
 
 
 def test_iter_operations():

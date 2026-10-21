@@ -32,9 +32,7 @@ VALID_CORS_CONF_ENABLED = DIR / "conf_valid_cors_enabled.yaml"
 INVALID_ACCESS_CONTROL_CONF = DIR / "conf_invalid_access_control.yaml"
 VALID_ACCESS_CONTROL_CONF = DIR / "conf_valid_access_control.yaml"
 ACCESS_CONTROL_ENABLED_CONF = DIR / "conf_access_control_enabled.yaml"
-ENFORCE_WITHOUT_ENABLED_CONF = (
-    DIR / "conf_enforce_access_control_without_enabled.yaml"
-)
+ENFORCE_WITHOUT_ENABLED_CONF = DIR / "conf_enforce_access_control_without_enabled.yaml"
 
 
 def create_modified_api_conf(path, temp_dir, api_specs_in):
@@ -99,9 +97,7 @@ def test_foca_create_app_output_defaults():
 def test_foca_create_app_error_media_type(tmp_path):
     """Ensure error responses have the configured media type."""
     conf = tmp_path / "config.yaml"
-    conf.write_text(
-        safe_dump({"exceptions": {"media_type": "application/json"}})
-    )
+    conf.write_text(safe_dump({"exceptions": {"media_type": "application/json"}}))
     app = Foca(config_file=conf).create_app()
     response = app.app.test_client().get("/unknown")
     assert response.status_code == 404
@@ -138,12 +134,8 @@ def test_foca_constructor_invalid_error_media_type(tmp_path):
 def test_foca_constructor_invalid_service_info(tmp_path):
     """Invalid 'service_info' field, naming the invalid field."""
     conf = tmp_path / "config.yaml"
-    conf.write_text(
-        safe_dump({"service_info": {"service": {"id": "my-service"}}})
-    )
-    with pytest.raises(
-        ValidationError, match=r"`service_info\.service`: 'name' is a"
-    ):
+    conf.write_text(safe_dump({"service_info": {"service": {"id": "my-service"}}}))
+    with pytest.raises(ValidationError, match=r"`service_info\.service`: 'name' is a"):
         Foca(config_file=conf)
 
 
@@ -153,9 +145,7 @@ def test_foca_create_app_no_access_control():
     app = foca.create_app()
     assert set(app.app.config.foca.db.dbs) == {"my-db"}
     assert "casbin_adapter" not in app.app.config
-    assert not any(
-        "permissions" in rule.rule for rule in app.app.url_map.iter_rules()
-    )
+    assert not any("permissions" in rule.rule for rule in app.app.url_map.iter_rules())
 
 
 def test_foca_create_app_access_control():
@@ -188,9 +178,7 @@ def test_foca_create_app_config_unchanged():
     assert foca.conf.security.model_dump() == before
 
 
-@pytest.mark.parametrize(
-    "field", ["api_controllers", "api_route", "nonexistent"]
-)
+@pytest.mark.parametrize("field", ["api_controllers", "api_route", "nonexistent"])
 def test_access_control_removed_fields(field):
     """Removed access control settings fail validation."""
     with pytest.raises(ValidationError):
@@ -317,9 +305,7 @@ def test_foca_relative_paths(tmp_path, monkeypatch):
     (app_dir / "specs").mkdir(parents=True)
     (app_dir / "policies").mkdir()
     shutil.copy2(DIR / "openapi_3_petstore.original.yaml", app_dir / "specs")
-    shutil.copy2(
-        Path(AccessControlConfig().model), app_dir / "policies" / "model.conf"
-    )
+    shutil.copy2(Path(AccessControlConfig().model), app_dir / "policies" / "model.conf")
     config_file = app_dir / "config.yaml"
     config_file.write_text(
         "api:\n"
@@ -349,9 +335,7 @@ def test_foca_relative_paths(tmp_path, monkeypatch):
     assert foca.conf.security.access_control.model == str(model)
     app = foca.create_app()
     assert app.app.config["CASBIN_MODEL"] == str(model)
-    assert any(
-        rule.rule.endswith("/pets") for rule in app.app.url_map.iter_rules()
-    )
+    assert any(rule.rule.endswith("/pets") for rule in app.app.url_map.iter_rules())
 
 
 def test_foca_relative_paths_without_file(tmp_path, monkeypatch):

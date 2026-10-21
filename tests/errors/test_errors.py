@@ -217,9 +217,7 @@ class TestBuildHeaders:
         [
             (MethodNotAllowed(["GET", "PUT"]), [("Allow", "GET, PUT")]),
             (
-                Unauthorized(
-                    www_authenticate=WWWAuthenticate("basic", {"realm": "x"})
-                ),
+                Unauthorized(www_authenticate=WWWAuthenticate("basic", {"realm": "x"})),
                 [("WWW-Authenticate", "Basic realm=x")],
             ),
             (ServiceUnavailable(retry_after=120), [("Retry-After", "120")]),
@@ -239,9 +237,7 @@ class TestBuildHeaders:
             # Connexion's security exceptions get a Bearer challenge
             (OAuthProblem(), [("WWW-Authenticate", "Bearer")]),
             (
-                OAuthProblem(
-                    www_authenticate=WWWAuthenticate("basic", {"realm": "x"})
-                ),
+                OAuthProblem(www_authenticate=WWWAuthenticate("basic", {"realm": "x"})),
                 [("WWW-Authenticate", "Basic realm=x")],
             ),
             # no headers (besides `Content-Type`)
@@ -379,9 +375,7 @@ SPEC = {
                 ],
             )
         },
-        "/secured": {
-            "get": _operation("get_secured", security=[{"bearerAuth": []}])
-        },
+        "/secured": {"get": _operation("get_secured", security=[{"bearerAuth": []}])},
     },
     "components": {
         "securitySchemes": {
@@ -451,9 +445,7 @@ class TestHandler:
             ("get", "/error", {}, DEFAULT_PROBLEM),
         ],
     )
-    def test_responses(
-        self, client, media_type, method, path, headers, problem
-    ):
+    def test_responses(self, client, media_type, method, path, headers, problem):
         response = client.open(path, method=method, headers=headers)
         assert response.status_code == problem["status"]
         assert response.content_type == media_type
@@ -478,9 +470,7 @@ class TestHandler:
             ),
         ],
     )
-    def test_headers(
-        self, client, media_type, method, path, headers, name, value
-    ):
+    def test_headers(self, client, media_type, method, path, headers, name, value):
         """Headers of exceptions are kept, except `Content-Type`."""
         response = client.open(path, method=method, headers=headers)
         values = response.headers.getlist(name)

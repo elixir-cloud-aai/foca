@@ -180,8 +180,7 @@ def config_files(tmp_path, monkeypatch):
     monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
     base = _write(
         tmp_path / "app" / "config.yaml",
-        "server:\n  port: 8000\n  host: 127.0.0.1\n"
-        "custom:\n  a: [1, 2]\n  b: base\n",
+        "server:\n  port: 8000\n  host: 127.0.0.1\ncustom:\n  a: [1, 2]\n  b: base\n",
     )
     dev = _write(
         tmp_path / "deployment" / "config.dev.yaml",
@@ -199,9 +198,7 @@ class TestConfigFiles:
 
     def test_multiple_files(self, config_files):
         base, dev, prod = config_files
-        conf = ConfigParser(
-            config_file=[base, str(dev), prod], format_logs=False
-        )
+        conf = ConfigParser(config_file=[base, str(dev), prod], format_logs=False)
         assert conf.config_files == [base, dev, prod]
         assert conf.config_dir == base.parent
         server = conf.config.server
@@ -239,9 +236,7 @@ class TestConfigFiles:
 
     def test_overlay_missing(self, config_files, monkeypatch, tmp_path):
         base, _, _ = config_files
-        monkeypatch.setenv(
-            "FOCA_CONFIG_OVERLAY", str(tmp_path / "missing.yaml")
-        )
+        monkeypatch.setenv("FOCA_CONFIG_OVERLAY", str(tmp_path / "missing.yaml"))
         with pytest.raises(FileNotFoundError, match="FOCA_CONFIG_OVERLAY"):
             ConfigParser(config_file=base, format_logs=False)
 

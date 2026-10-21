@@ -55,9 +55,7 @@ class TestCasbinRule:
 def model() -> Model:
     """Reference model for resource-scoped roles."""
     model = Model()
-    with resource_path(
-        ACCESS_CONTROL_BASE_PATH, RESOURCE_ROLE_MODEL_FILE
-    ) as _path:
+    with resource_path(ACCESS_CONTROL_BASE_PATH, RESOURCE_ROLE_MODEL_FILE) as _path:
         model.load_model(str(_path))
     return model
 

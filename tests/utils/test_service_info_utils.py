@@ -83,8 +83,7 @@ def test_is_date_time(value):
         "2020-11-08T00:00:00+24:00",
         "2020-11-08 00:00:00Z",
         # Fullwidth digits
-        "".join(chr(0xFF10 + int(digit)) for digit in "2020")
-        + "-11-08T00:00:00Z",
+        "".join(chr(0xFF10 + int(digit)) for digit in "2020") + "-11-08T00:00:00Z",
     ],
 )
 def test_is_date_time_invalid(value):
@@ -118,9 +117,7 @@ def test_merge_service_info():
     # `version: None` of the service means that it is not set
     unset = {"version": None}
     assert merge_service_info(unset, "1.0") == {"version": "1.0"}
-    assert merge_service_info(unset, "1.0", {"version": "2.0"}) == {
-        "version": "2.0"
-    }
+    assert merge_service_info(unset, "1.0", {"version": "2.0"}) == {"version": "2.0"}
     # Also if returned at runtime
     assert merge_service_info({}, "1.0", unset) == {"version": "1.0"}
     assert merge_service_info(unset, "1.0", unset) == {"version": "1.0"}
@@ -219,9 +216,7 @@ def test_call_runtime_function_failed():
 
 def test_call_runtime_function_not_a_dict():
     """The function must return a dictionary."""
-    with pytest.raises(
-        InvalidServiceInfo, match="did not return a dictionary"
-    ):
+    with pytest.raises(InvalidServiceInfo, match="did not return a dictionary"):
         call_runtime_function(lambda: ["a"], "f")  # type: ignore[arg-type]
 
 
@@ -233,9 +228,7 @@ def test_validate_service_info():
     validate_service_info({field: SERVICE[field] for field in REQUIRED})
     validate_service_info(service(**{"x-custom": {"any": "value"}}))
     validate_service_info(
-        service(
-            createdAt="2020-11-08T10:20:30Z", updatedAt="2026-10-20T00:00:00Z"
-        )
+        service(createdAt="2020-11-08T10:20:30Z", updatedAt="2026-10-20T00:00:00Z")
     )
 
 
@@ -246,9 +239,7 @@ def test_validate_service_info_missing(field):
         InvalidServiceInfo,
         match=rf"in `service_info\.service`: '{field}' is a required property",
     ):
-        validate_service_info(
-            service(**{field: REMOVE}), prefix="service_info.service"
-        )
+        validate_service_info(service(**{field: REMOVE}), prefix="service_info.service")
 
 
 @pytest.mark.parametrize("field", REQUIRED)
@@ -303,8 +294,6 @@ def test_validate_service_info_not_json(value, reason):
             rf"JSON-serializable \({reason}"
         ),
     ):
-        validate_service_info(
-            invalid, prefix="service_info.service", note=" (note)"
-        )
+        validate_service_info(invalid, prefix="service_info.service", note=" (note)")
     with pytest.raises(InvalidServiceInfo, match=r"in `\(root\)`: not JSON"):
         validate_service_info(invalid)

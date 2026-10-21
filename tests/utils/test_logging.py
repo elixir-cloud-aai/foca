@@ -31,10 +31,7 @@ def test_logging_decorator(caplog):
 
     with app.test_request_context(environ_base=REQ):
         mock_func()
-    assert (
-        "Incoming request" in caplog.text
-        and "Response to request" in caplog.text
-    )
+    assert "Incoming request" in caplog.text and "Response to request" in caplog.text
 
 
 def test_logging_decorator_log_level(caplog):
@@ -60,8 +57,7 @@ def test_logging_decorator_req_only(caplog):
     with app.test_request_context(environ_base=REQ):
         mock_func()
     assert (
-        "Incoming request" in caplog.text
-        and "Response to request" not in caplog.text
+        "Incoming request" in caplog.text and "Response to request" not in caplog.text
     )
 
 
@@ -76,8 +72,7 @@ def test_logging_decorator_res_only(caplog):
     with app.test_request_context(environ_base=REQ):
         mock_func()
     assert (
-        "Incoming request" not in caplog.text
-        and "Response to request" in caplog.text
+        "Incoming request" not in caplog.text and "Response to request" in caplog.text
     )
 
 
@@ -90,9 +85,7 @@ def get_items():
 def test_logging_decorator_in_app(monkeypatch):
     """Requests and responses of a running app are logged."""
     messages = []
-    monkeypatch.setattr(
-        module.logger, "log", lambda level, msg: messages.append(msg)
-    )
+    monkeypatch.setattr(module.logger, "log", lambda level, msg: messages.append(msg))
     app = App(__name__, skip_error_handlers=True)
     app.add_api(
         {
@@ -114,8 +107,7 @@ def test_logging_decorator_in_app(monkeypatch):
     assert response.status_code == 200
     assert messages == [
         'Incoming request: "GET /items HTTP/1.1" from 10.0.0.1',
-        'Response to request "GET /items HTTP/1.1" from 10.0.0.1: str, '
-        "status 200",
+        'Response to request "GET /items HTTP/1.1" from 10.0.0.1: str, status 200',
     ]
 
 
@@ -123,9 +115,7 @@ def test_logging_decorator_in_app(monkeypatch):
 def logged(monkeypatch) -> list[str]:
     """Messages logged by `log_traffic`."""
     messages: list[str] = []
-    monkeypatch.setattr(
-        module.logger, "log", lambda level, msg: messages.append(msg)
-    )
+    monkeypatch.setattr(module.logger, "log", lambda level, msg: messages.append(msg))
     return messages
 
 
@@ -181,9 +171,7 @@ def test_logging_decorator_control_characters(logged):
     def mock_func():
         return "ok"
 
-    with app.test_request_context(
-        "/items%0d%0aFAKE%20log%20line", environ_base=REQ
-    ):
+    with app.test_request_context("/items%0d%0aFAKE%20log%20line", environ_base=REQ):
         mock_func()
     assert len(logged) == 2
     assert all("\n" not in msg and "\r" not in msg for msg in logged)

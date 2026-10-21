@@ -38,8 +38,7 @@ def _describe_request() -> str:
     """
     protocol = request.environ.get("SERVER_PROTOCOL", "")
     return escape_log_value(
-        f'"{request.method} {request.path} {protocol}" from '
-        f"{request.remote_addr}"
+        f'"{request.method} {request.path} {protocol}" from {request.remote_addr}'
     )
 
 
@@ -94,9 +93,7 @@ def _describe_response(response: object) -> str:
         Type of the body (or response object) and status code, e.g.,
         ``dict, status 200``.
     """
-    body = (
-        response[0] if isinstance(response, tuple) and response else response
-    )
+    body = response[0] if isinstance(response, tuple) and response else response
     return f"{type(body).__name__}, status {_get_status(response)}"
 
 
@@ -156,10 +153,7 @@ def log_traffic(
 
             response = fn(*args, **kwargs)
             if log_response:
-                msg = (
-                    f"Response to request {req}: "
-                    f"{_describe_response(response)}"
-                )
+                msg = f"Response to request {req}: {_describe_response(response)}"
                 if log_response_body:
                     msg += f": {escape_log_value(_get_body(response))}"
                 logger.log(level=log_level, msg=msg)

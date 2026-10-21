@@ -57,22 +57,14 @@ def generate_id(
             instead (e.g., ``ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789``).
     """
     if not isinstance(charset, str) or charset == "":
-        raise TypeError(
-            f"Argument to 'charset' is not a non-empty string: {charset}"
-        )
+        raise TypeError(f"Argument to 'charset' is not a non-empty string: {charset}")
     if _STRING_EXPRESSION.search(charset):
         raise ValueError(
             f"Argument to 'charset' looks like an expression: '{charset}'. "
             "Expressions are no longer evaluated; pass a string of the "
             "allowed characters instead."
         )
-    if (
-        not isinstance(length, int)
-        or isinstance(length, bool)
-        or not length > 0
-    ):
-        raise TypeError(
-            f"Argument to 'length' is not a positive integer: {length}"
-        )
+    if not isinstance(length, int) or isinstance(length, bool) or not length > 0:
+        raise TypeError(f"Argument to 'length' is not a positive integer: {length}")
     charset = "".join(sorted(set(charset)))
     return "".join(choice(charset) for __ in range(length))

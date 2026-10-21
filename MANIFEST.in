@@ -12,5 +12,5 @@ prune docs
 prune examples
 prune images
 prune requirements
-exclude .* mkdocs.yml PULL_REQUEST_TEMPLATE.md
+exclude .* mkdocs.yml
 global-exclude *.py[cod] __pycache__
