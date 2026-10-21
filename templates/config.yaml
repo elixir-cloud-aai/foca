@@ -38,7 +38,8 @@ security:
     allow_expired: False
     # Audiences of the app (`aud` claim, e.g., its client ID at the
     # issuers); required if `issuers` are set, unless audience validation
-    # is disabled with `verify_audience: False` (not recommended)
+    # is disabled with `verify_audience: False` (not recommended, unless
+    # `clients` are restricted instead)
     audience:
       - my-app
     # Trusted token issuers (`iss` claim); tokens of other issuers are
@@ -52,6 +53,10 @@ security:
     token_types:
       - at+jwt
       - application/at+jwt
+    # Accepted clients (`client_id` or `azp` claim), e.g., a gateway in front
+    # of the app; usable in addition to `audience` or, with
+    # `verify_audience: False`, instead of it; `null` accepts any client
+    clients: null
 
 # API CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/api/
