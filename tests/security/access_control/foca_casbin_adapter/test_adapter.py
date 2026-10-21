@@ -153,6 +153,17 @@ class TestAdapter:
         assert e.enforce("alice", "data2", "read") is False
         assert e.enforce("alice", "data2", "write") is False
 
+    def test_remove_policy_keeps_configured(self):
+        """Configured copies of a rule are not removed."""
+        adapter = Adapter(collection=self._collection)
+        adapter.save_policy_line("g", ["a", "b"], configured=True)
+        adapter.save_policy_line("g", ["a", "b"])
+        assert adapter.remove_policy("g", "g", ["a", "b"]) is True
+        assert adapter.remove_policy("g", "g", ["a", "b"]) is False
+        documents = list(self._collection.find({}))
+        assert len(documents) == 1
+        assert documents[0]["configured"] is True
+
     def test_remove_policy_with_incomplete_rule(self):
         """Test to remove policy with incomplete rule. (Policy should not be
         removed)

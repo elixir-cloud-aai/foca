@@ -181,7 +181,12 @@ class Adapter(persist.Adapter):
                 document.pop("_id", None)
 
     def _delete_policy_lines(self, ptype: str, rule: list[str]) -> int:
-        """Method to find a delete policies given a list of policy attributes.
+        """Delete stored rules with exactly the given values.
+
+        Rules marked as set via the app's configuration
+        (`access_control.policies`) are not deleted, as they would be added
+        again on the next start; checking the mark is part of the delete,
+        so that rules marked concurrently are not deleted either.
 
         Args:
             ptype: Policy type for the given rule based on the given conf file.
@@ -192,9 +197,8 @@ class Adapter(persist.Adapter):
         """
         if not rule:
             return 0
-        return self._collection.delete_many(
-            _rule_query(ptype, rule)
-        ).deleted_count
+        query = {**_rule_query(ptype, rule), CONFIGURED_FIELD: {"$ne": True}}
+        return self._collection.delete_many(query).deleted_count
 
     def is_configured(self, id: str) -> bool:
         """Check whether a stored rule is set via the app's configuration.
@@ -330,13 +334,16 @@ class Adapter(persist.Adapter):
     def remove_policy(self, sec: str, ptype: str, rule: list[str]):
         """Remove policy rules from mongodb(duplicate rules are also removed).
 
+        Copies marked as set via the app's configuration are kept (cf.
+        :py:meth:`_delete_policy_lines`).
+
         Args:
             sec: Section corresponding which the rule will be added.
             ptype: Policy type for which casbin rule will be removed.
             rule: Casbin rule list definition to be removed.
 
         Returns:
-            Number of policies removed.
+            Whether any copies of the rule were removed.
         """
         deleted_count = self._delete_policy_lines(ptype, rule)
         return deleted_count > 0
