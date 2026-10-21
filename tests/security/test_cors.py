@@ -59,10 +59,7 @@ def test_configured_origin():
         },
     )
     assert response.headers["Access-Control-Allow-Methods"] == "GET"
-    assert (
-        response.headers["Access-Control-Allow-Headers"].lower()
-        == "authorization"
-    )
+    assert response.headers["Access-Control-Allow-Headers"].lower() == "authorization"
     assert response.headers["Access-Control-Max-Age"] == "600"
 
 

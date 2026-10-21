@@ -158,10 +158,7 @@ class TestValidateToken:
         token = make_token(email="alice@example.org", name="Alice A.")
         validate(make_app(), token)
         logged = " ".join(messages)
-        assert (
-            f"Token issued by '{ISSUER}' validated for subject '{SUBJECT}'"
-            in logged
-        )
+        assert f"Token issued by '{ISSUER}' validated for subject '{SUBJECT}'" in logged
         for value in [token, "alice@example.org", "Alice A.", "openid"]:
             assert value not in logged
 
@@ -430,9 +427,7 @@ class TestValidateToken:
     def test_add_key_to_claims(self, idp):
         """Public key used for verification is added to claims."""
         res = validate(make_app(add_key_to_claims=True), make_token())
-        assert res["claims"]["public_key"].startswith(
-            "-----BEGIN PUBLIC KEY-----"
-        )
+        assert res["claims"]["public_key"].startswith("-----BEGIN PUBLIC KEY-----")
 
     def test_no_key_in_claims(self, idp):
         """Public key is not added to claims if not configured."""
@@ -550,12 +545,8 @@ class TestUserinfoClaims:
 
     def test_subject_missing(self, idp):
         """User info is rejected if neither it nor the token has a subject."""
-        idp.responses[USERINFO_URI] = MockResponse(
-            {"eduperson_entitlement": ["urn:x"]}
-        )
-        app = make_app(
-            userinfo_claims=["eduperson_entitlement"], claim_identity="jti"
-        )
+        idp.responses[USERINFO_URI] = MockResponse({"eduperson_entitlement": ["urn:x"]})
+        app = make_app(userinfo_claims=["eduperson_entitlement"], claim_identity="jti")
         with raises_unauthorized():
             validate(app, make_token(sub=None, jti="j"))
 
@@ -587,9 +578,7 @@ class TestUserinfoClaims:
 
     def test_not_cached_beyond_expiry(self, idp):
         """User info is not cached beyond the token's expiry."""
-        app = make_app(
-            userinfo_claims=["eduperson_entitlement"], allow_expired=True
-        )
+        app = make_app(userinfo_claims=["eduperson_entitlement"], allow_expired=True)
         token = make_token(exp=int(time.time()) - 10)
         validate(app, token)
         validate(app, token)
@@ -613,9 +602,7 @@ class TestUserinfoClaims:
 
     def test_invalid_expiry_not_cached(self, idp):
         """User info is not cached for tokens with non-numeric expiry."""
-        app = make_app(
-            userinfo_claims=["eduperson_entitlement"], allow_expired=True
-        )
+        app = make_app(userinfo_claims=["eduperson_entitlement"], allow_expired=True)
         token = make_token(exp="never")
         validate(app, token)
         validate(app, token)
@@ -690,9 +677,7 @@ class TestLogAuthConfigWarnings:
 
     def test_warnings(self, caplog):
         """Insecure or incomplete settings are logged as warnings."""
-        conf = AuthConfig(
-            issuers=[], verify_audience=False, allow_expired=True
-        )
+        conf = AuthConfig(issuers=[], verify_audience=False, allow_expired=True)
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
         assert "No trusted token issuers" in caplog.text
@@ -714,9 +699,7 @@ class TestUnauthorized:
         exc = auth._unauthorized("JWT expired")
         assert exc.code == 401
         assert exc.description == "JWT expired"
-        assert exc.get_headers()[1:] == [
-            ("WWW-Authenticate", INVALID_TOKEN_CHALLENGE)
-        ]
+        assert exc.get_headers()[1:] == [("WWW-Authenticate", INVALID_TOKEN_CHALLENGE)]
 
     def test_not_invalid_token(self):
         """No error code if the token is not invalid (RFC 6750, §3.1)."""

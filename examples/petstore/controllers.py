@@ -12,9 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def findPets(limit=None, tags=None):
-    db_collection: Collection = get_collection(
-        db="petstore", collection="pets"
-    )
+    db_collection: Collection = get_collection(db="petstore", collection="pets")
     filter_dict = {} if tags is None else {"tag": {"$in": tags}}
     if not limit:
         limit = 0
@@ -27,9 +25,7 @@ def findPets(limit=None, tags=None):
 
 
 def addPet(pet):
-    db_collection: Collection = get_collection(
-        db="petstore", collection="pets"
-    )
+    db_collection: Collection = get_collection(db="petstore", collection="pets")
     counter = 0
     ctr = db_collection.find({}).sort([("$natural", -1)])
     if db_collection.count_documents({}) != 0:
@@ -41,9 +37,7 @@ def addPet(pet):
 
 
 def findPetById(id):
-    db_collection: Collection = get_collection(
-        db="petstore", collection="pets"
-    )
+    db_collection: Collection = get_collection(db="petstore", collection="pets")
     record = db_collection.find_one(
         {"id": id},
         {"_id": False},
@@ -54,9 +48,7 @@ def findPetById(id):
 
 
 def deletePet(id):
-    db_collection: Collection = get_collection(
-        db="petstore", collection="pets"
-    )
+    db_collection: Collection = get_collection(db="petstore", collection="pets")
     record = db_collection.find_one(
         {"id": id},
         {"_id": False},

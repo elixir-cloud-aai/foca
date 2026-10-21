@@ -60,9 +60,7 @@ class TestAdapter:
     def _policy_collection(self, policy_collection):
         self._collection = policy_collection
 
-    def save_policies(
-        self, adapter: Adapter, model: Model, policies: list
-    ) -> None:
+    def save_policies(self, adapter: Adapter, model: Model, policies: list) -> None:
         """Helper function for saving policies of a given model.
 
         Args:
@@ -125,9 +123,7 @@ class TestAdapter:
         policy1 = adapter.add_policy(
             sec="p", ptype="p", rule=("alice", "data1", "write")
         )
-        policy2 = adapter.add_policy(
-            sec="p", ptype="p", rule=("bob", "data2", "read")
-        )
+        policy2 = adapter.add_policy(sec="p", ptype="p", rule=("bob", "data2", "read"))
         e.load_policy()
 
         assert policy1 is True
@@ -241,9 +237,7 @@ class TestAdapter:
         assert e.enforce("alice", "data2", "read") is True
         assert e.enforce("alice", "data2", "write") is True
 
-        result = adapter.remove_filtered_policy(
-            "g", "g", 6, "alice", "data2_admin"
-        )
+        result = adapter.remove_filtered_policy("g", "g", 6, "alice", "data2_admin")
         e.load_policy()
         assert result is False
 
@@ -253,9 +247,7 @@ class TestAdapter:
         e.load_policy()
         assert result is False
 
-        result = adapter.remove_filtered_policy(
-            "g", "g", 0, "alice", "data2_admin"
-        )
+        result = adapter.remove_filtered_policy("g", "g", 0, "alice", "data2_admin")
         e.load_policy()
         assert result is True
         assert e.enforce("alice", "data1", "read") is True
@@ -328,8 +320,7 @@ class TestAdapterIdentifiers:
         )
         assert mock_adapter.remove_policy("g", "g", ["a", "b"])
         assert sorted(
-            [doc.get("v1"), doc.get("v2")]
-            for doc in mock_adapter._collection.find()
+            [doc.get("v1"), doc.get("v2")] for doc in mock_adapter._collection.find()
         ) == [["b", "c"], ["c", None]]
         assert not mock_adapter.remove_policy("g", "g", ["a", "b"])
         assert not mock_adapter.remove_policy("g", "g", [])
@@ -364,9 +355,9 @@ class TestAdapterIdentifiers:
     def test_replace_by_id(self, mock_adapter):
         mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
         mock_adapter.save_policy_line("g", ["c", "d"], id="abcdef")
-        assert list(
-            mock_adapter._collection.find({}, projection={"_id": False})
-        ) == [{"ptype": "g", "v0": "c", "v1": "d", "id": "abcdef"}]
+        assert list(mock_adapter._collection.find({}, projection={"_id": False})) == [
+            {"ptype": "g", "v0": "c", "v1": "d", "id": "abcdef"}
+        ]
 
     def test_save_policy_no_duplicates(self, mock_adapter):
         enforcer = Enforcer(MODEL_CONF_FILE, mock_adapter)
@@ -478,14 +469,10 @@ class TestConfiguredRules:
 
     def test_is_configured_rule(self, mock_adapter):
         assert mock_adapter.is_configured_rule("g2", ["user:a", "owner", "/x"])
-        assert not mock_adapter.is_configured_rule(
-            "g2", ["user:b", "owner", "/x"]
-        )
+        assert not mock_adapter.is_configured_rule("g2", ["user:b", "owner", "/x"])
         # values must match exactly
         assert not mock_adapter.is_configured_rule("g2", ["user:a", "owner"])
-        assert not mock_adapter.is_configured_rule(
-            "g", ["user:a", "owner", "/x"]
-        )
+        assert not mock_adapter.is_configured_rule("g", ["user:a", "owner", "/x"])
 
     def test_is_configured_rule_with_unmarked_copy(self, mock_adapter):
         """A rule stored both with and without the mark is configured."""
@@ -494,19 +481,14 @@ class TestConfiguredRules:
 
     def test_get_filtered_rules(self, mock_adapter):
         # stored twice, returned once
-        mock_adapter.save_policy_line(
-            "g2", ["user:a", "owner", "/x"], configured=True
-        )
-        assert mock_adapter.get_filtered_rules(
-            "g2", 2, "/x", configured=True
-        ) == [["user:a", "owner", "/x"]]
-        assert mock_adapter.get_filtered_rules(
-            "g2", 2, "/x", configured=False
-        ) == [["user:b", "owner", "/x"]]
-        assert (
-            mock_adapter.get_filtered_rules("g2", 0, "user:b", configured=True)
-            == []
-        )
+        mock_adapter.save_policy_line("g2", ["user:a", "owner", "/x"], configured=True)
+        assert mock_adapter.get_filtered_rules("g2", 2, "/x", configured=True) == [
+            ["user:a", "owner", "/x"]
+        ]
+        assert mock_adapter.get_filtered_rules("g2", 2, "/x", configured=False) == [
+            ["user:b", "owner", "/x"]
+        ]
+        assert mock_adapter.get_filtered_rules("g2", 0, "user:b", configured=True) == []
 
     def test_get_filtered_rules_several_values(self, mock_adapter):
         assert mock_adapter.get_filtered_rules(

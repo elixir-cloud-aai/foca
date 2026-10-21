@@ -100,8 +100,7 @@ def _get_subject_prefix(subject_type: SubjectType) -> str:
     if subject_type == "group":
         return GROUP_PREFIX
     raise ValueError(
-        f"Unsupported subject type '{subject_type}': expected 'user' or "
-        "'group'"
+        f"Unsupported subject type '{subject_type}': expected 'user' or 'group'"
     )
 
 
@@ -153,9 +152,7 @@ def get_current_groups() -> list[str]:
     groups = []
     if conf.group_mapping is not None:
         groups = [
-            conf.group_mapping[value]
-            for value in values
-            if value in conf.group_mapping
+            conf.group_mapping[value] for value in values if value in conf.group_mapping
         ]
     if conf.group_mapping is None or conf.keep_group_subjects:
         groups.extend(_prefix_subject(value, "group") for value in values)
@@ -177,9 +174,7 @@ def _is_within_path(request_path: str, resource_path: str) -> bool:
     resource_path = resource_path.rstrip("/")
     if not resource_path:
         return request_path == "/"
-    return request_path == resource_path or request_path.startswith(
-        f"{resource_path}/"
-    )
+    return request_path == resource_path or request_path.startswith(f"{resource_path}/")
 
 
 def _get_resource_role_ptypes(model: Model) -> list[str]:
@@ -222,9 +217,7 @@ def _warn_subject_like_roles(enforcer: Enforcer) -> None:
         return
     prefixes = (_get_subject_prefix("user"), _get_subject_prefix("group"))
     for ptype in _get_resource_role_ptypes(enforcer.get_model()):
-        for subject, role, resource in enforcer.get_named_grouping_policy(
-            ptype
-        ):
+        for subject, role, resource in enforcer.get_named_grouping_policy(ptype):
             if role.startswith(prefixes):
                 # Values are quoted, so that they cannot forge log lines
                 logger.warning(
@@ -317,9 +310,7 @@ def is_permitted() -> bool:
         # No `invalid_token` error code for validated tokens lacking the
         # identity claim, as clients cannot get tokens with the claim by
         # logging in again
-        raise _unauthorized(
-            "Subject could not be identified", invalid_token=False
-        )
+        raise _unauthorized("Subject could not be identified", invalid_token=False)
     try:
         validate_rule_value(_prefix_subject(subject))
     except ValueError as exc:
@@ -439,8 +430,7 @@ class AccessControlResolver(Resolver):
         if not self._is_enforced(operation):
             return resolution
         logger.debug(
-            f"Enforcing access control: {operation.method.upper()} "
-            f"{operation.path}"
+            f"Enforcing access control: {operation.method.upper()} {operation.path}"
         )
         return Resolution(
             function=enforce_access_control(resolution.function),
@@ -689,9 +679,7 @@ def list_resource_roles(
         rules = [rule for rule in rules if rule[0].startswith(prefix)]
     # Rules may be stored more than once (e.g., by concurrent requests)
     return list(
-        dict.fromkeys(
-            (rule[0].removeprefix(prefix), rule[1]) for rule in rules
-        )
+        dict.fromkeys((rule[0].removeprefix(prefix), rule[1]) for rule in rules)
     )
 
 
@@ -730,15 +718,11 @@ def remove_resource(
     model.load_model(current_app.config["CASBIN_MODEL"])
     _check_resource_role_model(ptype, model)
     adapter = _get_adapter()
-    configured = adapter.get_filtered_rules(
-        ptype, 2, resource, configured=True
-    )
+    configured = adapter.get_filtered_rules(ptype, 2, resource, configured=True)
     for rule in configured:
         _warn_configured_rule(ptype, rule)
     revoked = False
-    for rule in adapter.get_filtered_rules(
-        ptype, 2, resource, configured=False
-    ):
+    for rule in adapter.get_filtered_rules(ptype, 2, resource, configured=False):
         # Counted only if this call removed it (not a concurrent one), and
         # if it granted a role: unmarked copies of configured rules still
         # apply, and invalid rules are not loaded. Configured copies are
@@ -752,9 +736,7 @@ def remove_resource(
     # Remove rules that could not be removed one by one (e.g., with values
     # that are not strings) or that were stored concurrently; the section
     # (first argument) is not used by the adapter
-    adapter.remove_filtered_policy(
-        ptype[0], ptype, 2, resource, keep_configured=True
-    )
+    adapter.remove_filtered_policy(ptype[0], ptype, 2, resource, keep_configured=True)
     return revoked
 
 

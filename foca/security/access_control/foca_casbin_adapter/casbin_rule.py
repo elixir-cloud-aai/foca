@@ -33,8 +33,7 @@ def validate_rule_value(value: object) -> str:
         raise ValueError("Rule values must be non-empty strings")
     if len(value) > MAX_RULE_VALUE_LENGTH:
         raise ValueError(
-            f"Rule values must not be longer than {MAX_RULE_VALUE_LENGTH} "
-            "characters"
+            f"Rule values must not be longer than {MAX_RULE_VALUE_LENGTH} characters"
         )
     if any(char in value for char in _FORBIDDEN_CHARS):
         raise ValueError("Rule values must not contain commas or line breaks")
@@ -43,9 +42,7 @@ def validate_rule_value(value: object) -> str:
     return value
 
 
-def validate_rule(
-    ptype: object, values: list, model: Model | None = None
-) -> list[str]:
+def validate_rule(ptype: object, values: list, model: Model | None = None) -> list[str]:
     """Validate a policy rule.
 
     Args:
@@ -65,9 +62,7 @@ def validate_rule(
     if not isinstance(ptype, str) or not _PTYPE_PATTERN.fullmatch(ptype):
         raise ValueError(f"Invalid policy type: {ptype!r}")
     if not 0 < len(values) <= MAX_RULE_VALUES:
-        raise ValueError(
-            f"Rules must have between 1 and {MAX_RULE_VALUES} values"
-        )
+        raise ValueError(f"Rules must have between 1 and {MAX_RULE_VALUES} values")
     for value in values:
         validate_rule_value(value)
     if model is None:
@@ -77,8 +72,7 @@ def validate_rule(
         raise ValueError(f"Policy type not defined in model: {ptype!r}")
     if len(values) != len(assertion.tokens):
         raise ValueError(
-            f"Rules of policy type {ptype!r} must have "
-            f"{len(assertion.tokens)} values"
+            f"Rules of policy type {ptype!r} must have {len(assertion.tokens)} values"
         )
     if ptype[0] == "p":
         for token, value in zip(assertion.tokens, values, strict=True):
@@ -153,9 +147,7 @@ class CasbinRule:
         Returns:
             Values of fields `v0` to `v5` that are set, in order.
         """
-        return [
-            value for value in self._fields().values() if value is not None
-        ]
+        return [value for value in self._fields().values() if value is not None]
 
     def to_dict(self) -> dict:
         """Convert rule to dictionary.
@@ -167,9 +159,7 @@ class CasbinRule:
         return {
             "ptype": self.ptype,
             **{
-                key: value
-                for key, value in self._fields().items()
-                if value is not None
+                key: value for key, value in self._fields().items() if value is not None
             },
         }
 

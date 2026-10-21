@@ -132,8 +132,7 @@ def _check_not_configured(id: str) -> None:
     """
     if current_app.config["casbin_adapter"].is_configured(id):
         logger.error(
-            f"Policy rule '{escape_log_value(id)}' is set via the "
-            "configuration"
+            f"Policy rule '{escape_log_value(id)}' is set via the configuration"
         )
         raise Conflict(
             "Policy rule is set via the app's configuration "
@@ -204,9 +203,7 @@ def putPermission(
     """
     conf = get_config().security.access_control
     if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
-        logger.error(
-            f"Invalid policy rule identifier: '{escape_log_value(id)}'"
-        )
+        logger.error(f"Invalid policy rule identifier: '{escape_log_value(id)}'")
         raise BadRequest
     ptype, values = _get_rule()
     _check_not_configured(id)

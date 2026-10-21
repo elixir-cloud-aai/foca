@@ -172,9 +172,7 @@ def build_problem(
     status = problem["status"]
     if conf.public_members is not None:
         problem = {
-            key: value
-            for key, value in problem.items()
-            if key in conf.public_members
+            key: value for key, value in problem.items() if key in conf.public_members
         }
     return problem, status
 

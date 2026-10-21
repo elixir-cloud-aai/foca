@@ -54,17 +54,11 @@ def _content(spec: dict, path: str, method: str, status: str) -> set[str]:
 def test_with_error_media_type(path, method, status):
     """Error responses of the permissions API declare the media type."""
     default = yaml.safe_load(DEFAULT_SPEC.read_text(encoding="utf-8"))
-    assert _content(default, path, method, status) == {
-        "application/problem+json"
-    }
-    spec = _with_error_media_type(
-        spec_path=DEFAULT_SPEC, media_type="application/json"
-    )
+    assert _content(default, path, method, status) == {"application/problem+json"}
+    spec = _with_error_media_type(spec_path=DEFAULT_SPEC, media_type="application/json")
     assert _content(spec, path, method, status) == {"application/json"}
     assert "application/problem+json" not in str(spec)
-    assert _content(spec, "/permissions", "post", "200") == {
-        "application/json"
-    }
+    assert _content(spec, "/permissions", "post", "200") == {"application/json"}
 
 
 @pytest.mark.parametrize("api_specs", [None, str(DEFAULT_SPEC)])
@@ -98,9 +92,7 @@ def test_register_permission_specs_media_type(
     """Only the default specification is changed, and only for other media
     types than the default.
     """
-    cnx_app = create_connexion_app(
-        Config(exceptions={"media_type": media_type})
-    )
+    cnx_app = create_connexion_app(Config(exceptions={"media_type": media_type}))
     specs = []
     monkeypatch.setattr(
         cnx_app,
@@ -134,9 +126,7 @@ def test_check_collection_clash(monkeypatch, dbname_env, db_name, clashes):
         monkeypatch.setenv("MONGO_DBNAME", dbname_env)
     mongo_config = MongoConfig(
         dbs={
-            "app_db": DBConfig(
-                collections={"policy_rules": CollectionConfig()}
-            ),
+            "app_db": DBConfig(collections={"policy_rules": CollectionConfig()}),
             "other_db": DBConfig(collections=None),
         }
     )
@@ -244,11 +234,7 @@ class TestRegisterAccessControlSetup:
         """Policy collection must not be an app collection in the database
         that both are stored in, as set via `MONGO_DBNAME`."""
         mongo_config = MongoConfig(
-            dbs={
-                "app_db": DBConfig(
-                    collections={"policy_rules": CollectionConfig()}
-                )
-            }
+            dbs={"app_db": DBConfig(collections={"policy_rules": CollectionConfig()})}
         )
         self._register(deepcopy(mongo_config))
         monkeypatch.setenv("MONGO_DBNAME", "shared_db")
@@ -286,9 +272,7 @@ class TestRegisterAccessControlSetup:
     @pytest.mark.parametrize(
         "group_mapping,warned", [(None, True), ({"a": "admin"}, False)]
     )
-    def test_keep_group_subjects_without_mapping(
-        self, caplog, group_mapping, warned
-    ):
+    def test_keep_group_subjects_without_mapping(self, caplog, group_mapping, warned):
         """Setting `keep_group_subjects` without effect is warned about."""
         with caplog.at_level(logging.WARNING):
             self._register(

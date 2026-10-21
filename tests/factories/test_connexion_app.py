@@ -48,9 +48,7 @@ def test_create_connexion_app_without_config():
 
 def test_create_connexion_app_with_config():
     """Test Connexion app creation with config; server settings applied."""
-    config = Config(
-        server=ServerConfig(host="127.0.0.1", port=1234, testing=True)
-    )
+    config = Config(server=ServerConfig(host="127.0.0.1", port=1234, testing=True))
     cnx_app = create_connexion_app(config)
     assert get_app_config(cnx_app.app) is config
     assert (cnx_app.host, cnx_app.port, cnx_app.debug) == (
@@ -85,9 +83,7 @@ def test_debug_warning(monkeypatch, host, warned):
     """Debug mode on non-loopback hosts is warned about."""
     warnings = []
     monkeypatch.setattr(module.logger, "warning", warnings.append)
-    cnx_app = create_connexion_app(
-        Config(server=ServerConfig(host=host, debug=True))
-    )
+    cnx_app = create_connexion_app(Config(server=ServerConfig(host=host, debug=True)))
     assert cnx_app.app.config["DEBUG"] is True
     assert bool(warnings) is warned
     create_connexion_app(Config(server=ServerConfig(host=host)))
@@ -117,9 +113,7 @@ def test_max_content_length_unset_by_default():
 
 def test_max_content_length():
     """Larger request bodies are rejected with 413."""
-    cnx_app = create_connexion_app(
-        Config(server=ServerConfig(max_content_length=10))
-    )
+    cnx_app = create_connexion_app(Config(server=ServerConfig(max_content_length=10)))
     app = cnx_app.app
     assert app.config["MAX_CONTENT_LENGTH"] == 10
     app.add_url_rule(
@@ -176,15 +170,11 @@ def _limited_app(limit: int | None = LIMIT):
     cnx_app = create_connexion_app(
         Config(server=ServerConfig(max_content_length=limit))
     )
-    register_exception_handler(
-        cnx_app, ExceptionConfig(media_type="application/json")
-    )
+    register_exception_handler(cnx_app, ExceptionConfig(media_type="application/json"))
     app = cnx_app.app
     for name, view in VIEWS.items():
         app.add_url_rule(f"/{name}", name, view, methods=["POST"])
-    app.add_url_rule(
-        "/ignore", "ignore", lambda: "ok", methods=["GET", "POST"]
-    )
+    app.add_url_rule("/ignore", "ignore", lambda: "ok", methods=["GET", "POST"])
     return app
 
 

@@ -129,9 +129,7 @@ def test_get_service_info_runtime_fields():
     added unless configured; configured `None` values remove them.
     """
     configured = service(description=REMOVE, **{"x-runtime": None})
-    app = _app(
-        {"service": configured, "runtime_fields": f"{FIELDS}.runtime_fields"}
-    )
+    app = _app({"service": configured, "runtime_fields": f"{FIELDS}.runtime_fields"})
     with app.app_context():
         assert get_service_info() == service(description="From runtime")
         app.config.foca.server.port = 9000
@@ -157,9 +155,7 @@ def test_get_service_info_runtime_version():
 def test_get_service_info_runtime_version_unset(monkeypatch):
     """A version of `None` returned at runtime counts as not set."""
     monkeypatch.setattr(utils, "version", lambda name: "3.0.0")
-    monkeypatch.setitem(
-        service_info_fields.TOGGLE, "fields", {"version": None}
-    )
+    monkeypatch.setitem(service_info_fields.TOGGLE, "fields", {"version": None})
     app = _app(
         {
             "service": service(version=REMOVE),
@@ -187,9 +183,7 @@ def test_get_service_info_package_version(monkeypatch):
 
 def test_get_service_info_runtime_invalid():
     """Invalid runtime fields are named."""
-    app = _app(
-        {"service": SERVICE, "runtime_fields": f"{FIELDS}.invalid_fields"}
-    )
+    app = _app({"service": SERVICE, "runtime_fields": f"{FIELDS}.invalid_fields"})
     with (
         app.app_context(),
         pytest.raises(
@@ -451,9 +445,7 @@ def test_service_info_endpoint_invalid_at_runtime(tmp_path, monkeypatch, log):
     assert response.status_code == 500
     assert response.mimetype == "application/problem+json"
     assert "yesterday" not in response.get_data(as_text=True)
-    assert "Service info not served: Invalid service info in `createdAt`" in (
-        log.text
-    )
+    assert "Service info not served: Invalid service info in `createdAt`" in (log.text)
 
 
 def test_service_info_endpoint_runtime_failed(tmp_path, monkeypatch, log):
@@ -462,9 +454,7 @@ def test_service_info_endpoint_runtime_failed(tmp_path, monkeypatch, log):
     """
     foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})
     client = foca.create_app().app.test_client()
-    monkeypatch.setitem(
-        service_info_fields.TOGGLE, "error", KeyError("secret detail")
-    )
+    monkeypatch.setitem(service_info_fields.TOGGLE, "error", KeyError("secret detail"))
     response = client.get("/service-info")
     assert response.status_code == 500
     assert "secret detail" not in response.get_data(as_text=True)

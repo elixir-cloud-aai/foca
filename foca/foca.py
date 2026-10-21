@@ -141,9 +141,7 @@ class Foca:
             cnx_app = register_openapi(
                 app=cnx_app,
                 specs=self.conf.api.specs,
-                enforce_access_control=(
-                    self.conf.security.access_control.enforce
-                ),
+                enforce_access_control=(self.conf.security.access_control.enforce),
             )
         else:
             logger.info("No OpenAPI specifications provided.")

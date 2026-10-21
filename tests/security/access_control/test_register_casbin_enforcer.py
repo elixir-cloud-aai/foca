@@ -89,9 +89,7 @@ def _register_policies(policies, model=RESOURCE_ROLE_MODEL):
     app = App(__name__)
     module.register_casbin_enforcer(
         app=app,
-        access_control_config=AccessControlConfig(
-            model=model, policies=policies
-        ),
+        access_control_config=AccessControlConfig(model=model, policies=policies),
         mongo_config=mongo_config,
     )
     collection = app.app.config["casbin_adapter"]._collection
@@ -110,9 +108,7 @@ class TestPolicies:
         """Share one in-memory MongoDB client among app registrations, as
         with a persistent database."""
         client = mongomock.MongoClient()
-        monkeypatch.setattr(
-            register_mongodb, "MongoClient", lambda uri: client
-        )
+        monkeypatch.setattr(register_mongodb, "MongoClient", lambda uri: client)
         return client
 
     def test_added(self, clients):

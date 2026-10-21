@@ -171,8 +171,7 @@ def merge_service_info(
         )
     except RecursionError as exc:
         raise InvalidServiceInfo(
-            "Invalid service info: fields are nested too deeply or refer to "
-            "themselves"
+            "Invalid service info: fields are nested too deeply or refer to themselves"
         ) from exc
 
 
