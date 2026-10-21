@@ -302,6 +302,8 @@ def test_no_flask_config_logged(monkeypatch: pytest.MonkeyPatch) -> None:
     messages: list[str] = []
     monkeypatch.setattr(factory_module.logger, "debug", messages.append)
     app = create_connexion_app(Config())
-    app.app.config["SECRET_KEY"] = "s3cr3t"  # noqa: S105 (test value)
-    create_connexion_app(Config())
-    assert "SECRET_KEY" not in " ".join(messages)
+    logged = " ".join(messages)
+    assert "Connexion app configured." in logged
+    assert "SECRET_KEY" in app.app.config
+    for key in app.app.config:
+        assert key not in logged
