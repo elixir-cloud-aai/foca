@@ -47,13 +47,14 @@ gunicorn --bind 0.0.0.0:8080 --workers 4 "wsgi:create_app()"
 ```
 
 The [FOCA image](getting-started.md#docker) does not include a WSGI server;
-install one in your app's image (pin its version, e.g., in a requirements
-file):
+install one in your app's image, e.g., from a requirements file that pins
+its version (`gunicorn==X.Y.Z`). The image's working directory is `/app`:
 
 ```dockerfile title="Dockerfile"
 FROM elixircloud/foca:latest
 USER root
-RUN pip install --no-cache-dir -r requirements.txt  # e.g., gunicorn==X.Y.Z
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 USER 1000
 COPY ./ /app
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "wsgi:create_app()"]

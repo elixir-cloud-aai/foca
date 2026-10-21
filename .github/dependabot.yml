@@ -1,8 +1,7 @@
 version: 2
 updates:
-  # Also updates the pinned release tools in `requirements/release.txt`
   - package-ecosystem: pip
-    directory: /
+    directories: ["/", "/requirements"]
     target-branch: dev
     schedule:
       interval: weekly
@@ -12,6 +11,9 @@ updates:
       - dependency-name: connexion
         update-types: ["version-update:semver-major"]
     groups:
+      # setuptools-scm requires a matching vcs-versioning
+      setuptools-scm:
+        patterns: [setuptools-scm, vcs-versioning]
       python-dependencies:
         update-types: [minor, patch]
 

@@ -50,7 +50,7 @@ jobs:
       - name: Build distributions
         env:
           # Pins the build requirements in the isolated build environment
-          PIP_CONSTRAINT: requirements/release.txt
+          PIP_CONSTRAINT: ${{ github.workspace }}/requirements/release.txt
         run: python -m build
       - name: Check distributions
         run: twine check --strict dist/*
