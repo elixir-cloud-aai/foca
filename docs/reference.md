@@ -96,6 +96,8 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.utils.misc
 
+::: foca.utils.urls
+
 ::: foca.utils.logging
     options:
       members:
