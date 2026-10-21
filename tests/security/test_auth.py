@@ -518,6 +518,9 @@ class TestValidateToken:
             {"azp": "other"},
             {"client_id": "other", "azp": "other"},
             {"client_id": [CLIENT]},
+            # no fallback to `azp` for invalid `client_id`
+            {"client_id": [CLIENT], "azp": CLIENT},
+            {"client_id": "", "azp": CLIENT},
             {},
         ],
     )
@@ -546,6 +549,12 @@ class TestValidateToken:
         validate(app, make_token(client_id=CLIENT))
         assert len(checks) == 1
         assert "public_key" in checks[0]  # added by signature verification
+
+    def test_clients_null_client_id(self) -> None:
+        """A null `client_id` claim is not replaced by the `azp` claim."""
+        conf = AuthConfig(clients=[CLIENT])
+        with raises_unauthorized():
+            auth._verify_client({"client_id": None, "azp": CLIENT}, conf)
 
     def test_clients_not_configured(self, idp: MagicMock) -> None:
         """Clients are not checked by default."""

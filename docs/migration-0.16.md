@@ -44,7 +44,8 @@ See [Authentication](authentication.md#how-tokens-are-validated) for details.
   bearer tokens (default: `at+jwt` and `application/at+jwt`), and whether to
   check them (default: `true`; see above).
 - [`security.auth.clients`](configuration/auth.md): IDs of the clients whose
-  tokens are accepted (`client_id` or `azp` claim), e.g., a gateway in front
+  tokens are accepted (`client_id` claim, or `azp` claim if there is none),
+  e.g., a gateway in front
   of the app; usable in addition to `audience` or instead of it, with
   `verify_audience: false`
   ([details](authentication.md#how-tokens-are-validated)). By default,

@@ -934,8 +934,8 @@ class AuthConfig(FOCABaseConfig):
             raise ValueError(
                 "Restricting clients requires client IDs: set "
                 "`security.auth.clients` to the (non-blank) IDs of the clients "
-                "whose tokens the app accepts (`client_id` or `azp` claim), or "
-                "omit it to accept tokens of any client."
+                "whose tokens the app accepts (`client_id` claim, or `azp` claim "
+                "if there is none), or omit it to accept tokens of any client."
             )
         return self
 
