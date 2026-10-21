@@ -4,6 +4,8 @@ from typing import Any
 
 import pytest
 
+from foca.errors.exceptions import build_problem
+from foca.models.config import ExceptionConfig
 from foca.utils.urls import (
     HTTP_SCHEMES,
     SUPPORTED_SCHEMES,
@@ -48,6 +50,8 @@ from foca.utils.urls import _normalize_host as normalize_host
         ("https://[fe80::1%25eth0]", "https://[fe80::1%25eth0]"),
         ("https://tes.example.org/ü", "https://tes.example.org/%C3%BC"),
         ("http://tes.example.org:443", "http://tes.example.org:443"),
+        ("https://192.0.2.1:443/v1", "https://192.0.2.1/v1"),
+        ("https://tes.example.org1/v1", "https://tes.example.org1/v1"),
     ],
 )
 def test_normalize_url(url: str, normalized: str) -> None:
@@ -118,9 +122,25 @@ def test_normalize_url_keep_query_only() -> None:
         "https://[fe80::1%25]/v1",
         "https://[fe80::1%eth0]/v1",
         "https://[fe80::1%]/v1",
+        # IPvFuture literals would lose their brackets
+        "https://[v1.example.org]/v1",
+        # percent-encoded hosts would not be normalized or checked
+        "https://ex%61mple.org/v1",
+        "https://ex%00ample.org/v1",
+        "https://ex%C3%A4mple.org/v1",
+        # IPv4 addresses that are not in dotted-decimal form
+        "https://127.1/v1",
+        "https://0x7f.0.0.1/v1",
+        "https://2130706433/v1",
+        "https://1.2.3.4.5/v1",
+        "https://192.0.2.01/v1",
+        "https://example.123/v1",
+        # strings only
+        None,
+        b"https://tes.example.org",
     ],
 )
-def test_normalize_url_invalid(url: str) -> None:
+def test_normalize_url_invalid(url: object) -> None:
     """Invalid URLs are rejected.
 
     Also URLs without scheme or host, with schemes other than `http` and
@@ -134,7 +154,7 @@ def test_normalize_url_invalid(url: str) -> None:
 def test_normalize_host_invalid_ipv6() -> None:
     """Invalid IPv6 addresses are rejected (`urlsplit()` rejects most)."""
     with pytest.raises(InvalidURL, match="need a valid host"):
-        normalize_host("::g", name="URLs")
+        normalize_host("::g", bracketed=True, name="URLs")
 
 
 def test_normalize_url_schemes() -> None:
@@ -270,6 +290,8 @@ def test_check_url_mailto_only() -> None:
         ("mailto:a@example.org.", "with a domain name"),
         ("mailto:a@localhost", "with a domain name"),
         ("mailto:a@192.0.2.1", "with a domain name"),
+        ("mailto:a@127.1", "with a domain name"),
+        ("mailto:a@b.123", "with a domain name"),
         ("mailto:a@[192.0.2.1]", "with a domain name"),
         (f"mailto:a@{'x' * 64}.org", "with a domain name"),
         (f"mailto:a@{'x.' * 127}org", "with a domain name"),
@@ -305,10 +327,31 @@ def test_check_url_unsupported_schemes(schemes: Any) -> None:
     assert not isinstance(exc_info.value, InvalidURL)
 
 
-def test_invalid_url_status() -> None:
-    """Invalid URLs are client errors, e.g., for FOCA's problem handler."""
-    assert InvalidURL.code == 400
-    assert issubclass(InvalidURL, ValueError)
+def test_invalid_url_problem() -> None:
+    """FOCA's problem handler responds to invalid URLs with `400`.
+
+    Without the message, which may contain client input.
+    """
+    with pytest.raises(InvalidURL) as exc_info:
+        check_url("ftp://a.org", name="Service URLs")
+    assert isinstance(exc_info.value, ValueError)
+    assert build_problem(exc_info.value, ExceptionConfig()) == (
+        {"title": "Bad Request", "status": 400},
+        400,
+    )
+
+
+@pytest.mark.parametrize(
+    "check",
+    [
+        lambda schemes: check_url("https://a.org", schemes=schemes),
+        lambda schemes: normalize_url("https://a.org", schemes=schemes),
+        lambda schemes: check_url_fields({"a": "https://a.org"}, {"a": schemes}),
+    ],
+)
+def test_schemes_iterator(check: Any) -> None:
+    """Allowed schemes can be given as iterators, e.g., generators."""
+    check(iter(["https"]))
 
 
 FIELDS = {
