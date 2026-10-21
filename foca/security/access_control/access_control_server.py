@@ -6,6 +6,7 @@ Requests and responses are logged unless disabled via config option
 
 import logging
 from math import ceil
+from typing import Any
 
 from casbin.model import Model
 from flask import current_app, request
@@ -45,7 +46,7 @@ def _permissions_traffic_logged() -> bool:
     return get_config().security.access_control.log_traffic
 
 
-def _get_permissions_collection() -> Collection:
+def _get_permissions_collection() -> Collection[dict[str, Any]]:
     """Get collection storing policy rules of the current app.
 
     Returns:
@@ -58,7 +59,7 @@ def _get_permissions_collection() -> Collection:
     )
 
 
-def _get_visibility_filter() -> dict:
+def _get_visibility_filter() -> dict[str, Any]:
     """Get filter for the permissions visible to the current subject.
 
     Returns:
@@ -114,7 +115,7 @@ def _get_rule() -> tuple[str, list[str]]:
         model.load_model(current_app.config["CASBIN_MODEL"])
         values = validate_rule(ptype, [rule[key] for key in keys], model)
     except ValueError as exc:
-        logger.error(f"Invalid rule: {exc}")
+        logger.error("Invalid rule: %s", exc)
         raise BadRequest from exc
     return str(ptype), values
 
@@ -132,7 +133,7 @@ def _check_not_configured(id: str) -> None:
     """
     if current_app.config["casbin_adapter"].is_configured(id):
         logger.error(
-            f"Policy rule '{escape_log_value(id)}' is set via the configuration"
+            "Policy rule '%s' is set via the configuration", escape_log_value(id)
         )
         raise Conflict(
             "Policy rule is set via the app's configuration "
@@ -141,7 +142,7 @@ def _check_not_configured(id: str) -> None:
         )
 
 
-def _to_permission(document: dict) -> dict:
+def _to_permission(document: dict[str, Any]) -> dict[str, Any]:
     """Convert stored policy rule to permission.
 
     Args:
@@ -178,7 +179,7 @@ def postPermission() -> str:
         ptype=ptype,
         rule=values,
     )
-    logger.info(f"Policy rule '{permission_id}' added.")
+    logger.info("Policy rule '%s' added.", permission_id)
     return permission_id
 
 
@@ -203,7 +204,7 @@ def putPermission(
     """
     conf = get_config().security.access_control
     if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
-        logger.error(f"Invalid policy rule identifier: '{escape_log_value(id)}'")
+        logger.error("Invalid policy rule identifier: '%s'", escape_log_value(id))
         raise BadRequest
     ptype, values = _get_rule()
     _check_not_configured(id)
@@ -212,7 +213,7 @@ def putPermission(
         rule=values,
         id=id,
     )
-    logger.info(f"Policy rule '{escape_log_value(id)}' updated.")
+    logger.info("Policy rule '%s' updated.", escape_log_value(id))
     return id
 
 
@@ -220,7 +221,7 @@ def putPermission(
 def getAllPermissions(
     page_size: int = DEFAULT_PAGE_SIZE,
     page: int = 0,
-) -> dict:
+) -> dict[str, Any]:
     """Method to fetch permissions page by page.
 
     Permissions are returned in the order they were stored, as recommended
@@ -247,7 +248,7 @@ def getAllPermissions(
     total = collection.count_documents(query)
     total_pages = ceil(total / page_size)
     if page >= max(total_pages, 1):
-        logger.error(f"Page {page} out of range ({total_pages} pages)")
+        logger.error("Page %s out of range (%s pages)", page, total_pages)
         raise BadRequest
     permissions = (
         collection.find(filter=query, projection={"_id": False})
@@ -269,7 +270,7 @@ def getAllPermissions(
 @log_traffic_if(_permissions_traffic_logged)
 def getPermission(
     id: str,
-) -> dict:
+) -> dict[str, Any]:
     """Method to fetch a particular permission.
 
     Args:
@@ -305,5 +306,5 @@ def deletePermission(
     _check_not_configured(id)
     if not _get_permissions_collection().delete_one({"id": id}).deleted_count:
         raise NotFound
-    logger.info(f"Policy rule '{escape_log_value(id)}' deleted.")
+    logger.info("Policy rule '%s' deleted.", escape_log_value(id))
     return id

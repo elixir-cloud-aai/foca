@@ -9,6 +9,8 @@ from tests.test_files.models_petstore import (
 )
 
 PETSTORE_URL = "http://localhost:8080"
+# Timeout of requests to the app, in seconds
+TIMEOUT = 10
 NAME_PET = "karl"
 TAG_PET = "frog"
 EXTRA_PARAM_ARG = "extra"
@@ -24,11 +26,12 @@ BODY_PET_2 = {
 INVALID_ID = "X"
 
 
-def test_add_pet_200():
+def test_add_pet_200() -> None:
     """Test `POST /pets` for successfully adding a new pet."""
     response = requests.post(
         url=f"{PETSTORE_URL}/pets",
         json=BODY_PET_1,
+        timeout=TIMEOUT,
     )
     assert response.status_code == 200
     response_data = Pet(**response.json())
@@ -37,11 +40,12 @@ def test_add_pet_200():
     assert response_data.tag == TAG_PET
 
 
-def test_add_pet_extra_parameter_200():
+def test_add_pet_extra_parameter_200() -> None:
     """Test `POST /pets` to ensure that extra parameter is ignored."""
     response = requests.post(
         url=f"{PETSTORE_URL}/pets",
         json=BODY_PET_2,
+        timeout=TIMEOUT,
     )
     assert response.status_code == 200
     response_data = Pet(**response.json())
@@ -51,11 +55,12 @@ def test_add_pet_extra_parameter_200():
     assert getattr(response_data, "extra_parameter", None) is None
 
 
-def test_add_pet_required_arguments_missing_400():
+def test_add_pet_required_arguments_missing_400() -> None:
     """Test `POST /pets` with required arguments missing."""
     response = requests.post(
         url=f"{PETSTORE_URL}/pets",
         json={},
+        timeout=TIMEOUT,
     )
     assert response.status_code == 400
     print(response.json())
@@ -66,47 +71,52 @@ def test_add_pet_required_arguments_missing_400():
     )
 
 
-def test_get_all_pets_200():
+def test_get_all_pets_200() -> None:
     """Test `GET /pets` for successfully fetching all pets."""
     response = requests.get(
         url=f"{PETSTORE_URL}/pets",
+        timeout=TIMEOUT,
     )
     assert response.status_code == 200
     response_data = Pets(pets=response.json())
     assert isinstance(response_data, Pets)
 
 
-def test_get_all_pets_check_record_number():
-    """Test `GET /pets` to ensure that the number of records increased after
-    adding an additional pet.
+def test_get_all_pets_check_record_number() -> None:
+    """Test `GET /pets` after adding an additional pet.
+
+    The number of records must have increased.
     """
     response = requests.get(
         url=f"{PETSTORE_URL}/pets",
+        timeout=TIMEOUT,
     )
     assert response.status_code == 200
     records = len(response.json())
     requests.post(
         url=f"{PETSTORE_URL}/pets",
         json=BODY_PET_1,
+        timeout=TIMEOUT,
     )
     new_response = requests.get(
         url=f"{PETSTORE_URL}/pets",
+        timeout=TIMEOUT,
     )
     assert new_response.status_code == 200
     assert len(new_response.json()) == records + 1
 
 
-def test_get_pet_by_id_200():
-    """Test for `GET /pets/{id}` for successfully fetching a pet with a given
-    id.
-    """
+def test_get_pet_by_id_200() -> None:
+    """Test for `GET /pets/{id}` for successfully fetching a pet with a given id."""
     post_response = requests.post(
         url=f"{PETSTORE_URL}/pets",
         json=BODY_PET_1,
+        timeout=TIMEOUT,
     )
     pet_id = Pet(**post_response.json()).id
     response = requests.get(
         url=f"{PETSTORE_URL}/pets/{pet_id}",
+        timeout=TIMEOUT,
     )
     assert response.status_code == 200
     response_data = Pet(**response.json())
@@ -115,10 +125,11 @@ def test_get_pet_by_id_200():
     assert response_data.tag == TAG_PET
 
 
-def test_get_pet_by_id_404():
+def test_get_pet_by_id_404() -> None:
     """Test for `GET /pets/{id}` for fetching a non-existent pet."""
     response = requests.get(
         url=f"{PETSTORE_URL}/pets/{INVALID_ID}",
+        timeout=TIMEOUT,
     )
     assert response.status_code == 404
     response_data = Error(**response.json())
@@ -126,33 +137,36 @@ def test_get_pet_by_id_404():
     assert response_data.detail == "We have never heard of this pet! :-("
 
 
-def test_delete_pet_204():
-    """Test for `DELETE /pets/{id}` for successfully deleting a pet with a
-    given id.
-    """
+def test_delete_pet_204() -> None:
+    """Test for `DELETE /pets/{id}` for successfully deleting a pet with a given id."""
     post_response = requests.post(
         url=f"{PETSTORE_URL}/pets",
         json=BODY_PET_1,
+        timeout=TIMEOUT,
     )
     pet_id = Pet(**post_response.json()).id
     get_response_pre = requests.get(
         url=f"{PETSTORE_URL}/pets/{pet_id}",
+        timeout=TIMEOUT,
     )
     assert get_response_pre.status_code == 200
     response = requests.delete(
         url=f"{PETSTORE_URL}/pets/{pet_id}",
+        timeout=TIMEOUT,
     )
     assert response.status_code == 204
     get_response_post = requests.get(
         url=f"{PETSTORE_URL}/pets/{pet_id}",
+        timeout=TIMEOUT,
     )
     assert get_response_post.status_code == 404
 
 
-def test_delete_pet_404():
+def test_delete_pet_404() -> None:
     """Test for `DELETE /pets/{id}` for deleting a non-existent pet."""
     response = requests.delete(
         url=f"{PETSTORE_URL}/pets/{INVALID_ID}",
+        timeout=TIMEOUT,
     )
     assert response.status_code == 404
     response_data = Error(**response.json())

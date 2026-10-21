@@ -21,12 +21,12 @@ REQ = {
 logger = logging.getLogger(__name__)
 
 
-def test_logging_decorator(caplog):
-    """Verify the default settings work properly"""
+def test_logging_decorator(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify the default settings work properly."""
     caplog.set_level(logging.INFO)
 
     @log_traffic
-    def mock_func():
+    def mock_func() -> dict[str, str]:
         return {"foo": "bar"}
 
     with app.test_request_context(environ_base=REQ):
@@ -34,11 +34,11 @@ def test_logging_decorator(caplog):
     assert "Incoming request" in caplog.text and "Response to request" in caplog.text
 
 
-def test_logging_decorator_log_level(caplog):
-    """Verify that the 'log_level argument modifies the log level properly"""
+def test_logging_decorator_log_level(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify that the 'log_level argument modifies the log level properly."""
 
     @log_traffic(log_level=30)
-    def mock_func():
+    def mock_func() -> dict[str, str]:
         return {"foo": "bar"}
 
     with app.test_request_context(environ_base=REQ):
@@ -46,12 +46,12 @@ def test_logging_decorator_log_level(caplog):
     assert "WARNING" in caplog.text
 
 
-def test_logging_decorator_req_only(caplog):
-    """Verify that only the request gets logged"""
+def test_logging_decorator_req_only(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify that only the request gets logged."""
     caplog.set_level(logging.INFO)
 
     @log_traffic(log_response=False)
-    def mock_func():
+    def mock_func() -> dict[str, str]:
         return {"foo": "bar"}
 
     with app.test_request_context(environ_base=REQ):
@@ -61,12 +61,12 @@ def test_logging_decorator_req_only(caplog):
     )
 
 
-def test_logging_decorator_res_only(caplog):
-    """Verify that only the response gets logged"""
+def test_logging_decorator_res_only(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify that only the response gets logged."""
     caplog.set_level(logging.INFO)
 
     @log_traffic(log_request=False)
-    def mock_func():
+    def mock_func() -> dict[str, str]:
         return {"foo": "bar"}
 
     with app.test_request_context(environ_base=REQ):
@@ -77,15 +77,17 @@ def test_logging_decorator_res_only(caplog):
 
 
 @log_traffic
-def get_items():
+def get_items() -> str:
     """Controller of test API."""
     return "ok"
 
 
-def test_logging_decorator_in_app(monkeypatch):
+def test_logging_decorator_in_app(monkeypatch: pytest.MonkeyPatch) -> None:
     """Requests and responses of a running app are logged."""
-    messages = []
-    monkeypatch.setattr(module.logger, "log", lambda level, msg: messages.append(msg))
+    messages: list[str] = []
+    monkeypatch.setattr(
+        module.logger, "log", lambda level, msg, *args: messages.append(msg % args)
+    )
     app = App(__name__, skip_error_handlers=True)
     app.add_api(
         {
@@ -112,10 +114,12 @@ def test_logging_decorator_in_app(monkeypatch):
 
 
 @pytest.fixture
-def logged(monkeypatch) -> list[str]:
+def logged(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Messages logged by `log_traffic`."""
     messages: list[str] = []
-    monkeypatch.setattr(module.logger, "log", lambda level, msg: messages.append(msg))
+    monkeypatch.setattr(
+        module.logger, "log", lambda level, msg, *args: messages.append(msg % args)
+    )
     return messages
 
 
@@ -139,11 +143,13 @@ SECRET_BODY = {"token": "s3cr3t"}
         (None, "NoneType, status 200"),
     ],
 )
-def test_logging_decorator_no_body(logged, response, description):
+def test_logging_decorator_no_body(
+    logged: list[str], response: object, description: str
+) -> None:
     """Response bodies are not logged by default."""
 
     @log_traffic
-    def mock_func():
+    def mock_func() -> object:
         return response
 
     with app.test_request_context(environ_base=REQ):
@@ -152,11 +158,11 @@ def test_logging_decorator_no_body(logged, response, description):
     assert "s3cr3t" not in " ".join(logged)
 
 
-def test_logging_decorator_body(logged):
+def test_logging_decorator_body(logged: list[str]) -> None:
     """Response bodies are logged if requested."""
 
     @log_traffic(log_response_body=True)
-    def mock_func():
+    def mock_func() -> dict[str, str]:
         return {"foo": "bar\nbaz"}
 
     with app.test_request_context(environ_base=REQ):
@@ -164,11 +170,11 @@ def test_logging_decorator_body(logged):
     assert logged[1].endswith(": dict, status 200: {'foo': 'bar\\nbaz'}")
 
 
-def test_logging_decorator_control_characters(logged):
+def test_logging_decorator_control_characters(logged: list[str]) -> None:
     """Encoded line breaks in paths are escaped."""
 
     @log_traffic
-    def mock_func():
+    def mock_func() -> str:
         return "ok"
 
     with app.test_request_context("/items%0d%0aFAKE%20log%20line", environ_base=REQ):
@@ -179,7 +185,7 @@ def test_logging_decorator_control_characters(logged):
 
 
 @pytest.mark.parametrize("enabled", [True, False])
-def test_log_traffic_if(logged, enabled):
+def test_log_traffic_if(logged: list[str], enabled: bool) -> None:
     """Traffic is logged only if enabled, as decided on each request."""
     calls: list[None] = []
     runs: list[str] = []
@@ -189,7 +195,7 @@ def test_log_traffic_if(logged, enabled):
         return enabled
 
     @log_traffic_if(is_enabled)
-    def mock_func(value):
+    def mock_func(value: str) -> str:
         runs.append(value)
         return value
 
@@ -201,22 +207,25 @@ def test_log_traffic_if(logged, enabled):
     assert len(logged) == (4 if enabled else 0)
 
 
-def test_log_traffic_if_wrapped():
+def test_log_traffic_if_wrapped() -> None:
     """The decorated function is kept as `__wrapped__`, with its metadata."""
 
-    def mock_func(value):
+    def mock_func(value: str) -> str:
         """Mock controller."""
         return value
 
     decorated = log_traffic_if(lambda: True)(mock_func)
-    assert decorated.__wrapped__ is mock_func
+    # set by `functools.wraps()`, unknown to the type of `decorated`
+    assert decorated.__wrapped__ is mock_func  # type: ignore[attr-defined]
     assert decorated.__doc__ == "Mock controller."
     assert decorated.__name__ == "mock_func"
 
 
-def test_log_traffic_if_no_request_context(logged):
-    """Without a request context, the function is called without logging,
-    and without deciding whether to log."""
+def test_log_traffic_if_no_request_context(logged: list[str]) -> None:
+    """Without a request context, the function is called without logging.
+
+    Whether to log is not decided either.
+    """
 
     def is_enabled() -> bool:
         raise AssertionError("called")
@@ -224,7 +233,7 @@ def test_log_traffic_if_no_request_context(logged):
     runs: list[None] = []
 
     @log_traffic_if(is_enabled)
-    def mock_func():
+    def mock_func() -> str:
         runs.append(None)
         return "ok"
 
@@ -235,11 +244,11 @@ def test_log_traffic_if_no_request_context(logged):
     assert logged == []
 
 
-def test_log_traffic_if_options(logged):
+def test_log_traffic_if_options(logged: list[str]) -> None:
     """Options are passed to `log_traffic`."""
 
     @log_traffic_if(lambda: True, log_request=False, log_response_body=True)
-    def mock_func():
+    def mock_func() -> str:
         return "ok"
 
     with app.test_request_context(environ_base=REQ):
@@ -249,11 +258,11 @@ def test_log_traffic_if_options(logged):
     assert logged[0].endswith(": str, status 200: ok")
 
 
-def test_log_traffic_if_log_level(caplog):
+def test_log_traffic_if_log_level(caplog: pytest.LogCaptureFixture) -> None:
     """The log level is passed to `log_traffic`."""
 
     @log_traffic_if(lambda: True, log_level=logging.WARNING)
-    def mock_func():
+    def mock_func() -> str:
         return "ok"
 
     with app.test_request_context(environ_base=REQ):
@@ -272,7 +281,8 @@ def test_log_traffic_if_log_level(caplog):
         (42, "42"),
     ],
 )
-def test_escape_log_value(value, expected):
+def test_escape_log_value(value: object, expected: str) -> None:
+    """Control characters are escaped; other values are converted to text."""
     assert escape_log_value(value) == expected
 
 
@@ -285,11 +295,13 @@ def test_escape_log_value(value, expected):
         ((), "None"),
     ],
 )
-def test_logging_decorator_body_without_headers(logged, response, body):
+def test_logging_decorator_body_without_headers(
+    logged: list[str], response: object, body: str
+) -> None:
     """Only response bodies are logged, without headers."""
 
     @log_traffic(log_response_body=True)
-    def mock_func():
+    def mock_func() -> object:
         return response
 
     with app.test_request_context(environ_base=REQ):

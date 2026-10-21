@@ -4,11 +4,12 @@ import logging
 import threading
 from collections.abc import Callable
 from functools import wraps
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from casbin import Enforcer
 from casbin.model import Model
 from connexion.exceptions import Forbidden
+from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from flask import current_app, has_request_context, request
 from flask.globals import request_ctx
@@ -21,6 +22,9 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule_value,
 )
 from foca.utils.logging import escape_log_value
+
+if TYPE_CHECKING:  # import cycle
+    from foca.models.config import AccessControlConfig
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +40,12 @@ SubjectType = Literal["user", "group"]
 """Types of subjects of resource role helpers: users or groups."""
 
 
-def _get_access_control_config():
+def _get_access_control_config() -> "AccessControlConfig":
     """Get access control configuration of current app."""
     return get_config().security.access_control
 
 
-def _get_claims() -> dict:
+def _get_claims() -> dict[str, Any]:
     """Get claims of the validated token of the current request.
 
     Returns:
@@ -221,11 +225,17 @@ def _warn_subject_like_roles(enforcer: Enforcer) -> None:
             if role.startswith(prefixes):
                 # Values are quoted, so that they cannot forge log lines
                 logger.warning(
-                    f"Policy rule ({ptype}, {subject!r}, {role!r}, "
-                    f"{resource!r}) grants a role that is a subject, giving "
-                    f"{subject!r} the rights of {role!r} on {resource!r}. "
-                    "Revoke it, if not intended, via "
-                    "`remove_resource_role()` or the permissions API."
+                    "Policy rule (%s, %r, %r, %r) grants a role that is a "
+                    "subject, giving %r the rights of %r on %r. Revoke it, if "
+                    "not intended, via `remove_resource_role()` or the "
+                    "permissions API.",
+                    ptype,
+                    subject,
+                    role,
+                    resource,
+                    subject,
+                    role,
+                    resource,
                 )
 
 
@@ -254,7 +264,7 @@ def get_enforcer() -> Enforcer:
     return enforcer
 
 
-def enforce_access_control(fn: Callable) -> Callable:
+def enforce_access_control(fn: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator enforcing access control policies on a controller.
 
     The subject (cf. :py:func:`get_current_subject`), prefixed with
@@ -278,7 +288,7 @@ def enforce_access_control(fn: Callable) -> Callable:
     """
 
     @wraps(fn)
-    def _wrapper(*args, **kwargs):
+    def _wrapper(*args: Any, **kwargs: Any) -> Any:
         if not is_permitted():
             raise Forbidden
         return fn(*args, **kwargs)
@@ -314,7 +324,7 @@ def is_permitted() -> bool:
     try:
         validate_rule_value(_prefix_subject(subject))
     except ValueError as exc:
-        logger.info(f"Access denied: invalid subject: {exc}")
+        logger.info("Access denied: invalid subject: %s", exc)
         return False
     enforcer = get_enforcer()
     # Escaped, so that request paths and claims cannot forge log lines
@@ -322,16 +332,17 @@ def is_permitted() -> bool:
     for _subject in [_prefix_subject(subject), *get_current_groups()]:
         if enforcer.enforce(_subject, request.path, request.method):
             logger.debug(
-                f"Access granted: {_request} to "
-                f"'{escape_log_value(subject)}' as "
-                f"'{escape_log_value(_subject)}'"
+                "Access granted: %s to '%s' as '%s'",
+                _request,
+                escape_log_value(subject),
+                escape_log_value(_subject),
             )
             return True
-    logger.info(f"Access denied: {_request} to '{escape_log_value(subject)}'")
+    logger.info("Access denied: %s to '%s'", _request, escape_log_value(subject))
     return False
 
 
-def _requires_authentication(security: list[dict] | None) -> bool:
+def _requires_authentication(security: list[dict[str, Any]] | None) -> bool:
     """Check whether security requirements require authentication.
 
     Args:
@@ -378,7 +389,7 @@ class AccessControlResolver(Resolver):
 
     def __init__(
         self,
-        resolver: Resolver | Callable | None = None,
+        resolver: Resolver | Callable[..., Any] | None = None,
         enforce_all: bool = False,
         self_service: bool = False,
     ):
@@ -396,7 +407,7 @@ class AccessControlResolver(Resolver):
         self.enforce_all = enforce_all
         self.self_service = self_service
 
-    def _is_enforced(self, operation) -> bool:
+    def _is_enforced(self, operation: AbstractOperation) -> bool:
         """Check whether to enforce policies on an operation.
 
         Args:
@@ -417,7 +428,7 @@ class AccessControlResolver(Resolver):
             return False
         return _requires_authentication(operation.security)
 
-    def resolve(self, operation) -> Resolution:
+    def resolve(self, operation: AbstractOperation) -> Resolution:
         """Resolve operation and wrap function with policy enforcement.
 
         Args:
@@ -430,7 +441,7 @@ class AccessControlResolver(Resolver):
         if not self._is_enforced(operation):
             return resolution
         logger.debug(
-            f"Enforcing access control: {operation.method.upper()} {operation.path}"
+            "Enforcing access control: %s %s", operation.method.upper(), operation.path
         )
         return Resolution(
             function=enforce_access_control(resolution.function),
@@ -586,12 +597,15 @@ def add_resource_role(
         and not conf.keep_group_subjects
     ):
         logger.warning(
-            f"Role '{escape_log_value(role)}' granted to group "
-            f"'{escape_log_value(subject)}' on "
-            f"'{escape_log_value(resource)}' does not apply: group claim "
+            "Role '%s' granted to group "
+            "'%s' on "
+            "'%s' does not apply: group claim "
             "values are not used as subjects with "
             "'access_control.group_mapping', unless "
-            "'access_control.keep_group_subjects' is set"
+            "'access_control.keep_group_subjects' is set",
+            escape_log_value(role),
+            escape_log_value(subject),
+            escape_log_value(resource),
         )
     return enforcer.add_named_grouping_policy(ptype, *rule)
 
@@ -773,8 +787,10 @@ def _warn_configured_rule(ptype: str, rule: list[str]) -> None:
     # Escaped, so that values cannot forge log lines
     values = ", ".join(f"'{escape_log_value(value)}'" for value in rule)
     logger.warning(
-        f"Policy rule ({ptype}, {values}) is set via the configuration "
+        "Policy rule (%s, %s) is set via the configuration "
         "('access_control.policies') and is not removed, as it would be "
         "added again on the next start. Remove it from the configuration "
-        "instead."
+        "instead.",
+        ptype,
+        values,
     )

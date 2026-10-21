@@ -2,6 +2,7 @@
 
 import logging
 import os
+from typing import Any
 from urllib.parse import quote_plus, urlsplit, urlunsplit
 
 from pymongo import MongoClient
@@ -36,7 +37,7 @@ def register_mongodb(conf: MongoConfig) -> MongoConfig:
     return conf
 
 
-def get_mongo_client(conf: MongoConfig) -> MongoClient:
+def get_mongo_client(conf: MongoConfig) -> MongoClient[dict[str, Any]]:
     """Get the MongoDB client of an app, creating it on first use.
 
     If credentials are configured via environment variables, the client
@@ -64,7 +65,7 @@ def create_mongo_client(
     host: str = "mongodb",
     port: int = 27017,
     db: str | None = None,
-) -> MongoClient:
+) -> MongoClient[dict[str, Any]]:
     """Create MongoDB client.
 
     Cf. :py:func:`get_mongo_uri` for how the connection string is built,
@@ -81,13 +82,13 @@ def create_mongo_client(
         MongoDB client.
     """
     uri = get_mongo_uri(host=host, port=port, db=db or "")
-    client: MongoClient = MongoClient(uri)
-    logger.info(f"Created MongoDB client for '{_redact_uri(uri)}'.")
+    client: MongoClient[dict[str, Any]] = MongoClient(uri)
+    logger.info("Created MongoDB client for '%s'.", _redact_uri(uri))
     return client
 
 
 def _register_database(
-    client: MongoClient,
+    client: MongoClient[dict[str, Any]],
     db_name: str,
     db_conf: DBConfig,
 ) -> None:
@@ -106,10 +107,10 @@ def _register_database(
             (e.g., one with the same name but different keys or options).
     """
     db_conf.client = client[get_mongo_db_name(db_name)]
-    logger.info(f"Added database '{db_name}'.")
+    logger.info("Added database '%s'.", db_name)
     for coll_name, coll_conf in (db_conf.collections or {}).items():
         coll_conf.client = db_conf.client[coll_name]
-        logger.info(f"Added database collection '{coll_name}'.")
+        logger.info("Added database collection '%s'.", coll_name)
         for index in coll_conf.indexes or []:
             if index.keys is None:
                 continue
@@ -122,7 +123,7 @@ def _register_database(
                     f"drop or rename the existing index: {exc}"
                 ) from exc
         if coll_conf.indexes:
-            logger.info(f"Indexes ensured for collection '{coll_name}'.")
+            logger.info("Indexes ensured for collection '%s'.", coll_name)
 
 
 def get_mongo_uri(

@@ -2,6 +2,7 @@
 
 from datetime import date
 from importlib.metadata import PackageNotFoundError
+from typing import Any, NoReturn
 
 import pytest
 
@@ -34,10 +35,8 @@ from tests.test_files.service_info_data import (
         1,
     ],
 )
-def test_is_uri(value):
-    """Absolute URIs with any scheme pass; non-strings are left to the
-    schema.
-    """
+def test_is_uri(value: object) -> None:
+    """Absolute URIs with any scheme pass; non-strings are left to the schema."""
     assert module._is_uri(value)
 
 
@@ -45,7 +44,7 @@ def test_is_uri(value):
     "value",
     ["support", "/org", "docs example org", "https://example.org/a b", ""],
 )
-def test_is_uri_invalid(value):
+def test_is_uri_invalid(value: str) -> None:
     """Relative URIs and strings with whitespace fail."""
     assert not module._is_uri(value)
 
@@ -61,9 +60,10 @@ def test_is_uri_invalid(value):
         1,
     ],
 )
-def test_is_date_time(value):
-    """RFC 3339 date-times pass, including leap seconds; non-strings are left
-    to the schema.
+def test_is_date_time(value: object) -> None:
+    """RFC 3339 date-times pass, including leap seconds.
+
+    Non-strings are left to the schema.
     """
     assert module._is_date_time(value)
 
@@ -86,25 +86,28 @@ def test_is_date_time(value):
         "".join(chr(0xFF10 + int(digit)) for digit in "2020") + "-11-08T00:00:00Z",
     ],
 )
-def test_is_date_time_invalid(value):
+def test_is_date_time_invalid(value: str) -> None:
     """Other strings fail, also with non-ASCII digits."""
     assert not module._is_date_time(value)
 
 
-def test_without_nulls():
-    """Fields and list items set to `None` are removed recursively, from a
-    copy.
-    """
-    data = {"a": None, "b": [None, {"c": None, "d": 1}], "e": {"f": None}}
+def test_without_nulls() -> None:
+    """Fields and list items set to `None` are removed recursively, from a copy."""
+    data: dict[str, Any] = {
+        "a": None,
+        "b": [None, {"c": None, "d": 1}],
+        "e": {"f": None},
+    }
     copy = without_nulls(data)
     assert copy == {"b": [{"d": 1}], "e": {}}
     copy["b"][0]["d"] = 2
     assert data["b"][1]["d"] == 1
 
 
-def test_merge_service_info():
-    """Fields are taken from the service, the runtime fields and the package
-    version, in this order; `None` removes fields of lower precedence.
+def test_merge_service_info() -> None:
+    """Fields are taken from the service, runtime fields and package version.
+
+    In this order; `None` removes fields of lower precedence.
     """
     configured = {"a": 1, "b": None}
     runtime = {"a": 2, "b": 2, "c": 2, "d": None}
@@ -124,15 +127,15 @@ def test_merge_service_info():
     assert merge_service_info({"a": [None, 1]}) == {"a": [1]}
 
 
-def test_merge_service_info_cyclic():
+def test_merge_service_info_cyclic() -> None:
     """Self-referring fields raise an error, not a `RecursionError`."""
-    runtime: dict = {}
+    runtime: dict[str, Any] = {}
     runtime["x-self"] = runtime
     with pytest.raises(InvalidServiceInfo, match="refer to themselves"):
         merge_service_info({}, runtime=runtime)
 
 
-def test_merge_service_info_copy():
+def test_merge_service_info_copy() -> None:
     """The merged service info is a copy."""
     configured = service()
     merged = merge_service_info(configured)
@@ -140,16 +143,18 @@ def test_merge_service_info_copy():
     assert configured == SERVICE
 
 
-def test_lookup_package_version(monkeypatch):
+def test_lookup_package_version(monkeypatch: pytest.MonkeyPatch) -> None:
     """The version is taken from the package metadata."""
     monkeypatch.setattr(module, "version", lambda name: f"{name}-1.2.3")
     assert lookup_package_version("my-app") == "my-app-1.2.3"
 
 
-def test_lookup_package_version_not_installed(monkeypatch):
+def test_lookup_package_version_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Packages that are not installed are named."""
 
-    def not_installed(name):
+    def not_installed(name: str) -> NoReturn:
         raise PackageNotFoundError(name)
 
     monkeypatch.setattr(module, "version", not_installed)
@@ -163,7 +168,7 @@ def test_lookup_package_version_not_installed(monkeypatch):
         lookup_package_version("my-app")
 
 
-def test_import_runtime_function():
+def test_import_runtime_function() -> None:
     """Functions are imported by their dotted path."""
     func = import_runtime_function(f"{FIELDS}.version_field")
     assert func() == {"version": "2.0.0-runtime"}
@@ -173,7 +178,7 @@ def test_import_runtime_function():
     "path",
     [f"{FIELDS}.missing", "tests.test_files.missing.func", "func", ""],
 )
-def test_import_runtime_function_missing(path):
+def test_import_runtime_function_missing(path: str) -> None:
     """Paths that cannot be imported are named."""
     with pytest.raises(
         InvalidServiceInfo,
@@ -185,22 +190,22 @@ def test_import_runtime_function_missing(path):
         import_runtime_function(path)
 
 
-def test_import_runtime_function_not_callable():
+def test_import_runtime_function_not_callable() -> None:
     """Imported objects must be callable."""
     with pytest.raises(InvalidServiceInfo, match="is not callable"):
         import_runtime_function(f"{FIELDS}.NOT_CALLABLE")
 
 
-def test_call_runtime_function():
+def test_call_runtime_function() -> None:
     """The fields returned by the function are returned."""
     assert call_runtime_function(lambda: {"a": 1}, "f") == {"a": 1}
 
 
-def test_call_runtime_function_failed():
+def test_call_runtime_function_failed() -> None:
     """Exceptions raised by the function are chained."""
     error = KeyError("missing")
 
-    def failing():
+    def failing() -> NoReturn:
         raise error
 
     with pytest.raises(
@@ -214,16 +219,14 @@ def test_call_runtime_function_failed():
     assert exc_info.value.__cause__ is error
 
 
-def test_call_runtime_function_not_a_dict():
+def test_call_runtime_function_not_a_dict() -> None:
     """The function must return a dictionary."""
     with pytest.raises(InvalidServiceInfo, match="did not return a dictionary"):
-        call_runtime_function(lambda: ["a"], "f")  # type: ignore[arg-type]
+        call_runtime_function(lambda: ["a"], "f")  # type: ignore[arg-type,return-value]
 
 
-def test_validate_service_info():
-    """Valid service info passes, also with the required fields only and
-    with extra fields.
-    """
+def test_validate_service_info() -> None:
+    """Valid service info passes, also with required fields only or extra fields."""
     validate_service_info(SERVICE)
     validate_service_info({field: SERVICE[field] for field in REQUIRED})
     validate_service_info(service(**{"x-custom": {"any": "value"}}))
@@ -233,7 +236,7 @@ def test_validate_service_info():
 
 
 @pytest.mark.parametrize("field", REQUIRED)
-def test_validate_service_info_missing(field):
+def test_validate_service_info_missing(field: str) -> None:
     """Missing required fields are named."""
     with pytest.raises(
         InvalidServiceInfo,
@@ -243,7 +246,7 @@ def test_validate_service_info_missing(field):
 
 
 @pytest.mark.parametrize("field", REQUIRED)
-def test_validate_service_info_ignore_missing(field):
+def test_validate_service_info_ignore_missing(field: str) -> None:
     """Missing required fields can be ignored."""
     validate_service_info(service(**{field: REMOVE}), ignore_missing=True)
 
@@ -261,7 +264,7 @@ def test_validate_service_info_ignore_missing(field):
         ({"name": 1}, "name"),
     ],
 )
-def test_validate_service_info_invalid(fields, path):
+def test_validate_service_info_invalid(fields: dict[str, Any], path: str) -> None:
     """Invalid fields are named, also when ignoring missing fields."""
     invalid = service(**fields)
     with pytest.raises(InvalidServiceInfo, match=rf"in `x\.{path}`"):
@@ -270,10 +273,10 @@ def test_validate_service_info_invalid(fields, path):
         validate_service_info(invalid, ignore_missing=True)
 
 
-def test_validate_service_info_not_an_object():
+def test_validate_service_info_not_an_object() -> None:
     """Service info must be an object."""
     with pytest.raises(InvalidServiceInfo, match=r"in `\(root\)`"):
-        validate_service_info([])  # type: ignore[arg-type]
+        validate_service_info([])  # type: ignore[arg-type]  # invalid on purpose
 
 
 @pytest.mark.parametrize(
@@ -284,7 +287,7 @@ def test_validate_service_info_not_an_object():
         (float("nan"), "Out of range float values are not JSON compliant"),
     ],
 )
-def test_validate_service_info_not_json(value, reason):
+def test_validate_service_info_not_json(value: object, reason: str) -> None:
     """Service info must be serializable as JSON."""
     invalid = service(**{"x-custom": value})
     with pytest.raises(

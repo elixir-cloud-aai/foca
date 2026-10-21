@@ -29,4 +29,4 @@ def enable_cors(app: Flask, conf: CORSConfig | None = None) -> None:
         supports_credentials=conf.allow_credentials,
         max_age=conf.max_age,
     )
-    logger.debug(f"Enabled CORS for Flask app: {conf}")
+    logger.debug("Enabled CORS for Flask app: %s", conf)

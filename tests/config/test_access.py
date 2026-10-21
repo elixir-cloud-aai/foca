@@ -1,8 +1,11 @@
 """Tests for typed access to app configuration."""
 
+from typing import Any
+
 import mongomock
 import pytest
 from flask import Flask
+from pymongo.collection import Collection
 
 from foca import get_collection, get_config
 from foca.config import access
@@ -16,12 +19,12 @@ from foca.models.config import (
 
 
 @pytest.fixture
-def no_apps(monkeypatch):
+def no_apps(monkeypatch: pytest.MonkeyPatch) -> None:
     """Forget configurations of previously created apps."""
     monkeypatch.setattr(access, "_configs", {})
 
 
-def test_get_config_in_app_context(no_apps):
+def test_get_config_in_app_context(no_apps: None) -> None:
     """Configuration of the app of the current app context is returned."""
     config = Config()
     app = create_connexion_app(config).app
@@ -30,7 +33,7 @@ def test_get_config_in_app_context(no_apps):
         assert get_config() is config
 
 
-def test_get_config_outside_app_context(no_apps):
+def test_get_config_outside_app_context(no_apps: None) -> None:
     """Configuration of the most recently created app is returned."""
     create_connexion_app(Config())
     config = Config()
@@ -38,13 +41,13 @@ def test_get_config_outside_app_context(no_apps):
     assert get_config() is config
 
 
-def test_get_config_no_app(no_apps):
+def test_get_config_no_app(no_apps: None) -> None:
     """Error is raised if no app has been created."""
     with pytest.raises(RuntimeError):
         get_config()
 
 
-def test_get_config_app_without_foca_config(no_apps):
+def test_get_config_app_without_foca_config(no_apps: None) -> None:
     """Apps without FOCA configuration fall back to the latest app."""
     config = Config()
     create_connexion_app(config)
@@ -52,7 +55,7 @@ def test_get_config_app_without_foca_config(no_apps):
         assert get_config() is config
 
 
-def test_get_app_config():
+def test_get_app_config() -> None:
     """Configuration attached to a Flask app is returned or an error."""
     config = Config()
     app = create_connexion_app(config).app
@@ -62,15 +65,16 @@ def test_get_app_config():
 
 
 @pytest.fixture
-def db_app(no_apps):
+def db_app(no_apps: None) -> Collection[dict[str, Any]]:
     """App with a registered and an unregistered collection."""
-    collection = mongomock.MongoClient().db.items
+    collection: Collection[dict[str, Any]] = mongomock.MongoClient().db.items
+    items = CollectionConfig()
     config = Config(
         db=MongoConfig(
             dbs={
                 "db": DBConfig(
                     collections={
-                        "items": CollectionConfig(),
+                        "items": items,
                         "other": CollectionConfig(),
                     }
                 ),
@@ -78,12 +82,12 @@ def db_app(no_apps):
             }
         )
     )
-    config.db.dbs["db"].collections["items"].client = collection
+    items.client = collection
     create_connexion_app(config)
     return collection
 
 
-def test_get_collection(db_app):
+def test_get_collection(db_app: Collection[dict[str, Any]]) -> None:
     """Registered collections are returned."""
     assert get_collection("db", "items") is db_app
 
@@ -97,13 +101,15 @@ def test_get_collection(db_app):
         ("db", "other", RuntimeError),
     ],
 )
-def test_get_collection_errors(db_app, db, collection, error):
+def test_get_collection_errors(
+    db_app: Collection[dict[str, Any]], db: str, collection: str, error: type[Exception]
+) -> None:
     """Unconfigured and unregistered collections raise errors."""
     with pytest.raises(error):
         get_collection(db, collection)
 
 
-def test_get_collection_no_db(no_apps):
+def test_get_collection_no_db(no_apps: None) -> None:
     """Apps without database configuration raise errors."""
     create_connexion_app(Config())
     with pytest.raises(KeyError):

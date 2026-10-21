@@ -1,6 +1,7 @@
 """Tests for casbin rule object and rule validation."""
 
 from importlib.resources import path as resource_path
+from typing import Any
 
 import pytest
 from casbin.model import Model
@@ -29,7 +30,10 @@ BASE_RULE_STR_REPRESENTATION = "ptype, v0, v1, v2, v3, v4, v5"
 
 
 class TestCasbinRule:
-    def test_initialise_object(self):
+    """Tests for `CasbinRule`."""
+
+    def test_initialise_object(self) -> None:
+        """Rules are created from fields or from values."""
         test_rule = CasbinRule(**BASE_RULE_OBJECT)
         assert test_rule.ptype == "ptype"
         assert test_rule.v0 == "v0"
@@ -44,7 +48,8 @@ class TestCasbinRule:
             "ptype", ["v0", "v1", "v2", "v3", "v4", "v5"]
         )
 
-    def test_unset_values(self):
+    def test_unset_values(self) -> None:
+        """Unset values are skipped."""
         test_rule = CasbinRule(ptype="g", v0="a", v2="c")
         assert test_rule.values() == ["a", "c"]
         assert test_rule.to_dict() == {"ptype": "g", "v0": "a", "v2": "c"}
@@ -61,6 +66,8 @@ def model() -> Model:
 
 
 class TestValidateRuleValue:
+    """Tests for `validate_rule_value()`."""
+
     @pytest.mark.parametrize(
         "value",
         [
@@ -71,7 +78,8 @@ class TestValidateRuleValue:
             "a#",
         ],
     )
-    def test_valid(self, value):
+    def test_valid(self, value: str) -> None:
+        """Valid values are returned."""
         assert validate_rule_value(value) == value
 
     @pytest.mark.parametrize(
@@ -88,15 +96,19 @@ class TestValidateRuleValue:
             "a" * 1025,
         ],
     )
-    def test_invalid(self, value):
+    def test_invalid(self, value: object) -> None:
+        """Invalid values are rejected."""
         with pytest.raises(ValueError):
             validate_rule_value(value)
 
-    def test_max_length(self):
+    def test_max_length(self) -> None:
+        """Values of maximum length are valid."""
         assert validate_rule_value("a" * 1024) == "a" * 1024
 
 
 class TestValidateRule:
+    """Tests for `validate_rule()`."""
+
     @pytest.mark.parametrize(
         "ptype,values",
         [
@@ -106,7 +118,8 @@ class TestValidateRule:
             ("g2", ["user:alice", "owner", "/items/1"]),
         ],
     )
-    def test_valid(self, model, ptype, values):
+    def test_valid(self, model: Model, ptype: str, values: list[str]) -> None:
+        """Valid rules are returned."""
         assert validate_rule(ptype, values, model) == values
 
     @pytest.mark.parametrize(
@@ -132,11 +145,13 @@ class TestValidateRule:
             ("p", ["a", "b", "*"]),
         ],
     )
-    def test_invalid(self, model, ptype, values):
+    def test_invalid(self, model: Model, ptype: str | None, values: list[Any]) -> None:
+        """Invalid rules are rejected."""
         with pytest.raises(ValueError):
             validate_rule(ptype, values, model)
 
-    def test_without_model(self):
+    def test_without_model(self) -> None:
+        """Without a model, only values are validated."""
         assert validate_rule("p9", ["a", "(b"]) == ["a", "(b"]
         with pytest.raises(ValueError):
             validate_rule("p9", ["a", "b,c"])
