@@ -149,6 +149,10 @@ notes. Tags of alpha, beta and release candidate versions (e.g.,
 `vX.Y.Zrc1`) do not update `latest`. These and, until 1.0.0, all other
 releases are GitHub pre-releases (never marked as the latest release).
 
+The Helm library chart `foca-common` (`charts/foca-common`) is versioned
+and released separately, from signed tags `chart-vX.Y.Z` (see
+[Releases][docs-helm-chart-releases] of the library chart).
+
 ## License
 
 This project is covered by the [Apache License 2.0][license-apache] also
@@ -178,6 +182,7 @@ question etc.
 [docs]: <https://foca.readthedocs.io/en/latest/>
 [docs-config]: <https://foca.readthedocs.io/en/latest/configuration/>
 [docs-getting-started]: <https://foca.readthedocs.io/en/latest/getting-started/>
+[docs-helm-chart-releases]: <https://foca.readthedocs.io/en/latest/helm-chart/#releases>
 [docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.15/>
 [docs-migration-0.14]: <https://foca.readthedocs.io/en/latest/migration-0.14/>
 [docs-production]: <https://foca.readthedocs.io/en/latest/deployment/#running-in-production>

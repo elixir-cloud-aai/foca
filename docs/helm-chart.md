@@ -50,9 +50,9 @@ dependencies:
     repository: oci://ghcr.io/elixir-cloud-aai/charts
 ```
 
-The library chart is published to this OCI repository from its first release
-on; until then, use a `file://` repository in a clone of FOCA, as the
-petstore example does. Run `helm dependency update` to download it (into
+The library chart is published to this OCI repository from its first
+[release](#releases) on; until then, use a `file://` repository in a clone
+of FOCA, as the petstore example does. Run `helm dependency update` to download it (into
 `charts/`, which you may add to `.gitignore`) and to create `Chart.lock`,
 which you commit.
 
@@ -204,11 +204,41 @@ UPDATE_SNAPSHOTS=1 pytest charts/foca-common/tests
 git diff charts/foca-common/tests/__snapshots__
 ```
 
-Changes of the library chart need a new chart version (`version` in
-`charts/foca-common/Chart.yaml`), following [semantic
-versioning](https://semver.org/): app charts depend on a particular version.
+In CI, the petstore example is also installed with its thin chart on a
+[kind](https://kind.sigs.k8s.io/) cluster with
+[chart-testing](https://github.com/helm/chart-testing) (`ct install`),
+which runs the chart's test (`templates/tests/`, `helm test`): it adds a
+pet and reads it back, so that the app, its MongoDB and the app user are
+checked.
+
+### Releases
+
+The library chart is versioned independently of FOCA, following [semantic
+versioning](https://semver.org/): app charts depend on a particular version,
+so every change of the library chart needs a new `version` in
+`charts/foca-common/Chart.yaml`. To release it, merge the version change
+into `dev`, then create and push a signed tag `chart-vX.Y.Z` of that
+version on the merge commit:
+
+```bash
+git tag -s chart-v0.1.0 -m "foca-common 0.1.0"
+git push origin chart-v0.1.0
+```
+
+The [release workflow][release-chart] checks that the tag is signed (with a
+signature that GitHub verifies), is on `dev` and matches the chart's
+version, and that the version has not been published yet; it lints and tests
+the chart, packages it and pushes it to
+`oci://ghcr.io/elixir-cloud-aai/charts/foca-common`. Published versions are
+never overwritten. App charts then depend on it as shown in [Building an app
+chart](#building-an-app-chart); to inspect a release, run:
+
+```bash
+helm show chart oci://ghcr.io/elixir-cloud-aai/charts/foca-common --version 0.1.0
+```
 
 [helm-install]: https://helm.sh/docs/intro/install/
 [library]: https://github.com/elixir-cloud-aai/foca/tree/dev/charts/foca-common
 [library-charts]: https://helm.sh/docs/topics/library_charts/
+[release-chart]: https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/release-chart.yml
 [petstore-chart]: https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore/chart
