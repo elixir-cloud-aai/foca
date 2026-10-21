@@ -76,9 +76,11 @@ def _check_body_size() -> None:
     request (parsing them, e.g., as form data, may need about as much again)
     and remain readable via `get_data()`, `form`, `files` and `stream`.
 
-    Declared sizes that are not plain decimal integers are rejected (`400`),
-    as Werkzeug takes them as `0` and then reads the body up to the limit.
-    An empty declared size is taken as no declared size (cf. PEP 3333).
+    Declared sizes that are not plain decimal integers (surrounding spaces
+    and tabs aside, cf. RFC 9110) are rejected (`400`), as Werkzeug takes
+    them as `0` and then reads the body up to the limit. An empty declared
+    size is taken as no declared size (cf. PEP 3333). Nothing is checked if
+    the limit is removed after the app was created.
 
     Raises:
         werkzeug.exceptions.BadRequest: The declared size of the request body
@@ -87,14 +89,21 @@ def _check_body_size() -> None:
             than `MAX_CONTENT_LENGTH`.
     """
     limit = current_app.config["MAX_CONTENT_LENGTH"]
-    declared = request.environ.get("CONTENT_LENGTH")
-    if declared and _DECIMAL.fullmatch(declared) is None:
-        raise BadRequest()
-    # `content_length` is `None` for chunked bodies
-    if declared and request.content_length is not None:
-        if request.content_length > limit:
-            raise RequestEntityTooLarge()
+    if limit is None:
         return
+    declared = request.environ.get("CONTENT_LENGTH", "").strip(" \t")
+    if declared:
+        if _DECIMAL.fullmatch(declared) is None:
+            raise BadRequest()
+        try:
+            size = int(declared)
+        except ValueError:  # more digits than `int()` converts
+            raise BadRequest() from None
+        # `content_length` is `None` for chunked bodies
+        if request.content_length is not None:
+            if size > limit:
+                raise RequestEntityTooLarge()
+            return
     request.max_content_length = limit + 1
     # cached (`cache=True`, the default), so `get_data()`, `form` and
     # `files` (e.g., as read by Connexion) get the same data

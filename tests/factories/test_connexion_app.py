@@ -310,7 +310,11 @@ def _send_declared(client, body: bytes, content_length: str):
     return response, stream.tell()
 
 
-@pytest.mark.parametrize("content_length", ["abc", "-1", "+5", " 5", "5 "])
+@pytest.mark.parametrize(
+    "content_length",
+    ["abc", "-1", "+5", "5 5", "0" * 4400 + "5"],
+    ids=["letters", "negative", "sign", "inner space", "too many digits"],
+)
 def test_max_content_length_invalid_declared(content_length):
     """Bodies with an invalid declared size are rejected (`400`) without
     reading them.
@@ -324,12 +328,26 @@ def test_max_content_length_invalid_declared(content_length):
     assert read == 0
 
 
-def test_max_content_length_valid_declared():
-    """Bodies with a valid declared size are handled normally."""
+@pytest.mark.parametrize("content_length", [str(LIMIT), f" {LIMIT}\t"])
+def test_max_content_length_valid_declared(content_length):
+    """Bodies with a valid declared size, also with surrounding whitespace
+    (cf. RFC 9110), are handled normally.
+    """
     client = _limited_app().test_client()
-    response, _ = _send_declared(client, b"x" * LIMIT, str(LIMIT))
+    response, _ = _send_declared(client, b"x" * LIMIT, content_length)
     assert response.status_code == 200
     assert response.data == b"x" * LIMIT
+
+
+def test_max_content_length_removed():
+    """If the limit is removed from the Flask config after the app was
+    created, bodies are no longer checked.
+    """
+    app = _limited_app()
+    app.config["MAX_CONTENT_LENGTH"] = None
+    response, read = _send_chunked(app.test_client(), b"x" * 10 * LIMIT)
+    assert response.status_code == 200
+    assert read == 10 * LIMIT
 
 
 def test_max_content_length_empty_declared():
