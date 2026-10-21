@@ -31,6 +31,12 @@ binds to the address and port it is configured with.
     set `max_content_length` (in bytes; Flask's `MAX_CONTENT_LENGTH`) to
     reject larger bodies with `413`, or limit body sizes in the reverse proxy
     or ingress in front of the app (e.g., `client_max_body_size` in NGINX).
+    Bodies are checked before requests are handled (e.g., authenticated or
+    validated), also for operations that don't read their body: bodies with a
+    larger declared size (`Content-Length`) are rejected without reading them,
+    and bodies without a declared size (e.g., `Transfer-Encoding: chunked`)
+    are read up to one byte more than the limit (and kept in memory for the
+    request) to tell whether they are larger.
 
 ::: foca.models.config.ServerConfig
     options:
