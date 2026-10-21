@@ -133,7 +133,8 @@ the same database. Rename one of them.
   are logged (default: `true`, as in 0.14), like the new
   `service_info.log_traffic` for the service info.
 - [`server.max_content_length`](configuration/server.md): rejects request
-  bodies larger than this many bytes with `413` (default: no limit). See also
+  bodies larger than this many bytes with `413` (default: no limit), also
+  bodies without `Content-Length` (e.g., chunked). See also
   [running in production](deployment.md#running-in-production).
 
 ## Dependencies

@@ -1,15 +1,22 @@
 """Factory for creating and configuring Connexion application instances."""
 
 import logging
+import re
+from io import BytesIO
 from ipaddress import ip_address
 
 from connexion import App
+from flask import current_app, request
+from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 
 from foca.config.access import set_app_config
 from foca.models.config import Config
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+# Valid declared sizes of request bodies (`Content-Length`)
+_DECIMAL = re.compile(r"[0-9]+")
 
 
 def create_connexion_app(config: Config | None = None) -> App:
@@ -55,6 +62,61 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+def _check_body_size() -> None:
+    """Reject request bodies larger than `MAX_CONTENT_LENGTH` (`413`).
+
+    Registered to run before each request; checks bodies if their size is
+    limited (`MAX_CONTENT_LENGTH`, e.g., from `server.max_content_length`).
+    Werkzeug rejects bodies with a larger declared size
+    (`Content-Length`) only when they are read, and reads bodies without a
+    declared size (e.g., chunked) up to the limit only, silently dropping the
+    rest. Bodies with a larger declared size are thus rejected here without
+    reading them, also for operations that don't read their body, and bodies
+    without a declared size are read up to one byte more than the limit, to
+    tell whether they are larger. Such bodies are kept in memory for the
+    request (parsing them, e.g., as form data, may need about as much again)
+    and remain readable via `get_data()`, `form`, `files` and `stream`.
+
+    Declared sizes that are not plain decimal integers (surrounding spaces
+    and tabs aside, cf. RFC 9110) are rejected (`400`), as Werkzeug takes
+    them as `0` and then reads the body up to the limit. An empty declared
+    size is taken as no declared size (cf. PEP 3333). Nothing is checked
+    without a limit.
+
+    Raises:
+        werkzeug.exceptions.BadRequest: The declared size of the request body
+            is invalid.
+        werkzeug.exceptions.RequestEntityTooLarge: The request body is larger
+            than `MAX_CONTENT_LENGTH`.
+    """
+    limit = current_app.config["MAX_CONTENT_LENGTH"]
+    if limit is None:
+        return
+    declared = request.environ.get("CONTENT_LENGTH", "").strip(" \t")
+    if declared:
+        if _DECIMAL.fullmatch(declared) is None:
+            raise BadRequest()
+        try:
+            size = int(declared)
+        except ValueError:  # more digits than `int()` converts
+            raise BadRequest() from None
+        # `content_length` is `None` for chunked bodies
+        if request.content_length is not None:
+            if size > limit:
+                raise RequestEntityTooLarge()
+            return
+    request.max_content_length = limit + 1
+    # cached (`cache=True`, the default), so `get_data()`, `form` and
+    # `files` (e.g., as read by Connexion) get the same data
+    data = request.get_data()
+    if len(data) > limit:
+        raise RequestEntityTooLarge()
+    # `stream` (a cached property) is consumed; clear it, so that it serves
+    # the data again from a new input stream
+    request.environ["wsgi.input"] = BytesIO(data)
+    del request.stream
+
+
 def __add_config_to_connexion_app(
     app: App,
     config: Config,
@@ -80,6 +142,9 @@ def __add_config_to_connexion_app(
     app.app.config["TESTING"] = conf.testing
     if conf.max_content_length is not None:
         app.app.config["MAX_CONTENT_LENGTH"] = conf.max_content_length
+    # before Connexion's handling, i.e., before auth and validation; also
+    # checks limits set in the Flask config later
+    app.app.before_request(_check_body_size)
     if conf.debug and not _is_loopback(conf.host):
         logger.warning(
             f"Debug mode is enabled on host '{conf.host}': the interactive "
