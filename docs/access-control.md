@@ -183,6 +183,11 @@ The Swagger UI and the specification of the permissions API are not served
 by default. Set `api_swagger_ui: True` and/or `api_serve_spec: True` to serve
 them.
 
+Requests to FOCA's default controllers and their responses are logged (cf.
+[`log_traffic`](utilities.md#logging-requests-and-responses)), as in FOCA
+0.14; set `log_traffic: False` to not log them. Your own controllers log
+their traffic as they are decorated.
+
 Rules created via `POST /permissions` get a random identifier of `id_length`
 characters (4 to 64, default: 6) drawn from `id_charset` (letters, digits,
 `-`, `.`, `_` and `~`; default: letters and digits), which together must allow

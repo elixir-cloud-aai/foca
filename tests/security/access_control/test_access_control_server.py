@@ -19,6 +19,7 @@ from foca.security.access_control.access_control_server import (
     putPermission,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.utils import logging as logging_module
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
     MOCK_ID,
@@ -308,3 +309,52 @@ class TestLogging:
         ):
             putPermission.__wrapped__(id=self.ID)
         self._assert_escaped(caplog)
+
+
+class TestTrafficLogging:
+    """Tests for logging requests and responses of the permissions API."""
+
+    @pytest.fixture
+    def logged(self, monkeypatch) -> list[str]:
+        """Messages logged by `log_traffic`."""
+        messages: list[str] = []
+        monkeypatch.setattr(
+            logging_module.logger,
+            "log",
+            lambda level, msg: messages.append(msg),
+        )
+        return messages
+
+    @pytest.fixture
+    def client(self, app):
+        """Client of an app routing requests to the controllers."""
+        app.add_url_rule(
+            "/permissions/<id>", view_func=getPermission, methods=["GET"]
+        )
+        app.add_url_rule(
+            "/permissions/<id>",
+            endpoint="deletePermission",
+            view_func=deletePermission,
+            methods=["DELETE"],
+        )
+        return app.test_client()
+
+    @pytest.mark.parametrize("method", ["get", "delete"])
+    @pytest.mark.parametrize("log_traffic", [None, True, False])
+    def test_logged(self, app, client, stored, logged, method, log_traffic):
+        """Traffic is logged unless disabled via
+        `access_control.log_traffic`, as configured at request time."""
+        if log_traffic is not None:
+            app.config.foca.security.access_control.log_traffic = log_traffic
+        response = getattr(client, method)(f"/permissions/{MOCK_ID}")
+        assert response.status_code == 200
+        request = (
+            f'"{method.upper()} /permissions/{MOCK_ID} HTTP/1.1" from '
+            "127.0.0.1"
+        )
+        expected = [
+            f"Incoming request: {request}",
+            f"Response to request {request}: "
+            f"{'dict' if method == 'get' else 'str'}, status 200",
+        ]
+        assert logged == ([] if log_traffic is False else expected)

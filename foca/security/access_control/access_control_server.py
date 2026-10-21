@@ -1,4 +1,8 @@
-"""Controllers for permission management endpoints."""
+"""Controllers for permission management endpoints.
+
+Requests and responses are logged unless disabled via config option
+`security.access_control.log_traffic`.
+"""
 
 import logging
 from math import ceil
@@ -23,12 +27,22 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
     validate_rule,
 )
-from foca.utils.logging import escape_log_value, log_traffic
+from foca.utils.logging import escape_log_value, log_traffic_if
 
 logger = logging.getLogger(__name__)
 
 # Filter for stored policy rules that can be returned as permissions
 _PERMISSION_FILTER = {"ptype": {"$type": "string"}}
+
+
+def _log_traffic_enabled() -> bool:
+    """Check whether the traffic of the permissions API is logged.
+
+    Returns:
+        Whether config option `access_control.log_traffic` of the current
+        app is set.
+    """
+    return get_config().security.access_control.log_traffic
 
 
 def _get_permissions_collection() -> Collection:
@@ -153,7 +167,7 @@ def _to_permission(document: dict) -> dict:
     return permission
 
 
-@log_traffic
+@log_traffic_if(_log_traffic_enabled)
 def postPermission() -> str:
     """Method to register new permissions.
 
@@ -169,7 +183,7 @@ def postPermission() -> str:
     return permission_id
 
 
-@log_traffic
+@log_traffic_if(_log_traffic_enabled)
 def putPermission(
     id: str,
 ) -> str:
@@ -205,7 +219,7 @@ def putPermission(
     return id
 
 
-@log_traffic
+@log_traffic_if(_log_traffic_enabled)
 def getAllPermissions(
     page_size: int = DEFAULT_PAGE_SIZE,
     page: int = 0,
@@ -255,7 +269,7 @@ def getAllPermissions(
     }
 
 
-@log_traffic
+@log_traffic_if(_log_traffic_enabled)
 def getPermission(
     id: str,
 ) -> dict:
@@ -275,7 +289,7 @@ def getPermission(
     return _to_permission(permission)
 
 
-@log_traffic
+@log_traffic_if(_log_traffic_enabled)
 def deletePermission(
     id: str,
 ) -> str:

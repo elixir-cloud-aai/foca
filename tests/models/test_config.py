@@ -391,6 +391,15 @@ def test_AuthConfig_required_removed():
         AuthConfig(required=True)
 
 
+@pytest.mark.parametrize("log_traffic", [True, False])
+def test_AccessControlConfig_log_traffic(log_traffic):
+    """Test AccessControlConfig instantiation; traffic of the permissions API
+    is logged by default."""
+    assert AccessControlConfig().log_traffic is True
+    res = AccessControlConfig(log_traffic=log_traffic)
+    assert res.log_traffic is log_traffic
+
+
 def test_AccessControlConfig_default_model():
     """Test AccessControlConfig instantiation; default model."""
     model = Path(AccessControlConfig().model)

@@ -128,6 +128,10 @@ the same database. Rename one of them.
   to use group claim values as subjects also with `group_mapping`, and
   `get_current_group_values()` for the group claim values of the current
   request.
+- [`security.access_control.log_traffic`](access-control.md#configuring-the-api):
+  whether requests to FOCA's permissions API controllers and their responses
+  are logged (default: `true`, as in 0.14), like the new
+  `service_info.log_traffic` for the service info.
 - [`server.max_content_length`](configuration/server.md): rejects request
   bodies larger than this many bytes with `413` (default: no limit). See also
   [running in production](deployment.md#running-in-production).

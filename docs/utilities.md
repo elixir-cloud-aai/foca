@@ -57,6 +57,11 @@ from foca.utils.logging import log_traffic_if
 def get_pet(pet_id: str) -> dict: ...
 ```
 
+FOCA's own controllers log their traffic unless disabled via
+[`service_info.log_traffic`](configuration/service-info.md#serving-the-service-info)
+and
+[`security.access_control.log_traffic`](access-control.md#configuring-the-api).
+
 To log other values that may be controlled by clients, escape them with
 `escape_log_value()`.
 
