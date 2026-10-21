@@ -71,7 +71,8 @@ anything else; otherwise, the configuration fails validation on startup:
   roles starting with `subject_prefix` (default: `user:`) or `group:`, as
   such roles would give the subject all rights of the subject they name.
   `remove_resource_role()` still accepts them, so that existing rules can be
-  revoked; FOCA logs a warning for each stored rule of this kind
+  revoked. When an app instance first loads policies, FOCA logs a warning for
+  each stored rule whose role is a subject
   ([details](access-control.md#granting-roles-to-groups)).
 - `remove_resource()` returns a `bool` instead of pycasbin's list of
   removed rules: `True` only if it revoked a role.
