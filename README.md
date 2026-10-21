@@ -33,8 +33,9 @@ Features:
 * [GA4GH service info][res-service-info] served from the configuration
 
 **Read the [documentation][docs] for details.** Upgrading from an earlier
-version? See [Migrating to 0.15.0][docs-migration] (from 0.13 or earlier,
-first [Migrating to 0.14.0][docs-migration-0.14]).
+version? See [Migrating to 0.16.0][docs-migration] (from 0.14 or earlier,
+first [Migrating to 0.15.0][docs-migration-0.15] and [Migrating to
+0.14.0][docs-migration-0.14]).
 
 ## Usage
 
@@ -183,7 +184,8 @@ question etc.
 [docs-config]: <https://foca.readthedocs.io/en/latest/configuration/>
 [docs-getting-started]: <https://foca.readthedocs.io/en/latest/getting-started/>
 [docs-helm-chart-releases]: <https://foca.readthedocs.io/en/latest/helm-chart/#releases>
-[docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.15/>
+[docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.16/>
+[docs-migration-0.15]: <https://foca.readthedocs.io/en/latest/migration-0.15/>
 [docs-migration-0.14]: <https://foca.readthedocs.io/en/latest/migration-0.14/>
 [docs-production]: <https://foca.readthedocs.io/en/latest/deployment/#running-in-production>
 [example]: examples/petstore/README.md

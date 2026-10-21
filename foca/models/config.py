@@ -791,7 +791,29 @@ class AuthConfig(FOCABaseConfig):
         verify_audience: Whether to validate the audience of JWTs. If
             ``False``, tokens that trusted issuers issued for other services
             are accepted, too; only disable it if the issuer does not include
-            the app in the audience of its tokens.
+            the app in the audience of its tokens, or if `clients` are
+            restricted instead.
+        token_types: Accepted values of the `typ` header of JWTs, compared
+            case-insensitively. By default, only OAuth 2.0 access tokens as
+            per RFC 9068 (`at+jwt` or `application/at+jwt`) are accepted, so
+            that other JWTs of trusted issuers, such as ID tokens, cannot be
+            used as access tokens. Required unless `verify_token_type` is
+            ``False``.
+        verify_token_type: Whether to validate the type of JWTs. If
+            ``False``, JWTs with any or no `typ` header are accepted; only
+            disable it if the issuer does not set the `typ` header of its
+            access tokens.
+        clients: Accepted clients, i.e., IDs of the clients that obtained
+            the tokens, as per the `client_id` claim (RFC 9068) of JWTs or,
+            if they have none, the `azp` claim (OpenID Connect), compared
+            exactly. If set, JWTs of other clients, and JWTs with neither
+            claim, are rejected, e.g., so that a service behind a gateway
+            accepts only tokens obtained by the gateway. Can be used in
+            addition to `audience`, or instead of it with `verify_audience`
+            set to ``False``. Client IDs are matched for all trusted
+            `issuers`, so with several issuers, make sure that the listed
+            IDs cannot be claimed by clients of another issuer. If ``None``,
+            clients are not restricted.
         claim_identity: The JWT claim used to identify the sender. Tokens
             without this claim are rejected.
         algorithms: Lists the JWT-signing algorithms supported by the app.
@@ -817,6 +839,10 @@ class AuthConfig(FOCABaseConfig):
         allow_expired: Allow/disallow expired JWTs.
         audience: List of audiences that the app identifies itself with.
         verify_audience: Whether to validate the audience of JWTs.
+        token_types: Accepted values of the `typ` header of JWTs.
+        verify_token_type: Whether to validate the type of JWTs.
+        clients: Accepted clients, i.e., IDs of the clients that obtained
+            the tokens.
         claim_identity: The JWT claim used to identify the sender.
         algorithms: Lists the JWT-signing algorithms supported by the app.
         validate_userinfo: Whether to additionally validate tokens via the
@@ -829,8 +855,10 @@ class AuthConfig(FOCABaseConfig):
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type, or `issuers` are set without `audience` while
-            `verify_audience` is ``True``.
+            data type, `issuers` are set without `audience` while
+            `verify_audience` is ``True``, `token_types` are empty while
+            `verify_token_type` is ``True``, or `clients` are set but empty
+            (or blank).
 
     Examples:
         >>> auth = AuthConfig(
@@ -841,6 +869,8 @@ class AuthConfig(FOCABaseConfig):
         ['my-app']
         >>> auth.algorithms
         ['RS256']
+        >>> auth.token_types
+        ['at+jwt', 'application/at+jwt']
     """
 
     issuers: list[str] = []
@@ -848,6 +878,9 @@ class AuthConfig(FOCABaseConfig):
     allow_expired: bool = False
     audience: list[str] | None = None
     verify_audience: bool = True
+    token_types: list[str] = ["at+jwt", "application/at+jwt"]
+    verify_token_type: bool = True
+    clients: list[str] | None = None
     claim_identity: str = "sub"
     algorithms: list[str] = ["RS256"]
     validate_userinfo: bool = False
@@ -879,7 +912,55 @@ class AuthConfig(FOCABaseConfig):
                 "the issuers put into the `aud` claim of tokens for the app "
                 "(e.g., its client ID), or set "
                 "`security.auth.verify_audience: false` to accept tokens for "
-                "any audience (not recommended)."
+                "any audience, preferably restricting the clients that "
+                "obtained them via `security.auth.clients` instead (accepting "
+                "tokens of any client is not recommended)."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_clients(self) -> Self:
+        """Require non-blank client IDs if clients are restricted.
+
+        Returns:
+            Model instance.
+
+        Raises:
+            ValueError: Clients are set but empty, or a client ID is blank.
+        """
+        if self.clients is not None and not (
+            self.clients and all(client.strip() for client in self.clients)
+        ):
+            raise ValueError(
+                "Restricting clients requires client IDs: set "
+                "`security.auth.clients` to the (non-blank) IDs of the clients "
+                "whose tokens the app accepts (`client_id` claim, or `azp` claim "
+                "if there is none), or omit it to accept tokens of any client."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_token_types(self) -> Self:
+        """Require token types for token type validation, unless opted out.
+
+        Returns:
+            Model instance.
+
+        Raises:
+            ValueError: Token types are empty (or blank) while token type
+                validation is not disabled.
+        """
+        has_token_types = bool(self.token_types) and all(
+            typ.strip() for typ in self.token_types
+        )
+        if self.verify_token_type and not has_token_types:
+            raise ValueError(
+                "Token type validation requires token types: set "
+                "`security.auth.token_types` to the (non-blank) values of the "
+                "`typ` header of accepted tokens (default: `at+jwt` and "
+                "`application/at+jwt`, i.e., OAuth 2.0 access tokens as per "
+                "RFC 9068), or set `security.auth.verify_token_type: false` to "
+                "accept tokens of any type (not recommended)."
             )
         return self
 

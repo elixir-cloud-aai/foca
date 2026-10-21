@@ -11,7 +11,8 @@ security:
         allow_expired: False
         # Audiences of the app (`aud` claim, e.g., its client ID at the
         # issuers); required if `issuers` are set, unless audience validation
-        # is disabled with `verify_audience: False` (not recommended)
+        # is disabled with `verify_audience: False` (not recommended, unless
+        # `clients` are restricted instead)
         audience:
           - petstore
         claim_identity: sub
@@ -21,6 +22,13 @@ security:
         # rejected
         issuers:
           - https://login.example.org/oidc/
+        # Accepted token types (`typ` header); by default, only OAuth 2.0
+        # access tokens as per RFC 9068, so that other JWTs (e.g., ID tokens)
+        # are rejected; set `verify_token_type: False` only if the issuers do
+        # not set the `typ` header of their access tokens (not recommended)
+        token_types:
+          - at+jwt
+          - application/at+jwt
 
 api:
     specs:
