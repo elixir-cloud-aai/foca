@@ -55,6 +55,7 @@ from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
     register_permission_specs,
 )
+from foca.security.auth import _unauthorized
 
 DB_NAME = "access_control_db"
 COLLECTION_NAME = "policy_rules"
@@ -103,7 +104,7 @@ INVALID_TOKEN_CHALLENGE = (
 def mock_token_info(token: str) -> dict:
     """Return token info or raise as FOCA's `validate_token()` does."""
     if token not in TOKENS:
-        raise Unauthorized("JWT could not be validated")
+        raise _unauthorized("JWT could not be validated")
     return {"jwt": token, "claims": TOKENS[token]}
 
 
@@ -380,8 +381,10 @@ class TestEnforcement:
         [
             # no token
             (None, "Bearer"),
-            # token without identity claim
-            ("anonymous", INVALID_TOKEN_CHALLENGE),
+            # invalid token
+            ("unknown", INVALID_TOKEN_CHALLENGE),
+            # token without identity claim: logging in again would not help
+            ("anonymous", "Bearer"),
         ],
     )
     def test_challenge(self, app, user, challenge):
@@ -1385,7 +1388,7 @@ class TestEnforceAccessControlDecorator:
         with pytest.raises(Unauthorized) as exc_info:
             self._call(helper_app, "GET", "/items", {"iss": "x"})
         assert exc_info.value.get_headers()[1:] == [
-            ("WWW-Authenticate", INVALID_TOKEN_CHALLENGE)
+            ("WWW-Authenticate", "Bearer")
         ]
 
     @pytest.mark.parametrize(

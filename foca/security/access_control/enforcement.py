@@ -314,9 +314,11 @@ def is_permitted() -> bool:
     if subject is None:
         from foca.security.auth import _unauthorized  # noqa: PLC0415 (import cycle)
 
-        # Token given if validated, but lacking the identity claim
+        # No `invalid_token` error code for validated tokens lacking the
+        # identity claim, as clients cannot get tokens with the claim by
+        # logging in again
         raise _unauthorized(
-            "Subject could not be identified", token_given=bool(_get_claims())
+            "Subject could not be identified", invalid_token=False
         )
     try:
         validate_rule_value(_prefix_subject(subject))

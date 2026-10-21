@@ -37,7 +37,7 @@ USERINFO_CACHE_SIZE = 1000
 # Description of the `invalid_token` error of `WWW-Authenticate` challenges,
 # deliberately generic, so that clients learn nothing about the identity
 # provider or why validation failed
-INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"
+_INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"
 
 # OpenID Connect discovery documents and JWK sets, with time of retrieval,
 # by issuer and JWK set URL, respectively
@@ -72,16 +72,21 @@ class _BearerChallenge(WWWAuthenticate):
         return f"Bearer {parameters}"
 
 
-def _unauthorized(description: str, token_given: bool = True) -> Unauthorized:
+def _unauthorized(
+    description: str, invalid_token: bool = True
+) -> Unauthorized:
     """Create `401 Unauthorized` exception with a Bearer challenge.
 
     As per RFC 6750, §3.1, the challenge (`WWW-Authenticate`) has the error
-    code `invalid_token` and a generic description if a token was given, and
-    no error code otherwise.
+    code `invalid_token` and a generic description if the token is invalid,
+    and no error code otherwise, e.g., if the token could not be validated
+    because the identity provider is not available, so that clients do not
+    discard tokens or make users log in again in vain.
 
     Args:
-        description: Description of the exception; not sent to clients.
-        token_given: Whether the request carried a token.
+        description: Description of the exception; logged, not sent to
+            clients.
+        invalid_token: Whether the token is invalid.
 
     Returns:
         Exception with the challenge.
@@ -89,9 +94,9 @@ def _unauthorized(description: str, token_given: bool = True) -> Unauthorized:
     parameters: dict[str, str | None] | None = (
         {
             "error": "invalid_token",
-            "error_description": INVALID_TOKEN_DESCRIPTION,
+            "error_description": _INVALID_TOKEN_DESCRIPTION,
         }
-        if token_given
+        if invalid_token
         else None
     )
     return Unauthorized(
@@ -231,7 +236,9 @@ def _fetch_json(
             be fetched.
     """
     if not isinstance(url, str) or not url:
-        raise _unauthorized("Identity provider endpoint not available")
+        raise _unauthorized(
+            "Identity provider endpoint not available", invalid_token=False
+        )
     if throttle:
         failed = _failed_fetches.get(url)
         if (
@@ -240,7 +247,8 @@ def _fetch_json(
         ):
             raise _unauthorized(
                 f"Document from identity provider temporarily unavailable: "
-                f"{url}"
+                f"{url}",
+                invalid_token=False,
             )
     try:
         response = requests.get(
@@ -254,8 +262,11 @@ def _fetch_json(
     except Exception as exc:
         if throttle:
             _failed_fetches[url] = time.monotonic()
+        # Documents that do not depend on the token (throttled ones) say
+        # nothing about it; user info is not available for invalid tokens
         raise _unauthorized(
-            f"Could not fetch document from identity provider: {url}"
+            f"Could not fetch document from identity provider: {url}",
+            invalid_token=not throttle,
         ) from exc
     _failed_fetches.pop(url, None)
     return document
@@ -287,7 +298,10 @@ def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict:
         not isinstance(oidc_config, dict)
         or oidc_config.get("issuer") != issuer
     ):
-        raise _unauthorized("OpenID Connect discovery document is invalid")
+        raise _unauthorized(
+            "OpenID Connect discovery document is invalid",
+            invalid_token=False,
+        )
     _oidc_configs[issuer] = (time.monotonic(), oidc_config)
     return oidc_config
 
@@ -321,7 +335,9 @@ def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False):
             _fetch_json(url=url, conf=conf, throttle=True)
         )
     except jwt.PyJWTError as exc:
-        raise _unauthorized("Issuer's JWK set is invalid") from exc
+        raise _unauthorized(
+            "Issuer's JWK set is invalid", invalid_token=False
+        ) from exc
     _jwk_sets[url] = (time.monotonic(), jwk_set)
     return jwk_set
 

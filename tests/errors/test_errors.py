@@ -217,8 +217,10 @@ class TestBuildHeaders:
         [
             (MethodNotAllowed(["GET", "PUT"]), [("Allow", "GET, PUT")]),
             (
-                Unauthorized(www_authenticate=WWWAuthenticate("basic")),
-                [("WWW-Authenticate", "Basic")],
+                Unauthorized(
+                    www_authenticate=WWWAuthenticate("basic", {"realm": "x"})
+                ),
+                [("WWW-Authenticate", "Basic realm=x")],
             ),
             (ServiceUnavailable(retry_after=120), [("Retry-After", "120")]),
             (
@@ -231,8 +233,10 @@ class TestBuildHeaders:
             # Connexion's security exceptions get a Bearer challenge
             (OAuthProblem(), [("WWW-Authenticate", "Bearer")]),
             (
-                OAuthProblem(www_authenticate=WWWAuthenticate("basic")),
-                [("WWW-Authenticate", "Basic")],
+                OAuthProblem(
+                    www_authenticate=WWWAuthenticate("basic", {"realm": "x"})
+                ),
+                [("WWW-Authenticate", "Basic realm=x")],
             ),
             # no headers (besides `Content-Type`)
             (Unauthorized(), []),

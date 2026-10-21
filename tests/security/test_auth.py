@@ -122,14 +122,16 @@ INVALID_TOKEN_CHALLENGE = (
 
 
 @contextmanager
-def raises_invalid_token() -> Iterator[None]:
-    """Assert that `Unauthorized` is raised with an `invalid_token` challenge
-    (RFC 6750, §3.1).
+def raises_unauthorized(
+    challenge: str = INVALID_TOKEN_CHALLENGE,
+) -> Iterator[None]:
+    """Assert that `Unauthorized` is raised with a Bearer challenge (RFC
+    6750, §3.1), by default with error code `invalid_token`.
     """
     with pytest.raises(Unauthorized) as exc_info:
         yield
     headers = exc_info.value.get_headers()
-    assert ("WWW-Authenticate", INVALID_TOKEN_CHALLENGE) in headers
+    assert ("WWW-Authenticate", challenge) in headers
 
 
 def validate(app, token):
@@ -188,57 +190,57 @@ class TestValidateToken:
     def test_untrusted_issuer(self, idp):
         """Tokens of untrusted issuers are rejected without requests."""
         token = make_token(iss="https://evil.example.org")
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), token)
         idp.assert_not_called()
 
     def test_no_trusted_issuers(self, idp):
         """All tokens are rejected if no issuers are trusted."""
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(issuers=[]), make_token())
         idp.assert_not_called()
 
     def test_missing_issuer(self, idp):
         """Tokens without issuer are rejected."""
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), make_token(iss=None))
         idp.assert_not_called()
 
     def test_undecodable_token(self, idp):
         """Malformed tokens are rejected."""
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), "not-a-token")
 
     def test_discovery_issuer_mismatch(self, idp):
         """Discovery documents must be issued for the token's issuer."""
         idp.responses[DISCOVERY_URI].data["issuer"] = "https://evil.org"
-        with raises_invalid_token():
+        with raises_unauthorized("Bearer"):
             validate(make_app(), make_token())
         assert JWKS_URI not in urls(idp)
 
     def test_discovery_unavailable(self, idp):
         """Tokens are rejected if the discovery document is unavailable."""
         idp.responses[DISCOVERY_URI] = MockResponse({}, status_code=500)
-        with raises_invalid_token():
+        with raises_unauthorized("Bearer"):
             validate(make_app(), make_token())
 
     def test_jwks_uri_missing(self, idp):
         """Tokens are rejected if the issuer announces no JWK set."""
         del idp.responses[DISCOVERY_URI].data["jwks_uri"]
-        with raises_invalid_token():
+        with raises_unauthorized("Bearer"):
             validate(make_app(), make_token())
         assert urls(idp) == [DISCOVERY_URI]
 
     def test_jwks_invalid(self, idp):
         """Tokens are rejected if the JWK set is invalid."""
         idp.responses[JWKS_URI] = MockResponse({"keys": []})
-        with raises_invalid_token():
+        with raises_unauthorized("Bearer"):
             validate(make_app(), make_token())
 
     def test_jwks_unavailable(self, idp):
         """Tokens are rejected if the JWK set is unavailable."""
         idp.responses[JWKS_URI] = MockResponse({}, status_code=500)
-        with raises_invalid_token():
+        with raises_unauthorized("Bearer"):
             validate(make_app(), make_token())
 
     @pytest.mark.parametrize("uri", [DISCOVERY_URI, JWKS_URI])
@@ -248,7 +250,7 @@ class TestValidateToken:
         ok = idp.responses[uri]
         idp.responses[uri] = MockResponse({}, status_code=503)
         for _ in range(3):
-            with raises_invalid_token():
+            with raises_unauthorized("Bearer"):
                 validate(app, make_token())
         assert urls(idp).count(uri) == 1
         # fetched again after cooldown
@@ -269,7 +271,7 @@ class TestValidateToken:
             auth._jwk_sets[JWKS_URI][1],
         )
         for _ in range(3):
-            with raises_invalid_token():
+            with raises_unauthorized("Bearer"):
                 validate(app, make_token(kid="other-key"))
         assert urls(idp) == [DISCOVERY_URI, JWKS_URI, JWKS_URI]
         # known keys are still accepted
@@ -280,7 +282,7 @@ class TestValidateToken:
         app = make_app(validate_userinfo=True)
         idp.responses[USERINFO_URI] = MockResponse({}, status_code=401)
         for _ in range(2):
-            with raises_invalid_token():
+            with raises_unauthorized():
                 validate(app, make_token())
         assert urls(idp).count(USERINFO_URI) == 2
 
@@ -317,19 +319,19 @@ class TestValidateToken:
         """JWK set is not refetched for unknown key IDs within cooldown."""
         app = make_app()
         validate(app, make_token())
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(app, make_token(kid="other-key"))
         assert urls(idp) == [DISCOVERY_URI, JWKS_URI]
 
     def test_forged_signature(self, idp):
         """Tokens signed with other keys are rejected."""
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), make_token(key=OTHER_PRIVATE_KEY))
 
     def test_unsigned_token(self, idp):
         """Unsigned tokens are rejected."""
         token = make_token(key=None, algorithm="none")
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), token)
 
     def test_no_key_id(self, idp):
@@ -370,18 +372,18 @@ class TestValidateToken:
         """Tokens signed with algorithms that are not allowed are
         rejected."""
         app = make_app(algorithms=["RS512"])
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(app, make_token(kid=None))
 
     def test_no_key_id_forged(self, idp):
         """Tokens without key ID signed with other keys are rejected."""
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), make_token(key=OTHER_PRIVATE_KEY, kid=None))
 
     def test_expired(self, idp):
         """Expired tokens are rejected."""
         token = make_token(exp=int(time.time()) - 60)
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), token)
 
     def test_expired_allowed(self, idp):
@@ -393,7 +395,7 @@ class TestValidateToken:
     @pytest.mark.parametrize("claim", ["exp", "iat", "sub"])
     def test_missing_required_claim(self, idp, claim):
         """Tokens without required claims are rejected."""
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), make_token(**{claim: None}))
 
     def test_custom_identity_claim(self, idp):
@@ -410,12 +412,12 @@ class TestValidateToken:
 
     def test_audience_mismatch(self, idp):
         """Tokens for other audiences are rejected."""
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), make_token(aud="other"))
 
     def test_audience_missing(self, idp):
         """Tokens without audience are rejected."""
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(), make_token(aud=None))
 
     @pytest.mark.parametrize("audience", [None, [AUDIENCE]])
@@ -449,20 +451,20 @@ class TestValidateToken:
     def test_userinfo_after_signature(self, idp):
         """Tokens are not sent to user info endpoint before verification."""
         app = make_app(validate_userinfo=True)
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(app, make_token(key=OTHER_PRIVATE_KEY))
         assert USERINFO_URI not in urls(idp)
 
     def test_userinfo_subject_mismatch(self, idp):
         """User info must be for the token's subject."""
         idp.responses[USERINFO_URI] = MockResponse({"sub": "mallory"})
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(validate_userinfo=True), make_token())
 
     def test_userinfo_unavailable(self, idp):
         """Tokens are rejected if user info cannot be fetched."""
         idp.responses[USERINFO_URI] = MockResponse({}, status_code=401)
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(make_app(validate_userinfo=True), make_token())
 
 
@@ -524,7 +526,7 @@ class TestUserinfoClaims:
     def test_after_signature(self, idp):
         """Tokens are not sent to user info endpoint before verification."""
         app = make_app(userinfo_claims=["eduperson_entitlement"])
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(app, make_token(key=OTHER_PRIVATE_KEY))
         assert USERINFO_URI not in urls(idp)
 
@@ -534,7 +536,7 @@ class TestUserinfoClaims:
             {"sub": "mallory", "eduperson_entitlement": ["urn:x"]}
         )
         app = make_app(userinfo_claims=["eduperson_entitlement"])
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(app, make_token())
 
     def test_subject_missing(self, idp):
@@ -545,14 +547,14 @@ class TestUserinfoClaims:
         app = make_app(
             userinfo_claims=["eduperson_entitlement"], claim_identity="jti"
         )
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(app, make_token(sub=None, jti="j"))
 
     def test_unavailable(self, idp):
         """Tokens are rejected if user info cannot be fetched."""
         idp.responses[USERINFO_URI] = MockResponse({}, status_code=503)
         app = make_app(userinfo_claims=["eduperson_entitlement"])
-        with raises_invalid_token():
+        with raises_unauthorized():
             validate(app, make_token())
 
     def test_cached(self, idp):
@@ -699,7 +701,7 @@ class TestLogAuthConfigWarnings:
 class TestUnauthorized:
     """Tests for `_unauthorized()`."""
 
-    def test_token_given(self):
+    def test_invalid_token(self):
         exc = auth._unauthorized("JWT expired")
         assert exc.code == 401
         assert exc.description == "JWT expired"
@@ -708,8 +710,8 @@ class TestUnauthorized:
         ]
 
     def test_no_token(self):
-        """No error code without token (RFC 6750, §3.1)."""
-        exc = auth._unauthorized("No token", token_given=False)
+        """No error code if the token is not invalid (RFC 6750, §3.1)."""
+        exc = auth._unauthorized("No token", invalid_token=False)
         assert exc.get_headers()[1:] == [("WWW-Authenticate", "Bearer")]
 
     def test_quoted(self):
