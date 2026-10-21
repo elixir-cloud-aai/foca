@@ -467,7 +467,7 @@ class TestValidateToken:
         with raises_unauthorized():
             validate(make_app(validate_userinfo=True), make_token())
 
-    @pytest.mark.parametrize("status_code", [500, 503])
+    @pytest.mark.parametrize("status_code", [403, 500, 503])
     def test_userinfo_unavailable(self, idp, status_code):
         """Tokens are rejected, but not invalid, if user info cannot be
         fetched.

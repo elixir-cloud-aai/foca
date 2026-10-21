@@ -94,8 +94,9 @@ declare it themselves.
 ## Headers
 
 Error responses keep the headers of werkzeug HTTP exceptions and of
-Connexion's `ProblemException` (`headers`), except `Content-Type` (cf.
-[Media type](#media-type)), e.g.:
+Connexion's `ProblemException` (`headers`), except headers describing the
+body (`Content-Type`, cf. [Media type](#media-type), `Content-Length`,
+`Content-Encoding` and `Transfer-Encoding`), e.g.:
 
 - `Allow` for `405 Method Not Allowed` (unknown methods, or
   `MethodNotAllowed(valid_methods=[...])`)

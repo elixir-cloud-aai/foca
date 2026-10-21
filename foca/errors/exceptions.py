@@ -44,6 +44,15 @@ _CATCH_ALL = (Exception, BaseException)
 # exceptions without one, e.g., for a missing token, as per RFC 6750, §3.1
 _BEARER_CHALLENGE = "Bearer"
 
+# Headers describing the body of a response, which do not apply to the
+# problem details body of error responses
+_BODY_HEADERS = (
+    "Content-Type",
+    "Content-Length",
+    "Content-Encoding",
+    "Transfer-Encoding",
+)
+
 
 def register_exception_handler(
     app: App,
@@ -178,8 +187,9 @@ def _build_headers(exc: BaseException, status: int) -> Headers:
     from werkzeug HTTP exceptions (e.g., `Allow` for `405 Method Not
     Allowed`, `WWW-Authenticate` for `401 Unauthorized` and `Retry-After`
     for `503 Service Unavailable`, if set) and Connexion problem exceptions
-    (attribute `headers`), except for `Content-Type`, as error responses
-    have the configured media type. `401 Unauthorized` responses to
+    (attribute `headers`), except for headers describing the body (e.g.,
+    `Content-Type` and `Content-Length`), as error responses have their own
+    body, with the configured media type. `401 Unauthorized` responses to
     Connexion's security exceptions without `WWW-Authenticate` (e.g., for a
     missing token) get `WWW-Authenticate: Bearer`, as per RFC 6750.
 
@@ -188,7 +198,8 @@ def _build_headers(exc: BaseException, status: int) -> Headers:
         status: HTTP status code of the error response.
 
     Returns:
-        Headers of the error response, without `Content-Type`.
+        Headers of the error response, without headers describing the
+        body.
     """
     headers = Headers()
     if status != _get_status(exc):
@@ -197,7 +208,8 @@ def _build_headers(exc: BaseException, status: int) -> Headers:
         headers.extend(exc.get_headers())
     elif isinstance(exc, ProblemException) and exc.headers:
         headers.extend(exc.headers)
-    headers.remove("Content-Type")
+    for name in _BODY_HEADERS:
+        headers.remove(name)
     if (
         status == 401
         and isinstance(exc, OAuthProblem)

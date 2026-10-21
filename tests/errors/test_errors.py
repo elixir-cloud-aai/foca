@@ -226,7 +226,13 @@ class TestBuildHeaders:
             (
                 ProblemException(
                     status=429,
-                    headers={"Retry-After": "60", "content-type": "text/x"},
+                    headers={
+                        "Retry-After": "60",
+                        "content-type": "text/x",
+                        "Content-Length": "3",
+                        "Content-Encoding": "gzip",
+                        "Transfer-Encoding": "chunked",
+                    },
                 ),
                 [("Retry-After", "60")],
             ),

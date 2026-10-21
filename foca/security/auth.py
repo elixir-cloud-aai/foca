@@ -266,11 +266,13 @@ def _fetch_json(
     except Exception as exc:
         if throttle:
             _failed_fetches[url] = time.monotonic()
-        # Only rejections of the token by the identity provider (e.g., of
-        # the user info endpoint) make it invalid, not failures to respond
+        # Only rejections of the token by the user info endpoint (`401`)
+        # make it invalid; documents that do not depend on the token
+        # (throttled ones), failures to respond and `403` (e.g., for
+        # insufficient scope) do not
         raise _unauthorized(
             f"Could not fetch document from identity provider: {url}",
-            invalid_token=status in (401, 403),
+            invalid_token=not throttle and status == 401,
         ) from exc
     _failed_fetches.pop(url, None)
     return document
