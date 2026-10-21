@@ -67,8 +67,9 @@ def post_service(body: dict) -> str:
 
 * `check_url(url, schemes)` checks a URL as written, so that it can be stored
   as is. It rejects, among others, URLs with whitespace (also leading or
-  trailing; strip it first to tolerate it), control or format characters, or
-  user info, and hosts that are not valid domain names or IP addresses.
+  trailing; strip it first to tolerate it), control or format characters,
+  unencoded characters that URLs do not allow (e.g., `<` or `|`) or user
+  info, and hosts that are not valid domain names or IP addresses.
 * `check_url_fields(data, fields)` checks the URLs in the given fields of an
   object, as dot-separated paths of keys (e.g., `organization.url`). Missing
   fields are not checked.

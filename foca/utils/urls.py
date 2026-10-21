@@ -52,6 +52,11 @@ _REG_NAME = re.compile(r"[A-Za-z0-9\-._~!$&'()*+,;=]*")
 _NUMERIC_LABEL = re.compile(r"[0-9]+|0[xX][0-9A-Fa-f]*")
 # Unreserved characters (RFC 3986, section 2.3)
 _UNRESERVED = frozenset(string.ascii_letters + string.digits + "-._~")
+# ASCII characters allowed in paths, queries and fragments (RFC 3986,
+# section 3.3 to 3.5): unreserved characters, sub-delimiters, `:`, `@`, `/`
+# and `?`, and `%` of percent-encodings; others (e.g., `<`, `|`, `\`)
+# must be percent-encoded
+_URI_CHARACTERS = _UNRESERVED | frozenset("!$&'()*+,;=:@/?%")
 # Printable ASCII characters, kept when percent-encoding non-ASCII ones
 _ASCII_PRINTABLE = "".join(chr(code) for code in range(33, 127))
 
@@ -84,11 +89,11 @@ def check_url(
     :py:func:`normalize_url`), so that they can be stored as written:
 
     * `http` and `https` URLs need a valid host: a domain or registered name
-      (international host names must be valid as per IDNA 2008, UTS 46;
-      without percent-encodings), an IPv4 address in dotted-decimal form (not,
-      e.g., `127.1`), or an IPv6 address in brackets (with an optional zone
-      identifier, as per RFC 6874). They must not have user info or an
-      invalid port (or `0`).
+      (international host names, also `xn--` labels, must be valid as per
+      IDNA 2008, UTS 46; without percent-encodings), an IPv4 address in
+      dotted-decimal form (not, e.g., `127.1`), or an IPv6 address in
+      brackets (with an optional zone identifier, as per RFC 6874). They
+      must not have user info or an invalid port (or `0`).
     * `mailto` URLs (RFC 6068) need comma-separated email addresses, each
       with a local part and a domain name (at least two labels of letters,
       digits and hyphens after IDNA encoding, the last one not only digits,
@@ -99,7 +104,10 @@ def check_url(
       bidirectional controls, soft hyphens), except zero width (non-)joiners
       in international host names, or malformed percent-encodings:
       `urllib.parse.urlsplit()` would strip some of them, so that a stored
-      URL would differ from the one checked.
+      URL would differ from the one checked. Paths, queries and fragments
+      must not contain ASCII characters that URLs only allow
+      percent-encoded (RFC 3986; e.g., `<`, `|`, `[` or backslashes); non-ASCII
+      characters are allowed (RFC 3987).
 
     Args:
         url: URL.
@@ -274,11 +282,16 @@ def _check_mailto(url: str, rest: str, name: str) -> None:
         InvalidURL: The URL is invalid (cf. :py:func:`check_url`).
     """
     _check_characters(url, name=name)
-    _check_percent_encodings(url, name=name)
-    path = urlsplit(url).path
-    if rest.startswith("//") or not path:
+    # without an authority, `urlsplit()` does not raise
+    if rest.startswith("//"):
         raise InvalidURL(f"{name} need valid email addresses.")
-    _check_addresses(path, name=name)
+    parts = urlsplit(url)
+    for part in (parts.path, parts.query, parts.fragment):
+        _check_uri_characters(part, name=name)
+        _check_percent_encodings(part, name=name)
+    if not parts.path:
+        raise InvalidURL(f"{name} need valid email addresses.")
+    _check_addresses(parts.path, name=name)
 
 
 def _check_characters(
@@ -304,6 +317,43 @@ def _check_characters(
         raise InvalidURL(
             f"{name} must not contain whitespace, control or format characters."
         )
+
+
+def _check_uri_characters(text: str, name: str) -> None:
+    """Check that a part of a URL has only characters that URLs allow.
+
+    Args:
+        text: Path, query or fragment of a URL; non-ASCII characters are
+            allowed, as in internationalized URLs (RFC 3987).
+        name: Name of the URLs in messages.
+
+    Raises:
+        InvalidURL: The text has ASCII characters that must be
+            percent-encoded (cf. `_URI_CHARACTERS`).
+    """
+    if any(char.isascii() and char not in _URI_CHARACTERS for char in text):
+        raise InvalidURL(
+            f"{name} must not contain characters that URLs do not allow "
+            "unencoded (e.g., '<', '|', '\\')."
+        )
+
+
+def _check_a_labels(host: str, message: str) -> None:
+    """Check the IDNA A-labels (`xn--` labels) of a host.
+
+    Args:
+        host: Host, in ASCII.
+        message: Message of the exception.
+
+    Raises:
+        InvalidURL: An A-label is not valid as per IDNA 2008 (e.g., `xn--a`).
+    """
+    for label in host.lower().split("."):
+        if label.startswith("xn--"):
+            try:
+                idna.decode(label)
+            except idna.IDNAError as exc:
+                raise InvalidURL(message) from exc
 
 
 def _check_percent_encodings(text: str, name: str) -> None:
@@ -366,6 +416,7 @@ def _check_domain(domain: str, name: str) -> None:
         or not all(_LDH_LABEL.fullmatch(label) for label in labels)
     ):
         raise InvalidURL(message)
+    _check_a_labels(domain, message=message)
 
 
 def _split_http_url(
@@ -383,9 +434,10 @@ def _split_http_url(
 
     Raises:
         InvalidURL: The URL is invalid, has characters rejected by
-            `_check_characters()` (joiners only in the host), malformed
-            percent-encodings, no scheme or an invalid or no host, a scheme
-            that is not allowed, user info, or an invalid port (or `0`).
+            `_check_characters()` (joiners only in the host) or
+            `_check_uri_characters()`, malformed percent-encodings, no
+            scheme or an invalid or no host, a scheme that is not allowed,
+            user info, or an invalid port (or `0`).
     """
     _check_characters(url, name=name, allowed=_JOINERS)
     try:
@@ -395,6 +447,7 @@ def _split_http_url(
         raise InvalidURL(f"{name} must be valid URLs: {exc}.") from exc
     for part in (parts.path, parts.query, parts.fragment):
         _check_characters(part, name=name)
+        _check_uri_characters(part, name=name)
         _check_percent_encodings(part, name=name)
     if parts.scheme and parts.scheme.lower() not in schemes & HTTP_SCHEMES:
         allowed = ", ".join(f"'{scheme}'" for scheme in sorted(schemes))
@@ -451,6 +504,7 @@ def _normalize_host(host: str, bracketed: bool, name: str) -> str:
             raise InvalidURL(f"{name} need a valid host: {exc}.") from exc
     if not _REG_NAME.fullmatch(host):
         raise InvalidURL(f"{name} need a valid host: '{host}'.")
+    _check_a_labels(host, message=f"{name} need a valid host: '{host}'.")
     # One trailing dot (of a fully qualified domain name) is removed; empty
     # labels otherwise (e.g., `a..org`, `.a.org`, `a.org..`) are rejected, as
     # removing them would make different hosts equal
