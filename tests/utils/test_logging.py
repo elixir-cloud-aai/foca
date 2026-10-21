@@ -194,6 +194,7 @@ def test_logging_decorator_control_characters(logged):
 def test_log_traffic_if(logged, enabled):
     """Traffic is logged only if enabled, as decided on each request."""
     calls: list[None] = []
+    runs: list[str] = []
 
     def is_enabled() -> bool:
         calls.append(None)
@@ -201,12 +202,14 @@ def test_log_traffic_if(logged, enabled):
 
     @log_traffic_if(is_enabled)
     def mock_func(value):
+        runs.append(value)
         return value
 
     with app.test_request_context(environ_base=REQ):
         assert mock_func("ok") == "ok"
         assert mock_func("ok") == "ok"
     assert len(calls) == 2
+    assert runs == ["ok", "ok"]
     assert len(logged) == (4 if enabled else 0)
 
 
@@ -230,13 +233,17 @@ def test_log_traffic_if_no_request_context(logged):
     def is_enabled() -> bool:
         raise AssertionError("called")
 
+    runs: list[None] = []
+
     @log_traffic_if(is_enabled)
     def mock_func():
+        runs.append(None)
         return "ok"
 
     assert mock_func() == "ok"
     with app.app_context():
         assert mock_func() == "ok"
+    assert len(runs) == 2
     assert logged == []
 
 
