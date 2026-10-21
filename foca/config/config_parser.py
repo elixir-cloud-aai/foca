@@ -135,9 +135,7 @@ class ConfigParser:
             if not isinstance(content, dict):
                 raise ValueError(f"file '{path}' is not a YAML mapping")
             data = deep_merge(data, content)
-        self.config = Config.model_validate(
-            data, context={"base_dir": self.config_dir}
-        )
+        self.config = Config.model_validate(data, context={"base_dir": self.config_dir})
         if custom_config_model is not None:
             setattr(
                 self.config,
@@ -189,9 +187,7 @@ class ConfigParser:
                 try:
                     return yaml.safe_load(config_file)
                 except yaml.YAMLError as exc:
-                    raise ValueError(
-                        f"file '{conf}' is not valid YAML"
-                    ) from exc
+                    raise ValueError(f"file '{conf}' is not valid YAML") from exc
         except OSError as exc:
             raise OSError(f"file '{conf}' could not be read") from exc
 

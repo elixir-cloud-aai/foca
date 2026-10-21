@@ -217,9 +217,7 @@ class TestRegisterMongodb:
         }
         conf = _config(db1={"collections": {"c1": {"indexes": [conflicting]}}})
         conf._client = clients[0][1]
-        with pytest.raises(
-            ValueError, match="conflicts with an existing index"
-        ):
+        with pytest.raises(ValueError, match="conflicts with an existing index"):
             register_mongodb(conf)
 
     def test_index_without_keys(self, clients):

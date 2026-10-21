@@ -52,9 +52,7 @@ exceptions = {
     Forbidden: {
         "title": "Forbidden",
         "status": 403,
-        "detail": (
-            "Sorry, but you don't have permission to play with the pets."
-        ),
+        "detail": ("Sorry, but you don't have permission to play with the pets."),
     },
     NotFound: {
         "title": "Not Found",

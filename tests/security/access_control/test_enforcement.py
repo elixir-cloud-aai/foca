@@ -164,9 +164,7 @@ def _operation(operation_id: str, **extra) -> dict:
         "responses": {
             "200": {
                 "description": "OK",
-                "content": {
-                    "application/json": {"schema": {"type": "string"}}
-                },
+                "content": {"application/json": {"schema": {"type": "string"}}},
             },
         },
     }
@@ -208,9 +206,7 @@ SPEC = {
         "/refs/{id}": {"$ref": "#/x-path-items/ref-item"},
         # optional authentication
         "/optional": {
-            "get": _operation(
-                "get_optional", security=[{}, {"bearerAuth": []}]
-            ),
+            "get": _operation("get_optional", security=[{}, {"bearerAuth": []}]),
         },
     },
     "x-path-items": {
@@ -232,9 +228,7 @@ SPEC = {
 
 
 def _model_path() -> str:
-    with resource_path(
-        ACCESS_CONTROL_BASE_PATH, RESOURCE_ROLE_MODEL_FILE
-    ) as _path:
+    with resource_path(ACCESS_CONTROL_BASE_PATH, RESOURCE_ROLE_MODEL_FILE) as _path:
         return str(_path)
 
 
@@ -371,9 +365,7 @@ class TestEnforcement:
         ],
     )
     def test_enforce(self, app, method, path, user, status):
-        response = getattr(app.test_client(), method)(
-            path, headers=_headers(user)
-        )
+        response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -417,9 +409,7 @@ class TestEnforcement:
         ],
     )
     def test_enforce_subpaths(self, app, method, path, user, status):
-        response = getattr(app.test_client(), method)(
-            path, headers=_headers(user)
-        )
+        response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -431,16 +421,12 @@ class TestEnforcement:
             ("get", "/items/3", "alice", 403),
         ],
     )
-    def test_enforce_subpaths_disabled(
-        self, tmp_path, method, path, user, status
-    ):
+    def test_enforce_subpaths_disabled(self, tmp_path, method, path, user, status):
         app = _create_app(
             tmp_path,
             _access_control_config(resource_roles_cover_subpaths=False),
         )
-        response = getattr(app.test_client(), method)(
-            path, headers=_headers(user)
-        )
+        response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -454,12 +440,8 @@ class TestEnforcement:
             ("get", "/optional", "dave", 200),
         ],
     )
-    def test_enforce_resolved_operations(
-        self, app, method, path, user, status
-    ):
-        response = getattr(app.test_client(), method)(
-            path, headers=_headers(user)
-        )
+    def test_enforce_resolved_operations(self, app, method, path, user, status):
+        response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -489,16 +471,12 @@ class TestEnforcement:
             _access_control_config(),
             connexion={"resolver": resolver},
         )
-        response = getattr(app.test_client(), method)(
-            path, headers=_headers(user)
-        )
+        response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     def test_enforce_disabled(self, tmp_path):
         app = _create_app(tmp_path, _access_control_config(enforce=False))
-        response = app.test_client().delete(
-            "/items/1", headers=_headers("dave")
-        )
+        response = app.test_client().delete("/items/1", headers=_headers("dave"))
         assert response.status_code == 200
 
     @pytest.mark.parametrize(
@@ -512,13 +490,9 @@ class TestEnforcement:
             ("delete", "/items/2", "carol", 403),
         ],
     )
-    def test_enforce_groups_without_mapping(
-        self, tmp_path, method, path, user, status
-    ):
+    def test_enforce_groups_without_mapping(self, tmp_path, method, path, user, status):
         app = _create_app(tmp_path, _access_control_config(group_mapping=None))
-        response = getattr(app.test_client(), method)(
-            path, headers=_headers(user)
-        )
+        response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -538,36 +512,24 @@ class TestEnforcement:
             ("delete", "/items/2", "eve", 403),
         ],
     )
-    def test_enforce_group_subjects(
-        self, tmp_path, method, path, user, status
-    ):
-        app = _create_app(
-            tmp_path, _access_control_config(keep_group_subjects=True)
-        )
+    def test_enforce_group_subjects(self, tmp_path, method, path, user, status):
+        app = _create_app(tmp_path, _access_control_config(keep_group_subjects=True))
         adapter = app.config["casbin_adapter"]
-        adapter.save_policy_line(
-            "g2", ["group:devs", "maintainer", "/items/2"]
-        )
+        adapter.save_policy_line("g2", ["group:devs", "maintainer", "/items/2"])
         adapter.save_policy_line("g2", ["user:devs", "owner", "/items/2"])
-        response = getattr(app.test_client(), method)(
-            path, headers=_headers(user)
-        )
+        response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     def test_enforce_group_subjects_disabled(self, tmp_path):
         app = _create_app(tmp_path, _access_control_config())
         adapter = app.config["casbin_adapter"]
-        adapter.save_policy_line(
-            "g2", ["group:devs", "maintainer", "/items/2"]
-        )
+        adapter.save_policy_line("g2", ["group:devs", "maintainer", "/items/2"])
         response = app.test_client().get("/items/2", headers=_headers("henry"))
         assert response.status_code == 403
 
     def test_warn_subject_like_roles(self, tmp_path, caplog):
         """Stored roles that are subjects are warned about once."""
-        app = _create_app(
-            tmp_path, _access_control_config(subject_prefix="u.")
-        )
+        app = _create_app(tmp_path, _access_control_config(subject_prefix="u."))
         adapter = app.config["casbin_adapter"]
         for ptype, rule in [
             ("g2", ["u.mallory", "group:auditors", "/items/1"]),
@@ -594,9 +556,7 @@ class TestEnforcement:
             # control characters are escaped
             "'u.eve', 'group:a\\tb', '/items/2'",
         ]:
-            assert (
-                sum(f"(g2, {values})" in message for message in messages) == 1
-            )
+            assert sum(f"(g2, {values})" in message for message in messages) == 1
         assert all("remove_resource_role()" in message for message in messages)
 
     @pytest.mark.parametrize(
@@ -605,9 +565,7 @@ class TestEnforcement:
     def test_decisions_logged_escaped(self, app, caplog, user, level):
         """Request paths cannot forge log lines."""
         with _capture_logs(caplog, level=logging.DEBUG):
-            app.test_client().get(
-                "/items/1%0Aforged%1B", headers=_headers(user)
-            )
+            app.test_client().get("/items/1%0Aforged%1B", headers=_headers(user))
         messages = _messages(caplog, level=level)
         assert len(messages) == 1
         assert "/items/1\\nforged\\x1b" in messages[0]
@@ -615,9 +573,7 @@ class TestEnforcement:
 
     def test_no_warning_without_subject_like_roles(self, app, caplog):
         with _capture_logs(caplog):
-            response = app.test_client().get(
-                "/items/1", headers=_headers("alice")
-            )
+            response = app.test_client().get("/items/1", headers=_headers("alice"))
         assert response.status_code == 200
         assert _messages(caplog) == []
 
@@ -744,9 +700,7 @@ class TestPermissionsApi:
         )
         client = app.test_client()
         assert client.get("/admin/access-control/ui/").status_code == 200
-        assert (
-            client.get("/admin/access-control/openapi.json").status_code == 200
-        )
+        assert client.get("/admin/access-control/openapi.json").status_code == 200
 
 
 class TestPagination:
@@ -837,8 +791,7 @@ class TestSelfService:
         )
         assert response.status_code == 200
         return [
-            [p["policy_type"], *p["rule"].values()]
-            for p in response.json["results"]
+            [p["policy_type"], *p["rule"].values()] for p in response.json["results"]
         ]
 
     def test_disabled(self, app):
@@ -881,9 +834,7 @@ class TestSelfService:
     def test_list_group_subjects(self, tmp_path):
         app = _create_app(
             tmp_path,
-            _access_control_config(
-                self_service=True, keep_group_subjects=True
-            ),
+            _access_control_config(self_service=True, keep_group_subjects=True),
         )
         assert self._list(app, "frank") == [
             ["p", "*", "/items", "POST"],
@@ -933,26 +884,17 @@ class TestSelfService:
             "rule": {"v0": "user:alice", "v1": "admin"},
         }
         headers = _headers("alice")
-        assert (
-            client.post(self.url, json=payload, headers=headers).status_code
-            == 403
-        )
+        assert client.post(self.url, json=payload, headers=headers).status_code == 403
         url = f"{self.url}/{own}"
-        assert (
-            client.put(url, json=payload, headers=headers).status_code == 403
-        )
+        assert client.put(url, json=payload, headers=headers).status_code == 403
         assert client.delete(url, headers=headers).status_code == 403
 
     @pytest.mark.parametrize("self_service", [False, True])
     def test_owners_manage_access(self, tmp_path, self_service):
         """Owners grant roles on their resources via app endpoints."""
-        app = _create_app(
-            tmp_path, _access_control_config(self_service=self_service)
-        )
+        app = _create_app(tmp_path, _access_control_config(self_service=self_service))
         client = app.test_client()
-        assert (
-            client.get("/items/1", headers=_headers("dave")).status_code == 403
-        )
+        assert client.get("/items/1", headers=_headers("dave")).status_code == 403
         # only owners may manage access
         response = client.put(
             "/items/1/permissions",
@@ -966,13 +908,8 @@ class TestSelfService:
             headers=_headers("alice"),
         )
         assert response.status_code == 200
-        assert (
-            client.get("/items/1", headers=_headers("dave")).status_code == 200
-        )
-        assert (
-            client.delete("/items/1", headers=_headers("dave")).status_code
-            == 403
-        )
+        assert client.get("/items/1", headers=_headers("dave")).status_code == 200
+        assert client.delete("/items/1", headers=_headers("dave")).status_code == 403
 
     @pytest.mark.parametrize("keep_group_subjects", [False, True])
     def test_owners_grant_roles_to_groups(self, tmp_path, keep_group_subjects):
@@ -1018,14 +955,9 @@ class TestSelfService:
         # roles granted to groups apply to members if groups are subjects
         expected = 200 if keep_group_subjects else 403
         for method in ["get", "put"]:
-            response = getattr(client, method)(
-                "/items/5", headers=_headers("henry")
-            )
+            response = getattr(client, method)("/items/5", headers=_headers("henry"))
             assert response.status_code == expected
-        assert (
-            client.delete("/items/5", headers=_headers("henry")).status_code
-            == 403
-        )
+        assert client.delete("/items/5", headers=_headers("henry")).status_code == 403
 
 
 @pytest.mark.parametrize(
@@ -1060,9 +992,7 @@ def helper_app():
             access_control=_access_control_config(),
         ),
     )
-    adapter = Adapter(
-        collection=mongomock.MongoClient()[DB_NAME][COLLECTION_NAME]
-    )
+    adapter = Adapter(collection=mongomock.MongoClient()[DB_NAME][COLLECTION_NAME])
     app.config["CASBIN_MODEL"] = _model_path()
     app.config["casbin_adapter"] = adapter
     return app
@@ -1114,9 +1044,7 @@ class TestRemovingConfiguredRules:
         monkeypatch.setattr(adapter, "remove_policy", mark_and_remove)
         with store_app.app_context(), _capture_logs(caplog):
             assert remove_resource_role("alice", "owner", "/items/1") is False
-        assert [doc["configured"] for doc in self._documents(store_app)] == [
-            True
-        ]
+        assert [doc["configured"] for doc in self._documents(store_app)] == [True]
         assert len(_messages(caplog)) == 1
 
     def test_unmarked_copy_removed(self, store_app, caplog):
@@ -1127,9 +1055,7 @@ class TestRemovingConfiguredRules:
         adapter.save_policy_line("g2", self.RULE)
         with store_app.app_context(), _capture_logs(caplog):
             assert remove_resource_role("alice", "owner", "/items/1") is False
-        assert [
-            doc.get("configured") for doc in self._documents(store_app)
-        ] == [True]
+        assert [doc.get("configured") for doc in self._documents(store_app)] == [True]
         assert len(_messages(caplog)) == 1
 
     @pytest.mark.parametrize(
@@ -1204,9 +1130,7 @@ class TestCurrentSubject:
             ctx.pop()
 
     def test_string_group_claim(self, helper_app):
-        ctx = self._context(
-            helper_app, {"sub": "x", "groups": ADMIN_ENTITLEMENT}
-        )
+        ctx = self._context(helper_app, {"sub": "x", "groups": ADMIN_ENTITLEMENT})
         try:
             assert get_current_groups() == ["admin"]
         finally:
@@ -1380,20 +1304,14 @@ class TestEnforceAccessControlDecorator:
     def test_no_subject(self, helper_app):
         with pytest.raises(Unauthorized) as exc_info:
             self._call(helper_app, "GET", "/items", None)
-        assert exc_info.value.get_headers()[1:] == [
-            ("WWW-Authenticate", "Bearer")
-        ]
+        assert exc_info.value.get_headers()[1:] == [("WWW-Authenticate", "Bearer")]
 
     def test_no_subject_claim(self, helper_app):
         with pytest.raises(Unauthorized) as exc_info:
             self._call(helper_app, "GET", "/items", {"iss": "x"})
-        assert exc_info.value.get_headers()[1:] == [
-            ("WWW-Authenticate", "Bearer")
-        ]
+        assert exc_info.value.get_headers()[1:] == [("WWW-Authenticate", "Bearer")]
 
-    @pytest.mark.parametrize(
-        "subject", ["alice,/items,GET", "alice\n", "a" * 1024]
-    )
+    @pytest.mark.parametrize("subject", ["alice,/items,GET", "alice\n", "a" * 1024])
     def test_invalid_subject(self, helper_app, subject):
         with helper_app.app_context():
             get_enforcer().add_policy("*", "/items", "GET")
@@ -1445,9 +1363,7 @@ class TestLoadPolicy:
             }
         )
         with helper_app.app_context():
-            assert get_enforcer().get_policy() == [
-                ["user:alice", "/items", "GET"]
-            ]
+            assert get_enforcer().get_policy() == [["user:alice", "/items", "GET"]]
 
     @pytest.mark.parametrize(
         "document",
@@ -1484,9 +1400,7 @@ class TestLoadPolicy:
         for _ in range(2):
             adapter.save_policy_line("g", ["user:alice", "admin"])
         with helper_app.app_context():
-            assert get_enforcer().get_grouping_policy() == [
-                ["user:alice", "admin"]
-            ]
+            assert get_enforcer().get_grouping_policy() == [["user:alice", "admin"]]
 
 
 class TestResourceRoles:
@@ -1532,9 +1446,7 @@ class TestResourceRoles:
             for message in messages
         )
 
-    def test_remove_resource_unmarked_copy_of_configured_rule(
-        self, helper_app, caplog
-    ):
+    def test_remove_resource_unmarked_copy_of_configured_rule(self, helper_app, caplog):
         """Removing an unmarked copy of a configured rule does not revoke
         the role, so `False` is returned."""
         adapter = helper_app.config["casbin_adapter"]
@@ -1547,9 +1459,7 @@ class TestResourceRoles:
         assert adapter._collection.count_documents({}) == 1
         assert len(_messages(caplog)) == 1
 
-    def test_remove_resource_does_not_load_policies(
-        self, helper_app, monkeypatch
-    ):
+    def test_remove_resource_does_not_load_policies(self, helper_app, monkeypatch):
         """Rules are removed without loading all policies."""
         with helper_app.app_context():
             add_resource_role("alice", "owner", "/items/1")
@@ -1566,9 +1476,7 @@ class TestResourceRoles:
             add_resource_role("alice", "owner", "/items/1")
             add_resource_role("alice", "owner", "/items/1/files")
             assert remove_resource("/items/1") is True
-            assert list_resource_roles("/items/1/files") == [
-                ("alice", "owner")
-            ]
+            assert list_resource_roles("/items/1/files") == [("alice", "owner")]
 
     def test_roles_persisted(self, helper_app):
         with helper_app.app_context():
@@ -1594,9 +1502,7 @@ class TestResourceRoles:
 
     def test_add_remove_group_roles(self, helper_app):
         with helper_app.app_context():
-            assert add_resource_role(
-                GROUP, "owner", "/items/1", subject_type="group"
-            )
+            assert add_resource_role(GROUP, "owner", "/items/1", subject_type="group")
             assert not add_resource_role(
                 GROUP, "owner", "/items/1", subject_type="group"
             )
@@ -1631,9 +1537,7 @@ class TestResourceRoles:
 
     def test_users_and_groups_do_not_collide(self, helper_app):
         with helper_app.app_context():
-            assert add_resource_role(
-                GROUP, "owner", "/items/1", subject_type="group"
-            )
+            assert add_resource_role(GROUP, "owner", "/items/1", subject_type="group")
             assert add_resource_role(GROUP, "maintainer", "/items/1")
             assert get_enforcer().get_named_grouping_policy("g2") == [
                 [f"group:{GROUP}", "owner", "/items/1"],
@@ -1660,9 +1564,7 @@ class TestResourceRoles:
         prefix = "user:" if subject_type == "user" else "group:"
         with helper_app.app_context():
             with pytest.raises(ValueError, match="must not start with"):
-                add_resource_role(
-                    "grace", role, "/items/5", subject_type=subject_type
-                )
+                add_resource_role("grace", role, "/items/5", subject_type=subject_type)
             assert get_enforcer().get_named_grouping_policy("g2") == []
             helper_app.config["casbin_adapter"].save_policy_line(
                 "g2", [f"{prefix}grace", role, "/items/5"]
@@ -1704,9 +1606,7 @@ class TestResourceRoles:
         conf.group_mapping = group_mapping
         conf.keep_group_subjects = keep_group_subjects
         with helper_app.app_context(), caplog.at_level(logging.WARNING):
-            assert add_resource_role(
-                "devs", "owner", "/items/1", subject_type="group"
-            )
+            assert add_resource_role("devs", "owner", "/items/1", subject_type="group")
             assert add_resource_role("devs", "maintainer", "/items/1")
         assert ("does not apply" in caplog.text) is warned
 
@@ -1725,10 +1625,7 @@ class TestResourceRoles:
                 ptype="g2", rule=["maintainer", "owner", "/items/1"]
             )
             for subject_type in ["user", "group"]:
-                assert (
-                    list_resource_roles("/items/1", subject_type=subject_type)
-                    == []
-                )
+                assert list_resource_roles("/items/1", subject_type=subject_type) == []
             assert list_resource_roles("/items/1") == [("maintainer", "owner")]
 
     @pytest.mark.parametrize(
@@ -1761,9 +1658,7 @@ class TestResourceRoles:
         """Empty subjects cannot be granted roles, but can be revoked."""
         with helper_app.app_context():
             with pytest.raises(ValueError, match="must not be empty"):
-                add_resource_role(
-                    "", "owner", "/items/1", subject_type=subject_type
-                )
+                add_resource_role("", "owner", "/items/1", subject_type=subject_type)
             assert get_enforcer().get_named_grouping_policy("g2") == []
             helper_app.config["casbin_adapter"].save_policy_line(
                 "g2", [prefix, "owner", "/items/1"]
@@ -1801,9 +1696,7 @@ class TestResourceRoles:
 
     def test_group_value_starting_with_hash(self, helper_app):
         with helper_app.app_context():
-            assert add_resource_role(
-                "#devs", "owner", "/items/1", subject_type="group"
-            )
+            assert add_resource_role("#devs", "owner", "/items/1", subject_type="group")
             assert list_resource_roles("/items/1", subject_type="group") == [
                 ("#devs", "owner")
             ]
@@ -1826,12 +1719,8 @@ class TestResourceRoles:
         helper_app.config["CASBIN_MODEL"] = str(model)
         with helper_app.app_context():
             assert add_resource_role("alice", "owner", "/items/1", ptype="g3")
-            assert list_resource_roles("/items/1", ptype="g3") == [
-                ("alice", "owner")
-            ]
-            assert remove_resource_role(
-                "alice", "owner", "/items/1", ptype="g3"
-            )
+            assert list_resource_roles("/items/1", ptype="g3") == [("alice", "owner")]
+            assert remove_resource_role("alice", "owner", "/items/1", ptype="g3")
             assert not remove_resource("/items/1", ptype="g3")
 
     @pytest.mark.parametrize(

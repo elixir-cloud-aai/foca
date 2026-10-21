@@ -66,9 +66,7 @@ def build_service_info(conf: ServiceInfoConfig) -> dict[str, Any]:
     path = str(conf.runtime_fields)
     runtime = call_runtime_function(conf.runtime_function, path)
     info = merge_service_info(conf.service, conf.package_version, runtime)
-    validate_service_info(
-        info, note=f" (from `service_info.service` and `{path}`)"
-    )
+    validate_service_info(info, note=f" (from `service_info.service` and `{path}`)")
     return info
 
 
@@ -185,6 +183,4 @@ def check_service_info(app: Flask) -> None:
             logger.info("No service info configured.")
             return
         info = get_service_info()
-    logger.info(
-        f"Serving service info '{info['id']}', version '{info['version']}'."
-    )
+    logger.info(f"Serving service info '{info['id']}', version '{info['version']}'.")

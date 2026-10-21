@@ -127,9 +127,7 @@ class TestGetAllPermissions:
             res = getAllPermissions.__wrapped__(page_size=1, page=0)
             assert res["results"] == [stored]
 
-    @pytest.mark.parametrize(
-        "page_size,page", [(0, 0), (1001, 0), (1, -1), (1, 1)]
-    )
+    @pytest.mark.parametrize("page_size,page", [(0, 0), (1001, 0), (1, -1), (1, 1)])
     def test_out_of_range(self, app, stored, page_size, page):
         with app.app_context(), pytest.raises(BadRequest):
             getAllPermissions.__wrapped__(page_size=page_size, page=page)
@@ -220,9 +218,7 @@ class TestPutPermission:
         )
         with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
             assert putPermission.__wrapped__(id=MOCK_ID) == MOCK_ID
-        assert collection.find_one(
-            {"id": MOCK_ID}, projection={"_id": False}
-        ) == {
+        assert collection.find_one({"id": MOCK_ID}, projection={"_id": False}) == {
             "id": MOCK_ID,
             "ptype": "p",
             "v0": "alice",
@@ -236,16 +232,12 @@ class TestPutPermission:
             post_id = postPermission.__wrapped__()
             putPermission.__wrapped__(id=MOCK_ID)
         posted, put = (
-            collection.find_one(
-                {"id": id}, projection={"_id": False, "id": False}
-            )
+            collection.find_one({"id": id}, projection={"_id": False, "id": False})
             for id in [post_id, MOCK_ID]
         )
         assert posted == put
 
-    @pytest.mark.parametrize(
-        "id", ["mock_id", "mock", "mockIdentifier", "mock-1"]
-    )
+    @pytest.mark.parametrize("id", ["mock_id", "mock", "mockIdentifier", "mock-1"])
     def test_invalid_id(self, app, collection, id):
         with (
             app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
@@ -354,16 +346,12 @@ class TestTrafficLogging:
         ],
     )
     @pytest.mark.parametrize("log_traffic", [None, True, False])
-    def test_logged(
-        self, app, client, stored, caplog, method, path, body, log_traffic
-    ):
+    def test_logged(self, app, client, stored, caplog, method, path, body, log_traffic):
         """Traffic is logged unless disabled via
         `access_control.log_traffic`, as configured at request time."""
         if log_traffic is not None:
             app.config.foca.security.access_control.log_traffic = log_traffic
-        response = getattr(client, method)(
-            path, json=deepcopy(MOCK_PERMISSION)
-        )
+        response = getattr(client, method)(path, json=deepcopy(MOCK_PERMISSION))
         assert response.status_code == 200
         request = f'"{method.upper()} {path} HTTP/1.1" from 127.0.0.1'
         expected = [

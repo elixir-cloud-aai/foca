@@ -239,9 +239,7 @@ def test_audience_validation_disabled(
     chart_with_settings: Callable[[str], Path], value: str
 ) -> None:
     chart = chart_with_settings(FULL_SETTINGS)
-    template(
-        chart, "--set-json", f"config.security.auth.verify_audience={value}"
-    )
+    template(chart, "--set-json", f"config.security.auth.verify_audience={value}")
 
 
 def test_audience_not_required_by_default(
@@ -279,9 +277,7 @@ def test_overlay_config_takes_precedence(render: Callable[..., Docs]):
 
 
 @pytest.mark.parametrize("section", ["db", "server"])
-def test_overlay_drops_null_sections(
-    render: Callable[..., Docs], section: str
-) -> None:
+def test_overlay_drops_null_sections(render: Callable[..., Docs], section: str) -> None:
     docs = render("--set-json", f"config.{section}=null")
     assert _overlay(docs) == {"db": {"host": MONGODB}}
 
@@ -306,16 +302,13 @@ def test_container(render: Callable[..., Docs]) -> None:
     env = _env(container)
     assert env["FOCA_CONFIG_OVERLAY"] == "/etc/petstore/overlay.yaml"
     assert env["GUNICORN_CMD_ARGS"] == (
-        "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 "
-        "--keep-alive 75"
+        "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 --keep-alive 75"
     )
     for var, key in [
         ("MONGO_USERNAME", "username"),
         ("MONGO_PASSWORD", "password"),
     ]:
-        assert env[var] == {
-            "secretKeyRef": {"name": "mongodb-credentials", "key": key}
-        }
+        assert env[var] == {"secretKeyRef": {"name": "mongodb-credentials", "key": key}}
     for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
         assert container[probe]["httpGet"] == {"path": "/ui/", "port": 8080}
     assert container["lifecycle"]["preStop"]["exec"]["command"] == [
@@ -345,9 +338,7 @@ def test_container(render: Callable[..., Docs]) -> None:
         (("--set", "petstore.image=pets@sha256:abc"), "pets@sha256:abc"),
     ],
 )
-def test_image(
-    render: Callable[..., Docs], args: tuple[str, ...], image: str
-) -> None:
+def test_image(render: Callable[..., Docs], args: tuple[str, ...], image: str) -> None:
     assert _container(render(*args))["image"] == image
 
 
@@ -379,9 +370,7 @@ def test_without_gunicorn(render: Callable[..., Docs]) -> None:
 
 
 def test_gunicorn_extra_args_quoted(render: Callable[..., Docs]) -> None:
-    docs = render(
-        "--set-json", 'petstore.gunicorn.extraArgs=["--access-logfile", "-"]'
-    )
+    docs = render("--set-json", 'petstore.gunicorn.extraArgs=["--access-logfile", "-"]')
     args = _env(_container(docs))["GUNICORN_CMD_ARGS"]
     assert args.endswith(" '--access-logfile' '-'")
 
@@ -407,9 +396,7 @@ def test_gunicorn_reserved_args_fail(
 
 
 @pytest.mark.parametrize("arg", ["--bind x", "--backlog=1", "-D"])
-def test_gunicorn_other_args_pass(
-    render: Callable[..., Docs], arg: str
-) -> None:
+def test_gunicorn_other_args_pass(render: Callable[..., Docs], arg: str) -> None:
     render("--set-json", f"petstore.gunicorn.extraArgs={json.dumps([arg])}")
 
 
@@ -521,8 +508,7 @@ def test_gunicorn_settings(render: Callable[..., Docs]) -> None:
         "petstore.gunicorn.keepalive=0",
     )
     assert _env(_container(docs))["GUNICORN_CMD_ARGS"] == (
-        "--workers 2 --threads 8 --timeout 60 --graceful-timeout 15 "
-        "--keep-alive 0"
+        "--workers 2 --threads 8 --timeout 60 --graceful-timeout 15 --keep-alive 0"
     )
 
 
@@ -553,9 +539,7 @@ def test_overlay_db_host_is_mongodb_service(
     render: Callable[..., Docs],
 ) -> None:
     docs = render("--set", "fullnameOverride=shop")
-    overlay = yaml.safe_load(
-        docs[("ConfigMap", "shop-config")]["data"]["overlay.yaml"]
-    )
+    overlay = yaml.safe_load(docs[("ConfigMap", "shop-config")]["data"]["overlay.yaml"])
     assert overlay["db"]["host"] == "shop-mongodb"
     assert ("Service", "shop-mongodb") in docs
 
@@ -603,9 +587,7 @@ def test_ingress(render: Callable[..., Docs]) -> None:
 
 
 def test_ingress_https(render: Callable[..., Docs]) -> None:
-    ingress = render("--set", "petstore.ingress.https.enabled=true")[
-        ("Ingress", APP)
-    ]
+    ingress = render("--set", "petstore.ingress.https.enabled=true")[("Ingress", APP)]
     assert ingress["metadata"]["annotations"] == {
         "cert-manager.io/cluster-issuer": "letsencrypt-prod",
         "kubernetes.io/tls-acme": "true",
@@ -636,9 +618,7 @@ def test_ingress_annotations(render: Callable[..., Docs]) -> None:
 
 
 @pytest.mark.parametrize("value", ["0", "1.5", '"1m"'])
-def test_max_content_length_invalid(
-    chart: Path, value: str, tmp_path: Path
-) -> None:
+def test_max_content_length_invalid(chart: Path, value: str, tmp_path: Path) -> None:
     # Bypasses the schema, which rejects these values already
     chart_copy = tmp_path / "chart"
     shutil.copytree(chart, chart_copy)
@@ -650,9 +630,7 @@ def test_max_content_length_invalid(
 
 
 def test_ingress_host_required(render_error: Callable[..., str]) -> None:
-    error = render_error(
-        "--set", "mongodb.auth.existingSecret=s", required=False
-    )
+    error = render_error("--set", "mongodb.auth.existingSecret=s", required=False)
     assert "hostName must be set" in error
 
 
@@ -677,10 +655,7 @@ def test_route(render: Callable[..., Docs]) -> None:
 def test_app_network_policy(render: Callable[..., Docs]) -> None:
     docs = render("--set", "petstore.networkPolicy.enabled=true")
     policy = docs[("NetworkPolicy", APP)]["spec"]
-    assert (
-        policy["podSelector"]["matchLabels"]["app.kubernetes.io/component"]
-        == "app"
-    )
+    assert policy["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "app"
     (rule,) = policy["ingress"]
     assert rule["from"] == [
         {

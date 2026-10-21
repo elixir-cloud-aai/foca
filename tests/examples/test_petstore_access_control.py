@@ -9,9 +9,7 @@ from connexion.exceptions import OAuthProblem
 from foca import Foca
 from foca.security import auth
 
-EXAMPLE_DIR = (
-    Path(__file__).parents[2] / "examples" / "petstore-access-control"
-)
+EXAMPLE_DIR = Path(__file__).parents[2] / "examples" / "petstore-access-control"
 ISSUER = "https://login.example.org/oidc/"
 
 
@@ -43,9 +41,7 @@ def client(monkeypatch, mongo_clients):
 
 def test_owners_manage_their_pets(client):
     """Owners can get and delete their pets; others get 403."""
-    response = client.post(
-        "/pets", json={"name": "Rex"}, headers=_headers("alice")
-    )
+    response = client.post("/pets", json={"name": "Rex"}, headers=_headers("alice"))
     assert response.status_code == 200
     pet_id = response.json["id"]
     url = f"/pets/{pet_id}"

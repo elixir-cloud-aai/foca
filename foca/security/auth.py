@@ -72,9 +72,7 @@ class _BearerChallenge(WWWAuthenticate):
         return f"Bearer {parameters}"
 
 
-def _unauthorized(
-    description: str, invalid_token: bool = True
-) -> Unauthorized:
+def _unauthorized(description: str, invalid_token: bool = True) -> Unauthorized:
     """Create `401 Unauthorized` exception with a Bearer challenge.
 
     As per RFC 6750, §3.1, the challenge (`WWW-Authenticate`) has the error
@@ -161,9 +159,7 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
             "services by trusted issuers are accepted."
         )
     if conf.allow_expired:
-        logger.warning(
-            "Expired tokens are accepted (`security.auth.allow_expired`)."
-        )
+        logger.warning("Expired tokens are accepted (`security.auth.allow_expired`).")
 
 
 def _validate(token: str, conf: AuthConfig) -> dict:
@@ -200,9 +196,7 @@ def _validate(token: str, conf: AuthConfig) -> dict:
         jwks_uri=oidc_config.get("jwks_uri"),
         conf=conf,
     )
-    missing_claims = [
-        claim for claim in conf.userinfo_claims if claim not in claims
-    ]
+    missing_claims = [claim for claim in conf.userinfo_claims if claim not in claims]
     if conf.validate_userinfo or missing_claims:
         userinfo = _get_userinfo(
             token=token,
@@ -216,9 +210,7 @@ def _validate(token: str, conf: AuthConfig) -> dict:
     return claims
 
 
-def _fetch_json(
-    url: Any, conf: AuthConfig, throttle: bool = False, **kwargs
-) -> Any:
+def _fetch_json(url: Any, conf: AuthConfig, throttle: bool = False, **kwargs) -> Any:
     """Fetch JSON document from identity provider.
 
     Args:
@@ -243,13 +235,9 @@ def _fetch_json(
         )
     if throttle:
         failed = _failed_fetches.get(url)
-        if (
-            failed is not None
-            and time.monotonic() - failed < JWKS_REFETCH_COOLDOWN
-        ):
+        if failed is not None and time.monotonic() - failed < JWKS_REFETCH_COOLDOWN:
             raise _unauthorized(
-                f"Document from identity provider temporarily unavailable: "
-                f"{url}",
+                f"Document from identity provider temporarily unavailable: {url}",
                 invalid_token=False,
             )
     status = None
@@ -300,10 +288,7 @@ def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict:
         conf=conf,
         throttle=True,
     )
-    if (
-        not isinstance(oidc_config, dict)
-        or oidc_config.get("issuer") != issuer
-    ):
+    if not isinstance(oidc_config, dict) or oidc_config.get("issuer") != issuer:
         raise _unauthorized(
             "OpenID Connect discovery document is invalid",
             invalid_token=False,
@@ -332,18 +317,12 @@ def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False):
     cached = _jwk_sets.get(url)
     if cached is not None:
         age = time.monotonic() - cached[0]
-        if age < conf.cache_ttl and not (
-            refetch and age >= JWKS_REFETCH_COOLDOWN
-        ):
+        if age < conf.cache_ttl and not (refetch and age >= JWKS_REFETCH_COOLDOWN):
             return cached[1]
     try:
-        jwk_set = jwt.PyJWKSet.from_dict(
-            _fetch_json(url=url, conf=conf, throttle=True)
-        )
+        jwk_set = jwt.PyJWKSet.from_dict(_fetch_json(url=url, conf=conf, throttle=True))
     except jwt.PyJWTError as exc:
-        raise _unauthorized(
-            "Issuer's JWK set is invalid", invalid_token=False
-        ) from exc
+        raise _unauthorized("Issuer's JWK set is invalid", invalid_token=False) from exc
     _jwk_sets[url] = (time.monotonic(), jwk_set)
     return jwk_set
 
@@ -453,11 +432,7 @@ def _get_userinfo(
         with _userinfo_cache_lock:
             cached = _userinfo_cache.get(key)
         now = time.monotonic()
-        if (
-            cached is not None
-            and now < cached[1]
-            and now - cached[0] < conf.cache_ttl
-        ):
+        if cached is not None and now < cached[1] and now - cached[0] < conf.cache_ttl:
             return cached[2]
     userinfo = _fetch_json(
         url=url,
