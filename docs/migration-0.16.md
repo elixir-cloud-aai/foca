@@ -1,9 +1,10 @@
 # Migrating to 0.16.0
 
 FOCA 0.16.0 tightens token validation for the ELIXIR On-Cloud authentication
-policy. Most apps need no changes; apps whose identity provider does not issue
-RFC 9068 access tokens should check the breaking changes below. Upgrading from
-0.14 or earlier? Start with [Migrating to 0.15.0](migration-0.15.md).
+policy. Apps using LS Login need no changes; apps whose identity provider does
+not issue RFC 9068 access tokens should check the breaking changes below.
+Upgrading from 0.14 or earlier? Start with [Migrating to
+0.15.0](migration-0.15.md).
 
 ## Breaking changes
 
@@ -18,9 +19,10 @@ error="invalid_token"`), without contacting the issuer. LS Login issues such
 access tokens, so apps using it need no changes.
 
 If your identity provider sets another `typ` header on its access tokens, list
-it in [`security.auth.token_types`](configuration/auth.md); if it sets none,
-disable the check with `security.auth.verify_token_type: false` (FOCA then
-logs a warning on the first validation, as for `verify_audience: false`):
+it in [`security.auth.token_types`](configuration/auth.md) (a generic type such
+as `JWT` does not tell access tokens apart from ID tokens, though); if it sets
+none, disable the check with `security.auth.verify_token_type: false` (FOCA
+then logs a warning on the first validation, as for `verify_audience: false`):
 
 ```yaml
 security:

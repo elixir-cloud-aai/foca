@@ -133,7 +133,9 @@ validation is disabled, or expired tokens are accepted.
     `at+jwt`. Only if your identity provider does not set the `typ` header of
     its access tokens, set `verify_token_type: false`: then any JWT issued by
     a trusted issuer is accepted, including ID tokens. If it sets another
-    value, list it in `token_types` instead.
+    value, list it in `token_types` instead; note that a generic type such as
+    `JWT` does not tell access tokens apart from ID tokens either, so that
+    the `audience` is then the only safeguard.
 
 ## Using token claims
 

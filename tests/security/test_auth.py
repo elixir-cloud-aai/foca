@@ -51,7 +51,7 @@ def make_token(
     key: rsa.RSAPrivateKey | None = PRIVATE_KEY,
     kid: str | None = KID,
     algorithm: str = "RS256",
-    typ: str | None = "at+jwt",
+    typ: Any = "at+jwt",
     **claims: Any,
 ) -> str:
     """Create signed access token (RFC 9068) with valid default claims."""
@@ -452,15 +452,17 @@ class TestValidateToken:
         res = validate(app, make_token(aud="other"))
         assert res["user_id"] == SUBJECT
 
-    @pytest.mark.parametrize("typ", ["at+jwt", "application/at+jwt", "AT+JWT"])
+    @pytest.mark.parametrize(
+        "typ", ["at+jwt", "application/at+jwt", "AT+JWT", "Application/AT+JWT"]
+    )
     def test_token_type(self, idp: MagicMock, typ: str) -> None:
         """Access tokens (RFC 9068) of either `typ` are accepted."""
         res = validate(make_app(), make_token(typ=typ))
         assert res["user_id"] == SUBJECT
 
-    @pytest.mark.parametrize("typ", ["JWT", "id_token+jwt", None])
-    def test_token_type_rejected(self, idp: MagicMock, typ: str | None) -> None:
-        """Tokens of other types (e.g., ID tokens) or without type are rejected.
+    @pytest.mark.parametrize("typ", ["JWT", "id_token+jwt", None, 1, ["at+jwt"]])
+    def test_token_type_rejected(self, idp: MagicMock, typ: Any) -> None:
+        """Tokens of other or no type (e.g., ID tokens) are rejected.
 
         They are rejected without requests to the identity provider.
         """
@@ -468,9 +470,16 @@ class TestValidateToken:
             validate(make_app(), make_token(typ=typ))
         idp.assert_not_called()
 
-    def test_token_type_configured(self, idp: MagicMock) -> None:
-        """Only tokens of the configured types are accepted."""
-        app = make_app(token_types=["JWT"])
+    @pytest.mark.parametrize("token_types", [["JWT"], [" jwt "]])
+    def test_token_type_configured(
+        self, idp: MagicMock, token_types: list[str]
+    ) -> None:
+        """Only tokens of the configured types are accepted.
+
+        Configured types are compared case-insensitively, ignoring surrounding
+        whitespace.
+        """
+        app = make_app(token_types=token_types)
         assert validate(app, make_token(typ="JWT"))["user_id"] == SUBJECT
         with raises_unauthorized():
             validate(app, make_token(typ="at+jwt"))
