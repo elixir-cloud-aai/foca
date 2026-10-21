@@ -1,11 +1,12 @@
 """Tests for config-driven access control enforcement and helpers."""
 
 import logging
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 from unittest import mock
 
 import mongomock
@@ -13,12 +14,17 @@ import pytest
 import yaml
 from casbin import Enforcer
 from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
+from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, request
+from flask.ctx import RequestContext
 from flask.globals import request_ctx
 from pymongo import MongoClient
+from pymongo.collection import Collection
+from werkzeug.test import TestResponse
 
 from foca.api.register_openapi import register_openapi
+from foca.config.access import get_app_config
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -48,6 +54,7 @@ from foca.security.access_control.constants import (
     RESOURCE_ROLE_MODEL_FILE,
 )
 from foca.security.access_control.enforcement import (
+    SubjectType,
     _is_within_path,
     get_enforcer,
 )
@@ -65,7 +72,7 @@ ISSUER = "https://login.example.org/oidc/"
 THIS_MODULE = __name__
 
 # Bearer tokens mapped to the claims of their (fake) validated JWTs
-TOKENS: dict[str, dict] = {
+TOKENS: dict[str, dict[str, Any]] = {
     "alice": {"sub": "alice"},
     "bob": {"sub": "bob"},
     "carol": {"sub": "carol", "groups": [ADMIN_ENTITLEMENT]},
@@ -96,19 +103,19 @@ POLICIES = [
 
 # Challenge of `401 Unauthorized` responses for invalid tokens
 INVALID_TOKEN_CHALLENGE = (
-    'Bearer error="invalid_token", '
+    'Bearer error="invalid_token", '  # noqa: S105 (not a password)
     'error_description="The access token could not be validated"'
 )
 
 
-def mock_token_info(token: str) -> dict:
+def mock_token_info(token: str) -> dict[str, Any]:
     """Return token info or raise as FOCA's `validate_token()` does."""
     if token not in TOKENS:
         raise _unauthorized("JWT could not be validated")
     return {"jwt": token, "claims": TOKENS[token]}
 
 
-def controller(*args, **kwargs) -> str:
+def controller(*args: Any, **kwargs: Any) -> str:
     """Generic controller for the test API."""
     return "ok"
 
@@ -119,7 +126,7 @@ list_items = create_item = get_item = update_item = delete_item = get_open = (
 ) = get_ref_item = get_optional = controller
 
 
-def update_item_permissions(id, *args, **kwargs) -> str:
+def update_item_permissions(id: str, *args: Any, **kwargs: Any) -> str:
     """Grant role on item, as apps let owners manage access."""
     body = request.get_json(silent=True)
     if body:
@@ -144,22 +151,22 @@ def update_item_permissions(id, *args, **kwargs) -> str:
     return "ok"
 
 
-def function_resolver(operation_id: str):
+def function_resolver(operation_id: str) -> Callable[..., str]:
     """Callable operation resolver, as accepted by Connexion."""
     return controller
 
 
 class DuckTypedResolver:
-    """Operation resolver not inheriting from `Resolver`, as accepted by
-    Connexion."""
+    """Operation resolver not inheriting from `Resolver`, as accepted by Connexion."""
 
-    def resolve(self, operation) -> Resolution:
+    def resolve(self, operation: AbstractOperation) -> Resolution:
+        """Resolve operations to the generic controller."""
         return Resolution(controller, operation.operation_id)
 
 
-def _operation(operation_id: str, **extra) -> dict:
+def _operation(operation_id: str, **extra: Any) -> dict[str, Any]:
     """Build an OpenAPI 3 Operation object."""
-    operation = {
+    operation: dict[str, Any] = {
         "operationId": f"{THIS_MODULE}.{operation_id}",
         "responses": {
             "200": {
@@ -232,8 +239,8 @@ def _model_path() -> str:
         return str(_path)
 
 
-def _access_control_config(**kwargs) -> AccessControlConfig:
-    params = {
+def _access_control_config(**kwargs: Any) -> AccessControlConfig:
+    params: dict[str, Any] = {
         "db_name": DB_NAME,
         "collection_name": COLLECTION_NAME,
         "model": _model_path(),
@@ -249,8 +256,8 @@ def _access_control_config(**kwargs) -> AccessControlConfig:
 def _create_app(
     tmp_path: Path,
     access_control: AccessControlConfig,
-    connexion: dict | None = None,
-):
+    connexion: dict[str, Any] | None = None,
+) -> Flask:
     """Create app with test API, permissions API and in-memory policies."""
     spec_file = tmp_path / "spec.yaml"
     spec_file.write_text(yaml.safe_dump(deepcopy(SPEC)))
@@ -271,7 +278,7 @@ def _create_app(
     cnx_app = register_exception_handler(cnx_app)
     cnx_app = register_openapi(
         app=cnx_app,
-        specs=[SpecConfig(path=spec_file, connexion=connexion)],
+        specs=[SpecConfig.model_validate({"path": spec_file, "connexion": connexion})],
         enforce_access_control=access_control.enforce,
     )
     with mock.patch("foca.security.auth.validate_token", new=mock_token_info):
@@ -279,7 +286,9 @@ def _create_app(
             app=cnx_app,
             access_control_config=access_control,
         )
-    collection = mongomock.MongoClient()[DB_NAME][COLLECTION_NAME]
+    collection: Collection[dict[str, Any]] = mongomock.MongoClient()[DB_NAME][
+        COLLECTION_NAME
+    ]
     config.db.dbs[DB_NAME].collections[  # type: ignore[union-attr,index]
         COLLECTION_NAME
     ].client = collection
@@ -292,10 +301,14 @@ def _create_app(
 
 
 @contextmanager
-def _capture_logs(caplog, level: int = logging.WARNING):
-    """Capture records of the enforcement module from `level` up, also if
-    app creation (i.e., logging configuration) disabled its logger or
-    propagation."""
+def _capture_logs(
+    caplog: pytest.LogCaptureFixture, level: int = logging.WARNING
+) -> Iterator[None]:
+    """Capture records of the enforcement module from `level` up.
+
+    Records are also captured if app creation (i.e., logging configuration)
+    disabled the module's logger or propagation.
+    """
     logger = enforcement.logger
     disabled, propagate = logger.disabled, logger.propagate
     logger.disabled, logger.propagate = False, True
@@ -306,9 +319,13 @@ def _capture_logs(caplog, level: int = logging.WARNING):
         logger.disabled, logger.propagate = disabled, propagate
 
 
-def _messages(caplog, level: int = logging.WARNING) -> list[str]:
-    """Messages of the captured records of the enforcement module with
-    exactly `level`."""
+def _messages(
+    caplog: pytest.LogCaptureFixture, level: int = logging.WARNING
+) -> list[str]:
+    """Messages of the captured records of the enforcement module.
+
+    Only messages of records with exactly `level` are returned.
+    """
     return [
         record.getMessage()
         for record in caplog.records
@@ -316,12 +333,19 @@ def _messages(caplog, level: int = logging.WARNING) -> list[str]:
     ]
 
 
-def _headers(user: str | None) -> dict:
+def _headers(user: str | None) -> dict[str, str]:
     return {} if user is None else {"Authorization": f"Bearer {user}"}
 
 
+def _json(response: TestResponse) -> Any:
+    """JSON body of a response."""
+    assert response.json is not None
+    return response.json
+
+
 @pytest.fixture
-def app(tmp_path):
+def app(tmp_path: Path) -> Flask:
+    """App with test API, permissions API and in-memory policies."""
     return _create_app(tmp_path, _access_control_config())
 
 
@@ -364,7 +388,10 @@ class TestEnforcement:
             ("get", "/open", "dave", 200),
         ],
     )
-    def test_enforce(self, app, method, path, user, status):
+    def test_enforce(
+        self, app: Flask, method: str, path: str, user: str | None, status: int
+    ) -> None:
+        """Policies are enforced on the app's operations."""
         response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
@@ -379,7 +406,7 @@ class TestEnforcement:
             ("anonymous", "Bearer"),
         ],
     )
-    def test_challenge(self, app, user, challenge):
+    def test_challenge(self, app: Flask, user: str | None, challenge: str) -> None:
         """`401` responses carry a Bearer challenge (RFC 6750, §3.1)."""
         response = app.test_client().post("/items", headers=_headers(user))
         assert response.status_code == 401
@@ -408,7 +435,10 @@ class TestEnforcement:
             ("put", "/items/2/permissions", "carol", 200),
         ],
     )
-    def test_enforce_subpaths(self, app, method, path, user, status):
+    def test_enforce_subpaths(
+        self, app: Flask, method: str, path: str, user: str | None, status: int
+    ) -> None:
+        """Resource roles cover sub-paths of their resources."""
         response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
@@ -421,7 +451,10 @@ class TestEnforcement:
             ("get", "/items/3", "alice", 403),
         ],
     )
-    def test_enforce_subpaths_disabled(self, tmp_path, method, path, user, status):
+    def test_enforce_subpaths_disabled(
+        self, tmp_path: Path, method: str, path: str, user: str | None, status: int
+    ) -> None:
+        """Resource roles cover only their resources, if configured."""
         app = _create_app(
             tmp_path,
             _access_control_config(resource_roles_cover_subpaths=False),
@@ -440,7 +473,10 @@ class TestEnforcement:
             ("get", "/optional", "dave", 200),
         ],
     )
-    def test_enforce_resolved_operations(self, app, method, path, user, status):
+    def test_enforce_resolved_operations(
+        self, app: Flask, method: str, path: str, user: str | None, status: int
+    ) -> None:
+        """Operations are enforced as resolved by Connexion."""
         response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
@@ -464,8 +500,15 @@ class TestEnforcement:
         ],
     )
     def test_enforce_custom_resolver(
-        self, tmp_path, resolver, method, path, user, status
-    ):
+        self,
+        tmp_path: Path,
+        resolver: Callable[[str], Callable[..., str]] | Resolver | DuckTypedResolver,
+        method: str,
+        path: str,
+        user: str | None,
+        status: int,
+    ) -> None:
+        """Policies are enforced with custom operation resolvers."""
         app = _create_app(
             tmp_path,
             _access_control_config(),
@@ -474,7 +517,8 @@ class TestEnforcement:
         response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
-    def test_enforce_disabled(self, tmp_path):
+    def test_enforce_disabled(self, tmp_path: Path) -> None:
+        """Policies are not enforced on app operations, if disabled."""
         app = _create_app(tmp_path, _access_control_config(enforce=False))
         response = app.test_client().delete("/items/1", headers=_headers("dave"))
         assert response.status_code == 200
@@ -490,7 +534,10 @@ class TestEnforcement:
             ("delete", "/items/2", "carol", 403),
         ],
     )
-    def test_enforce_groups_without_mapping(self, tmp_path, method, path, user, status):
+    def test_enforce_groups_without_mapping(
+        self, tmp_path: Path, method: str, path: str, user: str | None, status: int
+    ) -> None:
+        """Without a mapping, group claim values are prefixed subjects."""
         app = _create_app(tmp_path, _access_control_config(group_mapping=None))
         response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
@@ -512,7 +559,10 @@ class TestEnforcement:
             ("delete", "/items/2", "eve", 403),
         ],
     )
-    def test_enforce_group_subjects(self, tmp_path, method, path, user, status):
+    def test_enforce_group_subjects(
+        self, tmp_path: Path, method: str, path: str, user: str | None, status: int
+    ) -> None:
+        """Group claim values are kept as subjects, if configured."""
         app = _create_app(tmp_path, _access_control_config(keep_group_subjects=True))
         adapter = app.config["casbin_adapter"]
         adapter.save_policy_line("g2", ["group:devs", "maintainer", "/items/2"])
@@ -520,14 +570,17 @@ class TestEnforcement:
         response = getattr(app.test_client(), method)(path, headers=_headers(user))
         assert response.status_code == status
 
-    def test_enforce_group_subjects_disabled(self, tmp_path):
+    def test_enforce_group_subjects_disabled(self, tmp_path: Path) -> None:
+        """Group claim values are not subjects by default."""
         app = _create_app(tmp_path, _access_control_config())
         adapter = app.config["casbin_adapter"]
         adapter.save_policy_line("g2", ["group:devs", "maintainer", "/items/2"])
         response = app.test_client().get("/items/2", headers=_headers("henry"))
         assert response.status_code == 403
 
-    def test_warn_subject_like_roles(self, tmp_path, caplog):
+    def test_warn_subject_like_roles(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Stored roles that are subjects are warned about once."""
         app = _create_app(tmp_path, _access_control_config(subject_prefix="u."))
         adapter = app.config["casbin_adapter"]
@@ -562,7 +615,9 @@ class TestEnforcement:
     @pytest.mark.parametrize(
         "user,level", [("dave", logging.INFO), ("carol", logging.DEBUG)]
     )
-    def test_decisions_logged_escaped(self, app, caplog, user, level):
+    def test_decisions_logged_escaped(
+        self, app: Flask, caplog: pytest.LogCaptureFixture, user: str | None, level: int
+    ) -> None:
         """Request paths cannot forge log lines."""
         with _capture_logs(caplog, level=logging.DEBUG):
             app.test_client().get("/items/1%0Aforged%1B", headers=_headers(user))
@@ -571,7 +626,10 @@ class TestEnforcement:
         assert "/items/1\\nforged\\x1b" in messages[0]
         assert "\n" not in messages[0]
 
-    def test_no_warning_without_subject_like_roles(self, app, caplog):
+    def test_no_warning_without_subject_like_roles(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No warnings are logged without subject-like roles."""
         with _capture_logs(caplog):
             response = app.test_client().get("/items/1", headers=_headers("alice"))
         assert response.status_code == 200
@@ -582,7 +640,7 @@ class TestPermissionsApi:
     """Tests for securing the permissions API."""
 
     url = "/admin/access-control/permissions"
-    payload: ClassVar[dict] = {
+    payload: ClassVar[dict[str, Any]] = {
         "policy_type": "p",
         "rule": {"v0": "dave", "v1": "/items/:id", "v2": "GET"},
     }
@@ -599,24 +657,28 @@ class TestPermissionsApi:
             ("carol", 200),
         ],
     )
-    def test_post_permission(self, app, user, status):
+    def test_post_permission(self, app: Flask, user: str | None, status: int) -> None:
+        """Only admins may create permissions."""
         response = app.test_client().post(
             self.url, json=self.payload, headers=_headers(user)
         )
         assert response.status_code == status
 
-    def test_get_permissions_unauthorized(self, app):
+    def test_get_permissions_unauthorized(self, app: Flask) -> None:
+        """Listing permissions requires authentication."""
         response = app.test_client().get(self.url)
         assert response.status_code == 401
 
-    def test_permissions_api_enforced_if_enforce_disabled(self, tmp_path):
+    def test_permissions_api_enforced_if_enforce_disabled(self, tmp_path: Path) -> None:
+        """The permissions API is enforced irrespective of `enforce`."""
         app = _create_app(tmp_path, _access_control_config(enforce=False))
         response = app.test_client().post(
             self.url, json=self.payload, headers=_headers("dave")
         )
         assert response.status_code == 403
 
-    def test_post_permission_applied(self, app):
+    def test_post_permission_applied(self, app: Flask) -> None:
+        """Created permissions are enforced."""
         payload = deepcopy(self.payload)
         payload["rule"]["v0"] = "user:dave"
         response = app.test_client().post(
@@ -662,7 +724,10 @@ class TestPermissionsApi:
         ],
     )
     @pytest.mark.parametrize("method", ["post", "put"])
-    def test_invalid_permission(self, app, method, payload):
+    def test_invalid_permission(
+        self, app: Flask, method: str, payload: dict[str, Any]
+    ) -> None:
+        """Invalid permissions are rejected and not stored."""
         url = self.url if method == "post" else f"{self.url}/abc"
         response = getattr(app.test_client(), method)(
             url, json=payload, headers=_headers("carol")
@@ -671,7 +736,8 @@ class TestPermissionsApi:
         collection = app.config["casbin_adapter"]._collection
         assert collection.count_documents({}) == len(POLICIES)
 
-    def test_get_incomplete_permissions(self, app):
+    def test_get_incomplete_permissions(self, app: Flask) -> None:
+        """Stored rules lacking fields are returned as far as possible."""
         collection = app.config["casbin_adapter"]._collection
         collection.insert_many(
             [
@@ -682,7 +748,7 @@ class TestPermissionsApi:
         client = app.test_client()
         response = client.get(self.url, headers=_headers("carol"))
         assert response.status_code == 200
-        assert len(response.json["results"]) == len(POLICIES) + 1
+        assert len(_json(response)["results"]) == len(POLICIES) + 1
         response = client.get(f"{self.url}/abc", headers=_headers("carol"))
         assert response.status_code == 404
 
@@ -690,10 +756,12 @@ class TestPermissionsApi:
         "path",
         ["/admin/access-control/ui/", "/admin/access-control/openapi.json"],
     )
-    def test_ui_and_spec_not_served_by_default(self, app, path):
+    def test_ui_and_spec_not_served_by_default(self, app: Flask, path: str) -> None:
+        """UI and specification are not served by default."""
         assert app.test_client().get(path).status_code == 404
 
-    def test_ui_and_spec_served(self, tmp_path):
+    def test_ui_and_spec_served(self, tmp_path: Path) -> None:
+        """UI and specification are served, if configured."""
         app = _create_app(
             tmp_path,
             _access_control_config(api_swagger_ui=True, api_serve_spec=True),
@@ -708,15 +776,16 @@ class TestPagination:
 
     url = "/admin/access-control/permissions"
 
-    def _get(self, app, user="carol", **params):
+    def _get(self, app: Flask, user: str = "carol", **params: Any) -> TestResponse:
         return app.test_client().get(
             self.url, query_string=params, headers=_headers(user)
         )
 
-    def test_default(self, app):
+    def test_default(self, app: Flask) -> None:
+        """Permissions are listed on one page by default."""
         response = self._get(app)
         assert response.status_code == 200
-        assert response.json["pagination"] == {
+        assert _json(response)["pagination"] == {
             "page": 0,
             "page_size": 100,
             "total": len(POLICIES),
@@ -724,21 +793,22 @@ class TestPagination:
         }
         assert [
             [permission["policy_type"], *permission["rule"].values()]
-            for permission in response.json["results"]
+            for permission in _json(response)["results"]
         ] == [[ptype, *rule] for ptype, rule in POLICIES]
 
-    def test_all_pages(self, app):
-        ids = []
+    def test_all_pages(self, app: Flask) -> None:
+        """All permissions are listed once across pages."""
+        ids: list[str] = []
         for page in range(3):
             response = self._get(app, page_size=3, page=page)
             assert response.status_code == 200
-            assert response.json["pagination"] == {
+            assert _json(response)["pagination"] == {
                 "page": page,
                 "page_size": 3,
                 "total": len(POLICIES),
                 "total_pages": 3,
             }
-            ids.extend(p["id"] for p in response.json["results"])
+            ids.extend(p["id"] for p in _json(response)["results"])
         assert len(ids) == len(set(ids)) == len(POLICIES)
 
     @pytest.mark.parametrize(
@@ -752,10 +822,12 @@ class TestPagination:
             {"page_size": "x"},
         ],
     )
-    def test_out_of_range(self, app, params):
+    def test_out_of_range(self, app: Flask, params: dict[str, Any]) -> None:
+        """Pages and page sizes out of range are rejected."""
         assert self._get(app, **params).status_code == 400
 
-    def test_empty(self, app):
+    def test_empty(self, app: Flask) -> None:
+        """Without permissions, only the first, empty page exists."""
         app.config["casbin_adapter"]._collection.delete_many({})
         response = self._get(app)
         assert response.status_code == 200
@@ -777,24 +849,26 @@ class TestSelfService:
     url = "/admin/access-control/permissions"
 
     @pytest.fixture
-    def self_service_app(self, tmp_path):
+    def self_service_app(self, tmp_path: Path) -> Flask:
+        """App with self-service access to permissions."""
         return _create_app(tmp_path, _access_control_config(self_service=True))
 
     @staticmethod
-    def _id(app, **query) -> str:
+    def _id(app: Flask, **query: Any) -> str:
         collection = app.config["casbin_adapter"]._collection
         return collection.find_one(query)["id"]
 
-    def _list(self, app, user, **params):
+    def _list(self, app: Flask, user: str, **params: Any) -> list[list[str]]:
         response = app.test_client().get(
             self.url, query_string=params, headers=_headers(user)
         )
         assert response.status_code == 200
         return [
-            [p["policy_type"], *p["rule"].values()] for p in response.json["results"]
+            [p["policy_type"], *p["rule"].values()] for p in _json(response)["results"]
         ]
 
-    def test_disabled(self, app):
+    def test_disabled(self, app: Flask) -> None:
+        """Subjects cannot access their permissions by default."""
         client = app.test_client()
         rule_id = self._id(app, v0="user:alice")
         for url in [self.url, f"{self.url}/{rule_id}"]:
@@ -818,10 +892,14 @@ class TestSelfService:
             ("carol", [[ptype, *rule] for ptype, rule in POLICIES]),
         ],
     )
-    def test_list(self, self_service_app, user, expected):
+    def test_list(
+        self, self_service_app: Flask, user: str, expected: list[list[str]]
+    ) -> None:
+        """Subjects list the permissions that apply to them."""
         assert self._list(self_service_app, user) == expected
 
-    def test_list_groups(self, tmp_path):
+    def test_list_groups(self, tmp_path: Path) -> None:
+        """Permissions of unmapped groups apply to their members."""
         app = _create_app(
             tmp_path,
             _access_control_config(self_service=True, group_mapping=None),
@@ -831,7 +909,8 @@ class TestSelfService:
             ["p", "group:testers", "/items/:id", "GET"],
         ]
 
-    def test_list_group_subjects(self, tmp_path):
+    def test_list_group_subjects(self, tmp_path: Path) -> None:
+        """Permissions of groups kept as subjects apply to their members."""
         app = _create_app(
             tmp_path,
             _access_control_config(self_service=True, keep_group_subjects=True),
@@ -841,7 +920,8 @@ class TestSelfService:
             ["p", "group:testers", "/items/:id", "GET"],
         ]
 
-    def test_list_paginated(self, self_service_app):
+    def test_list_paginated(self, self_service_app: Flask) -> None:
+        """Permissions that apply to subjects are listed page by page."""
         pages = [
             self._list(self_service_app, "alice", page_size=2, page=page)
             for page in range(2)
@@ -860,23 +940,26 @@ class TestSelfService:
         )
         assert response.status_code == 400
 
-    def test_get(self, self_service_app):
+    def test_get(self, self_service_app: Flask) -> None:
+        """Subjects get only permissions that apply to them."""
         client = self_service_app.test_client()
         own = self._id(self_service_app, v0="user:alice")
         other = self._id(self_service_app, v0="user:bob")
         response = client.get(f"{self.url}/{own}", headers=_headers("alice"))
         assert response.status_code == 200
-        assert response.json["rule"]["v0"] == "user:alice"
+        assert _json(response)["rule"]["v0"] == "user:alice"
         response = client.get(f"{self.url}/{other}", headers=_headers("alice"))
         assert response.status_code == 404
         response = client.get(f"{self.url}/{other}", headers=_headers("carol"))
         assert response.status_code == 200
 
-    def test_unauthenticated(self, self_service_app):
+    def test_unauthenticated(self, self_service_app: Flask) -> None:
+        """Self-service requires authentication."""
         response = self_service_app.test_client().get(self.url)
         assert response.status_code == 401
 
-    def test_writes_enforced(self, self_service_app):
+    def test_writes_enforced(self, self_service_app: Flask) -> None:
+        """Subjects cannot change their permissions."""
         client = self_service_app.test_client()
         own = self._id(self_service_app, v0="user:alice")
         payload = {
@@ -890,7 +973,7 @@ class TestSelfService:
         assert client.delete(url, headers=headers).status_code == 403
 
     @pytest.mark.parametrize("self_service", [False, True])
-    def test_owners_manage_access(self, tmp_path, self_service):
+    def test_owners_manage_access(self, tmp_path: Path, self_service: bool) -> None:
         """Owners grant roles on their resources via app endpoints."""
         app = _create_app(tmp_path, _access_control_config(self_service=self_service))
         client = app.test_client()
@@ -912,7 +995,9 @@ class TestSelfService:
         assert client.delete("/items/1", headers=_headers("dave")).status_code == 403
 
     @pytest.mark.parametrize("keep_group_subjects", [False, True])
-    def test_owners_grant_roles_to_groups(self, tmp_path, keep_group_subjects):
+    def test_owners_grant_roles_to_groups(
+        self, tmp_path: Path, keep_group_subjects: bool
+    ) -> None:
         """Owners grant roles on their resources to their groups."""
         app = _create_app(
             tmp_path,
@@ -978,12 +1063,13 @@ class TestSelfService:
         ("/services/ABC", "/", False),
     ],
 )
-def test_is_within_path(request_path, resource_path, expected):
+def test_is_within_path(request_path: str, resource_path: str, expected: bool) -> None:
+    """Request paths are matched against resource paths and their sub-paths."""
     assert _is_within_path(request_path, resource_path) is expected
 
 
 @pytest.fixture
-def helper_app():
+def helper_app() -> Flask:
     """Flask app with access control config and in-memory policies."""
     app = Flask(__name__)
     app.config.foca = Config(  # type: ignore[attr-defined]
@@ -1001,14 +1087,16 @@ def helper_app():
 @pytest.fixture(
     params=["mongomock", pytest.param("mongodb", marks=pytest.mark.mongodb)]
 )
-def store_app(request, helper_app):
-    """`helper_app`, with policies in memory or in a MongoDB server on
-    `localhost:12345` (tests marked `mongodb`)."""
+def store_app(request: pytest.FixtureRequest, helper_app: Flask) -> Iterator[Flask]:
+    """`helper_app`, with policies in memory or in a MongoDB server.
+
+    The MongoDB server runs on `localhost:12345` (tests marked `mongodb`).
+    """
     if request.param == "mongomock":
         yield helper_app
         return
     db_name = "foca_test_enforcement"
-    client: MongoClient = MongoClient(
+    client: MongoClient[dict[str, Any]] = MongoClient(
         "mongodb://localhost:12345", serverSelectionTimeoutMS=5000
     )
     client.drop_database(db_name)
@@ -1026,18 +1114,22 @@ class TestRemovingConfiguredRules:
     RULE: ClassVar[list[str]] = ["user:alice", "owner", "/items/1"]
 
     @staticmethod
-    def _documents(app) -> list[dict]:
+    def _documents(app: Flask) -> list[dict[str, Any]]:
         collection = app.config["casbin_adapter"]._collection
         return list(collection.find({}, projection={"_id": False}))
 
-    def test_rule_marked_concurrently(self, store_app, caplog, monkeypatch):
-        """A rule marked as configured after the policies were loaded is
-        not removed."""
+    def test_rule_marked_concurrently(
+        self,
+        store_app: Flask,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A rule marked as configured after loading the policies is kept."""
         adapter = store_app.config["casbin_adapter"]
         adapter.save_policy_line("g2", self.RULE)
         remove_policy = adapter.remove_policy
 
-        def mark_and_remove(*args, **kwargs):
+        def mark_and_remove(*args: Any, **kwargs: Any) -> bool:
             adapter._collection.update_many({}, {"$set": {"configured": True}})
             return remove_policy(*args, **kwargs)
 
@@ -1047,9 +1139,13 @@ class TestRemovingConfiguredRules:
         assert [doc["configured"] for doc in self._documents(store_app)] == [True]
         assert len(_messages(caplog)) == 1
 
-    def test_unmarked_copy_removed(self, store_app, caplog):
-        """Unmarked copies of a configured rule are removed, but the role
-        still applies."""
+    def test_unmarked_copy_removed(
+        self, store_app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Unmarked copies of a configured rule are removed.
+
+        The role still applies, though.
+        """
         adapter = store_app.config["casbin_adapter"]
         adapter.save_policy_line("g2", self.RULE, configured=True)
         adapter.save_policy_line("g2", self.RULE)
@@ -1067,22 +1163,28 @@ class TestRemovingConfiguredRules:
             {"v0": 1, "v1": "owner", "v2": "/items/1"},
         ],
     )
-    def test_invalid_rules_not_revoked(self, store_app, document):
-        """Invalid rules on the resource are removed, but do not count as
-        revoked roles."""
+    def test_invalid_rules_not_revoked(
+        self, store_app: Flask, document: dict[str, Any]
+    ) -> None:
+        """Invalid rules on the resource are removed.
+
+        They do not count as revoked roles, though.
+        """
         collection = store_app.config["casbin_adapter"]._collection
         collection.insert_one({"ptype": "g2", **document})
         with store_app.app_context():
             assert remove_resource("/items/1") is False
         assert self._documents(store_app) == []
 
-    def test_concurrent_removal(self, store_app, monkeypatch):
+    def test_concurrent_removal(
+        self, store_app: Flask, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Rules removed by a concurrent call do not count as revoked."""
         adapter = store_app.config["casbin_adapter"]
         adapter.save_policy_line("g2", self.RULE)
         get_filtered_rules = adapter.get_filtered_rules
 
-        def get_and_remove(*args, configured):
+        def get_and_remove(*args: Any, configured: bool) -> list[list[str]]:
             rules = get_filtered_rules(*args, configured=configured)
             if not configured:
                 # the concurrent call removes the rules first
@@ -1093,7 +1195,8 @@ class TestRemovingConfiguredRules:
         with store_app.app_context():
             assert remove_resource("/items/1") is False
 
-    def test_remove_resource(self, store_app):
+    def test_remove_resource(self, store_app: Flask) -> None:
+        """All copies of rules on a resource are removed at once."""
         adapter = store_app.config["casbin_adapter"]
         for _ in range(2):
             adapter.save_policy_line("g2", self.RULE)
@@ -1106,7 +1209,7 @@ class TestRemovingConfiguredRules:
 class TestCurrentSubject:
     """Tests for getting subject and groups from validated token claims."""
 
-    def _context(self, app, token_info):
+    def _context(self, app: Flask, token_info: dict[str, Any] | None) -> RequestContext:
         ctx = app.test_request_context()
         ctx.push()
         request_ctx.connexion_context = (  # type: ignore[attr-defined]
@@ -1114,7 +1217,8 @@ class TestCurrentSubject:
         )
         return ctx
 
-    def test_subject(self, helper_app):
+    def test_subject(self, helper_app: Flask) -> None:
+        """Subject and groups are taken from validated token info."""
         ctx = self._context(helper_app, mock_token_info("carol"))
         try:
             assert get_current_subject() == "carol"
@@ -1122,54 +1226,61 @@ class TestCurrentSubject:
         finally:
             ctx.pop()
 
-    def test_raw_claims(self, helper_app):
+    def test_raw_claims(self, helper_app: Flask) -> None:
+        """Subject is taken from claims passed as token info."""
         ctx = self._context(helper_app, TOKENS["carol"])
         try:
             assert get_current_subject() == "carol"
         finally:
             ctx.pop()
 
-    def test_string_group_claim(self, helper_app):
+    def test_string_group_claim(self, helper_app: Flask) -> None:
+        """Group claims may be single strings."""
         ctx = self._context(helper_app, {"sub": "x", "groups": ADMIN_ENTITLEMENT})
         try:
             assert get_current_groups() == ["admin"]
         finally:
             ctx.pop()
 
-    def test_custom_identity_claim(self, helper_app):
-        helper_app.config.foca.security.access_control.claim_identity = "id"
+    def test_custom_identity_claim(self, helper_app: Flask) -> None:
+        """Subject is taken from the configured identity claim."""
+        get_app_config(helper_app).security.access_control.claim_identity = "id"
         ctx = self._context(helper_app, {"sub": "x", "id": "y"})
         try:
             assert get_current_subject() == "y"
         finally:
             ctx.pop()
 
-    def test_identity_claim_from_auth_config(self, helper_app):
-        helper_app.config.foca.security.auth.claim_identity = "email"
+    def test_identity_claim_from_auth_config(self, helper_app: Flask) -> None:
+        """Identity claim defaults to that of the auth configuration."""
+        get_app_config(helper_app).security.auth.claim_identity = "email"
         ctx = self._context(helper_app, {"sub": "x", "email": "y"})
         try:
             assert get_current_subject() == "y"
         finally:
             ctx.pop()
 
-    def test_identity_claim_overrides_auth_config(self, helper_app):
-        helper_app.config.foca.security.auth.claim_identity = "email"
-        helper_app.config.foca.security.access_control.claim_identity = "sub"
+    def test_identity_claim_overrides_auth_config(self, helper_app: Flask) -> None:
+        """Configured identity claim overrides that of the auth configuration."""
+        get_app_config(helper_app).security.auth.claim_identity = "email"
+        get_app_config(helper_app).security.access_control.claim_identity = "sub"
         ctx = self._context(helper_app, {"sub": "x", "email": "y"})
         try:
             assert get_current_subject() == "x"
         finally:
             ctx.pop()
 
-    def test_invalid_group_claim(self, helper_app):
+    def test_invalid_group_claim(self, helper_app: Flask) -> None:
+        """Invalid group claims yield no groups."""
         ctx = self._context(helper_app, {"sub": "x", "groups": {"a": 1}})
         try:
             assert get_current_groups() == []
         finally:
             ctx.pop()
 
-    def test_groups_without_mapping(self, helper_app):
-        helper_app.config.foca.security.access_control.group_mapping = None
+    def test_groups_without_mapping(self, helper_app: Flask) -> None:
+        """Without a mapping, group claim values are prefixed."""
+        get_app_config(helper_app).security.access_control.group_mapping = None
         ctx = self._context(helper_app, {"sub": "x", "groups": ["a", "b"]})
         try:
             assert get_current_groups() == ["group:a", "group:b"]
@@ -1187,14 +1298,18 @@ class TestCurrentSubject:
             (None, []),
         ],
     )
-    def test_group_values(self, helper_app, values, expected):
+    def test_group_values(
+        self, helper_app: Flask, values: object, expected: list[str]
+    ) -> None:
+        """Group claim values are returned as unique strings, if valid."""
         ctx = self._context(helper_app, {"sub": "x", "groups": values})
         try:
             assert get_current_group_values() == expected
         finally:
             ctx.pop()
 
-    def test_group_values_without_claim(self, helper_app):
+    def test_group_values_without_claim(self, helper_app: Flask) -> None:
+        """Without a group claim, there are no groups."""
         ctx = self._context(helper_app, {"sub": "x"})
         try:
             assert get_current_group_values() == []
@@ -1203,12 +1318,16 @@ class TestCurrentSubject:
             ctx.pop()
 
     @pytest.mark.parametrize("group_mapping", [None, {"a": "maintainer"}])
-    def test_group_subjects(self, helper_app, group_mapping):
-        conf = helper_app.config.foca.security.access_control
+    def test_group_subjects(
+        self, helper_app: Flask, group_mapping: dict[str, str] | None
+    ) -> None:
+        """Group claim values are kept as subjects, if configured."""
+        conf = get_app_config(helper_app).security.access_control
         conf.keep_group_subjects = True
         if group_mapping is None:
             conf.group_mapping = None
         else:
+            assert conf.group_mapping is not None
             conf.group_mapping.update(group_mapping)
         ctx = self._context(
             helper_app,
@@ -1225,7 +1344,8 @@ class TestCurrentSubject:
         finally:
             ctx.pop()
 
-    def test_mapped_groups_only(self, helper_app):
+    def test_mapped_groups_only(self, helper_app: Flask) -> None:
+        """Only mapped group claim values are groups."""
         ctx = self._context(
             helper_app, {"sub": "x", "groups": [ADMIN_ENTITLEMENT, "a"]}
         )
@@ -1235,7 +1355,8 @@ class TestCurrentSubject:
         finally:
             ctx.pop()
 
-    def test_no_token_info(self, helper_app):
+    def test_no_token_info(self, helper_app: Flask) -> None:
+        """Without token info, there are no subject and groups."""
         ctx = self._context(helper_app, None)
         try:
             assert get_current_subject() is None
@@ -1244,17 +1365,19 @@ class TestCurrentSubject:
         finally:
             ctx.pop()
 
-    def test_outside_connexion(self, helper_app):
+    def test_outside_connexion(self, helper_app: Flask) -> None:
+        """Outside Connexion requests, there are no subject and groups."""
         with helper_app.test_request_context():
             assert get_current_subject() is None
             assert get_current_groups() == []
 
-    def test_outside_request(self, helper_app):
+    def test_outside_request(self, helper_app: Flask) -> None:
+        """Outside requests, there are no subject and groups."""
         with helper_app.app_context():
             assert get_current_subject() is None
             assert get_current_groups() == []
 
-    def test_invalid_connexion_context(self, helper_app):
+    def test_invalid_connexion_context(self, helper_app: Flask) -> None:
         """Errors in claim retrieval are raised, not taken as no claims."""
         ctx = helper_app.test_request_context()
         ctx.push()
@@ -1265,8 +1388,9 @@ class TestCurrentSubject:
         finally:
             ctx.pop()
 
-    def test_no_group_claim_configured(self, helper_app):
-        helper_app.config.foca.security.access_control.claim_groups = None
+    def test_no_group_claim_configured(self, helper_app: Flask) -> None:
+        """Without a configured group claim, there are no groups."""
+        get_app_config(helper_app).security.access_control.claim_groups = None
         ctx = self._context(helper_app, mock_token_info("carol"))
         try:
             assert get_current_groups() == []
@@ -1279,9 +1403,11 @@ class TestEnforceAccessControlDecorator:
     """Tests for using `enforce_access_control` on single controllers."""
 
     @staticmethod
-    def _call(app, method, path, token_info):
+    def _call(
+        app: Flask, method: str, path: str, token_info: dict[str, Any] | None
+    ) -> str:
         @enforce_access_control
-        def decorated():
+        def decorated() -> str:
             return "ok"
 
         with app.test_request_context(path, method=method):
@@ -1290,29 +1416,34 @@ class TestEnforceAccessControlDecorator:
             )
             return decorated()
 
-    def test_allowed(self, helper_app):
+    def test_allowed(self, helper_app: Flask) -> None:
+        """Allowed requests are passed to the controller."""
         with helper_app.app_context():
             get_enforcer().add_policy("user:alice", "/items", "GET")
         token_info = mock_token_info("alice")
         assert self._call(helper_app, "GET", "/items", token_info) == "ok"
 
-    def test_denied(self, helper_app):
+    def test_denied(self, helper_app: Flask) -> None:
+        """Denied requests are forbidden."""
         token_info = mock_token_info("alice")
         with pytest.raises(Forbidden):
             self._call(helper_app, "DELETE", "/items", token_info)
 
-    def test_no_subject(self, helper_app):
+    def test_no_subject(self, helper_app: Flask) -> None:
+        """Requests without token info are unauthorized."""
         with pytest.raises(Unauthorized) as exc_info:
             self._call(helper_app, "GET", "/items", None)
         assert exc_info.value.get_headers()[1:] == [("WWW-Authenticate", "Bearer")]
 
-    def test_no_subject_claim(self, helper_app):
+    def test_no_subject_claim(self, helper_app: Flask) -> None:
+        """Requests without identity claim are unauthorized."""
         with pytest.raises(Unauthorized) as exc_info:
             self._call(helper_app, "GET", "/items", {"iss": "x"})
         assert exc_info.value.get_headers()[1:] == [("WWW-Authenticate", "Bearer")]
 
     @pytest.mark.parametrize("subject", ["alice,/items,GET", "alice\n", "a" * 1024])
-    def test_invalid_subject(self, helper_app, subject):
+    def test_invalid_subject(self, helper_app: Flask, subject: str) -> None:
+        """Requests with invalid subjects are forbidden."""
         with helper_app.app_context():
             get_enforcer().add_policy("*", "/items", "GET")
         with pytest.raises(Forbidden):
@@ -1338,7 +1469,10 @@ class TestActionMatching:
             (".*", "DELETE", True),
         ],
     )
-    def test_actions_anchored(self, helper_app, pattern, method, expected):
+    def test_actions_anchored(
+        self, helper_app: Flask, pattern: str, method: str, expected: bool
+    ) -> None:
+        """Action patterns match whole HTTP methods."""
         with helper_app.app_context():
             enforcer = get_enforcer()
             enforcer.add_policy("*", "/x", pattern)
@@ -1348,7 +1482,8 @@ class TestActionMatching:
 class TestLoadPolicy:
     """Tests for loading stored policy rules."""
 
-    def test_extra_fields_ignored(self, helper_app):
+    def test_extra_fields_ignored(self, helper_app: Flask) -> None:
+        """Extra fields of stored rules are ignored."""
         collection = helper_app.config["casbin_adapter"]._collection
         collection.insert_one(
             {
@@ -1381,7 +1516,13 @@ class TestLoadPolicy:
             {"ptype": "g2", "v0": "user:a", "v1": "owner"},
         ],
     )
-    def test_invalid_rules_skipped(self, helper_app, caplog, document):
+    def test_invalid_rules_skipped(
+        self,
+        helper_app: Flask,
+        caplog: pytest.LogCaptureFixture,
+        document: dict[str, Any],
+    ) -> None:
+        """Invalid stored rules are skipped and logged."""
         collection = helper_app.config["casbin_adapter"]._collection
         collection.insert_one({"id": "invalid", **document})
         collection.insert_one(
@@ -1394,7 +1535,7 @@ class TestLoadPolicy:
             assert enforcer.enforce("user:a", "/x", "GET")
         assert "Skipping invalid policy rule 'invalid'" in caplog.text
 
-    def test_get_enforcer_loads_duplicates_once(self, helper_app):
+    def test_get_enforcer_loads_duplicates_once(self, helper_app: Flask) -> None:
         """Rules stored twice via the app's adapter are enforced once."""
         adapter = helper_app.config["casbin_adapter"]
         for _ in range(2):
@@ -1406,7 +1547,8 @@ class TestLoadPolicy:
 class TestResourceRoles:
     """Tests for resource role helpers."""
 
-    def test_add_list_remove(self, helper_app):
+    def test_add_list_remove(self, helper_app: Flask) -> None:
+        """Resource roles are added, listed and removed."""
         with helper_app.app_context():
             assert add_resource_role("alice", "owner", "/items/1")
             assert add_resource_role("bob", "maintainer", "/items/1")
@@ -1425,9 +1567,13 @@ class TestResourceRoles:
             assert list_resource_roles("/items/2") == [("bob", "owner")]
             assert remove_resource("/items/1") is False
 
-    def test_configured_rules_kept(self, helper_app, caplog):
-        """Rules set via the configuration are not removed, as they would
-        be added again on the next start."""
+    def test_configured_rules_kept(
+        self, helper_app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Rules set via the configuration are not removed.
+
+        They would be added again on the next start.
+        """
         adapter = helper_app.config["casbin_adapter"]
         for subject, configured in [("user:alice", True), ("user:bob", False)]:
             adapter.save_policy_line(
@@ -1446,9 +1592,13 @@ class TestResourceRoles:
             for message in messages
         )
 
-    def test_remove_resource_unmarked_copy_of_configured_rule(self, helper_app, caplog):
-        """Removing an unmarked copy of a configured rule does not revoke
-        the role, so `False` is returned."""
+    def test_remove_resource_unmarked_copy_of_configured_rule(
+        self, helper_app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Removing an unmarked copy of a configured rule does not revoke the role.
+
+        Hence, `False` is returned.
+        """
         adapter = helper_app.config["casbin_adapter"]
         rule = ["user:alice", "owner", "/items/1"]
         adapter.save_policy_line("g2", rule, configured=True)
@@ -1459,7 +1609,9 @@ class TestResourceRoles:
         assert adapter._collection.count_documents({}) == 1
         assert len(_messages(caplog)) == 1
 
-    def test_remove_resource_does_not_load_policies(self, helper_app, monkeypatch):
+    def test_remove_resource_does_not_load_policies(
+        self, helper_app: Flask, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Rules are removed without loading all policies."""
         with helper_app.app_context():
             add_resource_role("alice", "owner", "/items/1")
@@ -1470,7 +1622,7 @@ class TestResourceRoles:
             )
             assert remove_resource("/items/1") is True
 
-    def test_remove_resource_keeps_subpaths(self, helper_app):
+    def test_remove_resource_keeps_subpaths(self, helper_app: Flask) -> None:
         """Only rules on the resource path itself are removed."""
         with helper_app.app_context():
             add_resource_role("alice", "owner", "/items/1")
@@ -1478,7 +1630,8 @@ class TestResourceRoles:
             assert remove_resource("/items/1") is True
             assert list_resource_roles("/items/1/files") == [("alice", "owner")]
 
-    def test_roles_persisted(self, helper_app):
+    def test_roles_persisted(self, helper_app: Flask) -> None:
+        """Resource roles are stored with prefixed subjects."""
         with helper_app.app_context():
             add_resource_role("alice", "owner", "/items/1")
             collection = helper_app.config["casbin_adapter"]._collection
@@ -1489,7 +1642,8 @@ class TestResourceRoles:
                 "/items/1",
             )
 
-    def test_list_unprefixed_subjects(self, helper_app):
+    def test_list_unprefixed_subjects(self, helper_app: Flask) -> None:
+        """Subjects without prefix are listed as is."""
         with helper_app.app_context():
             helper_app.config["casbin_adapter"].save_policy_line(
                 ptype="g2", rule=["group:testers", "maintainer", "/items/1"]
@@ -1500,7 +1654,8 @@ class TestResourceRoles:
                 ("alice", "owner"),
             ]
 
-    def test_add_remove_group_roles(self, helper_app):
+    def test_add_remove_group_roles(self, helper_app: Flask) -> None:
+        """Resource roles are granted to and revoked from groups."""
         with helper_app.app_context():
             assert add_resource_role(GROUP, "owner", "/items/1", subject_type="group")
             assert not add_resource_role(
@@ -1517,7 +1672,8 @@ class TestResourceRoles:
             )
             assert get_enforcer().get_named_grouping_policy("g2") == []
 
-    def test_list_group_roles(self, helper_app):
+    def test_list_group_roles(self, helper_app: Flask) -> None:
+        """Resource roles are listed by subject type."""
         with helper_app.app_context():
             add_resource_role(GROUP, "owner", "/items/1", subject_type="group")
             add_resource_role("bob", "maintainer", "/items/1")
@@ -1535,7 +1691,8 @@ class TestResourceRoles:
             assert remove_resource("/items/1")
             assert list_resource_roles("/items/1", subject_type="group") == []
 
-    def test_users_and_groups_do_not_collide(self, helper_app):
+    def test_users_and_groups_do_not_collide(self, helper_app: Flask) -> None:
+        """Users and groups of the same name are distinct subjects."""
         with helper_app.app_context():
             assert add_resource_role(GROUP, "owner", "/items/1", subject_type="group")
             assert add_resource_role(GROUP, "maintainer", "/items/1")
@@ -1558,9 +1715,13 @@ class TestResourceRoles:
         "role", ["group:auditors", "group:", "user:alice", "user:"]
     )
     @pytest.mark.parametrize("subject_type", ["user", "group"])
-    def test_subject_like_roles(self, helper_app, role, subject_type):
-        """Roles cannot be subjects, so that their roles are not passed on,
-        but existing rules with such roles can be revoked."""
+    def test_subject_like_roles(
+        self, helper_app: Flask, role: str, subject_type: SubjectType
+    ) -> None:
+        """Roles cannot be subjects, so that their roles are not passed on.
+
+        Existing rules with such roles can be revoked, though.
+        """
         prefix = "user:" if subject_type == "user" else "group:"
         with helper_app.app_context():
             with pytest.raises(ValueError, match="must not start with"):
@@ -1574,9 +1735,9 @@ class TestResourceRoles:
             )
             assert get_enforcer().get_named_grouping_policy("g2") == []
 
-    def test_subject_like_roles_custom_prefix(self, helper_app):
+    def test_subject_like_roles_custom_prefix(self, helper_app: Flask) -> None:
         """Roles starting with a custom subject prefix are rejected, too."""
-        helper_app.config.foca.security.access_control.subject_prefix = "u/"
+        get_app_config(helper_app).security.access_control.subject_prefix = "u/"
         with helper_app.app_context():
             for role in ["u/alice", "group:auditors"]:
                 with pytest.raises(ValueError, match="must not start with"):
@@ -1599,10 +1760,15 @@ class TestResourceRoles:
         ],
     )
     def test_group_role_without_group_subjects(
-        self, helper_app, caplog, group_mapping, keep_group_subjects, warned
-    ):
+        self,
+        helper_app: Flask,
+        caplog: pytest.LogCaptureFixture,
+        group_mapping: dict[str, str] | None,
+        keep_group_subjects: bool,
+        warned: bool,
+    ) -> None:
         """Granting roles to groups that are not subjects is warned about."""
-        conf = helper_app.config.foca.security.access_control
+        conf = get_app_config(helper_app).security.access_control
         conf.group_mapping = group_mapping
         conf.keep_group_subjects = keep_group_subjects
         with helper_app.app_context(), caplog.at_level(logging.WARNING):
@@ -1610,7 +1776,7 @@ class TestResourceRoles:
             assert add_resource_role("devs", "maintainer", "/items/1")
         assert ("does not apply" in caplog.text) is warned
 
-    def test_subject_like_roles_not_chained(self, helper_app):
+    def test_subject_like_roles_not_chained(self, helper_app: Flask) -> None:
         """Users cannot get the rights of groups via resource roles."""
         with helper_app.app_context():
             enforcer = get_enforcer()
@@ -1619,12 +1785,14 @@ class TestResourceRoles:
                 add_resource_role("grace", "group:auditors", "/items/5")
             assert not get_enforcer().enforce("user:grace", "/items/5", "GET")
 
-    def test_list_by_subject_type_skips_other_subjects(self, helper_app):
+    def test_list_by_subject_type_skips_other_subjects(self, helper_app: Flask) -> None:
+        """Listing by subject type skips subjects of other types."""
         with helper_app.app_context():
             helper_app.config["casbin_adapter"].save_policy_line(
                 ptype="g2", rule=["maintainer", "owner", "/items/1"]
             )
-            for subject_type in ["user", "group"]:
+            subject_types: list[SubjectType] = ["user", "group"]
+            for subject_type in subject_types:
                 assert list_resource_roles("/items/1", subject_type=subject_type) == []
             assert list_resource_roles("/items/1") == [("maintainer", "owner")]
 
@@ -1639,7 +1807,10 @@ class TestResourceRoles:
             ("a" * 1024, "group"),
         ],
     )
-    def test_invalid_subjects(self, helper_app, subject, subject_type):
+    def test_invalid_subjects(
+        self, helper_app: Flask, subject: str, subject_type: str | None
+    ) -> None:
+        """Invalid subjects and subject types are rejected."""
         with helper_app.app_context():
             for helper in [add_resource_role, remove_resource_role]:
                 with pytest.raises(ValueError):
@@ -1654,7 +1825,9 @@ class TestResourceRoles:
     @pytest.mark.parametrize(
         "subject_type,prefix", [("user", "user:"), ("group", "group:")]
     )
-    def test_empty_subjects(self, helper_app, subject_type, prefix):
+    def test_empty_subjects(
+        self, helper_app: Flask, subject_type: SubjectType, prefix: str
+    ) -> None:
         """Empty subjects cannot be granted roles, but can be revoked."""
         with helper_app.app_context():
             with pytest.raises(ValueError, match="must not be empty"):
@@ -1668,9 +1841,11 @@ class TestResourceRoles:
             )
             assert get_enforcer().get_named_grouping_policy("g2") == []
 
-    def test_duplicate_rules(self, helper_app):
-        """Rules stored more than once (e.g., by concurrent requests) are
-        listed once and revoked completely."""
+    def test_duplicate_rules(self, helper_app: Flask) -> None:
+        """Rules stored more than once are listed once and revoked completely.
+
+        Such rules are stored, e.g., by concurrent requests.
+        """
         adapter = helper_app.config["casbin_adapter"]
         for _ in range(2):
             adapter.save_policy_line("g2", ["user:alice", "owner", "/items/1"])
@@ -1687,29 +1862,33 @@ class TestResourceRoles:
                 ["user:bob", "owner", "/items/1"]
             ]
 
-    def test_list_invalid_subject_type(self, helper_app):
+    def test_list_invalid_subject_type(self, helper_app: Flask) -> None:
+        """Invalid subject types are rejected for listing."""
         with helper_app.app_context(), pytest.raises(ValueError):
             list_resource_roles(
                 "/items/1",
                 subject_type="role",  # type: ignore[arg-type]
             )
 
-    def test_group_value_starting_with_hash(self, helper_app):
+    def test_group_value_starting_with_hash(self, helper_app: Flask) -> None:
+        """Group values may start with `#`."""
         with helper_app.app_context():
             assert add_resource_role("#devs", "owner", "/items/1", subject_type="group")
             assert list_resource_roles("/items/1", subject_type="group") == [
                 ("#devs", "owner")
             ]
 
-    def test_custom_subject_prefix(self, helper_app):
-        helper_app.config.foca.security.access_control.subject_prefix = "u/"
+    def test_custom_subject_prefix(self, helper_app: Flask) -> None:
+        """Users are stored with the configured subject prefix."""
+        get_app_config(helper_app).security.access_control.subject_prefix = "u/"
         with helper_app.app_context():
             add_resource_role("alice", "owner", "/items/1")
             collection = helper_app.config["casbin_adapter"]._collection
             assert collection.find_one({"ptype": "g2"})["v0"] == "u/alice"
             assert list_resource_roles("/items/1") == [("alice", "owner")]
 
-    def test_custom_ptype(self, helper_app, tmp_path):
+    def test_custom_ptype(self, helper_app: Flask, tmp_path: Path) -> None:
+        """Resource roles may use other policy types."""
         model = tmp_path / "model.conf"
         model.write_text(
             Path(_model_path())
@@ -1733,7 +1912,10 @@ class TestResourceRoles:
             ("alice", "", "/items/1"),
         ],
     )
-    def test_invalid_values(self, helper_app, args):
+    def test_invalid_values(
+        self, helper_app: Flask, args: tuple[str, str, str]
+    ) -> None:
+        """Invalid values are rejected and not stored."""
         with helper_app.app_context():
             for helper in [add_resource_role, remove_resource_role]:
                 with pytest.raises(ValueError):
@@ -1741,7 +1923,8 @@ class TestResourceRoles:
             collection = helper_app.config["casbin_adapter"]._collection
             assert collection.count_documents({}) == 0
 
-    def test_save_rule_invalid_for_model(self, helper_app):
+    def test_save_rule_invalid_for_model(self, helper_app: Flask) -> None:
+        """Rules invalid for the adapter's model are not stored."""
         adapter = Adapter(
             collection=mongomock.MongoClient()[DB_NAME][COLLECTION_NAME],
             model=_model_path(),
@@ -1760,7 +1943,8 @@ class TestResourceRoles:
         assert adapter._collection.count_documents({}) == 0
         assert adapter.save_policy_line("p", ["*", "/items", "GET"])
 
-    def test_save_invalid_rule(self, helper_app):
+    def test_save_invalid_rule(self, helper_app: Flask) -> None:
+        """Invalid rules are not stored."""
         adapter = helper_app.config["casbin_adapter"]
         for ptype, rule in [
             ("g2", ["user:a,b", "owner", "/items/1"]),
@@ -1782,16 +1966,20 @@ class TestResourceRoles:
             ("g2", DEFAULT_MODEL_FILE),
         ],
     )
-    def test_incompatible_model(self, helper_app, ptype, model_file):
+    def test_incompatible_model(
+        self, helper_app: Flask, ptype: str, model_file: str
+    ) -> None:
+        """Helpers reject policy types without resource-scoped roles."""
         with resource_path(ACCESS_CONTROL_BASE_PATH, model_file) as _path:
             helper_app.config["CASBIN_MODEL"] = str(_path)
         with helper_app.app_context():
-            for helper, args in [
+            helpers: list[tuple[Callable[..., Any], tuple[str, ...]]] = [
                 (add_resource_role, ("alice", "owner", "/items/1")),
                 (remove_resource_role, ("alice", "owner", "/items/1")),
                 (list_resource_roles, ("/items/1",)),
                 (remove_resource, ("/items/1",)),
-            ]:
+            ]
+            for helper, args in helpers:
                 with pytest.raises(ValueError):
                     helper(*args, ptype=ptype)
             collection = helper_app.config["casbin_adapter"]._collection

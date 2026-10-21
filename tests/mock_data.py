@@ -1,6 +1,7 @@
 """Mock data for testing."""
 
 from pathlib import Path
+from typing import Any
 
 INDEX_CONFIG = {"keys": [("id", 1)]}
 COLLECTION_CONFIG = {
@@ -39,7 +40,7 @@ MOCK_RULE_USER_INPUT_OUTPUT = {
     "policy_type": "p1",
     "rule": {"v0": "alice", "v1": "data1", "v2": "POST", "v3": "read"},
 }
-MOCK_RULE_INVALID = {"rule": []}
+MOCK_RULE_INVALID: dict[str, Any] = {"rule": []}
 # Permission valid for model `MODEL_CONF_FILE`
 MOCK_PERMISSION = {
     "policy_type": "p",

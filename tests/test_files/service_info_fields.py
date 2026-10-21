@@ -10,7 +10,7 @@ NOT_CALLABLE = {"environment": "test"}
 TOGGLE: dict[str, Any] = {"fields": {}, "error": None}
 
 
-def runtime_fields() -> dict:
+def runtime_fields() -> dict[str, Any]:
     """Return fields computed at runtime, from the app's configuration."""
     return {
         "environment": f"port-{get_config().server.port}",
@@ -19,17 +19,17 @@ def runtime_fields() -> dict:
     }
 
 
-def version_field() -> dict:
+def version_field() -> dict[str, Any]:
     """Return the version only."""
     return {"version": "2.0.0-runtime"}
 
 
-def invalid_fields() -> dict:
+def invalid_fields() -> dict[str, Any]:
     """Return an invalid field."""
     return {"createdAt": "yesterday"}
 
 
-def not_a_dict() -> list:
+def not_a_dict() -> list[str]:
     """Return no dictionary."""
     return ["environment", "test"]
 

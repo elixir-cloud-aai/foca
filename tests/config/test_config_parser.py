@@ -1,10 +1,9 @@
-"""
-Tests for config_parser.py
-"""
+"""Tests for config_parser.py."""
 
 import os
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -26,7 +25,7 @@ TEST_CONFIG_INSTANCE = Config()
 TEST_CONFIG_MODEL = "tests.test_files.model_valid.CustomConfig"
 TEST_CONFIG_MODEL_NOT_EXISTS = "tests.test_files.model_valid.NotExists"
 TEST_CONFIG_MODEL_MODULE_NOT_EXISTS = "tests.test_files.not_a_module.NotExists"
-TEST_DICT = {}
+TEST_DICT: dict[str, Any] = {}
 TEST_FILE = "tests/test_files/conf_valid.yaml"
 TEST_FILE_CUSTOM_INVALID = "tests/test_files/conf_valid_custom_invalid.yaml"
 TEST_FILE_INVALID = "tests/test_files/conf_invalid_log_level.yaml"
@@ -34,56 +33,56 @@ TEST_FILE_INVALID_YAML = "tests/test_files/conf_no_yaml.txt"
 TEST_FILE_INVALID_LOG = "tests/test_files/conf_log_invalid.yaml"
 
 
-def test_config_parser_valid_config_file():
+def test_config_parser_valid_config_file() -> None:
     """Test valid YAML parsing."""
     conf = ConfigParser(Path(TEST_FILE))
     assert type(conf.config.model_dump()) is type(TEST_DICT)
     assert isinstance(conf.config, type(TEST_CONFIG_INSTANCE))
 
 
-def test_config_parser_invalid_config_file():
+def test_config_parser_invalid_config_file() -> None:
     """Test invalid YAML parsing."""
     with pytest.raises(ValidationError):
         ConfigParser(Path(TEST_FILE_INVALID))
 
 
-def test_config_parser_invalid_file_path():
+def test_config_parser_invalid_file_path() -> None:
     """Test invalid file path."""
     conf = ConfigParser(Path(TEST_FILE))
     with pytest.raises(OSError):
         assert conf.parse_yaml(Path("")) is not None
 
 
-def test_config_parser_invalid_log_config():
+def test_config_parser_invalid_log_config() -> None:
     """Test invalid log config YAML."""
     conf = ConfigParser(Path(TEST_FILE_INVALID_LOG))
     assert type(conf.config.model_dump()) is type(TEST_DICT)
     assert isinstance(conf.config, type(TEST_CONFIG_INSTANCE))
 
 
-def test_config_parser_with_custom_config_model():
+def test_config_parser_with_custom_config_model() -> None:
     """Test with valid custom config model class."""
     conf = ConfigParser(
         config_file=Path(TEST_FILE),
         custom_config_model=TEST_CONFIG_MODEL,
     )
-    assert isinstance(conf.config.custom.param, str)
-    assert conf.config.custom.param == "STRING"
+    assert isinstance(conf.config.custom.param, str)  # type: ignore[attr-defined]  # extra field
+    assert conf.config.custom.param == "STRING"  # type: ignore[attr-defined]  # extra field
 
 
-def test_process_yaml_valid_config_file():
+def test_process_yaml_valid_config_file() -> None:
     """Test process_yaml with valid YAML file."""
     result = ConfigParser.parse_yaml(Path(TEST_FILE))
     assert isinstance(result, dict)
 
 
-def test_process_yaml_invalid_config_file():
+def test_process_yaml_invalid_config_file() -> None:
     """Test process_yaml with invalid YAML file."""
     with pytest.raises(ValueError):
         ConfigParser.parse_yaml(Path(TEST_FILE_INVALID_YAML))
 
 
-def test_process_yaml_missing_file():
+def test_process_yaml_missing_file() -> None:
     """Test process_yaml when file cannot be opened."""
     with mock.patch("foca.config.config_parser.open") as mock_open:
         mock_open.side_effect = OSError
@@ -91,51 +90,51 @@ def test_process_yaml_missing_file():
             ConfigParser.parse_yaml(Path(TEST_FILE))
 
 
-def test_merge_yaml_with_no_args():
+def test_merge_yaml_with_no_args() -> None:
     """Test merge_yaml with no arguments."""
-    empty_list = []
+    empty_list: list[Path] = []
     res = ConfigParser.merge_yaml(*empty_list)
     assert res == {}
 
 
-def test_merge_yaml_with_two_args():
+def test_merge_yaml_with_two_args() -> None:
     """Test merge_yaml with no arguments."""
     yaml_list = [Path(PATH), Path(PATH_ADDITION)]
     res = ConfigParser.merge_yaml(*yaml_list)
     assert "put" in res["paths"]["/pets/{petId}"]
 
 
-def test_parse_custom_config_valid_model():
+def test_parse_custom_config_valid_model() -> None:
     """Test ``.parse_custom_config()`` with a valid model class."""
     conf = ConfigParser(config_file=Path(TEST_FILE))
     result = conf.parse_custom_config(model=TEST_CONFIG_MODEL)
     assert isinstance(result, BaseModel)
-    assert isinstance(result.param, str)
-    assert result.param == "STRING"
+    assert isinstance(result.param, str)  # type: ignore[attr-defined]  # `CustomConfig` field
+    assert result.param == "STRING"  # type: ignore[attr-defined]  # `CustomConfig` field
 
 
-def test_parse_custom_config_model_module_not_exists():
+def test_parse_custom_config_model_module_not_exists() -> None:
     """Test ``.parse_custom_config()`` when module does not exist."""
     conf = ConfigParser(config_file=Path(TEST_FILE))
     with pytest.raises(ValueError):
         conf.parse_custom_config(model=TEST_CONFIG_MODEL_MODULE_NOT_EXISTS)
 
 
-def test_parse_custom_config_model_not_exists():
+def test_parse_custom_config_model_not_exists() -> None:
     """Test ``.parse_custom_config()`` when model class does not exist."""
     conf = ConfigParser(config_file=Path(TEST_FILE))
     with pytest.raises(ValueError):
         conf.parse_custom_config(model=TEST_CONFIG_MODEL_NOT_EXISTS)
 
 
-def test_parse_custom_config_model_not_dotted():
+def test_parse_custom_config_model_not_dotted() -> None:
     """Test ``.parse_custom_config()`` when model path has no module."""
     conf = ConfigParser(config_file=Path(TEST_FILE))
     with pytest.raises(ValueError):
         conf.parse_custom_config(model="CustomConfig")
 
 
-def test_parse_custom_config_invalid():
+def test_parse_custom_config_invalid() -> None:
     """Test ``.parse_custom_config()`` when model class does not exist."""
     conf = ConfigParser(config_file=Path(TEST_FILE_CUSTOM_INVALID))
     with pytest.raises(ValueError):
@@ -161,7 +160,9 @@ def test_parse_custom_config_invalid():
         ({}, {"a": 1}, {"a": 1}),
     ],
 )
-def test_deep_merge(base, overlay, expected):
+def test_deep_merge(
+    base: dict[str, Any], overlay: dict[str, Any], expected: dict[str, Any]
+) -> None:
     """Test merging configurations."""
     base_copy = deepcopy(base)
     assert deep_merge(base, overlay) == expected
@@ -175,7 +176,9 @@ def _write(path: Path, content: str) -> Path:
 
 
 @pytest.fixture
-def config_files(tmp_path, monkeypatch):
+def config_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, Path, Path]:
     """Base config and overlays in different directories."""
     monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
     base = _write(
@@ -196,7 +199,8 @@ def config_files(tmp_path, monkeypatch):
 class TestConfigFiles:
     """Tests for merging config files and overlays."""
 
-    def test_multiple_files(self, config_files):
+    def test_multiple_files(self, config_files: tuple[Path, Path, Path]) -> None:
+        """Config files are merged in the given order."""
         base, dev, prod = config_files
         conf = ConfigParser(config_file=[base, str(dev), prod], format_logs=False)
         assert conf.config_files == [base, dev, prod]
@@ -207,9 +211,15 @@ class TestConfigFiles:
             80,
             True,
         )
-        assert conf.config.custom == {"a": [3], "b": None}
+        assert conf.config.custom == {"a": [3], "b": None}  # type: ignore[attr-defined]  # extra field
 
-    def test_overlay_env_var(self, config_files, monkeypatch, tmp_path):
+    def test_overlay_env_var(
+        self,
+        config_files: tuple[Path, Path, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Overlays are read from `FOCA_CONFIG_OVERLAY`."""
         base, dev, prod = config_files
         # relative overlay paths are resolved against the working directory
         monkeypatch.chdir(tmp_path)
@@ -224,9 +234,12 @@ class TestConfigFiles:
         conf = ConfigParser(config_file=base, format_logs=False)
         assert conf.config_files == [base, dev, prod]
         assert conf.config.server.port == 80
-        assert conf.config.custom == {"a": [3], "b": None}
+        assert conf.config.custom == {"a": [3], "b": None}  # type: ignore[attr-defined]  # extra field
 
-    def test_overlay_without_config_file(self, config_files, monkeypatch):
+    def test_overlay_without_config_file(
+        self, config_files: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Overlays are applied also without a config file."""
         _, dev, _ = config_files
         monkeypatch.setenv("FOCA_CONFIG_OVERLAY", str(dev))
         conf = ConfigParser(format_logs=False)
@@ -234,29 +247,47 @@ class TestConfigFiles:
         assert conf.config_dir == Path.cwd()
         assert conf.config.server.debug is True
 
-    def test_overlay_missing(self, config_files, monkeypatch, tmp_path):
+    def test_overlay_missing(
+        self,
+        config_files: tuple[Path, Path, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Missing overlays raise an error."""
         base, _, _ = config_files
         monkeypatch.setenv("FOCA_CONFIG_OVERLAY", str(tmp_path / "missing.yaml"))
         with pytest.raises(FileNotFoundError, match="FOCA_CONFIG_OVERLAY"):
             ConfigParser(config_file=base, format_logs=False)
 
-    def test_not_mapping(self, config_files, tmp_path):
+    def test_not_mapping(
+        self, config_files: tuple[Path, Path, Path], tmp_path: Path
+    ) -> None:
+        """Config files that are not YAML mappings raise an error."""
         base, _, _ = config_files
         not_mapping = _write(tmp_path / "list.yaml", "- a\n- b\n")
         with pytest.raises(ValueError, match="not a YAML mapping"):
             ConfigParser(config_file=[base, not_mapping], format_logs=False)
 
-    def test_empty_overlay(self, config_files, tmp_path):
+    def test_empty_overlay(
+        self, config_files: tuple[Path, Path, Path], tmp_path: Path
+    ) -> None:
+        """Empty overlays are ignored."""
         base, _, _ = config_files
         empty = _write(tmp_path / "empty.yaml", "")
         conf = ConfigParser(config_file=[base, empty], format_logs=False)
         assert conf.config.server.port == 8000
 
 
-def test_no_config_values_logged(tmp_path, monkeypatch):
+def test_no_config_values_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Only config section names are logged, not values."""
     messages: list[str] = []
-    monkeypatch.setattr(parser_module.logger, "debug", messages.append)
+
+    def debug(msg: str, *args: object) -> None:
+        messages.append(msg % args)
+
+    monkeypatch.setattr(parser_module.logger, "debug", debug)
     monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
     config_file = tmp_path / "config.yaml"
     config_file.write_text("custom:\n  api_key: s3cr3t\n")
@@ -266,11 +297,11 @@ def test_no_config_values_logged(tmp_path, monkeypatch):
     assert "custom" in logged
 
 
-def test_no_flask_config_logged(monkeypatch):
+def test_no_flask_config_logged(monkeypatch: pytest.MonkeyPatch) -> None:
     """The Flask config, including secrets, is not logged."""
     messages: list[str] = []
     monkeypatch.setattr(factory_module.logger, "debug", messages.append)
     app = create_connexion_app(Config())
-    app.app.config["SECRET_KEY"] = "s3cr3t"
+    app.app.config["SECRET_KEY"] = "s3cr3t"  # noqa: S105 (test value)
     create_connexion_app(Config())
     assert "SECRET_KEY" not in " ".join(messages)

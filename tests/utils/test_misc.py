@@ -8,25 +8,27 @@ from foca.utils.misc import generate_id
 
 
 class TestGenerateId:
-    def test_default(self):
+    """Tests for `generate_id()`."""
+
+    def test_default(self) -> None:
         """Use only default arguments."""
         res = generate_id()
         assert isinstance(res, str)
         assert set(res) <= set(string.ascii_letters + string.digits)
 
-    def test_charset_literal_string(self):
+    def test_charset_literal_string(self) -> None:
         """Argument to `charset` is non-default literal string."""
         charset = string.digits
         res = generate_id(charset=charset)
         assert set(res) <= set(string.digits)
 
-    def test_charset_literal_string_duplicates(self):
+    def test_charset_literal_string_duplicates(self) -> None:
         """Argument to `charset` is literal string with duplicates."""
         charset = string.digits + string.digits
         res = generate_id(charset=charset)
         assert set(res) <= set(string.digits)
 
-    def test_charset_not_evaluated(self):
+    def test_charset_not_evaluated(self) -> None:
         """Argument to `charset` is used literally, not evaluated."""
         charset = "''.join([])"
         res = generate_id(charset=charset, length=20)
@@ -41,13 +43,13 @@ class TestGenerateId:
             "substring.digits",
         ],
     )
-    def test_charset_literal_with_dot(self, charset):
+    def test_charset_literal_with_dot(self, charset: str) -> None:
         """Literal charset resembling attribute access is used literally."""
         res = generate_id(charset=charset, length=20)
         assert len(res) == 20
         assert set(res) <= set(charset)
 
-    def test_charset_digit_string(self):
+    def test_charset_digit_string(self) -> None:
         """Argument to `charset` is a string of a single digit."""
         res = generate_id(charset="1", length=3)
         assert res == "111"
@@ -61,39 +63,39 @@ class TestGenerateId:
             "string . ascii_uppercase+string .digits",
         ],
     )
-    def test_charset_expression(self, charset):
+    def test_charset_expression(self, charset: str) -> None:
         """Argument to `charset` is a former `string` module expression."""
         with pytest.raises(ValueError, match="no longer evaluated"):
             generate_id(charset=charset)
 
-    def test_charset_empty(self):
+    def test_charset_empty(self) -> None:
         """Argument to `charset` is an empty string."""
         with pytest.raises(TypeError):
             generate_id(charset="")
 
-    def test_charset_not_string(self):
+    def test_charset_not_string(self) -> None:
         """Argument to `charset` is not a string."""
         with pytest.raises(TypeError):
-            generate_id(charset=int)  # type: ignore
+            generate_id(charset=int)  # type: ignore[arg-type]
 
-    def test_length(self):
+    def test_length(self) -> None:
         """Non-default argument to `length`."""
         length = 1
         res = generate_id(length=length)
         assert len(res) == length
 
-    def test_length_not_int(self):
+    def test_length_not_int(self) -> None:
         """Argument to `length` is not an integer."""
         length = ""
         with pytest.raises(TypeError):
-            generate_id(length=length)  # type: ignore
+            generate_id(length=length)  # type: ignore[arg-type]
 
-    def test_length_bool(self):
+    def test_length_bool(self) -> None:
         """Argument to `length` is a boolean."""
         with pytest.raises(TypeError):
             generate_id(length=True)
 
-    def test_length_not_positive(self):
+    def test_length_not_positive(self) -> None:
         """Argument to `length` is not a positive integer."""
         length = -1
         with pytest.raises(TypeError):

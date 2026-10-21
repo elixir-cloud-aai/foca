@@ -1,10 +1,11 @@
 """Service info shared by tests."""
 
 from copy import deepcopy
+from typing import Any
 
 # Module with functions returning service info fields at runtime
 FIELDS = "tests.test_files.service_info_fields"
-SERVICE = {
+SERVICE: dict[str, Any] = {
     "id": "org.example.my-service",
     "name": "My service",
     "type": {
@@ -24,7 +25,7 @@ REQUIRED = ("id", "name", "type", "organization", "version")
 REMOVE = object()
 
 
-def service(**fields) -> dict:
+def service(**fields: Any) -> dict[str, Any]:
     """Copy the service info, with fields replaced, or removed if `REMOVE`."""
     copy = deepcopy(SERVICE)
     for field, value in fields.items():

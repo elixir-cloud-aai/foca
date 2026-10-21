@@ -2,8 +2,11 @@
 
 import logging
 import logging.config
+from collections.abc import Iterator
 from copy import deepcopy
 from datetime import date
+from pathlib import Path
+from typing import Any
 
 import pytest
 from flask import Flask
@@ -30,7 +33,7 @@ OPERATION = {
     "x-openapi-router-controller": "foca.api.service_info",
     "responses": {"200": {"description": "Service info"}},
 }
-SPEC = {
+SPEC: dict[str, Any] = {
     "openapi": "3.0.2",
     "info": {"title": "My service", "version": "1.0.0"},
     "paths": {"/service-info": {"get": OPERATION}},
@@ -40,19 +43,20 @@ TOGGLED = f"{FIELDS}.toggled_fields"
 PROBLEMS = {ValueError: {"title": "Bad Request", "status": 400}}
 
 
-def _app(service_info: dict) -> Flask:
+def _app(service_info: dict[str, Any]) -> Flask:
     """Create a Flask app with service info configured, without checks."""
     app = Flask(__name__)
-    set_app_config(app, Config(service_info=service_info))
+    # the dictionary is validated by Pydantic
+    set_app_config(app, Config(service_info=service_info))  # type: ignore[arg-type]
     return app
 
 
 def _foca(
-    tmp_path,
-    service_info: dict | None,
-    spec: dict = SPEC,
+    tmp_path: Path,
+    service_info: dict[str, Any] | None,
+    spec: dict[str, Any] = SPEC,
     add_controller: bool = True,
-    **conf,
+    **conf: Any,
 ) -> Foca:
     """Create a FOCA instance with an API serving the service info.
 
@@ -61,7 +65,7 @@ def _foca(
     """
     spec_file = tmp_path / "openapi.yaml"
     spec_file.write_text(safe_dump(spec))
-    spec_conf: dict = {"path": "openapi.yaml"}
+    spec_conf: dict[str, Any] = {"path": "openapi.yaml"}
     if add_controller:
         spec_conf["add_operation_fields"] = {
             "x-openapi-router-controller": "tests.api.controllers"
@@ -79,14 +83,16 @@ def _foca(
 
 
 @pytest.fixture
-def log(caplog, monkeypatch):
+def log(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[pytest.LogCaptureFixture]:
     """Capture logs, also after `Foca()` configured logging.
 
     FOCA's logging configuration replaces the handlers of the root logger,
     dropping pytest's capturing handler, so it is attached again.
     """
 
-    def dict_config(config: dict) -> None:
+    def dict_config(config: dict[str, Any]) -> None:
         logging.config.dictConfig(config)
         logging.getLogger().addHandler(caplog.handler)
 
@@ -96,7 +102,7 @@ def log(caplog, monkeypatch):
     logging.getLogger().removeHandler(caplog.handler)
 
 
-def test_get_service_info():
+def test_get_service_info() -> None:
     """Service info is served from the configuration, as a copy."""
     app = _app({"service": SERVICE})
     with app.app_context():
@@ -106,9 +112,10 @@ def test_get_service_info():
         assert get_service_info() == SERVICE
 
 
-def test_get_service_info_nulls():
-    """Fields and list items set to `None` (e.g., by config overlays) are
-    not served.
+def test_get_service_info_nulls() -> None:
+    """Fields and list items set to `None` are not served.
+
+    Such values can be set, e.g., by config overlays.
     """
     configured = service(
         contactUrl=None,
@@ -124,22 +131,24 @@ def test_get_service_info_nulls():
     }
 
 
-def test_get_service_info_runtime_fields():
-    """Runtime fields are computed per request, in the app context, and
-    added unless configured; configured `None` values remove them.
+def test_get_service_info_runtime_fields() -> None:
+    """Runtime fields are computed per request, in the app context.
+
+    They are added unless configured; configured `None` values remove them.
     """
     configured = service(description=REMOVE, **{"x-runtime": None})
     app = _app({"service": configured, "runtime_fields": f"{FIELDS}.runtime_fields"})
     with app.app_context():
         assert get_service_info() == service(description="From runtime")
-        app.config.foca.server.port = 9000
-        app.config.foca.service_info.service.pop("environment")
+        # `foca` is set on the Flask config at runtime
+        app.config.foca.server.port = 9000  # type: ignore[attr-defined]
+        app.config.foca.service_info.service.pop("environment")  # type: ignore[attr-defined]
         assert get_service_info() == service(
             description="From runtime", environment="port-9000"
         )
 
 
-def test_get_service_info_runtime_version():
+def test_get_service_info_runtime_version() -> None:
     """Runtime fields take precedence over the package version."""
     app = _app(
         {
@@ -152,7 +161,9 @@ def test_get_service_info_runtime_version():
         assert get_service_info() == service(version="2.0.0-runtime")
 
 
-def test_get_service_info_runtime_version_unset(monkeypatch):
+def test_get_service_info_runtime_version_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A version of `None` returned at runtime counts as not set."""
     monkeypatch.setattr(utils, "version", lambda name: "3.0.0")
     monkeypatch.setitem(service_info_fields.TOGGLE, "fields", {"version": None})
@@ -167,9 +178,10 @@ def test_get_service_info_runtime_version_unset(monkeypatch):
         assert get_service_info() == service(version="3.0.0")
 
 
-def test_get_service_info_package_version(monkeypatch):
-    """The package version is served unless configured; `version: null`
-    counts as not configured.
+def test_get_service_info_package_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The package version is served unless configured.
+
+    `version: null` counts as not configured.
     """
     monkeypatch.setattr(utils, "version", lambda name: "3.0.0")
     for configured in (service(version=REMOVE), service(version=None)):
@@ -181,7 +193,7 @@ def test_get_service_info_package_version(monkeypatch):
         assert get_service_info() == SERVICE
 
 
-def test_get_service_info_runtime_invalid():
+def test_get_service_info_runtime_invalid() -> None:
     """Invalid runtime fields are named."""
     app = _app({"service": SERVICE, "runtime_fields": f"{FIELDS}.invalid_fields"})
     with (
@@ -197,7 +209,7 @@ def test_get_service_info_runtime_invalid():
         get_service_info()
 
 
-def test_get_service_info_runtime_not_a_dict():
+def test_get_service_info_runtime_not_a_dict() -> None:
     """Runtime fields must be a dictionary."""
     app = _app({"service": SERVICE, "runtime_fields": f"{FIELDS}.not_a_dict"})
     with (
@@ -207,7 +219,7 @@ def test_get_service_info_runtime_not_a_dict():
         get_service_info()
 
 
-def test_get_service_info_runtime_failed(monkeypatch):
+def test_get_service_info_runtime_failed(monkeypatch: pytest.MonkeyPatch) -> None:
     """Exceptions raised by the runtime fields function are chained."""
     error = KeyError("missing")
     monkeypatch.setitem(service_info_fields.TOGGLE, "error", error)
@@ -223,7 +235,7 @@ def test_get_service_info_runtime_failed(monkeypatch):
     assert exc_info.value.__cause__ is error
 
 
-def test_get_service_info_runtime_not_json(monkeypatch):
+def test_get_service_info_runtime_not_json(monkeypatch: pytest.MonkeyPatch) -> None:
     """Runtime fields must be serializable as JSON."""
     monkeypatch.setitem(
         service_info_fields.TOGGLE, "fields", {"x-date": date(2026, 10, 20)}
@@ -242,7 +254,7 @@ def test_get_service_info_runtime_not_json(monkeypatch):
         get_service_info()
 
 
-def test_get_service_info_not_configured():
+def test_get_service_info_not_configured() -> None:
     """Service info must be configured."""
     app = Flask(__name__)
     set_app_config(app, Config())
@@ -253,7 +265,7 @@ def test_get_service_info_not_configured():
         get_service_info()
 
 
-def test_getServiceInfo():
+def test_getServiceInfo() -> None:
     """The controller returns the service info, under both names."""
     app = _app({"service": SERVICE})
     with app.app_context():
@@ -261,7 +273,9 @@ def test_getServiceInfo():
     assert GetServiceInfo is getServiceInfo
 
 
-def test_getServiceInfo_invalid(monkeypatch, log):
+def test_getServiceInfo_invalid(
+    monkeypatch: pytest.MonkeyPatch, log: pytest.LogCaptureFixture
+) -> None:
     """The controller logs errors and raises a generic server error."""
     monkeypatch.setitem(service_info_fields.TOGGLE, "error", KeyError("x"))
     app = _app({"service": SERVICE, "runtime_fields": TOGGLED})
@@ -274,10 +288,8 @@ def test_getServiceInfo_invalid(monkeypatch, log):
     assert "Service info not served: Runtime fields function" in log.text
 
 
-def test_getServiceInfo_not_configured(log):
-    """The controller fails with a generic server error without service
-    info.
-    """
+def test_getServiceInfo_not_configured(log: pytest.LogCaptureFixture) -> None:
+    """The controller fails with a generic server error without service info."""
     app = Flask(__name__)
     set_app_config(app, Config())
     with app.app_context(), pytest.raises(InternalServerError):
@@ -286,9 +298,14 @@ def test_getServiceInfo_not_configured(log):
 
 
 @pytest.mark.parametrize("config", [Config(), None])
-def test_getServiceInfo_not_configured_request(log, monkeypatch, config):
-    """Requests fail with a generic server error, and are logged, without
-    service info or without FOCA configuration.
+def test_getServiceInfo_not_configured_request(
+    log: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Config | None,
+) -> None:
+    """Requests fail with a generic server error, and are logged.
+
+    This holds without service info or without FOCA configuration.
     """
     monkeypatch.setattr(access, "_configs", {})
     app = Flask(__name__)
@@ -303,14 +320,14 @@ def test_getServiceInfo_not_configured_request(log, monkeypatch, config):
     assert 'Incoming request: "GET /service-info' in log.text
 
 
-def test_check_service_info(log):
+def test_check_service_info(log: pytest.LogCaptureFixture) -> None:
     """Valid service info is logged."""
     check_service_info(_app({"service": SERVICE}))
     message = "Serving service info 'org.example.my-service', version '1.2.3'"
     assert message in log.text
 
 
-def test_check_service_info_not_configured(log):
+def test_check_service_info_not_configured(log: pytest.LogCaptureFixture) -> None:
     """Apps without service info pass if they do not serve it."""
     app = Flask(__name__)
     set_app_config(app, Config())
@@ -319,9 +336,10 @@ def test_check_service_info_not_configured(log):
     assert "No service info configured." in log.text
 
 
-def test_service_info_endpoint(tmp_path):
-    """Apps serve the service info from the configuration only, with fields
-    computed at runtime.
+def test_service_info_endpoint(tmp_path: Path) -> None:
+    """Apps serve the service info from the configuration only.
+
+    Fields are computed at runtime.
     """
     foca = _foca(
         tmp_path,
@@ -342,11 +360,14 @@ def test_service_info_endpoint(tmp_path):
 
 
 @pytest.mark.parametrize("log_traffic", [None, True, False])
-def test_service_info_endpoint_logged(tmp_path, log, log_traffic):
-    """Requests for the service info and their responses are logged, unless
-    disabled via `service_info.log_traffic`.
+def test_service_info_endpoint_logged(
+    tmp_path: Path, log: pytest.LogCaptureFixture, log_traffic: bool | None
+) -> None:
+    """Requests for the service info and their responses are logged.
+
+    Logging can be disabled via `service_info.log_traffic`.
     """
-    service_info: dict = {"service": SERVICE}
+    service_info: dict[str, Any] = {"service": SERVICE}
     if log_traffic is not None:
         service_info["log_traffic"] = log_traffic
     foca = _foca(tmp_path, service_info)
@@ -361,7 +382,7 @@ def test_service_info_endpoint_logged(tmp_path, log, log_traffic):
         assert (message in log.text) is (log_traffic is not False)
 
 
-def test_service_info_endpoint_full_operation_id(tmp_path):
+def test_service_info_endpoint_full_operation_id(tmp_path: Path) -> None:
     """Operations can be routed with a full `operationId`."""
     spec = deepcopy(SPEC)
     spec["paths"]["/service-info"]["get"] = {
@@ -374,9 +395,10 @@ def test_service_info_endpoint_full_operation_id(tmp_path):
     assert response.json == SERVICE
 
 
-def test_service_info_endpoint_wes_tes_spelling(tmp_path):
-    """Operations can be routed with `operationId: GetServiceInfo`, as in
-    the GA4GH WES and TES specifications.
+def test_service_info_endpoint_wes_tes_spelling(tmp_path: Path) -> None:
+    """Operations can be routed with `operationId: GetServiceInfo`.
+
+    This is the spelling of the GA4GH WES and TES specifications.
     """
     spec = deepcopy(SPEC)
     spec["paths"]["/service-info"]["get"] = {
@@ -396,7 +418,7 @@ def test_service_info_endpoint_wes_tes_spelling(tmp_path):
         _foca(tmp_path, None, spec).create_app()
 
 
-def test_service_info_endpoint_public(tmp_path):
+def test_service_info_endpoint_public(tmp_path: Path) -> None:
     """`security: []` serves the service info without authentication."""
     spec = deepcopy(SPEC)
     spec["components"] = {
@@ -432,9 +454,12 @@ def test_service_info_endpoint_public(tmp_path):
     assert client.get("/pets").status_code == 401
 
 
-def test_service_info_endpoint_invalid_at_runtime(tmp_path, monkeypatch, log):
-    """Service info that becomes invalid at runtime is not served, and the
-    error is logged.
+def test_service_info_endpoint_invalid_at_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, log: pytest.LogCaptureFixture
+) -> None:
+    """Service info that becomes invalid at runtime is not served.
+
+    The error is logged.
     """
     foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})
     client = foca.create_app().app.test_client()
@@ -448,9 +473,12 @@ def test_service_info_endpoint_invalid_at_runtime(tmp_path, monkeypatch, log):
     assert "Service info not served: Invalid service info in `createdAt`" in (log.text)
 
 
-def test_service_info_endpoint_runtime_failed(tmp_path, monkeypatch, log):
-    """Failures of the runtime fields function fail the request with a
-    generic error, and are logged.
+def test_service_info_endpoint_runtime_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, log: pytest.LogCaptureFixture
+) -> None:
+    """Failures of the runtime fields function fail the request.
+
+    The request fails with a generic error, and failures are logged.
     """
     foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})
     client = foca.create_app().app.test_client()
@@ -461,9 +489,13 @@ def test_service_info_endpoint_runtime_failed(tmp_path, monkeypatch, log):
     assert f"Runtime fields function '{TOGGLED}'" in log.text
 
 
-def test_service_info_endpoint_value_error_mapped(tmp_path, monkeypatch, log):
-    """Requests fail with a generic 500, also if apps map `ValueError` (the
-    base class of `InvalidServiceInfo`) to other problem details.
+def test_service_info_endpoint_value_error_mapped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, log: pytest.LogCaptureFixture
+) -> None:
+    """Requests fail with a generic 500, also if apps map `ValueError`.
+
+    `ValueError`, the base class of `InvalidServiceInfo`, is mapped to other
+    problem details.
     """
     foca = _foca(
         tmp_path,
@@ -479,7 +511,7 @@ def test_service_info_endpoint_value_error_mapped(tmp_path, monkeypatch, log):
     assert "Invalid service info in `createdAt`" in log.text
 
 
-def test_service_info_endpoint_not_configured(tmp_path):
+def test_service_info_endpoint_not_configured(tmp_path: Path) -> None:
     """Apps serving the service info refuse to start without it."""
     foca = _foca(tmp_path, None)
     with pytest.raises(
@@ -493,7 +525,7 @@ def test_service_info_endpoint_not_configured(tmp_path):
         foca.create_app()
 
 
-def test_service_info_invalid_at_startup(tmp_path):
+def test_service_info_invalid_at_startup(tmp_path: Path) -> None:
     """Apps with invalid service info refuse to start."""
     foca = _foca(
         tmp_path,
@@ -506,7 +538,9 @@ def test_service_info_invalid_at_startup(tmp_path):
         foca.create_app()
 
 
-def test_service_info_runtime_failed_at_startup(tmp_path, monkeypatch):
+def test_service_info_runtime_failed_at_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Apps whose runtime fields function fails refuse to start."""
     monkeypatch.setitem(service_info_fields.TOGGLE, "error", RuntimeError())
     foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})

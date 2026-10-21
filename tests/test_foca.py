@@ -1,11 +1,14 @@
 """Tests for `foca.py` module."""
 
+import os
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 from celery import Celery
 from pydantic import ValidationError
+from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 from yaml import (
@@ -35,7 +38,9 @@ ACCESS_CONTROL_ENABLED_CONF = DIR / "conf_access_control_enabled.yaml"
 ENFORCE_WITHOUT_ENABLED_CONF = DIR / "conf_enforce_access_control_without_enabled.yaml"
 
 
-def create_modified_api_conf(path, temp_dir, api_specs_in):
+def create_modified_api_conf(
+    path: Path, temp_dir: str | os.PathLike[str], api_specs_in: str
+) -> Path:
     """Create a copy of a configuration YAML file."""
     temp_path = Path(temp_dir) / "temp_test.yaml"
     shutil.copy2(path, temp_path)
@@ -48,39 +53,42 @@ def create_modified_api_conf(path, temp_dir, api_specs_in):
     return temp_path
 
 
-def test_foca_constructor_empty_conf():
+def test_foca_constructor_empty_conf() -> None:
     """Empty config."""
     with pytest.raises(ValidationError):
         Foca(config_file=EMPTY_CONF)
 
 
-def test_foca_constructor_invalid_conf():
+def test_foca_constructor_invalid_conf() -> None:
     """Invalid config file format."""
     with pytest.raises(ValueError):
         Foca(config_file=INVALID_CONF)
 
 
-def test_foca_constructor_invalid_conf_log():
+def test_foca_constructor_invalid_conf_log() -> None:
     """Invalid 'log' field."""
     with pytest.raises(ValidationError):
         Foca(config_file=INVALID_LOG_CONF)
 
 
-def test_foca_constructor_invalid_conf_jobs():
+def test_foca_constructor_invalid_conf_jobs() -> None:
     """Invalid 'jobs' field."""
     with pytest.raises(ValidationError):
         Foca(config_file=INVALID_JOBS_CONF)
 
 
-def test_foca_constructor_invalid_conf_db():
+def test_foca_constructor_invalid_conf_db() -> None:
     """Invalid 'db' field."""
     with pytest.raises(ValidationError):
         Foca(config_file=INVALID_DB_CONF)
 
 
-def test_foca_create_app_output_defaults():
-    """Ensure an app with FOCA's error handler, CORS and no access control
-    is created; defaults only."""
+def test_foca_create_app_output_defaults() -> None:
+    """Ensure an app with FOCA's defaults is created.
+
+    The app has FOCA's error handler, CORS and no access control; defaults
+    only.
+    """
     foca = Foca()
     app = foca.create_app()
     assert app.app.config.foca is foca.conf
@@ -94,7 +102,7 @@ def test_foca_create_app_output_defaults():
     assert "casbin_adapter" not in app.app.config
 
 
-def test_foca_create_app_error_media_type(tmp_path):
+def test_foca_create_app_error_media_type(tmp_path: Path) -> None:
     """Ensure error responses have the configured media type."""
     conf = tmp_path / "config.yaml"
     conf.write_text(safe_dump({"exceptions": {"media_type": "application/json"}}))
@@ -105,9 +113,10 @@ def test_foca_create_app_error_media_type(tmp_path):
     assert response.json == {"title": "Not Found", "status": 404}
 
 
-def test_foca_create_app_error_media_type_access_control(tmp_path):
-    """Ensure errors of the permissions API have the configured media type,
-    as declared in its specification.
+def test_foca_create_app_error_media_type_access_control(tmp_path: Path) -> None:
+    """Ensure errors of the permissions API have the configured media type.
+
+    The media type is also declared in its specification.
     """
     conf_dict = safe_load(ACCESS_CONTROL_ENABLED_CONF.read_text())
     conf_dict["exceptions"] = {"media_type": "application/json"}
@@ -123,7 +132,7 @@ def test_foca_create_app_error_media_type_access_control(tmp_path):
     assert set(responses["401"]["content"]) == {"application/json"}
 
 
-def test_foca_constructor_invalid_error_media_type(tmp_path):
+def test_foca_constructor_invalid_error_media_type(tmp_path: Path) -> None:
     """Invalid 'exceptions.media_type' field."""
     conf = tmp_path / "config.yaml"
     conf.write_text(safe_dump({"exceptions": {"media_type": "text/plain"}}))
@@ -131,7 +140,7 @@ def test_foca_constructor_invalid_error_media_type(tmp_path):
         Foca(config_file=conf)
 
 
-def test_foca_constructor_invalid_service_info(tmp_path):
+def test_foca_constructor_invalid_service_info(tmp_path: Path) -> None:
     """Invalid 'service_info' field, naming the invalid field."""
     conf = tmp_path / "config.yaml"
     conf.write_text(safe_dump({"service_info": {"service": {"id": "my-service"}}}))
@@ -139,7 +148,7 @@ def test_foca_constructor_invalid_service_info(tmp_path):
         Foca(config_file=conf)
 
 
-def test_foca_create_app_no_access_control():
+def test_foca_create_app_no_access_control() -> None:
     """Ensure access control is not registered by default."""
     foca = Foca(config_file=VALID_DB_CONF)
     app = foca.create_app()
@@ -148,7 +157,7 @@ def test_foca_create_app_no_access_control():
     assert not any("permissions" in rule.rule for rule in app.app.url_map.iter_rules())
 
 
-def test_foca_create_app_access_control():
+def test_foca_create_app_access_control() -> None:
     """Ensure access control is registered if enabled."""
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
     app = foca.create_app()
@@ -160,7 +169,7 @@ def test_foca_create_app_access_control():
     )
 
 
-def test_foca_create_app_access_control_defaults():
+def test_foca_create_app_access_control_defaults() -> None:
     """Ensure access control is registered with defaults if only enabled."""
     foca = Foca(config_file=ACCESS_CONTROL_ENABLED_CONF)
     app = foca.create_app()
@@ -169,7 +178,7 @@ def test_foca_create_app_access_control_defaults():
     assert set(dbs["access_control_db"].collections) == {"policy_rules"}
 
 
-def test_foca_create_app_config_unchanged():
+def test_foca_create_app_config_unchanged() -> None:
     """Ensure creating apps does not change access control settings."""
     foca = Foca(config_file=ACCESS_CONTROL_ENABLED_CONF)
     before = foca.conf.security.model_dump()
@@ -179,13 +188,13 @@ def test_foca_create_app_config_unchanged():
 
 
 @pytest.mark.parametrize("field", ["api_controllers", "api_route", "nonexistent"])
-def test_access_control_removed_fields(field):
+def test_access_control_removed_fields(field: str) -> None:
     """Removed access control settings fail validation."""
     with pytest.raises(ValidationError):
-        AccessControlConfig(**{field: "x"})
+        AccessControlConfig(**{field: "x"})  # type: ignore[arg-type]  # invalid on purpose
 
 
-def test_foca_create_app_twice():
+def test_foca_create_app_twice() -> None:
     """Ensure an app can be created repeatedly from the same instance."""
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
     foca.create_app()
@@ -195,7 +204,7 @@ def test_foca_create_app_twice():
     assert set(dbs["test_db"].collections) == {"test_collection"}
 
 
-def test_foca_create_app_jobs():
+def test_foca_create_app_jobs() -> None:
     """Ensure a Connexion app instance is returned; valid 'jobs' field."""
     foca = Foca(config_file=JOBS_CONF)
     app = foca.create_app()
@@ -203,7 +212,7 @@ def test_foca_create_app_jobs():
     assert foca.conf.jobs is not None
 
 
-def test_foca_create_app_api(tmpdir):
+def test_foca_create_app_api(tmpdir: os.PathLike[str]) -> None:
     """Ensure a Connexion app instance is returned; valid 'api' field."""
     temp_file = create_modified_api_conf(
         API_CONF,
@@ -216,7 +225,7 @@ def test_foca_create_app_api(tmpdir):
     assert {"/v1/pets", "/v1/pets/<petId>"} <= rules
 
 
-def test_foca_db():
+def test_foca_db() -> None:
     """Ensure a Connexion app instance is returned; valid 'db' field."""
     foca = Foca(config_file=VALID_DB_CONF)
     app = foca.create_app()
@@ -231,7 +240,7 @@ def test_foca_db():
     "config_file,enabled",
     [(VALID_CORS_CONF_ENABLED, True), (VALID_CORS_CONF_DISABLED, False)],
 )
-def test_foca_cors(config_file, enabled):
+def test_foca_cors(config_file: Path, enabled: bool) -> None:
     """Ensures CORS is enabled or disabled as configured."""
     foca = Foca(config_file=config_file)
     app = foca.create_app()
@@ -242,21 +251,25 @@ def test_foca_cors(config_file, enabled):
     assert ("Access-Control-Allow-Origin" in response.headers) is enabled
 
 
-def test_foca_invalid_access_control():
-    """Ensures app refuses to start if access control options are set
-    without enabling access control."""
+def test_foca_invalid_access_control() -> None:
+    """Ensures app refuses to start with access control options only.
+
+    Access control options are set without enabling access control.
+    """
     with pytest.raises(ValidationError):
         Foca(config_file=INVALID_ACCESS_CONTROL_CONF)
 
 
-def test_foca_enforce_access_control_without_enabled():
-    """Ensures app refuses to start if enforcement is enabled without access
-    control."""
+def test_foca_enforce_access_control_without_enabled() -> None:
+    """Ensures app refuses to start if enforcement is enabled only.
+
+    Enforcement is enabled without access control.
+    """
     with pytest.raises(ValidationError):
         Foca(config_file=ENFORCE_WITHOUT_ENABLED_CONF)
 
 
-def test_foca_valid_access_control():
+def test_foca_valid_access_control() -> None:
     """Ensures access control settings are set correctly."""
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
     app = foca.create_app()
@@ -268,7 +281,7 @@ def test_foca_valid_access_control():
     assert adapter._collection.full_name == "test_db.test_collection"
 
 
-def test_foca_create_celery_app():
+def test_foca_create_celery_app() -> None:
     """Ensure a Celery app instance is returned."""
     foca = Foca(config_file=JOBS_CONF)
     app = foca.create_celery_app()
@@ -278,14 +291,16 @@ def test_foca_create_celery_app():
     assert app.conf.broker_url == f"pyamqp://{jobs.host}:{jobs.port}//"
 
 
-def test_foca_create_celery_app_without_jobs_field():
+def test_foca_create_celery_app_without_jobs_field() -> None:
     """Ensure that Celery app creation fails if 'jobs' field missing."""
     foca = Foca(config_file=NO_JOBS_CONF)
     with pytest.raises(ValueError):
         foca.create_celery_app()
 
 
-def test_foca_one_mongo_client(mongo_clients):
+def test_foca_one_mongo_client(
+    mongo_clients: list[tuple[str, MongoClient[dict[str, Any]]]],
+) -> None:
     """Ensure app databases and the Casbin adapter share one client."""
     foca = Foca(config_file=[VALID_DB_CONF, ACCESS_CONTROL_ENABLED_CONF])
     app = foca.create_app()
@@ -298,14 +313,17 @@ def test_foca_one_mongo_client(mongo_clients):
     assert adapter._collection.database.client is client
 
 
-def test_foca_relative_paths(tmp_path, monkeypatch):
-    """Ensure relative paths are resolved against the config file directory,
-    irrespective of the working directory."""
+def test_foca_relative_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure relative paths are resolved against the config file directory.
+
+    This holds irrespective of the working directory.
+    """
     app_dir = tmp_path / "app"
     (app_dir / "specs").mkdir(parents=True)
     (app_dir / "policies").mkdir()
     shutil.copy2(DIR / "openapi_3_petstore.original.yaml", app_dir / "specs")
-    shutil.copy2(Path(AccessControlConfig().model), app_dir / "policies" / "model.conf")
+    default_model = Path(AccessControlConfig().model)  # type: ignore[arg-type]  # default model is set
+    shutil.copy2(default_model, app_dir / "policies" / "model.conf")
     config_file = app_dir / "config.yaml"
     config_file.write_text(
         "api:\n"
@@ -338,9 +356,13 @@ def test_foca_relative_paths(tmp_path, monkeypatch):
     assert any(rule.rule.endswith("/pets") for rule in app.app.url_map.iter_rules())
 
 
-def test_foca_relative_paths_without_file(tmp_path, monkeypatch):
-    """Ensure relative paths are resolved against the working directory if no
-    config file is used."""
+def test_foca_relative_paths_without_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure relative paths are resolved against the working directory.
+
+    This holds if no config file is used.
+    """
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
     foca = Foca()
