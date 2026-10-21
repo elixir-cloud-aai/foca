@@ -57,4 +57,5 @@ and the [code of
 conduct](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md).
 The project adopts [semantic versioning](https://semver.org/); while the major
 version is 0, minor releases may contain breaking changes, which are listed in
-the [changelog](changelog.md) and [migration notes](migration-0.14.md).
+the [changelog](changelog.md) and migration notes (for
+[0.15](migration-0.15.md) and [0.14](migration-0.14.md)).
