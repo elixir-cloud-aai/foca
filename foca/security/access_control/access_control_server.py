@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 _PERMISSION_FILTER = {"ptype": {"$type": "string"}}
 
 
-def _log_traffic_enabled() -> bool:
+def _permissions_traffic_logged() -> bool:
     """Check whether the traffic of the permissions API is logged.
 
     Returns:
@@ -167,7 +167,7 @@ def _to_permission(document: dict) -> dict:
     return permission
 
 
-@log_traffic_if(_log_traffic_enabled)
+@log_traffic_if(_permissions_traffic_logged)
 def postPermission() -> str:
     """Method to register new permissions.
 
@@ -183,7 +183,7 @@ def postPermission() -> str:
     return permission_id
 
 
-@log_traffic_if(_log_traffic_enabled)
+@log_traffic_if(_permissions_traffic_logged)
 def putPermission(
     id: str,
 ) -> str:
@@ -219,7 +219,7 @@ def putPermission(
     return id
 
 
-@log_traffic_if(_log_traffic_enabled)
+@log_traffic_if(_permissions_traffic_logged)
 def getAllPermissions(
     page_size: int = DEFAULT_PAGE_SIZE,
     page: int = 0,
@@ -269,7 +269,7 @@ def getAllPermissions(
     }
 
 
-@log_traffic_if(_log_traffic_enabled)
+@log_traffic_if(_permissions_traffic_logged)
 def getPermission(
     id: str,
 ) -> dict:
@@ -289,7 +289,7 @@ def getPermission(
     return _to_permission(permission)
 
 
-@log_traffic_if(_log_traffic_enabled)
+@log_traffic_if(_permissions_traffic_logged)
 def deletePermission(
     id: str,
 ) -> str:

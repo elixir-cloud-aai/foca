@@ -314,47 +314,65 @@ class TestLogging:
 class TestTrafficLogging:
     """Tests for logging requests and responses of the permissions API."""
 
-    @pytest.fixture
-    def logged(self, monkeypatch) -> list[str]:
-        """Messages logged by `log_traffic`."""
-        messages: list[str] = []
-        monkeypatch.setattr(
-            logging_module.logger,
-            "log",
-            lambda level, msg: messages.append(msg),
-        )
-        return messages
+    @pytest.fixture(autouse=True)
+    def _logger(self, caplog):
+        """Capture records of `log_traffic`, also if its logger was
+        disabled."""
+        logger = logging_module.logger
+        disabled = logger.disabled
+        logger.disabled = False
+        with caplog.at_level(logging.INFO, logger=logger.name):
+            yield
+        logger.disabled = disabled
 
     @pytest.fixture
     def client(self, app):
         """Client of an app routing requests to the controllers."""
-        app.add_url_rule(
-            "/permissions/<id>", view_func=getPermission, methods=["GET"]
-        )
-        app.add_url_rule(
-            "/permissions/<id>",
-            endpoint="deletePermission",
-            view_func=deletePermission,
-            methods=["DELETE"],
-        )
+        for path, method, controller in [
+            ("/permissions", "POST", postPermission),
+            ("/permissions", "GET", getAllPermissions),
+            ("/permissions/<id>", "PUT", putPermission),
+            ("/permissions/<id>", "GET", getPermission),
+            ("/permissions/<id>", "DELETE", deletePermission),
+        ]:
+            app.add_url_rule(
+                path,
+                endpoint=controller.__name__,
+                view_func=controller,
+                methods=[method],
+            )
         return app.test_client()
 
-    @pytest.mark.parametrize("method", ["get", "delete"])
+    @pytest.mark.parametrize(
+        "method,path,body",
+        [
+            ("post", "/permissions", "str"),
+            ("get", "/permissions", "dict"),
+            ("put", f"/permissions/{MOCK_ID}", "str"),
+            ("get", f"/permissions/{MOCK_ID}", "dict"),
+            ("delete", f"/permissions/{MOCK_ID}", "str"),
+        ],
+    )
     @pytest.mark.parametrize("log_traffic", [None, True, False])
-    def test_logged(self, app, client, stored, logged, method, log_traffic):
+    def test_logged(
+        self, app, client, stored, caplog, method, path, body, log_traffic
+    ):
         """Traffic is logged unless disabled via
         `access_control.log_traffic`, as configured at request time."""
         if log_traffic is not None:
             app.config.foca.security.access_control.log_traffic = log_traffic
-        response = getattr(client, method)(f"/permissions/{MOCK_ID}")
-        assert response.status_code == 200
-        request = (
-            f'"{method.upper()} /permissions/{MOCK_ID} HTTP/1.1" from '
-            "127.0.0.1"
+        response = getattr(client, method)(
+            path, json=deepcopy(MOCK_PERMISSION)
         )
+        assert response.status_code == 200
+        request = f'"{method.upper()} {path} HTTP/1.1" from 127.0.0.1'
         expected = [
             f"Incoming request: {request}",
-            f"Response to request {request}: "
-            f"{'dict' if method == 'get' else 'str'}, status 200",
+            f"Response to request {request}: {body}, status 200",
         ]
-        assert logged == ([] if log_traffic is False else expected)
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == logging_module.logger.name
+        ]
+        assert messages == ([] if log_traffic is False else expected)
