@@ -143,6 +143,14 @@ def register_openapi(
 
         # Remove security definitions/schemes and fields
         elif spec.disable_auth:
+            if enforce_access_control:
+                logger.warning(
+                    f"Authentication is disabled for spec {list_specs} "
+                    "('disable_auth'), so access control policies are not "
+                    "enforced on its operations ('access_control.enforce'): "
+                    "they are public. Only disable authentication for local "
+                    "development."
+                )
             # Open API 2
             spec_parsed.pop("securityDefinitions", None)
             # Open API 3

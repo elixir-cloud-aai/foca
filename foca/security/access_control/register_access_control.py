@@ -65,6 +65,16 @@ def register_access_control(
             "values are then always used as group subjects."
         )
 
+    if len(set(get_app_config(cnx_app.app).security.auth.issuers)) > 1:
+        logger.warning(
+            "Several trusted token issuers are configured "
+            "('security.auth.issuers'): subjects and group claim values are "
+            "not scoped by issuer, so policy rules for a subject (e.g., "
+            "'user:<sub>' or 'group:<value>') apply to tokens of all "
+            "issuers. Only trust several issuers if they cannot issue the "
+            "same subjects or group claim values to different users."
+        )
+
     # Set default db attributes if config not present.
     if mongo_config is None:
         mongo_config = MongoConfig()

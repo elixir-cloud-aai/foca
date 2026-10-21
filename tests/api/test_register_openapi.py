@@ -2,6 +2,7 @@
 instance.
 """
 
+import logging
 from copy import deepcopy
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from connexion import App
 from connexion.exceptions import InvalidSpecification
 from yaml import YAMLError
 
+from foca.api import register_openapi as module
 from foca.api.register_openapi import (
     _connexion_add_api_kwargs,
     _iter_operations,
@@ -244,6 +246,27 @@ def _registered_spec(monkeypatch, spec_config: dict) -> dict:
     register_openapi(app=App(__name__), specs=[SpecConfig(**spec_config)])
     assert len(specs) == 1
     return specs[0]
+
+
+@pytest.mark.parametrize(
+    "disable_auth,enforce,warned",
+    [(True, True, True), (True, False, False), (False, True, False)],
+)
+def test_disable_auth_with_enforcement(
+    monkeypatch, caplog, disable_auth, enforce, warned
+):
+    """Disabling authentication while enforcing policies is warned about,
+    as operations without security requirements are not enforced."""
+    monkeypatch.setattr(App, "add_api", lambda self, **kwargs: None)
+    monkeypatch.setattr(module.logger, "disabled", False)
+    spec_config = {**SPEC_CONFIG_3, "disable_auth": disable_auth}
+    with caplog.at_level(logging.WARNING, logger=module.logger.name):
+        register_openapi(
+            app=App(__name__),
+            specs=[SpecConfig(**spec_config)],
+            enforce_access_control=enforce,
+        )
+    assert ("'disable_auth'" in caplog.text) is warned
 
 
 class TestModifiedSpecs:

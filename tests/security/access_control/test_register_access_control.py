@@ -13,11 +13,13 @@ from connexion import App
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
     AccessControlConfig,
+    AuthConfig,
     CollectionConfig,
     Config,
     DBConfig,
     IndexConfig,
     MongoConfig,
+    SecurityConfig,
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
@@ -263,6 +265,29 @@ class TestRegisterAccessControlSetup:
                 keep_group_subjects=True,
             )
         assert ("keep_group_subjects' has no effect" in caplog.text) is warned
+
+    @pytest.mark.parametrize(
+        "issuers,warned",
+        [
+            (["https://a.example.org/"], False),
+            (["https://a.example.org/", "https://b.example.org/"], True),
+        ],
+    )
+    def test_several_issuers(self, caplog, issuers, warned):
+        """Subjects of several issuers may collide, which is warned
+        about."""
+        config = Config(
+            security=SecurityConfig(
+                auth=AuthConfig(issuers=issuers, audience=["my-app"])
+            )
+        )
+        with caplog.at_level(logging.WARNING):
+            register_access_control(
+                cnx_app=create_connexion_app(config),
+                mongo_config=None,
+                access_control_config=AccessControlConfig(),
+            )
+        assert ("trusted token issuers" in caplog.text) is warned
 
     def test_logs(self, caplog):
         """Successful registration steps are logged."""

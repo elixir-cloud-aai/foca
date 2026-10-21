@@ -280,6 +280,9 @@ policy allows them.
   items defined via `$ref` are enforced, too.
 * `enforce: True` requires `enabled: True`; FOCA refuses to start
   otherwise.
+* Specifications with `disable_auth: true` have no security requirements, so
+  none of their operations are enforced, i.e., they are all public. FOCA logs
+  a warning on startup if `enforce: True` is set as well.
 * With `enforce: False` (default), policies are only enforced on the
   permissions API and on controllers decorated with
   `foca.security.access_control.enforce_access_control`, which applies the
@@ -308,6 +311,18 @@ groups](#granting-roles-to-groups)). Access is granted if any of the subjects
 is allowed.
 This way, no rules are needed per user for group-based access, e.g., for
 administrators.
+
+!!! warning "Several trusted issuers"
+    Subjects and group claim values are not scoped by issuer: a rule for
+    `user:<sub>` or `group:<value>` applies to tokens of _all_ trusted
+    issuers (`security.auth.issuers`). If several issuers can issue the same
+    `sub` or group claim value to different users (e.g., if users can choose
+    their identifier or create groups at one of them), these users get each
+    other's rights, up to administrator rights. Only trust several issuers
+    together with access control if their subjects and group claim values
+    cannot collide, e.g., because they are assigned by the same identity
+    provider. FOCA logs a warning on startup if access control is enabled
+    with several trusted issuers.
 
 To keep users, groups and roles apart, subjects are namespaced in rules:
 
