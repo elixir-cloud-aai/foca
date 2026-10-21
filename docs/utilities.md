@@ -44,6 +44,19 @@ secrets or personal data, so they are only logged with
 `log_response_body=True`. All logged values are escaped, so that clients
 cannot forge log records (e.g., with line breaks in paths).
 
+To decide on each request whether to log, e.g., from your app's
+configuration, use `log_traffic_if()` with a function returning whether to
+log; it takes the same options as `log_traffic`:
+
+```python
+from foca.config.access import get_config
+from foca.utils.logging import log_traffic_if
+
+
+@log_traffic_if(lambda: get_config().custom.log_pets, log_request=False)
+def get_pet(pet_id: str) -> dict: ...
+```
+
 To log other values that may be controlled by clients, escape them with
 `escape_log_value()`.
 

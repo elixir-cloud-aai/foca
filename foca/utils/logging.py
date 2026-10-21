@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Callable
 from functools import wraps
+from typing import Any
 
 from flask import request
 
@@ -171,3 +172,62 @@ def log_traffic(
         return _decorator_log_traffic
     else:
         return _decorator_log_traffic(_fn)
+
+
+def log_traffic_if(
+    enabled: Callable[[], bool],
+    **log_traffic_kwargs: Any,
+) -> Callable[[Callable], Callable]:
+    """Decorator for logging service requests and responses if enabled.
+
+    Like :py:func:`log_traffic`, but whether traffic is logged is decided on
+    each call, e.g., from the configuration of the current app. The
+    decorated function is available as `__wrapped__` of the returned
+    function.
+
+    Args:
+        enabled: Function returning whether traffic should be logged; called
+            without arguments, in the context of the request.
+        **log_traffic_kwargs: Options of :py:func:`log_traffic` (e.g.,
+            `log_level`).
+
+    Returns:
+        Decorator for logging the traffic of the decorated function if
+        enabled.
+
+    Examples:
+        >>> from foca.config.access import get_config
+        >>> @log_traffic_if(lambda: get_config().server.debug)
+        ... def getItems() -> list:
+        ...     return []
+    """
+
+    def _decorator_log_traffic_if(fn: Callable) -> Callable:
+        """Decorate a function for logging its traffic if enabled.
+
+        Args:
+            fn: The function to be decorated.
+
+        Returns:
+            The decorated function.
+        """
+        logged = log_traffic(fn, **log_traffic_kwargs)
+
+        @wraps(fn)
+        def _wrapper(*args, **kwargs):
+            """Call the function, logging its traffic if enabled.
+
+            Args:
+                args: Positional arguments passed to the function.
+                kwargs: Keyword arguments passed to the function.
+
+            Returns:
+                Return value of the function.
+            """
+            if enabled():
+                return logged(*args, **kwargs)
+            return fn(*args, **kwargs)
+
+        return _wrapper
+
+    return _decorator_log_traffic_if

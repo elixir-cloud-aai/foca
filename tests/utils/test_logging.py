@@ -7,7 +7,7 @@ from connexion import App
 from flask import Flask, Response
 
 from foca.utils import logging as module
-from foca.utils.logging import escape_log_value, log_traffic
+from foca.utils.logging import escape_log_value, log_traffic, log_traffic_if
 
 app = Flask(__name__)
 REQ = {
@@ -188,6 +188,38 @@ def test_logging_decorator_control_characters(logged):
     assert len(logged) == 2
     assert all("\n" not in msg and "\r" not in msg for msg in logged)
     assert "/items\\r\\nFAKE log line" in logged[0]
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_log_traffic_if(logged, enabled):
+    """Traffic is logged only if enabled, as decided on each call."""
+    calls = []
+
+    @log_traffic_if(lambda: calls.append(1) or enabled)
+    def mock_func(value):
+        """Mock controller."""
+        return value
+
+    with app.test_request_context(environ_base=REQ):
+        assert mock_func("ok") == "ok"
+        assert mock_func("ok") == "ok"
+    assert len(calls) == 2
+    assert len(logged) == (4 if enabled else 0)
+    assert mock_func.__wrapped__("x") == "x"
+    assert mock_func.__doc__ == "Mock controller."
+
+
+def test_log_traffic_if_options(logged):
+    """Options are passed to `log_traffic`."""
+
+    @log_traffic_if(lambda: True, log_request=False)
+    def mock_func():
+        return "ok"
+
+    with app.test_request_context(environ_base=REQ):
+        mock_func()
+    assert len(logged) == 1
+    assert logged[0].startswith("Response to request")
 
 
 @pytest.mark.parametrize(

@@ -100,4 +100,5 @@ configuration models, see [Configuration](configuration/index.md).
     options:
       members:
         - log_traffic
+        - log_traffic_if
         - escape_log_value
