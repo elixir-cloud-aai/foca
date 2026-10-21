@@ -37,16 +37,16 @@ USERINFO_CACHE_SIZE = 1000
 # Description of the `invalid_token` error of `WWW-Authenticate` challenges,
 # deliberately generic, so that clients learn nothing about the identity
 # provider or why validation failed
-_INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"
+_INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"  # noqa: S105
 
 # OpenID Connect discovery documents and JWK sets, with time of retrieval,
 # by issuer and JWK set URL, respectively
-_oidc_configs: dict[str, tuple[float, dict]] = {}
+_oidc_configs: dict[str, tuple[float, dict[str, Any]]] = {}
 _jwk_sets: dict[str, tuple[float, jwt.PyJWKSet]] = {}
 # Time of last failed attempt to fetch a discovery document or JWK set, by URL
 _failed_fetches: dict[str, float] = {}
 # User info, with time until which it is valid, by hash of token
-_userinfo_cache: dict[str, tuple[float, float, dict]] = {}
+_userinfo_cache: dict[str, tuple[float, float, dict[str, Any]]] = {}
 _userinfo_cache_lock = threading.Lock()
 
 
@@ -103,7 +103,7 @@ def _unauthorized(description: str, invalid_token: bool = True) -> Unauthorized:
     )
 
 
-def validate_token(token: str) -> dict:
+def validate_token(token: str) -> dict[str, Any]:
     """Validate JSON Web Token (JWT) Bearer token.
 
     Only tokens issued by one of the trusted issuers configured via
@@ -129,8 +129,9 @@ def validate_token(token: str) -> dict:
         conf._warnings_logged = True
     claims = _validate(token=token, conf=conf)
     logger.debug(
-        f"Token issued by '{escape_log_value(claims['iss'])}' validated for "
-        f"subject '{escape_log_value(claims[conf.claim_identity])}'"
+        "Token issued by '%s' validated for subject '%s'",
+        escape_log_value(claims["iss"]),
+        escape_log_value(claims[conf.claim_identity]),
     )
 
     return {
@@ -162,7 +163,7 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
         logger.warning("Expired tokens are accepted (`security.auth.allow_expired`).")
 
 
-def _validate(token: str, conf: AuthConfig) -> dict:
+def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
     """Validate JSON Web Token (JWT).
 
     Args:
@@ -210,7 +211,9 @@ def _validate(token: str, conf: AuthConfig) -> dict:
     return claims
 
 
-def _fetch_json(url: Any, conf: AuthConfig, throttle: bool = False, **kwargs) -> Any:
+def _fetch_json(
+    url: Any, conf: AuthConfig, throttle: bool = False, **kwargs: Any
+) -> Any:
     """Fetch JSON document from identity provider.
 
     Args:
@@ -266,7 +269,7 @@ def _fetch_json(url: Any, conf: AuthConfig, throttle: bool = False, **kwargs) ->
     return document
 
 
-def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict:
+def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict[str, Any]:
     """Get OpenID Connect discovery document of a trusted issuer.
 
     Args:
@@ -297,7 +300,7 @@ def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict:
     return oidc_config
 
 
-def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False):
+def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False) -> jwt.PyJWKSet:
     """Get JSON Web Key (JWK) set of a trusted issuer.
 
     Args:
@@ -332,7 +335,7 @@ def _verify_signature(
     issuer: str,
     jwks_uri: Any,
     conf: AuthConfig,
-) -> dict:
+) -> dict[str, Any]:
     """Verify JSON Web Token (JWT) with the issuer's public keys.
 
     Args:
@@ -404,10 +407,10 @@ def _verify_signature(
 
 def _get_userinfo(
     token: str,
-    claims: dict,
+    claims: dict[str, Any],
     url: Any,
     conf: AuthConfig,
-) -> dict:
+) -> dict[str, Any]:
     """Get user info for a JSON Web Token (JWT) from the issuer.
 
     With `validate_userinfo`, user info is fetched for every validation, so

@@ -7,6 +7,7 @@ from copy import deepcopy
 from importlib import import_module
 from logging.config import dictConfig
 from pathlib import Path
+from typing import Any
 
 import yaml
 from addict import Dict as Addict
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 CONFIG_OVERLAY_ENV_VAR = "FOCA_CONFIG_OVERLAY"
 
 
-def deep_merge(base: dict, overlay: dict) -> dict:
+def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """Merge dictionaries recursively.
 
     Args:
@@ -42,7 +43,7 @@ def deep_merge(base: dict, overlay: dict) -> dict:
     return merged
 
 
-def _as_paths(config_file: Path | str | Sequence[Path | str] | None) -> list:
+def _as_paths(config_file: Path | str | Sequence[Path | str] | None) -> list[Any]:
     """Normalize one or more config file paths to a list of paths."""
     if config_file is None:
         return []
@@ -127,7 +128,7 @@ class ConfigParser:
             config_files[0].resolve().parent if config_files else Path.cwd()
         )
         self.config_files: list[Path] = config_files + get_overlay_files()
-        data: dict = {}
+        data: dict[str, Any] = {}
         for path in self.config_files:
             content = self.parse_yaml(path)
             if content is None:
@@ -148,13 +149,13 @@ class ConfigParser:
             self._configure_logging()
         if self.config_files:
             logger.info(
-                "Configuration files merged: "
-                f"{', '.join(str(path) for path in self.config_files)}"
+                "Configuration files merged: %s",
+                ", ".join(str(path) for path in self.config_files),
             )
         # Section names only, as values (e.g., in `custom`) may be secrets
         logger.debug(
-            "Parsed config sections: "
-            f"{', '.join(sorted(self.config.model_dump().keys()))}"
+            "Parsed config sections: %s",
+            ", ".join(sorted(self.config.model_dump().keys())),
         )
 
     def _configure_logging(self) -> None:
@@ -164,12 +165,14 @@ class ConfigParser:
         except Exception as e:
             dictConfig(LogConfig().model_dump(by_alias=True))
             logger.warning(
-                f"Failed to configure logging. Falling back to default "
-                f"settings. Original error: {type(e).__name__}: {e}"
+                "Failed to configure logging. Falling back to default "
+                "settings. Original error: %s: %s",
+                type(e).__name__,
+                e,
             )
 
     @staticmethod
-    def parse_yaml(conf: Path) -> dict:
+    def parse_yaml(conf: Path) -> dict[str, Any]:
         """Parse YAML file.
 
         Args:
@@ -192,7 +195,7 @@ class ConfigParser:
             raise OSError(f"file '{conf}' could not be read") from exc
 
     @staticmethod
-    def merge_yaml(*args: Path) -> dict:
+    def merge_yaml(*args: Path) -> dict[str, Any]:
         """Parse and merge a set of YAML files.
 
         Merging is done iteratively, from the first, second to the n-th

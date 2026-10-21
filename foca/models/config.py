@@ -72,7 +72,7 @@ def _resolve_path(path: str | Path, info: ValidationInfo) -> Path:
     return path.resolve()
 
 
-def _validate_log_level_choices(cls, level: int) -> int:
+def _validate_log_level_choices(cls: type[BaseModel], level: int) -> int:
     """Ensure that a valid logging level is set.
 
     Args:
@@ -157,7 +157,8 @@ class ServerConfig(FOCABaseConfig):
         False
     """
 
-    host: str = "0.0.0.0"
+    # All interfaces, as apps typically run in containers
+    host: str = "0.0.0.0"  # noqa: S104
     port: int = 8080
     debug: bool = False
     testing: bool = False
@@ -466,9 +467,9 @@ class SpecConfig(FOCABaseConfig):
     """
 
     path: Path | list[Path]
-    append: list[dict] | None = None
-    add_operation_fields: dict | None = None
-    add_security_fields: dict | None = None
+    append: list[dict[str, Any]] | None = None
+    add_operation_fields: dict[str, Any] | None = None
+    add_security_fields: dict[str, Any] | None = None
     disable_auth: bool = False
     connexion: ConnexionOptions | None = None
 
@@ -1063,12 +1064,14 @@ class IndexConfig(FOCABaseConfig):
         {'unique': True}
     """
 
-    keys: dict | list[tuple] | None = None
-    options: dict = {}
+    keys: dict[str, Any] | list[tuple[Any, ...]] | None = None
+    options: dict[str, Any] = {}
 
     @field_validator("keys", mode="after")
     @classmethod
-    def keys_to_list(cls, v: dict | list[tuple] | None) -> dict | list[tuple] | None:
+    def keys_to_list(
+        cls, v: dict[str, Any] | list[tuple[Any, ...]] | None
+    ) -> dict[str, Any] | list[tuple[Any, ...]] | None:
         """Convert a dictionary of keys into a list of tuples."""
         if v is not None and isinstance(v, dict):
             v = [(key, val) for key, val in v.items()]
@@ -1101,7 +1104,7 @@ class CollectionConfig(FOCABaseConfig):
     """
 
     indexes: list[IndexConfig] | None = None
-    client: collection.Collection | None = None
+    client: collection.Collection[dict[str, Any]] | None = None
 
 
 class DBConfig(FOCABaseConfig):
@@ -1136,7 +1139,7 @@ class DBConfig(FOCABaseConfig):
     """
 
     collections: dict[str, CollectionConfig] | None = None
-    client: database.Database | None = None
+    client: database.Database[dict[str, Any]] | None = None
 
 
 class MongoConfig(FOCABaseConfig):
@@ -1170,7 +1173,7 @@ class MongoConfig(FOCABaseConfig):
     port: int = 27017
     dbs: dict[str, DBConfig] | None = None
     # MongoDB client shared by all databases; set on registration
-    _client: MongoClient | None = PrivateAttr(default=None)
+    _client: MongoClient[dict[str, Any]] | None = PrivateAttr(default=None)
 
 
 class JobsConfig(FOCABaseConfig):
