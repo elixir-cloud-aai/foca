@@ -1,7 +1,8 @@
 site_name: FOCA
 site_description: >-
   Develop OpenAPI-based Flask microservices quickly with Connexion
-site_url: https://foca.readthedocs.io/
+# Read the Docs serves each version under its own path (e.g., `/en/latest/`)
+site_url: !ENV [READTHEDOCS_CANONICAL_URL, "https://foca.readthedocs.io/en/latest/"]
 repo_url: https://github.com/elixir-cloud-aai/foca
 repo_name: elixir-cloud-aai/foca
 edit_uri: edit/dev/docs/
