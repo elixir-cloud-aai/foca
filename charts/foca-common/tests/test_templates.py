@@ -13,6 +13,7 @@ from chart_helpers import (
     APP_CHART,
     HELM,
     LIBRARY,
+    REQUIRED_VALUES,
     Docs,
     Manifest,
     helm,
@@ -122,6 +123,7 @@ def test_names(chart: Path, release: str, args: tuple[str, ...], app: str):
         "template",
         release,
         str(chart),
+        "--no-hooks",
         "--set",
         "hostName=x",
         "--set",
@@ -738,3 +740,22 @@ def test_library_lints() -> None:
 def test_app_chart_lints(chart: Path) -> None:
     values = chart / "ci" / "test-values.yaml"
     helm("lint", "--strict", str(chart), "-f", str(values))
+
+
+def test_app_chart_test_hook(chart: Path) -> None:
+    rendered = helm(
+        "template",
+        "petstore",
+        str(chart),
+        "--show-only",
+        "templates/tests/test-api.yaml",
+        *REQUIRED_VALUES,
+    )
+    (pod,) = index(rendered).values()
+    assert pod["metadata"]["annotations"]["helm.sh/hook"] == "test"
+    (container,) = pod["spec"]["containers"]
+    assert container["image"] == "foca-petstore:latest"
+    assert _env(container)["PETSTORE_URL"] == "http://petstore:8080"
+    command = container["command"]
+    assert command[:2] == ["python", "-c"]
+    compile(command[2], "test-api", "exec")

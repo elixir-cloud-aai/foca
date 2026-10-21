@@ -101,6 +101,8 @@ def template(chart: Path, *args: str, required: bool = True) -> str:
         "template",
         RELEASE,
         str(chart),
+        # Without the app chart's test (`helm test`), tested separately
+        "--no-hooks",
         *(REQUIRED_VALUES if required else ()),
         *args,
     )
