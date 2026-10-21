@@ -180,10 +180,12 @@ def _validate(token: str, conf: AuthConfig) -> dict:
         connexion.exceptions.Unauthorized: Raised if the JWT could not be
             successfully validated.
     """
-    # Reject tokens of untrusted issuers before any network request
+    # Reject tokens of untrusted issuers before any network request; the
+    # signature is verified in `_verify_signature()`
     try:
         unverified_claims = jwt.decode(
-            token, options={"verify_signature": False}
+            token,
+            options={"verify_signature": False},  # nosemgrep
         )
     except jwt.PyJWTError as exc:
         raise _unauthorized("JWT could not be decoded") from exc
