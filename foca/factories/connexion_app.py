@@ -78,6 +78,8 @@ def __add_config_to_connexion_app(
     # replace Flask app settings
     app.app.config["DEBUG"] = conf.debug
     app.app.config["TESTING"] = conf.testing
+    if conf.max_content_length is not None:
+        app.app.config["MAX_CONTENT_LENGTH"] = conf.max_content_length
     if conf.debug and not _is_loopback(conf.host):
         logger.warning(
             f"Debug mode is enabled on host '{conf.host}': the interactive "

@@ -2,6 +2,7 @@
 
 import pytest
 from connexion import App
+from flask import request
 from pydantic import ValidationError
 
 from foca.config.access import get_app_config
@@ -100,3 +101,33 @@ def test_removed_server_fields(field):
     """Removed server settings fail validation."""
     with pytest.raises(ValidationError):
         ServerConfig(**{field: "x"})
+
+
+def test_max_content_length_unset_by_default():
+    """Request bodies are not limited by default."""
+    cnx_app = create_connexion_app(Config())
+    assert cnx_app.app.config["MAX_CONTENT_LENGTH"] is None
+
+
+def test_max_content_length():
+    """Larger request bodies are rejected with 413."""
+    cnx_app = create_connexion_app(
+        Config(server=ServerConfig(max_content_length=10))
+    )
+    app = cnx_app.app
+    assert app.config["MAX_CONTENT_LENGTH"] == 10
+    app.add_url_rule(
+        "/echo",
+        "echo",
+        lambda: str(len(request.get_data())),
+        methods=["POST"],
+    )
+    client = app.test_client()
+    assert client.post("/echo", data=b"x" * 10).status_code == 200
+    assert client.post("/echo", data=b"x" * 11).status_code == 413
+
+
+@pytest.mark.parametrize("value", [0, -1, "x"])
+def test_invalid_max_content_length(value):
+    with pytest.raises(ValidationError):
+        ServerConfig(max_content_length=value)

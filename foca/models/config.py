@@ -14,6 +14,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PositiveInt,
     PrivateAttr,
     ValidationInfo,
     field_validator,
@@ -128,6 +129,11 @@ class ServerConfig(FOCABaseConfig):
             address. See Flask documentation for more details.
         testing: Enable/disable testing mode. If ``True``, exceptions are
             propagated rather than handled by the app's error handlers.
+        max_content_length: Maximum size of request bodies in bytes, set as
+            Flask's `MAX_CONTENT_LENGTH`; larger bodies are rejected with
+            `413`. If ``None``, bodies are not limited by the app. As bodies
+            may be read before requests are authenticated, limit them here
+            or in a reverse proxy or ingress.
 
     Attributes:
         host: Host at which the application is exposed.
@@ -135,6 +141,7 @@ class ServerConfig(FOCABaseConfig):
         debug: Flag to run application in debug mode.
         testing: Enable/disable testing mode. If ``True``, exceptions are
             propagated rather than handled by the app's error handlers.
+        max_content_length: Maximum size of request bodies in bytes.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -152,6 +159,7 @@ class ServerConfig(FOCABaseConfig):
     port: int = 8080
     debug: bool = False
     testing: bool = False
+    max_content_length: PositiveInt | None = None
 
 
 class ExceptionConfig(FOCABaseConfig):
