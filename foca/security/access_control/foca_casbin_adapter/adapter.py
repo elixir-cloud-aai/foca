@@ -5,6 +5,7 @@ from typing import Any
 
 from casbin import persist
 from casbin.model import Model
+from casbin.model.policy import DEFAULT_SEP
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -99,11 +100,18 @@ class Adapter(persist.Adapter):
 
         Load all policy rules from MongoDB. Rules are built from the fields
         `ptype` and `v0` to `v5` of stored documents only. Invalid rules
-        (cf. :py:func:`validate_rule`) are skipped with a warning.
+        (cf. :py:func:`validate_rule`) are skipped with a warning. Rules
+        stored more than once, or already in the model, are loaded once.
+
+        Rules are appended to the model directly, as by Casbin's own
+        adapters, rather than via :py:meth:`casbin.model.Model.add_policy`,
+        which checks the loaded rules for duplicates for each rule, so that
+        loading takes linear rather than quadratic time.
 
         Args:
             model: Casbin model to load rules into.
         """
+        loaded: dict[str, set[tuple[str, ...]]] = {}
         for document in self._collection.find():
             ptype = document.get("ptype")
             values = _rule_values(document)
@@ -115,7 +123,17 @@ class Adapter(persist.Adapter):
                     f"{exc}"
                 )
                 continue
-            model.add_policy(ptype[0], ptype, values)
+            assertion = model[ptype[0]][ptype]
+            if ptype not in loaded:
+                loaded[ptype] = {tuple(rule) for rule in assertion.policy}
+            key = tuple(values)
+            if key in loaded[ptype]:
+                continue
+            loaded[ptype].add(key)
+            assertion.policy.append(values)
+            assertion.policy_map[DEFAULT_SEP.join(values)] = (
+                len(assertion.policy) - 1
+            )
 
     def save_policy_line(
         self,

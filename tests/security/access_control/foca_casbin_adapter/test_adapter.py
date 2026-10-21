@@ -365,3 +365,67 @@ class TestAdapterIdentifiers:
         assert collection.count_documents({}) == 2
         enforcer.load_policy()
         assert enforcer.get_policy() == [["alice", "data1", "read"]]
+
+
+class TestLoadPolicy:
+    """Tests for loading stored rules."""
+
+    def test_duplicates_loaded_once(self, mock_adapter):
+        """Rules stored more than once are loaded once."""
+        mock_adapter._collection.insert_many(
+            [
+                {"id": "a", "ptype": "p", "v0": "a", "v1": "b", "v2": "c"},
+                {"id": "b", "ptype": "p", "v0": "a", "v1": "b", "v2": "c"},
+                {"ptype": "p", "v0": "a", "v1": "b", "v2": "c", "v3": None},
+                {"id": "cccccc", "ptype": "g", "v0": "a", "v1": "b"},
+                {"id": "dddddd", "ptype": "g", "v0": "a", "v1": "b"},
+                {"id": "eeeeee", "ptype": "g", "v0": "b", "v1": "a"},
+            ]
+        )
+        enforcer = Enforcer(MODEL_CONF_FILE, mock_adapter)
+        assert enforcer.get_policy() == [["a", "b", "c"]]
+        assert enforcer.get_grouping_policy() == [["a", "b"], ["b", "a"]]
+        assert enforcer.get_model()["p"]["p"].policy_map == {"a,b,c": 0}
+        assert enforcer.get_model()["g"]["g"].policy_map == {
+            "a,b": 0,
+            "b,a": 1,
+        }
+
+    def test_no_duplicate_scan_per_rule(self, mock_adapter, monkeypatch):
+        """Rules are loaded without scanning loaded rules for each rule,
+        which takes quadratic time."""
+
+        def fail(*args, **kwargs):
+            raise AssertionError("Loaded rules scanned for duplicates")
+
+        monkeypatch.setattr(Model, "has_policy", fail)
+        monkeypatch.setattr(Model, "add_policy", fail)
+        monkeypatch.setattr(Model, "add_policies", fail)
+        mock_adapter._collection.insert_many(
+            [
+                {"ptype": "p", "v0": f"user{index}", "v1": "b", "v2": "c"}
+                for index in range(3)
+            ]
+            + [{"ptype": "g", "v0": "user0", "v1": "admin"}]
+        )
+        enforcer = Enforcer(MODEL_CONF_FILE, mock_adapter)
+        assert len(enforcer.get_policy()) == 3
+        assert enforcer.get_roles_for_user("user0") == ["admin"]
+
+    def test_loaded_into_model_with_rules(self, mock_adapter):
+        """Rules already in the model are not loaded again."""
+        mock_adapter._collection.insert_many(
+            [
+                {"ptype": "p", "v0": "a", "v1": "b", "v2": "c"},
+                {"ptype": "p", "v0": "d", "v1": "e", "v2": "f"},
+            ]
+        )
+        model = Model()
+        model.load_model(MODEL_CONF_FILE)
+        model.add_policy("p", "p", ["a", "b", "c"])
+        mock_adapter.load_policy(model)
+        assert model.get_policy("p", "p") == [
+            ["a", "b", "c"],
+            ["d", "e", "f"],
+        ]
+        assert model["p"]["p"].policy_map == {"a,b,c": 0, "d,e,f": 1}

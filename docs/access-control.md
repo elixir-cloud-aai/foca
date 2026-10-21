@@ -630,6 +630,16 @@ claim containing a comma) are denied with `403`. Stored rules that are not
 valid (e.g., added to the database directly) are skipped with a warning when
 policies are loaded.
 
+### Scaling
+
+All stored rules are loaded on every enforced request (and for the
+permissions API and self-service), so that changes apply immediately and
+consistently across app instances and workers. The cost of each request thus
+grows linearly with the number of stored rules. As resource-scoped roles add
+rules per created resource (e.g., one `g2` rule for its owner), apps that let
+users create many resources should consider limiting this, e.g., via quotas
+or rate limits on the endpoints creating them.
+
 ## Exploring the API
 
 If `api_swagger_ui` is set, you can explore the access control API endpoints
