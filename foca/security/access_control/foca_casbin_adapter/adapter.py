@@ -103,11 +103,6 @@ class Adapter(persist.Adapter):
         (cf. :py:func:`validate_rule`) are skipped with a warning. Rules
         stored more than once, or already in the model, are loaded once.
 
-        Rules are appended to the model directly, as by Casbin's own
-        adapters, rather than via :py:meth:`casbin.model.Model.add_policy`,
-        which checks the loaded rules for duplicates for each rule, so that
-        loading takes linear rather than quadratic time.
-
         Args:
             model: Casbin model to load rules into.
         """
@@ -330,9 +325,11 @@ def _append_rule(assertion: Assertion, values: list[str]) -> None:
         values: Values of the rule.
     """
     # Mirrors casbin's `persist.load_policy_line()` and `Policy.add_policy()`
-    # without the latter's duplicate scan; `Enforcer.load_policy()` re-sorts
-    # the rules after loading. Re-check when bumping pycasbin: 2.8.0 is the
-    # only release in the allowed range `>=2.8,<3` (per PyPI).
+    # without the latter's duplicate scan, which makes loading quadratic.
+    # `Enforcer.load_policy()` re-sorts the rules after loading (for priority
+    # models), rebuilding `policy_map`, which pycasbin 2.8.0 never reads.
+    # Re-check when bumping pycasbin: 2.8.0 is the only release in the
+    # allowed range `>=2.8,<3` (per PyPI).
     assertion.policy.append(values)
     assertion.policy_map[DEFAULT_SEP.join(values)] = len(assertion.policy) - 1
 

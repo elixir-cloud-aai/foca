@@ -1299,6 +1299,7 @@ class TestLoadPolicy:
             {"ptype": "p", "v0": "user:a", "v1": "/items", "v2": "(GET"},
             {"ptype": "p", "v0": "user:a", "v1": "/items", "v2": 1},
             {"ptype": "p9", "v0": "user:a", "v1": "/items", "v2": "GET"},
+            {"ptype": "g9", "v0": "user:a", "v1": "owner"},
             {"ptype": None, "v0": "user:a", "v1": "/items", "v2": "GET"},
             {"v0": "user:a", "v1": "/items", "v2": "GET"},
             {"ptype": "g2", "v0": "user:a", "v1": "owner"},

@@ -368,6 +368,15 @@ class TestAdapterIdentifiers:
         assert enforcer.get_policy() == [["alice", "data1", "read"]]
 
 
+class _UnsearchableList(list):
+    """List that fails on searches, which take linear time."""
+
+    def _fail(self, *args, **kwargs):
+        raise AssertionError("Loaded rules searched for duplicates")
+
+    __contains__ = index = count = _fail
+
+
 class TestLoadPolicy:
     """Tests for loading stored rules."""
 
@@ -411,10 +420,18 @@ class TestLoadPolicy:
         enforcer = Enforcer(MODEL_CONF_FILE, mock_adapter)
         assert len(enforcer.get_policy()) == 3
         assert enforcer.get_roles_for_user("user0") == ["admin"]
+        # Loaded rules are not searched directly either
+        model = Model()
+        model.load_model(MODEL_CONF_FILE)
+        for sec in ("p", "g"):
+            for assertion in model[sec].values():
+                assertion.policy = _UnsearchableList()
+        mock_adapter.load_policy(model)
+        assert len(model.get_policy("p", "p")) == 3
+        assert model.get_policy("g", "g") == [["user0", "admin"]]
 
     def test_existing_model_rules_not_duplicated(self, mock_adapter):
-        """Rules already in the model are not loaded again, and the model's
-        policy index covers all rules."""
+        """Existing model rules are not loaded again and stay indexed."""
         mock_adapter._collection.insert_many(
             [
                 {"ptype": "p", "v0": "a", "v1": "b", "v2": "c"},
