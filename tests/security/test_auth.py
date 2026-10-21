@@ -82,7 +82,7 @@ def make_token(
 class MockResponse:
     """Mock response of `requests.get()`."""
 
-    def __init__(self, data: dict[str, Any], status_code: int = 200) -> None:
+    def __init__(self, data: Any, status_code: int = 200) -> None:
         """Create mock response with JSON data and status code."""
         self.data = data
         self.status_code = status_code
@@ -256,9 +256,12 @@ class TestValidateToken:
             validate(make_app(), make_token())
         assert urls(idp) == [DISCOVERY_URI]
 
-    def test_jwks_invalid(self, idp: MagicMock) -> None:
-        """Tokens are rejected if the JWK set is invalid."""
-        idp.responses[JWKS_URI] = MockResponse({"keys": []})
+    @pytest.mark.parametrize(
+        "jwks", [{"keys": []}, {"keys": "abc"}, {"keys": [1]}, {}, [], "keys", None]
+    )
+    def test_jwks_invalid(self, idp: MagicMock, jwks: Any) -> None:
+        """Tokens are rejected if the JWK set is invalid or not a JSON object."""
+        idp.responses[JWKS_URI] = MockResponse(jwks)
         with raises_unauthorized("Bearer"):
             validate(make_app(), make_token())
 

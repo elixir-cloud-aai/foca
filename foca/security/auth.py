@@ -348,8 +348,11 @@ def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False) -> jwt.PyJWK
         age = time.monotonic() - cached[0]
         if age < conf.cache_ttl and not (refetch and age >= JWKS_REFETCH_COOLDOWN):
             return cached[1]
+    document = _fetch_json(url=url, conf=conf, throttle=True)
+    if not isinstance(document, dict):
+        raise _unauthorized("Issuer's JWK set is invalid", invalid_token=False)
     try:
-        jwk_set = jwt.PyJWKSet.from_dict(_fetch_json(url=url, conf=conf, throttle=True))
+        jwk_set = jwt.PyJWKSet.from_dict(document)
     except jwt.PyJWTError as exc:
         raise _unauthorized("Issuer's JWK set is invalid", invalid_token=False) from exc
     _jwk_sets[url] = (time.monotonic(), jwk_set)
