@@ -1,5 +1,6 @@
 # Lint, type-check and test the package and build the docs and distributions;
-# run integration tests on the petstore example; on pushes to `dev`, build and
+# run the unit tests again with the lowest direct dependency versions; run
+# integration tests on the petstore example; on pushes to `dev`, build and
 # push Docker images with dated tags (release images are built by
 # `release.yml`).
 
@@ -97,6 +98,41 @@ jobs:
           fail_ci_if_error: true
           verbose: true
 
+  # Test the direct runtime and dev dependencies at their lower bounds, so
+  # the bounds in pyproject.toml stay honest; transitive dependencies resolve
+  # to their newest versions. Uses uv, as pip has no lowest-direct
+  # resolution. No coverage upload, as the `test` job covers it.
+  test-lowest:
+    name: Unit tests (Python 3.10, lowest direct dependencies)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.4"  # not bumped by Dependabot; update manually
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+      - name: Install package with lowest direct dependency versions
+        run: uv pip install --system --resolution lowest-direct -e .[dev]
+      - name: List installed versions
+        run: uv pip list --system
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@315db7fe45ac2880b7758f1933e6e5d59afd5e94 # 1.12.1
+        with:
+          mongodb-version: "7.0"
+          mongodb-port: 12345
+      - name: Run unit tests
+        run: pytest
+
   integration:
     name: Integration tests (petstore)
     runs-on: ubuntu-latest
@@ -153,7 +189,7 @@ jobs:
   docker:
     name: Publish image (Python ${{ matrix.python-version }})
     if: github.event_name == 'push'
-    needs: [lint, test, integration]
+    needs: [lint, test, test-lowest, integration]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
