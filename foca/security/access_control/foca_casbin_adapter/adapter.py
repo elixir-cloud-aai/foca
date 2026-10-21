@@ -4,7 +4,8 @@ import logging
 from typing import Any
 
 from casbin import persist
-from casbin.model import Model
+from casbin.model import Assertion, Model
+from casbin.model.policy import DEFAULT_SEP
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -99,11 +100,14 @@ class Adapter(persist.Adapter):
 
         Load all policy rules from MongoDB. Rules are built from the fields
         `ptype` and `v0` to `v5` of stored documents only. Invalid rules
-        (cf. :py:func:`validate_rule`) are skipped with a warning.
+        (cf. :py:func:`validate_rule`) are skipped with a warning. Rules
+        stored more than once, or already in the model, are loaded once.
 
         Args:
             model: Casbin model to load rules into.
         """
+        # Not `policy_map`: `clear_policy()` does not clear it on reloads
+        loaded: dict[str, set[tuple[str, ...]]] = {}
         for document in self._collection.find():
             ptype = document.get("ptype")
             values = _rule_values(document)
@@ -115,7 +119,14 @@ class Adapter(persist.Adapter):
                     f"{exc}"
                 )
                 continue
-            model.add_policy(ptype[0], ptype, values)
+            assertion = model[ptype[0]][ptype]
+            if ptype not in loaded:
+                loaded[ptype] = {tuple(rule) for rule in assertion.policy}
+            key = tuple(values)
+            if key in loaded[ptype]:
+                continue
+            loaded[ptype].add(key)
+            _append_rule(assertion, values)
 
     def save_policy_line(
         self,
@@ -304,6 +315,23 @@ class Adapter(persist.Adapter):
 
         results = self._collection.delete_many(query)
         return results.deleted_count > 0
+
+
+def _append_rule(assertion: Assertion, values: list[str]) -> None:
+    """Append a rule to a policy of a Casbin model.
+
+    Args:
+        assertion: Policy definition of the model to append the rule to.
+        values: Values of the rule.
+    """
+    # Mirrors casbin's `persist.load_policy_line()` and `Policy.add_policy()`
+    # without the latter's duplicate scan, which makes loading quadratic.
+    # `Enforcer.load_policy()` re-sorts the rules after loading (for priority
+    # models), rebuilding `policy_map`, which pycasbin 2.8.0 never reads.
+    # pycasbin is capped at `<2.9` in `pyproject.toml`; re-check this when
+    # raising the cap.
+    assertion.policy.append(values)
+    assertion.policy_map[DEFAULT_SEP.join(values)] = len(assertion.policy) - 1
 
 
 def _rule_query(ptype: str, rule: list[str]) -> dict:

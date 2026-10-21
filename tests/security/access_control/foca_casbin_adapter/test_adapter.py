@@ -5,6 +5,7 @@ from pathlib import Path
 import mongomock
 import pytest
 from casbin import Enforcer, Model
+from casbin.model.policy import Policy
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, DuplicateKeyError
 
@@ -365,3 +366,84 @@ class TestAdapterIdentifiers:
         assert collection.count_documents({}) == 2
         enforcer.load_policy()
         assert enforcer.get_policy() == [["alice", "data1", "read"]]
+
+
+class _UnsearchableList(list):
+    """List that fails on searches, which take linear time."""
+
+    def _fail(self, *args, **kwargs):
+        raise AssertionError("Loaded rules searched for duplicates")
+
+    __contains__ = index = count = _fail
+
+
+class TestLoadPolicy:
+    """Tests for loading stored rules."""
+
+    def test_duplicates_loaded_once(self, mock_adapter):
+        """Rules stored more than once are loaded once."""
+        mock_adapter._collection.insert_many(
+            [
+                {"id": "a", "ptype": "p", "v0": "a", "v1": "b", "v2": "c"},
+                {"id": "b", "ptype": "p", "v0": "a", "v1": "b", "v2": "c"},
+                {"ptype": "p", "v0": "a", "v1": "b", "v2": "c", "v3": None},
+                {"id": "cccccc", "ptype": "g", "v0": "a", "v1": "b"},
+                {"id": "dddddd", "ptype": "g", "v0": "a", "v1": "b"},
+                {"id": "eeeeee", "ptype": "g", "v0": "b", "v1": "a"},
+            ]
+        )
+        enforcer = Enforcer(MODEL_CONF_FILE, mock_adapter)
+        assert enforcer.get_policy() == [["a", "b", "c"]]
+        assert enforcer.get_grouping_policy() == [["a", "b"], ["b", "a"]]
+        assert enforcer.get_model()["p"]["p"].policy_map == {"a,b,c": 0}
+        assert enforcer.get_model()["g"]["g"].policy_map == {
+            "a,b": 0,
+            "b,a": 1,
+        }
+
+    def test_no_duplicate_scan_per_rule(self, mock_adapter, monkeypatch):
+        """Guard against per-rule duplicate scans (quadratic loading)."""
+
+        def fail(*args, **kwargs):
+            raise AssertionError("Loaded rules scanned for duplicates")
+
+        for cls in (Model, Policy):
+            for name in ("has_policy", "add_policy", "add_policies"):
+                monkeypatch.setattr(cls, name, fail)
+        mock_adapter._collection.insert_many(
+            [
+                {"ptype": "p", "v0": f"user{index}", "v1": "b", "v2": "c"}
+                for index in range(3)
+            ]
+            + [{"ptype": "g", "v0": "user0", "v1": "admin"}]
+        )
+        enforcer = Enforcer(MODEL_CONF_FILE, mock_adapter)
+        assert len(enforcer.get_policy()) == 3
+        assert enforcer.get_roles_for_user("user0") == ["admin"]
+        # Loaded rules are not searched directly either
+        model = Model()
+        model.load_model(MODEL_CONF_FILE)
+        for sec in ("p", "g"):
+            for assertion in model[sec].values():
+                assertion.policy = _UnsearchableList()
+        mock_adapter.load_policy(model)
+        assert len(model.get_policy("p", "p")) == 3
+        assert model.get_policy("g", "g") == [["user0", "admin"]]
+
+    def test_existing_model_rules_not_duplicated(self, mock_adapter):
+        """Existing model rules are not loaded again and stay indexed."""
+        mock_adapter._collection.insert_many(
+            [
+                {"ptype": "p", "v0": "a", "v1": "b", "v2": "c"},
+                {"ptype": "p", "v0": "d", "v1": "e", "v2": "f"},
+            ]
+        )
+        model = Model()
+        model.load_model(MODEL_CONF_FILE)
+        model.add_policy("p", "p", ["a", "b", "c"])
+        mock_adapter.load_policy(model)
+        assert model.get_policy("p", "p") == [
+            ["a", "b", "c"],
+            ["d", "e", "f"],
+        ]
+        assert model["p"]["p"].policy_map == {"a,b,c": 0, "d,e,f": 1}
