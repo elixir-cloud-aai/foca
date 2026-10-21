@@ -52,6 +52,10 @@ security:
     token_types:
       - at+jwt
       - application/at+jwt
+    # Accepted clients (`client_id` or `azp` claim), e.g., a gateway in front
+    # of the app; usable in addition to `audience` or, with
+    # `verify_audience: False`, instead of it; `null` accepts any client
+    clients: null
 
 # API CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/api/

@@ -107,9 +107,11 @@ def validate_token(token: str) -> dict[str, Any]:
     """Validate JSON Web Token (JWT) Bearer token.
 
     Only tokens issued by one of the trusted issuers configured via
-    `security.auth.issuers` are accepted. Tokens are verified locally with
-    the issuer's public keys, obtained via OpenID Connect discovery, and,
-    if configured, additionally via the issuer's user info endpoint. Claims
+    `security.auth.issuers` are accepted, and, if configured via
+    `security.auth.clients`, only tokens obtained by one of the accepted
+    clients. Tokens are verified locally with the issuer's public keys,
+    obtained via OpenID Connect discovery, and, if configured, additionally
+    via the issuer's user info endpoint. Claims
     configured via `security.auth.userinfo_claims` that the token lacks are
     added from the issuer's user info endpoint.
 
@@ -154,11 +156,12 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
             "No trusted token issuers configured "
             "(`security.auth.issuers`): all bearer tokens will be rejected."
         )
-    if not conf.verify_audience:
+    if not conf.verify_audience and conf.clients is None:
         logger.warning(
             "Token audience validation is disabled "
-            "(`security.auth.verify_audience`): tokens issued for other "
-            "services by trusted issuers are accepted."
+            "(`security.auth.verify_audience`) and clients are not restricted "
+            "(`security.auth.clients`): tokens issued for other services by "
+            "trusted issuers are accepted."
         )
     if not conf.verify_token_type:
         logger.warning(
@@ -215,6 +218,8 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
         jwks_uri=oidc_config.get("jwks_uri"),
         conf=conf,
     )
+    if conf.clients is not None:
+        _verify_client(claims=claims, conf=conf)
     missing_claims = [claim for claim in conf.userinfo_claims if claim not in claims]
     if conf.validate_userinfo or missing_claims:
         userinfo = _get_userinfo(
@@ -421,6 +426,29 @@ def _verify_signature(
             ).decode("utf-8")
         return claims
     raise _unauthorized("JWT signature could not be verified")
+
+
+def _verify_client(claims: dict[str, Any], conf: AuthConfig) -> None:
+    """Verify that a JSON Web Token (JWT) was obtained by an accepted client.
+
+    The client is identified by the `client_id` claim (RFC 9068, §2.2) or,
+    with identity providers that use it, the `azp` claim (OpenID Connect
+    Core 1.0, §2); either may name an accepted client.
+
+    Args:
+        claims: Verified claims of the token.
+        conf: Authentication settings; `clients` is set.
+
+    Raises:
+        connexion.exceptions.Unauthorized: Raised if neither claim names an
+            accepted client.
+    """
+    clients = conf.clients or []
+    if not any(
+        isinstance(client, str) and client in clients
+        for client in (claims.get("client_id"), claims.get("azp"))
+    ):
+        raise _unauthorized("JWT client is not accepted")
 
 
 def _get_userinfo(

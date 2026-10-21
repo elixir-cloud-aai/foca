@@ -36,3 +36,8 @@ See [Authentication](authentication.md#how-tokens-are-validated) for details.
   `security.auth.verify_token_type`: accepted values of the `typ` header of
   bearer tokens (default: `at+jwt` and `application/at+jwt`), and whether to
   check them (default: `true`; see above).
+- [`security.auth.clients`](configuration/auth.md): IDs of the clients whose
+  tokens are accepted (`client_id` or `azp` claim), e.g., a gateway in front
+  of the app; usable in addition to `audience` or, with `verify_audience:
+  false`, instead of it ([details](authentication.md#how-tokens-are-validated)).
+  By default, clients are not restricted.

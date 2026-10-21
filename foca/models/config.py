@@ -802,6 +802,14 @@ class AuthConfig(FOCABaseConfig):
             ``False``, JWTs with any or no `typ` header are accepted; only
             disable it if the issuer does not set the `typ` header of its
             access tokens.
+        clients: Accepted clients, i.e., IDs of the clients that obtained
+            the tokens, as per the `client_id` claim (RFC 9068) or the `azp`
+            claim (OpenID Connect) of JWTs. If set, JWTs of other clients,
+            and JWTs with neither claim, are rejected, e.g., so that a
+            service behind a gateway accepts only tokens obtained by the
+            gateway. Can be used in addition to `audience`, or instead of it
+            with `verify_audience` set to ``False``. If ``None``, clients
+            are not restricted.
         claim_identity: The JWT claim used to identify the sender. Tokens
             without this claim are rejected.
         algorithms: Lists the JWT-signing algorithms supported by the app.
@@ -829,6 +837,8 @@ class AuthConfig(FOCABaseConfig):
         verify_audience: Whether to validate the audience of JWTs.
         token_types: Accepted values of the `typ` header of JWTs.
         verify_token_type: Whether to validate the type of JWTs.
+        clients: Accepted clients, i.e., IDs of the clients that obtained
+            the tokens.
         claim_identity: The JWT claim used to identify the sender.
         algorithms: Lists the JWT-signing algorithms supported by the app.
         validate_userinfo: Whether to additionally validate tokens via the
@@ -842,8 +852,9 @@ class AuthConfig(FOCABaseConfig):
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type, `issuers` are set without `audience` while
-            `verify_audience` is ``True``, or `token_types` are empty while
-            `verify_token_type` is ``True``.
+            `verify_audience` is ``True``, `token_types` are empty while
+            `verify_token_type` is ``True``, or `clients` are set but empty
+            (or blank).
 
     Examples:
         >>> auth = AuthConfig(
@@ -865,6 +876,7 @@ class AuthConfig(FOCABaseConfig):
     verify_audience: bool = True
     token_types: list[str] = ["at+jwt", "application/at+jwt"]
     verify_token_type: bool = True
+    clients: list[str] | None = None
     claim_identity: str = "sub"
     algorithms: list[str] = ["RS256"]
     validate_userinfo: bool = False
@@ -896,7 +908,30 @@ class AuthConfig(FOCABaseConfig):
                 "the issuers put into the `aud` claim of tokens for the app "
                 "(e.g., its client ID), or set "
                 "`security.auth.verify_audience: false` to accept tokens for "
-                "any audience (not recommended)."
+                "any audience, preferably restricting the clients that "
+                "obtained them via `security.auth.clients` instead (accepting "
+                "tokens of any client is not recommended)."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_clients(self) -> Self:
+        """Require non-blank client IDs if clients are restricted.
+
+        Returns:
+            Model instance.
+
+        Raises:
+            ValueError: Clients are set but empty, or a client ID is blank.
+        """
+        if self.clients is not None and not (
+            self.clients and all(client.strip() for client in self.clients)
+        ):
+            raise ValueError(
+                "Restricting clients requires client IDs: set "
+                "`security.auth.clients` to the (non-blank) IDs of the clients "
+                "whose tokens the app accepts (`client_id` or `azp` claim), or "
+                "omit it to accept tokens of any client."
             )
         return self
 
