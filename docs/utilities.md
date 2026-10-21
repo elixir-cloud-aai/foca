@@ -46,16 +46,23 @@ cannot forge log records (e.g., with line breaks in paths).
 
 To decide on each request whether to log, e.g., from your app's
 configuration, use `log_traffic_if()` with a function returning whether to
-log; it takes the same options as `log_traffic`:
+log; it takes the same options as `log_traffic`. The function is called
+without arguments on every request, in the request context, so that
+`get_config()` works; e.g., with a `log_pet_requests` option in your
+[custom configuration](configuration/custom.md):
 
 ```python
 from foca.config.access import get_config
 from foca.utils.logging import log_traffic_if
 
 
-@log_traffic_if(lambda: get_config().custom.log_pets, log_request=False)
+@log_traffic_if(lambda: get_config().custom.log_pet_requests)
 def get_pet(pet_id: str) -> dict: ...
 ```
+
+Called outside of a request context (e.g., in an app context, by a CLI
+command), the decorated function runs without logging, and the function
+deciding whether to log is not called.
 
 FOCA's own controllers log their traffic unless disabled via
 [`service_info.log_traffic`](configuration/service-info.md#serving-the-service-info)

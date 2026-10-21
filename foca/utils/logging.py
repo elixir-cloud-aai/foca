@@ -3,9 +3,8 @@
 import logging
 from collections.abc import Callable
 from functools import wraps
-from typing import Any
 
-from flask import request
+from flask import has_request_context, request
 
 logger = logging.getLogger(__name__)
 
@@ -176,30 +175,35 @@ def log_traffic(
 
 def log_traffic_if(
     enabled: Callable[[], bool],
-    **log_traffic_kwargs: Any,
+    log_request: bool = True,
+    log_response: bool = True,
+    log_response_body: bool = False,
+    log_level: int = logging.INFO,
 ) -> Callable[[Callable], Callable]:
     """Decorator for logging service requests and responses if enabled.
 
     Like :py:func:`log_traffic`, but whether traffic is logged is decided on
-    each call, e.g., from the configuration of the current app. The
+    each request, e.g., from the configuration of the current app. Outside
+    of request contexts (e.g., when called in an app context by a CLI
+    command), the decorated function is called without logging. The
     decorated function is available as `__wrapped__` of the returned
     function.
 
     Args:
         enabled: Function returning whether traffic should be logged; called
-            without arguments, in the context of the request.
-        **log_traffic_kwargs: Options of :py:func:`log_traffic` (e.g.,
-            `log_level`).
+            without arguments on each request, in the request context (so
+            that, e.g., :py:func:`foca.config.access.get_config` works).
+        log_request: Whether or not the request should be logged.
+        log_response: Whether or not the response should be logged.
+        log_response_body: Whether to also log the response body (escaped).
+            Only use if the bodies of the decorated controllers never
+            contain secrets or personal data.
+        log_level: Logging level, cf.
+            https://docs.python.org/3/library/logging.html#logging-levels
 
     Returns:
         Decorator for logging the traffic of the decorated function if
         enabled.
-
-    Examples:
-        >>> from foca.config.access import get_config
-        >>> @log_traffic_if(lambda: get_config().server.debug)
-        ... def getItems() -> list:
-        ...     return []
     """
 
     def _decorator_log_traffic_if(fn: Callable) -> Callable:
@@ -211,7 +215,13 @@ def log_traffic_if(
         Returns:
             The decorated function.
         """
-        logged = log_traffic(fn, **log_traffic_kwargs)
+        logged = log_traffic(
+            fn,
+            log_request=log_request,
+            log_response=log_response,
+            log_response_body=log_response_body,
+            log_level=log_level,
+        )
 
         @wraps(fn)
         def _wrapper(*args, **kwargs):
@@ -224,7 +234,7 @@ def log_traffic_if(
             Returns:
                 Return value of the function.
             """
-            if enabled():
+            if has_request_context() and enabled():
                 return logged(*args, **kwargs)
             return fn(*args, **kwargs)
 
