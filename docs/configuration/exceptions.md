@@ -11,10 +11,12 @@ FOCA responds to all exceptions with
 
 By default, exceptions with an HTTP error status code (e.g., werkzeug and
 Connexion exceptions, such as `werkzeug.exceptions.NotFound`) get that status
-and its reason phrase as per [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110)
-as title (e.g., `Content Too Large` for `413`, on all Python versions), and all
-other exceptions `500 Internal Server Error`. To customize problem details, map
-exception classes to problem details in a dictionary:
+and its standard reason phrase as title, and all other exceptions `500
+Internal Server Error`. For `413`, `414`, `416` and `422`, titles are the
+[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) phrases on all Python
+versions (e.g., `Content Too Large`; Python 3.12 and earlier have older ones,
+e.g., `Request Entity Too Large`). To customize problem details, map exception
+classes to problem details in a dictionary:
 
 ```yaml
 exceptions:

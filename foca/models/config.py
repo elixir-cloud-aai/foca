@@ -171,8 +171,9 @@ class ExceptionConfig(FOCABaseConfig):
     media type `application/problem+json` (cf. `media_type`). By default,
     exceptions with an HTTP error status code (e.g., werkzeug and Connexion
     exceptions) are mapped to problem details with that status and its
-    reason phrase as per RFC 9110 as title (on all Python versions), and all
-    other exceptions to `500 Internal Server Error`. Use `mapping` to define
+    standard reason phrase as title (as per RFC 9110 for `413`, `414`, `416`
+    and `422` on all Python versions), and all other exceptions to `500
+    Internal Server Error`. Use `mapping` to define
     problem details for specific exceptions (cf.
     :py:func:`foca.errors.exceptions.build_problem`).
 

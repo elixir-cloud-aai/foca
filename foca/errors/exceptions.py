@@ -137,8 +137,9 @@ def build_problem(
        base class.
     2. Otherwise, if the exception has an HTTP error status code (attribute
        `code`, `status` or `status_code`, e.g., werkzeug and Connexion
-       exceptions), problem details with that status and its reason phrase
-       as per RFC 9110 as title (on all Python versions).
+       exceptions), problem details with that status and its standard
+       reason phrase as title (as per RFC 9110 for `413`, `414`, `416` and
+       `422` on all Python versions).
     3. Otherwise, the problem details listed for `Exception` or
        `BaseException`, if any.
     4. Otherwise, `500 Internal Server Error`.
