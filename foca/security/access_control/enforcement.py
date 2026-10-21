@@ -15,10 +15,12 @@ from flask.globals import request_ctx
 
 from foca.config.access import get_config
 from foca.security.access_control.constants import GROUP_PREFIX
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
     validate_rule_value,
 )
+from foca.utils.logging import escape_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -317,16 +319,17 @@ def is_permitted() -> bool:
         logger.info(f"Access denied: invalid subject: {exc}")
         return False
     enforcer = get_enforcer()
+    # Escaped, so that request paths and claims cannot forge log lines
+    _request = escape_log_value(f"{request.method} {request.path}")
     for _subject in [_prefix_subject(subject), *get_current_groups()]:
         if enforcer.enforce(_subject, request.path, request.method):
             logger.debug(
-                f"Access granted: {request.method} {request.path} to "
-                f"'{subject}' as '{_subject}'"
+                f"Access granted: {_request} to "
+                f"'{escape_log_value(subject)}' as "
+                f"'{escape_log_value(_subject)}'"
             )
             return True
-    logger.info(
-        f"Access denied: {request.method} {request.path} to '{subject}'"
-    )
+    logger.info(f"Access denied: {_request} to '{escape_log_value(subject)}'")
     return False
 
 
@@ -452,12 +455,26 @@ def _get_resource_role_enforcer(ptype: str) -> Enforcer:
             with three fields (subject, role, resource).
     """
     enforcer = get_enforcer()
-    if ptype not in _get_resource_role_ptypes(enforcer.get_model()):
+    _check_resource_role_model(ptype, enforcer.get_model())
+    return enforcer
+
+
+def _check_resource_role_model(ptype: str, model: Model) -> None:
+    """Check that a model defines resource-scoped roles.
+
+    Args:
+        ptype: Policy type of resource-scoped role rules.
+        model: Casbin model.
+
+    Raises:
+        ValueError: The model does not define `ptype` as a role definition
+            with three fields (subject, role, resource).
+    """
+    if ptype not in _get_resource_role_ptypes(model):
         raise ValueError(
             f"Access control model does not define resource-scoped roles: "
             f"expected role definition '{ptype} = _, _, _'"
         )
-    return enforcer
 
 
 def _get_resource_role_rule(
@@ -572,9 +589,11 @@ def add_resource_role(
         and not conf.keep_group_subjects
     ):
         logger.warning(
-            f"Role '{role}' granted to group '{subject}' on '{resource}' "
-            "does not apply: group claim values are not used as subjects "
-            "with 'access_control.group_mapping', unless "
+            f"Role '{escape_log_value(role)}' granted to group "
+            f"'{escape_log_value(subject)}' on "
+            f"'{escape_log_value(resource)}' does not apply: group claim "
+            "values are not used as subjects with "
+            "'access_control.group_mapping', unless "
             "'access_control.keep_group_subjects' is set"
         )
     return enforcer.add_named_grouping_policy(ptype, *rule)
@@ -598,9 +617,12 @@ def remove_resource_role(
         subject_type: Type of the subject: `user` or `group`.
 
     Returns:
-        `True` if the role was revoked, `False` if it did not exist. All
-        stored copies of the rule are removed (e.g., if it was stored twice
-        by concurrent requests).
+        `True` if the role was revoked, `False` if it did not exist or is
+        set via the app's configuration (`access_control.policies`), in
+        which case a warning is logged and the configured rule is kept, as
+        it would be added again on the next start. All other stored copies
+        of the rule are removed (e.g., if it was stored twice by concurrent
+        requests, or also added via the permissions API).
 
     Raises:
         ValueError: The model does not define resource-scoped roles, the
@@ -616,7 +638,13 @@ def remove_resource_role(
     rule = _get_resource_role_rule(
         subject, role, resource, ptype, subject_type, enforcer
     )
-    return enforcer.remove_named_grouping_policy(ptype, *rule)
+    # Removes unmarked copies only; the adapter keeps configured rules,
+    # also if they were marked after the policies were loaded
+    removed = enforcer.remove_named_grouping_policy(ptype, *rule)
+    if _get_adapter().is_configured_rule(ptype, rule):
+        _warn_configured_rule(ptype, rule)
+        return False
+    return removed
 
 
 def list_resource_roles(
@@ -666,16 +694,98 @@ def remove_resource(
 ) -> bool:
     """Revoke all roles granted on a resource, e.g., after deleting it.
 
+    Only roles granted on exactly `resource` are revoked, not roles granted
+    on its sub-paths (e.g., `/services/1/files` for `/services/1`) or on
+    the path with a trailing slash; revoke these separately. Rules set via
+    the app's configuration (`access_control.policies`) are kept, with a
+    warning, as they would be added again on the next start. Invalid
+    stored rules on the resource (cf.
+    :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule`)
+    are removed, too.
+
     Args:
         resource: Resource to revoke roles on, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
 
     Returns:
-        `True` if any roles were revoked.
+        `True` if any roles were revoked, i.e., if this call removed valid
+        rules that are not also set via the configuration. Removing a
+        stored copy of a configured rule (e.g., one added before it was
+        configured) or an invalid rule does not revoke a role, nor does
+        removing rules that a concurrent call removed first.
 
     Raises:
         ValueError: The model does not define resource-scoped roles.
     """
-    return _get_resource_role_enforcer(
-        ptype
-    ).remove_filtered_named_grouping_policy(ptype, 2, resource)
+    # Policies are loaded anew for each enforcer, so rules can be removed
+    # via the adapter, without loading them
+    model = Model()
+    model.load_model(current_app.config["CASBIN_MODEL"])
+    _check_resource_role_model(ptype, model)
+    adapter = _get_adapter()
+    configured = adapter.get_filtered_rules(
+        ptype, 2, resource, configured=True
+    )
+    for rule in configured:
+        _warn_configured_rule(ptype, rule)
+    revoked = False
+    for rule in adapter.get_filtered_rules(
+        ptype, 2, resource, configured=False
+    ):
+        # Counted only if this call removed it (not a concurrent one), and
+        # if it granted a role: unmarked copies of configured rules still
+        # apply, and invalid rules are not loaded. Configured copies are
+        # kept by the adapter; the section (first argument) is not used.
+        if (
+            adapter.remove_policy(ptype[0], ptype, rule)
+            and rule not in configured
+            and _is_valid_rule(ptype, rule, model)
+        ):
+            revoked = True
+    # Remove rules that could not be removed one by one (e.g., with values
+    # that are not strings) or that were stored concurrently; the section
+    # (first argument) is not used by the adapter
+    adapter.remove_filtered_policy(
+        ptype[0], ptype, 2, resource, keep_configured=True
+    )
+    return revoked
+
+
+def _is_valid_rule(ptype: str, rule: list[str], model: Model) -> bool:
+    """Check whether a rule is valid, i.e., loaded when enforcing.
+
+    Args:
+        ptype: Policy type of the rule.
+        rule: Values of the rule.
+        model: Casbin model.
+
+    Returns:
+        Whether the rule is valid for `model` (cf. :py:func:`validate_rule`).
+    """
+    try:
+        validate_rule(ptype, rule, model)
+    except ValueError:
+        return False
+    return True
+
+
+def _get_adapter() -> Adapter:
+    """Get Casbin adapter of the current app."""
+    return current_app.config["casbin_adapter"]
+
+
+def _warn_configured_rule(ptype: str, rule: list[str]) -> None:
+    """Warn that a rule set via the app's configuration is not removed.
+
+    Args:
+        ptype: Policy type of the rule.
+        rule: Values of the rule.
+    """
+    # Escaped, so that values cannot forge log lines
+    values = ", ".join(f"'{escape_log_value(value)}'" for value in rule)
+    logger.warning(
+        f"Policy rule ({ptype}, {values}) is set via the configuration "
+        "('access_control.policies') and is not removed, as it would be "
+        "added again on the next start. Remove it from the configuration "
+        "instead."
+    )

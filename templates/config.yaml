@@ -15,6 +15,9 @@ server:
   # Debug mode exposes an interactive debugger; local development only
   debug: False
   testing: False
+  # Maximum size of request bodies in bytes (e.g., 10485760 for 10 MiB);
+  # unlimited if null; bodies may be read before authentication
+  max_content_length: null
 
 # EXCEPTION CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/exceptions/

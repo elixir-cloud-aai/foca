@@ -181,7 +181,12 @@ class Adapter(persist.Adapter):
                 document.pop("_id", None)
 
     def _delete_policy_lines(self, ptype: str, rule: list[str]) -> int:
-        """Method to find a delete policies given a list of policy attributes.
+        """Delete stored rules with exactly the given values.
+
+        Rules marked as set via the app's configuration
+        (`access_control.policies`) are not deleted, as they would be added
+        again on the next start; checking the mark is part of the delete,
+        so that rules marked concurrently are not deleted either.
 
         Args:
             ptype: Policy type for the given rule based on the given conf file.
@@ -192,9 +197,8 @@ class Adapter(persist.Adapter):
         """
         if not rule:
             return 0
-        return self._collection.delete_many(
-            _rule_query(ptype, rule)
-        ).deleted_count
+        query = {**_rule_query(ptype, rule), CONFIGURED_FIELD: {"$ne": True}}
+        return self._collection.delete_many(query).deleted_count
 
     def is_configured(self, id: str) -> bool:
         """Check whether a stored rule is set via the app's configuration.
@@ -206,7 +210,61 @@ class Adapter(persist.Adapter):
             Whether a rule with identifier `id` is stored and marked as
             configured.
         """
-        query = {"id": id, CONFIGURED_FIELD: True}
+        return self._has_configured({"id": id})
+
+    def is_configured_rule(self, ptype: str, rule: list[str]) -> bool:
+        """Check whether a stored rule with given values is configured.
+
+        Args:
+            ptype: Policy type of the rule.
+            rule: Values of the rule.
+
+        Returns:
+            Whether a rule with exactly these values is stored and marked as
+            set via the app's configuration (`access_control.policies`).
+        """
+        return self._has_configured(_rule_query(ptype, rule))
+
+    def get_filtered_rules(
+        self,
+        ptype: str,
+        field_index: int,
+        *field_values: str,
+        configured: bool,
+    ) -> list[list[str]]:
+        """Get stored rules that match a filter, by configured mark.
+
+        Args:
+            ptype: Policy type of the rules.
+            field_index: Index of the value that `field_values` start at.
+            field_values: Values the rules must have, starting at
+                `field_index`.
+            configured: Whether to get the rules marked as set via the app's
+                configuration (`access_control.policies`) or the others.
+
+        Returns:
+            Values of the stored rules that match the filter and the mark,
+            without duplicates.
+        """
+        query = _filter_query(ptype, field_index, field_values)
+        query[CONFIGURED_FIELD] = True if configured else {"$ne": True}
+        rules = dict.fromkeys(
+            tuple(_rule_values(document))
+            for document in self._collection.find(query)
+        )
+        return [list(rule) for rule in rules]
+
+    def _has_configured(self, query: dict) -> bool:
+        """Check whether a stored rule matching a query is configured.
+
+        Args:
+            query: Query for stored rules.
+
+        Returns:
+            Whether a stored rule matches `query` and is marked as set via
+            the app's configuration.
+        """
+        query = {**query, CONFIGURED_FIELD: True}
         return self._collection.count_documents(query, limit=1) > 0
 
     def set_configured_policies(self, rules: list[list[str]]) -> None:
@@ -276,19 +334,27 @@ class Adapter(persist.Adapter):
     def remove_policy(self, sec: str, ptype: str, rule: list[str]):
         """Remove policy rules from mongodb(duplicate rules are also removed).
 
+        Copies marked as set via the app's configuration are kept (cf.
+        :py:meth:`_delete_policy_lines`).
+
         Args:
             sec: Section corresponding which the rule will be added.
             ptype: Policy type for which casbin rule will be removed.
             rule: Casbin rule list definition to be removed.
 
         Returns:
-            Number of policies removed.
+            Whether any copies of the rule were removed.
         """
         deleted_count = self._delete_policy_lines(ptype, rule)
         return deleted_count > 0
 
     def remove_filtered_policy(
-        self, sec: str, ptype: str, field_index: int, *field_values: list[str]
+        self,
+        sec: str,
+        ptype: str,
+        field_index: int,
+        *field_values: str,
+        keep_configured: bool = False,
     ):
         """Remove policy rules that match the filter from the storage.
 
@@ -300,6 +366,8 @@ class Adapter(persist.Adapter):
             field_index: The policy index at which the field_values begin
                 filtering. Its range is [0, 5]
             field_values: A list of rules to filter policy.
+            keep_configured: Whether to keep rules marked as set via the
+                app's configuration (`access_control.policies`).
 
         Returns:
            True if success.
@@ -309,10 +377,9 @@ class Adapter(persist.Adapter):
         if not (1 <= field_index + len(field_values) <= 6):
             return False
 
-        query: dict[str, Any] = {"ptype": ptype}
-        for index, value in enumerate(field_values):
-            query[f"v{index + field_index}"] = value
-
+        query = _filter_query(ptype, field_index, field_values)
+        if keep_configured:
+            query[CONFIGURED_FIELD] = {"$ne": True}
         results = self._collection.delete_many(query)
         return results.deleted_count > 0
 
@@ -350,6 +417,26 @@ def _rule_query(ptype: str, rule: list[str]) -> dict:
     # Match fields that are not set or null, as when loading rules
     for index in range(len(rule), MAX_RULE_VALUES):
         query[f"v{index}"] = None
+    return query
+
+
+def _filter_query(
+    ptype: str, field_index: int, field_values: tuple[str, ...]
+) -> dict:
+    """Get query matching stored rules with the given values.
+
+    Args:
+        ptype: Policy type of the rules.
+        field_index: Index of the value that `field_values` start at.
+        field_values: Values the rules must have, starting at `field_index`.
+
+    Returns:
+        Query matching rules of policy type `ptype` with `field_values`,
+        irrespective of their other values and stored fields.
+    """
+    query: dict[str, Any] = {"ptype": ptype}
+    for index, value in enumerate(field_values):
+        query[f"v{index + field_index}"] = value
     return query
 
 

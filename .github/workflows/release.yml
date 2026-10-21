@@ -62,8 +62,11 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install build tools
-        run: pip install build twine
+        run: pip install -r requirements/release.txt
       - name: Build distributions
+        env:
+          # Pins the build requirements in the isolated build environment
+          PIP_CONSTRAINT: ${{ github.workspace }}/requirements/release.txt
         run: python -m build
       - name: Check that distributions have the release version
         env:

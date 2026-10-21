@@ -222,9 +222,10 @@ added (or, if stored already, e.g., via the permissions API, marked as
 configured), and configured rules that were removed from the configuration,
 as well as duplicates, are removed. The configuration is the only place to
 change configured rules: the permissions API responds with `409` to requests
-to change or delete them. Other stored rules are kept. Without `policies`,
-stored rules are not changed on startup; with `policies: []`, all configured
-rules are removed.
+to change or delete them, and the [resource role
+helpers](#resource-scoped-roles) keep them, with a warning. Other stored
+rules are kept. Without `policies`, stored rules are not changed on startup;
+with `policies: []`, all configured rules are removed.
 
 Rules that depend on the app's data, such as roles on resources, are better
 managed by the app (cf. [resource-scoped roles](#resource-scoped-roles)).
@@ -278,6 +279,9 @@ policy allows them.
   items defined via `$ref` are enforced, too.
 * `enforce: True` requires `enabled: True`; FOCA refuses to start
   otherwise.
+* Specifications with `disable_auth: true` have no security requirements, so
+  none of their operations are enforced, i.e., they are all public. FOCA logs
+  a warning on startup if `enforce: True` is set as well.
 * With `enforce: False` (default), policies are only enforced on the
   permissions API and on controllers decorated with
   `foca.security.access_control.enforce_access_control`, which applies the
@@ -306,6 +310,18 @@ groups](#granting-roles-to-groups)). Access is granted if any of the subjects
 is allowed.
 This way, no rules are needed per user for group-based access, e.g., for
 administrators.
+
+!!! warning "Several trusted issuers"
+    Subjects and group claim values are not scoped by issuer: a rule for
+    `user:<sub>` or `group:<value>` applies to tokens of _all_ trusted
+    issuers (`security.auth.issuers`). If several issuers can issue the same
+    `sub` or group claim value to different users (e.g., if users can choose
+    their identifier or create groups at one of them), these users get each
+    other's rights, up to administrator rights. Only trust several issuers
+    together with access control if their subjects and group claim values
+    cannot collide, e.g., because they are assigned by the same identity
+    provider. FOCA logs a warning on startup if access control is enabled
+    with several trusted issuers.
 
 To keep users, groups and roles apart, subjects are namespaced in rules:
 
@@ -416,6 +432,22 @@ that existing rules with them can be revoked; it removes all stored copies of
 a rule, and `list_resource_roles()` returns each subject and role pair
 once, also if a rule was stored more than once (e.g., by concurrent
 requests).
+
+`remove_resource(resource)` revokes the roles granted on exactly `resource`,
+not those granted on its sub-paths (e.g., `/services/123/files` for
+`/services/123`) or on the path with a trailing slash; revoke these
+separately, e.g., via `list_resource_roles()` and `remove_resource_role()`.
+Neither helper removes rules set via [`policies`](#configuring-policies), as
+they would be added again on the next start, nor does FOCA's Casbin adapter
+when a single rule is removed via the enforcer (e.g.,
+`remove_grouping_policy()`).
+Other stored copies of such rules (e.g., also added via the permissions API)
+are removed, but the role still applies: `remove_resource_role()` then
+returns `False`, and both helpers log a warning. Remove such rules from the
+configuration instead. `remove_resource()` returns `True` if it revoked any
+role, i.e., if it removed a valid rule that is not also configured. It also
+removes invalid rules stored on the resource, which do not count as revoked
+roles, and returns `False` for rules that a concurrent call removed first.
 
 #### Granting roles to groups
 

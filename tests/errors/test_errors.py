@@ -197,6 +197,16 @@ def test__log_exception(logged, format):
     assert logged[0].startswith('{"a": 1} ')
 
 
+@pytest.mark.parametrize(
+    "format", [ExceptionLoggingEnum.oneline, ExceptionLoggingEnum.minimal]
+)
+def test__log_exception_escaped(logged, format):
+    """Messages cannot forge log lines in single-line formats."""
+    _log_exception(exc=UnknownException("x\nforged\x1b"), format=format)
+    assert "\n" not in logged[0]
+    assert "x\\nforged\\x1b" in logged[0]
+
+
 def test__log_exception_none(logged):
     """Test disabled logging of exceptions."""
     _log_exception(exc=UnknownException(), format=ExceptionLoggingEnum.none)

@@ -95,6 +95,10 @@ COPY ./ /app
 CMD ["python", "app.py"]
 ```
 
+`python app.py` starts Flask's development server, which is meant for local
+development only. In production, run the app with a WSGI server such as
+Gunicorn (see [running in production](deployment.md#running-in-production)).
+
 The image contains no build tools and runs as non-root user `foca` (UID
 `1000`, group `0`); `/app` and the home directory are writable by group `0`,
 so that the image also runs under arbitrary user IDs (e.g., on OpenShift).
@@ -103,7 +107,8 @@ back:
 
 ```dockerfile
 USER root
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 USER 1000
 ```
 

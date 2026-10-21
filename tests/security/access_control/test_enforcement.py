@@ -16,6 +16,7 @@ from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, request
 from flask.globals import request_ctx
+from pymongo import MongoClient
 
 from foca.api.register_openapi import register_openapi
 from foca.errors.exceptions import register_exception_handler
@@ -289,26 +290,27 @@ def _create_app(
 
 
 @contextmanager
-def _capture_warnings(caplog):
-    """Capture warnings of the enforcement module, also if app creation
-    (i.e., logging configuration) disabled its logger or propagation."""
+def _capture_logs(caplog, level: int = logging.WARNING):
+    """Capture records of the enforcement module from `level` up, also if
+    app creation (i.e., logging configuration) disabled its logger or
+    propagation."""
     logger = enforcement.logger
     disabled, propagate = logger.disabled, logger.propagate
     logger.disabled, logger.propagate = False, True
     try:
-        with caplog.at_level(logging.WARNING, logger=logger.name):
+        with caplog.at_level(level, logger=logger.name):
             yield
     finally:
         logger.disabled, logger.propagate = disabled, propagate
 
 
-def _warnings(caplog) -> list[str]:
-    """Messages of warnings of the enforcement module."""
+def _messages(caplog, level: int = logging.WARNING) -> list[str]:
+    """Messages of the captured records of the enforcement module with
+    exactly `level`."""
     return [
         record.getMessage()
         for record in caplog.records
-        if record.name == enforcement.logger.name
-        and record.levelno == logging.WARNING
+        if record.name == enforcement.logger.name and record.levelno == level
     ]
 
 
@@ -555,10 +557,10 @@ class TestEnforcement:
         ]:
             adapter.save_policy_line(ptype, rule)
         client = app.test_client()
-        with _capture_warnings(caplog):
+        with _capture_logs(caplog):
             for _ in range(2):
                 client.get("/items/1", headers=_headers("alice"))
-        messages = _warnings(caplog)
+        messages = _messages(caplog)
         # once, irrespective of the number of requests
         assert len(messages) == 3
         for values in [
@@ -572,13 +574,27 @@ class TestEnforcement:
             )
         assert all("remove_resource_role()" in message for message in messages)
 
+    @pytest.mark.parametrize(
+        "user,level", [("dave", logging.INFO), ("carol", logging.DEBUG)]
+    )
+    def test_decisions_logged_escaped(self, app, caplog, user, level):
+        """Request paths cannot forge log lines."""
+        with _capture_logs(caplog, level=logging.DEBUG):
+            app.test_client().get(
+                "/items/1%0Aforged%1B", headers=_headers(user)
+            )
+        messages = _messages(caplog, level=level)
+        assert len(messages) == 1
+        assert "/items/1\\nforged\\x1b" in messages[0]
+        assert "\n" not in messages[0]
+
     def test_no_warning_without_subject_like_roles(self, app, caplog):
-        with _capture_warnings(caplog):
+        with _capture_logs(caplog):
             response = app.test_client().get(
                 "/items/1", headers=_headers("alice")
             )
         assert response.status_code == 200
-        assert _warnings(caplog) == []
+        assert _messages(caplog) == []
 
 
 class TestPermissionsApi:
@@ -1027,6 +1043,115 @@ def helper_app():
     return app
 
 
+@pytest.fixture(
+    params=["mongomock", pytest.param("mongodb", marks=pytest.mark.mongodb)]
+)
+def store_app(request, helper_app):
+    """`helper_app`, with policies in memory or in a MongoDB server on
+    `localhost:12345` (tests marked `mongodb`)."""
+    if request.param == "mongomock":
+        yield helper_app
+        return
+    db_name = "foca_test_enforcement"
+    client: MongoClient = MongoClient(
+        "mongodb://localhost:12345", serverSelectionTimeoutMS=5000
+    )
+    client.drop_database(db_name)
+    helper_app.config["casbin_adapter"] = Adapter(
+        collection=client[db_name][COLLECTION_NAME]
+    )
+    yield helper_app
+    client.drop_database(db_name)
+    client.close()
+
+
+class TestRemovingConfiguredRules:
+    """Tests for removing resource roles next to configured rules."""
+
+    RULE: ClassVar[list[str]] = ["user:alice", "owner", "/items/1"]
+
+    @staticmethod
+    def _documents(app) -> list[dict]:
+        collection = app.config["casbin_adapter"]._collection
+        return list(collection.find({}, projection={"_id": False}))
+
+    def test_rule_marked_concurrently(self, store_app, caplog, monkeypatch):
+        """A rule marked as configured after the policies were loaded is
+        not removed."""
+        adapter = store_app.config["casbin_adapter"]
+        adapter.save_policy_line("g2", self.RULE)
+        remove_policy = adapter.remove_policy
+
+        def mark_and_remove(*args, **kwargs):
+            adapter._collection.update_many({}, {"$set": {"configured": True}})
+            return remove_policy(*args, **kwargs)
+
+        monkeypatch.setattr(adapter, "remove_policy", mark_and_remove)
+        with store_app.app_context(), _capture_logs(caplog):
+            assert remove_resource_role("alice", "owner", "/items/1") is False
+        assert [doc["configured"] for doc in self._documents(store_app)] == [
+            True
+        ]
+        assert len(_messages(caplog)) == 1
+
+    def test_unmarked_copy_removed(self, store_app, caplog):
+        """Unmarked copies of a configured rule are removed, but the role
+        still applies."""
+        adapter = store_app.config["casbin_adapter"]
+        adapter.save_policy_line("g2", self.RULE, configured=True)
+        adapter.save_policy_line("g2", self.RULE)
+        with store_app.app_context(), _capture_logs(caplog):
+            assert remove_resource_role("alice", "owner", "/items/1") is False
+        assert [
+            doc.get("configured") for doc in self._documents(store_app)
+        ] == [True]
+        assert len(_messages(caplog)) == 1
+
+    @pytest.mark.parametrize(
+        "document",
+        [
+            # extra value, skipped when loading policies
+            {"v0": "user:a", "v1": "owner", "v2": "/items/1", "v3": "x"},
+            # value that is not a string
+            {"v0": 1, "v1": "owner", "v2": "/items/1"},
+        ],
+    )
+    def test_invalid_rules_not_revoked(self, store_app, document):
+        """Invalid rules on the resource are removed, but do not count as
+        revoked roles."""
+        collection = store_app.config["casbin_adapter"]._collection
+        collection.insert_one({"ptype": "g2", **document})
+        with store_app.app_context():
+            assert remove_resource("/items/1") is False
+        assert self._documents(store_app) == []
+
+    def test_concurrent_removal(self, store_app, monkeypatch):
+        """Rules removed by a concurrent call do not count as revoked."""
+        adapter = store_app.config["casbin_adapter"]
+        adapter.save_policy_line("g2", self.RULE)
+        get_filtered_rules = adapter.get_filtered_rules
+
+        def get_and_remove(*args, configured):
+            rules = get_filtered_rules(*args, configured=configured)
+            if not configured:
+                # the concurrent call removes the rules first
+                adapter._collection.delete_many({})
+            return rules
+
+        monkeypatch.setattr(adapter, "get_filtered_rules", get_and_remove)
+        with store_app.app_context():
+            assert remove_resource("/items/1") is False
+
+    def test_remove_resource(self, store_app):
+        adapter = store_app.config["casbin_adapter"]
+        for _ in range(2):
+            adapter.save_policy_line("g2", self.RULE)
+        with store_app.app_context():
+            assert remove_resource("/items/1") is True
+            assert remove_resource("/items/1") is False
+        assert self._documents(store_app) == []
+
+
 class TestCurrentSubject:
     """Tests for getting subject and groups from validated token claims."""
 
@@ -1346,10 +1471,69 @@ class TestResourceRoles:
             assert remove_resource_role("bob", "maintainer", "/items/1")
             assert not remove_resource_role("bob", "maintainer", "/items/1")
             assert list_resource_roles("/items/1") == [("alice", "owner")]
-            assert remove_resource("/items/1")
+            assert remove_resource("/items/1") is True
             assert list_resource_roles("/items/1") == []
             assert list_resource_roles("/items/2") == [("bob", "owner")]
-            assert not remove_resource("/items/1")
+            assert remove_resource("/items/1") is False
+
+    def test_configured_rules_kept(self, helper_app, caplog):
+        """Rules set via the configuration are not removed, as they would
+        be added again on the next start."""
+        adapter = helper_app.config["casbin_adapter"]
+        for subject, configured in [("user:alice", True), ("user:bob", False)]:
+            adapter.save_policy_line(
+                "g2", [subject, "owner", "/items/1"], configured=configured
+            )
+        with helper_app.app_context(), _capture_logs(caplog):
+            assert remove_resource_role("alice", "owner", "/items/1") is False
+            assert remove_resource("/items/1") is True
+            assert list_resource_roles("/items/1") == [("alice", "owner")]
+            assert remove_resource("/items/1") is False
+        messages = _messages(caplog)
+        assert len(messages) == 3
+        assert all(
+            "(g2, 'user:alice', 'owner', '/items/1')" in message
+            and "access_control.policies" in message
+            for message in messages
+        )
+
+    def test_remove_resource_unmarked_copy_of_configured_rule(
+        self, helper_app, caplog
+    ):
+        """Removing an unmarked copy of a configured rule does not revoke
+        the role, so `False` is returned."""
+        adapter = helper_app.config["casbin_adapter"]
+        rule = ["user:alice", "owner", "/items/1"]
+        adapter.save_policy_line("g2", rule, configured=True)
+        adapter.save_policy_line("g2", rule)
+        with helper_app.app_context(), _capture_logs(caplog):
+            assert remove_resource("/items/1") is False
+            assert list_resource_roles("/items/1") == [("alice", "owner")]
+        assert adapter._collection.count_documents({}) == 1
+        assert len(_messages(caplog)) == 1
+
+    def test_remove_resource_does_not_load_policies(
+        self, helper_app, monkeypatch
+    ):
+        """Rules are removed without loading all policies."""
+        with helper_app.app_context():
+            add_resource_role("alice", "owner", "/items/1")
+            monkeypatch.setattr(
+                enforcement,
+                "get_enforcer",
+                mock.Mock(side_effect=AssertionError),
+            )
+            assert remove_resource("/items/1") is True
+
+    def test_remove_resource_keeps_subpaths(self, helper_app):
+        """Only rules on the resource path itself are removed."""
+        with helper_app.app_context():
+            add_resource_role("alice", "owner", "/items/1")
+            add_resource_role("alice", "owner", "/items/1/files")
+            assert remove_resource("/items/1") is True
+            assert list_resource_roles("/items/1/files") == [
+                ("alice", "owner")
+            ]
 
     def test_roles_persisted(self, helper_app):
         with helper_app.app_context():

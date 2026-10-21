@@ -1,5 +1,6 @@
 """Unit tests for endpoint controllers."""
 
+import logging
 from copy import deepcopy
 
 import mongomock
@@ -9,6 +10,7 @@ from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from foca.config.access import set_app_config
 from foca.models.config import AccessControlConfig, Config, MongoConfig
+from foca.security.access_control import access_control_server as module
 from foca.security.access_control.access_control_server import (
     deletePermission,
     getAllPermissions,
@@ -259,3 +261,50 @@ class TestPutPermission:
         ):
             putPermission.__wrapped__(id=MOCK_ID)
         assert collection.count_documents({}) == 0
+
+
+class TestLogging:
+    """Tests for logging identifiers taken from requests."""
+
+    ID = "mock\nId"
+
+    @pytest.fixture(autouse=True)
+    def _logger(self, caplog):
+        """Capture records of the module, also if its logger was disabled."""
+        disabled = module.logger.disabled
+        module.logger.disabled = False
+        with caplog.at_level(logging.INFO, logger=module.logger.name):
+            yield
+        module.logger.disabled = disabled
+
+    @staticmethod
+    def _assert_escaped(caplog) -> None:
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == module.logger.name
+        ]
+        assert messages
+        assert all("\n" not in message for message in messages)
+        assert any("mock\\nId" in message for message in messages)
+
+    @pytest.mark.parametrize("configured", [True, False])
+    def test_delete(self, app, collection, caplog, configured):
+        collection.insert_one(
+            {**deepcopy(MOCK_RULE), "id": self.ID, "configured": configured}
+        )
+        with app.app_context():
+            if configured:
+                with pytest.raises(Conflict):
+                    deletePermission.__wrapped__(id=self.ID)
+            else:
+                deletePermission.__wrapped__(id=self.ID)
+        self._assert_escaped(caplog)
+
+    def test_put_invalid_id(self, app, caplog):
+        with (
+            app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
+            pytest.raises(BadRequest),
+        ):
+            putPermission.__wrapped__(id=self.ID)
+        self._assert_escaped(caplog)

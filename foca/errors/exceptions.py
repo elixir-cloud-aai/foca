@@ -10,6 +10,7 @@ from connexion import App
 from flask import Response
 
 from foca.models.config import ExceptionConfig, ExceptionLoggingEnum
+from foca.utils.logging import escape_log_value
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -190,10 +191,11 @@ def _log_exception(
     """
     if format is ExceptionLoggingEnum.none:
         return
+    # Escaped in single-line formats, as messages may contain request values
     if format is ExceptionLoggingEnum.oneline:
-        exc_str = _exc_to_str(exc=exc)
+        exc_str = escape_log_value(_exc_to_str(exc=exc))
     elif format is ExceptionLoggingEnum.minimal:
-        exc_str = f"{type(exc).__name__}: {exc!s}"
+        exc_str = escape_log_value(f"{type(exc).__name__}: {exc!s}")
     else:
         exc_str = _exc_to_str(exc=exc, delimiter="\n")
     if problem is not None:

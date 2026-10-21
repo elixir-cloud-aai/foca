@@ -1,6 +1,7 @@
 """Tests for registering access control."""
 
 import logging
+from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
 
@@ -12,17 +13,20 @@ from connexion import App
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
     AccessControlConfig,
+    AuthConfig,
     CollectionConfig,
     Config,
     DBConfig,
     IndexConfig,
     MongoConfig,
+    SecurityConfig,
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
 )
 from foca.security.access_control.register_access_control import (
+    _check_collection_clash,
     _with_error_media_type,
     register_access_control,
     register_permission_specs,
@@ -110,6 +114,38 @@ def test_register_permission_specs_media_type(
     assert isinstance(specs[0], expected)
     if expected is dict:
         assert "application/problem+json" not in str(specs[0])
+
+
+@pytest.mark.parametrize(
+    "dbname_env,db_name,clashes",
+    [
+        # same configured database
+        (None, "app_db", True),
+        # other configured database, stored separately
+        (None, "access_control_db", False),
+        # other configured database, stored in the same database
+        ("shared_db", "access_control_db", True),
+    ],
+)
+def test_check_collection_clash(monkeypatch, dbname_env, db_name, clashes):
+    """Collections clash if their databases' effective names match."""
+    monkeypatch.delenv("MONGO_DBNAME", raising=False)
+    if dbname_env is not None:
+        monkeypatch.setenv("MONGO_DBNAME", dbname_env)
+    mongo_config = MongoConfig(
+        dbs={
+            "app_db": DBConfig(
+                collections={"policy_rules": CollectionConfig()}
+            ),
+            "other_db": DBConfig(collections=None),
+        }
+    )
+    if clashes:
+        with pytest.raises(ValueError, match="policy_rules"):
+            _check_collection_clash(mongo_config, db_name, "policy_rules")
+    else:
+        _check_collection_clash(mongo_config, db_name, "policy_rules")
+    _check_collection_clash(mongo_config, db_name, "other")
 
 
 class TestRegisterAccessControlSetup:
@@ -204,6 +240,21 @@ class TestRegisterAccessControlSetup:
                 collection_name="items",
             )
 
+    def test_effective_db_collection_clash(self, monkeypatch):
+        """Policy collection must not be an app collection in the database
+        that both are stored in, as set via `MONGO_DBNAME`."""
+        mongo_config = MongoConfig(
+            dbs={
+                "app_db": DBConfig(
+                    collections={"policy_rules": CollectionConfig()}
+                )
+            }
+        )
+        self._register(deepcopy(mongo_config))
+        monkeypatch.setenv("MONGO_DBNAME", "shared_db")
+        with pytest.raises(ValueError, match="'shared_db'"):
+            self._register(mongo_config)
+
     def test_shared_db_without_collections(self):
         """Policy collection is added to app database without collections."""
         mongo_config = MongoConfig(dbs={"app_db": DBConfig(collections=None)})
@@ -247,6 +298,31 @@ class TestRegisterAccessControlSetup:
                 keep_group_subjects=True,
             )
         assert ("keep_group_subjects' has no effect" in caplog.text) is warned
+
+    @pytest.mark.parametrize(
+        "issuers,warned",
+        [
+            (["https://a.example.org/"], False),
+            # duplicates are the same issuer
+            (["https://a.example.org/", "https://a.example.org/"], False),
+            (["https://a.example.org/", "https://b.example.org/"], True),
+        ],
+    )
+    def test_several_issuers(self, caplog, issuers, warned):
+        """Subjects of several issuers may collide, which is warned
+        about."""
+        config = Config(
+            security=SecurityConfig(
+                auth=AuthConfig(issuers=issuers, audience=["my-app"])
+            )
+        )
+        with caplog.at_level(logging.WARNING):
+            register_access_control(
+                cnx_app=create_connexion_app(config),
+                mongo_config=None,
+                access_control_config=AccessControlConfig(),
+            )
+        assert ("trusted token issuers" in caplog.text) is warned
 
     def test_logs(self, caplog):
         """Successful registration steps are logged."""

@@ -23,7 +23,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
     validate_rule,
 )
-from foca.utils.logging import log_traffic
+from foca.utils.logging import escape_log_value, log_traffic
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,10 @@ def _check_not_configured(id: str) -> None:
             the permissions API would be reverted on startup.
     """
     if current_app.config["casbin_adapter"].is_configured(id):
-        logger.error(f"Policy rule '{id}' is set via the configuration")
+        logger.error(
+            f"Policy rule '{escape_log_value(id)}' is set via the "
+            "configuration"
+        )
         raise Conflict(
             "Policy rule is set via the app's configuration "
             "('access_control.policies') and cannot be changed or deleted "
@@ -187,7 +190,9 @@ def putPermission(
     """
     conf = get_config().security.access_control
     if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
-        logger.error(f"Invalid policy rule identifier: '{id}'")
+        logger.error(
+            f"Invalid policy rule identifier: '{escape_log_value(id)}'"
+        )
         raise BadRequest
     ptype, values = _get_rule()
     _check_not_configured(id)
@@ -196,7 +201,7 @@ def putPermission(
         rule=values,
         id=id,
     )
-    logger.info(f"Policy rule '{id}' updated.")
+    logger.info(f"Policy rule '{escape_log_value(id)}' updated.")
     return id
 
 
@@ -289,5 +294,5 @@ def deletePermission(
     _check_not_configured(id)
     if not _get_permissions_collection().delete_one({"id": id}).deleted_count:
         raise NotFound
-    logger.info(f"Policy rule '{id}' deleted.")
+    logger.info(f"Policy rule '{escape_log_value(id)}' deleted.")
     return id

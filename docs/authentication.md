@@ -75,6 +75,13 @@ local development.
 FOCA logs a warning on the first validation if no issuers are configured,
 audience validation is disabled, or expired tokens are accepted.
 
+!!! note "Several trusted issuers"
+    Validated tokens of all trusted issuers are treated alike: their subjects
+    and other claims are not scoped by issuer. If you trust several issuers,
+    make sure that they cannot issue the same subject (`claim_identity`) to
+    different users, or check the `iss` claim in your controllers. This also
+    applies to [access control](access-control.md#identity-and-group-claims).
+
 !!! warning "Audience required"
     With trusted `issuers`, an `audience` is required; otherwise, FOCA
     refuses to start. Register the app with the identity provider and set

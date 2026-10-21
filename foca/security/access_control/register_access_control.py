@@ -65,6 +65,16 @@ def register_access_control(
             "values are then always used as group subjects."
         )
 
+    if len(set(get_app_config(cnx_app.app).security.auth.issuers)) > 1:
+        logger.warning(
+            "Several trusted token issuers are configured "
+            "('security.auth.issuers'): subjects and group claim values are "
+            "not scoped by issuer, so policy rules for a subject (e.g., "
+            "'user:<sub>' or 'group:<value>') apply to tokens of all "
+            "issuers. Only trust several issuers if they cannot issue the "
+            "same subjects or group claim values to different users."
+        )
+
     # Set default db attributes if config not present.
     if mongo_config is None:
         mongo_config = MongoConfig()
@@ -90,6 +100,11 @@ def register_access_control(
             registered_db_conf.collections.pop(registered_collection, None)
 
     access_control_config._registered_collection = None
+    _check_collection_clash(
+        mongo_config=mongo_config,
+        db_name=access_control_db,
+        collection_name=access_control_collection,
+    )
     app_db_conf = mongo_config.dbs.get(access_control_db)
     added_db = app_db_conf is None
 
@@ -110,14 +125,6 @@ def register_access_control(
         # the app's collections.
         if app_db_conf.collections is None:
             app_db_conf.collections = {}
-        if access_control_collection in app_db_conf.collections:
-            raise ValueError(
-                f"Access control collection '{access_control_collection}' "
-                f"clashes with app collection of the same name in database "
-                f"'{access_control_db}'. Set a different "
-                "'security.access_control.collection_name' or "
-                "'security.access_control.db_name'."
-            )
         policy_collection = CollectionConfig()
         app_db_conf.collections[access_control_collection] = policy_collection
         if app_db_conf.client is None:
@@ -155,6 +162,42 @@ def register_access_control(
     )
 
     return cnx_app
+
+
+def _check_collection_clash(
+    mongo_config: MongoConfig,
+    db_name: str,
+    collection_name: str,
+) -> None:
+    """Ensure that the policy collection is not an app collection.
+
+    Databases are compared by their effective names (cf.
+    :py:func:`foca.database.register_mongodb.get_mongo_db_name`), so that
+    app collections are also found if all databases are mapped to the same
+    database via environment variable `MONGO_DBNAME`.
+
+    Args:
+        mongo_config: App's database configuration, without the policy
+            collection.
+        db_name: Name of the database of the policy collection, as
+            configured.
+        collection_name: Name of the policy collection.
+
+    Raises:
+        ValueError: An app database with the same effective name as the
+            policy collection's database has a collection of the same name.
+    """
+    effective_db_name = get_mongo_db_name(db_name)
+    for app_db_name, app_db_conf in (mongo_config.dbs or {}).items():
+        same_db = get_mongo_db_name(app_db_name) == effective_db_name
+        if same_db and collection_name in (app_db_conf.collections or {}):
+            raise ValueError(
+                f"Access control collection '{collection_name}' clashes "
+                "with app collection of the same name in database "
+                f"'{effective_db_name}'. Set a different "
+                "'security.access_control.collection_name' or "
+                "'security.access_control.db_name'."
+            )
 
 
 def register_permission_specs(

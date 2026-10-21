@@ -1,6 +1,7 @@
 """Tests for `adapter.py` module."""
 
 from pathlib import Path
+from typing import ClassVar
 
 import mongomock
 import pytest
@@ -151,6 +152,17 @@ class TestAdapter:
         assert remove_policy is True
         assert e.enforce("alice", "data2", "read") is False
         assert e.enforce("alice", "data2", "write") is False
+
+    def test_remove_policy_keeps_configured(self):
+        """Configured copies of a rule are not removed."""
+        adapter = Adapter(collection=self._collection)
+        adapter.save_policy_line("g", ["a", "b"], configured=True)
+        adapter.save_policy_line("g", ["a", "b"])
+        assert adapter.remove_policy("g", "g", ["a", "b"]) is True
+        assert adapter.remove_policy("g", "g", ["a", "b"]) is False
+        documents = list(self._collection.find({}))
+        assert len(documents) == 1
+        assert documents[0]["configured"] is True
 
     def test_remove_policy_with_incomplete_rule(self):
         """Test to remove policy with incomplete rule. (Policy should not be
@@ -447,3 +459,92 @@ class TestLoadPolicy:
             ["d", "e", "f"],
         ]
         assert model["p"]["p"].policy_map == {"a,b,c": 0, "d,e,f": 1}
+
+
+class TestConfiguredRules:
+    """Tests for finding and keeping rules set via the configuration."""
+
+    RULES: ClassVar[list[tuple[list[str], bool]]] = [
+        (["user:a", "owner", "/x"], True),
+        (["user:b", "owner", "/x"], False),
+        (["user:c", "owner", "/x/1"], True),
+        (["user:d", "owner", "/y"], True),
+    ]
+
+    @pytest.fixture(autouse=True)
+    def _rules(self, mock_adapter):
+        for rule, configured in self.RULES:
+            mock_adapter.save_policy_line("g2", rule, configured=configured)
+
+    def test_is_configured_rule(self, mock_adapter):
+        assert mock_adapter.is_configured_rule("g2", ["user:a", "owner", "/x"])
+        assert not mock_adapter.is_configured_rule(
+            "g2", ["user:b", "owner", "/x"]
+        )
+        # values must match exactly
+        assert not mock_adapter.is_configured_rule("g2", ["user:a", "owner"])
+        assert not mock_adapter.is_configured_rule(
+            "g", ["user:a", "owner", "/x"]
+        )
+
+    def test_is_configured_rule_with_unmarked_copy(self, mock_adapter):
+        """A rule stored both with and without the mark is configured."""
+        mock_adapter.save_policy_line("g2", ["user:a", "owner", "/x"])
+        assert mock_adapter.is_configured_rule("g2", ["user:a", "owner", "/x"])
+
+    def test_get_filtered_rules(self, mock_adapter):
+        # stored twice, returned once
+        mock_adapter.save_policy_line(
+            "g2", ["user:a", "owner", "/x"], configured=True
+        )
+        assert mock_adapter.get_filtered_rules(
+            "g2", 2, "/x", configured=True
+        ) == [["user:a", "owner", "/x"]]
+        assert mock_adapter.get_filtered_rules(
+            "g2", 2, "/x", configured=False
+        ) == [["user:b", "owner", "/x"]]
+        assert (
+            mock_adapter.get_filtered_rules("g2", 0, "user:b", configured=True)
+            == []
+        )
+
+    def test_get_filtered_rules_several_values(self, mock_adapter):
+        assert mock_adapter.get_filtered_rules(
+            "g2", 1, "owner", "/x/1", configured=True
+        ) == [["user:c", "owner", "/x/1"]]
+        assert (
+            mock_adapter.get_filtered_rules(
+                "g2", 0, "user:a", "owner", "/y", configured=True
+            )
+            == []
+        )
+
+    @pytest.mark.parametrize("field_index", [-1, 6])
+    def test_remove_filtered_policy_keep_configured_invalid_filter(
+        self, mock_adapter, field_index
+    ):
+        """Invalid filters remove nothing, also when keeping configured
+        rules."""
+        assert not mock_adapter.remove_filtered_policy(
+            "g", "g2", field_index, "/x", keep_configured=True
+        )
+        assert not mock_adapter.remove_filtered_policy(
+            "g", "g2", 4, "a", "b", "c", keep_configured=True
+        )
+        assert mock_adapter._collection.count_documents({}) == len(self.RULES)
+
+    def test_remove_filtered_policy_keep_configured(self, mock_adapter):
+        assert mock_adapter.remove_filtered_policy(
+            "g", "g2", 2, "/x", keep_configured=True
+        )
+        assert not mock_adapter.remove_filtered_policy(
+            "g", "g2", 2, "/x", keep_configured=True
+        )
+        remaining = mock_adapter._collection.find({}, projection={"_id": 0})
+        assert sorted(document["v0"] for document in remaining) == [
+            "user:a",
+            "user:c",
+            "user:d",
+        ]
+        assert mock_adapter.remove_filtered_policy("g", "g2", 2, "/x")
+        assert mock_adapter._collection.count_documents({}) == 2
