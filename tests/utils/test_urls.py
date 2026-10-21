@@ -166,7 +166,7 @@ def test_normalize_host_invalid_ipv6() -> None:
 def test_normalize_host_invalid_zone(zone: str) -> None:
     """Zone identifiers must not be percent-encoded.
 
-    Python 3.11.4 and later reject them already in `urlsplit()`, 3.10 does not.
+    Python 3.11.4 and later reject them already in `urlsplit()`, older versions do not.
     """
     with pytest.raises(InvalidURL, match="need a valid host"):
         normalize_host(f"fe80::1{zone}", bracketed=True, name="URLs")
