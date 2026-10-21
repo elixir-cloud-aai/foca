@@ -97,6 +97,15 @@ configuration models, see [Configuration](configuration/index.md).
 ::: foca.utils.misc
 
 ::: foca.utils.urls
+    options:
+      members:
+        - check_url
+        - check_url_fields
+        - normalize_url
+        - InvalidURL
+        - URLScheme
+        - HTTP_SCHEMES
+        - SUPPORTED_SCHEMES
 
 ::: foca.utils.logging
     options:

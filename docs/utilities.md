@@ -25,12 +25,18 @@ not evaluated.
 Apps that store URLs sent by clients (e.g., service URLs, documentation or
 contact links, access URLs) should check them before storing them, and
 compare base URLs in a normalized form, e.g., to detect duplicate
-registrations. `foca.utils.urls` provides helpers for this, extracted from
-[cloud-registry](https://github.com/elixir-cloud-aai/cloud-registry). FOCA
-does not know which fields of your data hold URLs, so you configure the
-allowed schemes for each of your fields:
+registrations. FOCA does not know which fields of your data hold URLs, so you
+name the fields and the schemes each allows (`http`, `https` and `mailto` are
+supported). For example, to let deployments restrict service URLs, which
+clients send tokens to, to `https`, add an option to your [custom
+configuration](configuration/custom.md):
 
 ```python
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from foca import get_config
 from foca.utils.urls import (
     HTTP_SCHEMES,
     SUPPORTED_SCHEMES,
@@ -38,65 +44,48 @@ from foca.utils.urls import (
     normalize_url,
 )
 
-URL_FIELDS = {
-    "url": ["https"],
-    "documentationUrl": HTTP_SCHEMES,
-    "contactUrl": SUPPORTED_SCHEMES,  # `http`, `https` and `mailto`
-    "organization.url": HTTP_SCHEMES,
-}
+
+# Field `services` of the custom configuration model
+class ServicesConfig(BaseModel):
+    url_schemes: list[Literal["http", "https"]] = Field(default=["https"], min_length=1)
 
 
 def post_service(body: dict) -> str:
-    check_url_fields(body, fields=URL_FIELDS)
-    key = normalize_url(body["url"], schemes=["https"], name="Service URLs")
+    url_schemes = get_config().custom.services.url_schemes
+    check_url_fields(
+        body,
+        fields={
+            "url": url_schemes,
+            "documentationUrl": HTTP_SCHEMES,
+            "contactUrl": SUPPORTED_SCHEMES,
+            "organization.url": HTTP_SCHEMES,
+        },
+    )
+    key = normalize_url(body["url"], schemes=url_schemes, name="Service URLs")
     ...
 ```
 
-* `check_url(url, schemes, name)` checks a URL as written, so that it can be
-  stored as is. `http` and `https` URLs need a valid host (international
-  host names as per IDNA 2008, IPv6 addresses with optional zone
-  identifiers) and must not have user info or port `0`; `mailto` URLs need
-  email addresses with domain names, and no authority. Whitespace (also
-  leading or trailing), control and format characters (except zero width
-  (non-)joiners in international host names) and malformed
-  percent-encodings are rejected, as other tools may strip or interpret
-  them differently.
+* `check_url(url, schemes)` checks a URL as written, so that it can be stored
+  as is. It rejects, among others, URLs with whitespace (also leading or
+  trailing; strip it first to tolerate it), control or format characters, or
+  user info, and hosts that are not valid domain names or IP addresses.
 * `check_url_fields(data, fields)` checks the URLs in the given fields of an
-  object, as dot-separated paths of keys (e.g., `organization.url`), each
-  with its allowed schemes. Missing fields are not checked.
-* `normalize_url(url, schemes, name)` checks an HTTP(S) URL and returns it
-  normalized: lowercase scheme and host, encoded international host names,
-  canonical IPv6 addresses, no default ports, trailing dots of hosts, dot
-  segments, repeated or trailing slashes, and normalized percent-encodings.
+  object, as dot-separated paths of keys (e.g., `organization.url`). Missing
+  fields are not checked.
+* `normalize_url(url, schemes)` checks an HTTP(S) URL and returns it
+  normalized (e.g., lowercase host, no default port or trailing slash).
   Queries and fragments are removed, unless you pass `keep_query=True` or
-  `keep_fragment=True`. `http` and `https` URLs stay different.
+  `keep_fragment=True`.
 
-Invalid URLs raise `InvalidURL`, a `ValueError` whose message says why,
-naming the URLs as passed via `name` (e.g., `URLs in 'contactUrl' need valid
-email addresses.`), so that you can return it to clients. FOCA's problem
-handler responds to uncaught `InvalidURL`s with `400 Bad Request` (without
-the message, unless you [map the exception](configuration/exceptions.md)).
-Schemes that are not supported raise a plain `ValueError`, as they are an
-error of the app, not of the client.
-
-To let deployments restrict schemes, e.g., to allow only `https` for URLs
-that clients send tokens to, add an option to your [custom
-configuration](configuration/custom.md), so that invalid values are rejected
-on startup:
-
-```python
-from typing import Literal
-
-from pydantic import BaseModel, Field
-
-
-class ServicesConfig(BaseModel):
-    # pydantic copies mutable defaults for each instance
-    url_schemes: list[Literal["http", "https"]] = Field(default=["https"], min_length=1)
-```
-
-For fields that may also hold `mailto` URLs, use `URLScheme`
-(`Literal["http", "https", "mailto"]`) from `foca.utils.urls`.
+See the [API reference](reference.md#utilities) for all rules. Invalid URLs
+raise `InvalidURL`, a `ValueError` whose message says why, naming the URLs
+as passed via `name` (e.g., `URLs in 'contactUrl' need valid email
+addresses.`). FOCA's problem handler responds to uncaught `InvalidURL`s with
+`400 Bad Request`, without the message; to return it to clients, catch the
+exception in your controller. Unsupported schemes raise a plain `ValueError`,
+as they are an error of the app, not of the client. For configuration fields
+that may also allow `mailto`, use `URLScheme` (`Literal["http", "https",
+"mailto"]`) from `foca.utils.urls`.
 
 ## Logging requests and responses
 
