@@ -87,9 +87,9 @@ Gunicorn (see [running in production][docs-production]).
 
 Images of releases are tagged with the FOCA and Python versions (e.g.,
 `0.14.0-py3.12`); the FOCA version alone (e.g., `0.14.0`) tags the Python
-3.13 image, and `latest` that of the latest release. Images built from the
-`dev` branch are tagged with their date and the Python version (e.g.,
-`20261019-py3.13`).
+3.13 image, and `latest` that of the highest stable release (not an alpha,
+beta or release candidate). Images built from the `dev` branch are tagged
+with their date and the Python version (e.g., `20261019-py3.13`).
 
 The image contains no build tools and runs as non-root user `foca` (UID
 `1000`, group `0`); `/app` and the home directory are writable by group `0`,
@@ -145,8 +145,9 @@ Pushing the tag triggers the [release workflow][release-workflow], which
 checks that the tagged commit is on `main`, publishes the distributions to
 PyPI (after approval in the `pypi` environment), pushes Docker images
 tagged `X.Y.Z` and `latest`, and creates a GitHub release with generated
-notes. Tags of pre-releases (e.g., `vX.Y.Zrc1`) create pre-releases and do
-not update `latest`.
+notes. Tags of alpha, beta and release candidate versions (e.g.,
+`vX.Y.Zrc1`) do not update `latest`. These and, until 1.0.0, all other
+releases are GitHub pre-releases (never marked as the latest release).
 
 ## License
 
