@@ -56,7 +56,7 @@ Labels of all resources of a component; call like
 {{- define "foca-common.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{ include "foca-common.selectorLabels" . }}
-app.kubernetes.io/version: {{ .root.Chart.AppVersion | quote }}
+app.kubernetes.io/version: {{ .root.Chart.AppVersion | replace "+" "_" | trunc 63 | trimSuffix "-" | quote }}
 app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- end -}}
 
@@ -81,8 +81,8 @@ settings are a dict with the keys:
   first of which FOCA authenticates against; required for the bundled
   MongoDB with authentication, which creates the app user.
 
-The app's values must also contain the map `mongodb`, even for an external
-MongoDB (see the docs).
+The app's values must also contain the maps `mongodb` and `mongodb.auth`,
+even for an external MongoDB (see the docs).
 */}}
 {{- define "foca-common.checkSettings" -}}
 {{- if not (kindIs "map" .settings) -}}
@@ -98,8 +98,8 @@ MongoDB (see the docs).
 {{- if not (kindIs "map" (index .root.Values $key)) -}}
 {{- fail (printf "%s must be a map with the settings of the app's container" $key) -}}
 {{- end -}}
-{{- if not (kindIs "map" .root.Values.mongodb) -}}
-{{- fail "mongodb must be a map with the settings of MongoDB (also for an external one: mongodb.enabled, mongodb.auth)" -}}
+{{- if not (and (kindIs "map" .root.Values.mongodb) (kindIs "map" .root.Values.mongodb.auth)) -}}
+{{- fail "mongodb and mongodb.auth must be maps with the settings of MongoDB (also for an external one: mongodb.enabled, mongodb.auth.enabled, mongodb.auth.existingSecret)" -}}
 {{- end -}}
 {{- end -}}
 
@@ -134,15 +134,16 @@ ConfigMap template, which every app chart renders.
 {{- if and (include "foca-common.mongodbEnabled" .root) (eq $fullname (include "foca-common.mongodbFullname" .root)) -}}
 {{- fail (printf "the app and MongoDB resources would both be named %s: choose a fullnameOverride that does not end in -mongodb" $fullname) -}}
 {{- end -}}
+{{- $config := include "foca-common.configOverlay" . | fromYaml -}}
 {{- if not (include "foca-common.mongodbEnabled" .root) -}}
-{{- $db := get (.root.Values.config | default dict) "db" -}}
+{{- $db := get $config "db" -}}
 {{- $host := and (kindIs "map" $db) (get $db "host") -}}
 {{- if not (and (kindIs "string" $host) (trim $host)) -}}
 {{- fail "config.db.host must be set to the host of the external MongoDB if mongodb.enabled is false" -}}
 {{- end -}}
 {{- end -}}
 {{- if .settings.requireAudience -}}
-{{- include "foca-common.checkAudience" .root -}}
+{{- include "foca-common.checkAudience" (dict "config" $config) -}}
 {{- end -}}
 {{- end -}}
 
@@ -153,11 +154,12 @@ validation is explicitly disabled: with a value that pydantic parses as false
 (e.g., `false` or "False"; the strings are those of pydantic 2.14,
 pydantic-core 2.50). `null` doesn't disable it (FOCA refuses it). Only the
 overlay is checked, so the app's settings opt in (`requireAudience`) if the
-app needs token issuers.
+app needs token issuers. Call with a dict of the overlay (`config`; see
+`foca-common.configOverlay`).
 */}}
 {{- define "foca-common.checkAudience" -}}
 {{- $auth := dict -}}
-{{- $security := get (.Values.config | default dict) "security" -}}
+{{- $security := get .config "security" -}}
 {{- if and (kindIs "map" $security) (kindIs "map" (get $security "auth")) -}}
 {{- $auth = get $security "auth" -}}
 {{- end -}}
@@ -241,12 +243,12 @@ App image: `<valuesKey>.image` with `<valuesKey>.tag`, by default the chart's
 
 {{/*
 Size limit of request bodies of the app, in bytes: `server.max_content_length`
-of the config, by default that of the app's settings (`maxContentLength`);
-empty if neither sets one. Fails unless it is a positive integer (numbers
+of the overlay (see `foca-common.configOverlay`), by default that of the
+app's settings (`maxContentLength`); empty if neither sets one. Fails unless it is a positive integer (numbers
 from values files are floats), as 0 means no limit for ingress-nginx.
 */}}
 {{- define "foca-common.maxContentLength" -}}
-{{- $server := dig "server" dict (.root.Values.config | default dict) -}}
+{{- $server := get (include "foca-common.configOverlay" . | fromYaml) "server" -}}
 {{- if not (kindIs "map" $server) -}}
 {{- $server = dict -}}
 {{- end -}}

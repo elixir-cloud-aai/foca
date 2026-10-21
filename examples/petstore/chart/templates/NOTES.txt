@@ -7,6 +7,11 @@
 {{- end -}}
 The petstore app is being deployed as release {{ .Release.Name }}
 in namespace {{ .Release.Namespace }}!
+{{- if and .Values.petstore.ingress.enabled (not .Values.petstore.ingress.https.enabled) }}
+
+NOTE: The Ingress has no TLS (petstore.ingress.https.enabled is false), so TLS
+must be terminated in front of the cluster for the URL below.
+{{- end }}
 {{- if not $exposed }}
 
 Neither an Ingress (petstore.ingress.enabled is false) nor an OpenShift Route
