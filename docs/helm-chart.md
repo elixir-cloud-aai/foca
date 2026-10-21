@@ -230,16 +230,25 @@ git push origin chart-v0.1.0
 ```
 
 The [release workflow][release-chart] runs the chart checks and the kind
-installation of CI, checks that the tag is signed (with a
-signature that GitHub verifies), is on `dev` and matches the chart's
-version, and that the version has not been published yet; it lints and tests
-the chart, packages it and pushes it to
-`oci://ghcr.io/elixir-cloud-aai/charts/foca-common`. Published versions are
-never overwritten. App charts then depend on it as shown in [Building an app
-chart](#building-an-app-chart). After the first release, an organization
-admin makes the package `charts/foca-common` public in its GitHub package
-settings (new packages are private), so that app charts can pull it without
-credentials. To inspect a release, run:
+installation of CI, checks that the tag is signed (with a signature that
+GitHub verifies), is on `dev` and matches the chart's version, and that the
+version has not been published yet; it then packages the chart and pushes it
+to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`. Published versions
+are never overwritten. If the first release fails, delete its tag before
+tagging again. App charts then depend on the chart as shown in [Building an
+app chart](#building-an-app-chart).
+
+After the first release, an organization admin opens the package
+`charts/foca-common` in the organization's GitHub package settings and:
+
+- makes it public (new packages are private), so that app charts can pull it
+  without credentials;
+- connects it to the `foca` repository, or under "Manage Actions access"
+  gives the repository the role "Write", so that later releases can push to
+  it.
+
+The organization may also need to allow members' Actions to create packages
+for the first release. To inspect a release, run:
 
 ```bash
 helm show chart oci://ghcr.io/elixir-cloud-aai/charts/foca-common --version 0.1.0

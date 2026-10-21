@@ -4,7 +4,9 @@
 # version was not published yet, then package the chart and push it as an
 # OCI artifact to `oci://ghcr.io/elixir-cloud-aai/charts`. Only final
 # versions (no pre-releases). Independent of FOCA's releases (`release.yml`,
-# tags `vX.Y.Z`). See "Releases" in docs/helm-chart.md.
+# tags `vX.Y.Z`). Chart releases come from `dev` on purpose, unlike FOCA's
+# releases from `main`, so that app charts can use a chart change without
+# waiting for a FOCA release. See "Releases" in docs/helm-chart.md.
 
 name: Release chart
 
@@ -97,7 +99,10 @@ jobs:
       # Published versions are never overwritten: continue only if GHCR
       # reports the version as not found, or, for the first release (no
       # other chart tag), denies access to the package, which does not
-      # exist yet; fail on any other error
+      # exist yet; fail on any other error. The matching of Helm's error
+      # messages is best-effort: if they change, the check fails closed.
+      # If a first release failed after its tag was pushed, delete that
+      # tag before tagging again.
       - name: Check that version is not published
         env:
           VERSION: ${{ steps.version.outputs.version }}
