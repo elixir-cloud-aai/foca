@@ -6,8 +6,14 @@ repos:
     hooks:
       - id: check-toml
       - id: check-yaml
-        # Deliberately malformed YAML for negative tests
-        exclude: ^tests/test_files/invalid_conf\.yaml$
+        # Deliberately malformed YAML for negative tests; Helm templates
+        # (not YAML before rendering) and their rendered snapshots
+        exclude: >-
+          (?x)^(
+            tests/test_files/invalid_conf\.yaml|
+            (charts/[^/]+|examples/petstore/chart)/templates/.*|
+            charts/[^/]+/tests/__snapshots__/.*
+          )$
       - id: end-of-file-fixer
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
