@@ -61,8 +61,13 @@ jobs:
     timeout-minutes: 20
     # MongoDB 8.0 refuses to start on Linux kernels 6.19 to 7.0.13, which
     # some runners have (https://jira.mongodb.org/browse/SERVER-121912), so
-    # its failures do not fail the workflow
-    continue-on-error: ${{ matrix.mongodb-version == '8.0' }}
+    # on those kernels the MongoDB 8.0 job skips its remaining steps and
+    # passes without testing anything, with a warning and a note in the job
+    # summary; on other kernels, it runs the tests like the MongoDB 7.0 jobs.
+    # The check uses the upstream version from `uname -r`; Ubuntu kernels
+    # report patch level 0 (e.g. 7.0.0-38-generic) even with backported
+    # fixes, so they count as affected until the runners move to a newer
+    # kernel series
     strategy:
       fail-fast: false
       matrix:
@@ -72,24 +77,53 @@ jobs:
           - python-version: "3.13"
             mongodb-version: "8.0"
     steps:
+      # All following steps of this job, except the Codecov upload (MongoDB
+      # 7.0 only), need `if: steps.kernel.outputs.skip != 'true'`
+      - name: Check kernel for MongoDB 8.0
+        id: kernel
+        if: matrix.mongodb-version == '8.0'
+        run: |
+          release="$(uname -r)"
+          # Numeric part only, e.g. 7.0.0 for 7.0.0-38-generic; empty if
+          # there is none, and then treated as unaffected (tests run)
+          version="$(printf '%s\n' "${release}" | grep -oE '^[0-9]+(\.[0-9]+)*')" || true
+          # True if version $1 >= version $2
+          version_ge() {
+            [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" = "$2" ]
+          }
+          if [ -n "${version}" ] \
+              && version_ge "${version}" 6.19 \
+              && ! version_ge "${version}" 7.0.14; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            message="MongoDB 8.0 tests skipped, no tests ran: kernel ${release} is affected by SERVER-121912 (https://jira.mongodb.org/browse/SERVER-121912)"
+            echo "::warning title=MongoDB 8.0 tests skipped::${message}"
+            echo "${message}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "Kernel ${release} is not affected by SERVER-121912"
+          fi
       - name: Checkout repository
+        if: steps.kernel.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Python
+        if: steps.kernel.outputs.skip != 'true'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install package
+        if: steps.kernel.outputs.skip != 'true'
         run: pip install -e .[dev]
       - name: Start MongoDB
+        if: steps.kernel.outputs.skip != 'true'
         uses: supercharge/mongodb-github-action@315db7fe45ac2880b7758f1933e6e5d59afd5e94 # 1.12.1
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
           mongodb-port: 12345
       - name: Run unit tests with coverage
+        if: steps.kernel.outputs.skip != 'true'
         run: |
           coverage run --source foca -m pytest
           coverage xml
