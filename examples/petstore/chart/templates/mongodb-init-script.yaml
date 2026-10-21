@@ -1,0 +1,1 @@
+{{- include "foca-common.mongodbInitScript" (dict "root" . "settings" (include "petstore.settings" . | fromYaml)) }}

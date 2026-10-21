@@ -1,0 +1,16 @@
+apiVersion: v2
+name: petstore
+description: >-
+  Petstore example app of FOCA, with a MongoDB database; a thin chart over the
+  library chart foca-common
+type: application
+icon: https://raw.githubusercontent.com/elixir-cloud-aai/foca/dev/docs/images/foca_logo_round.svg
+version: 0.1.0
+# The default image tag (see `petstore.tag`)
+appVersion: "latest"
+dependencies:
+  # Apps outside this repository use the released library chart instead:
+  # `repository: oci://ghcr.io/elixir-cloud-aai/charts`
+  - name: foca-common
+    version: 0.1.0
+    repository: file://../../../charts/foca-common

@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$comment": "app-values.schema.json of the library chart foca-common, with the values key of the app (petstore)",
+  "$defs": {
+    "tmpSizeLimit": {
+      "type": ["string", "integer", "null"],
+      "pattern": "^([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([KMGTPE]i|[mkMGTPE]|[eE][+-]?[0-9]+)?$",
+      "not": {
+        "type": "string",
+        "pattern": "^(0+(\\.0*)?|\\.0+)([KMGTPE]i|[mkMGTPE]|[eE][+-]?[0-9]+)?$",
+        "$comment": "Rejects all-zero quantities (Go regular expressions have no lookahead)"
+      },
+      "minimum": 1,
+      "description": "Size limit of the emptyDir at /tmp: a positive Kubernetes quantity (e.g., 64Mi) or number of bytes; none if null"
+    },
+    "app": {
+      "type": "object",
+      "required": ["image", "probePath"],
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "description": "App image repository, optionally with a tag or digest"
+        },
+        "imagePullPolicy": {
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "description": "Pull policy of the app image; Always if not set"
+        },
+        "tag": {
+          "type": "string",
+          "description": "App image tag; defaults to the chart's appVersion"
+        },
+        "probePath": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "Path of the app's probes"
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Create an Ingress; otherwise an OpenShift Route, if the cluster serves route.openshift.io/v1"
+            },
+            "className": {
+              "type": "string",
+              "description": "Ingress class; the cluster's default class if empty"
+            },
+            "annotations": {
+              "type": ["object", "null"],
+              "additionalProperties": {
+                "type": ["string", "null"]
+              },
+              "description": "Annotations of the Ingress; take precedence over those set by the chart, null removes them"
+            },
+            "https": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Request a certificate from cert-manager and serve HTTPS"
+                },
+                "issuer": {
+                  "type": "string",
+                  "description": "cert-manager ClusterIssuer"
+                }
+              }
+            }
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Create a NetworkPolicy allowing connections to the app only from ingressFrom"
+            },
+            "ingressFrom": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": false,
+                "properties": {
+                  "podSelector": {"type": "object"},
+                  "namespaceSelector": {"type": "object"},
+                  "ipBlock": {
+                    "type": "object",
+                    "required": ["cidr"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "cidr": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "except": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "anyOf": [
+                  {
+                    "required": ["ipBlock"],
+                    "maxProperties": 1
+                  },
+                  {
+                    "not": {
+                      "required": ["ipBlock"]
+                    }
+                  }
+                ]
+              },
+              "description": "NetworkPolicy peers allowed to connect to the app (by default, the namespace ingress-nginx); must not be empty"
+            }
+          }
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Security context of the pod (runAsUser, runAsGroup and fsGroup are omitted on OpenShift)"
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Security context of the container (runAsUser and runAsGroup are omitted on OpenShift)"
+        },
+        "tmpSizeLimit": {
+          "$ref": "#/$defs/tmpSizeLimit"
+        },
+        "preStopSleepSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300,
+          "description": "Seconds that the app keeps serving after its pod is deleted (preStop hook); 0 omits the hook"
+        },
+        "gunicorn": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workers", "threads", "timeout", "gracefulTimeout", "keepalive", "extraArgs"],
+          "description": "Settings of Gunicorn, the WSGI server of the app image (via GUNICORN_CMD_ARGS); omit them if the image does not run Gunicorn",
+          "properties": {
+            "workers": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64,
+              "description": "Worker processes; each loads the whole app"
+            },
+            "threads": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "description": "Threads per worker"
+            },
+            "timeout": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600,
+              "description": "Seconds after which workers whose main loop does not respond are restarted (slow requests in threads do not count)"
+            },
+            "gracefulTimeout": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600,
+              "description": "Seconds that workers get to finish requests on shutdown; the termination grace period is this plus preStopSleepSeconds plus 10 seconds"
+            },
+            "keepalive": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600,
+              "description": "Seconds after which idle keep-alive connections are closed (0: no keep-alive); longer than the upstream keep-alive timeout of the ingress controller (60 for ingress-nginx)"
+            },
+            "extraArgs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[^']*$"
+              },
+              "description": "Further Gunicorn options (no single quotes); --bind/-b, --preload and --graceful-timeout are rejected"
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resource requests and limits of the container"
+        }
+      },
+      "description": "Settings of the app container (under the key of the app chart, e.g., cloudRegistry)"
+    }
+  },
+  "type": "object",
+  "properties": {
+    "nameOverride": {
+      "type": "string",
+      "description": "Replaces the chart name in resource names and labels; set at installation only"
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "description": "Replaces the name of the app resources (MongoDB resources get the suffix -mongodb); set at installation only"
+    },
+    "hostName": {
+      "type": "string",
+      "description": "Public host name of the app (of the Ingress or Route)"
+    },
+    "config": {
+      "type": ["object", "null"],
+      "description": "App config overriding the base config in the image (merged by FOCA)",
+      "properties": {
+        "server": {
+          "type": ["object", "null"],
+          "properties": {
+            "max_content_length": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Size limit of request bodies, in bytes; also sets that of ingress-nginx"
+            }
+          }
+        }
+      }
+    },
+    "mongodb": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy the bundled MongoDB; if false, set config.db.host (and port) of an external one"
+        },
+        "image": {
+          "type": "string",
+          "description": "MongoDB image, pinned to a minor version"
+        },
+        "imagePullPolicy": {
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "description": "Pull policy of the MongoDB image; Always if not set"
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Require MongoDB credentials"
+            },
+            "existingSecret": {
+              "type": "string",
+              "description": "Secret with the MongoDB credentials (keys username and password, and root-username and root-password for the bundled MongoDB); required if authentication is enabled"
+            }
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Create a NetworkPolicy allowing connections to MongoDB only from the app's pods"
+            }
+          }
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Security context of the pod (runAsUser, runAsGroup and fsGroup are omitted on OpenShift)"
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Security context of the container (runAsUser and runAsGroup are omitted on OpenShift)"
+        },
+        "tmpSizeLimit": {
+          "$ref": "#/$defs/tmpSizeLimit"
+        },
+        "volumeSize": {
+          "type": ["string", "integer"],
+          "description": "Size of the data volume (a Kubernetes quantity, e.g., 1Gi)"
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resource requests and limits of the container"
+        }
+      }
+    },
+    "petstore": {"$ref": "#/$defs/app"}
+  }
+}

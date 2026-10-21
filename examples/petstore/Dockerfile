@@ -10,8 +10,18 @@ LABEL software.license="https://spdx.org/licenses/Apache-2.0"
 LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
 LABEL maintainer.organisation="ELIXIR Cloud & AAI"
 
+## Install the WSGI server for deployments (e.g., with the Helm chart in
+## `chart/`); Docker Compose runs the development server instead. Pinned,
+## but not updated by Dependabot: bump it manually
+USER root
+RUN pip install --no-cache-dir gunicorn==26.2.0
+USER 1000
+
 ## Set working directory
 WORKDIR /app
 
 ## Copy app files
 COPY ./ /app
+
+## Serve the app with Gunicorn; further options via `GUNICORN_CMD_ARGS`
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "wsgi:create_app()"]

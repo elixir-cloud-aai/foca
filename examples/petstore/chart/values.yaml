@@ -1,0 +1,184 @@
+# Default values for petstore.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Resource names are derived from the release name: `<release>-petstore` (or
+# `<release>` if it contains `petstore`) for the app and `<that name>-mongodb`
+# for MongoDB; `nameOverride` replaces the chart name, `fullnameOverride` the
+# derived app name. Set them at installation only: changing them later
+# changes the pod selectors, which cannot be upgraded
+nameOverride: ""
+fullnameOverride: ""
+
+# Public host name of the app (of the Ingress or OpenShift Route)
+hostName: ""
+
+# App config overriding the base config in the image (`config.yaml` of the
+# example); mappings are merged recursively, other values (including lists)
+# are replaced. Stored in a ConfigMap, so must not contain secrets. Examples:
+config: {}
+#   security:
+#     auth:
+#       issuers: ["https://login.example.org/oidc/"]
+#       audience: ["petstore"]
+#   log:
+#     handlers:
+#       console:
+#         level: 20
+
+petstore:
+  # Image repository; may include a tag or digest instead of setting `tag`.
+  # The example's image is not published; it serves the app with Gunicorn.
+  # Build it in `examples/petstore` with
+  # `docker compose build foca-petstore-root` (the FOCA image) and
+  # `docker build -t foca-petstore .`, and load it into the cluster (e.g.,
+  # `kind load docker-image foca-petstore`)
+  image: foca-petstore
+  # Image tag; defaults to the chart's `appVersion`
+  tag: ""
+  # Pull policy of the image (`Always`, `IfNotPresent` or `Never`);
+  # `IfNotPresent` for the locally built image, `Always` if not set
+  imagePullPolicy: IfNotPresent
+  # Path of the app's startup, readiness and liveness probes
+  probePath: /ui/
+  # Ingress for `hostName`; if disabled, an OpenShift Route is created
+  # instead, if the cluster serves Routes
+  ingress:
+    enabled: true
+    # Ingress class (`spec.ingressClassName`); the cluster's default class if
+    # empty
+    className: ""
+    # Annotations of the Ingress, e.g., for the ingress controller; they take
+    # precedence over those set by the chart: for `https`, and
+    # `nginx.ingress.kubernetes.io/proxy-body-size`, the size limit of request
+    # bodies of the app (`config.server.max_content_length`) for
+    # ingress-nginx. `null` removes an annotation set by the chart
+    annotations: {}
+    https:
+      # Request a certificate from cert-manager (via `issuer`, a
+      # ClusterIssuer) and serve HTTPS
+      enabled: false
+      issuer: letsencrypt-prod
+  # NetworkPolicy allowing connections to the app only from `ingressFrom`
+  # (and the kubelet's probes); clusters without NetworkPolicy support ignore
+  # it. Disabled by default: before enabling it, make `ingressFrom` match the
+  # ingress controller
+  networkPolicy:
+    enabled: false
+    # NetworkPolicy peers (`spec.ingress[].from`) allowed to connect to the
+    # app; by default, the namespace of ingress-nginx. Must not be empty
+    # (which would allow all sources); on OpenShift, use the router's
+    # namespaces (`policy-group.network.openshift.io/ingress: ""`)
+    ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  # Security contexts of the pod and the container; the FOCA image runs as
+  # user 1000, and with a read-only root file system, temporary files go to
+  # an `emptyDir` at `/tmp`. On OpenShift, `runAsUser`, `runAsGroup` and
+  # `fsGroup` are omitted, as OpenShift assigns them
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  # Size limit of the `emptyDir` at `/tmp` (the pod is evicted if it is
+  # exceeded): a quantity (e.g., `64Mi`) or a number of bytes; `null` for none
+  tmpSizeLimit: 64Mi
+  # Seconds that the app keeps serving after its pod is deleted, before it
+  # shuts down (`preStop` hook), so that the ingress controller and Service
+  # stop sending requests to it first; 0: no delay (no hook)
+  preStopSleepSeconds: 5
+  # Gunicorn, the image's WSGI server (passed via `GUNICORN_CMD_ARGS`); omit
+  # this section if the image does not run Gunicorn. Each worker loads the
+  # whole app, so raise the memory in `resources` before raising `workers`
+  gunicorn:
+    # Worker processes, and threads per worker (requests served at once)
+    workers: 1
+    threads: 4
+    # Seconds after which workers whose main loop does not respond are
+    # restarted (requests run in threads, so slow requests don't count)
+    timeout: 30
+    # Seconds that workers get to finish requests on shutdown (after
+    # `preStopSleepSeconds`); the pod's termination grace period is both
+    # plus 10 seconds
+    gracefulTimeout: 20
+    # Seconds after which idle keep-alive connections are closed (0: no
+    # keep-alive); keep it longer than the upstream keep-alive timeout of the
+    # ingress controller (60 seconds for ingress-nginx), which would otherwise
+    # reuse connections as they are closed (failing requests with `502`)
+    keepalive: 75
+    # Further Gunicorn options, e.g., `["--access-logfile", "-"]` for an
+    # access log; rendering fails for `--bind`/`-b` (the chart's ports are
+    # 8080), `--preload` (MongoDB clients must be created after forking) and
+    # `--graceful-timeout` (set `gracefulTimeout`)
+    extraArgs: []
+
+mongodb:
+  # Deploy MongoDB with the app; if false, set the host (and port) of an
+  # external MongoDB in `config.db`, and its app user's credentials via
+  # `auth.existingSecret`
+  enabled: true
+  # MongoDB 8.0 refuses to start on Linux kernels 6.19 to 7.0.13
+  # (https://jira.mongodb.org/browse/SERVER-121912)
+  # Pinned to a minor version; patch versions are updated on restarts
+  image: docker.io/library/mongo:7.0
+  # Pull policy of the image (`Always`, `IfNotPresent` or `Never`)
+  imagePullPolicy: Always
+  auth:
+    # Require credentials (set `existingSecret`); enforced on every start,
+    # but users are only created when MongoDB starts with an empty data
+    # directory, so create them first for existing databases. Without
+    # authentication, any pod that can reach the MongoDB service can read
+    # and modify the data, so disable it explicitly only if that is
+    # acceptable
+    enabled: true
+    # Name of an existing Secret with keys `root-username` and
+    # `root-password` (MongoDB root user; not needed for an external MongoDB)
+    # and `username` and `password` (app user, created with access to the
+    # app's database)
+    existingSecret: ""
+  # NetworkPolicy allowing connections to MongoDB only from the app's pods of
+  # this release (and the kubelet's probes); clusters without NetworkPolicy
+  # support ignore it
+  networkPolicy:
+    enabled: true
+  volumeSize: 1Gi
+  # Security contexts of the pod and the container; the image starts as root
+  # and switches to user `mongodb` (999), so the user is set here, and
+  # `fsGroup` makes the data volume writable for it. On OpenShift,
+  # `runAsUser`, `runAsGroup` and `fsGroup` are omitted, as OpenShift assigns
+  # them
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  # Size limit of the `emptyDir` at `/tmp` (the pod is evicted if it is
+  # exceeded): a quantity (e.g., `64Mi`) or a number of bytes; `null` for none
+  tmpSizeLimit: 64Mi
