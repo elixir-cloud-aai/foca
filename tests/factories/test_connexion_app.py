@@ -350,6 +350,17 @@ def test_max_content_length_removed():
     assert read == 10 * LIMIT
 
 
+def test_max_content_length_added():
+    """If a limit is set in the Flask config after the app was created,
+    bodies are checked.
+    """
+    app = _limited_app(limit=None)
+    app.config["MAX_CONTENT_LENGTH"] = LIMIT
+    response, read = _send_chunked(app.test_client(), b"x" * 10 * LIMIT)
+    assert response.status_code == 413
+    assert read == LIMIT + 1
+
+
 def test_max_content_length_empty_declared():
     """Bodies with an empty declared size are of unknown size (cf. PEP
     3333), i.e., checked like chunked bodies.

@@ -65,8 +65,9 @@ def _is_loopback(host: str) -> bool:
 def _check_body_size() -> None:
     """Reject request bodies larger than `MAX_CONTENT_LENGTH` (`413`).
 
-    Registered to run before each request if the size of request bodies is
-    limited. Werkzeug rejects bodies with a larger declared size
+    Registered to run before each request; checks bodies if their size is
+    limited (`MAX_CONTENT_LENGTH`, e.g., from `server.max_content_length`).
+    Werkzeug rejects bodies with a larger declared size
     (`Content-Length`) only when they are read, and reads bodies without a
     declared size (e.g., chunked) up to the limit only, silently dropping the
     rest. Bodies with a larger declared size are thus rejected here without
@@ -79,8 +80,8 @@ def _check_body_size() -> None:
     Declared sizes that are not plain decimal integers (surrounding spaces
     and tabs aside, cf. RFC 9110) are rejected (`400`), as Werkzeug takes
     them as `0` and then reads the body up to the limit. An empty declared
-    size is taken as no declared size (cf. PEP 3333). Nothing is checked if
-    the limit is removed after the app was created.
+    size is taken as no declared size (cf. PEP 3333). Nothing is checked
+    without a limit.
 
     Raises:
         werkzeug.exceptions.BadRequest: The declared size of the request body
@@ -141,8 +142,9 @@ def __add_config_to_connexion_app(
     app.app.config["TESTING"] = conf.testing
     if conf.max_content_length is not None:
         app.app.config["MAX_CONTENT_LENGTH"] = conf.max_content_length
-        # before Connexion's handling, i.e., before auth and validation
-        app.app.before_request(_check_body_size)
+    # before Connexion's handling, i.e., before auth and validation; also
+    # checks limits set in the Flask config later
+    app.app.before_request(_check_body_size)
     if conf.debug and not _is_loopback(conf.host):
         logger.warning(
             f"Debug mode is enabled on host '{conf.host}': the interactive "
