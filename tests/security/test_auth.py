@@ -257,13 +257,23 @@ class TestValidateToken:
         assert urls(idp) == [DISCOVERY_URI]
 
     @pytest.mark.parametrize(
-        "jwks", [{"keys": []}, {"keys": "abc"}, {"keys": [1]}, {}, [], "keys", None]
+        "jwks",
+        [
+            pytest.param({"keys": []}, id="no-keys"),
+            pytest.param({"keys": "abc"}, id="keys-not-list"),
+            pytest.param({"keys": [1]}, id="key-not-object"),
+            pytest.param({}, id="empty-object"),
+            pytest.param([], id="list"),
+            pytest.param("keys", id="string"),
+            pytest.param(None, id="null"),
+        ],
     )
     def test_jwks_invalid(self, idp: MagicMock, jwks: Any) -> None:
         """Tokens are rejected if the JWK set is invalid or not a JSON object."""
         idp.responses[JWKS_URI] = MockResponse(jwks)
         with raises_unauthorized("Bearer"):
             validate(make_app(), make_token())
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI]
 
     def test_jwks_unavailable(self, idp: MagicMock) -> None:
         """Tokens are rejected if the JWK set is unavailable."""
