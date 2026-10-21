@@ -1,5 +1,9 @@
 # Migrating to 0.14.0
 
+!!! note "Upgrading to 0.15"
+    This page covers the changes from 0.13 to 0.14. For the changes since,
+    see [Migrating to 0.15.0](migration-0.15.md).
+
 FOCA 0.14.0 closes several security issues, removes options that had no
 effect, and simplifies the configuration. Most apps need to change their
 configuration; configs with removed options fail validation with a clear
@@ -177,9 +181,7 @@ Errors are returned as [problem details](configuration/exceptions.md):
   dictionary or re-exports werkzeug exceptions; import these from
   `werkzeug.exceptions`.
 - Update the error responses in your API specifications to
-  `application/problem+json` (or, since FOCA 0.15, set
-  [`exceptions.media_type`](configuration/exceptions.md#media-type) to the
-  media type they declare), and clients that read `message` or `code`.
+  `application/problem+json`, and clients that read `message` or `code`.
 
 ## Server
 
@@ -227,14 +229,6 @@ Errors are returned as [problem details](configuration/exceptions.md):
 `log_traffic` no longer logs response bodies; set `log_response_body=True`
 to keep logging them. The configuration is no longer logged, only the names
 of its sections.
-
-## Service info
-
-`service_info` is a FOCA config section for serving GA4GH service info
-([details](configuration/service-info.md)), no longer a free-form section
-left to apps. Move service info fields kept directly under `service_info`
-to `service_info.service`, or rename the section if your app uses it for
-anything else.
 
 ## Utilities
 

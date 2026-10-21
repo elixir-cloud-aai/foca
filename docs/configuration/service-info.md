@@ -138,7 +138,7 @@ current app in your own code.
 ## Migrating an app
 
 Upgrading an app that used `service_info` as a section of its own? See
-[Migrating to 0.14.0](../migration-0.14.md#service-info).
+[Migrating to 0.15.0](../migration-0.15.md#service-info).
 
 Apps that implemented the service info themselves, e.g., with
 `POST /service-info` storing it in a database, can serve it from the
