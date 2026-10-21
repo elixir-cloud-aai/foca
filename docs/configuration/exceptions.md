@@ -91,6 +91,42 @@ the configured media type for its error responses. Custom specifications
 (`security.access_control.api_specs`) and your own specifications must
 declare it themselves.
 
+## Headers
+
+Error responses keep the headers of werkzeug HTTP exceptions and of
+Connexion's `ProblemException` (`headers`), except headers describing the
+body (`Content-Type`, cf. [Media type](#media-type), `Content-Length`,
+`Content-Encoding` and `Transfer-Encoding`), e.g.:
+
+- `Allow` for `405 Method Not Allowed` (unknown methods, or
+  `MethodNotAllowed(valid_methods=[...])`)
+- `WWW-Authenticate` for `401 Unauthorized`
+  (`Unauthorized(www_authenticate=...)`)
+- `Retry-After` for, e.g., `503 Service Unavailable`, if set
+  (`ServiceUnavailable(retry_after=120)`)
+
+Headers are dropped if the exception is mapped to problem details with
+another status, as they may not apply to it.
+
+`401 Unauthorized` responses of FOCA's
+[token validation](../authentication.md) and access control carry a Bearer
+challenge as per [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3),
+so that clients can tell, e.g., that they need to log in again:
+
+- `WWW-Authenticate: Bearer error="invalid_token", error_description="The
+  access token could not be validated"` for invalid tokens (e.g., malformed,
+  expired or of an untrusted issuer)
+- `WWW-Authenticate: Bearer` otherwise, e.g., if the identity provider is not
+  available or the token lacks the identity claim of
+  [access control](../access-control.md), as logging in again would not
+  help
+
+Security errors raised by Connexion without a challenge of their own (e.g.,
+for a missing token) get `WWW-Authenticate: Bearer`, as FOCA supports Bearer
+tokens only. For operations secured with other schemes (e.g., HTTP Basic),
+raise exceptions with their own challenge in your security functions
+(`Unauthorized(www_authenticate=...)`).
+
 ::: foca.models.config.ExceptionConfig
     options:
       members: false

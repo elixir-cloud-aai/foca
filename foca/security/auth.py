@@ -12,6 +12,8 @@ import requests
 from connexion.exceptions import Unauthorized
 from cryptography.hazmat.primitives import serialization
 from jwt.types import Options
+from werkzeug.datastructures import WWWAuthenticate
+from werkzeug.http import quote_header_value
 
 from foca.config.access import get_config
 from foca.models.config import AuthConfig
@@ -32,6 +34,11 @@ JWKS_REFETCH_COOLDOWN = 30
 # Maximum number of tokens whose user info is cached
 USERINFO_CACHE_SIZE = 1000
 
+# Description of the `invalid_token` error of `WWW-Authenticate` challenges,
+# deliberately generic, so that clients learn nothing about the identity
+# provider or why validation failed
+_INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"
+
 # OpenID Connect discovery documents and JWK sets, with time of retrieval,
 # by issuer and JWK set URL, respectively
 _oidc_configs: dict[str, tuple[float, dict]] = {}
@@ -41,6 +48,61 @@ _failed_fetches: dict[str, float] = {}
 # User info, with time until which it is valid, by hash of token
 _userinfo_cache: dict[str, tuple[float, float, dict]] = {}
 _userinfo_cache_lock = threading.Lock()
+
+
+class _BearerChallenge(WWWAuthenticate):
+    """`WWW-Authenticate` challenge of the Bearer scheme (RFC 6750, §3).
+
+    Unlike for :py:class:`werkzeug.datastructures.WWWAuthenticate`, parameter
+    values are always quoted, as in RFC 6750.
+    """
+
+    def to_header(self) -> str:
+        """Produce `WWW-Authenticate` header value of the challenge.
+
+        Returns:
+            Header value, e.g., `Bearer error="invalid_token"`.
+        """
+        if not self.parameters:
+            return "Bearer"
+        parameters = ", ".join(
+            f"{key}={quote_header_value(value, allow_token=False)}"
+            for key, value in self.parameters.items()
+        )
+        return f"Bearer {parameters}"
+
+
+def _unauthorized(
+    description: str, invalid_token: bool = True
+) -> Unauthorized:
+    """Create `401 Unauthorized` exception with a Bearer challenge.
+
+    As per RFC 6750, §3.1, the challenge (`WWW-Authenticate`) has the error
+    code `invalid_token` and a generic description if the token is invalid,
+    and no error code otherwise, e.g., if the token could not be validated
+    because the identity provider is not available, so that clients do not
+    discard tokens or make users log in again in vain.
+
+    Args:
+        description: Description of the exception; logged, not sent to
+            clients.
+        invalid_token: Whether the token is invalid.
+
+    Returns:
+        Exception with the challenge.
+    """
+    parameters: dict[str, str | None] | None = (
+        {
+            "error": "invalid_token",
+            "error_description": _INVALID_TOKEN_DESCRIPTION,
+        }
+        if invalid_token
+        else None
+    )
+    return Unauthorized(
+        description,
+        www_authenticate=_BearerChallenge("bearer", parameters),
+    )
 
 
 def validate_token(token: str) -> dict:
@@ -118,16 +180,18 @@ def _validate(token: str, conf: AuthConfig) -> dict:
         connexion.exceptions.Unauthorized: Raised if the JWT could not be
             successfully validated.
     """
-    # Reject tokens of untrusted issuers before any network request
+    # Reject tokens of untrusted issuers before any network request; the
+    # signature is verified in `_verify_signature()`
     try:
         unverified_claims = jwt.decode(
-            token, options={"verify_signature": False}
+            token,
+            options={"verify_signature": False},  # nosemgrep
         )
     except jwt.PyJWTError as exc:
-        raise Unauthorized("JWT could not be decoded") from exc
+        raise _unauthorized("JWT could not be decoded") from exc
     issuer = unverified_claims.get("iss")
     if not isinstance(issuer, str) or issuer not in conf.issuers:
-        raise Unauthorized("JWT issuer is not trusted")
+        raise _unauthorized("JWT issuer is not trusted")
 
     oidc_config = _get_oidc_config(issuer=issuer, conf=conf)
     claims = _verify_signature(
@@ -174,17 +238,21 @@ def _fetch_json(
             be fetched.
     """
     if not isinstance(url, str) or not url:
-        raise Unauthorized("Identity provider endpoint not available")
+        raise _unauthorized(
+            "Identity provider endpoint not available", invalid_token=False
+        )
     if throttle:
         failed = _failed_fetches.get(url)
         if (
             failed is not None
             and time.monotonic() - failed < JWKS_REFETCH_COOLDOWN
         ):
-            raise Unauthorized(
+            raise _unauthorized(
                 f"Document from identity provider temporarily unavailable: "
-                f"{url}"
+                f"{url}",
+                invalid_token=False,
             )
+    status = None
     try:
         response = requests.get(
             url,
@@ -192,13 +260,19 @@ def _fetch_json(
             allow_redirects=False,
             **kwargs,
         )
+        status = response.status_code
         response.raise_for_status()
         document = response.json()
     except Exception as exc:
         if throttle:
             _failed_fetches[url] = time.monotonic()
-        raise Unauthorized(
-            f"Could not fetch document from identity provider: {url}"
+        # Only rejections of the token by the user info endpoint (`401`)
+        # make it invalid; documents that do not depend on the token
+        # (throttled ones), failures to respond and `403` (e.g., for
+        # insufficient scope) do not
+        raise _unauthorized(
+            f"Could not fetch document from identity provider: {url}",
+            invalid_token=not throttle and status == 401,
         ) from exc
     _failed_fetches.pop(url, None)
     return document
@@ -230,7 +304,10 @@ def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict:
         not isinstance(oidc_config, dict)
         or oidc_config.get("issuer") != issuer
     ):
-        raise Unauthorized("OpenID Connect discovery document is invalid")
+        raise _unauthorized(
+            "OpenID Connect discovery document is invalid",
+            invalid_token=False,
+        )
     _oidc_configs[issuer] = (time.monotonic(), oidc_config)
     return oidc_config
 
@@ -264,7 +341,9 @@ def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False):
             _fetch_json(url=url, conf=conf, throttle=True)
         )
     except jwt.PyJWTError as exc:
-        raise Unauthorized("Issuer's JWK set is invalid") from exc
+        raise _unauthorized(
+            "Issuer's JWK set is invalid", invalid_token=False
+        ) from exc
     _jwk_sets[url] = (time.monotonic(), jwk_set)
     return jwk_set
 
@@ -307,7 +386,7 @@ def _verify_signature(
         if keys:
             break
     if not keys:
-        raise Unauthorized("JWT signing key not found among issuer's JWKs")
+        raise _unauthorized("JWT signing key not found among issuer's JWKs")
 
     options: Options = {
         "require": ["exp", "iat", "iss", conf.claim_identity],
@@ -334,14 +413,14 @@ def _verify_signature(
         ):
             continue
         except jwt.PyJWTError as exc:
-            raise Unauthorized(f"JWT could not be validated: {exc}") from exc
+            raise _unauthorized(f"JWT could not be validated: {exc}") from exc
         if conf.add_key_to_claims:
             claims["public_key"] = key.key.public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             ).decode("utf-8")
         return claims
-    raise Unauthorized("JWT signature could not be verified")
+    raise _unauthorized("JWT signature could not be verified")
 
 
 def _get_userinfo(
@@ -391,7 +470,7 @@ def _get_userinfo(
         or not isinstance(userinfo, dict)
         or userinfo.get("sub") != subject
     ):
-        raise Unauthorized("User info does not match JWT subject")
+        raise _unauthorized("User info does not match JWT subject")
     try:
         lifetime = min(conf.cache_ttl, float(claims["exp"]) - time.time())
     except (TypeError, ValueError):

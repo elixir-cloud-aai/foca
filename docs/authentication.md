@@ -41,7 +41,9 @@ security:
 ```
 
 Requests to operations requiring a token are rejected with `401
-Unauthorized` if they carry no valid token. With `disable_auth: true` in a
+Unauthorized` if they carry no valid token, with a `WWW-Authenticate: Bearer`
+challenge (with `error="invalid_token"` if the token is invalid, cf.
+[Headers](configuration/exceptions.md#headers)). With `disable_auth: true` in a
 specification's config, its security requirements are removed, e.g., for
 local development.
 

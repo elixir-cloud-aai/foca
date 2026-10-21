@@ -7,7 +7,10 @@ from json import dumps
 from traceback import format_exception
 
 from connexion import App
+from connexion.exceptions import OAuthProblem, ProblemException
 from flask import Response
+from werkzeug.datastructures import Headers
+from werkzeug.exceptions import HTTPException
 
 from foca.models.config import ExceptionConfig, ExceptionLoggingEnum
 from foca.utils.logging import escape_log_value
@@ -36,6 +39,19 @@ _STATUS_ATTRIBUTES = ("code", "status", "status_code")
 
 # Catch-all exception classes, only used if nothing more specific applies
 _CATCH_ALL = (Exception, BaseException)
+
+# Challenge of `401 Unauthorized` responses to Connexion's security
+# exceptions without one, e.g., for a missing token, as per RFC 6750, §3.1
+_BEARER_CHALLENGE = "Bearer"
+
+# Headers describing the body of a response, which do not apply to the
+# problem details body of error responses
+_BODY_HEADERS = (
+    "Content-Type",
+    "Content-Length",
+    "Content-Encoding",
+    "Transfer-Encoding",
+)
 
 
 def register_exception_handler(
@@ -163,6 +179,46 @@ def build_problem(
     return problem, status
 
 
+def _build_headers(exc: BaseException, status: int) -> Headers:
+    """Build headers of the error response for an exception.
+
+    Headers are only kept if the response has the status code of the
+    exception, as they may not apply to other statuses. Headers are taken
+    from werkzeug HTTP exceptions (e.g., `Allow` for `405 Method Not
+    Allowed`, `WWW-Authenticate` for `401 Unauthorized` and `Retry-After`
+    for `503 Service Unavailable`, if set) and Connexion problem exceptions
+    (attribute `headers`), except for headers describing the body (e.g.,
+    `Content-Type` and `Content-Length`), as error responses have their own
+    body, with the configured media type. `401 Unauthorized` responses to
+    Connexion's security exceptions without `WWW-Authenticate` (e.g., for a
+    missing token) get `WWW-Authenticate: Bearer`, as per RFC 6750.
+
+    Args:
+        exc: Exception.
+        status: HTTP status code of the error response.
+
+    Returns:
+        Headers of the error response, without headers describing the
+        body.
+    """
+    headers = Headers()
+    if status != _get_status(exc):
+        return headers
+    if isinstance(exc, HTTPException):
+        headers.extend(exc.get_headers())
+    elif isinstance(exc, ProblemException) and exc.headers:
+        headers.extend(exc.headers)
+    for name in _BODY_HEADERS:
+        headers.remove(name)
+    if (
+        status == 401
+        and isinstance(exc, OAuthProblem)
+        and "WWW-Authenticate" not in headers
+    ):
+        headers.add("WWW-Authenticate", _BEARER_CHALLENGE)
+    return headers
+
+
 def _exc_to_str(
     exc: BaseException,
     delimiter: str = "\\n",
@@ -222,7 +278,8 @@ def _problem_handler_json(
     """Generic JSON problem handler.
 
     Logs the exception with its unfiltered problem details (unless disabled
-    via `conf.logging`) and responds with the filtered problem details.
+    via `conf.logging`) and responds with the filtered problem details and
+    the headers of the exception (cf. :py:func:`_build_headers`).
 
     Args:
         exception: Raised exception.
@@ -240,6 +297,7 @@ def _problem_handler_json(
     return Response(
         response=dumps(problem),
         status=status,
+        headers=_build_headers(exc=exception, status=status),
         # exactly as configured (`mimetype` adds a charset to `text/*`)
         content_type=conf.media_type,
     )
