@@ -24,6 +24,7 @@ security:
       - [p, "*", /pets, "(GET)|(POST)"]
     api_swagger_ui: true
     api_serve_spec: true
+    log_traffic: true
 ```
 
 Access control requires `enabled: true` and trusted token

@@ -145,6 +145,7 @@ security:
     self_service: False
     policies:
       - [p, "*", /pets, GET]
+    log_traffic: True
 ```
 
 > The application created with this config would provide an access control
