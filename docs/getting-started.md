@@ -107,7 +107,8 @@ back:
 
 ```dockerfile
 USER root
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 USER 1000
 ```
 
