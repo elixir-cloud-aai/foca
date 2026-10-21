@@ -160,6 +160,12 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
             "(`security.auth.verify_audience`): tokens issued for other "
             "services by trusted issuers are accepted."
         )
+    if not conf.verify_token_type:
+        logger.warning(
+            "Token type validation is disabled "
+            "(`security.auth.verify_token_type`): JSON Web Tokens of trusted "
+            "issuers that are not access tokens, such as ID tokens, are accepted."
+        )
     if conf.allow_expired:
         logger.warning("Expired tokens are accepted (`security.auth.allow_expired`).")
 
@@ -190,6 +196,17 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
     issuer = unverified_claims.get("iss")
     if not isinstance(issuer, str) or issuer not in conf.issuers:
         raise _unauthorized("JWT issuer is not trusted")
+
+    # Reject JWTs that are not access tokens (e.g., ID tokens) before any
+    # network request; the `typ` header is a media type, so compared
+    # case-insensitively (RFC 7515, §4.1.9)
+    if conf.verify_token_type:
+        # Header can be decoded, as the token was decoded before
+        token_type = jwt.get_unverified_header(token).get("typ")
+        if not isinstance(token_type, str) or token_type.lower() not in {
+            typ.lower() for typ in conf.token_types
+        }:
+            raise _unauthorized("JWT type is not accepted")
 
     oidc_config = _get_oidc_config(issuer=issuer, conf=conf)
     claims = _verify_signature(
