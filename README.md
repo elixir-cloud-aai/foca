@@ -80,6 +80,10 @@ COPY ./ /app
 CMD ["python", "app.py"]
 ```
 
+`python app.py` starts Flask's development server, which is meant for local
+development only. In production, run the app with a WSGI server such as
+Gunicorn (see [running in production][docs-production]).
+
 Images of releases are tagged with the FOCA and Python versions (e.g.,
 `0.14.0-py3.12`); the FOCA version alone (e.g., `0.14.0`) tags the Python
 3.13 image, and `latest` that of the latest release. Images built from the
@@ -172,6 +176,7 @@ question etc.
 [docs-config]: <https://foca.readthedocs.io/en/latest/configuration/>
 [docs-getting-started]: <https://foca.readthedocs.io/en/latest/getting-started/>
 [docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.14/>
+[docs-production]: <https://foca.readthedocs.io/en/latest/deployment/#running-in-production>
 [example]: examples/petstore/README.md
 [foca-dockerfile]: docker/Dockerfile
 [foca-logo]: images/foca_logo_192px.png

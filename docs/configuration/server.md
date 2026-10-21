@@ -8,16 +8,29 @@ server:
   port: 8080
   debug: true
   testing: false
+  max_content_length: 10485760
 ```
 
 This config would create an application server at `127.0.0.1:8080` with
-Flask's debug mode switched on.
+Flask's debug mode switched on, rejecting request bodies larger than 10 MiB.
+
+`host` and `port` only apply to Flask's development server, started with
+`app.run()`. In production, run the app with a WSGI server instead (see
+[running in production](../deployment.md#running-in-production)), which
+binds to the address and port it is configured with.
 
 !!! warning "Debug mode"
     Debug mode includes an interactive debugger that allows executing
     arbitrary code. It is off by default and should only be enabled for local
     development; FOCA logs a warning if it is enabled on a host other than a
     loopback address (e.g., `0.0.0.0`).
+
+!!! warning "Request body size"
+    By default, FOCA does not limit the size of request bodies. As bodies may
+    be read (e.g., for request validation) before requests are authenticated,
+    set `max_content_length` (in bytes; Flask's `MAX_CONTENT_LENGTH`) to
+    reject larger bodies with `413`, or limit body sizes in the reverse proxy
+    or ingress in front of the app (e.g., `client_max_body_size` in NGINX).
 
 ::: foca.models.config.ServerConfig
     options:

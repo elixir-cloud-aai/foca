@@ -33,5 +33,8 @@ services:
     restart: unless-stopped
     volumes:
       - ./data/petstore-access-control/db:/data/db
+    # Published on the loopback interface only, for local inspection; the
+    # app connects via the Compose network. MongoDB runs without
+    # authentication here: do not publish it on other interfaces
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"

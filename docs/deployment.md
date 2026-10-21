@@ -23,6 +23,61 @@ This way, the configuration of a particular deployment is kept with that
 deployment, not in the app repository, and every value has exactly one place
 where it is set.
 
+## Running in production
+
+`app.run()` (e.g., in `python app.py`) starts Flask's development server,
+which is not meant for production. Serve the app with a WSGI server such as
+[Gunicorn](https://gunicorn.org/) instead, via an app factory, i.e., a
+function that creates the app:
+
+```python title="wsgi.py"
+from pathlib import Path
+
+from foca import Foca
+
+
+def create_app():
+    """Create the app; called once per worker process."""
+    config_file = Path(__file__).parent / "config.yaml"
+    return Foca(config_file=config_file).create_app()
+```
+
+```bash
+gunicorn --bind 0.0.0.0:8080 --workers 4 "wsgi:create_app()"
+```
+
+The [FOCA image](getting-started.md#docker) does not include a WSGI server;
+install one in your app's image (pin its version, e.g., in a requirements
+file):
+
+```dockerfile title="Dockerfile"
+FROM elixircloud/foca:latest
+USER root
+RUN pip install --no-cache-dir -r requirements.txt  # e.g., gunicorn==X.Y.Z
+USER 1000
+COPY ./ /app
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "wsgi:create_app()"]
+```
+
+Things to keep in mind:
+
+- **Do not preload the app** (e.g., Gunicorn's `--preload`): MongoDB
+  clients must not be shared across forked worker processes, so each worker
+  needs to create its own app.
+- **Settings `server.host` and `server.port` do not apply** to the WSGI
+  server, which binds to the address and port it is given. Keep
+  `server.debug` off in production.
+- **Limit request body sizes**, either via
+  [`server.max_content_length`](configuration/server.md) or in the reverse
+  proxy or ingress in front of the app (e.g., `client_max_body_size` in
+  NGINX): FOCA does not limit them by default, and bodies may be read before
+  requests are authenticated.
+- **Do not expose MongoDB publicly.** Only make it reachable by the app
+  (e.g., within the Compose or cluster network), and enable authentication
+  (cf. [environment variables](configuration/index.md#environment-variables)).
+  The example apps' Compose files publish MongoDB on `127.0.0.1` only, for
+  local development.
+
 ## Kubernetes and Helm
 
 With Helm, let the chart render the overlay from a free-form `config` value
