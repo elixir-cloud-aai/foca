@@ -1,6 +1,7 @@
 """Tests for registering access control."""
 
 import logging
+from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
 
@@ -203,6 +204,21 @@ class TestRegisterAccessControlSetup:
                 db_name="app_db",
                 collection_name="items",
             )
+
+    def test_effective_db_collection_clash(self, monkeypatch):
+        """Policy collection must not be an app collection in the database
+        that both are stored in, as set via `MONGO_DBNAME`."""
+        mongo_config = MongoConfig(
+            dbs={
+                "app_db": DBConfig(
+                    collections={"policy_rules": CollectionConfig()}
+                )
+            }
+        )
+        self._register(deepcopy(mongo_config))
+        monkeypatch.setenv("MONGO_DBNAME", "shared_db")
+        with pytest.raises(ValueError, match="'shared_db'"):
+            self._register(mongo_config)
 
     def test_shared_db_without_collections(self):
         """Policy collection is added to app database without collections."""
