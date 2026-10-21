@@ -8,7 +8,7 @@ from typing import Literal
 
 from casbin import Enforcer
 from casbin.model import Model
-from connexion.exceptions import Forbidden, Unauthorized
+from connexion.exceptions import Forbidden
 from connexion.resolver import Resolution, Resolver
 from flask import current_app, has_request_context, request
 from flask.globals import request_ctx
@@ -312,7 +312,12 @@ def is_permitted() -> bool:
     """
     subject = get_current_subject()
     if subject is None:
-        raise Unauthorized("Subject could not be identified")
+        from foca.security.auth import _unauthorized  # noqa: PLC0415 (import cycle)
+
+        # Token given if validated, but lacking the identity claim
+        raise _unauthorized(
+            "Subject could not be identified", token_given=bool(_get_claims())
+        )
     try:
         validate_rule_value(_prefix_subject(subject))
     except ValueError as exc:

@@ -93,6 +93,13 @@ POLICIES = [
 ]
 
 
+# Challenge of `401 Unauthorized` responses for invalid tokens
+INVALID_TOKEN_CHALLENGE = (
+    'Bearer error="invalid_token", '
+    'error_description="The access token could not be validated"'
+)
+
+
 def mock_token_info(token: str) -> dict:
     """Return token info or raise as FOCA's `validate_token()` does."""
     if token not in TOKENS:
@@ -367,6 +374,21 @@ class TestEnforcement:
             path, headers=_headers(user)
         )
         assert response.status_code == status
+
+    @pytest.mark.parametrize(
+        "user,challenge",
+        [
+            # no token
+            (None, "Bearer"),
+            # token without identity claim
+            ("anonymous", INVALID_TOKEN_CHALLENGE),
+        ],
+    )
+    def test_challenge(self, app, user, challenge):
+        """`401` responses carry a Bearer challenge (RFC 6750, §3.1)."""
+        response = app.test_client().post("/items", headers=_headers(user))
+        assert response.status_code == 401
+        assert response.headers.getlist("WWW-Authenticate") == [challenge]
 
     @pytest.mark.parametrize(
         "method,path,user,status",
@@ -1353,8 +1375,18 @@ class TestEnforceAccessControlDecorator:
             self._call(helper_app, "DELETE", "/items", token_info)
 
     def test_no_subject(self, helper_app):
-        with pytest.raises(Unauthorized):
+        with pytest.raises(Unauthorized) as exc_info:
             self._call(helper_app, "GET", "/items", None)
+        assert exc_info.value.get_headers()[1:] == [
+            ("WWW-Authenticate", "Bearer")
+        ]
+
+    def test_no_subject_claim(self, helper_app):
+        with pytest.raises(Unauthorized) as exc_info:
+            self._call(helper_app, "GET", "/items", {"iss": "x"})
+        assert exc_info.value.get_headers()[1:] == [
+            ("WWW-Authenticate", INVALID_TOKEN_CHALLENGE)
+        ]
 
     @pytest.mark.parametrize(
         "subject", ["alice,/items,GET", "alice\n", "a" * 1024]
