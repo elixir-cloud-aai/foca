@@ -369,8 +369,10 @@ def test_without_gunicorn(render: Callable[..., Docs]) -> None:
 
 def test_gunicorn_extra_args_quoted(render: Callable[..., Docs]) -> None:
     docs = render("--set-json", 'petstore.gunicorn.extraArgs=["--access-logfile", "-"]')
-    args = _env(_container(docs))["GUNICORN_CMD_ARGS"]
-    assert args.endswith(" '--access-logfile' '-'")
+    assert _env(_container(docs))["GUNICORN_CMD_ARGS"] == (
+        "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 "
+        "--keep-alive 75 '--access-logfile' '-'"
+    )
 
 
 @pytest.mark.parametrize(
@@ -569,7 +571,7 @@ def test_mongodb_values_required(
     del values["mongodb"]
     (chart / "values.yaml").write_text(yaml.safe_dump(values))
     error = template_error(chart, "--set", "hostName=x", required=False)
-    assert "mongodb must be a map" in error
+    assert "mongodb and mongodb.auth must be maps" in error
 
 
 # Ingress and Route
@@ -713,3 +715,52 @@ def test_library_lints() -> None:
 def test_app_chart_lints(chart: Path) -> None:
     values = chart / "ci" / "test-values.yaml"
     helm("lint", "--strict", str(chart), "-f", str(values))
+
+
+GENERATED_CONFIG_SETTINGS = """
+valuesKey: petstore
+requireAudience: true
+mongodb:
+  databases: [petstore]
+config:
+  db:
+    host: mongodb.example.org
+  security:
+    auth:
+      audience: [petstore]
+  server:
+    max_content_length: 4096
+"""
+
+
+def test_checks_use_generated_config(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    chart = chart_with_settings(GENERATED_CONFIG_SETTINGS)
+    docs = index(template(chart, "--set", "mongodb.enabled=false"))
+    annotations = docs[("Ingress", APP)]["metadata"]["annotations"]
+    assert annotations[BODY_SIZE] == "4096"
+    assert _overlay(docs)["db"] == {"host": "mongodb.example.org"}
+
+
+def test_version_label_without_build_metadata(chart: Path, tmp_path: Path) -> None:
+    chart_copy = tmp_path / "chart"
+    shutil.copytree(chart, chart_copy)
+    chart_yaml = chart_copy / "Chart.yaml"
+    chart_yaml.write_text(
+        chart_yaml.read_text().replace('appVersion: "latest"', 'appVersion: "1.0+b1"')
+    )
+    for doc in index(template(chart_copy)).values():
+        assert doc["metadata"]["labels"]["app.kubernetes.io/version"] == "1.0_b1"
+
+
+def test_mongodb_auth_required(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    chart = chart_with_settings("valuesKey: petstore")
+    values = yaml.safe_load((chart / "values.yaml").read_text())
+    del values["mongodb"]["auth"]
+    (chart / "values.yaml").write_text(yaml.safe_dump(values))
+    (chart / "values.schema.json").unlink()
+    error = template_error(chart, "--set", "hostName=x", required=False)
+    assert "mongodb and mongodb.auth must be maps" in error

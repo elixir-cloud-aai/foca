@@ -160,7 +160,10 @@ library's schema of these values is
   (the app user, passed to the app as `MONGO_USERNAME` and `MONGO_PASSWORD`),
   and `root-username` and `root-password` (the root user of the bundled
   MongoDB). The init script creates the app user only when MongoDB starts
-  with an empty data directory. Authentication can be disabled with
+  with an empty data directory (and not if that first start is interrupted
+  before it ran): to change the app user's password, to give it access to
+  further databases, or to create it for an existing database, use `mongosh`
+  as the root user, and roll the app's pods after changing the Secret. Authentication can be disabled with
   `mongodb.auth.enabled: false`, but then any pod that can reach MongoDB can
   read and modify its data.
 - **External databases:** with `mongodb.enabled: false`, no MongoDB is
