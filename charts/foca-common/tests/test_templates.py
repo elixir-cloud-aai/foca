@@ -330,7 +330,7 @@ def test_container(render: Callable[..., Docs]) -> None:
     ]:
         assert env[var] == {"secretKeyRef": {"name": "mongodb-credentials", "key": key}}
     for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
-        assert container[probe]["httpGet"] == {"path": "/ui/", "port": 8080}
+        assert container[probe]["httpGet"] == {"path": "/openapi.json", "port": 8080}
     assert container["lifecycle"]["preStop"]["exec"]["command"] == [
         "python",
         "-c",
