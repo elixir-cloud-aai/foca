@@ -774,6 +774,7 @@ def test_app_chart_lints(chart: Path) -> None:
 
 
 def test_app_chart_test_hook(chart: Path) -> None:
+    """The test hook runs a Python check of the API against the app."""
     rendered = helm(
         "template",
         "petstore",
