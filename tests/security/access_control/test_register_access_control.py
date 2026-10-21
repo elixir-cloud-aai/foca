@@ -26,6 +26,7 @@ from foca.security.access_control.constants import (
     DEFAULT_API_SPEC_PATH,
 )
 from foca.security.access_control.register_access_control import (
+    _check_collection_clash,
     _with_error_media_type,
     register_access_control,
     register_permission_specs,
@@ -113,6 +114,38 @@ def test_register_permission_specs_media_type(
     assert isinstance(specs[0], expected)
     if expected is dict:
         assert "application/problem+json" not in str(specs[0])
+
+
+@pytest.mark.parametrize(
+    "dbname_env,db_name,clashes",
+    [
+        # same configured database
+        (None, "app_db", True),
+        # other configured database, stored separately
+        (None, "access_control_db", False),
+        # other configured database, stored in the same database
+        ("shared_db", "access_control_db", True),
+    ],
+)
+def test_check_collection_clash(monkeypatch, dbname_env, db_name, clashes):
+    """Collections clash if their databases' effective names match."""
+    monkeypatch.delenv("MONGO_DBNAME", raising=False)
+    if dbname_env is not None:
+        monkeypatch.setenv("MONGO_DBNAME", dbname_env)
+    mongo_config = MongoConfig(
+        dbs={
+            "app_db": DBConfig(
+                collections={"policy_rules": CollectionConfig()}
+            ),
+            "other_db": DBConfig(collections=None),
+        }
+    )
+    if clashes:
+        with pytest.raises(ValueError, match="policy_rules"):
+            _check_collection_clash(mongo_config, db_name, "policy_rules")
+    else:
+        _check_collection_clash(mongo_config, db_name, "policy_rules")
+    _check_collection_clash(mongo_config, db_name, "other")
 
 
 class TestRegisterAccessControlSetup:
@@ -270,6 +303,8 @@ class TestRegisterAccessControlSetup:
         "issuers,warned",
         [
             (["https://a.example.org/"], False),
+            # duplicates are the same issuer
+            (["https://a.example.org/", "https://a.example.org/"], False),
             (["https://a.example.org/", "https://b.example.org/"], True),
         ],
     )

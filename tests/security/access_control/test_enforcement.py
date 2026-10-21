@@ -289,10 +289,10 @@ def _create_app(
 
 
 @contextmanager
-def _capture_warnings(caplog, level: int = logging.WARNING):
-    """Capture warnings (or records of `level`) of the enforcement module,
-    also if app creation (i.e., logging configuration) disabled its logger
-    or propagation."""
+def _capture_logs(caplog, level: int = logging.WARNING):
+    """Capture records of the enforcement module from `level` up, also if
+    app creation (i.e., logging configuration) disabled its logger or
+    propagation."""
     logger = enforcement.logger
     disabled, propagate = logger.disabled, logger.propagate
     logger.disabled, logger.propagate = False, True
@@ -303,9 +303,9 @@ def _capture_warnings(caplog, level: int = logging.WARNING):
         logger.disabled, logger.propagate = disabled, propagate
 
 
-def _warnings(caplog, level: int = logging.WARNING) -> list[str]:
-    """Messages of warnings (or records of `level`) of the enforcement
-    module."""
+def _messages(caplog, level: int = logging.WARNING) -> list[str]:
+    """Messages of the captured records of the enforcement module with
+    exactly `level`."""
     return [
         record.getMessage()
         for record in caplog.records
@@ -556,10 +556,10 @@ class TestEnforcement:
         ]:
             adapter.save_policy_line(ptype, rule)
         client = app.test_client()
-        with _capture_warnings(caplog):
+        with _capture_logs(caplog):
             for _ in range(2):
                 client.get("/items/1", headers=_headers("alice"))
-        messages = _warnings(caplog)
+        messages = _messages(caplog)
         # once, irrespective of the number of requests
         assert len(messages) == 3
         for values in [
@@ -578,22 +578,22 @@ class TestEnforcement:
     )
     def test_decisions_logged_escaped(self, app, caplog, user, level):
         """Request paths cannot forge log lines."""
-        with _capture_warnings(caplog, level=logging.DEBUG):
+        with _capture_logs(caplog, level=logging.DEBUG):
             app.test_client().get(
                 "/items/1%0Aforged%1B", headers=_headers(user)
             )
-        messages = _warnings(caplog, level=level)
+        messages = _messages(caplog, level=level)
         assert len(messages) == 1
         assert "/items/1\\nforged\\x1b" in messages[0]
         assert "\n" not in messages[0]
 
     def test_no_warning_without_subject_like_roles(self, app, caplog):
-        with _capture_warnings(caplog):
+        with _capture_logs(caplog):
             response = app.test_client().get(
                 "/items/1", headers=_headers("alice")
             )
         assert response.status_code == 200
-        assert _warnings(caplog) == []
+        assert _messages(caplog) == []
 
 
 class TestPermissionsApi:
@@ -1374,18 +1374,46 @@ class TestResourceRoles:
             adapter.save_policy_line(
                 "g2", [subject, "owner", "/items/1"], configured=configured
             )
-        with helper_app.app_context(), _capture_warnings(caplog):
+        with helper_app.app_context(), _capture_logs(caplog):
             assert remove_resource_role("alice", "owner", "/items/1") is False
             assert remove_resource("/items/1") is True
             assert list_resource_roles("/items/1") == [("alice", "owner")]
             assert remove_resource("/items/1") is False
-        messages = _warnings(caplog)
+        messages = _messages(caplog)
         assert len(messages) == 3
         assert all(
             "(g2, 'user:alice', 'owner', '/items/1')" in message
             and "access_control.policies" in message
             for message in messages
         )
+
+    def test_remove_resource_unmarked_copy_of_configured_rule(
+        self, helper_app, caplog
+    ):
+        """Removing an unmarked copy of a configured rule does not revoke
+        the role, so `False` is returned."""
+        adapter = helper_app.config["casbin_adapter"]
+        rule = ["user:alice", "owner", "/items/1"]
+        adapter.save_policy_line("g2", rule, configured=True)
+        adapter.save_policy_line("g2", rule)
+        with helper_app.app_context(), _capture_logs(caplog):
+            assert remove_resource("/items/1") is False
+            assert list_resource_roles("/items/1") == [("alice", "owner")]
+        assert adapter._collection.count_documents({}) == 1
+        assert len(_messages(caplog)) == 1
+
+    def test_remove_resource_does_not_load_policies(
+        self, helper_app, monkeypatch
+    ):
+        """Rules are removed without loading all policies."""
+        with helper_app.app_context():
+            add_resource_role("alice", "owner", "/items/1")
+            monkeypatch.setattr(
+                enforcement,
+                "get_enforcer",
+                mock.Mock(side_effect=AssertionError),
+            )
+            assert remove_resource("/items/1") is True
 
     def test_remove_resource_keeps_subpaths(self, helper_app):
         """Only rules on the resource path itself are removed."""

@@ -455,12 +455,26 @@ def _get_resource_role_enforcer(ptype: str) -> Enforcer:
             with three fields (subject, role, resource).
     """
     enforcer = get_enforcer()
-    if ptype not in _get_resource_role_ptypes(enforcer.get_model()):
+    _check_resource_role_model(ptype, enforcer.get_model())
+    return enforcer
+
+
+def _check_resource_role_model(ptype: str, model: Model) -> None:
+    """Check that a model defines resource-scoped roles.
+
+    Args:
+        ptype: Policy type of resource-scoped role rules.
+        model: Casbin model.
+
+    Raises:
+        ValueError: The model does not define `ptype` as a role definition
+            with three fields (subject, role, resource).
+    """
+    if ptype not in _get_resource_role_ptypes(model):
         raise ValueError(
             f"Access control model does not define resource-scoped roles: "
             f"expected role definition '{ptype} = _, _, _'"
         )
-    return enforcer
 
 
 def _get_resource_role_rule(
@@ -680,29 +694,45 @@ def remove_resource(
     on its sub-paths (e.g., `/services/1/files` for `/services/1`) or on
     the path with a trailing slash; revoke these separately. Rules set via
     the app's configuration (`access_control.policies`) are kept, with a
-    warning, as they would be added again on the next start.
+    warning, as they would be added again on the next start. Finding and
+    removing the rules is not atomic: rules stored concurrently (e.g., by
+    another request granting a role on the resource) may be kept.
 
     Args:
         resource: Resource to revoke roles on, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
 
     Returns:
-        `True` if any roles were revoked.
+        `True` if any roles were revoked, i.e., if rules were removed that
+        are not also set via the configuration. Removing a stored copy of a
+        configured rule (e.g., one added before it was configured) does not
+        revoke the role.
 
     Raises:
         ValueError: The model does not define resource-scoped roles.
     """
-    # Checks the model; policies are loaded anew for each enforcer, so
-    # rules can be removed via the adapter
-    _get_resource_role_enforcer(ptype)
+    # Policies are loaded anew for each enforcer, so rules can be removed
+    # via the adapter, without loading them
+    model = Model()
+    model.load_model(current_app.config["CASBIN_MODEL"])
+    _check_resource_role_model(ptype, model)
     adapter = _get_adapter()
-    for rule in adapter.get_configured_rules(ptype, 2, resource):
-        _warn_configured_rule(ptype, rule)
-    return bool(
-        adapter.remove_filtered_policy(
-            "g", ptype, 2, resource, keep_configured=True
-        )
+    configured = adapter.get_filtered_rules(
+        ptype, 2, resource, configured=True
     )
+    for rule in configured:
+        _warn_configured_rule(ptype, rule)
+    revoked = [
+        rule
+        for rule in adapter.get_filtered_rules(
+            ptype, 2, resource, configured=False
+        )
+        if rule not in configured
+    ]
+    adapter.remove_filtered_policy(
+        ptype[0], ptype, 2, resource, keep_configured=True
+    )
+    return bool(revoked)
 
 
 def _get_adapter() -> Adapter:
@@ -717,8 +747,8 @@ def _warn_configured_rule(ptype: str, rule: list[str]) -> None:
         ptype: Policy type of the rule.
         rule: Values of the rule.
     """
-    # Values are quoted, so that they cannot forge log lines
-    values = ", ".join(repr(value) for value in rule)
+    # Escaped, so that values cannot forge log lines
+    values = ", ".join(f"'{escape_log_value(value)}'" for value in rule)
     logger.warning(
         f"Policy rule ({ptype}, {values}) is set via the configuration "
         "('access_control.policies') and is not removed, as it would be "

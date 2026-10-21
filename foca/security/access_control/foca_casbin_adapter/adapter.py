@@ -221,29 +221,33 @@ class Adapter(persist.Adapter):
         """
         return self._has_configured(_rule_query(ptype, rule))
 
-    def get_configured_rules(
-        self, ptype: str, field_index: int, *field_values: str
+    def get_filtered_rules(
+        self,
+        ptype: str,
+        field_index: int,
+        *field_values: str,
+        configured: bool,
     ) -> list[list[str]]:
-        """Get stored rules that match a filter and are configured.
+        """Get stored rules that match a filter, by configured mark.
 
         Args:
             ptype: Policy type of the rules.
             field_index: Index of the value that `field_values` start at.
             field_values: Values the rules must have, starting at
                 `field_index`.
+            configured: Whether to get the rules marked as set via the app's
+                configuration (`access_control.policies`) or the others.
 
         Returns:
-            Values of the stored rules that match the filter and are marked
-            as set via the app's configuration, without duplicates.
+            Values of the stored rules that match the filter and the mark,
+            without duplicates.
         """
-        query = {
-            **_filter_query(ptype, field_index, field_values),
-            CONFIGURED_FIELD: True,
-        }
-        rules = {
-            tuple(_rule_values(document)): None
+        query = _filter_query(ptype, field_index, field_values)
+        query[CONFIGURED_FIELD] = True if configured else {"$ne": True}
+        rules = dict.fromkeys(
+            tuple(_rule_values(document))
             for document in self._collection.find(query)
-        }
+        )
         return [list(rule) for rule in rules]
 
     def _has_configured(self, query: dict) -> bool:

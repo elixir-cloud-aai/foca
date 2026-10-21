@@ -223,10 +223,9 @@ configured), and configured rules that were removed from the configuration,
 as well as duplicates, are removed. The configuration is the only place to
 change configured rules: the permissions API responds with `409` to requests
 to change or delete them, and the [resource role
-helpers](#resource-scoped-roles) keep them, with a warning. Other stored rules
-are kept. Without `policies`,
-stored rules are not changed on startup; with `policies: []`, all configured
-rules are removed.
+helpers](#resource-scoped-roles) keep them, with a warning. Other stored
+rules are kept. Without `policies`, stored rules are not changed on startup;
+with `policies: []`, all configured rules are removed.
 
 Rules that depend on the app's data, such as roles on resources, are better
 managed by the app (cf. [resource-scoped roles](#resource-scoped-roles)).
@@ -441,7 +440,10 @@ separately, e.g., via `list_resource_roles()` and `remove_resource_role()`.
 Neither helper removes rules set via [`policies`](#configuring-policies), as
 they would be added again on the next start: `remove_resource_role()` then
 returns `False`, and both helpers log a warning. Remove such rules from the
-configuration instead.
+configuration instead. `remove_resource()` returns `True` if it revoked any
+role, i.e., if it removed a rule that is not also configured; removing only
+stored copies of configured rules returns `False`, as their roles still
+apply.
 
 #### Granting roles to groups
 
