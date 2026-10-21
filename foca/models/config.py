@@ -157,8 +157,7 @@ class ServerConfig(FOCABaseConfig):
         False
     """
 
-    # All interfaces, as apps typically run in containers
-    host: str = "0.0.0.0"  # noqa: S104
+    host: str = "0.0.0.0"  # noqa: S104 (all interfaces, as in containers)
     port: int = 8080
     debug: bool = False
     testing: bool = False

@@ -63,6 +63,7 @@ from foca.security.access_control.register_access_control import (
     register_permission_specs,
 )
 from foca.security.auth import _unauthorized
+from tests.mock_data import INVALID_TOKEN_CHALLENGE
 
 DB_NAME = "access_control_db"
 COLLECTION_NAME = "policy_rules"
@@ -99,13 +100,6 @@ POLICIES = [
     # stored resource path with trailing slash
     ("g2", ["user:alice", "owner", "/items/3/"]),
 ]
-
-
-# Challenge of `401 Unauthorized` responses for invalid tokens
-INVALID_TOKEN_CHALLENGE = (
-    'Bearer error="invalid_token", '  # noqa: S105 (not a password)
-    'error_description="The access token could not be validated"'
-)
 
 
 def mock_token_info(token: str) -> dict[str, Any]:
@@ -289,7 +283,7 @@ def _create_app(
     collection: Collection[dict[str, Any]] = mongomock.MongoClient()[DB_NAME][
         COLLECTION_NAME
     ]
-    config.db.dbs[DB_NAME].collections[  # type: ignore[union-attr,index]
+    config.db.dbs[DB_NAME].collections[  # type: ignore[union-attr,index]  # set in the config
         COLLECTION_NAME
     ].client = collection
     adapter = Adapter(collection=collection)
@@ -1072,7 +1066,7 @@ def test_is_within_path(request_path: str, resource_path: str, expected: bool) -
 def helper_app() -> Flask:
     """Flask app with access control config and in-memory policies."""
     app = Flask(__name__)
-    app.config.foca = Config(  # type: ignore[attr-defined]
+    app.config.foca = Config(  # type: ignore[attr-defined]  # dynamic attribute
         security=SecurityConfig(
             auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
             access_control=_access_control_config(),
@@ -1212,7 +1206,7 @@ class TestCurrentSubject:
     def _context(self, app: Flask, token_info: dict[str, Any] | None) -> RequestContext:
         ctx = app.test_request_context()
         ctx.push()
-        request_ctx.connexion_context = (  # type: ignore[attr-defined]
+        request_ctx.connexion_context = (  # type: ignore[attr-defined]  # set by Connexion
             {} if token_info is None else {"token_info": token_info}
         )
         return ctx
@@ -1381,7 +1375,7 @@ class TestCurrentSubject:
         """Errors in claim retrieval are raised, not taken as no claims."""
         ctx = helper_app.test_request_context()
         ctx.push()
-        request_ctx.connexion_context = "invalid"  # type: ignore[attr-defined]
+        request_ctx.connexion_context = "invalid"  # type: ignore[attr-defined]  # set by Connexion
         try:
             with pytest.raises(AttributeError):
                 get_current_subject()
@@ -1411,7 +1405,7 @@ class TestEnforceAccessControlDecorator:
             return "ok"
 
         with app.test_request_context(path, method=method):
-            request_ctx.connexion_context = (  # type: ignore[attr-defined]
+            request_ctx.connexion_context = (  # type: ignore[attr-defined]  # set by Connexion
                 {} if token_info is None else {"token_info": token_info}
             )
             return decorated()
@@ -1818,7 +1812,7 @@ class TestResourceRoles:
                         subject,
                         "owner",
                         "/items/1",
-                        subject_type=subject_type,  # type: ignore[arg-type]
+                        subject_type=subject_type,  # type: ignore[arg-type]  # invalid on purpose
                     )
             assert get_enforcer().get_named_grouping_policy("g2") == []
 
@@ -1854,7 +1848,7 @@ class TestResourceRoles:
             for subject_type in [None, "user"]:
                 assert list_resource_roles(
                     "/items/1",
-                    subject_type=subject_type,  # type: ignore[arg-type]
+                    subject_type=subject_type,  # type: ignore[arg-type]  # valid literals
                 ) == [("alice", "owner"), ("bob", "owner")]
             assert remove_resource_role("alice", "owner", "/items/1")
             # policies are loaded anew, so a remaining copy would be listed
@@ -1867,7 +1861,7 @@ class TestResourceRoles:
         with helper_app.app_context(), pytest.raises(ValueError):
             list_resource_roles(
                 "/items/1",
-                subject_type="role",  # type: ignore[arg-type]
+                subject_type="role",  # type: ignore[arg-type]  # invalid on purpose
             )
 
     def test_group_value_starting_with_hash(self, helper_app: Flask) -> None:

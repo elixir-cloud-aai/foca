@@ -7,6 +7,7 @@ import pytest
 from pymongo import MongoClient
 
 from foca.database import register_mongodb
+from tests.mock_data import MongoClients
 
 # Environment variables configuring MongoDB connections
 MONGO_ENV_VARS = [
@@ -22,7 +23,7 @@ MONGO_ENV_VARS = [
 @pytest.fixture
 def mongo_clients(
     monkeypatch: pytest.MonkeyPatch,
-) -> list[tuple[str, MongoClient[dict[str, Any]]]]:
+) -> MongoClients:
     """Replace MongoDB clients created by FOCA with in-memory clients.
 
     MongoDB-related environment variables are unset.
@@ -33,7 +34,7 @@ def mongo_clients(
     """
     for var in MONGO_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
-    created: list[tuple[str, MongoClient[dict[str, Any]]]] = []
+    created: MongoClients = []
 
     def mongo_client(uri: str) -> MongoClient[dict[str, Any]]:
         client: MongoClient[dict[str, Any]] = mongomock.MongoClient()

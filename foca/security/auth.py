@@ -37,7 +37,7 @@ USERINFO_CACHE_SIZE = 1000
 # Description of the `invalid_token` error of `WWW-Authenticate` challenges,
 # deliberately generic, so that clients learn nothing about the identity
 # provider or why validation failed
-_INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"  # noqa: S105
+_INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"  # noqa: S105 (not a password)
 
 # OpenID Connect discovery documents and JWK sets, with time of retrieval,
 # by issuer and JWK set URL, respectively

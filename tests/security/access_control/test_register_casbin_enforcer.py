@@ -16,6 +16,7 @@ from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     RESOURCE_ROLE_MODEL_FILE,
 )
+from tests.mock_data import MongoClients
 
 RESOURCE_ROLE_MODEL = str(
     module.files(ACCESS_CONTROL_BASE_PATH).joinpath(RESOURCE_ROLE_MODEL_FILE)
@@ -29,8 +30,8 @@ POLICIES = [
 
 @pytest.fixture
 def clients(
-    mongo_clients: list[tuple[str, MongoClient[dict[str, Any]]]],
-) -> list[tuple[str, MongoClient[dict[str, Any]]]]:
+    mongo_clients: MongoClients,
+) -> MongoClients:
     """In-memory MongoDB clients created by FOCA, with their URIs."""
     return mongo_clients
 
@@ -49,7 +50,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
 
 def test_adapter_shares_app_client(
-    clients: list[tuple[str, MongoClient[dict[str, Any]]]], captured: dict[str, Any]
+    clients: MongoClients, captured: dict[str, Any]
 ) -> None:
     """Casbin adapter uses the app's MongoDB client and policy collection."""
     mongo_config = MongoConfig()
@@ -79,7 +80,7 @@ def test_adapter_shares_app_client(
 
 
 def test_adapter_dbname_override(
-    clients: list[tuple[str, MongoClient[dict[str, Any]]]],
+    clients: MongoClients,
     captured: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -120,7 +121,7 @@ class TestPolicies:
     def clients(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        mongo_clients: list[tuple[str, MongoClient[dict[str, Any]]]],
+        mongo_clients: MongoClients,
     ) -> MongoClient[dict[str, Any]]:
         """Share one in-memory MongoDB client among app registrations.
 

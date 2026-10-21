@@ -222,7 +222,7 @@ def test_call_runtime_function_failed() -> None:
 def test_call_runtime_function_not_a_dict() -> None:
     """The function must return a dictionary."""
     with pytest.raises(InvalidServiceInfo, match="did not return a dictionary"):
-        call_runtime_function(lambda: ["a"], "f")  # type: ignore[arg-type, return-value]
+        call_runtime_function(lambda: ["a"], "f")  # type: ignore[arg-type,return-value]
 
 
 def test_validate_service_info() -> None:
@@ -276,7 +276,7 @@ def test_validate_service_info_invalid(fields: dict[str, Any], path: str) -> Non
 def test_validate_service_info_not_an_object() -> None:
     """Service info must be an object."""
     with pytest.raises(InvalidServiceInfo, match=r"in `\(root\)`"):
-        validate_service_info([])  # type: ignore[arg-type]
+        validate_service_info([])  # type: ignore[arg-type]  # invalid on purpose
 
 
 @pytest.mark.parametrize(

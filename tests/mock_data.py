@@ -3,6 +3,19 @@
 from pathlib import Path
 from typing import Any
 
+from pymongo import MongoClient
+
+# Connection strings and in-memory clients created by FOCA (cf. fixture
+# `mongo_clients`)
+MongoClients = list[tuple[str, MongoClient[dict[str, Any]]]]
+
+# Challenge of `401 Unauthorized` responses for invalid tokens
+INVALID_TOKEN_CHALLENGE = (
+    'Bearer error="invalid_token", '  # noqa: S105 (not a password)
+    'error_description="The access token could not be validated"'
+)
+
+
 INDEX_CONFIG = {"keys": [("id", 1)]}
 COLLECTION_CONFIG = {
     "indexes": [INDEX_CONFIG],

@@ -4,7 +4,6 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 
 import pytest
-from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 
@@ -16,10 +15,7 @@ from foca.database.register_mongodb import (
     register_mongodb,
 )
 from foca.models.config import MongoConfig
-
-# Connection strings and in-memory clients created by FOCA (cf. fixture
-# `mongo_clients`)
-Clients = list[tuple[str, MongoClient[dict[str, Any]]]]
+from tests.mock_data import MongoClients
 
 MONGO_ENV_VARS = [
     "MONGO_URI",
@@ -119,7 +115,7 @@ class TestGetMongoDbName:
 
 
 @pytest.fixture
-def clients(mongo_clients: Clients) -> Clients:
+def clients(mongo_clients: MongoClients) -> MongoClients:
     """In-memory MongoDB clients created by FOCA, with their URIs."""
     return mongo_clients
 
@@ -127,12 +123,12 @@ def clients(mongo_clients: Clients) -> Clients:
 class TestCreateMongoClient:
     """Tests for `create_mongo_client()`."""
 
-    def test_uri(self, clients: Clients) -> None:
+    def test_uri(self, clients: MongoClients) -> None:
         """Client is created from the connection string."""
         res = create_mongo_client(host="db", port=1234, db="my_db")
         assert clients == [("mongodb://db:1234/my_db", res)]
 
-    def test_no_db(self, clients: Clients) -> None:
+    def test_no_db(self, clients: MongoClients) -> None:
         """Connection string names no database by default."""
         create_mongo_client(host="db", port=1234)
         assert clients[0][0] == "mongodb://db:1234/"
@@ -141,7 +137,7 @@ class TestCreateMongoClient:
         "uri", ["mongodb://h1:1/?tls=false", "mongodb://h1:1/admin"]
     )
     def test_mongo_uri(
-        self, clients: Clients, monkeypatch: pytest.MonkeyPatch, uri: str
+        self, clients: MongoClients, monkeypatch: pytest.MonkeyPatch, uri: str
     ) -> None:
         """`MONGO_URI` is used unchanged."""
         monkeypatch.setenv("MONGO_URI", uri)
@@ -149,7 +145,7 @@ class TestCreateMongoClient:
         assert clients[0][0] == uri
 
     def test_no_secrets_logged(
-        self, clients: Clients, monkeypatch: pytest.MonkeyPatch
+        self, clients: MongoClients, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Credentials and options are not logged."""
         monkeypatch.setenv(
@@ -196,13 +192,13 @@ def _collection(conf: MongoConfig, db: str, collection: str) -> Collection[Any]:
 class TestRegisterMongodb:
     """Tests for `register_mongodb()`."""
 
-    def test_no_database(self, clients: Clients) -> None:
+    def test_no_database(self, clients: MongoClients) -> None:
         """No client is created without databases."""
         res = register_mongodb(_config())
         assert isinstance(res, MongoConfig)
         assert clients == []
 
-    def test_one_client(self, clients: Clients) -> None:
+    def test_one_client(self, clients: MongoClients) -> None:
         """All databases share one client."""
         conf = _config(
             db1={"collections": {"c1": {}, "c2": {"indexes": None}}},
@@ -224,7 +220,7 @@ class TestRegisterMongodb:
         assert len(clients) == 1
 
     def test_dbname_override(
-        self, clients: Clients, monkeypatch: pytest.MonkeyPatch
+        self, clients: MongoClients, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """`MONGO_DBNAME` points all databases to the same database."""
         monkeypatch.setenv("MONGO_DBNAME", "other_db")
@@ -233,7 +229,7 @@ class TestRegisterMongodb:
         assert clients[0][0] == "mongodb://mongodb:27017/other_db"
         assert {_database(conf, db).name for db in ("db1", "db2")} == {"other_db"}
 
-    def test_indexes_created_and_kept(self, clients: Clients) -> None:
+    def test_indexes_created_and_kept(self, clients: MongoClients) -> None:
         """Indexes are created; other existing indexes are kept."""
         conf = _config(db1={"collections": {"c1": {"indexes": [INDEX]}}})
         register_mongodb(conf)
@@ -249,7 +245,7 @@ class TestRegisterMongodb:
             "manual_index",
         }
 
-    def test_index_conflict(self, clients: Clients) -> None:
+    def test_index_conflict(self, clients: MongoClients) -> None:
         """Conflicting indexes fail with a clear message."""
         conf = _config(db1={"collections": {"c1": {"indexes": [INDEX]}}})
         register_mongodb(conf)
@@ -262,7 +258,7 @@ class TestRegisterMongodb:
         with pytest.raises(ValueError, match="conflicts with an existing index"):
             register_mongodb(conf)
 
-    def test_index_without_keys(self, clients: Clients) -> None:
+    def test_index_without_keys(self, clients: MongoClients) -> None:
         """Indexes without keys are skipped."""
         conf = _config(db1={"collections": {"c1": {"indexes": [{}]}}})
         register_mongodb(conf)

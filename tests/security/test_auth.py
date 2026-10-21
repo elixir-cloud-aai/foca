@@ -19,6 +19,7 @@ from foca.config.access import get_app_config
 from foca.models.config import AuthConfig, Config
 from foca.security import auth
 from foca.security.auth import log_auth_config_warnings, validate_token
+from tests.mock_data import INVALID_TOKEN_CHALLENGE
 
 ISSUER = "https://idp.example.org"
 DISCOVERY_URI = f"{ISSUER}/.well-known/openid-configuration"
@@ -126,17 +127,10 @@ def make_app(**auth_conf: Any) -> Flask:
     """Create Flask app with FOCA config."""
     app = Flask(__name__)
     auth_conf = {"issuers": [ISSUER], "audience": [AUDIENCE], **auth_conf}
-    app.config.foca = Config.model_validate(  # type: ignore[attr-defined]
+    app.config.foca = Config.model_validate(  # type: ignore[attr-defined]  # dynamic attribute
         {"security": {"auth": auth_conf}}
     )
     return app
-
-
-# Challenge of `401 Unauthorized` responses for invalid tokens
-INVALID_TOKEN_CHALLENGE = (
-    'Bearer error="invalid_token", '  # noqa: S105 (not a password)
-    'error_description="The access token could not be validated"'
-)
 
 
 @contextmanager

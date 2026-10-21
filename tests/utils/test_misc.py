@@ -76,7 +76,7 @@ class TestGenerateId:
     def test_charset_not_string(self) -> None:
         """Argument to `charset` is not a string."""
         with pytest.raises(TypeError):
-            generate_id(charset=int)  # type: ignore[arg-type]
+            generate_id(charset=int)  # type: ignore[arg-type]  # invalid on purpose
 
     def test_length(self) -> None:
         """Non-default argument to `length`."""
@@ -88,7 +88,7 @@ class TestGenerateId:
         """Argument to `length` is not an integer."""
         length = ""
         with pytest.raises(TypeError):
-            generate_id(length=length)  # type: ignore[arg-type]
+            generate_id(length=length)  # type: ignore[arg-type]  # invalid on purpose
 
     def test_length_bool(self) -> None:
         """Argument to `length` is a boolean."""

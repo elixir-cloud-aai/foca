@@ -49,7 +49,7 @@ def app(collection: Collection[dict[str, Any]]) -> Flask:
     access_control = AccessControlConfig.model_validate(ACCESS_CONTROL_CONFIG)
     config = Config(db=MongoConfig.model_validate(MONGO_CONFIG))
     config.security.access_control = access_control
-    config.db.dbs[access_control.db_name].collections[  # type: ignore[union-attr,index]
+    config.db.dbs[access_control.db_name].collections[  # type: ignore[union-attr,index]  # set in the config
         access_control.collection_name
     ].client = collection
     set_app_config(app, config)
