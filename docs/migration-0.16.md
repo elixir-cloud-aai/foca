@@ -1,9 +1,10 @@
 # Migrating to 0.16.0
 
 FOCA 0.16.0 tightens token validation for the ELIXIR On-Cloud authentication
-policy. Most apps need no changes; apps whose identity provider does not issue
-RFC 9068 access tokens should check the breaking changes below. Upgrading from
-0.14 or earlier? Start with [Migrating to 0.15.0](migration-0.15.md).
+policy. Apps using LS Login need no changes; apps whose identity provider does
+not issue RFC 9068 access tokens should check the breaking changes below.
+Upgrading from 0.14 or earlier? Start with [Migrating to
+0.15.0](migration-0.15.md).
 
 ## Breaking changes
 

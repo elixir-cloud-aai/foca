@@ -199,12 +199,13 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
 
     # Reject JWTs that are not access tokens (e.g., ID tokens) before any
     # network request; the `typ` header is a media type, so compared
-    # case-insensitively (RFC 7515, §4.1.9)
+    # case-insensitively (RFC 7515, §4.1.9), ignoring surrounding whitespace
+    # in the configured types
     if conf.verify_token_type:
         # Header can be decoded, as the token was decoded before
         token_type = jwt.get_unverified_header(token).get("typ")
         if not isinstance(token_type, str) or token_type.lower() not in {
-            typ.lower() for typ in conf.token_types
+            typ.strip().lower() for typ in conf.token_types
         }:
             raise _unauthorized("JWT type is not accepted")
 
