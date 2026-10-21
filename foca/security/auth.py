@@ -107,7 +107,9 @@ def validate_token(token: str) -> dict[str, Any]:
     """Validate JSON Web Token (JWT) Bearer token.
 
     Only tokens issued by one of the trusted issuers configured via
-    `security.auth.issuers` are accepted. Tokens are verified locally with
+    `security.auth.issuers` are accepted, and only OAuth 2.0 access tokens
+    (`typ` header as per `security.auth.token_types`, unless
+    `security.auth.verify_token_type` is disabled). Tokens are verified locally with
     the issuer's public keys, obtained via OpenID Connect discovery, and,
     if configured, additionally via the issuer's user info endpoint. Claims
     configured via `security.auth.userinfo_claims` that the token lacks are
@@ -160,6 +162,12 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
             "(`security.auth.verify_audience`): tokens issued for other "
             "services by trusted issuers are accepted."
         )
+    if not conf.verify_token_type:
+        logger.warning(
+            "Token type validation is disabled "
+            "(`security.auth.verify_token_type`): JSON Web Tokens of trusted "
+            "issuers that are not access tokens, such as ID tokens, are accepted."
+        )
     if conf.allow_expired:
         logger.warning("Expired tokens are accepted (`security.auth.allow_expired`).")
 
@@ -190,6 +198,18 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
     issuer = unverified_claims.get("iss")
     if not isinstance(issuer, str) or issuer not in conf.issuers:
         raise _unauthorized("JWT issuer is not trusted")
+
+    # Reject JWTs that are not access tokens (e.g., ID tokens) before any
+    # network request; the `typ` header is a media type, so compared
+    # case-insensitively (RFC 7515, §4.1.9), ignoring surrounding whitespace
+    # in the configured types
+    if conf.verify_token_type:
+        # Header can be decoded, as the token was decoded before
+        token_type = jwt.get_unverified_header(token).get("typ")
+        if not isinstance(token_type, str) or token_type.lower() not in {
+            typ.strip().lower() for typ in conf.token_types
+        }:
+            raise _unauthorized("JWT type is not accepted")
 
     oidc_config = _get_oidc_config(issuer=issuer, conf=conf)
     claims = _verify_signature(

@@ -99,6 +99,7 @@ nav:
   - Deployment: deployment.md
   - Helm library chart: helm-chart.md
   - Utilities: utilities.md
+  - Migrating to 0.16.0: migration-0.16.md
   - Migrating to 0.15.0: migration-0.15.md
   - Migrating to 0.14.0: migration-0.14.md
   - API reference: reference.md

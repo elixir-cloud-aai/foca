@@ -45,6 +45,13 @@ security:
     # rejected
     issuers:
       - https://login.example.org/oidc/
+    # Accepted token types (`typ` header); by default, only OAuth 2.0 access
+    # tokens as per RFC 9068, so that other JWTs (e.g., ID tokens) are
+    # rejected; set `verify_token_type: False` only if the issuers do not
+    # set the `typ` header of their access tokens (not recommended)
+    token_types:
+      - at+jwt
+      - application/at+jwt
 
 # API CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/api/
