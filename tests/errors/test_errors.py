@@ -4,15 +4,24 @@ Tests for exceptions.py
 
 import json
 import sys
+from http import HTTPStatus
 from types import ModuleType
 
 import pytest
 from connexion import App
 from connexion.exceptions import BadRequestProblem, OAuthProblem
-from werkzeug.exceptions import NotFound, ServiceUnavailable
+from werkzeug.exceptions import (
+    NotFound,
+    RequestedRangeNotSatisfiable,
+    RequestEntityTooLarge,
+    RequestURITooLarge,
+    ServiceUnavailable,
+    UnprocessableEntity,
+)
 
 from foca.errors import exceptions as exceptions_module
 from foca.errors.exceptions import (
+    _RFC_9110_PHRASES,
     DEFAULT_PROBLEM,
     _exc_to_str,
     _log_exception,
@@ -112,6 +121,20 @@ class TestBuildProblem:
             (OAuthProblem(), {"title": "Unauthorized", "status": 401}),
             (StarletteLikeException(), {"title": "Conflict", "status": 409}),
             (UnassignedStatusException(), {"title": "Error", "status": 499}),
+            # RFC 9110 reason phrases on all Python versions
+            (
+                RequestEntityTooLarge(),
+                {"title": "Content Too Large", "status": 413},
+            ),
+            (RequestURITooLarge(), {"title": "URI Too Long", "status": 414}),
+            (
+                RequestedRangeNotSatisfiable(),
+                {"title": "Range Not Satisfiable", "status": 416},
+            ),
+            (
+                UnprocessableEntity(),
+                {"title": "Unprocessable Content", "status": 422},
+            ),
             # no (valid) status code
             (InvalidStatusException(), DEFAULT_PROBLEM),
             (UnknownException(), DEFAULT_PROBLEM),
@@ -120,6 +143,16 @@ class TestBuildProblem:
     )
     def test_resolution(self, conf, exception, problem):
         assert build_problem(exception, conf) == (problem, problem["status"])
+
+    @pytest.mark.skipif(
+        sys.version_info < (3, 13),
+        reason="HTTPStatus has RFC 9110 phrases since Python 3.13",
+    )
+    def test_rfc_9110_phrases(self):
+        """Overridden phrases are those of `HTTPStatus` on newer Pythons."""
+        assert {
+            status: HTTPStatus(status).phrase for status in _RFC_9110_PHRASES
+        } == _RFC_9110_PHRASES
 
     def test_catch_all(self, conf):
         """Catch-all entries apply only to exceptions without status."""
