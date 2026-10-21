@@ -123,6 +123,7 @@ ignore = [
 "docs/**" = ["D"]
 "examples/**" = ["D"]
 "tests/**" = ["D"]
+"charts/*/tests/**" = ["D"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -132,6 +133,9 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+# Tests of the package; those of the Helm charts (`charts/*/tests`) need
+# Helm and run separately (see `.github/workflows/charts.yml`)
+testpaths = ["tests"]
 markers = [
     "mongodb: needs a MongoDB server on localhost:12345 (deselect with '-m \"not mongodb\"')",
 ]
