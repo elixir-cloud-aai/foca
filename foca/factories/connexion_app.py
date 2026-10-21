@@ -4,6 +4,8 @@ import logging
 from ipaddress import ip_address
 
 from connexion import App
+from flask import current_app, request
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from foca.config.access import set_app_config
 from foca.models.config import Config
@@ -55,6 +57,36 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+def _check_body_size() -> None:
+    """Reject request bodies larger than `MAX_CONTENT_LENGTH` (`413`).
+
+    Registered to run before each request if the size of request bodies is
+    limited. Werkzeug rejects bodies with a larger declared size
+    (`Content-Length`) only when they are read, and reads bodies without a
+    declared size (e.g., chunked) up to the limit only, silently dropping the
+    rest. Bodies with a larger declared size are thus rejected here without
+    reading them, also for operations that don't read their body, and bodies
+    without a declared size are read up to one byte more than the limit, to
+    tell whether they are larger. The body is cached for the request, i.e.,
+    at most the limit plus one byte is kept in memory.
+
+    Raises:
+        werkzeug.exceptions.RequestEntityTooLarge: The request body is larger
+            than `MAX_CONTENT_LENGTH`.
+    """
+    limit = current_app.config["MAX_CONTENT_LENGTH"]
+    if limit is None:
+        return
+    if request.content_length is not None:
+        if request.content_length > limit:
+            raise RequestEntityTooLarge()
+        return
+    request.max_content_length = limit + 1
+    # cached (`cache=True`, the default), so Connexion reads the same data
+    if len(request.get_data()) > limit:
+        raise RequestEntityTooLarge()
+
+
 def __add_config_to_connexion_app(
     app: App,
     config: Config,
@@ -80,6 +112,8 @@ def __add_config_to_connexion_app(
     app.app.config["TESTING"] = conf.testing
     if conf.max_content_length is not None:
         app.app.config["MAX_CONTENT_LENGTH"] = conf.max_content_length
+        # before Connexion's handling, i.e., before auth and validation
+        app.app.before_request(_check_body_size)
     if conf.debug and not _is_loopback(conf.host):
         logger.warning(
             f"Debug mode is enabled on host '{conf.host}': the interactive "
