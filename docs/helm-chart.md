@@ -21,8 +21,17 @@ chart: its values, a few settings and one line per resource. It renders:
 
 The library chart lives in [`charts/foca-common`][library] and is versioned
 independently of FOCA. The [petstore example][petstore-chart] has a thin chart
-built on it, which you can copy as a starting point; its image (not
-published) is built from `examples/petstore` and serves the app with Gunicorn.
+built on it, which you can copy as a starting point. Its image is not
+published; it serves the app with Gunicorn. To try the example, build it and
+the FOCA image it is based on, and load it into the cluster (e.g., for
+[kind](https://kind.sigs.k8s.io/)):
+
+```bash
+cd examples/petstore
+docker compose build foca-petstore-root
+docker build -t foca-petstore .
+kind load docker-image foca-petstore
+```
 
 ## Building an app chart
 
@@ -136,7 +145,7 @@ your app's `valuesKey`:
 | `hostName` | Public host name of the Ingress or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
 | `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `probePath`, `ingress`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
-| `mongodb` | MongoDB: `enabled`, `image`, `auth`, `networkPolicy`, `volumeSize`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
+| `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `volumeSize`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 
 The values are described in detail in the example's `values.yaml`. The
 library's schema of these values is
@@ -155,8 +164,10 @@ library's schema of these values is
   `mongodb.auth.enabled: false`, but then any pod that can reach MongoDB can
   read and modify its data.
 - **External databases:** with `mongodb.enabled: false`, no MongoDB is
-  deployed; set its host (and port) in `config.db`, and the credentials of
-  the app user via `mongodb.auth.existingSecret`.
+  deployed; set its host (and port) in `config.db` (rendering fails without
+  `config.db.host`), and the credentials of the app user via
+  `mongodb.auth.existingSecret` (or disable `mongodb.auth.enabled`). The
+  app's values keep the `mongodb` map for these settings.
 - **Network policies:** MongoDB's NetworkPolicy, enabled by default, admits
   only the app's pods of the release. The app's NetworkPolicy is opt-in, as
   its peers depend on the cluster: set `<valuesKey>.networkPolicy.ingressFrom`

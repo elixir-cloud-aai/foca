@@ -28,9 +28,11 @@ config: {}
 
 petstore:
   # Image repository; may include a tag or digest instead of setting `tag`.
-  # The example's image is not published: build it from `examples/petstore`
-  # (`Dockerfile`, on the FOCA image built by `docker-compose.yaml`), which
-  # serves the app with Gunicorn
+  # The example's image is not published; it serves the app with Gunicorn.
+  # Build it in `examples/petstore` with
+  # `docker compose build foca-petstore-root` (the FOCA image) and
+  # `docker build -t foca-petstore .`, and load it into the cluster (e.g.,
+  # `kind load docker-image foca-petstore`)
   image: foca-petstore
   # Image tag; defaults to the chart's `appVersion`
   tag: ""

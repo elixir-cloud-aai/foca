@@ -11,9 +11,10 @@ LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
 LABEL maintainer.organisation="ELIXIR Cloud & AAI"
 
 ## Install the WSGI server for deployments (e.g., with the Helm chart in
-## `chart/`); Docker Compose runs the development server instead
+## `chart/`); Docker Compose runs the development server instead. Pinned,
+## but not updated by Dependabot: bump it manually
 USER root
-RUN pip install --no-cache-dir gunicorn==26.2.2
+RUN pip install --no-cache-dir gunicorn==26.2.0
 USER 1000
 
 ## Set working directory

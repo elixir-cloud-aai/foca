@@ -64,8 +64,6 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 Fails unless the settings of the app chart are valid; renders nothing. The
 settings are a dict with the keys:
 
-The app's values must contain the map `mongodb` (see the docs).
-
 - `valuesKey` (required): key of the app's values (e.g., `cloudRegistry`), a
   map with the settings of its container (`image`, `tag`, `probePath`,
   `ingress`, `networkPolicy`, `podSecurityContext`, `securityContext`,
@@ -82,6 +80,9 @@ The app's values must contain the map `mongodb` (see the docs).
 - `mongodb.databases`: databases of the app's base config (`db.dbs`), the
   first of which FOCA authenticates against; required for the bundled
   MongoDB with authentication, which creates the app user.
+
+The app's values must also contain the map `mongodb`, even for an external
+MongoDB (see the docs).
 */}}
 {{- define "foca-common.checkSettings" -}}
 {{- if not (kindIs "map" .settings) -}}
