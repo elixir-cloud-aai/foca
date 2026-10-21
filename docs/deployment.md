@@ -81,9 +81,11 @@ Things to keep in mind:
 
 ## Kubernetes and Helm
 
-With Helm, let the chart render the overlay from a free-form `config` value
-into a ConfigMap, mount it into the app container and point
-`FOCA_CONFIG_OVERLAY` to it. A minimal chart could contain:
+FOCA's [Helm library chart](helm-chart.md) implements the setup described
+here, so that each app only needs a thin chart. In a chart of your own, let it
+render the overlay from a free-form `config` value into a ConfigMap, mount it
+into the app container and point `FOCA_CONFIG_OVERLAY` to it. A minimal chart
+could contain:
 
 ```yaml title="templates/configmap.yaml"
 apiVersion: v1

@@ -1,0 +1,3 @@
+# The library chart has no values of its own: its templates read the values of
+# the app chart that includes them (see app-values.schema.json and the docs,
+# https://foca.readthedocs.io/en/latest/helm-chart/)

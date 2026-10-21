@@ -6,6 +6,7 @@
 graft tests
 include templates/config.yaml
 prune .github
+prune charts
 prune docker
 prune docs
 prune examples
