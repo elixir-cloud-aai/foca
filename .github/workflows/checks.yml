@@ -62,8 +62,12 @@ jobs:
     # MongoDB 8.0 refuses to start on Linux kernels 6.19 to 7.0.13, which
     # some runners have (https://jira.mongodb.org/browse/SERVER-121912), so
     # on those kernels the MongoDB 8.0 job skips its remaining steps and
-    # passes, with a notice in the job summary; on other kernels, it runs
-    # the tests like the MongoDB 7.0 jobs
+    # passes without testing anything, with a warning and a note in the job
+    # summary; on other kernels, it runs the tests like the MongoDB 7.0 jobs.
+    # The check uses the upstream version from `uname -r`; Ubuntu kernels
+    # report patch level 0 (e.g. 7.0.0-38-generic) even with backported
+    # fixes, so they count as affected until the runners move to a newer
+    # kernel series
     strategy:
       fail-fast: false
       matrix:
@@ -73,12 +77,15 @@ jobs:
           - python-version: "3.13"
             mongodb-version: "8.0"
     steps:
+      # All following steps of this job, except the Codecov upload (MongoDB
+      # 7.0 only), need `if: steps.kernel.outputs.skip != 'true'`
       - name: Check kernel for MongoDB 8.0
         id: kernel
         if: matrix.mongodb-version == '8.0'
         run: |
           release="$(uname -r)"
-          # Numeric part only, e.g. 7.0.0 for 7.0.0-38-generic
+          # Numeric part only, e.g. 7.0.0 for 7.0.0-38-generic; empty if
+          # there is none, and then treated as unaffected (tests run)
           version="$(printf '%s\n' "${release}" | grep -oE '^[0-9]+(\.[0-9]+)*')" || true
           # True if version $1 >= version $2
           version_ge() {
@@ -88,8 +95,8 @@ jobs:
               && version_ge "${version}" 6.19 \
               && ! version_ge "${version}" 7.0.14; then
             echo "skip=true" >> "${GITHUB_OUTPUT}"
-            message="MongoDB 8.0 tests skipped: kernel ${release} is affected by [SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)"
-            echo "::notice title=MongoDB 8.0 tests skipped::Kernel ${release} is affected by SERVER-121912"
+            message="MongoDB 8.0 tests skipped, no tests ran: kernel ${release} is affected by SERVER-121912 (https://jira.mongodb.org/browse/SERVER-121912)"
+            echo "::warning title=MongoDB 8.0 tests skipped::${message}"
             echo "${message}" >> "${GITHUB_STEP_SUMMARY}"
           else
             echo "Kernel ${release} is not affected by SERVER-121912"
