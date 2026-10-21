@@ -630,12 +630,13 @@ claim containing a comma) are denied with `403`. Stored rules that are not
 valid (e.g., added to the database directly) are skipped with a warning when
 policies are loaded.
 
-### Scaling
+## Scaling
 
 All stored rules are loaded on every enforced request (and for the
 permissions API and self-service), so that changes apply immediately and
-consistently across app instances and workers. The cost of each request thus
-grows linearly with the number of stored rules. As resource-scoped roles add
+consistently across app instances and workers. Loading takes time linear in
+the number of stored rules, so the cost of each request grows linearly with
+it. As resource-scoped roles add
 rules per created resource (e.g., one `g2` rule for its owner), apps that let
 users create many resources should consider limiting this, e.g., via quotas
 or rate limits on the endpoints creating them.

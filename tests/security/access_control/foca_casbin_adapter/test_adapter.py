@@ -5,6 +5,7 @@ from pathlib import Path
 import mongomock
 import pytest
 from casbin import Enforcer, Model
+from casbin.model.policy import Policy
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, DuplicateKeyError
 
@@ -392,15 +393,14 @@ class TestLoadPolicy:
         }
 
     def test_no_duplicate_scan_per_rule(self, mock_adapter, monkeypatch):
-        """Rules are loaded without scanning loaded rules for each rule,
-        which takes quadratic time."""
+        """Guard against per-rule duplicate scans (quadratic loading)."""
 
         def fail(*args, **kwargs):
             raise AssertionError("Loaded rules scanned for duplicates")
 
-        monkeypatch.setattr(Model, "has_policy", fail)
-        monkeypatch.setattr(Model, "add_policy", fail)
-        monkeypatch.setattr(Model, "add_policies", fail)
+        for cls in (Model, Policy):
+            for name in ("has_policy", "add_policy", "add_policies"):
+                monkeypatch.setattr(cls, name, fail)
         mock_adapter._collection.insert_many(
             [
                 {"ptype": "p", "v0": f"user{index}", "v1": "b", "v2": "c"}
@@ -412,8 +412,9 @@ class TestLoadPolicy:
         assert len(enforcer.get_policy()) == 3
         assert enforcer.get_roles_for_user("user0") == ["admin"]
 
-    def test_loaded_into_model_with_rules(self, mock_adapter):
-        """Rules already in the model are not loaded again."""
+    def test_existing_model_rules_not_duplicated(self, mock_adapter):
+        """Rules already in the model are not loaded again, and the model's
+        policy index covers all rules."""
         mock_adapter._collection.insert_many(
             [
                 {"ptype": "p", "v0": "a", "v1": "b", "v2": "c"},

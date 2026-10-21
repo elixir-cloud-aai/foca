@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from casbin import persist
-from casbin.model import Model
+from casbin.model import Assertion, Model
 from casbin.model.policy import DEFAULT_SEP
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
@@ -111,6 +111,7 @@ class Adapter(persist.Adapter):
         Args:
             model: Casbin model to load rules into.
         """
+        # Not `policy_map`: `clear_policy()` does not clear it on reloads
         loaded: dict[str, set[tuple[str, ...]]] = {}
         for document in self._collection.find():
             ptype = document.get("ptype")
@@ -130,10 +131,7 @@ class Adapter(persist.Adapter):
             if key in loaded[ptype]:
                 continue
             loaded[ptype].add(key)
-            assertion.policy.append(values)
-            assertion.policy_map[DEFAULT_SEP.join(values)] = (
-                len(assertion.policy) - 1
-            )
+            _append_rule(assertion, values)
 
     def save_policy_line(
         self,
@@ -322,6 +320,21 @@ class Adapter(persist.Adapter):
 
         results = self._collection.delete_many(query)
         return results.deleted_count > 0
+
+
+def _append_rule(assertion: Assertion, values: list[str]) -> None:
+    """Append a rule to a policy of a Casbin model.
+
+    Args:
+        assertion: Policy definition of the model to append the rule to.
+        values: Values of the rule.
+    """
+    # Mirrors casbin's `persist.load_policy_line()` and `Policy.add_policy()`
+    # without the latter's duplicate scan; `Enforcer.load_policy()` re-sorts
+    # the rules after loading. Re-check when bumping pycasbin: 2.8.0 is the
+    # only release in the allowed range `>=2.8,<3` (per PyPI).
+    assertion.policy.append(values)
+    assertion.policy_map[DEFAULT_SEP.join(values)] = len(assertion.policy) - 1
 
 
 def _rule_query(ptype: str, rule: list[str]) -> dict:

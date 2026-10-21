@@ -1317,7 +1317,8 @@ class TestLoadPolicy:
             assert enforcer.enforce("user:a", "/x", "GET")
         assert "Skipping invalid policy rule 'invalid'" in caplog.text
 
-    def test_duplicates_loaded_once(self, helper_app):
+    def test_get_enforcer_loads_duplicates_once(self, helper_app):
+        """Rules stored twice via the app's adapter are enforced once."""
         adapter = helper_app.config["casbin_adapter"]
         for _ in range(2):
             adapter.save_policy_line("g", ["user:alice", "admin"])
