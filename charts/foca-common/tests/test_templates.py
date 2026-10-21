@@ -13,6 +13,7 @@ from chart_helpers import (
     APP_CHART,
     HELM,
     LIBRARY,
+    NO_HOOKS,
     REQUIRED_VALUES,
     Docs,
     Manifest,
@@ -123,7 +124,7 @@ def test_names(chart: Path, release: str, args: tuple[str, ...], app: str):
         "template",
         release,
         str(chart),
-        "--no-hooks",
+        NO_HOOKS,
         "--set",
         "hostName=x",
         "--set",
@@ -729,8 +730,13 @@ def test_app_chart_test_hook(chart: Path) -> None:
     (pod,) = index(rendered).values()
     assert pod["metadata"]["annotations"]["helm.sh/hook"] == "test"
     (container,) = pod["spec"]["containers"]
-    assert container["image"] == "foca-petstore:latest"
+    app_version = yaml.safe_load((APP_CHART / "Chart.yaml").read_text())["appVersion"]
+    assert container["image"] == f"foca-petstore:{app_version}"
     assert _env(container)["PETSTORE_URL"] == "http://petstore:8080"
     command = container["command"]
     assert command[:2] == ["python", "-c"]
     compile(command[2], "test-api", "exec")
+
+
+def test_hooks_not_rendered_by_default(render: Callable[..., Docs]) -> None:
+    assert "Pod" not in {kind for kind, _ in render()}

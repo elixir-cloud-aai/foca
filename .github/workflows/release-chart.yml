@@ -1,9 +1,10 @@
 # Release the library chart foca-common when a chart tag (`chart-vX.Y.Z`) is
-# pushed: check that the tag is signed, on `dev` and matches the chart's
-# `version`, that the version was not published yet, lint and test the
-# chart, package it and push it as an OCI artifact to
-# `oci://ghcr.io/elixir-cloud-aai/charts`. Independent of FOCA's releases
-# (`release.yml`, tags `vX.Y.Z`). See "Releases" in docs/helm-chart.md.
+# pushed: lint, test and install the charts (`charts.yml`), check that the
+# tag is signed, on `dev` and matches the chart's `version`, and that the
+# version was not published yet, then package the chart and push it as an
+# OCI artifact to `oci://ghcr.io/elixir-cloud-aai/charts`. Only final
+# versions (no pre-releases). Independent of FOCA's releases (`release.yml`,
+# tags `vX.Y.Z`). See "Releases" in docs/helm-chart.md.
 
 name: Release chart
 
@@ -25,8 +26,13 @@ env:
   CHART: charts/foca-common
 
 jobs:
+  charts:
+    name: Test charts
+    uses: ./.github/workflows/charts.yml
+
   release:
     name: Publish foca-common
+    needs: charts
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -52,7 +58,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if [[ ! "${TAG}" =~ ^chart-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-              echo "::error::Tag '${TAG}' is not a chart release (e.g., chart-v1.2.3)"
+              echo "::error::Tag '${TAG}' is not a chart release (e.g., chart-v1.2.3; no pre-releases)"
               exit 1
           fi
           version="${BASH_REMATCH[1]}"
@@ -78,17 +84,6 @@ jobs:
               exit 1
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.13"
-      - name: Install package
-        run: pip install -e .[dev]
-      - name: Lint and test chart
-        run: |
-          helm lint --strict "${CHART}"
-          helm dependency build examples/petstore/chart
-          pytest charts/foca-common/tests
       - name: Log in to GHCR
         env:
           ACTOR: ${{ github.actor }}

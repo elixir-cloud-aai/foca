@@ -51,10 +51,10 @@ dependencies:
 ```
 
 The library chart is published to this OCI repository from its first
-[release](#releases) on; until then, use a `file://` repository in a clone
-of FOCA, as the petstore example does. Run `helm dependency update` to download it (into
-`charts/`, which you may add to `.gitignore`) and to create `Chart.lock`,
-which you commit.
+[release](#releases) on; until then, use a `file://` repository in a clone of
+FOCA, as the petstore example does. Run `helm dependency update` to download
+it (into `charts/`, which you may add to `.gitignore`) and to create
+`Chart.lock`, which you commit.
 
 ### Settings
 
@@ -218,14 +218,16 @@ versioning](https://semver.org/): app charts depend on a particular version,
 so every change of the library chart needs a new `version` in
 `charts/foca-common/Chart.yaml`. To release it, merge the version change
 into `dev`, then create and push a signed tag `chart-vX.Y.Z` of that
-version on the merge commit:
+version on the merge commit (only final versions are released, no
+pre-releases):
 
 ```bash
 git tag -s chart-v0.1.0 -m "foca-common 0.1.0"
 git push origin chart-v0.1.0
 ```
 
-The [release workflow][release-chart] checks that the tag is signed (with a
+The [release workflow][release-chart] runs the chart checks and the kind
+installation of CI, checks that the tag is signed (with a
 signature that GitHub verifies), is on `dev` and matches the chart's
 version, and that the version has not been published yet; it lints and tests
 the chart, packages it and pushes it to

@@ -150,8 +150,8 @@ notes. Tags of alpha, beta and release candidate versions (e.g.,
 releases are GitHub pre-releases (never marked as the latest release).
 
 The Helm library chart `foca-common` (`charts/foca-common`) is versioned
-and released separately, from signed tags `chart-vX.Y.Z` (see
-[Releases][docs-helm-chart-releases] of the library chart).
+and released separately, from signed tags `chart-vX.Y.Z`; see [releases of
+the library chart][docs-helm-chart-releases].
 
 ## License
 
