@@ -4,3 +4,6 @@
 
 # style: adopt ruff and pre-commit (#267)
 dc13eadd71d240188ca57f05465bf51e1903f576
+
+# style: reformat with line length 88 (#353)
+8dfb0ca7b4cef4cdc18f0585e04a25515b715603

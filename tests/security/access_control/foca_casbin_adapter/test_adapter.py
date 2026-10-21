@@ -1,13 +1,15 @@
 """Tests for `adapter.py` module."""
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar, NoReturn
 
 import mongomock
 import pytest
 from casbin import Enforcer, Model
 from casbin.model.policy import Policy
 from pymongo import MongoClient
+from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure, DuplicateKeyError
 
 from foca.security.access_control.constants import ID_ATTEMPTS
@@ -39,13 +41,17 @@ TEST_POLICIES_MODEL_ROLES_CONF = [
 @pytest.fixture(
     params=["mongomock", pytest.param("mongodb", marks=pytest.mark.mongodb)]
 )
-def policy_collection(request):
-    """Empty policy rule collection, in memory or in a MongoDB server on
-    `localhost:12345` (tests marked `mongodb`)."""
+def policy_collection(
+    request: pytest.FixtureRequest,
+) -> Iterator[Collection[dict[str, Any]]]:
+    """Empty policy rule collection, in memory or in a MongoDB server.
+
+    The MongoDB server runs on `localhost:12345` (tests marked `mongodb`).
+    """
     if request.param == "mongomock":
         yield mongomock.MongoClient()[DB_NAME]["casbin_rule"]
         return
-    client: MongoClient = MongoClient(
+    client: MongoClient[dict[str, Any]] = MongoClient(
         "mongodb://localhost:12345", serverSelectionTimeoutMS=5000
     )
     client.drop_database(DB_NAME)
@@ -57,10 +63,15 @@ class TestAdapter:
     """Class to test adapter configuration."""
 
     @pytest.fixture(autouse=True)
-    def _policy_collection(self, policy_collection):
+    def _policy_collection(self, policy_collection: Collection[dict[str, Any]]) -> None:
         self._collection = policy_collection
 
-    def save_policies(self, adapter: Adapter, model: Model, policies: list) -> None:
+    def save_policies(
+        self,
+        adapter: Adapter,
+        model: Model,
+        policies: list[tuple[str, str, list[str]]],
+    ) -> None:
         """Helper function for saving policies of a given model.
 
         Args:
@@ -73,7 +84,9 @@ class TestAdapter:
             model.add_policy(*policy)
         adapter.save_policy(model)
 
-    def get_enforcer(self, conf_file: str, policies: list) -> Enforcer:
+    def get_enforcer(
+        self, conf_file: str, policies: list[tuple[str, str, list[str]]]
+    ) -> Enforcer:
         """Helper function to register policy enforcer.
 
         Args:
@@ -94,11 +107,11 @@ class TestAdapter:
         self.save_policies(adapter=adapter, model=model, policies=policies)
         return Enforcer(conf_file, adapter)
 
-    def collection(self):
+    def collection(self) -> Collection[dict[str, Any]]:
         """Policy rule collection of the test."""
         return self._collection
 
-    def test_enforcer(self):
+    def test_enforcer(self) -> None:
         """Test policy enforcer."""
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
@@ -111,7 +124,7 @@ class TestAdapter:
         assert e.enforce("alice", "data2", "read") is True
         assert e.enforce("alice", "data2", "write") is True
 
-    def test_add_policy(self):
+    def test_add_policy(self) -> None:
         """Test for adding new policy."""
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
@@ -131,7 +144,7 @@ class TestAdapter:
         assert e.enforce("alice", "data1", "read") is True
         assert e.enforce("bob", "data2", "read") is True
 
-    def test_remove_policy(self):
+    def test_remove_policy(self) -> None:
         """Test for removing policy."""
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
@@ -149,7 +162,7 @@ class TestAdapter:
         assert e.enforce("alice", "data2", "read") is False
         assert e.enforce("alice", "data2", "write") is False
 
-    def test_remove_policy_keeps_configured(self):
+    def test_remove_policy_keeps_configured(self) -> None:
         """Configured copies of a rule are not removed."""
         adapter = Adapter(collection=self._collection)
         adapter.save_policy_line("g", ["a", "b"], configured=True)
@@ -160,9 +173,10 @@ class TestAdapter:
         assert len(documents) == 1
         assert documents[0]["configured"] is True
 
-    def test_remove_policy_with_incomplete_rule(self):
-        """Test to remove policy with incomplete rule. (Policy should not be
-        removed)
+    def test_remove_policy_with_incomplete_rule(self) -> None:
+        """Test to remove policy with incomplete rule.
+
+        Policy should not be removed.
         """
         adapter = Adapter(self.collection())
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
@@ -179,7 +193,7 @@ class TestAdapter:
 
         # test remove_policy doesn't remove when given an incomplete policy
         remove_policy = adapter.remove_policy(
-            sec="p", ptype="p", rule=("alice", "data1")
+            sec="p", ptype="p", rule=["alice", "data1"]
         )
         e.load_policy()
 
@@ -189,9 +203,10 @@ class TestAdapter:
         assert e.enforce("bob", "data2", "read") is True
         assert e.enforce("alice", "data2", "write") is True
 
-    def test_remove_policy_with_empty_rule(self):
-        """Test to remove policy with empty rule. (Policy should not be
-        removed)
+    def test_remove_policy_with_empty_rule(self) -> None:
+        """Test to remove policy with empty rule.
+
+        Policy should not be removed.
         """
         adapter = Adapter(self.collection())
         e = Enforcer(MODEL_ROLES_CONF_FILE, adapter)
@@ -203,13 +218,17 @@ class TestAdapter:
 
         assert e.enforce("alice", "data1", "write") is True
 
-        remove_policy = adapter.remove_policy(sec="p", ptype=None, rule=())
+        remove_policy = adapter.remove_policy(
+            sec="p",
+            ptype=None,  # type: ignore[arg-type]  # invalid policy type
+            rule=[],
+        )
         e.load_policy()
 
         assert remove_policy is False
         assert e.enforce("alice", "data1", "write") is True
 
-    def test_save_policy(self):
+    def test_save_policy(self) -> None:
         """Test to save policy."""
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
@@ -224,7 +243,7 @@ class TestAdapter:
 
         assert e.enforce("alice", "data4", "read") is True
 
-    def test_remove_filtered_policy(self):
+    def test_remove_filtered_policy(self) -> None:
         """Test to remove filtered policy definitions."""
         e = self.get_enforcer(
             conf_file=MODEL_CONF_FILE, policies=TEST_POLICIES_MODEL_CONF
@@ -267,7 +286,8 @@ def mock_adapter() -> Adapter:
 class TestAdapterIdentifiers:
     """Tests for identifiers of stored rules."""
 
-    def test_unique_index(self, mock_adapter):
+    def test_unique_index(self, mock_adapter: Adapter) -> None:
+        """Identifiers of stored rules have a unique index."""
         mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
         indexes = mock_adapter._collection.index_information()
         assert any(
@@ -275,7 +295,9 @@ class TestAdapterIdentifiers:
             for index in indexes.values()
         )
 
-    def test_duplicate_stored_ids(self, mock_adapter, caplog):
+    def test_duplicate_stored_ids(
+        self, mock_adapter: Adapter, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Rules are stored even if stored rules share identifiers."""
         mock_adapter._collection.insert_many(
             [
@@ -288,12 +310,14 @@ class TestAdapterIdentifiers:
         assert mock_adapter._collection.count_documents({}) == 4
         assert caplog.text.count("share identifiers") == 1
 
-    def test_index_retried_after_error(self, mock_adapter, monkeypatch):
+    def test_index_retried_after_error(
+        self, mock_adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Index creation is retried if it failed."""
         create_index = mock_adapter._collection.create_index
-        calls = []
+        calls: list[tuple[Any, ...]] = []
 
-        def failing_create_index(*args, **kwargs):
+        def failing_create_index(*args: Any, **kwargs: Any) -> str:
             calls.append(args)
             if len(calls) == 1:
                 raise ConnectionFailure("unavailable")
@@ -308,7 +332,7 @@ class TestAdapterIdentifiers:
         mock_adapter.save_policy_line("g", ["c", "d"])
         assert len(calls) == 2
 
-    def test_remove_rules_with_extra_fields(self, mock_adapter):
+    def test_remove_rules_with_extra_fields(self, mock_adapter: Adapter) -> None:
         """Stored rules are removed irrespective of other fields."""
         mock_adapter._collection.insert_many(
             [
@@ -325,18 +349,24 @@ class TestAdapterIdentifiers:
         assert not mock_adapter.remove_policy("g", "g", ["a", "b"])
         assert not mock_adapter.remove_policy("g", "g", [])
 
-    def test_retry_on_collision(self, mock_adapter, monkeypatch):
+    def test_retry_on_collision(
+        self, mock_adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Identifiers are generated again on collisions."""
         mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
         ids = iter(["abcdef", "abcdef", "ghijkl"])
         monkeypatch.setattr(module, "generate_id", lambda **kwargs: next(ids))
         assert mock_adapter.save_policy_line("g", ["c", "d"]) == "ghijkl"
         assert mock_adapter._collection.count_documents({}) == 2
 
-    def test_retries_exhausted(self, mock_adapter, monkeypatch):
+    def test_retries_exhausted(
+        self, mock_adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Saving fails if no unique identifier is generated in time."""
         mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
-        calls = []
+        calls: list[dict[str, Any]] = []
 
-        def generate_id(**kwargs):
+        def generate_id(**kwargs: Any) -> str:
             calls.append(kwargs)
             return "abcdef"
 
@@ -346,20 +376,23 @@ class TestAdapterIdentifiers:
         assert len(calls) == ID_ATTEMPTS
         assert mock_adapter._collection.count_documents({}) == 1
 
-    def test_configured_ids(self, mock_adapter):
+    def test_configured_ids(self, mock_adapter: Adapter) -> None:
+        """Identifiers follow the configured characters and length."""
         mock_adapter.id_charset = "xy"
         mock_adapter.id_length = 12
         id = mock_adapter.save_policy_line("g", ["a", "b"])
         assert len(id) == 12 and set(id) <= {"x", "y"}
 
-    def test_replace_by_id(self, mock_adapter):
+    def test_replace_by_id(self, mock_adapter: Adapter) -> None:
+        """Rules saved with the identifier of a stored rule replace it."""
         mock_adapter.save_policy_line("g", ["a", "b"], id="abcdef")
         mock_adapter.save_policy_line("g", ["c", "d"], id="abcdef")
         assert list(mock_adapter._collection.find({}, projection={"_id": False})) == [
             {"ptype": "g", "v0": "c", "v1": "d", "id": "abcdef"}
         ]
 
-    def test_save_policy_no_duplicates(self, mock_adapter):
+    def test_save_policy_no_duplicates(self, mock_adapter: Adapter) -> None:
+        """Saving policies repeatedly does not duplicate stored rules."""
         enforcer = Enforcer(MODEL_CONF_FILE, mock_adapter)
         enforcer.add_policy("alice", "data1", "read")
         enforcer.add_grouping_policy("alice", "admin")
@@ -371,10 +404,10 @@ class TestAdapterIdentifiers:
         assert enforcer.get_policy() == [["alice", "data1", "read"]]
 
 
-class _UnsearchableList(list):
+class _UnsearchableList(list[list[str]]):
     """List that fails on searches, which take linear time."""
 
-    def _fail(self, *args, **kwargs):
+    def _fail(self, *args: Any, **kwargs: Any) -> NoReturn:
         raise AssertionError("Loaded rules searched for duplicates")
 
     __contains__ = index = count = _fail
@@ -383,7 +416,7 @@ class _UnsearchableList(list):
 class TestLoadPolicy:
     """Tests for loading stored rules."""
 
-    def test_duplicates_loaded_once(self, mock_adapter):
+    def test_duplicates_loaded_once(self, mock_adapter: Adapter) -> None:
         """Rules stored more than once are loaded once."""
         mock_adapter._collection.insert_many(
             [
@@ -404,10 +437,12 @@ class TestLoadPolicy:
             "b,a": 1,
         }
 
-    def test_no_duplicate_scan_per_rule(self, mock_adapter, monkeypatch):
+    def test_no_duplicate_scan_per_rule(
+        self, mock_adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Guard against per-rule duplicate scans (quadratic loading)."""
 
-        def fail(*args, **kwargs):
+        def fail(*args: Any, **kwargs: Any) -> NoReturn:
             raise AssertionError("Loaded rules scanned for duplicates")
 
         for cls in (Model, Policy):
@@ -433,7 +468,7 @@ class TestLoadPolicy:
         assert len(model.get_policy("p", "p")) == 3
         assert model.get_policy("g", "g") == [["user0", "admin"]]
 
-    def test_existing_model_rules_not_duplicated(self, mock_adapter):
+    def test_existing_model_rules_not_duplicated(self, mock_adapter: Adapter) -> None:
         """Existing model rules are not loaded again and stay indexed."""
         mock_adapter._collection.insert_many(
             [
@@ -463,23 +498,25 @@ class TestConfiguredRules:
     ]
 
     @pytest.fixture(autouse=True)
-    def _rules(self, mock_adapter):
+    def _rules(self, mock_adapter: Adapter) -> None:
         for rule, configured in self.RULES:
             mock_adapter.save_policy_line("g2", rule, configured=configured)
 
-    def test_is_configured_rule(self, mock_adapter):
+    def test_is_configured_rule(self, mock_adapter: Adapter) -> None:
+        """Only rules stored with the mark are configured rules."""
         assert mock_adapter.is_configured_rule("g2", ["user:a", "owner", "/x"])
         assert not mock_adapter.is_configured_rule("g2", ["user:b", "owner", "/x"])
         # values must match exactly
         assert not mock_adapter.is_configured_rule("g2", ["user:a", "owner"])
         assert not mock_adapter.is_configured_rule("g", ["user:a", "owner", "/x"])
 
-    def test_is_configured_rule_with_unmarked_copy(self, mock_adapter):
+    def test_is_configured_rule_with_unmarked_copy(self, mock_adapter: Adapter) -> None:
         """A rule stored both with and without the mark is configured."""
         mock_adapter.save_policy_line("g2", ["user:a", "owner", "/x"])
         assert mock_adapter.is_configured_rule("g2", ["user:a", "owner", "/x"])
 
-    def test_get_filtered_rules(self, mock_adapter):
+    def test_get_filtered_rules(self, mock_adapter: Adapter) -> None:
+        """Rules are filtered by a value and by the mark."""
         # stored twice, returned once
         mock_adapter.save_policy_line("g2", ["user:a", "owner", "/x"], configured=True)
         assert mock_adapter.get_filtered_rules("g2", 2, "/x", configured=True) == [
@@ -490,7 +527,8 @@ class TestConfiguredRules:
         ]
         assert mock_adapter.get_filtered_rules("g2", 0, "user:b", configured=True) == []
 
-    def test_get_filtered_rules_several_values(self, mock_adapter):
+    def test_get_filtered_rules_several_values(self, mock_adapter: Adapter) -> None:
+        """Rules are filtered by consecutive values."""
         assert mock_adapter.get_filtered_rules(
             "g2", 1, "owner", "/x/1", configured=True
         ) == [["user:c", "owner", "/x/1"]]
@@ -503,10 +541,9 @@ class TestConfiguredRules:
 
     @pytest.mark.parametrize("field_index", [-1, 6])
     def test_remove_filtered_policy_keep_configured_invalid_filter(
-        self, mock_adapter, field_index
-    ):
-        """Invalid filters remove nothing, also when keeping configured
-        rules."""
+        self, mock_adapter: Adapter, field_index: int
+    ) -> None:
+        """Invalid filters remove nothing, also when keeping configured rules."""
         assert not mock_adapter.remove_filtered_policy(
             "g", "g2", field_index, "/x", keep_configured=True
         )
@@ -515,7 +552,10 @@ class TestConfiguredRules:
         )
         assert mock_adapter._collection.count_documents({}) == len(self.RULES)
 
-    def test_remove_filtered_policy_keep_configured(self, mock_adapter):
+    def test_remove_filtered_policy_keep_configured(
+        self, mock_adapter: Adapter
+    ) -> None:
+        """Configured rules are kept when removing rules, if requested."""
         assert mock_adapter.remove_filtered_policy(
             "g", "g2", 2, "/x", keep_configured=True
         )

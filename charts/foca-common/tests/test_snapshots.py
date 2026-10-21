@@ -46,6 +46,7 @@ CASES: dict[str, tuple[str, ...]] = {
 
 @pytest.mark.parametrize("name", CASES)
 def test_snapshot(chart: Path, name: str) -> None:
+    """Rendered manifests equal the stored snapshot."""
     rendered = template(chart, *CASES[name])
     snapshot = SNAPSHOTS / f"{name}.yaml"
     if os.environ.get("UPDATE_SNAPSHOTS"):
@@ -59,5 +60,6 @@ def test_snapshot(chart: Path, name: str) -> None:
 
 
 def test_no_stale_snapshots() -> None:
+    """Every stored snapshot belongs to a case."""
     stored = {path.stem for path in SNAPSHOTS.glob("*.yaml")}
     assert stored == set(CASES)

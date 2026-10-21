@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from casbin.model import Model
 
@@ -42,7 +43,9 @@ def validate_rule_value(value: object) -> str:
     return value
 
 
-def validate_rule(ptype: object, values: list, model: Model | None = None) -> list[str]:
+def validate_rule(
+    ptype: object, values: list[Any], model: Model | None = None
+) -> list[str]:
     """Validate a policy rule.
 
     Args:
@@ -149,7 +152,7 @@ class CasbinRule:
         """
         return [value for value in self._fields().values() if value is not None]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert rule to dictionary.
 
         Returns:

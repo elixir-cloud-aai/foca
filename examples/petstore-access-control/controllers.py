@@ -7,9 +7,10 @@ the pet.
 """
 
 import logging
+from typing import Any
 
 from exceptions import NotFound
-from flask import make_response, request
+from flask import Response, make_response, request
 from pymongo import ReturnDocument
 from pymongo.collection import Collection
 
@@ -23,7 +24,7 @@ from foca.security.access_control import (
 logger = logging.getLogger(__name__)
 
 
-def _get_collection(name: str = "pets") -> Collection:
+def _get_collection(name: str = "pets") -> Collection[dict[str, Any]]:
     return get_collection(db="petstore-access-control", collection=name)
 
 
@@ -40,7 +41,19 @@ def _next_pet_id() -> int:
     return counter["value"] - 1
 
 
-def findPets(limit=None, tags=None):
+def findPets(
+    limit: int | None = None,
+    tags: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Get pets, newest first.
+
+    Args:
+        limit: Maximum number of pets to return; all pets if not set or 0.
+        tags: Tags to filter pets by; pets with any of the tags are returned.
+
+    Returns:
+        Pets.
+    """
     db_collection = _get_collection()
     filter_dict = {} if tags is None else {"tag": {"$in": tags}}
     if not limit:
@@ -62,7 +75,15 @@ def _pet_path(id: int) -> str:
     return f"{base_path}/{id}"
 
 
-def addPet(pet):
+def addPet(pet: dict[str, Any]) -> dict[str, Any]:
+    """Add a pet, owned by the current user.
+
+    Args:
+        pet: Pet to add, with its name and optional tag.
+
+    Returns:
+        Added pet, with its identifier.
+    """
     db_collection = _get_collection()
     pet_id = _next_pet_id()
     record = {"id": pet_id, "name": pet["name"]}
@@ -79,7 +100,18 @@ def addPet(pet):
     return record
 
 
-def findPetById(id):
+def findPetById(id: int) -> dict[str, Any]:
+    """Get a pet.
+
+    Args:
+        id: Identifier of the pet.
+
+    Returns:
+        Pet.
+
+    Raises:
+        werkzeug.exceptions.NotFound: The pet does not exist.
+    """
     db_collection = _get_collection()
     record = db_collection.find_one(
         {"id": id},
@@ -90,7 +122,18 @@ def findPetById(id):
     return record
 
 
-def deletePet(id):
+def deletePet(id: int) -> Response:
+    """Delete a pet, with all roles granted on it.
+
+    Args:
+        id: Identifier of the pet.
+
+    Returns:
+        Empty response with status 204.
+
+    Raises:
+        werkzeug.exceptions.NotFound: The pet does not exist.
+    """
     db_collection = _get_collection()
     record = db_collection.find_one(
         {"id": id},

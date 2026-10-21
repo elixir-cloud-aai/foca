@@ -147,9 +147,10 @@ def __add_config_to_connexion_app(
     app.app.before_request(_check_body_size)
     if conf.debug and not _is_loopback(conf.host):
         logger.warning(
-            f"Debug mode is enabled on host '{conf.host}': the interactive "
+            "Debug mode is enabled on host '%s': the interactive "
             "debugger allows executing arbitrary code. Only use debug mode "
-            "for local development."
+            "for local development.",
+            conf.host,
         )
 
     # Add user configuration to Flask app config

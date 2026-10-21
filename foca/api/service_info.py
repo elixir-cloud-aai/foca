@@ -128,7 +128,7 @@ def getServiceInfo() -> dict[str, Any]:
     try:
         return get_service_info()
     except (InvalidServiceInfo, RuntimeError) as exc:
-        logger.exception(f"Service info not served: {exc}")
+        logger.exception("Service info not served: %s", exc)
         raise InternalServerError() from exc
 
 
@@ -183,4 +183,4 @@ def check_service_info(app: Flask) -> None:
             logger.info("No service info configured.")
             return
         info = get_service_info()
-    logger.info(f"Serving service info '{info['id']}', version '{info['version']}'.")
+    logger.info("Serving service info '%s', version '%s'.", info["id"], info["version"])

@@ -2,7 +2,7 @@
 
 ## Installation
 
-Install the [FOCA package](https://pypi.org/project/foca/) (Python 3.10 or
+Install the [FOCA package](https://pypi.org/project/foca/) (Python 3.11 or
 later) with `pip`:
 
 ```bash

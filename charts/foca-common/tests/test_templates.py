@@ -84,6 +84,7 @@ def _pod_spec(docs: Docs, name: str = APP) -> Manifest:
 
 
 def test_default_resources(render: Callable[..., Docs]) -> None:
+    """Default values render the expected resources."""
     assert set(render()) == {
         ("ConfigMap", CONFIG),
         ("ConfigMap", INIT_SCRIPT),
@@ -98,6 +99,7 @@ def test_default_resources(render: Callable[..., Docs]) -> None:
 
 
 def test_labels(render: Callable[..., Docs]) -> None:
+    """Resources carry the recommended labels."""
     for (_, name), doc in render().items():
         component = "mongodb" if name.startswith(MONGODB) else "app"
         assert doc["metadata"]["labels"] == {
@@ -119,7 +121,8 @@ def test_labels(render: Callable[..., Docs]) -> None:
         ("prod", ("--set", "fullnameOverride=shop"), "shop"),
     ],
 )
-def test_names(chart: Path, release: str, args: tuple[str, ...], app: str):
+def test_names(chart: Path, release: str, args: tuple[str, ...], app: str) -> None:
+    """Resource names follow the release and name overrides."""
     rendered = helm(
         "template",
         release,
@@ -141,6 +144,7 @@ def test_names(chart: Path, release: str, args: tuple[str, ...], app: str):
 
 
 def test_name_collision_fails(render_error: Callable[..., str]) -> None:
+    """Names that would collide after truncation fail."""
     long_name = "a" * 55 + "-mongodb"
     error = render_error("--set", f"fullnameOverride={long_name}")
     assert "would both be named" in error
@@ -149,6 +153,7 @@ def test_name_collision_fails(render_error: Callable[..., str]) -> None:
 def test_external_mongodb_needs_host(
     render_error: Callable[..., str],
 ) -> None:
+    """An external MongoDB needs a database host."""
     error = render_error("--set", "mongodb.enabled=false")
     assert "config.db.host must be set" in error
 
@@ -156,11 +161,13 @@ def test_external_mongodb_needs_host(
 def test_settings_must_be_yaml(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
+    """Settings that are not valid YAML fail."""
     chart = chart_with_settings("valuesKey: [")
     assert "settings are not valid YAML" in template_error(chart)
 
 
 def test_mongodb_disabled(render: Callable[..., Docs]) -> None:
+    """Without the bundled MongoDB, only the app renders."""
     docs = render(
         "--set",
         "mongodb.enabled=false",
@@ -179,6 +186,7 @@ def test_mongodb_disabled(render: Callable[..., Docs]) -> None:
 def test_settings_required(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
+    """Settings without valuesKey fail."""
     chart = chart_with_settings("containerName: x")
     assert re.search("must set valuesKey", template_error(chart))
 
@@ -186,11 +194,13 @@ def test_settings_required(
 def test_values_key_must_be_map(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
+    """A valuesKey that names no map fails."""
     chart = chart_with_settings("valuesKey: store")
     assert re.search("store must be a map", template_error(chart))
 
 
 def test_all_settings(chart_with_settings: Callable[[str], Path]) -> None:
+    """All settings of the app take effect."""
     docs = index(template(chart_with_settings(FULL_SETTINGS), *AUDIENCE))
     container = _container(docs)
     assert container["name"] == "store"
@@ -227,6 +237,7 @@ def test_audience_required(
     tmp_path: Path,
     config: dict[str, Any],
 ) -> None:
+    """A missing or empty audience fails when required."""
     chart = chart_with_settings(FULL_SETTINGS)
     # A values file, as `--set` removes keys set to `null`
     values = tmp_path / "values.yaml"
@@ -239,6 +250,7 @@ def test_audience_required(
 def test_audience_validation_disabled(
     chart_with_settings: Callable[[str], Path], value: str
 ) -> None:
+    """Disabling the audience validation lifts the audience requirement."""
     chart = chart_with_settings(FULL_SETTINGS)
     template(chart, "--set-json", f"config.security.auth.verify_audience={value}")
 
@@ -246,12 +258,14 @@ def test_audience_validation_disabled(
 def test_audience_not_required_by_default(
     render: Callable[..., Docs],
 ) -> None:
+    """Without requireAudience, no audience is needed."""
     render()
 
 
 def test_init_script_needs_databases(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
+    """MongoDB authentication needs the app's databases."""
     chart = chart_with_settings("valuesKey: petstore")
     assert re.search(r"mongodb\.databases", template_error(chart))
     template(chart, "--set", "mongodb.auth.enabled=false")
@@ -261,6 +275,7 @@ def test_init_script_needs_databases(
 
 
 def test_overlay_merges_config(render: Callable[..., Docs]) -> None:
+    """The overlay merges config into the defaults."""
     config = {
         "db": {"port": 1234},
         "log": {"handlers": {"console": {"level": 20}}},
@@ -272,18 +287,21 @@ def test_overlay_merges_config(render: Callable[..., Docs]) -> None:
     }
 
 
-def test_overlay_config_takes_precedence(render: Callable[..., Docs]):
+def test_overlay_config_takes_precedence(render: Callable[..., Docs]) -> None:
+    """Config overrides the default overlay."""
     docs = render("--set", "config.db.host=other")
     assert _overlay(docs) == {"db": {"host": "other"}}
 
 
 @pytest.mark.parametrize("section", ["db", "server"])
 def test_overlay_drops_null_sections(render: Callable[..., Docs], section: str) -> None:
+    """Sections set to null are dropped."""
     docs = render("--set-json", f"config.{section}=null")
     assert _overlay(docs) == {"db": {"host": MONGODB}}
 
 
 def test_checksum_follows_config(render: Callable[..., Docs]) -> None:
+    """The config checksum changes only with config."""
     default = _checksum(render())
     assert _checksum(render()) == default
     assert _checksum(render("--set", "config.log.root.level=10")) != default
@@ -295,6 +313,7 @@ def test_checksum_follows_config(render: Callable[..., Docs]) -> None:
 
 
 def test_container(render: Callable[..., Docs]) -> None:
+    """The app container has the expected defaults."""
     docs = render()
     container = _container(docs)
     assert container["image"] == "foca-petstore:latest"
@@ -340,10 +359,12 @@ def test_container(render: Callable[..., Docs]) -> None:
     ],
 )
 def test_image(render: Callable[..., Docs], args: tuple[str, ...], image: str) -> None:
+    """Image references are built from image and tag."""
     assert _container(render(*args))["image"] == image
 
 
-def test_image_with_tag_and_tag_fails(render_error: Callable[..., str]):
+def test_image_with_tag_and_tag_fails(render_error: Callable[..., str]) -> None:
+    """A tag in both image and tag fails."""
     error = render_error(
         "--set", "petstore.image=pets:2", "--set-string", "petstore.tag=3"
     )
@@ -351,6 +372,7 @@ def test_image_with_tag_and_tag_fails(render_error: Callable[..., str]):
 
 
 def test_image_pull_policy(render: Callable[..., Docs]) -> None:
+    """The pull policy follows the values."""
     docs = render("--set", "petstore.imagePullPolicy=Never")
     assert _container(docs)["imagePullPolicy"] == "Never"
     docs = render("--set-json", "petstore.imagePullPolicy=null")
@@ -358,6 +380,7 @@ def test_image_pull_policy(render: Callable[..., Docs]) -> None:
 
 
 def test_without_gunicorn(render: Callable[..., Docs]) -> None:
+    """Without Gunicorn, its settings are left out."""
     docs = render(
         "--set",
         "petstore.gunicorn=null",
@@ -371,6 +394,7 @@ def test_without_gunicorn(render: Callable[..., Docs]) -> None:
 
 
 def test_gunicorn_extra_args_quoted(render: Callable[..., Docs]) -> None:
+    """Extra Gunicorn arguments are shell-quoted."""
     docs = render("--set-json", 'petstore.gunicorn.extraArgs=["--access-logfile", "-"]')
     assert _env(_container(docs))["GUNICORN_CMD_ARGS"] == (
         "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 "
@@ -392,6 +416,7 @@ def test_gunicorn_extra_args_quoted(render: Callable[..., Docs]) -> None:
 def test_gunicorn_reserved_args_fail(
     render_error: Callable[..., str], arg: str
 ) -> None:
+    """Extra Gunicorn arguments that the chart sets fail."""
     error = render_error(
         "--set-json", f"petstore.gunicorn.extraArgs={json.dumps([arg])}"
     )
@@ -400,6 +425,7 @@ def test_gunicorn_reserved_args_fail(
 
 @pytest.mark.parametrize("arg", ["--bind x", "--backlog=1", "-D"])
 def test_gunicorn_other_args_pass(render: Callable[..., Docs], arg: str) -> None:
+    """Other extra Gunicorn arguments pass."""
     render("--set-json", f"petstore.gunicorn.extraArgs={json.dumps([arg])}")
 
 
@@ -410,12 +436,14 @@ def test_gunicorn_other_args_pass(render: Callable[..., Docs], arg: str) -> None
 def test_tmp_size_limit(
     render: Callable[..., Docs], value: str, size: str | None
 ) -> None:
+    """The size limit of /tmp follows the values."""
     docs = render("--set-json", f"petstore.tmpSizeLimit={value}")
     expected = {"sizeLimit": size} if size else {}
     assert _pod_spec(docs)["volumes"][1]["emptyDir"] == expected
 
 
 def test_security_contexts(render: Callable[..., Docs]) -> None:
+    """Pods run as non-root with fixed IDs."""
     docs = render()
     assert _pod_spec(docs)["securityContext"]["runAsNonRoot"] is True
     mongodb = _pod_spec(docs, MONGODB)["securityContext"]
@@ -424,6 +452,7 @@ def test_security_contexts(render: Callable[..., Docs]) -> None:
 
 
 def test_security_contexts_openshift(render: Callable[..., Docs]) -> None:
+    """On OpenShift, pods leave the IDs unset."""
     docs = render(*OPENSHIFT_API)
     for name in (APP, MONGODB):
         context = _pod_spec(docs, name)["securityContext"]
@@ -432,6 +461,7 @@ def test_security_contexts_openshift(render: Callable[..., Docs]) -> None:
 
 
 def test_mongodb_without_auth(render: Callable[..., Docs]) -> None:
+    """Without MongoDB authentication, no credentials are used."""
     docs = render(
         "--set",
         "mongodb.auth.enabled=false",
@@ -445,11 +475,13 @@ def test_mongodb_without_auth(render: Callable[..., Docs]) -> None:
 
 
 def test_mongodb_secret_required(render_error: Callable[..., str]) -> None:
+    """MongoDB authentication needs an existing Secret."""
     error = render_error("--set", "hostName=x", required=False)
     assert "mongodb.auth.existingSecret must be set" in error
 
 
 def test_mongodb_credentials(render: Callable[..., Docs]) -> None:
+    """MongoDB gets its credentials from the Secret."""
     env = _env(_container(render(), MONGODB))
     assert {var: ref["secretKeyRef"]["key"] for var, ref in env.items()} == {
         "MONGO_APP_PASSWORD": "password",
@@ -460,6 +492,7 @@ def test_mongodb_credentials(render: Callable[..., Docs]) -> None:
 
 
 def test_probe_path(render: Callable[..., Docs]) -> None:
+    """All probes use the probe path."""
     container = _container(render("--set", "petstore.probePath=/health"))
     for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
         assert container[probe]["httpGet"]["path"] == "/health"
@@ -493,11 +526,13 @@ def test_probe_path(render: Callable[..., Docs]) -> None:
 def test_termination_grace_period(
     render: Callable[..., Docs], args: tuple[str, ...], seconds: int
 ) -> None:
+    """The grace period covers the preStop sleep and Gunicorn's timeout."""
     spec = _pod_spec(render(*args))
     assert spec["terminationGracePeriodSeconds"] == seconds
 
 
 def test_gunicorn_settings(render: Callable[..., Docs]) -> None:
+    """Gunicorn settings become command-line arguments."""
     docs = render(
         "--set",
         "petstore.gunicorn.workers=2",
@@ -516,6 +551,7 @@ def test_gunicorn_settings(render: Callable[..., Docs]) -> None:
 
 
 def test_service(render: Callable[..., Docs]) -> None:
+    """Services expose and select their Deployments."""
     docs = render()
     for name, component, port in [
         (APP, "app", {"name": "http", "port": 8080, "targetPort": "http"}),
@@ -541,6 +577,7 @@ def test_service(render: Callable[..., Docs]) -> None:
 def test_overlay_db_host_is_mongodb_service(
     render: Callable[..., Docs],
 ) -> None:
+    """The database host is the bundled MongoDB's Service."""
     docs = render("--set", "fullnameOverride=shop")
     overlay = yaml.safe_load(docs[("ConfigMap", "shop-config")]["data"]["overlay.yaml"])
     assert overlay["db"]["host"] == "shop-mongodb"
@@ -548,6 +585,7 @@ def test_overlay_db_host_is_mongodb_service(
 
 
 def test_mongodb_settings(render: Callable[..., Docs]) -> None:
+    """MongoDB settings take effect."""
     docs = render(
         "--set",
         "mongodb.volumeSize=5Gi",
@@ -568,6 +606,7 @@ def test_mongodb_settings(render: Callable[..., Docs]) -> None:
 def test_mongodb_values_required(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
+    """Missing mongodb values fail."""
     chart = chart_with_settings("valuesKey: petstore")
     (chart / "values.schema.json").unlink()
     values = yaml.safe_load((chart / "values.yaml").read_text())
@@ -581,6 +620,7 @@ def test_mongodb_values_required(
 
 
 def test_ingress(render: Callable[..., Docs]) -> None:
+    """The default Ingress routes the host without TLS."""
     ingress = render()[("Ingress", APP)]
     assert "annotations" not in ingress["metadata"]
     assert "ingressClassName" not in ingress["spec"]
@@ -590,6 +630,7 @@ def test_ingress(render: Callable[..., Docs]) -> None:
 
 
 def test_ingress_https(render: Callable[..., Docs]) -> None:
+    """HTTPS adds TLS and cert-manager annotations."""
     ingress = render("--set", "petstore.ingress.https.enabled=true")[("Ingress", APP)]
     assert ingress["metadata"]["annotations"] == {
         "cert-manager.io/cluster-issuer": "letsencrypt-prod",
@@ -604,6 +645,7 @@ def test_ingress_https(render: Callable[..., Docs]) -> None:
 
 
 def test_ingress_annotations(render: Callable[..., Docs]) -> None:
+    """Ingress annotations merge with the defaults."""
     annotations = {"a": "b", "kubernetes.io/tls-acme": None}
     ingress = render(
         "--set",
@@ -622,6 +664,7 @@ def test_ingress_annotations(render: Callable[..., Docs]) -> None:
 
 @pytest.mark.parametrize("value", ["0", "1.5", '"1m"'])
 def test_max_content_length_invalid(chart: Path, value: str, tmp_path: Path) -> None:
+    """Invalid maximum content lengths fail."""
     # Bypasses the schema, which rejects these values already
     chart_copy = tmp_path / "chart"
     shutil.copytree(chart, chart_copy)
@@ -633,16 +676,19 @@ def test_max_content_length_invalid(chart: Path, value: str, tmp_path: Path) -> 
 
 
 def test_ingress_host_required(render_error: Callable[..., str]) -> None:
+    """An Ingress needs a host name."""
     error = render_error("--set", "mongodb.auth.existingSecret=s", required=False)
     assert "hostName must be set" in error
 
 
 def test_no_ingress_no_route(render: Callable[..., Docs]) -> None:
+    """Without an Ingress or Route API, none renders."""
     docs = render(*NO_INGRESS)
     assert not {kind for kind, _ in docs} & {"Ingress", "Route"}
 
 
 def test_route(render: Callable[..., Docs]) -> None:
+    """A Route renders if the API exists and no Ingress does."""
     docs = render(*NO_INGRESS, *ROUTE_API)
     route = docs[("Route", APP)]
     assert route["spec"]["host"] == "petstore.example.org"
@@ -656,6 +702,7 @@ def test_route(render: Callable[..., Docs]) -> None:
 
 
 def test_app_network_policy(render: Callable[..., Docs]) -> None:
+    """The app's NetworkPolicy admits the ingress peers."""
     docs = render("--set", "petstore.networkPolicy.enabled=true")
     policy = docs[("NetworkPolicy", APP)]["spec"]
     assert policy["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "app"
@@ -673,6 +720,7 @@ def test_app_network_policy(render: Callable[..., Docs]) -> None:
 def test_app_network_policy_needs_peers(
     render_error: Callable[..., str],
 ) -> None:
+    """The app's NetworkPolicy needs at least one peer."""
     error = render_error(
         "--set",
         "petstore.networkPolicy.enabled=true",
@@ -683,6 +731,7 @@ def test_app_network_policy_needs_peers(
 
 
 def test_mongodb_network_policy(render: Callable[..., Docs]) -> None:
+    """MongoDB's NetworkPolicy admits only the app."""
     policy = render()[("NetworkPolicy", MONGODB)]["spec"]
     (rule,) = policy["ingress"]
     (peer,) = rule["from"]
@@ -698,6 +747,7 @@ def test_mongodb_network_policy(render: Callable[..., Docs]) -> None:
 
 
 def test_app_schema_matches_library() -> None:
+    """The app chart's schema matches the library's."""
     library = json.loads((LIBRARY / "app-values.schema.json").read_text())
     app = json.loads((APP_CHART / "values.schema.json").read_text())
     assert app["properties"].pop("petstore") == {"$ref": "#/$defs/app"}
@@ -706,16 +756,19 @@ def test_app_schema_matches_library() -> None:
     assert app == library
 
 
-def test_schema_rejects_invalid_values(render_error: Callable[..., str]):
+def test_schema_rejects_invalid_values(render_error: Callable[..., str]) -> None:
+    """The schema rejects invalid values."""
     error = render_error("--set", "petstore.imagePullPolicy=Sometimes")
     assert "schema" in error
 
 
 def test_library_lints() -> None:
+    """The library chart passes a strict lint."""
     helm("lint", "--strict", str(LIBRARY))
 
 
 def test_app_chart_lints(chart: Path) -> None:
+    """The app chart passes a strict lint."""
     values = chart / "ci" / "test-values.yaml"
     helm("lint", "--strict", str(chart), "-f", str(values))
 
@@ -759,6 +812,7 @@ config:
 def test_checks_use_generated_config(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
+    """Checks use the config that the app's settings generate."""
     chart = chart_with_settings(GENERATED_CONFIG_SETTINGS)
     docs = index(template(chart, "--set", "mongodb.enabled=false"))
     annotations = docs[("Ingress", APP)]["metadata"]["annotations"]
@@ -767,6 +821,7 @@ def test_checks_use_generated_config(
 
 
 def test_version_label_without_build_metadata(chart: Path, tmp_path: Path) -> None:
+    """The version label replaces the invalid character '+'."""
     chart_copy = tmp_path / "chart"
     shutil.copytree(chart, chart_copy)
     chart_yaml = chart_copy / "Chart.yaml"
@@ -780,6 +835,7 @@ def test_version_label_without_build_metadata(chart: Path, tmp_path: Path) -> No
 def test_mongodb_auth_required(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
+    """A missing mongodb.auth map fails."""
     chart = chart_with_settings("valuesKey: petstore")
     values = yaml.safe_load((chart / "values.yaml").read_text())
     del values["mongodb"]["auth"]

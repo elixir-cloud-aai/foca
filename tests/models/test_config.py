@@ -5,6 +5,7 @@ import sys
 from datetime import date
 from pathlib import Path
 from types import ModuleType
+from typing import Any, NoReturn
 
 import pytest
 import yaml
@@ -31,7 +32,7 @@ from tests.test_files.service_info_data import FIELDS, REMOVE, SERVICE, service
 DIR = Path(__file__).parent / "test_files"
 PATH = str(DIR / "openapi_2_petstore.yaml")
 PATH_ADDITION = str(DIR / "openapi_2_petstore.addition.yaml")
-INDEX_CONFIG = {
+INDEX_CONFIG: dict[str, Any] = {
     "keys": {"last_name": -1},
     "options": {
         "name": "indexLastName",
@@ -40,65 +41,67 @@ INDEX_CONFIG = {
         "sparse": False,
     },
 }
-COLLECTION_CONFIG = {
+COLLECTION_CONFIG: dict[str, Any] = {
     "indexes": [INDEX_CONFIG],
 }
-DB_CONFIG = {
+DB_CONFIG: dict[str, Any] = {
     "collections": {
         "wes-col": COLLECTION_CONFIG,
     },
 }
-MONGO_CONFIG = {
+MONGO_CONFIG: dict[str, Any] = {
     "host": "mongodb",
     "port": 27017,
     "dbs": {
         "wes": DB_CONFIG,
     },
 }
-SPEC_CONFIG = {
+SPEC_CONFIG: dict[str, Any] = {
     "path": "/my/abs/path",
 }
-SPEC_CONFIG_REL = {
+SPEC_CONFIG_REL: dict[str, Any] = {
     "path": "path",
 }
-SPEC_CONFIG_LIST = {"path": ["path1", "/my/abs/path2"]}
+SPEC_CONFIG_LIST: dict[str, Any] = {"path": ["path1", "/my/abs/path2"]}
 
 
-def test_config_empty():
+def test_config_empty() -> None:
     """Test basic creation of the main config model."""
     res = Config()
     assert isinstance(res, Config)
 
 
 class PetNotFound(NotFound):
-    pass
+    """Pet not found, a subclass of a werkzeug exception."""
 
 
-PROBLEMS = {
+PROBLEMS: dict[type[Exception], dict[str, Any]] = {
     NotFound: {"title": "Not Found", "status": 404},
     PetNotFound: {"title": "Pet Not Found", "status": 404, "detail": "x"},
 }
 
 
 @pytest.fixture
-def problems_module(monkeypatch):
+def problems_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Register module `problems_module` with mappings as attributes."""
     module = ModuleType("problems_module")
-    module.valid = PROBLEMS
-    module.not_dict = [NotFound]
-    module.not_exception = {"a": {"title": "A", "status": 400}}
-    module.not_class = {NotFound(): {"title": "A", "status": 400}}
-    module.problem_not_dict = {NotFound: "Not Found"}
-    module.no_status = {NotFound: {"title": "Not Found"}}
-    module.status_str = {NotFound: {"title": "Not Found", "status": "404"}}
-    module.status_bool = {NotFound: {"title": "Not Found", "status": True}}
-    module.status_200 = {NotFound: {"title": "OK", "status": 200}}
-    module.no_title = {NotFound: {"status": 404}}
+    vars(module).update(
+        valid=PROBLEMS,
+        not_dict=[NotFound],
+        not_exception={"a": {"title": "A", "status": 400}},
+        not_class={NotFound(): {"title": "A", "status": 400}},
+        problem_not_dict={NotFound: "Not Found"},
+        no_status={NotFound: {"title": "Not Found"}},
+        status_str={NotFound: {"title": "Not Found", "status": "404"}},
+        status_bool={NotFound: {"title": "Not Found", "status": True}},
+        status_200={NotFound: {"title": "OK", "status": 200}},
+        no_title={NotFound: {"status": 404}},
+    )
     monkeypatch.setitem(sys.modules, "problems_module", module)
     return module
 
 
-def test_exception_config_empty():
+def test_exception_config_empty() -> None:
     """Test basic creation of the ExceptionConfig model."""
     res = ExceptionConfig()
     assert res.mapping is None
@@ -116,7 +119,7 @@ def test_exception_config_empty():
         "Application/JSON",
     ],
 )
-def test_exception_config_media_type(media_type):
+def test_exception_config_media_type(media_type: str) -> None:
     """Test creation of the ExceptionConfig model with a media type."""
     res = ExceptionConfig(media_type=media_type)
     assert res.media_type == media_type.lower()
@@ -140,18 +143,18 @@ def test_exception_config_media_type(media_type):
         1,
     ],
 )
-def test_exception_config_invalid_media_type(media_type):
+def test_exception_config_invalid_media_type(media_type: str | int) -> None:
     """Test creation of the ExceptionConfig model with invalid media types."""
     with pytest.raises(ValidationError, match="media_type"):
-        ExceptionConfig(media_type=media_type)
+        ExceptionConfig(media_type=media_type)  # type: ignore[arg-type]  # invalid on purpose
 
 
-def test_exception_config_mapping(problems_module):
+def test_exception_config_mapping(problems_module: ModuleType) -> None:
     """Test creation of the ExceptionConfig model with a mapping."""
     res = ExceptionConfig(
         mapping="problems_module.valid",
         public_members=["title", "status"],
-        logging="minimal",
+        logging="minimal",  # type: ignore[arg-type]  # coerced by Pydantic
     )
     assert res.problems is PROBLEMS
     assert res.public_members == ["title", "status"]
@@ -174,7 +177,9 @@ def test_exception_config_mapping(problems_module):
         "problems_module.no_title",
     ],
 )
-def test_exception_config_invalid_mapping(problems_module, mapping):
+def test_exception_config_invalid_mapping(
+    problems_module: ModuleType, mapping: str
+) -> None:
     """Test creation of the ExceptionConfig model with invalid mappings."""
     with pytest.raises(ValidationError):
         ExceptionConfig(mapping=mapping)
@@ -190,114 +195,117 @@ def test_exception_config_invalid_mapping(problems_module, mapping):
         {"public_members": [["title"]]},
     ],
 )
-def test_exception_config_removed_fields(field):
+def test_exception_config_removed_fields(field: dict[str, Any]) -> None:
     """Test creation of the ExceptionConfig model with removed fields."""
     with pytest.raises(ValidationError):
         ExceptionConfig(**field)
 
 
-def test_index_config_empty():
+def test_index_config_empty() -> None:
     """Test basic creation of the IndexConfig model."""
     res = IndexConfig()
     assert isinstance(res, IndexConfig)
 
 
-def test_index_config_with_data():
+def test_index_config_with_data() -> None:
     """Test creation of the IndexConfig model with data."""
     res = IndexConfig(**INDEX_CONFIG)
     assert isinstance(res, IndexConfig)
 
 
-def test_collection_config_empty():
+def test_collection_config_empty() -> None:
     """Test basic creation of the CollectionConfig model."""
     res = CollectionConfig()
     assert isinstance(res, CollectionConfig)
 
 
-def test_collection_config_with_data():
+def test_collection_config_with_data() -> None:
     """Test creation of the CollectionConfig model with data."""
     res = CollectionConfig(**COLLECTION_CONFIG)
     assert isinstance(res, CollectionConfig)
 
 
-def test_db_config_empty():
+def test_db_config_empty() -> None:
     """Test basic creation of the DBConfig model."""
     res = DBConfig()
     assert isinstance(res, DBConfig)
 
 
-def test_db_config_with_data():
+def test_db_config_with_data() -> None:
     """Test creation of the DBConfig model with data."""
     res = DBConfig(**DB_CONFIG)
     assert isinstance(res, DBConfig)
 
 
-def test_mongo_config_empty():
+def test_mongo_config_empty() -> None:
     """Test basic creation of the MongoConfig model."""
     res = MongoConfig()
     assert isinstance(res, MongoConfig)
 
 
-def test_mongo_config_with_data():
+def test_mongo_config_with_data() -> None:
     """Test creation of the MongoConfig model with data."""
     res = MongoConfig(**MONGO_CONFIG)
     assert isinstance(res, MongoConfig)
 
 
-def test_spec_config():
+def test_spec_config() -> None:
     """Test creation of the SpecConfig model with valid data."""
     res = SpecConfig(**SPEC_CONFIG)
     assert res.path == [Path(SPEC_CONFIG["path"])]
 
 
-def test_spec_config_rel():
+def test_spec_config_rel() -> None:
     """Test creation of the SpecConfig model with relative file path."""
     res = SpecConfig(**SPEC_CONFIG_REL)
     assert res.path == [Path(SPEC_CONFIG_REL["path"]).resolve()]
 
 
-def test_spec_config_list():
+def test_spec_config_list() -> None:
     """Test creation of SpecConfig model with list of paths."""
     res = SpecConfig(**SPEC_CONFIG_LIST)
-    assert all(Path(path).is_absolute() for path in res.path)
-    assert res.path[1] == Path("/my/abs/path2")
+    assert all(Path(path).is_absolute() for path in res.path)  # type: ignore[union-attr]  # validated to a list
+    assert res.path[1] == Path("/my/abs/path2")  # type: ignore[index]  # validated to a list
 
 
-def test_spec_config_no_path():
+def test_spec_config_no_path() -> None:
     """Test creation of the SpecConfig model without path."""
     with pytest.raises(ValidationError):
-        SpecConfig()
+        SpecConfig()  # type: ignore[call-arg]  # invalid on purpose
 
 
-def test_spec_config_path_out_removed():
+def test_spec_config_path_out_removed() -> None:
     """Test creation of the SpecConfig model with removed `path_out`."""
     with pytest.raises(ValidationError):
-        SpecConfig(path=PATH, path_out="/my/abs/out/path")
+        SpecConfig(path=PATH, path_out="/my/abs/out/path")  # type: ignore[call-arg,arg-type]  # invalid on purpose
 
 
-def test_SpecConfig_merge():
-    """Test SpecConfig instantiation; multiple config files"""
-    res = SpecConfig(path=[PATH, PATH_ADDITION])
+def test_SpecConfig_merge() -> None:
+    """Test SpecConfig instantiation; multiple config files."""
+    res = SpecConfig(path=[PATH, PATH_ADDITION])  # type: ignore[list-item]  # coerced by Pydantic
     assert res.path == [Path(PATH), Path(PATH_ADDITION)]
 
 
-def test_SpecConfig_extra_arg():
+def test_SpecConfig_extra_arg() -> None:
     """Test SpecConfig instantiation; extra argument."""
     with pytest.raises(ValidationError):
-        SpecConfig(non_existing=PATH)
+        SpecConfig(non_existing=PATH)  # type: ignore[call-arg]  # invalid on purpose
 
 
 @pytest.mark.parametrize("prefix", ["user:", "u/", "user:group:", "groups:"])
-def test_AccessControlConfig_subject_prefix(prefix):
+def test_AccessControlConfig_subject_prefix(prefix: str) -> None:
     """Test AccessControlConfig instantiation; valid subject prefixes."""
     res = AccessControlConfig(subject_prefix=prefix)
     assert res.subject_prefix == prefix
 
 
 @pytest.mark.parametrize("prefix", ["", "group:", "group:x", "g", "group"])
-def test_AccessControlConfig_subject_prefix_invalid(prefix):
-    """Test AccessControlConfig instantiation; subject prefixes that may
-    collide with role names or group subjects."""
+def test_AccessControlConfig_subject_prefix_invalid(prefix: str) -> None:
+    """Test AccessControlConfig instantiation; invalid subject prefixes.
+
+    These are subject prefixes that may collide with role names or group
+    subjects.
+    """
     with pytest.raises(ValidationError):
         AccessControlConfig(subject_prefix=prefix)
 
@@ -306,7 +314,7 @@ def test_AccessControlConfig_subject_prefix_invalid(prefix):
     "charset,length",
     [("abcdef", 8), ("0123456789", 6), ("0123456789", 64), ("a-._~", 9)],
 )
-def test_AccessControlConfig_ids(charset, length):
+def test_AccessControlConfig_ids(charset: str, length: int) -> None:
     """Test AccessControlConfig instantiation; valid identifier settings."""
     res = AccessControlConfig(id_charset=charset, id_length=length)
     assert (res.id_charset, res.id_length) == (charset, length)
@@ -327,7 +335,7 @@ def test_AccessControlConfig_ids(charset, length):
         ("0123456789", 5),
     ],
 )
-def test_AccessControlConfig_ids_invalid(charset, length):
+def test_AccessControlConfig_ids_invalid(charset: str, length: int) -> None:
     """Test AccessControlConfig instantiation; invalid identifier settings."""
     with pytest.raises(ValidationError):
         AccessControlConfig(id_charset=charset, id_length=length)
@@ -349,7 +357,9 @@ ISSUERS = ["https://login.example.org/oidc/"]
         ([], {"enabled": True, "enforce": True}),
     ],
 )
-def test_SecurityConfig_access_control_invalid(issuers, access_control):
+def test_SecurityConfig_access_control_invalid(
+    issuers: list[str], access_control: dict[str, Any]
+) -> None:
     """Test SecurityConfig instantiation; inconsistent access control."""
     with pytest.raises(ValidationError):
         SecurityConfig(
@@ -376,7 +386,9 @@ def test_SecurityConfig_access_control_invalid(issuers, access_control):
         ),
     ],
 )
-def test_SecurityConfig_access_control(issuers, access_control):
+def test_SecurityConfig_access_control(
+    issuers: list[str], access_control: dict[str, Any]
+) -> None:
     """Test SecurityConfig instantiation; consistent access control."""
     res = SecurityConfig(
         auth=AuthConfig(issuers=issuers, audience=["my-app"]),
@@ -385,36 +397,41 @@ def test_SecurityConfig_access_control(issuers, access_control):
     assert res.access_control.enabled is access_control.get("enabled", False)
 
 
-def test_AuthConfig_required_removed():
+def test_AuthConfig_required_removed() -> None:
     """Test AuthConfig instantiation; `required` is no longer supported."""
     with pytest.raises(ValidationError):
-        AuthConfig(required=True)
+        AuthConfig(required=True)  # type: ignore[call-arg]  # invalid on purpose
 
 
 @pytest.mark.parametrize("log_traffic", [True, False])
-def test_AccessControlConfig_log_traffic(log_traffic):
-    """Test AccessControlConfig instantiation; traffic of the permissions API
-    is logged by default."""
+def test_AccessControlConfig_log_traffic(log_traffic: bool) -> None:
+    """Test AccessControlConfig instantiation; traffic logging.
+
+    Traffic of the permissions API is logged by default.
+    """
     assert AccessControlConfig().log_traffic is True
     res = AccessControlConfig(log_traffic=log_traffic)
     assert res.log_traffic is log_traffic
 
 
-def test_AccessControlConfig_default_model():
+def test_AccessControlConfig_default_model() -> None:
     """Test AccessControlConfig instantiation; default model."""
-    model = Path(AccessControlConfig().model)
+    model = Path(AccessControlConfig().model)  # type: ignore[arg-type]  # default model is set
     assert model.name == "default_model.conf"
     assert model.is_file()
 
 
 @pytest.mark.parametrize("path", ["access_model.conf", "../../test/access_model.conf"])
-def test_AccessControlConfig_relative_model(path):
-    """Test AccessControlConfig instantiation; relative model paths are
-    resolved against the working directory without config file."""
+def test_AccessControlConfig_relative_model(path: str) -> None:
+    """Test AccessControlConfig instantiation; relative model paths.
+
+    Relative model paths are resolved against the working directory without
+    config file.
+    """
     assert AccessControlConfig(model=path).model == str(Path(path).resolve())
 
 
-def test_AccessControlConfig_absolute_model():
+def test_AccessControlConfig_absolute_model() -> None:
     """Test AccessControlConfig instantiation; absolute model path."""
     path = "/test/access_model.conf"
     assert AccessControlConfig(model=path).model == path
@@ -423,11 +440,11 @@ def test_AccessControlConfig_absolute_model():
 RUNTIME_FIELDS = f"{FIELDS}.runtime_fields"
 
 
-def _no_version(name):
+def _no_version(name: str) -> NoReturn:
     raise AssertionError(f"version of '{name}' looked up")
 
 
-def test_ServiceInfoConfig(monkeypatch):
+def test_ServiceInfoConfig(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test ServiceInfoConfig instantiation; configured version."""
     monkeypatch.setattr(foca.utils.service_info, "version", _no_version)
     res = ServiceInfoConfig(service=SERVICE, package="my-app")
@@ -437,22 +454,26 @@ def test_ServiceInfoConfig(monkeypatch):
     assert res.log_traffic is True
 
 
-def test_ServiceInfoConfig_log_traffic_disabled():
+def test_ServiceInfoConfig_log_traffic_disabled() -> None:
     """Test ServiceInfoConfig instantiation; traffic logging disabled."""
     res = ServiceInfoConfig(service=SERVICE, log_traffic=False)
     assert res.log_traffic is False
 
 
 @pytest.mark.parametrize("configured", [service(version=REMOVE), service(version=None)])
-def test_ServiceInfoConfig_package(monkeypatch, configured):
-    """Test ServiceInfoConfig instantiation; version from package, also if
-    `version` is `None` (e.g., in a config overlay)."""
+def test_ServiceInfoConfig_package(
+    monkeypatch: pytest.MonkeyPatch, configured: dict[str, Any]
+) -> None:
+    """Test ServiceInfoConfig instantiation; version from package.
+
+    This also holds if `version` is `None` (e.g., in a config overlay).
+    """
     monkeypatch.setattr(foca.utils.service_info, "version", lambda name: "2.0")
     res = ServiceInfoConfig(service=configured, package="my-app")
     assert res.package_version == "2.0"
 
 
-def test_ServiceInfoConfig_package_not_installed():
+def test_ServiceInfoConfig_package_not_installed() -> None:
     """Test ServiceInfoConfig instantiation; package not installed."""
     with pytest.raises(
         ValidationError, match=r"Package 'not-installed-app' .* not installed"
@@ -460,17 +481,21 @@ def test_ServiceInfoConfig_package_not_installed():
         ServiceInfoConfig(service=service(version=REMOVE), package="not-installed-app")
 
 
-def test_ServiceInfoConfig_runtime_fields():
-    """Test ServiceInfoConfig instantiation; required fields may be
-    computed at runtime."""
+def test_ServiceInfoConfig_runtime_fields() -> None:
+    """Test ServiceInfoConfig instantiation; runtime fields.
+
+    Required fields may be computed at runtime.
+    """
     res = ServiceInfoConfig(service=service(name=REMOVE), runtime_fields=RUNTIME_FIELDS)
     assert res.runtime_function is not None
     assert res.runtime_function.__name__ == "runtime_fields"
 
 
-def test_ServiceInfoConfig_runtime_fields_invalid():
-    """Test ServiceInfoConfig instantiation; runtime fields function cannot
-    be imported."""
+def test_ServiceInfoConfig_runtime_fields_invalid() -> None:
+    """Test ServiceInfoConfig instantiation; invalid runtime fields.
+
+    The runtime fields function cannot be imported.
+    """
     with pytest.raises(
         ValidationError,
         match=(
@@ -511,24 +536,32 @@ def test_ServiceInfoConfig_runtime_fields_invalid():
         ),
     ],
 )
-def test_ServiceInfoConfig_invalid(configured, runtime_fields, match):
-    """Test ServiceInfoConfig instantiation; invalid service info, with
-    `None` removing fields."""
+def test_ServiceInfoConfig_invalid(
+    configured: dict[str, Any], runtime_fields: str | None, match: str
+) -> None:
+    """Test ServiceInfoConfig instantiation; invalid service info.
+
+    `None` values remove fields.
+    """
     with pytest.raises(ValidationError, match=match):
         ServiceInfoConfig(service=configured, runtime_fields=runtime_fields)
 
 
 @pytest.mark.parametrize("data", [{}, {"service": SERVICE, "x": 1}])
-def test_ServiceInfoConfig_fields_invalid(data):
-    """Test ServiceInfoConfig instantiation; service info missing or
-    unknown keys."""
+def test_ServiceInfoConfig_fields_invalid(data: dict[str, Any]) -> None:
+    """Test ServiceInfoConfig instantiation; invalid keys.
+
+    Service info is missing or keys are unknown.
+    """
     with pytest.raises(ValidationError):
         ServiceInfoConfig(**data)
 
 
-def test_ServiceInfoConfig_template():
-    """Test ServiceInfoConfig instantiation; section of the config template
-    validates as is."""
+def test_ServiceInfoConfig_template() -> None:
+    """Test ServiceInfoConfig instantiation; config template.
+
+    The section of the config template validates as is.
+    """
     template = Path(__file__).parents[2] / "templates" / "config.yaml"
     data = yaml.safe_load(template.read_text(encoding="utf-8"))
     res = ServiceInfoConfig(**data["service_info"])
@@ -536,14 +569,14 @@ def test_ServiceInfoConfig_template():
     assert res.runtime_fields is None
 
 
-def test_Config_service_info():
+def test_Config_service_info() -> None:
     """Test Config instantiation; service info section."""
     assert Config().service_info is None
     res = Config.model_validate({"service_info": {"service": SERVICE}})
     assert isinstance(res.service_info, ServiceInfoConfig)
 
 
-def test_docstring_examples():
+def test_docstring_examples() -> None:
     """Test that the examples in the docstrings of the config models run."""
     results = doctest.testmod(foca.models.config)
     assert results.attempted > 0

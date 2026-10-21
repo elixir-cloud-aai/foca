@@ -1,6 +1,6 @@
 """Access control based on Casbin."""
 
-from foca.security.access_control.enforcement import (  # noqa: F401
+from foca.security.access_control.enforcement import (  # noqa: F401 (re-export)
     SubjectType,
     add_resource_role,
     enforce_access_control,

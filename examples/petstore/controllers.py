@@ -1,9 +1,10 @@
 """Petstore controllers."""
 
 import logging
+from typing import Any
 
 from exceptions import NotFound
-from flask import make_response
+from flask import Response, make_response
 from pymongo.collection import Collection
 
 from foca import get_collection
@@ -11,8 +12,22 @@ from foca import get_collection
 logger = logging.getLogger(__name__)
 
 
-def findPets(limit=None, tags=None):
-    db_collection: Collection = get_collection(db="petstore", collection="pets")
+def findPets(
+    limit: int | None = None,
+    tags: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Get pets, newest first.
+
+    Args:
+        limit: Maximum number of pets to return; all pets if not set or 0.
+        tags: Tags to filter pets by; pets with any of the tags are returned.
+
+    Returns:
+        Pets.
+    """
+    db_collection: Collection[dict[str, Any]] = get_collection(
+        db="petstore", collection="pets"
+    )
     filter_dict = {} if tags is None else {"tag": {"$in": tags}}
     if not limit:
         limit = 0
@@ -24,8 +39,18 @@ def findPets(limit=None, tags=None):
     return list(records)
 
 
-def addPet(pet):
-    db_collection: Collection = get_collection(db="petstore", collection="pets")
+def addPet(pet: dict[str, Any]) -> dict[str, Any]:
+    """Add a pet.
+
+    Args:
+        pet: Pet to add, with its name and tag.
+
+    Returns:
+        Added pet, with its identifier.
+    """
+    db_collection: Collection[dict[str, Any]] = get_collection(
+        db="petstore", collection="pets"
+    )
     counter = 0
     ctr = db_collection.find({}).sort([("$natural", -1)])
     if db_collection.count_documents({}) != 0:
@@ -36,8 +61,21 @@ def addPet(pet):
     return record
 
 
-def findPetById(id):
-    db_collection: Collection = get_collection(db="petstore", collection="pets")
+def findPetById(id: int) -> dict[str, Any]:
+    """Get a pet.
+
+    Args:
+        id: Identifier of the pet.
+
+    Returns:
+        Pet.
+
+    Raises:
+        werkzeug.exceptions.NotFound: The pet does not exist.
+    """
+    db_collection: Collection[dict[str, Any]] = get_collection(
+        db="petstore", collection="pets"
+    )
     record = db_collection.find_one(
         {"id": id},
         {"_id": False},
@@ -47,8 +85,21 @@ def findPetById(id):
     return record
 
 
-def deletePet(id):
-    db_collection: Collection = get_collection(db="petstore", collection="pets")
+def deletePet(id: int) -> Response:
+    """Delete a pet.
+
+    Args:
+        id: Identifier of the pet.
+
+    Returns:
+        Empty response with status 204.
+
+    Raises:
+        werkzeug.exceptions.NotFound: The pet does not exist.
+    """
+    db_collection: Collection[dict[str, Any]] = get_collection(
+        db="petstore", collection="pets"
+    )
     record = db_collection.find_one(
         {"id": id},
         {"_id": False},

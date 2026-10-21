@@ -1,4 +1,4 @@
-"""Unit test for security.cors.py"""
+"""Unit test for security.cors.py."""
 
 import pytest
 from flask import Flask
@@ -14,14 +14,14 @@ def _app(conf: CORSConfig | None = None) -> Flask:
     app = Flask(__name__)
 
     @app.route("/items", methods=["GET", "POST"])
-    def items():
+    def items() -> str:
         return "ok"
 
     enable_cors(app, conf)
     return app
 
 
-def test_default_any_origin():
+def test_default_any_origin() -> None:
     """Requests from any origin are allowed by default."""
     client = _app().test_client()
     for origin in [ORIGIN, "https://other.org"]:
@@ -31,7 +31,7 @@ def test_default_any_origin():
         assert "Access-Control-Allow-Credentials" not in response.headers
 
 
-def test_configured_origin():
+def test_configured_origin() -> None:
     """Only configured origins are allowed."""
     client = _app(
         CORSConfig(
@@ -64,7 +64,7 @@ def test_configured_origin():
 
 
 @pytest.mark.parametrize("origins", [["*"], [ORIGIN, "*"]])
-def test_credentials_any_origin(origins):
+def test_credentials_any_origin(origins: list[str]) -> None:
     """Credentials must not be allowed for any origin."""
     with pytest.raises(ValidationError):
         CORSConfig(allow_origins=origins, allow_credentials=True)

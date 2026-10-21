@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 from connexion import App
 
@@ -33,7 +34,7 @@ _OPERATION_OBJECT_FIELDS = frozenset(
 _UI_OPTIONS = ("swagger_ui", "serve_spec", "swagger_ui_path")
 
 
-def _connexion_add_api_kwargs(options: ConnexionOptions | None) -> dict:
+def _connexion_add_api_kwargs(options: ConnexionOptions | None) -> dict[str, Any]:
     """Translate options to keyword arguments of Connexion's `add_api()`.
 
     This is the only place where FOCA's Connexion options are mapped to
@@ -60,7 +61,7 @@ def _connexion_add_api_kwargs(options: ConnexionOptions | None) -> dict:
     return kwargs
 
 
-def _iter_operations(spec: dict) -> Iterator[dict]:
+def _iter_operations(spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Iterate over the Operation Objects of an OpenAPI specification.
 
     Args:
@@ -105,21 +106,21 @@ def register_openapi(
     for spec in specs:
         # Merge specs
         list_specs = [spec.path] if isinstance(spec.path, Path) else spec.path
-        spec_parsed: dict = ConfigParser.merge_yaml(*list_specs)
-        logger.debug(f"Parsed spec: {list_specs}")
+        spec_parsed: dict[str, Any] = ConfigParser.merge_yaml(*list_specs)
+        logger.debug("Parsed spec: %s", list_specs)
 
         # Add/replace root objects
         if spec.append is not None:
             for item in spec.append:
                 spec_parsed.update(item)
-            logger.debug(f"Appended spec: {spec.append}")
+            logger.debug("Appended spec: %s", spec.append)
 
         # Add fields to Operation Objects, keeping fields they set themselves
         if spec.add_operation_fields is not None:
             for operation_object in _iter_operations(spec_parsed):
                 for key, val in spec.add_operation_fields.items():
                     operation_object.setdefault(key, val)
-            logger.debug(f"Added operation fields: {spec.add_operation_fields}")
+            logger.debug("Added operation fields: %s", spec.add_operation_fields)
 
         # Add fields to security definitions/schemes
         if not spec.disable_auth and spec.add_security_fields is not None:
@@ -133,17 +134,18 @@ def register_openapi(
                 sec_schemes = components.get("securitySchemes") or {}
                 for sec_scheme in sec_schemes.values():
                     sec_scheme[key] = val
-            logger.debug(f"Added security fields: {spec.add_security_fields}")
+            logger.debug("Added security fields: %s", spec.add_security_fields)
 
         # Remove security definitions/schemes and fields
         elif spec.disable_auth:
             if enforce_access_control:
                 logger.warning(
-                    f"Authentication is disabled for spec {list_specs} "
+                    "Authentication is disabled for spec %s "
                     "('disable_auth'), so access control policies are not "
                     "enforced on its operations ('access_control.enforce'): "
                     "they are public. Only disable authentication for local "
-                    "development."
+                    "development.",
+                    list_specs,
                 )
             # Open API 2
             spec_parsed.pop("securityDefinitions", None)
@@ -156,7 +158,7 @@ def register_openapi(
             logger.debug("Removed security fields")
 
         # Attach specs to connexion App
-        logger.debug(f"Modified specs: {spec_parsed}")
+        logger.debug("Modified specs: %s", spec_parsed)
         connexion_kwargs = _connexion_add_api_kwargs(spec.connexion)
         if enforce_access_control:
             connexion_kwargs["resolver"] = AccessControlResolver(
@@ -166,6 +168,6 @@ def register_openapi(
             specification=spec_parsed,
             **connexion_kwargs,
         )
-        logger.info(f"API endpoints added from spec: {list_specs}")
+        logger.info("API endpoints added from spec: %s", list_specs)
 
     return app

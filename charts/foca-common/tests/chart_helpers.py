@@ -50,7 +50,7 @@ def helm(*args: str) -> str:
             `stderr`.
     """
     assert HELM is not None
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603 (fixed helm binary, test arguments)
         [HELM, *args],
         capture_output=True,
         check=True,

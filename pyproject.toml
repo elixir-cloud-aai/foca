@@ -8,7 +8,7 @@ name = "foca"
 dynamic = ["version"]
 description = "Archetype for OpenAPI microservices based on Flask and Connexion"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
@@ -28,7 +28,6 @@ classifiers = [
     "Intended Audience :: System Administrators",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -53,7 +52,6 @@ dependencies = [
     "PyYAML>=6.0.1,<7",
     "requests>=2.32.4,<3",
     "swagger-ui-bundle>=1.1,<2",
-    "typing_extensions>=4.13",
     "Werkzeug>=3.1.5,<4",
 ]
 
@@ -71,7 +69,8 @@ dev = [
 docs = [
     "mkdocs>=1.6,<2",
     "mkdocs-material>=9.7,<10",
-    "mkdocstrings[python]>=1.0,<2",
+    # older versions fail with pymdown-extensions 12
+    "mkdocstrings[python]>=1.0.8,<2",
 ]
 
 [project.urls]
@@ -98,6 +97,7 @@ include = ["foca*"]
 
 [tool.ruff]
 line-length = 88
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [
@@ -106,9 +106,11 @@ select = [
     "D",    # pydocstyle
     "E",    # pycodestyle errors
     "F",    # Pyflakes
+    "G",    # flake8-logging-format
     "I",    # isort
     "PL",   # Pylint
     "RUF",  # Ruff-specific rules
+    "S",    # flake8-bandit (security)
     "SIM",  # flake8-simplify
     "UP",   # pyupgrade
     "W",    # pycodestyle warnings
@@ -126,15 +128,20 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"docs/**" = ["D"]
-"examples/**" = ["D"]
-"tests/**" = ["D"]
-"charts/*/tests/**" = ["D"]
+# Tests use `assert`
+"tests/**" = ["S101"]
+"charts/*/tests/**" = ["S101"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.mypy]
+files = ["foca", "tests"]
+python_version = "3.11"
+# Complete type hints: all functions annotated, generic types parametrized
+disallow_untyped_defs = true
+disallow_any_generics = true
+warn_unused_ignores = true
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
