@@ -21,6 +21,15 @@ DEFAULT_PROBLEM = {
     "status": HTTPStatus.INTERNAL_SERVER_ERROR.value,
 }
 
+# RFC 9110 reason phrases of the statuses whose `HTTPStatus` phrases differ
+# before Python 3.13, so that titles do not depend on the Python version
+_RFC_9110_PHRASES = {
+    413: "Content Too Large",
+    414: "URI Too Long",
+    416: "Range Not Satisfiable",
+    422: "Unprocessable Content",
+}
+
 # Exception attributes holding HTTP status codes, e.g., of werkzeug
 # (`code`), Connexion (`status`) and Starlette (`status_code`) exceptions
 _STATUS_ATTRIBUTES = ("code", "status", "status_code")
@@ -98,10 +107,12 @@ def _resolve_problem(exc: BaseException, conf: ExceptionConfig) -> dict:
     if problem is None:
         status = _get_status(exc)
         if status is not None:
-            try:
-                title = HTTPStatus(status).phrase
-            except ValueError:
-                title = "Error"
+            title = _RFC_9110_PHRASES.get(status)
+            if title is None:
+                try:
+                    title = HTTPStatus(status).phrase
+                except ValueError:
+                    title = "Error"
             problem = {"title": title, "status": status}
     if problem is None:
         problem = next(
@@ -126,8 +137,8 @@ def build_problem(
        base class.
     2. Otherwise, if the exception has an HTTP error status code (attribute
        `code`, `status` or `status_code`, e.g., werkzeug and Connexion
-       exceptions), problem details with that status and its standard
-       reason phrase as title.
+       exceptions), problem details with that status and its reason phrase
+       as per RFC 9110 as title (on all Python versions).
     3. Otherwise, the problem details listed for `Exception` or
        `BaseException`, if any.
     4. Otherwise, `500 Internal Server Error`.

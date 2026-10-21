@@ -210,10 +210,9 @@ def _assert_too_large(response) -> None:
     """Assert that a response rejects a request body as too large, with
     problem details of the configured media type.
     """
-    status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
-    assert response.status_code == status
+    assert response.status_code == 413
     assert response.content_type == "application/json"
-    assert response.get_json() == {"title": status.phrase, "status": status}
+    assert response.get_json() == {"title": "Content Too Large", "status": 413}
 
 
 @pytest.mark.parametrize("path", ["/data", "/ignore"])
