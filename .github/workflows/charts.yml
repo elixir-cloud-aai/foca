@@ -103,10 +103,11 @@ jobs:
               --from-literal=username=petstore \
               --from-literal=password="$(openssl rand -hex 16)"
       # Installs the chart with each `ci/*-values.yaml`, waits until it is
-      # ready and runs `helm test` (`templates/tests/`)
+      # ready and runs `helm test` (`templates/tests/`); keeps the releases
+      # for the next step (the cluster is discarded with the runner)
       - name: Install chart and run its test
         run: |
-          ct install --charts examples/petstore/chart \
+          ct install --charts examples/petstore/chart --skip-clean-up \
               --namespace "${NAMESPACE}" --helm-extra-args "--timeout 600s"
       - name: Show cluster state
         if: failure()

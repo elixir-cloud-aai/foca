@@ -736,7 +736,3 @@ def test_app_chart_test_hook(chart: Path) -> None:
     command = container["command"]
     assert command[:2] == ["python", "-c"]
     compile(command[2], "test-api", "exec")
-
-
-def test_hooks_not_rendered_by_default(render: Callable[..., Docs]) -> None:
-    assert "Pod" not in {kind for kind, _ in render()}

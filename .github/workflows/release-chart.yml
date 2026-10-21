@@ -71,16 +71,20 @@ jobs:
               echo "::error::Release commit is not on 'dev'"
               exit 1
           fi
-          # Annotated tags only, with a signature that GitHub verified
+          # Annotated tags only, with a signature that GitHub verified, of
+          # the checked-out commit
           ref="$(gh api "repos/${GH_REPO}/git/ref/tags/${TAG}")"
           if [ "$(jq -r '.object.type' <<< "${ref}")" != "tag" ]; then
               echo "::error::Tag '${TAG}' is not an annotated (signed) tag"
               exit 1
           fi
-          verified="$(gh api "repos/${GH_REPO}/git/tags/$(jq -r '.object.sha' <<< "${ref}")" \
-              --jq '.verification.verified')"
-          if [ "${verified}" != "true" ]; then
+          tag="$(gh api "repos/${GH_REPO}/git/tags/$(jq -r '.object.sha' <<< "${ref}")")"
+          if [ "$(jq -r '.verification.verified' <<< "${tag}")" != "true" ]; then
               echo "::error::Tag '${TAG}' has no verified signature"
+              exit 1
+          fi
+          if [ "$(jq -r '.object.sha' <<< "${tag}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::Tag '${TAG}' does not point to the checked-out commit"
               exit 1
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
@@ -90,15 +94,30 @@ jobs:
           TOKEN: ${{ github.token }}
         run: |
           helm registry login "${REGISTRY}" --username "${ACTOR}" --password-stdin <<< "${TOKEN}"
-      # Published versions are never overwritten
+      # Published versions are never overwritten: continue only if GHCR
+      # reports the version as not found, or, for the first release (no
+      # other chart tag), denies access to the package, which does not
+      # exist yet; fail on any other error
       - name: Check that version is not published
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
         run: |
-          if helm show chart "${REPOSITORY}/foca-common" --version "${VERSION}" > /dev/null 2>&1; then
+          if output="$(helm show chart "${REPOSITORY}/foca-common" --version "${VERSION}" 2>&1)"; then
               echo "::error::foca-common ${VERSION} is already published"
               exit 1
           fi
+          echo "${output}"
+          if grep -q ': not found' <<< "${output}"; then
+              exit 0
+          fi
+          others="$(git tag -l 'chart-v*' | grep -vxF "${TAG}" || true)"
+          if [ -z "${others}" ] && grep -q 'denied' <<< "${output}"; then
+              echo "First release: the package does not exist yet"
+              exit 0
+          fi
+          echo "::error::Could not check whether foca-common ${VERSION} is published"
+          exit 1
       - name: Package and push chart
         env:
           VERSION: ${{ steps.version.outputs.version }}

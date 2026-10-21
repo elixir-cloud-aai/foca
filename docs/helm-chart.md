@@ -233,7 +233,10 @@ version, and that the version has not been published yet; it lints and tests
 the chart, packages it and pushes it to
 `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`. Published versions are
 never overwritten. App charts then depend on it as shown in [Building an app
-chart](#building-an-app-chart); to inspect a release, run:
+chart](#building-an-app-chart). After the first release, an organization
+admin makes the package `charts/foca-common` public in its GitHub package
+settings (new packages are private), so that app charts can pull it without
+credentials. To inspect a release, run:
 
 ```bash
 helm show chart oci://ghcr.io/elixir-cloud-aai/charts/foca-common --version 0.1.0
