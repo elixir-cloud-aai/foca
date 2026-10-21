@@ -19,9 +19,10 @@ error="invalid_token"`), without contacting the issuer. LS Login issues such
 access tokens, so apps using it need no changes.
 
 If your identity provider sets another `typ` header on its access tokens, list
-it in [`security.auth.token_types`](configuration/auth.md); if it sets none,
-disable the check with `security.auth.verify_token_type: false` (FOCA then
-logs a warning on the first validation, as for `verify_audience: false`):
+it in [`security.auth.token_types`](configuration/auth.md) (a generic type such
+as `JWT` does not tell access tokens apart from ID tokens, though); if it sets
+none, disable the check with `security.auth.verify_token_type: false` (FOCA
+then logs a warning on the first validation, as for `verify_audience: false`):
 
 ```yaml
 security:

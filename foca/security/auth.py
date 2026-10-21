@@ -107,7 +107,9 @@ def validate_token(token: str) -> dict[str, Any]:
     """Validate JSON Web Token (JWT) Bearer token.
 
     Only tokens issued by one of the trusted issuers configured via
-    `security.auth.issuers` are accepted. Tokens are verified locally with
+    `security.auth.issuers` are accepted, and only OAuth 2.0 access tokens
+    (`typ` header as per `security.auth.token_types`, unless
+    `security.auth.verify_token_type` is disabled). Tokens are verified locally with
     the issuer's public keys, obtained via OpenID Connect discovery, and,
     if configured, additionally via the issuer's user info endpoint. Claims
     configured via `security.auth.userinfo_claims` that the token lacks are
