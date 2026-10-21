@@ -3,12 +3,10 @@
 import os
 import shutil
 from pathlib import Path
-from typing import Any
 
 import pytest
 from celery import Celery
 from pydantic import ValidationError
-from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 from yaml import (
@@ -18,6 +16,7 @@ from yaml import (
 
 from foca import Foca
 from foca.models.config import AccessControlConfig
+from tests.mock_data import MongoClients
 
 DIR = Path(__file__).parent / "test_files"
 PATH_SPECS_2_YAML_ORIGINAL = str(DIR / "openapi_2_petstore.original.yaml")
@@ -299,7 +298,7 @@ def test_foca_create_celery_app_without_jobs_field() -> None:
 
 
 def test_foca_one_mongo_client(
-    mongo_clients: list[tuple[str, MongoClient[dict[str, Any]]]],
+    mongo_clients: MongoClients,
 ) -> None:
     """Ensure app databases and the Casbin adapter share one client."""
     foca = Foca(config_file=[VALID_DB_CONF, ACCESS_CONTROL_ENABLED_CONF])

@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 from connexion.exceptions import OAuthProblem
 from flask.testing import FlaskClient
-from pymongo import MongoClient
 
 from foca import Foca
 from foca.security import auth
+from tests.mock_data import MongoClients
 
 EXAMPLE_DIR = Path(__file__).parents[2] / "examples" / "petstore-access-control"
 ISSUER = "https://login.example.org/oidc/"
@@ -30,7 +30,7 @@ def _headers(user: str | None) -> dict[str, str]:
 @pytest.fixture
 def client(
     monkeypatch: pytest.MonkeyPatch,
-    mongo_clients: list[tuple[str, MongoClient[dict[str, Any]]]],
+    mongo_clients: MongoClients,
 ) -> FlaskClient:
     """Client of the example app.
 

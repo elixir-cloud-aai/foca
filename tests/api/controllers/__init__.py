@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from foca.security.auth import validate_token  # as vt  # noqa: F401
+from foca.security.auth import validate_token  # as vt  # noqa: F401 (re-export)
 
 
 def listPets() -> dict[str, Any]:

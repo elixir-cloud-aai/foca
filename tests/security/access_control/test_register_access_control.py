@@ -10,7 +10,6 @@ import mongomock
 import pytest
 import yaml
 from connexion import App
-from pymongo import MongoClient
 from pymongo.database import Database
 
 from foca.factories.connexion_app import create_connexion_app
@@ -35,6 +34,7 @@ from foca.security.access_control.register_access_control import (
     register_access_control,
     register_permission_specs,
 )
+from tests.mock_data import MongoClients
 
 DEFAULT_SPEC = Path(
     str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH))
@@ -180,9 +180,7 @@ class TestRegisterAccessControlSetup:
     """Tests for registering the access control database and API."""
 
     @pytest.fixture(autouse=True)
-    def _mongo_clients(
-        self, mongo_clients: list[tuple[str, MongoClient[dict[str, Any]]]]
-    ) -> None:
+    def _mongo_clients(self, mongo_clients: MongoClients) -> None:
         """Use in-memory MongoDB clients, as indexes are created."""
 
     @staticmethod
