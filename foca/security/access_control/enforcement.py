@@ -619,9 +619,10 @@ def remove_resource_role(
     Returns:
         `True` if the role was revoked, `False` if it did not exist or is
         set via the app's configuration (`access_control.policies`), in
-        which case a warning is logged and the rule is kept, as it would be
-        added again on the next start. All stored copies of the rule are
-        removed (e.g., if it was stored twice by concurrent requests).
+        which case a warning is logged and the configured rule is kept, as
+        it would be added again on the next start. All other stored copies
+        of the rule are removed (e.g., if it was stored twice by concurrent
+        requests, or also added via the permissions API).
 
     Raises:
         ValueError: The model does not define resource-scoped roles, the
@@ -637,10 +638,13 @@ def remove_resource_role(
     rule = _get_resource_role_rule(
         subject, role, resource, ptype, subject_type, enforcer
     )
+    # Removes unmarked copies only; the adapter keeps configured rules,
+    # also if they were marked after the policies were loaded
+    removed = enforcer.remove_named_grouping_policy(ptype, *rule)
     if _get_adapter().is_configured_rule(ptype, rule):
         _warn_configured_rule(ptype, rule)
         return False
-    return enforcer.remove_named_grouping_policy(ptype, *rule)
+    return removed
 
 
 def list_resource_roles(
@@ -694,19 +698,21 @@ def remove_resource(
     on its sub-paths (e.g., `/services/1/files` for `/services/1`) or on
     the path with a trailing slash; revoke these separately. Rules set via
     the app's configuration (`access_control.policies`) are kept, with a
-    warning, as they would be added again on the next start. Finding and
-    removing the rules is not atomic: rules stored concurrently (e.g., by
-    another request granting a role on the resource) may be kept.
+    warning, as they would be added again on the next start. Invalid
+    stored rules on the resource (cf.
+    :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule`)
+    are removed, too.
 
     Args:
         resource: Resource to revoke roles on, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
 
     Returns:
-        `True` if any roles were revoked, i.e., if rules were removed that
-        are not also set via the configuration. Removing a stored copy of a
-        configured rule (e.g., one added before it was configured) does not
-        revoke the role.
+        `True` if any roles were revoked, i.e., if this call removed valid
+        rules that are not also set via the configuration. Removing a
+        stored copy of a configured rule (e.g., one added before it was
+        configured) or an invalid rule does not revoke a role, nor does
+        removing rules that a concurrent call removed first.
 
     Raises:
         ValueError: The model does not define resource-scoped roles.
@@ -722,20 +728,45 @@ def remove_resource(
     )
     for rule in configured:
         _warn_configured_rule(ptype, rule)
-    # Unmarked copies of configured rules are removed, but their roles still
-    # apply, so they don't count as revoked
-    revoked = [
-        rule
-        for rule in adapter.get_filtered_rules(
-            ptype, 2, resource, configured=False
-        )
-        if rule not in configured
-    ]
-    # The section (first argument) is not used by the adapter
+    revoked = False
+    for rule in adapter.get_filtered_rules(
+        ptype, 2, resource, configured=False
+    ):
+        # Counted only if this call removed it (not a concurrent one), and
+        # if it granted a role: unmarked copies of configured rules still
+        # apply, and invalid rules are not loaded. Configured copies are
+        # kept by the adapter; the section (first argument) is not used.
+        if (
+            adapter.remove_policy(ptype[0], ptype, rule)
+            and rule not in configured
+            and _is_valid_rule(ptype, rule, model)
+        ):
+            revoked = True
+    # Remove rules that could not be removed one by one (e.g., with values
+    # that are not strings) or that were stored concurrently; the section
+    # (first argument) is not used by the adapter
     adapter.remove_filtered_policy(
         ptype[0], ptype, 2, resource, keep_configured=True
     )
-    return bool(revoked)
+    return revoked
+
+
+def _is_valid_rule(ptype: str, rule: list[str], model: Model) -> bool:
+    """Check whether a rule is valid, i.e., loaded when enforcing.
+
+    Args:
+        ptype: Policy type of the rule.
+        rule: Values of the rule.
+        model: Casbin model.
+
+    Returns:
+        Whether the rule is valid for `model` (cf. :py:func:`validate_rule`).
+    """
+    try:
+        validate_rule(ptype, rule, model)
+    except ValueError:
+        return False
+    return True
 
 
 def _get_adapter() -> Adapter:

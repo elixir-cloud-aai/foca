@@ -438,12 +438,16 @@ not those granted on its sub-paths (e.g., `/services/123/files` for
 `/services/123`) or on the path with a trailing slash; revoke these
 separately, e.g., via `list_resource_roles()` and `remove_resource_role()`.
 Neither helper removes rules set via [`policies`](#configuring-policies), as
-they would be added again on the next start: `remove_resource_role()` then
+they would be added again on the next start, nor does FOCA's Casbin adapter
+when a single rule is removed via the enforcer (e.g.,
+`remove_grouping_policy()`).
+Other stored copies of such rules (e.g., also added via the permissions API)
+are removed, but the role still applies: `remove_resource_role()` then
 returns `False`, and both helpers log a warning. Remove such rules from the
 configuration instead. `remove_resource()` returns `True` if it revoked any
-role, i.e., if it removed a rule that is not also configured; removing only
-stored copies of configured rules returns `False`, as their roles still
-apply.
+role, i.e., if it removed a valid rule that is not also configured. It also
+removes invalid rules stored on the resource, which do not count as revoked
+roles, and returns `False` for rules that a concurrent call removed first.
 
 #### Granting roles to groups
 

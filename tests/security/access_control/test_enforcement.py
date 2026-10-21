@@ -16,6 +16,7 @@ from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, request
 from flask.globals import request_ctx
+from pymongo import MongoClient
 
 from foca.api.register_openapi import register_openapi
 from foca.errors.exceptions import register_exception_handler
@@ -1040,6 +1041,115 @@ def helper_app():
     app.config["CASBIN_MODEL"] = _model_path()
     app.config["casbin_adapter"] = adapter
     return app
+
+
+@pytest.fixture(
+    params=["mongomock", pytest.param("mongodb", marks=pytest.mark.mongodb)]
+)
+def store_app(request, helper_app):
+    """`helper_app`, with policies in memory or in a MongoDB server on
+    `localhost:12345` (tests marked `mongodb`)."""
+    if request.param == "mongomock":
+        yield helper_app
+        return
+    db_name = "foca_test_enforcement"
+    client: MongoClient = MongoClient(
+        "mongodb://localhost:12345", serverSelectionTimeoutMS=5000
+    )
+    client.drop_database(db_name)
+    helper_app.config["casbin_adapter"] = Adapter(
+        collection=client[db_name][COLLECTION_NAME]
+    )
+    yield helper_app
+    client.drop_database(db_name)
+    client.close()
+
+
+class TestRemovingConfiguredRules:
+    """Tests for removing resource roles next to configured rules."""
+
+    RULE: ClassVar[list[str]] = ["user:alice", "owner", "/items/1"]
+
+    @staticmethod
+    def _documents(app) -> list[dict]:
+        collection = app.config["casbin_adapter"]._collection
+        return list(collection.find({}, projection={"_id": False}))
+
+    def test_rule_marked_concurrently(self, store_app, caplog, monkeypatch):
+        """A rule marked as configured after the policies were loaded is
+        not removed."""
+        adapter = store_app.config["casbin_adapter"]
+        adapter.save_policy_line("g2", self.RULE)
+        remove_policy = adapter.remove_policy
+
+        def mark_and_remove(*args, **kwargs):
+            adapter._collection.update_many({}, {"$set": {"configured": True}})
+            return remove_policy(*args, **kwargs)
+
+        monkeypatch.setattr(adapter, "remove_policy", mark_and_remove)
+        with store_app.app_context(), _capture_logs(caplog):
+            assert remove_resource_role("alice", "owner", "/items/1") is False
+        assert [doc["configured"] for doc in self._documents(store_app)] == [
+            True
+        ]
+        assert len(_messages(caplog)) == 1
+
+    def test_unmarked_copy_removed(self, store_app, caplog):
+        """Unmarked copies of a configured rule are removed, but the role
+        still applies."""
+        adapter = store_app.config["casbin_adapter"]
+        adapter.save_policy_line("g2", self.RULE, configured=True)
+        adapter.save_policy_line("g2", self.RULE)
+        with store_app.app_context(), _capture_logs(caplog):
+            assert remove_resource_role("alice", "owner", "/items/1") is False
+        assert [
+            doc.get("configured") for doc in self._documents(store_app)
+        ] == [True]
+        assert len(_messages(caplog)) == 1
+
+    @pytest.mark.parametrize(
+        "document",
+        [
+            # extra value, skipped when loading policies
+            {"v0": "user:a", "v1": "owner", "v2": "/items/1", "v3": "x"},
+            # value that is not a string
+            {"v0": 1, "v1": "owner", "v2": "/items/1"},
+        ],
+    )
+    def test_invalid_rules_not_revoked(self, store_app, document):
+        """Invalid rules on the resource are removed, but do not count as
+        revoked roles."""
+        collection = store_app.config["casbin_adapter"]._collection
+        collection.insert_one({"ptype": "g2", **document})
+        with store_app.app_context():
+            assert remove_resource("/items/1") is False
+        assert self._documents(store_app) == []
+
+    def test_concurrent_removal(self, store_app, monkeypatch):
+        """Rules removed by a concurrent call do not count as revoked."""
+        adapter = store_app.config["casbin_adapter"]
+        adapter.save_policy_line("g2", self.RULE)
+        get_filtered_rules = adapter.get_filtered_rules
+
+        def get_and_remove(*args, configured):
+            rules = get_filtered_rules(*args, configured=configured)
+            if not configured:
+                # the concurrent call removes the rules first
+                adapter._collection.delete_many({})
+            return rules
+
+        monkeypatch.setattr(adapter, "get_filtered_rules", get_and_remove)
+        with store_app.app_context():
+            assert remove_resource("/items/1") is False
+
+    def test_remove_resource(self, store_app):
+        adapter = store_app.config["casbin_adapter"]
+        for _ in range(2):
+            adapter.save_policy_line("g2", self.RULE)
+        with store_app.app_context():
+            assert remove_resource("/items/1") is True
+            assert remove_resource("/items/1") is False
+        assert self._documents(store_app) == []
 
 
 class TestCurrentSubject:
