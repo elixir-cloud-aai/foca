@@ -283,14 +283,11 @@ class ExceptionConfig(FOCABaseConfig):
                 f"Exception mapping '{self.mapping}' could not be imported."
             ) from exc
         if not isinstance(problems, dict):
-            raise ValueError(
-                f"Exception mapping '{self.mapping}' is not a dictionary."
-            )
+            raise ValueError(f"Exception mapping '{self.mapping}' is not a dictionary.")
         for key, problem in problems.items():
             if not (isinstance(key, type) and issubclass(key, BaseException)):
                 raise ValueError(
-                    f"Key '{key}' of exception mapping is not an exception "
-                    "class."
+                    f"Key '{key}' of exception mapping is not an exception class."
                 )
             if not isinstance(problem, dict):
                 raise ValueError(
@@ -659,9 +656,7 @@ class AccessControlConfig(FOCABaseConfig):
     log_traffic: bool = True
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
-    _registered_collection: tuple[str, str, bool] | None = PrivateAttr(
-        default=None
-    )
+    _registered_collection: tuple[str, str, bool] | None = PrivateAttr(default=None)
 
     @field_validator("subject_prefix")
     @classmethod
@@ -710,8 +705,7 @@ class AccessControlConfig(FOCABaseConfig):
             raise ValueError("'id_charset' must not be empty")
         if not set(v) <= set(f"{DEFAULT_ID_CHARSET}-._~"):
             raise ValueError(
-                "'id_charset' may only contain letters, digits, '-', '.', "
-                "'_' and '~'"
+                "'id_charset' may only contain letters, digits, '-', '.', '_' and '~'"
             )
         return v
 
@@ -750,16 +744,12 @@ class AccessControlConfig(FOCABaseConfig):
             provided, return default model path.
         """
         if v is None:
-            return str(
-                files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE)
-            )
+            return str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE))
         return str(_resolve_path(v, info))
 
     @field_validator("api_specs")
     @classmethod
-    def validate_api_specs_path(
-        cls, v: str | None, info: ValidationInfo
-    ) -> str | None:
+    def validate_api_specs_path(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Validate the path of the permissions API specification.
 
         Args:
@@ -970,8 +960,7 @@ class CORSConfig(FOCABaseConfig):
         """
         if self.allow_credentials and "*" in self.allow_origins:
             raise ValueError(
-                "'allow_credentials' requires explicit 'allow_origins' "
-                "instead of '*'"
+                "'allow_credentials' requires explicit 'allow_origins' instead of '*'"
             )
         return self
 
@@ -1079,9 +1068,7 @@ class IndexConfig(FOCABaseConfig):
 
     @field_validator("keys", mode="after")
     @classmethod
-    def keys_to_list(
-        cls, v: dict | list[tuple] | None
-    ) -> dict | list[tuple] | None:
+    def keys_to_list(cls, v: dict | list[tuple] | None) -> dict | list[tuple] | None:
         """Convert a dictionary of keys into a list of tuples."""
         if v is not None and isinstance(v, dict):
             v = [(key, val) for key, val in v.items()]

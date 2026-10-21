@@ -54,9 +54,7 @@ def _connexion_add_api_kwargs(options: ConnexionOptions | None) -> dict:
         if key not in (*_UI_OPTIONS, "options")
     }
     ui_options = dict(values.get("options", {}))
-    ui_options.update(
-        {key: values[key] for key in _UI_OPTIONS if key in values}
-    )
+    ui_options.update({key: values[key] for key in _UI_OPTIONS if key in values})
     if ui_options:
         kwargs["options"] = ui_options
     return kwargs
@@ -76,9 +74,7 @@ def _iter_operations(spec: dict) -> Iterator[dict]:
         if not isinstance(path_item_object, dict):
             continue
         for field, operation_object in path_item_object.items():
-            if field in _OPERATION_OBJECT_FIELDS and isinstance(
-                operation_object, dict
-            ):
+            if field in _OPERATION_OBJECT_FIELDS and isinstance(operation_object, dict):
                 yield operation_object
 
 
@@ -123,9 +119,7 @@ def register_openapi(
             for operation_object in _iter_operations(spec_parsed):
                 for key, val in spec.add_operation_fields.items():
                     operation_object.setdefault(key, val)
-            logger.debug(
-                f"Added operation fields: {spec.add_operation_fields}"
-            )
+            logger.debug(f"Added operation fields: {spec.add_operation_fields}")
 
         # Add fields to security definitions/schemes
         if not spec.disable_auth and spec.add_security_fields is not None:

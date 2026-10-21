@@ -115,8 +115,7 @@ class Adapter(persist.Adapter):
                 validate_rule(ptype, values, model)
             except ValueError as exc:
                 logger.warning(
-                    f"Skipping invalid policy rule '{document.get('id')}': "
-                    f"{exc}"
+                    f"Skipping invalid policy rule '{document.get('id')}': {exc}"
                 )
                 continue
             assertion = model[ptype[0]][ptype]
@@ -167,9 +166,7 @@ class Adapter(persist.Adapter):
             return id
         attempts_left = ID_ATTEMPTS
         while True:
-            document["id"] = generate_id(
-                charset=self.id_charset, length=self.id_length
-            )
+            document["id"] = generate_id(charset=self.id_charset, length=self.id_length)
             try:
                 self._collection.insert_one(document)
                 return document["id"]
@@ -249,8 +246,7 @@ class Adapter(persist.Adapter):
         query = _filter_query(ptype, field_index, field_values)
         query[CONFIGURED_FIELD] = True if configured else {"$ne": True}
         rules = dict.fromkeys(
-            tuple(_rule_values(document))
-            for document in self._collection.find(query)
+            tuple(_rule_values(document)) for document in self._collection.find(query)
         )
         return [list(rule) for rule in rules]
 
@@ -286,9 +282,7 @@ class Adapter(persist.Adapter):
             key = (document.get("ptype"), *_rule_values(document))
             if missing.pop(key, None) is None:
                 self._collection.delete_one({"_id": document["_id"]})
-                logger.info(
-                    f"Removed configured policy rule '{document.get('id')}'"
-                )
+                logger.info(f"Removed configured policy rule '{document.get('id')}'")
         for ptype, *rule in missing.values():
             if self._collection.update_many(
                 _rule_query(ptype, rule), {"$set": {CONFIGURED_FIELD: True}}
@@ -420,9 +414,7 @@ def _rule_query(ptype: str, rule: list[str]) -> dict:
     return query
 
 
-def _filter_query(
-    ptype: str, field_index: int, field_values: tuple[str, ...]
-) -> dict:
+def _filter_query(ptype: str, field_index: int, field_values: tuple[str, ...]) -> dict:
     """Get query matching stored rules with the given values.
 
     Args:

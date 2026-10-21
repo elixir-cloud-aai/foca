@@ -46,9 +46,7 @@ def create_celery_app(app: Flask) -> Celery:
     conf = config.jobs
     if conf is None:
         raise ValueError("No background task support configured")
-    broker = os.environ.get(
-        "CELERY_BROKER_URL", f"pyamqp://{conf.host}:{conf.port}//"
-    )
+    broker = os.environ.get("CELERY_BROKER_URL", f"pyamqp://{conf.host}:{conf.port}//")
     backend = os.environ.get("CELERY_RESULT_BACKEND", conf.backend)
 
     # Instantiate Celery app

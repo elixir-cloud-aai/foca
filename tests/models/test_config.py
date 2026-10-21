@@ -407,9 +407,7 @@ def test_AccessControlConfig_default_model():
     assert model.is_file()
 
 
-@pytest.mark.parametrize(
-    "path", ["access_model.conf", "../../test/access_model.conf"]
-)
+@pytest.mark.parametrize("path", ["access_model.conf", "../../test/access_model.conf"])
 def test_AccessControlConfig_relative_model(path):
     """Test AccessControlConfig instantiation; relative model paths are
     resolved against the working directory without config file."""
@@ -445,9 +443,7 @@ def test_ServiceInfoConfig_log_traffic_disabled():
     assert res.log_traffic is False
 
 
-@pytest.mark.parametrize(
-    "configured", [service(version=REMOVE), service(version=None)]
-)
+@pytest.mark.parametrize("configured", [service(version=REMOVE), service(version=None)])
 def test_ServiceInfoConfig_package(monkeypatch, configured):
     """Test ServiceInfoConfig instantiation; version from package, also if
     `version` is `None` (e.g., in a config overlay)."""
@@ -461,17 +457,13 @@ def test_ServiceInfoConfig_package_not_installed():
     with pytest.raises(
         ValidationError, match=r"Package 'not-installed-app' .* not installed"
     ):
-        ServiceInfoConfig(
-            service=service(version=REMOVE), package="not-installed-app"
-        )
+        ServiceInfoConfig(service=service(version=REMOVE), package="not-installed-app")
 
 
 def test_ServiceInfoConfig_runtime_fields():
     """Test ServiceInfoConfig instantiation; required fields may be
     computed at runtime."""
-    res = ServiceInfoConfig(
-        service=service(name=REMOVE), runtime_fields=RUNTIME_FIELDS
-    )
+    res = ServiceInfoConfig(service=service(name=REMOVE), runtime_fields=RUNTIME_FIELDS)
     assert res.runtime_function is not None
     assert res.runtime_function.__name__ == "runtime_fields"
 

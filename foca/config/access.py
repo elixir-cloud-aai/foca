@@ -98,7 +98,5 @@ def get_collection(db: str, collection: str) -> Collection:
         raise KeyError(f"Collection '{collection}' of '{db}' not configured")
     client = collections[collection].client
     if client is None:
-        raise RuntimeError(
-            f"Collection '{collection}' of '{db}' not registered yet"
-        )
+        raise RuntimeError(f"Collection '{collection}' of '{db}' not registered yet")
     return client
