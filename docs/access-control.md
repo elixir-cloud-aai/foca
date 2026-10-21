@@ -222,7 +222,9 @@ added (or, if stored already, e.g., via the permissions API, marked as
 configured), and configured rules that were removed from the configuration,
 as well as duplicates, are removed. The configuration is the only place to
 change configured rules: the permissions API responds with `409` to requests
-to change or delete them. Other stored rules are kept. Without `policies`,
+to change or delete them, and the [resource role
+helpers](#resource-scoped-roles) keep them, with a warning. Other stored rules
+are kept. Without `policies`,
 stored rules are not changed on startup; with `policies: []`, all configured
 rules are removed.
 
@@ -416,6 +418,15 @@ that existing rules with them can be revoked; it removes all stored copies of
 a rule, and `list_resource_roles()` returns each subject and role pair
 once, also if a rule was stored more than once (e.g., by concurrent
 requests).
+
+`remove_resource(resource)` revokes the roles granted on exactly `resource`,
+not those granted on its sub-paths (e.g., `/services/123/files` for
+`/services/123`) or on the path with a trailing slash; revoke these
+separately, e.g., via `list_resource_roles()` and `remove_resource_role()`.
+Neither helper removes rules set via [`policies`](#configuring-policies), as
+they would be added again on the next start: `remove_resource_role()` then
+returns `False`, and both helpers log a warning. Remove such rules from the
+configuration instead.
 
 #### Granting roles to groups
 

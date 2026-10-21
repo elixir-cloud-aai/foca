@@ -1346,10 +1346,41 @@ class TestResourceRoles:
             assert remove_resource_role("bob", "maintainer", "/items/1")
             assert not remove_resource_role("bob", "maintainer", "/items/1")
             assert list_resource_roles("/items/1") == [("alice", "owner")]
-            assert remove_resource("/items/1")
+            assert remove_resource("/items/1") is True
             assert list_resource_roles("/items/1") == []
             assert list_resource_roles("/items/2") == [("bob", "owner")]
-            assert not remove_resource("/items/1")
+            assert remove_resource("/items/1") is False
+
+    def test_configured_rules_kept(self, helper_app, caplog):
+        """Rules set via the configuration are not removed, as they would
+        be added again on the next start."""
+        adapter = helper_app.config["casbin_adapter"]
+        for subject, configured in [("user:alice", True), ("user:bob", False)]:
+            adapter.save_policy_line(
+                "g2", [subject, "owner", "/items/1"], configured=configured
+            )
+        with helper_app.app_context(), _capture_warnings(caplog):
+            assert remove_resource_role("alice", "owner", "/items/1") is False
+            assert remove_resource("/items/1") is True
+            assert list_resource_roles("/items/1") == [("alice", "owner")]
+            assert remove_resource("/items/1") is False
+        messages = _warnings(caplog)
+        assert len(messages) == 3
+        assert all(
+            "(g2, 'user:alice', 'owner', '/items/1')" in message
+            and "access_control.policies" in message
+            for message in messages
+        )
+
+    def test_remove_resource_keeps_subpaths(self, helper_app):
+        """Only rules on the resource path itself are removed."""
+        with helper_app.app_context():
+            add_resource_role("alice", "owner", "/items/1")
+            add_resource_role("alice", "owner", "/items/1/files")
+            assert remove_resource("/items/1") is True
+            assert list_resource_roles("/items/1/files") == [
+                ("alice", "owner")
+            ]
 
     def test_roles_persisted(self, helper_app):
         with helper_app.app_context():

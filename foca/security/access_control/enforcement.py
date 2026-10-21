@@ -15,6 +15,7 @@ from flask.globals import request_ctx
 
 from foca.config.access import get_config
 from foca.security.access_control.constants import GROUP_PREFIX
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
     validate_rule_value,
@@ -598,9 +599,11 @@ def remove_resource_role(
         subject_type: Type of the subject: `user` or `group`.
 
     Returns:
-        `True` if the role was revoked, `False` if it did not exist. All
-        stored copies of the rule are removed (e.g., if it was stored twice
-        by concurrent requests).
+        `True` if the role was revoked, `False` if it did not exist or is
+        set via the app's configuration (`access_control.policies`), in
+        which case a warning is logged and the rule is kept, as it would be
+        added again on the next start. All stored copies of the rule are
+        removed (e.g., if it was stored twice by concurrent requests).
 
     Raises:
         ValueError: The model does not define resource-scoped roles, the
@@ -616,6 +619,9 @@ def remove_resource_role(
     rule = _get_resource_role_rule(
         subject, role, resource, ptype, subject_type, enforcer
     )
+    if _get_adapter().is_configured_rule(ptype, rule):
+        _warn_configured_rule(ptype, rule)
+        return False
     return enforcer.remove_named_grouping_policy(ptype, *rule)
 
 
@@ -666,6 +672,12 @@ def remove_resource(
 ) -> bool:
     """Revoke all roles granted on a resource, e.g., after deleting it.
 
+    Only roles granted on exactly `resource` are revoked, not roles granted
+    on its sub-paths (e.g., `/services/1/files` for `/services/1`) or on
+    the path with a trailing slash; revoke these separately. Rules set via
+    the app's configuration (`access_control.policies`) are kept, with a
+    warning, as they would be added again on the next start.
+
     Args:
         resource: Resource to revoke roles on, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
@@ -676,6 +688,36 @@ def remove_resource(
     Raises:
         ValueError: The model does not define resource-scoped roles.
     """
-    return _get_resource_role_enforcer(
-        ptype
-    ).remove_filtered_named_grouping_policy(ptype, 2, resource)
+    # Checks the model; policies are loaded anew for each enforcer, so
+    # rules can be removed via the adapter
+    _get_resource_role_enforcer(ptype)
+    adapter = _get_adapter()
+    for rule in adapter.get_configured_rules(ptype, 2, resource):
+        _warn_configured_rule(ptype, rule)
+    return bool(
+        adapter.remove_filtered_policy(
+            "g", ptype, 2, resource, keep_configured=True
+        )
+    )
+
+
+def _get_adapter() -> Adapter:
+    """Get Casbin adapter of the current app."""
+    return current_app.config["casbin_adapter"]
+
+
+def _warn_configured_rule(ptype: str, rule: list[str]) -> None:
+    """Warn that a rule set via the app's configuration is not removed.
+
+    Args:
+        ptype: Policy type of the rule.
+        rule: Values of the rule.
+    """
+    # Values are quoted, so that they cannot forge log lines
+    values = ", ".join(repr(value) for value in rule)
+    logger.warning(
+        f"Policy rule ({ptype}, {values}) is set via the configuration "
+        "('access_control.policies') and is not removed, as it would be "
+        "added again on the next start. Remove it from the configuration "
+        "instead."
+    )
