@@ -20,6 +20,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
     validate_rule_value,
 )
+from foca.utils.logging import escape_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -318,16 +319,17 @@ def is_permitted() -> bool:
         logger.info(f"Access denied: invalid subject: {exc}")
         return False
     enforcer = get_enforcer()
+    # Escaped, so that request paths and claims cannot forge log lines
+    _request = escape_log_value(f"{request.method} {request.path}")
     for _subject in [_prefix_subject(subject), *get_current_groups()]:
         if enforcer.enforce(_subject, request.path, request.method):
             logger.debug(
-                f"Access granted: {request.method} {request.path} to "
-                f"'{subject}' as '{_subject}'"
+                f"Access granted: {_request} to "
+                f"'{escape_log_value(subject)}' as "
+                f"'{escape_log_value(_subject)}'"
             )
             return True
-    logger.info(
-        f"Access denied: {request.method} {request.path} to '{subject}'"
-    )
+    logger.info(f"Access denied: {_request} to '{escape_log_value(subject)}'")
     return False
 
 
@@ -573,9 +575,11 @@ def add_resource_role(
         and not conf.keep_group_subjects
     ):
         logger.warning(
-            f"Role '{role}' granted to group '{subject}' on '{resource}' "
-            "does not apply: group claim values are not used as subjects "
-            "with 'access_control.group_mapping', unless "
+            f"Role '{escape_log_value(role)}' granted to group "
+            f"'{escape_log_value(subject)}' on "
+            f"'{escape_log_value(resource)}' does not apply: group claim "
+            "values are not used as subjects with "
+            "'access_control.group_mapping', unless "
             "'access_control.keep_group_subjects' is set"
         )
     return enforcer.add_named_grouping_policy(ptype, *rule)

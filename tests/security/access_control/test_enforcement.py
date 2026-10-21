@@ -289,26 +289,27 @@ def _create_app(
 
 
 @contextmanager
-def _capture_warnings(caplog):
-    """Capture warnings of the enforcement module, also if app creation
-    (i.e., logging configuration) disabled its logger or propagation."""
+def _capture_warnings(caplog, level: int = logging.WARNING):
+    """Capture warnings (or records of `level`) of the enforcement module,
+    also if app creation (i.e., logging configuration) disabled its logger
+    or propagation."""
     logger = enforcement.logger
     disabled, propagate = logger.disabled, logger.propagate
     logger.disabled, logger.propagate = False, True
     try:
-        with caplog.at_level(logging.WARNING, logger=logger.name):
+        with caplog.at_level(level, logger=logger.name):
             yield
     finally:
         logger.disabled, logger.propagate = disabled, propagate
 
 
-def _warnings(caplog) -> list[str]:
-    """Messages of warnings of the enforcement module."""
+def _warnings(caplog, level: int = logging.WARNING) -> list[str]:
+    """Messages of warnings (or records of `level`) of the enforcement
+    module."""
     return [
         record.getMessage()
         for record in caplog.records
-        if record.name == enforcement.logger.name
-        and record.levelno == logging.WARNING
+        if record.name == enforcement.logger.name and record.levelno == level
     ]
 
 
@@ -571,6 +572,20 @@ class TestEnforcement:
                 sum(f"(g2, {values})" in message for message in messages) == 1
             )
         assert all("remove_resource_role()" in message for message in messages)
+
+    @pytest.mark.parametrize(
+        "user,level", [("dave", logging.INFO), ("carol", logging.DEBUG)]
+    )
+    def test_decisions_logged_escaped(self, app, caplog, user, level):
+        """Request paths cannot forge log lines."""
+        with _capture_warnings(caplog, level=logging.DEBUG):
+            app.test_client().get(
+                "/items/1%0Aforged%1B", headers=_headers(user)
+            )
+        messages = _warnings(caplog, level=level)
+        assert len(messages) == 1
+        assert "/items/1\\nforged\\x1b" in messages[0]
+        assert "\n" not in messages[0]
 
     def test_no_warning_without_subject_like_roles(self, app, caplog):
         with _capture_warnings(caplog):
