@@ -18,6 +18,7 @@ from flask import Flask
 from werkzeug.exceptions import InternalServerError
 
 from foca.config.access import get_config
+from foca.utils.logging import log_traffic_if
 from foca.utils.service_info import (
     InvalidServiceInfo,
     call_runtime_function,
@@ -90,6 +91,18 @@ def get_service_info() -> dict[str, Any]:
     return build_service_info(conf)
 
 
+def _log_traffic_enabled() -> bool:
+    """Check whether the traffic of :py:func:`getServiceInfo` is logged.
+
+    Returns:
+        Whether config option `service_info.log_traffic` of the current app
+        is set (default: ``True``, also if no service info is configured).
+    """
+    conf = get_config().service_info
+    return conf is None or conf.log_traffic
+
+
+@log_traffic_if(_log_traffic_enabled)
 def getServiceInfo() -> dict[str, Any]:
     """Controller for `GET /service-info`.
 
@@ -97,6 +110,9 @@ def getServiceInfo() -> dict[str, Any]:
     `x-openapi-router-controller: foca.api.service_info` and `operationId:
     getServiceInfo` (or `GetServiceInfo`, as in the GA4GH WES and TES
     specifications).
+
+    Requests and responses are logged unless disabled via
+    `service_info.log_traffic`.
 
     Returns:
         Service info of the current app.
@@ -121,7 +137,8 @@ def _routes_to_controller(app: Flask) -> list[str]:
     """List the routes of an app served by :py:func:`getServiceInfo`.
 
     Routes are found by their view functions, unwrapping decorators (e.g.,
-    of Connexion), so they are found whichever resolver routed them.
+    of Connexion and :py:func:`foca.utils.logging.log_traffic_if`), so they
+    are found whichever resolver routed them.
 
     Args:
         app: Flask app.
@@ -132,7 +149,7 @@ def _routes_to_controller(app: Flask) -> list[str]:
     return sorted(
         rule.rule
         for rule in app.url_map.iter_rules()
-        if unwrap(app.view_functions[rule.endpoint]) is getServiceInfo
+        if unwrap(app.view_functions[rule.endpoint]) is unwrap(getServiceInfo)
     )
 
 

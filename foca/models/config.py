@@ -1396,12 +1396,17 @@ class ServiceInfoConfig(FOCABaseConfig):
             is called without arguments, in an app context, on startup and
             for each request. Required fields that it returns may be missing
             from `service`.
+        log_traffic: Whether requests for the service info and their
+            responses are logged (cf.
+            :py:func:`foca.utils.logging.log_traffic`).
 
     Attributes:
         service: Service info, as per the GA4GH `Service` schema.
         package: Name of the app's distribution package.
         runtime_fields: Path to a function returning fields that are computed
             at runtime.
+        log_traffic: Whether requests for the service info and their
+            responses are logged.
         package_version: Version of `package`, if used for `version` (set on
             validation).
         runtime_function: Function imported from `runtime_fields`, if set
@@ -1440,6 +1445,7 @@ class ServiceInfoConfig(FOCABaseConfig):
     service: dict[str, Any]
     package: str | None = None
     runtime_fields: str | None = None
+    log_traffic: bool = True
     # Version of `package`, if used; set on validation
     _package_version: str | None = PrivateAttr(default=None)
     # Function imported from `runtime_fields`; set on validation

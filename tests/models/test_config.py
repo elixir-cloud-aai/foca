@@ -427,6 +427,13 @@ def test_ServiceInfoConfig(monkeypatch):
     assert res.service == SERVICE
     assert res.package_version is None
     assert res.runtime_function is None
+    assert res.log_traffic is True
+
+
+def test_ServiceInfoConfig_log_traffic_disabled():
+    """Test ServiceInfoConfig instantiation; traffic logging disabled."""
+    res = ServiceInfoConfig(service=SERVICE, log_traffic=False)
+    assert res.log_traffic is False
 
 
 @pytest.mark.parametrize(

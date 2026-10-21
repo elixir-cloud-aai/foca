@@ -70,6 +70,17 @@ If an operation is routed to `getServiceInfo`, but `service_info` is not
 configured, the app refuses to start (`Foca.create_app()` raises a
 `foca.api.service_info.InvalidServiceInfo` naming the routes).
 
+Requests for the service info and their responses are logged (cf.
+[`log_traffic`](../utilities.md#logging-requests-and-responses)); set
+`log_traffic: false` to not log them, e.g., if health checks or monitoring
+poll the service info:
+
+```yaml
+service_info:
+  log_traffic: false
+  service: ...
+```
+
 ## Version
 
 `version` is the version of the deployed app. Set `package` to the name of

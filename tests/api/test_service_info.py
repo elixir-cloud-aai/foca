@@ -262,7 +262,7 @@ def test_get_service_info_not_configured():
 def test_getServiceInfo():
     """The controller returns the service info, under both names."""
     app = _app({"service": SERVICE})
-    with app.app_context():
+    with app.test_request_context():
         assert getServiceInfo() == SERVICE
     assert GetServiceInfo is getServiceInfo
 
@@ -272,7 +272,7 @@ def test_getServiceInfo_invalid(monkeypatch, log):
     monkeypatch.setitem(service_info_fields.TOGGLE, "error", KeyError("x"))
     app = _app({"service": SERVICE, "runtime_fields": TOGGLED})
     with (
-        app.app_context(),
+        app.test_request_context(),
         pytest.raises(InternalServerError) as exc_info,
     ):
         getServiceInfo()
@@ -286,7 +286,7 @@ def test_getServiceInfo_not_configured(log):
     """
     app = Flask(__name__)
     set_app_config(app, Config())
-    with app.app_context(), pytest.raises(InternalServerError):
+    with app.test_request_context(), pytest.raises(InternalServerError):
         getServiceInfo()
     assert "No service info configured" in log.text
 
@@ -327,6 +327,26 @@ def test_service_info_endpoint(tmp_path):
         "x-runtime": {},
     }
     assert client.post("/service-info").status_code == 405
+
+
+@pytest.mark.parametrize("log_traffic", [None, True, False])
+def test_service_info_endpoint_logged(tmp_path, log, log_traffic):
+    """Requests for the service info and their responses are logged, unless
+    disabled via `service_info.log_traffic`.
+    """
+    service_info: dict = {"service": SERVICE}
+    if log_traffic is not None:
+        service_info["log_traffic"] = log_traffic
+    foca = _foca(tmp_path, service_info)
+    client = foca.create_app().app.test_client()
+    assert client.get("/service-info").status_code == 200
+    request = '"GET /service-info HTTP/1.1" from 127.0.0.1'
+    logged = [
+        f"Incoming request: {request}",
+        f"Response to request {request}: dict, status 200",
+    ]
+    for message in logged:
+        assert (message in log.text) is (log_traffic is not False)
 
 
 def test_service_info_endpoint_full_operation_id(tmp_path):
