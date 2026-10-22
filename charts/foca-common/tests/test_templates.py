@@ -1026,11 +1026,17 @@ def test_https_redirect_parent_refs_differ(render_error: Callable[..., str]) -> 
             {"name": "gateway", "sectionName": "https", "port": 443},
             True,
         ),
+        # A section name and a port may select the same listener
+        (
+            {"name": "gateway", "sectionName": "https"},
+            {"name": "gateway", "port": 443},
+            True,
+        ),
         # Other listeners or Gateways
         ({"name": "gateway", "port": 443}, {"name": "gateway", "port": 80}, False),
         (
-            {"name": "gateway", "sectionName": "https"},
-            {"name": "gateway", "port": 80},
+            {"name": "gateway", "sectionName": "https", "port": 443},
+            {"name": "gateway", "sectionName": "http"},
             False,
         ),
         ({"name": "gateway"}, {"name": "gateway", "namespace": "other"}, False),

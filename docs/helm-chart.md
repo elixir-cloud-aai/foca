@@ -255,8 +255,10 @@ myApp:
   implementation supports it.
 - **HTTPS redirect:** without `sectionName` (or `port`), a parent reference
   attaches the route to all listeners of the Gateway, so set it in both
-  `parentRefs` and `httpsRedirect.parentRefs`; rendering fails if they may
-  attach to the same listener, which would redirect HTTPS requests, too.
+  `parentRefs` and `httpsRedirect.parentRefs` (`sectionName` in both, or
+  `port` in both); rendering fails if they may attach to the same listener,
+  which would redirect HTTPS requests, too. The redirect's HTTPRoute has no
+  annotations.
 - **Body size and rate limiting:** the Gateway API has no standard
   settings for them; implementations offer policies that attach to the
   HTTPRoute or the Gateway (created next to the release, as they are
@@ -340,10 +342,13 @@ policies; [ingress2gateway](https://github.com/kubernetes-sigs/ingress2gateway)
 converts Ingresses (including many ingress-nginx annotations) to Gateway API
 resources, which helps to translate them. The Gateway usually has another
 address than the ingress controller, and one release cannot have both an
-Ingress and an HTTPRoute: to switch without downtime, create an HTTPRoute
-by hand first (e.g., rendered with `helm template` and the new values, under
-another name), switch the DNS records of `hostName` to the Gateway, then
-upgrade the release to the HTTPRoute and delete the one created by hand.
+Ingress and an HTTPRoute: to switch without downtime, add the Gateway's
+peers to `<valuesKey>.networkPolicy.ingressFrom` (if enabled) and upgrade
+the release, create an HTTPRoute by hand (e.g., rendered with `helm
+template` and the new values, under another name), switch the DNS records
+of `hostName` to the Gateway, then upgrade the release to the HTTPRoute
+(without the ingress controller's peers) and delete the one created by
+hand.
 
 ### Traefik
 
@@ -529,9 +534,9 @@ them (e.g., its health check ranges).
   [Exposing the app](#exposing-the-app) for other setups). The kubelet's
   probes are always admitted.
 - **OpenShift:** without an Ingress or HTTPRoute, a Route is created if the
-  cluster serves `route.openshift.io/v1`; on clusters with `security.openshift.io/v1`, the
-  user and group IDs are omitted from the security contexts, as OpenShift
-  assigns them.
+  cluster serves `route.openshift.io/v1`; on clusters with
+  `security.openshift.io/v1`, the user and group IDs are omitted from the
+  security contexts, as OpenShift assigns them.
 - **Gunicorn:** the `<valuesKey>.gunicorn` values are passed to the app's
   image as `GUNICORN_CMD_ARGS` (see [Running in
   production](deployment.md#running-in-production)); omit them if the image

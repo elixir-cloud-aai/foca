@@ -193,15 +193,19 @@ jobs:
               8080:80 8443:443 > "${RUNNER_TEMP}/port-forward.log" 2>&1 &
           forward=$!
           trap 'kill "${forward}" || true' EXIT
-          for _ in $(seq 1 30); do
-            if curl -s -o /dev/null http://127.0.0.1:8080/; then
+          # The URLs' host and default ports, via the forwarded ports; retried
+          # until the ports are forwarded and Envoy Gateway has programmed
+          # the routes
+          for _ in $(seq 1 60); do
+            redirect="$(curl -sS -o /dev/null \
+                -w '%{http_code} %{redirect_url}' \
+                --connect-to "${HOST}:80:127.0.0.1:8080" \
+                "http://${HOST}/pets")" || true
+            if [ "${redirect%% *}" = "301" ]; then
               break
             fi
-            sleep 1
+            sleep 2
           done
-          # The URLs' host and default ports, via the forwarded ports
-          redirect="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' \
-              --connect-to "${HOST}:80:127.0.0.1:8080" "http://${HOST}/pets")"
           echo "HTTP: ${redirect}"
           if [ "${redirect}" != "301 https://${HOST}/pets" ]; then
             echo "::error::HTTP is not redirected to HTTPS"

@@ -86,7 +86,8 @@ petstore:
     # HTTPS (`301`), attached to the Gateway's HTTP listener(s) in
     # `parentRefs` (required if enabled), e.g.,
     # `[{name: gateway, namespace: gateway-system, sectionName: http}]`; they
-    # must not attach to the listeners of `httpRoute.parentRefs`
+    # must not attach to the listeners of `httpRoute.parentRefs` (set
+    # `sectionName` in both, or `port` in both). It has no annotations
     httpsRedirect:
       enabled: false
       parentRefs: []
