@@ -354,9 +354,11 @@ def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False) -> jwt.PyJWK
     keys = document.get("keys") if isinstance(document, dict) else None
     if not isinstance(keys, list) or not all(isinstance(key, dict) for key in keys):
         raise _unauthorized("Issuer's JWK set is invalid", invalid_token=False)
+    # For some badly typed key members (e.g., a list as `alg`, or numbers as
+    # key material in 2.11), PyJWT raises `TypeError` or `ValueError`
     try:
         jwk_set = jwt.PyJWKSet.from_dict(document)
-    except jwt.PyJWTError as exc:
+    except (jwt.PyJWTError, TypeError, ValueError) as exc:
         raise _unauthorized("Issuer's JWK set is invalid", invalid_token=False) from exc
     _jwk_sets[url] = (time.monotonic(), jwk_set)
     return jwk_set

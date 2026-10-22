@@ -262,6 +262,16 @@ class TestValidateToken:
             pytest.param({"keys": []}, id="no-keys"),
             pytest.param({"keys": "abc"}, id="keys-not-list"),
             pytest.param({"keys": [1]}, id="key-not-object"),
+            pytest.param({"keys": [{"kty": "foo"}]}, id="key-unusable"),
+            pytest.param({"keys": [{"kty": "oct", "k": 1}]}, id="key-material-number"),
+            pytest.param(
+                {"keys": [{"kty": "RSA", "n": "!!!", "e": "AQAB"}]},
+                id="key-material-invalid",
+            ),
+            pytest.param(
+                {"keys": [{"kty": "oct", "k": "AAAA", "alg": ["HS256"]}]},
+                id="alg-not-string",
+            ),
             pytest.param({}, id="empty-object"),
             pytest.param([], id="list"),
             pytest.param("keys", id="string"),
