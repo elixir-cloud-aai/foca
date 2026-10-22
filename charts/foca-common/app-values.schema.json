@@ -13,6 +13,41 @@
       "minimum": 1,
       "description": "Size limit of the emptyDir at /tmp: a positive Kubernetes quantity (e.g., 64Mi) or number of bytes; none if null"
     },
+    "parentRefs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "namespace": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sectionName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        }
+      },
+      "description": "Gateway API parent references (group, kind, namespace, name, sectionName, port), e.g., a Gateway and one of its listeners"
+    },
     "app": {
       "type": "object",
       "required": ["image", "probePath"],
@@ -41,7 +76,7 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Create an Ingress; otherwise an OpenShift Route, if the cluster serves route.openshift.io/v1"
+              "description": "Create an Ingress (not with httpRoute.enabled); otherwise an OpenShift Route, if the cluster serves route.openshift.io/v1 and httpRoute is disabled"
             },
             "className": {
               "type": "string",
@@ -67,6 +102,76 @@
                   "description": "cert-manager ClusterIssuer"
                 }
               }
+            }
+          }
+        },
+        "httpRoute": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Create a Gateway API HTTPRoute attached to parentRefs (not with ingress.enabled)"
+            },
+            "annotations": {
+              "type": ["object", "null"],
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Annotations of the HTTPRoute"
+            },
+            "parentRefs": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/parentRefs"
+                }
+              ],
+              "description": "Gateways (or listeners, via sectionName or port) that the HTTPRoute attaches to, e.g., the HTTPS listener of a shared Gateway; required if enabled"
+            },
+            "filters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "description": "Filters of the HTTPRoute's rule (HTTPRouteFilter), e.g., an ExtensionRef to a resource of the Gateway implementation for body size or rate limits"
+            },
+            "httpsRedirect": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Create a second HTTPRoute, attached to httpsRedirect.parentRefs, that redirects HTTP to HTTPS (301)"
+                },
+                "parentRefs": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/parentRefs"
+                    }
+                  ],
+                  "description": "HTTP listeners of the Gateway for the redirect; must not attach to the listeners of httpRoute.parentRefs; required if enabled"
+                }
+              }
+            }
+          }
+        },
+        "route": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "annotations": {
+              "type": ["object", "null"],
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Annotations of the OpenShift Route, e.g., for rate limits of the router"
             }
           }
         },
@@ -119,7 +224,7 @@
                   }
                 ]
               },
-              "description": "NetworkPolicy peers allowed to connect to the app (by default, the namespace ingress-nginx); must not be empty"
+              "description": "NetworkPolicy peers allowed to connect to the app, e.g., the pods of the ingress controller or Gateway (by default, the namespace ingress-nginx); must not be empty"
             }
           }
         },
@@ -206,7 +311,7 @@
     },
     "hostName": {
       "type": "string",
-      "description": "Public host name of the app (of the Ingress or Route)"
+      "description": "Public host name of the app (of the Ingress, HTTPRoute or Route)"
     },
     "config": {
       "type": ["object", "null"],

@@ -41,6 +41,21 @@ CASES: dict[str, tuple[str, ...]] = {
         "--set",
         "config.server.max_content_length=1048576",
     ),
+    "http-route": (
+        "--set",
+        "petstore.ingress.enabled=false",
+        "--set",
+        "petstore.httpRoute.enabled=true",
+        "--set-json",
+        'petstore.httpRoute.parentRefs=[{"name": "gateway", "sectionName": "https"}]',
+        "--set",
+        "petstore.httpRoute.httpsRedirect.enabled=true",
+        "--set-json",
+        'petstore.httpRoute.httpsRedirect.parentRefs=[{"name": "gateway", '
+        '"sectionName": "http"}]',
+        "--set",
+        "petstore.networkPolicy.enabled=true",
+    ),
     "celery": (
         "--set",
         "worker.enabled=true",

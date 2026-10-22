@@ -10,7 +10,7 @@
 nameOverride: ""
 fullnameOverride: ""
 
-# Public host name of the app (of the Ingress or OpenShift Route)
+# Public host name of the app (of the Ingress, HTTPRoute or OpenShift Route)
 hostName: ""
 
 # App config overriding the base config in the image (`config.yaml` of the
@@ -43,8 +43,12 @@ petstore:
   # OpenAPI spec (no authentication or database access, and lighter than
   # the Swagger UI, `/ui/`)
   probePath: /openapi.json
-  # Ingress for `hostName`; if disabled, an OpenShift Route is created
-  # instead, if the cluster serves Routes
+  # The app is exposed for `hostName` via one of: an Ingress (`ingress`), a
+  # Gateway API HTTPRoute (`httpRoute`; disable the Ingress to enable it) or,
+  # if neither is enabled and the cluster serves Routes, an OpenShift Route
+  # (`route`). See the chart docs for the values of common ingress
+  # controllers and Gateway implementations
+  # (https://foca.readthedocs.io/en/latest/helm-chart/#exposing-the-app)
   ingress:
     enabled: true
     # Ingress class (`spec.ingressClassName`); the cluster's default class if
@@ -61,16 +65,48 @@ petstore:
       # ClusterIssuer) and serve HTTPS
       enabled: false
       issuer: letsencrypt-prod
+  # Gateway API HTTPRoute (`gateway.networking.k8s.io/v1`) for `hostName`,
+  # attached to an existing Gateway, whose listener terminates TLS; requires
+  # `ingress.enabled: false`
+  httpRoute:
+    enabled: false
+    # Annotations of the HTTPRoute
+    annotations: {}
+    # Gateways (or listeners, via `sectionName` or `port`) to attach to;
+    # required if enabled, e.g., the HTTPS listener of a shared Gateway:
+    # `[{name: gateway, namespace: gateway-system, sectionName: https}]`.
+    # The Gateway's listener must allow routes from the release's namespace
+    parentRefs: []
+    # Filters of the route's rule (`HTTPRouteFilter`s), e.g., an
+    # `ExtensionRef` to a resource of the Gateway implementation that limits
+    # body sizes or rates; the Gateway API has no standard for these, so the
+    # app's `config.server.max_content_length` stays the enforcing limit
+    filters: []
+    # A second HTTPRoute (`<app name>-https-redirect`) that redirects HTTP to
+    # HTTPS (`301`), attached to the Gateway's HTTP listener(s) in
+    # `parentRefs` (required if enabled), e.g.,
+    # `[{name: gateway, namespace: gateway-system, sectionName: http}]`; they
+    # must not attach to the listeners of `httpRoute.parentRefs` (set
+    # `sectionName` in both, or `port` in both). It has no annotations
+    httpsRedirect:
+      enabled: false
+      parentRefs: []
+  # OpenShift Route (TLS at the router, which redirects HTTP to HTTPS)
+  route:
+    # Annotations of the Route, e.g., for rate limits of the router
+    # (`haproxy.router.openshift.io/rate-limit-connections`)
+    annotations: {}
   # NetworkPolicy allowing connections to the app only from `ingressFrom`
   # (and the kubelet's probes); clusters without NetworkPolicy support ignore
   # it. Disabled by default: before enabling it, make `ingressFrom` match the
-  # ingress controller
+  # pods of the ingress controller or Gateway
   networkPolicy:
     enabled: false
     # NetworkPolicy peers (`spec.ingress[].from`) allowed to connect to the
     # app; by default, the namespace of ingress-nginx. Must not be empty
     # (which would allow all sources); on OpenShift, use the router's
-    # namespaces (`policy-group.network.openshift.io/ingress: ""`)
+    # namespaces (`policy-group.network.openshift.io/ingress: ""`). The chart
+    # docs list the peers of common ingress controllers and Gateways
     ingressFrom:
     - namespaceSelector:
         matchLabels:
