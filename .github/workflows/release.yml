@@ -1,8 +1,9 @@
 # Release when a version tag (`vX.Y.Z`) is pushed: build the distributions,
 # publish them to PyPI, build, push, attest and sign Docker images, and
-# create the GitHub release. The version is derived from the tag (via setuptools-scm). Uses
-# PyPI trusted publishing (no API token); the PyPI project trusts this
-# workflow file in the `pypi` environment. See "Releasing" in README.md.
+# create the GitHub release. The version is derived from the tag (via
+# setuptools-scm). Uses PyPI trusted publishing (no API token); the PyPI
+# project trusts this workflow file in the `pypi` environment. See
+# "Releasing" in README.md.
 
 name: Release
 
@@ -162,11 +163,10 @@ jobs:
                   tags+=("${image}:latest")
               fi
           fi
-          printf '%s\n' "${tags[@]}"
           echo "image=${image}" >> "${GITHUB_OUTPUT}"
           {
               echo "tags<<EOF"
-              printf '%s\n' "${tags[@]}"
+              printf '%s\n' "${tags[@]}" | tee /dev/stderr
               echo "EOF"
           } >> "${GITHUB_OUTPUT}"
       - name: Log in to Docker Hub

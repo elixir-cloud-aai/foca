@@ -163,6 +163,8 @@ The lint job also builds the documentation (see [Documentation](#documentation))
 and the distributions, and checks that the ruff version of the pre-commit hook
 matches the one pinned in `requirements/lint.txt` (update both together).
 
+### Image scan
+
 The image scan (`.github/workflows/images.yml`) builds the Docker images of
 all Python versions and scans them with [Grype](https://github.com/anchore/grype);
 it also checks that the build creates the SBOM and provenance attestations of

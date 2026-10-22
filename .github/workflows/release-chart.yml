@@ -140,7 +140,10 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           helm package "${CHART}" -d dist
-          output="$(helm push "dist/foca-common-${VERSION}.tgz" "${REPOSITORY}" 2>&1)"
+          if ! output="$(helm push "dist/foca-common-${VERSION}.tgz" "${REPOSITORY}" 2>&1)"; then
+              echo "${output}"
+              exit 1
+          fi
           echo "${output}"
           digest="$(sed -n 's/^Digest: \(sha256:[0-9a-f]\{64\}\)$/\1/p' <<< "${output}")"
           if [ -z "${digest}" ]; then

@@ -290,6 +290,6 @@ docker buildx imagetools inspect elixircloud/foca:0.17.0 \
 
 CI scans the images for known vulnerabilities on every change and the images
 of the latest release every week (see
-[Contributing](contributing.md#development)); the results are in the
+[Image scan](contributing.md#image-scan)); the results are in the
 repository's code scanning alerts. Images derived from FOCA's image (e.g.,
 apps) need their own scans, as they add packages.

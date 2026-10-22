@@ -137,8 +137,8 @@ git push origin vX.Y.Z
 Pushing the tag triggers the [release workflow][release-workflow], which
 checks that the tagged commit is on `main`, publishes the distributions to
 PyPI (after approval in the `pypi` environment), pushes, attests and signs
-Docker images tagged `X.Y.Z` and `latest`, and creates a GitHub release with generated
-notes. Tags of alpha, beta and release candidate versions (e.g.,
+Docker images tagged `X.Y.Z` and `latest`, and creates a GitHub release with
+generated notes. Tags of alpha, beta and release candidate versions (e.g.,
 `vX.Y.Zrc1`) do not update `latest`. These and, until 1.0.0, all other
 releases are GitHub pre-releases (never marked as the latest release).
 

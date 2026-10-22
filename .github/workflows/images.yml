@@ -49,7 +49,8 @@ jobs:
               --arg today "${today}" --arg max "${max}" '
               .[] | select(
                   ((.reason // "") | tostring | test("\\S") | not)
-                  or ((.expires // "") | tostring | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") | not)
+                  or ((.expires // "") | tostring
+                      | . != (try (strptime("%Y-%m-%d") | mktime | strftime("%Y-%m-%d")) catch ""))
                   or ((.expires | tostring) < $today)
                   or ((.expires | tostring) > $max)
               )')"
@@ -95,7 +96,8 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Dry run of the release build: the same settings, with the SBOM and
       # provenance attestations, but written to an OCI archive instead of
-      # being pushed
+      # being pushed; the next step checks that both attestations are there,
+      # as the release workflows cannot be tested otherwise
       - name: Build image with attestations
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -144,6 +146,9 @@ jobs:
           sbom: false
           provenance: false
           load: true
+      # Two scans: the first reports all vulnerabilities, the second fails
+      # only on fixable ones (`only-fixed` would drop the others from the
+      # report)
       - name: Scan image (all vulnerabilities)
         id: scan
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
@@ -192,11 +197,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # All tags, to find the latest release
+          # All tags, to find the latest release, and `dev`
           fetch-depth: 0
-          # The current ignore file (`.grype.yaml`), so that findings
-          # accepted after the release apply (see the `ignores` job)
-          ref: ${{ github.event_name == 'schedule' && 'dev' || '' }}
+      - name: Use ignore file of dev
+        # Scheduled runs use the default branch (`main`, i.e., the latest
+        # release); findings accepted on `dev` since apply too (see the
+        # `ignores` job). The checkout stays on the triggering commit, which
+        # code scanning gets the results for
+        if: github.event_name == 'schedule'
+        run: git show origin/dev:.grype.yaml > .grype.yaml
       - name: Determine image of the latest release
         id: image
         env:
@@ -214,6 +223,7 @@ jobs:
           image="docker.io/${DOCKERHUB_ORG}/${REPO_NAME}:${tag#v}-py${PY_VERSION}"
           echo "Scanning ${image}"
           echo "image=${image}" >> "${GITHUB_OUTPUT}"
+      # Two scans, as in the `build` job
       - name: Scan image (all vulnerabilities)
         id: scan
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
