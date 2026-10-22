@@ -163,6 +163,22 @@ The lint job also builds the documentation (see [Documentation](#documentation))
 and the distributions, and checks that the ruff version of the pre-commit hook
 matches the one pinned in `requirements/lint.txt` (update both together).
 
+## Citation metadata
+
+FOCA is cited with the metadata in
+[`CITATION.cff`](https://github.com/elixir-cloud-aai/foca/blob/dev/CITATION.cff)
+([Citation File Format](https://citation-file-format.github.io/)), which
+GitHub ("Cite this repository") and Zenodo use. Its authors are the people
+who committed at least 100 lines to `main` (without bots, vendored or
+generated files and reformatting commits), ordered by lines, then by
+commits; its `message` explains the order. To add or correct your entry
+(e.g., your name, [ORCID iD](https://orcid.org/) or affiliation), open a
+pull request that changes only your entry; don't add e-mail addresses. CI
+validates the file (`cffconvert --validate`), and its `version` and
+`date-released` are set for each release (see
+[Releasing](https://github.com/elixir-cloud-aai/foca#releasing) in the
+README).
+
 ## Python guidelines
 
 Most of the following is checked by pre-commit and CI; the rest is checked in

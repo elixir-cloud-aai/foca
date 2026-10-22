@@ -1,0 +1,49 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it using the metadata from this file.
+  Authors are the people who committed at least 100 lines to the release
+  branch, listed by the number of lines they committed, then by the number of
+  their commits. Equal contributors, if any (equal numbers of lines and
+  commits), are listed alphabetically by family name and marked with an
+  asterisk (*) after their family names. To add or correct your entry, see
+  "Contributing" in the documentation.
+title: FOCA
+abstract: >-
+  FOCA (Flask-OpenAPI-Connexion-Archetype) is an opinionated archetype for
+  developing OpenAPI-based HTTP API microservices in Flask with Connexion,
+  from a single validated configuration file: OpenAPI specifications, errors
+  as problem details, bearer token validation, policy-based access control,
+  MongoDB, background tasks with Celery and CORS.
+type: software
+authors:
+  - given-names: Alexander
+    family-names: Kanitz
+    orcid: "https://orcid.org/0000-0002-3468-0652"
+    affiliation: >-
+      Biozentrum, University of Basel, Basel, Switzerland; SIB Swiss Institute
+      of Bioinformatics, Lausanne, Switzerland
+  - given-names: Kushagra
+    family-names: Nagori
+  - given-names: Sarthak
+    family-names: Gupta
+  - given-names: Konstantinos
+    family-names: Liosis
+  - given-names: Michael
+    family-names: Farrell
+  - given-names: Vipul
+    family-names: Chhabra
+    orcid: "https://orcid.org/0000-0002-6985-3517"
+  - given-names: Aditya
+    family-names: Arora
+repository-code: "https://github.com/elixir-cloud-aai/foca"
+url: "https://foca.readthedocs.io/"
+keywords:
+  - REST API
+  - OpenAPI
+  - microservice
+  - Flask
+  - Connexion
+  - Python
+license: Apache-2.0
+version: "0.16.0"
+date-released: "2026-10-22"
