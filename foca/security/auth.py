@@ -142,7 +142,9 @@ def validate_token(token: str) -> dict[str, Any]:
         log_auth_config_warnings(conf)
         conf._warnings_logged = True
     claims = _validate(token=token, conf=conf)
-    # Logs the issuer and subject only, not the token
+    # Logs the issuer and subject only, not the token (a false positive of
+    # semgrep's registry rules, `p/python`)
+    # nosemgrep: python-logger-credential-disclosure
     logger.debug(
         "Token issued by '%s' validated for subject '%s'",
         escape_log_value(claims["iss"]),
@@ -271,6 +273,8 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
         # nosemgrep: jwt-decode-without-verification
         unverified_claims = jwt.decode(
             token,
+            # Verified later, as above (semgrep's registry rules, `p/python`)
+            # nosemgrep: unverified-jwt-decode
             options={"verify_signature": False},
         )
     except jwt.PyJWTError as exc:
