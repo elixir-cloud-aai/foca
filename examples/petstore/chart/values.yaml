@@ -321,8 +321,8 @@ broker:
     accessModes: ["ReadWriteOnce"]
     storageClass: ""
     existingClaim: ""
-  # Size limits of the `emptyDir`s with the broker's data (without
-  # `persistence`) and at `/tmp` (the pod is evicted if they are exceeded):
-  # quantities (e.g., `1Gi`) or numbers of bytes; `null` for none
+  # Size limits of the `emptyDir`s with the broker's home (and, without
+  # `persistence`, its data) and at `/tmp` (the pod is evicted if they are
+  # exceeded): quantities (e.g., `1Gi`) or numbers of bytes; `null` for none
   dataSizeLimit: 1Gi
   tmpSizeLimit: 64Mi

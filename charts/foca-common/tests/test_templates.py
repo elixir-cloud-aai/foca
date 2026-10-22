@@ -1438,12 +1438,15 @@ def test_broker(render: Callable[..., Docs]) -> None:
         assert broker[probe]["tcpSocket"] == {"port": 5672}
     assert broker["securityContext"]["readOnlyRootFilesystem"] is True
     mounts = {mount["name"]: mount["mountPath"] for mount in broker["volumeMounts"]}
+    # The Erlang cookie (in the home) is not on the claim, whose files the
+    # kubelet makes group-readable (`fsGroup`), which Erlang refuses
     assert mounts == {
         "data": "/var/lib/rabbitmq",
+        "persistent-data": "/var/lib/rabbitmq/mnesia",
         "tmp": "/tmp",  # noqa: S108
         "config": "/etc/rabbitmq/conf.d/90-foca.conf",
     }
-    assert broker["volumeMounts"][2]["subPath"] == "90-foca.conf"
+    assert broker["volumeMounts"][3]["subPath"] == "90-foca.conf"
     config = docs[("ConfigMap", BROKER_CONFIG)]["data"]["90-foca.conf"]
     assert "deprecated_features.permit.transient_nonexcl_queues = true" in config
     pod = docs[("Deployment", BROKER)]["spec"]["template"]["metadata"]
@@ -1453,7 +1456,8 @@ def test_broker(render: Callable[..., Docs]) -> None:
     assert spec["securityContext"]["runAsNonRoot"] is True
     assert spec["enableServiceLinks"] is False
     assert spec["volumes"] == [
-        {"name": "data", "persistentVolumeClaim": {"claimName": BROKER}},
+        {"name": "data", "emptyDir": {"sizeLimit": "1Gi"}},
+        {"name": "persistent-data", "persistentVolumeClaim": {"claimName": BROKER}},
         {"name": "tmp", "emptyDir": {"sizeLimit": "64Mi"}},
         {"name": "config", "configMap": {"name": "petstore-broker-config"}},
     ]
@@ -1579,12 +1583,40 @@ def test_broker_settings(render: Callable[..., Docs]) -> None:
     ]
 
 
-def test_broker_without_persistence(render: Callable[..., Docs]) -> None:
-    """Without persistence, the broker keeps its data in an emptyDir."""
-    docs = render(*CELERY, "--set", "broker.persistence.enabled=false")
+def _broker_volumes(docs: Docs) -> dict[str, dict[str, object]]:
+    """The volumes of the broker's pod, by name."""
+    return {volume.pop("name"): volume for volume in _pod_spec(docs, BROKER)["volumes"]}
+
+
+def _assert_broker_without_claim(docs: Docs) -> None:
+    """The broker keeps its data in its emptyDir, without a claim."""
     assert ("PersistentVolumeClaim", BROKER) not in docs
-    (data, *_) = _pod_spec(docs, BROKER)["volumes"]
-    assert data == {"name": "data", "emptyDir": {"sizeLimit": "1Gi"}}
+    volumes = _broker_volumes(docs)
+    assert "persistent-data" not in volumes
+    assert volumes["data"] == {"emptyDir": {"sizeLimit": "1Gi"}}
+    mounts = [mount["mountPath"] for mount in _container(docs, BROKER)["volumeMounts"]]
+    assert "/var/lib/rabbitmq/mnesia" not in mounts
+
+
+@pytest.mark.parametrize("existing_claim", ["", "queues"])
+def test_broker_without_persistence(
+    render: Callable[..., Docs], existing_claim: str
+) -> None:
+    """Without persistence, the broker keeps its data in an emptyDir."""
+    docs = render(
+        *CELERY,
+        "--set",
+        "broker.persistence.enabled=false",
+        "--set",
+        f"broker.persistence.existingClaim={existing_claim}",
+    )
+    _assert_broker_without_claim(docs)
+
+
+def test_broker_disabled_without_claim(render: Callable[..., Docs]) -> None:
+    """Without the bundled broker, there is no claim for it."""
+    docs = render()
+    assert not [kind for kind, name in docs if name.startswith(BROKER)]
 
 
 def test_broker_persistence_settings(render: Callable[..., Docs]) -> None:
@@ -1619,8 +1651,8 @@ def test_broker_existing_claim(render: Callable[..., Docs]) -> None:
     """An existing claim replaces the broker's own."""
     docs = render(*CELERY, "--set", "broker.persistence.existingClaim=queues")
     assert ("PersistentVolumeClaim", BROKER) not in docs
-    (data, *_) = _pod_spec(docs, BROKER)["volumes"]
-    assert data == {"name": "data", "persistentVolumeClaim": {"claimName": "queues"}}
+    volume = _broker_volumes(docs)["persistent-data"]
+    assert volume == {"persistentVolumeClaim": {"claimName": "queues"}}
 
 
 def test_broker_persistence_size_required(chart: Path, tmp_path: Path) -> None:
@@ -1640,9 +1672,7 @@ def test_broker_without_persistence_values(chart: Path, tmp_path: Path) -> None:
     shutil.copytree(chart, chart_copy)
     (chart_copy / "values.schema.json").unlink()
     docs = index(template(chart_copy, *CELERY, "--set-json", "broker.persistence=null"))
-    assert ("PersistentVolumeClaim", BROKER) not in docs
-    (data, *_) = _pod_spec(docs, BROKER)["volumes"]
-    assert data == {"name": "data", "emptyDir": {"sizeLimit": "1Gi"}}
+    _assert_broker_without_claim(docs)
 
 
 def test_broker_image_required(render_error: Callable[..., str]) -> None:
@@ -1685,6 +1715,7 @@ def test_schema_rejects_invalid_celery_values(
     assert "schema" in render_error("--set", "worker.replicas=0")
     assert "schema" in render_error("--set", "broker.dataSizeLimit=0")
     assert "schema" in render_error("--set", "broker.persistence.size=1x")
+    assert "schema" in render_error("--set", "broker.persistence.size=0Gi")
     assert "schema" in render_error(
         "--set-json", 'broker.persistence.accessModes=["ReadWriteSometimes"]'
     )

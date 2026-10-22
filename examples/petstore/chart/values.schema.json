@@ -485,7 +485,11 @@
             "size": {
               "type": "string",
               "pattern": "^([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([KMGTPE]i|[mkMGTPE]|[eE][+-]?[0-9]+)?$",
-              "description": "Size of the PersistentVolumeClaim (a Kubernetes quantity, e.g., 1Gi)"
+              "not": {
+                "pattern": "^(0+(\\.0*)?|\\.0+)([KMGTPE]i|[mkMGTPE]|[eE][+-]?[0-9]+)?$",
+                "$comment": "Rejects all-zero quantities (Go regular expressions have no lookahead)"
+              },
+              "description": "Size of the PersistentVolumeClaim: a positive Kubernetes quantity (e.g., 1Gi)"
             },
             "accessModes": {
               "type": "array",
@@ -497,7 +501,7 @@
             },
             "storageClass": {
               "type": "string",
-              "description": "Storage class of the PersistentVolumeClaim; the cluster's default class if empty, none (no dynamic provisioning) if -"
+              "description": "Storage class of the PersistentVolumeClaim; the cluster's default class if empty; - disables dynamic provisioning"
             },
             "existingClaim": {
               "type": "string",
@@ -511,7 +515,7 @@
               "$ref": "#/$defs/tmpSizeLimit"
             }
           ],
-          "description": "Size limit of the emptyDir with the broker's data (without persistence): a positive Kubernetes quantity (e.g., 1Gi) or number of bytes; none if null"
+          "description": "Size limit of the emptyDir with the broker's home and, without persistence, its data: a positive Kubernetes quantity (e.g., 1Gi) or number of bytes; none if null"
         },
         "tmpSizeLimit": {
           "$ref": "#/$defs/tmpSizeLimit"

@@ -5,14 +5,18 @@ nothing otherwise. Call them with the context dict.
 */ -}}
 
 {{/*
-Deployment of RabbitMQ: one pod, whose data (queued tasks) is kept in a
-PersistentVolumeClaim if `broker.persistence.enabled` (see
-`foca-common.brokerPersistence`), otherwise in an `emptyDir`, which is lost
-when the pod is replaced. RabbitMQ creates its user from the credentials in
-the existing Secret (`broker.existingSecret`) when it starts with empty
-data, i.e., only once with persistence. The node name is fixed, as RabbitMQ
-keeps its data in a directory named after it (by default after the pod's
-host name, which changes with every pod).
+Deployment of RabbitMQ: one pod, whose data (queued tasks, in
+`/var/lib/rabbitmq/mnesia`) is kept in a PersistentVolumeClaim if
+`broker.persistence.enabled` (see `foca-common.brokerClaimName`), otherwise
+in the `emptyDir` with RabbitMQ's home, which is lost when the pod is
+replaced. The home (with the Erlang cookie) is never on the claim: the
+kubelet makes the files of claims writable for the pod's `fsGroup` on
+mounting them, and Erlang refuses a cookie that others than its owner can
+read. RabbitMQ creates its user from the credentials in the existing Secret
+(`broker.existingSecret`) when it starts with empty data, i.e., only once
+with persistence. The node name is fixed, as RabbitMQ keeps its data in a
+directory named after it (by default after the pod's host name, which
+changes with every pod); changing it would orphan existing data.
 */}}
 {{- define "foca-common.brokerDeployment" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -20,6 +24,7 @@ host name, which changes with every pod).
 {{- if include "foca-common.brokerEnabled" $root -}}
 {{- $broker := $root.Values.broker -}}
 {{- $secret := include "foca-common.brokerSecret" $root -}}
+{{- $claimName := include "foca-common.brokerClaimName" $root -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -58,7 +63,8 @@ spec:
         # Logs to standard output only, as the root file system is read-only
         - name: RABBITMQ_LOGS
           value: "-"
-        # Fixed, as RabbitMQ keeps its data in a directory named after it
+        # Fixed, as RabbitMQ keeps its data in a directory named after it;
+        # never change it, as existing data would be ignored
         - name: RABBITMQ_NODENAME
           value: rabbit@localhost
         - name: RABBITMQ_DEFAULT_USER
@@ -96,9 +102,15 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
-        # RabbitMQ's data directory and home (with the Erlang cookie)
+        # RabbitMQ's home (with the Erlang cookie) and, without persistence,
+        # its data
         - mountPath: /var/lib/rabbitmq
           name: data
+        {{- if $claimName }}
+        # RabbitMQ's data, on the claim
+        - mountPath: /var/lib/rabbitmq/mnesia
+          name: persistent-data
+        {{- end }}
         # Writable, as the root file system is read-only by default
         - mountPath: /tmp
           name: tmp
@@ -115,12 +127,12 @@ spec:
       terminationGracePeriodSeconds: 30
       volumes:
       - name: data
-        {{- with include "foca-common.brokerPersistence" $root | fromJson }}
-        persistentVolumeClaim:
-          claimName: {{ .claimName | quote }}
-        {{- else }}
         {{- include "foca-common.emptyDir" $broker.dataSizeLimit | nindent 8 }}
-        {{- end }}
+      {{- if $claimName }}
+      - name: persistent-data
+        persistentVolumeClaim:
+          claimName: {{ $claimName | quote }}
+      {{- end }}
       - name: tmp
         {{- include "foca-common.emptyDir" $broker.tmpSizeLimit | nindent 8 }}
       - name: config
@@ -130,20 +142,15 @@ spec:
 {{- end -}}
 
 {{/*
-Persistence of the broker's data, as JSON: a dict with the name of the
-PersistentVolumeClaim (`claimName`; `broker.persistence.existingClaim`, or
-the broker's own claim) and whether the chart creates it (`create`), if
-`broker.persistence.enabled`; otherwise an empty dict. Without a
-`broker.persistence` map (values written for foca-common 0.1.0), persistence
-is disabled. Call with the root context.
+Name of the PersistentVolumeClaim with the broker's data if
+`broker.persistence.enabled`: `broker.persistence.existingClaim`, or the
+broker's own claim; empty otherwise, also without a `broker.persistence` map
+(values written for foca-common 0.1.0). Call with the root context.
 */}}
-{{- define "foca-common.brokerPersistence" -}}
+{{- define "foca-common.brokerClaimName" -}}
 {{- $persistence := dig "persistence" dict (.Values.broker | default dict) | default dict -}}
 {{- if $persistence.enabled -}}
-{{- $existing := $persistence.existingClaim | default "" -}}
-{{- dict "claimName" ($existing | default (include "foca-common.brokerFullname" .)) "create" (not $existing) | toJson -}}
-{{- else -}}
-{{- dict | toJson -}}
+{{- $persistence.existingClaim | default (include "foca-common.brokerFullname" .) -}}
 {{- end -}}
 {{- end -}}
 
@@ -157,8 +164,8 @@ class if empty; "-" for none, i.e., no dynamic provisioning).
 {{- include "foca-common.checkSettings" . -}}
 {{- $root := .root -}}
 {{- if include "foca-common.brokerEnabled" $root -}}
-{{- if (include "foca-common.brokerPersistence" $root | fromJson).create -}}
-{{- $persistence := $root.Values.broker.persistence -}}
+{{- $persistence := $root.Values.broker.persistence | default dict -}}
+{{- if and (include "foca-common.brokerClaimName" $root) (not $persistence.existingClaim) -}}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -170,7 +177,7 @@ spec:
     {{- toYaml ($persistence.accessModes | default (list "ReadWriteOnce")) | nindent 2 }}
   resources:
     requests:
-      storage: {{ required "broker.persistence.size must be set if broker.persistence.enabled" $persistence.size | quote }}
+      storage: {{ required "broker.persistence.size must be set if broker.persistence.enabled" $persistence.size }}
   {{- with $persistence.storageClass }}
   storageClassName: {{ ternary "" . (eq . "-") | quote }}
   {{- end }}

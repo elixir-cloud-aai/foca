@@ -283,9 +283,10 @@ jobs:
           fi
       # A task queued while no worker runs survives a restart of the bundled
       # broker (PersistentVolumeClaim, durable queue, persistent message) and
-      # is delivered to the worker afterwards; the example has no tasks, so
-      # the worker logs the task as unregistered, which shows that it
-      # received it
+      # is delivered to the worker afterwards. The task is sent with the
+      # Celery app of the example's worker entry point (`worker.py`); the
+      # example has no tasks, so the worker logs the task as unregistered,
+      # which shows that it received it
       - name: Check that queued tasks survive a broker restart
         env:
           APP: petstore-celery

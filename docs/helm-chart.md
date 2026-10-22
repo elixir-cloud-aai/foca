@@ -516,25 +516,31 @@ them (e.g., its health check ranges).
 
     The bundled RabbitMQ (one pod) keeps its data in a
     PersistentVolumeClaim (`broker.persistence`: `size`, `accessModes`,
-    `storageClass`, or an `existingClaim`), so queued tasks survive the
-    replacement of its pod (e.g., on upgrades): Celery's default queue is
-    durable and its task messages are persistent. Results of the `rpc://`
-    result backend (FOCA's default) are transient, though; set a persistent
-    result backend (`result-backend`) if they matter. RabbitMQ creates its
-    user from the Secret only when it starts with empty data: after
-    changing the password in the Secret, change the user's, too
-    (`kubectl exec deployment/my-app-broker -- rabbitmqctl change_password
-    my-app "${password}"`), and roll the app's and the worker's pods. On
-    OpenShift, which assigns the pod's group, the volume is writable as on
-    other clusters. Without `broker.persistence.enabled`, the data is kept
-    in an `emptyDir` (up to `broker.dataSizeLimit`) and lost with the pod,
-    and each new pod creates the user from the Secret; values without a
-    `broker.persistence` map (written for foca-common 0.1.0) disable it.
-    App charts add the template file with
-    `foca-common.brokerPersistentVolumeClaim` (see the petstore example).
-    For a highly available broker, use an external one: set only
-    `broker.existingSecret` (and `worker.enabled`, if the release runs the
-    worker).
+    `storageClass`, or an `existingClaim`), mounted at
+    `/var/lib/rabbitmq/mnesia`, so queued tasks survive the replacement of
+    its pod (e.g., on upgrades): Celery's default queue is durable and its
+    task messages are persistent. Results of the `rpc://` result backend
+    (FOCA's default) are transient, though; set a persistent result backend
+    (`result-backend`) if they matter. App charts need a template file with
+    `foca-common.brokerPersistentVolumeClaim` (see the petstore example),
+    or the broker's pod waits for its claim.
+
+    RabbitMQ creates its user from the Secret only when it starts with
+    empty data. After changing the password in the Secret, change the
+    user's, too, and roll the app's and the worker's pods:
+
+    ```bash
+    kubectl exec deployment/my-app-broker -- \
+        rabbitmqctl change_password my-app "${password}"
+    ```
+
+    Without `broker.persistence.enabled`, the data is kept in the `emptyDir`
+    with RabbitMQ's home (up to `broker.dataSizeLimit`) and lost with the
+    pod, and each new pod creates the user from the Secret; values without
+    a `broker.persistence` map (written for foca-common 0.1.0) disable
+    persistence, too. For a highly available broker, use an external one:
+    set only `broker.existingSecret` (and `worker.enabled`, if the release
+    runs the worker).
 
     Celery declares transient non-exclusive queues, e.g., for the `rpc://`
     result backend (FOCA's default) and for remote control of the workers.
@@ -592,7 +598,7 @@ pet and reads it back, so that the app, its MongoDB and the app user are
 checked. A second installation (`ci/celery-values.yaml`) adds the Celery
 worker and the bundled broker; CI checks that the worker logs that it is
 ready, i.e., connected to the broker, and that a task queued while no
-worker runs survives a restart of the broker and reaches the worker. A third one
+worker runs survives a restart of the broker and then reaches it. A third one
 (`ci/access-control-values.yaml`) enables access control with configured
 policies, which FOCA stores on startup, so that the app user's access to the
 access-control database is checked. A fourth one (`ci/gateway-values.yaml`)
