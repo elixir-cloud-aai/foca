@@ -418,8 +418,12 @@ class TestConnexionAddApiKwargs:
         with pytest.raises(ValidationError):
             ConnexionOptions(swagger_ui_path=path)
 
-    def test_swagger_ui_path_served(self) -> None:
-        """The Swagger UI is served at `swagger_ui_path` only."""
+    @pytest.mark.parametrize("path", ["/docs", "docs", "/docs/"])
+    def test_swagger_ui_path_served(self, path: str) -> None:
+        """The Swagger UI is served at `swagger_ui_path` only.
+
+        Connexion strips leading and trailing slashes of the path.
+        """
         app = create_connexion_app(Config())
         app.add_api(
             {
@@ -428,7 +432,7 @@ class TestConnexionAddApiKwargs:
                 "servers": [{"url": "http://localhost/v1"}],
                 "paths": {},
             },
-            **_connexion_add_api_kwargs(ConnexionOptions(swagger_ui_path="/docs")),
+            **_connexion_add_api_kwargs(ConnexionOptions(swagger_ui_path=path)),
         )
         client = app.app.test_client()
         response = client.get("/v1/docs/")
