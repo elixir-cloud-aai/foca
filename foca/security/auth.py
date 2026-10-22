@@ -303,7 +303,7 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
     if service_client is not None:
         # Service tokens represent clients, which have no user info
         logger.debug(
-            "Service token of client '%s': user info not requested",
+            "Request of service client '%s': user info not requested",
             escape_log_value(service_client.client_id),
         )
     elif conf.validate_userinfo or missing_claims:
