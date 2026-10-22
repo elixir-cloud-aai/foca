@@ -1,12 +1,11 @@
 cff-version: 1.2.0
 message: >-
   If you use this software, please cite it using the metadata from this file.
-  Authors are the people who committed at least 100 lines to the release
-  branch, listed by the number of lines they committed, then by the number of
-  their commits. Equal contributors, if any (equal numbers of lines and
-  commits), are listed alphabetically by family name and marked with an
-  asterisk (*) after their family names. To add or correct your entry, see
-  "Contributing" in the documentation.
+  Authors are listed by the number of lines they committed, then by the
+  number of their commits; equal contributors, if any, are listed
+  alphabetically by family name and marked with an asterisk (*) after their
+  family names. See "Citation metadata" in the contributing guide of the
+  documentation for who is an author and how to add or correct your entry.
 title: FOCA
 abstract: >-
   FOCA (Flask-OpenAPI-Connexion-Archetype) is an opinionated archetype for
