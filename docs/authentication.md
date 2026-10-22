@@ -84,6 +84,9 @@ local development.
    `validate_userinfo` is set, the user info is cached per token for
    `cache_ttl` seconds, but not beyond the token's expiry.
 
+Steps 7 and 8 are skipped for [service tokens](#service-tokens), which have
+no user info.
+
 FOCA logs a warning on the first validation if no issuers are configured,
 audience validation is disabled without restricting `clients`, token type
 validation is disabled, or expired tokens are accepted.
@@ -140,6 +143,61 @@ validation is disabled, or expired tokens are accepted.
     `JWT` does not tell access tokens apart from ID tokens either, so that
     the `audience` is then the only safeguard.
 
+## Service tokens
+
+Services call each other with tokens of their own, obtained via the OAuth 2.0
+client credentials grant: e.g., a workflow engine calls a task execution
+service. Such tokens represent the calling client, not a user, and the
+identity provider has no user info for them. List the clients that call the
+app with such tokens as `service_clients`:
+
+```yaml
+security:
+  auth:
+    service_clients:
+      - client_id: conquest-client-id
+      - client_id: protes-client-id
+        subject: protes-service-subject
+        on_behalf_of: true
+    on_behalf_of_header: X-On-Behalf-Of
+```
+
+A token is a service token of a service client if it was issued to the
+client (its `client_id` claim or, if it has none, its `azp` claim is the
+client's `client_id`) and its subject (the `claim_identity` claim, default:
+`sub`) is the client's `subject` (default: its client ID). Other tokens
+issued to a service client, e.g., tokens it obtained for users, are treated
+as user tokens. For service tokens, FOCA requests no user info (neither for
+`userinfo_claims` nor for `validate_userinfo`), and `token_info` has the
+client ID of the service client as `service_client` (`None` for other
+tokens). With [access control](access-control.md#service-clients), policies
+are enforced on them with the subject `client:<client ID>`.
+
+!!! warning "Check the claims of client-credentials tokens"
+    Identity providers differ in which subject they put into
+    client-credentials tokens: often the client ID, sometimes another
+    identifier of the client. What LS Login puts into its client-credentials
+    tokens has not been verified for FOCA. Inspect a client-credentials token
+    of each service client and set its `subject` accordingly; otherwise, its
+    tokens are treated as user tokens: access control then uses the
+    client's subject as a user, and with `userinfo_claims` or
+    `validate_userinfo`, user info is requested for its tokens, which
+    usually fails.
+
+If `clients` are restricted, service clients must be among them; FOCA refuses
+to start otherwise.
+
+Service clients with `on_behalf_of: true` (e.g., a gateway forwarding user
+requests) may name the user they act for, in the `on_behalf_of_header` or in
+a request field that the app reads. Call
+`foca.security.access_control.get_on_behalf_of_user()` (optionally with the
+value of the field) to get that user, e.g., to make them the owner of a
+resource the client creates. Requests of other callers naming a user are
+rejected with `403 Forbidden`, and empty or blank names with `400 Bad
+Request`. FOCA does not check whether the named user exists: service clients
+allowed to act for users are trusted to name the user whose request they
+handle.
+
 ## Using token claims
 
 Connexion passes the result of the validation to controllers that accept
@@ -152,8 +210,9 @@ def get_pets(user: str, token_info: dict) -> list[dict]:
 ```
 
 `token_info` contains the token (`jwt`), the verified `claims` (including
-any claims added from user info), the subject (`user_id`) and the token's
-`scope`.
+any claims added from user info), the subject (`user_id`), the token's
+`scope` and, for [service tokens](#service-tokens), the client ID of the
+service client (`service_client`).
 
 !!! tip "Claims from user info"
     Some identity providers include claims in their user info only, not in

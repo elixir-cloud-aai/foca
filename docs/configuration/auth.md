@@ -22,6 +22,11 @@ security:
     allow_expired: false
     validate_userinfo: false
     userinfo_claims: []
+    service_clients:
+      - client_id: conquest-client-id
+        subject: null
+        on_behalf_of: false
+    on_behalf_of_header: null
     timeout: 10
     cache_ttl: 300
 ```
@@ -40,10 +45,17 @@ accept tokens of other types, list them in `token_types`, or set
 header of its access tokens. To accept only tokens obtained by specific
 clients (`client_id` claim, or `azp` claim if there is none), e.g., by a
 gateway in front of the app, list their IDs in `clients`, in addition to
-`audience` or instead of it (with `verify_audience: false`). See
+`audience` or instead of it (with `verify_audience: false`). Clients calling
+the app with client-credentials tokens of their own are listed as
+`service_clients`; no user info is requested for their tokens (cf.
+[Service tokens](../authentication.md#service-tokens)). See
 [Authentication](../authentication.md) for how tokens are validated and how to
 require them for operations.
 
 ::: foca.models.config.AuthConfig
+    options:
+      members: false
+
+::: foca.models.config.ServiceClientConfig
     options:
       members: false
