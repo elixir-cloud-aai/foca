@@ -447,6 +447,7 @@ class TestConnexionAddApiKwargs:
             {"swagger_ui": True, "options": {"serve_spec": False}},
             {"serve_spec": False, "options": {"swagger_ui": True}},
             {"options": {"swagger_ui": True, "serve_spec": False}},
+            {"options": {"swagger_ui": True, "swagger_json": False}},
         ],
     )
     def test_swagger_ui_without_spec_invalid(self, options: dict[str, Any]) -> None:
@@ -455,13 +456,20 @@ class TestConnexionAddApiKwargs:
             ConnexionOptions(**options)
 
     @pytest.mark.parametrize(
-        "options",
-        [{"serve_spec": False}, {"options": {"serve_spec": False}}],
+        "options,expected",
+        [
+            ({"serve_spec": False}, {"serve_spec": False}),
+            ({"options": {"serve_spec": False}}, {"serve_spec": False}),
+            # deprecated name of `serve_spec`
+            ({"options": {"swagger_json": False}}, {"swagger_json": False}),
+        ],
     )
-    def test_swagger_ui_disabled_without_spec(self, options: dict[str, Any]) -> None:
+    def test_swagger_ui_disabled_without_spec(
+        self, options: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
         """The Swagger UI is not served if the specification is not."""
         kwargs = _connexion_add_api_kwargs(ConnexionOptions(**options))
-        assert kwargs == {"options": {"serve_spec": False, "swagger_ui": False}}
+        assert kwargs == {"options": {**expected, "swagger_ui": False}}
         app = create_connexion_app(Config())
         app.add_api(
             {

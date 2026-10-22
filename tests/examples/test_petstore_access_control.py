@@ -145,10 +145,28 @@ def test_owners_manage_roles(client: FlaskClient) -> None:
     assert client.delete(bob, headers=_headers("alice")).status_code == 200
     assert client.get(url, headers=_headers("bob")).status_code == 403
 
-    # roles are not granted on deleted pets
+    # owners of deleted pets lose their roles
     assert client.delete(url, headers=_headers("alice")).status_code == 204
     response = client.put(bob, json={"role": "owner"}, headers=_headers("alice"))
     assert response.status_code == 403
+
+
+def test_roles_on_deleted_pets(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Roles granted while a pet is deleted are revoked again."""
+    url = _add_pet(client, "alice")
+    # the pet is deleted while the role is granted
+    monkeypatch.setattr(
+        sys.modules["controllers"], "_pet_exists", lambda id: lambda: False
+    )
+    bob = f"{url}/permissions/users/bob"
+    response = client.put(bob, json={"role": "owner"}, headers=_headers("alice"))
+    assert response.status_code == 404
+    response = client.get(f"{url}/permissions", headers=_headers("alice"))
+    assert response.json == [
+        {"subject_type": "user", "subject": "alice", "role": "owner"}
+    ]
 
 
 def test_service_client_acts_for_user(client: FlaskClient) -> None:

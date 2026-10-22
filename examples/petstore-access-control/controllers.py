@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 from exceptions import NotFound
-from flask import Response, make_response
+from flask import Response, make_response, request
 from pymongo import ReturnDocument
 from pymongo.collection import Collection
 
@@ -26,9 +26,6 @@ from foca.security.access_control import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Path of the pets, without the base path of the API (none here)
-PETS = "/pets"
 
 
 def _get_collection(name: str = "pets") -> Collection[dict[str, Any]]:
@@ -48,17 +45,27 @@ def _next_pet_id() -> int:
     return counter["value"] - 1
 
 
+def _pets_path() -> str:
+    # Full request path of the pets, including the base path of the API, as
+    # policies are enforced on full request paths; for `/pets` and
+    # `/pets/{id}`
+    path = request.path.rstrip("/")
+    if request.view_args and "id" in request.view_args:
+        path = path.rsplit("/", 1)[0]
+    return path
+
+
 def _pet_path(id: int) -> str:
     # Canonical resource path of a pet, independent of how the request path
     # spells the ID (e.g., `/pets/00` for pet 0)
-    return f"{PETS}/{id}"
+    return f"{_pets_path()}/{id}"
 
 
 def _pets_filter() -> dict[str, Any]:
     # Filter for the pets the caller (or the user a service client acts for)
     # has roles on, or for all pets for admins; resource identifiers are
     # strings, pet IDs integers
-    query = resource_filter(PETS)
+    query = resource_filter(_pets_path())
     if "id" in query:
         ids = [int(i) for i in query["id"]["$in"] if i.isascii() and i.isdigit()]
         query = {"id": {"$in": ids}}
@@ -154,7 +161,9 @@ def deletePet(id: int) -> Response:
     if db_collection.find_one({"id": id}) is None:
         raise NotFound
     # Remove all roles granted on the pet before deleting it, so that nobody
-    # can act on it meanwhile, and after, to revoke roles granted meanwhile
+    # can act on it meanwhile, and after, to revoke roles granted meanwhile;
+    # if deleting fails, the pet is left without owners (admins can still
+    # delete it)
     remove_resource(_pet_path(id))
     db_collection.delete_one({"id": id})
     remove_resource(_pet_path(id))

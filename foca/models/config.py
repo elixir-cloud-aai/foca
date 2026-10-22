@@ -8,7 +8,6 @@ from importlib.resources import files
 from pathlib import Path
 from typing import (
     Any,
-    Literal,
     Self,
 )
 
@@ -331,8 +330,8 @@ class ConnexionOptions(BaseModel):
             specification.
         swagger_ui: Whether to serve the Swagger UI (Connexion's default:
             `True`). The UI needs the specification, so it is not served if
-            `serve_spec` is disabled, and enabling both the UI and
-            disabling `serve_spec` is rejected.
+            `serve_spec` is disabled, and enabling the UI while disabling
+            `serve_spec` is rejected.
         serve_spec: Whether to serve the specification (Connexion's default:
             `True`).
         swagger_ui_path: Path of the Swagger UI, relative to the base path
@@ -376,18 +375,20 @@ class ConnexionOptions(BaseModel):
     resolver: Any = None
     options: dict[str, Any] | None = None
 
-    def get_ui_option(self, name: Literal["swagger_ui", "serve_spec"]) -> Any:
-        """Get a UI option, set as a field or via `options`.
+    def _spec_disabled(self) -> bool:
+        """Check whether serving the specification is disabled.
 
-        Args:
-            name: Name of the option.
+        As Connexion does, `options` may disable it via `serve_spec` or its
+        deprecated name `swagger_json`; the field takes precedence.
 
         Returns:
-            Value of the field, if set, otherwise that of `options`, if set,
-            otherwise `None`.
+            Whether serving the specification is set and disabled.
         """
-        value = getattr(self, name)
-        return (self.options or {}).get(name) if value is None else value
+        options = self.options or {}
+        serve_spec = self.serve_spec
+        if serve_spec is None:
+            serve_spec = options.get("serve_spec", options.get("swagger_json"))
+        return serve_spec is not None and not serve_spec
 
     @model_validator(mode="after")
     def validate_swagger_ui(self) -> Self:
@@ -400,12 +401,10 @@ class ConnexionOptions(BaseModel):
             ValueError: The Swagger UI is enabled, but serving the
                 specification is disabled.
         """
-        serve_spec = self.get_ui_option("serve_spec")
-        if (
-            self.get_ui_option("swagger_ui")
-            and serve_spec is not None
-            and not serve_spec
-        ):
+        swagger_ui = self.swagger_ui
+        if swagger_ui is None:
+            swagger_ui = (self.options or {}).get("swagger_ui")
+        if swagger_ui and self._spec_disabled():
             raise ValueError(
                 "The Swagger UI ('swagger_ui') needs the specification, so "
                 "'serve_spec' must not be disabled"

@@ -331,7 +331,7 @@ of the following:
 [res-flask]: <http://flask.pocoo.org/>
 [res-foca]: <https://pypi.org/project/foca/>
 [res-mongo-db]: <https://www.mongodb.com/>
-[res-ownership]: <https://foca.readthedocs.io/en/latest/access-control/#resource-ownership>
 [res-openapi]: <https://www.openapis.org/>
+[res-ownership]: <https://foca.readthedocs.io/en/latest/access-control/#resource-ownership>
 [res-petstore]: <https://petstore.swagger.io/>
 [res-swagger-ui]: <https://swagger.io/tools/swagger-ui/>

@@ -842,7 +842,7 @@ Keep in mind that:
   roles on in the filter, so it suits apps where users have roles on up to a
   few thousand resources. Like enforcement, each helper call loads all rules
   (cf. [scaling](#scaling)); `grant_role()` and `revoke_roles()` do so
-  several times per call (see there for numbers).
+  several times per call.
 
 #### Endpoints for managing roles
 
@@ -1102,9 +1102,9 @@ call too, and those changing roles load them again after the change, to
 notice concurrent changes (e.g., owners removing each other, or the resource
 being deleted meanwhile). So each request to the [endpoints for managing
 roles](#endpoints-for-managing-roles) loads all rules several times,
-including the enforcement of the request (`GET .../permissions` 3 times,
-`PUT` and `DELETE` 5 to 7 times in FOCA 0.16), which matters more than for
-other operations once there are many rules.
+including the enforcement of the request (more often for `PUT` and `DELETE`
+than for `GET`), which matters more than for other operations once there are
+many rules.
 
 ## Exploring the API
 
