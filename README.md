@@ -107,31 +107,9 @@ USER 1000
 
 ## Contributing
 
-This project is a community effort and lives off your contributions, be it in
-the form of bug reports, feature requests, discussions, or fixes and other code
-changes. Please refer to our organization's [contributing
-guidelines][res-elixir-cloud-contributing] if you are interested to contribute.
-Please mind the [code of conduct][res-elixir-cloud-coc] for all interactions
-with the community.
-
-Test coverage of `foca` is kept at 100%, which is enforced: `coverage report`
-(and CI) fails below 100% (`fail_under` in `pyproject.toml`), and so do
-Codecov's checks of the whole code and of the changes of a pull request
-(`codecov.yml`). The tests marked `mongodb` need a MongoDB server on
-`localhost:12345`:
-
-```bash
-pip install -e .[dev]
-coverage run -m pytest
-coverage report -m
-```
-
-To build the documentation locally, install the `docs` extra and run MkDocs:
-
-```bash
-pip install -e .[docs]
-mkdocs serve
-```
+Contributions are welcome! See [`CONTRIBUTING.md`][contributing] and
+[Contributing][docs-contributing] in the documentation (development setup,
+tests and guidelines), and mind our [code of conduct][code-of-conduct].
 
 ## Versioning
 
@@ -197,8 +175,11 @@ question etc.
 [badge-url-github-tag]: <https://github.com/elixir-cloud-aai/foca/releases>
 [badge-url-license]: <http://www.apache.org/licenses/LICENSE-2.0>
 [badge-url-pypi]: <https://pypi.python.org/pypi/foca>
+[code-of-conduct]: CODE_OF_CONDUCT.md
+[contributing]: CONTRIBUTING.md
 [docs]: <https://foca.readthedocs.io/en/latest/>
 [docs-config]: <https://foca.readthedocs.io/en/latest/configuration/>
+[docs-contributing]: <https://foca.readthedocs.io/en/latest/contributing/>
 [docs-getting-started]: <https://foca.readthedocs.io/en/latest/getting-started/>
 [docs-helm-chart-releases]: <https://foca.readthedocs.io/en/latest/helm-chart/#releases>
 [docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.16/>
@@ -218,8 +199,6 @@ question etc.
 [res-celery]: <https://docs.celeryq.dev/>
 [res-connexion]: <https://github.com/spec-first/connexion>
 [res-cors]: <https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS>
-[res-elixir-cloud-coc]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md>
-[res-elixir-cloud-contributing]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CONTRIBUTING.md>
 [res-flask]: <https://flask.palletsprojects.com/>
 [res-foca-docker]: <https://hub.docker.com/r/elixircloud/foca>
 [res-jwt]: <https://jwt.io>

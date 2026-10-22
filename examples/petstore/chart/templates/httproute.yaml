@@ -1,0 +1,1 @@
+{{- include "foca-common.httpRoute" (dict "root" . "settings" (include "petstore.settings" . | fromYaml)) }}

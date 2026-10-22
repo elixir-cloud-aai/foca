@@ -1,0 +1,229 @@
+# Contributing
+
+This project is a community effort and lives off your contributions, be it
+bug reports, feature requests, discussions, documentation or code. It follows
+the [contributor guide of ELIXIR
+On-Cloud](https://elixir-cloud-aai.github.io/contribute/), which also
+describes the project's values and what it offers regular contributors; this
+page sums up how it applies to FOCA, the framework that apps such as
+[Cloud Registry](https://github.com/elixir-cloud-aai/cloud-registry) are built
+with.
+
+Please follow the [code of
+conduct](https://github.com/elixir-cloud-aai/foca/blob/dev/CODE_OF_CONDUCT.md)
+in all interactions with the community. To report a violation, email
+[cloud-service@elixir-europe.org](mailto:cloud-service@elixir-europe.org).
+
+Report vulnerabilities privately, not in issues, as described in the
+[security
+policy](https://github.com/elixir-cloud-aai/foca/blob/dev/SECURITY.md).
+
+## Getting started
+
+1. Find an issue in the [issue
+   tracker](https://github.com/elixir-cloud-aai/foca/issues), or open one (see
+   [Issues](#issues)).
+2. Join the ELIXIR On-Cloud chat and introduce yourself in the open source
+   community channel: your skills and experience, your GitHub username and
+   the issues you are interested in (see the
+   [workflow](https://elixir-cloud-aai.github.io/contribute/workflow/); send
+   a direct message to a project lead instead if you don't want to share
+   these publicly). Once you are a member of the GitHub organization, you can
+   assign issues to yourself.
+3. Set up a development environment (see [Development](#development)) and
+   start coding.
+
+One-time contributors can skip the second step and open pull requests from
+forks; some checks may need a maintainer's approval to run for them.
+
+## Issues
+
+Use the issue tracker to propose features, report bugs and discuss existing
+issues; use the chat for questions and informal discussions. Write issues
+concisely, but with enough detail and context (links, logs, screenshots) for
+others to start working on them; bug reports need steps to reproduce, ideally
+a minimal app configuration. The maintainers add labels and milestones.
+
+**Always work on an issue:** before you change code, make sure there is an
+issue for it and that the maintainers agree with the approach, so that no work
+is in vain.
+
+## Branches and pull requests
+
+The project follows a variant of the GitHub flow: all changes reach the
+development branch `dev` through pull requests, which are reviewed and
+tested; `main` only moves forward to released commits (see
+[Releasing](https://github.com/elixir-cloud-aai/foca#releasing) in the
+README).
+
+1. Create a feature branch from an up-to-date `dev`, named after the type and
+   topic of the change, e.g., `fix/<topic>` or `docs/<topic>`.
+2. Commit your changes, push the branch and open a pull request against `dev`
+   that refers to the issue (`Resolves #<issue>`) and says what changes, why,
+   and how you tested it. Pull requests into `dev` don't close issues
+   automatically; the maintainers close them after the merge.
+3. Request a review: every change is reviewed by at least one other person.
+   Address the comments by pushing further commits (there may be several
+   rounds).
+4. Once the checks pass and all conversations are resolved, the maintainers
+   squash-merge the pull request into `dev`.
+
+Keep pull requests focused: if a change can't be summarized in a title of 50
+characters, split it into several pull requests. Feature branches are unstable:
+don't build on other people's branches without talking to them first.
+
+## Commit messages and pull request titles
+
+Pull request titles, which become the commit messages on `dev`, follow the
+[Conventional Commits](https://www.conventionalcommits.org/) specification:
+
+```text
+<type>[(<scope>)][!]: <description>
+```
+
+- The whole title line has at most 50 characters.
+- The description starts with a verb in the imperative mood (e.g., `add`,
+  `fix`) and has no trailing period.
+- `!` (and a `BREAKING CHANGE:` footer in the body) marks breaking changes.
+- The type names the predominant reason for the change:
+
+| Type | Changes |
+| --- | --- |
+| `feat` | new functionality |
+| `fix` | bug fixes |
+| `perf` | performance improvements |
+| `refactor` | code changes that neither add features nor fix bugs |
+| `style` | formatting, docstrings and type hints of the code |
+| `build` | build system, packaging and dependencies |
+| `ci` | CI and release workflows |
+| `docs` | documentation |
+| `test` | tests |
+| `chore` | other maintenance, e.g., `.gitignore` |
+| `revert` | reverts of earlier commits |
+
+Use `feat`, `fix`, `perf`, `refactor` and `style` only for changes of what is
+released: the package (`foca/`), its Docker image (`docker/`) and the Helm
+library chart (`charts/foca-common/`, outside its tests). Commit messages on
+feature branches may follow the same format, which makes the history easier
+to review.
+
+## Development
+
+FOCA supports Python 3.11 and later (`requires-python` in `pyproject.toml`).
+To set up a development environment (e.g., in a virtual environment) and run
+the checks that CI runs:
+
+```bash
+pip install -e ".[dev]"  # the package, with the dev dependencies
+pre-commit install  # run the hooks on every commit
+pre-commit run --all-files  # ruff, and YAML, TOML and whitespace checks
+mypy  # type checks of the package and the tests
+coverage run -m pytest
+coverage report -m
+```
+
+The tests marked `mongodb` need a MongoDB server on `localhost:12345`, e.g.:
+
+```bash
+docker run -d --rm --name mongodb-test -p 127.0.0.1:12345:27017 mongo:7.0
+coverage run -m pytest
+docker stop mongodb-test
+```
+
+To skip them instead, run `pytest -m "not mongodb"`; coverage is then below
+100%.
+
+CI (`.github/workflows/checks.yml`) runs the unit tests with Python 3.11,
+3.12, 3.13 and 3.14 against MongoDB 7.0, and with Python 3.13 against MongoDB
+8.0; once more with the lowest versions of the direct dependencies that
+`pyproject.toml` allows (Python 3.11), so that their lower bounds stay
+honest; and integration tests against the [petstore
+example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore),
+built from the FOCA image of the repository. To run the integration tests
+locally:
+
+```bash
+cd examples/petstore
+docker compose build foca-petstore-root  # FOCA image
+docker compose up -d --build
+cd ../..
+# Wait until the app accepts requests
+until curl -s -o /dev/null http://localhost:8080/; do sleep 2; done
+pytest tests/integration_tests.py
+```
+
+The tests of the Helm library chart need [Helm](https://helm.sh/) and run
+separately (`pytest charts/foca-common/tests`); CI
+(`.github/workflows/charts.yml`) also installs the petstore example with its
+chart on a kind cluster and checks that changes of the library chart raise
+its version (see [Developing the library
+chart](helm-chart.md#developing-the-library-chart)).
+
+The lint job also builds the documentation (see [Documentation](#documentation))
+and the distributions, and checks that the ruff version of the pre-commit hook
+matches the one pinned in `requirements/lint.txt` (update both together).
+
+## Python guidelines
+
+Most of the following is checked by pre-commit and CI; the rest is checked in
+reviews.
+
+- **Packaging:** the package, its dependencies and the configuration of the
+  tools are in `pyproject.toml`; runtime dependencies in
+  `project.dependencies`, with lower bounds that the lowest-dependencies job
+  tests, and those for development and the documentation in the extras `dev`
+  and `docs`. The versions of the lint and release tools are pinned in
+  `requirements/`. Don't add `setup.py`.
+- **Compatibility:** FOCA is a library: code must work with all supported
+  Python versions (ruff's `target-version` and mypy's `python_version` are
+  the lowest) and dependency versions. Changes that break apps need a `!` in
+  the title and an entry in the migration notes of the next release.
+- **Formatting and linting:** [ruff](https://docs.astral.sh/ruff/) formats
+  the code (`ruff format`, compatible with Black, 88 characters per line) and
+  lints it (`ruff check`) with the rule set shared by FOCA and FOCA apps:
+  pycodestyle, Pyflakes, isort, flake8-bugbear, flake8-comprehensions,
+  flake8-simplify, Pylint, Ruff's own rules, pyupgrade, bandit (security),
+  logging format and pydocstyle (`pyproject.toml`, where each ignored rule
+  says why). Prefer explicit checks to suppressions (`# noqa`,
+  `# type: ignore`); justify the rare exceptions in a comment on the line.
+- **Docstrings:** Google-style docstrings at all levels: packages, modules,
+  classes, methods and functions, also private ones and tests, with a
+  one-line summary and, where applicable, the sections `Args`, `Returns` (or
+  `Yields`), `Raises` and, for classes, `Attributes`; consider `Examples` and
+  `Note`. Ruff's pydocstyle rules (Google convention) check those of public
+  objects and their `Args`; reviews check the others. The [API
+  reference](reference.md) is generated from them.
+- **Type hints:** complete type hints for all functions and methods (also of
+  the tests), including `*args` and `**kwargs`, and generic types with their
+  parameters (e.g., `dict[str, Any]`, not `dict`); add hints to module-level
+  variables and to local variables whose type isn't obvious.
+  [mypy](https://mypy.readthedocs.io/) checks the hints, and that functions
+  and generic types have them (`disallow_untyped_defs`,
+  `disallow_any_generics`); reviews check those of variables. The package is
+  typed (`py.typed`), so apps rely on its hints.
+- **Tests:** [pytest](https://docs.pytest.org/), with coverage measured by
+  [coverage](https://coverage.readthedocs.io/): keep it at 100% of `foca`,
+  which is enforced: `coverage report` (and CI) fails below 100%
+  (`fail_under` in `pyproject.toml`), and so do Codecov's checks of the whole
+  code and of the changes of a pull request (`codecov.yml`). Add tests that
+  fail without your change.
+
+## Documentation
+
+Update the documentation with every change that affects it: the pages in
+`docs/`, the README and the docstrings. Describe user-visible changes in the
+pull request; breaking changes also in the migration notes of the next
+release (`docs/migration-<version>.md`).
+
+This documentation is built with [MkDocs](https://www.mkdocs.org/) and
+[Material for MkDocs](https://squidfunk.github.io/mkdocs-material/), from
+`docs/` and `mkdocs.yml`, by Read the Docs and in CI; warnings, e.g., of
+broken links, fail the build. The [API reference](reference.md) is generated
+from the docstrings with [mkdocstrings](https://mkdocstrings.github.io/). To
+build it locally, or serve it with live reloading:
+
+```bash
+pip install -e ".[docs]"
+mkdocs build --strict  # into `site/`, ignored by Git
+mkdocs serve
+```

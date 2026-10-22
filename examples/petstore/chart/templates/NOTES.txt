@@ -1,6 +1,7 @@
 {{- $context := dict "root" . "settings" (include "petstore.settings" . | fromYaml) -}}
 {{- $fullname := include "foca-common.fullname" . -}}
-{{- $exposed := or .Values.petstore.ingress.enabled (include "foca-common.routeEnabled" $context) -}}
+{{- $httpRoute := dig "httpRoute" "enabled" false .Values.petstore -}}
+{{- $exposed := or .Values.petstore.ingress.enabled $httpRoute (include "foca-common.routeEnabled" $context) -}}
 {{- $url := "http://localhost:8080" -}}
 {{- if $exposed -}}
 {{- $url = printf "https://%s" .Values.hostName -}}
@@ -13,11 +14,19 @@ WARNING: The Ingress has no TLS (petstore.ingress.https.enabled is false), so
 it serves plain HTTP, and clients would send their bearer tokens in
 cleartext: terminate TLS in front of the cluster for the URL below.
 {{- end }}
+{{- if $httpRoute }}
+
+The HTTPRoute serves the app via the Gateway in petstore.httpRoute.parentRefs:
+make sure that its listener terminates TLS for {{ .Values.hostName }}, and
+check that the route is accepted with
+`kubectl get httproute {{ $fullname }} -n {{ .Release.Namespace }} -o yaml`.
+{{- end }}
 {{- if not $exposed }}
 
-Neither an Ingress (petstore.ingress.enabled is false) nor an OpenShift Route
-(the cluster does not serve route.openshift.io/v1) was created, so the app is
-only reachable within the cluster. To access it from this machine, run:
+Neither an Ingress (petstore.ingress.enabled is false), an HTTPRoute
+(petstore.httpRoute.enabled is false) nor an OpenShift Route (the cluster
+does not serve route.openshift.io/v1) was created, so the app is only
+reachable within the cluster. To access it from this machine, run:
 
   kubectl port-forward svc/{{ $fullname }} 8080:8080 -n {{ .Release.Namespace }}
 {{- end }}
