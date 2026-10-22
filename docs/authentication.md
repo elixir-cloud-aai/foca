@@ -63,7 +63,7 @@ local development.
    and public keys (JWK set) are fetched and cached (`cache_ttl`). If a token
    was signed with an unknown key (e.g., after key rotation), the keys are
    fetched again, at most every 30 seconds. Failed requests to an identity
-   provider are not repeated for every request either.
+   provider (and invalid JWK sets) are not repeated for every request either.
 4. The token's signature is verified locally with the issuer's public key,
    using one of the configured `algorithms`. Its expiry (unless
    `allow_expired`) and its audience (unless `verify_audience: false`) are
