@@ -352,13 +352,16 @@ def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False) -> jwt.PyJWK
     # JWK sets are JSON objects with a list of JSON objects as `keys` (RFC
     # 7517, §5); PyJWT does not check the structure in all versions
     keys = document.get("keys") if isinstance(document, dict) else None
+    # Invalid JWK sets are throttled like failed fetches (see `_fetch_json()`)
     if not isinstance(keys, list) or not all(isinstance(key, dict) for key in keys):
+        _failed_fetches[url] = time.monotonic()
         raise _unauthorized("Issuer's JWK set is invalid", invalid_token=False)
     # For some badly typed key members (e.g., a list as `alg`, or numbers as
     # key material in 2.11), PyJWT raises `TypeError` or `ValueError`
     try:
         jwk_set = jwt.PyJWKSet.from_dict(document)
     except (jwt.PyJWTError, TypeError, ValueError) as exc:
+        _failed_fetches[url] = time.monotonic()
         raise _unauthorized("Issuer's JWK set is invalid", invalid_token=False) from exc
     _jwk_sets[url] = (time.monotonic(), jwk_set)
     return jwk_set

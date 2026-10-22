@@ -279,11 +279,18 @@ class TestValidateToken:
         ],
     )
     def test_jwks_invalid(self, idp: MagicMock, jwks: Any) -> None:
-        """Tokens are rejected if the JWK set is invalid or not a JSON object."""
+        """Tokens are rejected if the JWK set is invalid or not a JSON object.
+
+        Like failed fetches, invalid JWK sets are not fetched again within
+        cooldown.
+        """
+        app = make_app()
         idp.responses[JWKS_URI] = MockResponse(jwks)
-        with raises_unauthorized("Bearer"):
-            validate(make_app(), make_token())
+        for _ in range(3):
+            with raises_unauthorized("Bearer"):
+                validate(app, make_token())
         assert urls(idp) == [DISCOVERY_URI, JWKS_URI]
+        assert JWKS_URI in auth._failed_fetches
 
     def test_jwks_unavailable(self, idp: MagicMock) -> None:
         """Tokens are rejected if the JWK set is unavailable."""
