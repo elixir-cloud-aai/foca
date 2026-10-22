@@ -327,11 +327,12 @@ class ConnexionOptions(BaseModel):
             specification.
         swagger_ui: Whether to serve the Swagger UI.
         serve_spec: Whether to serve the specification.
-        swagger_ui_path: Path at which the Swagger UI is served.
+        swagger_ui_path: Path of the Swagger UI, relative to the base path
+            (Connexion's default: `/ui`); must not be empty or `/`.
         base_path: Base path overriding that of the specification.
         resolver: Resolver of operations to functions.
         options: Further Connexion options; `swagger_ui`, `serve_spec` and
-            `swagger_ui_path` take precedence.
+            `swagger_ui_path` (Connexion's `swagger_url`) take precedence.
 
     Attributes:
         strict_validation: Whether to reject requests with parameters not
@@ -340,7 +341,8 @@ class ConnexionOptions(BaseModel):
             specification.
         swagger_ui: Whether to serve the Swagger UI.
         serve_spec: Whether to serve the specification.
-        swagger_ui_path: Path at which the Swagger UI is served.
+        swagger_ui_path: Path of the Swagger UI, relative to the base path
+            (Connexion's default: `/ui`); must not be empty or `/`.
         base_path: Base path overriding that of the specification.
         resolver: Resolver of operations to functions.
         options: Further Connexion options.
@@ -359,7 +361,9 @@ class ConnexionOptions(BaseModel):
     validate_responses: bool | None = None
     swagger_ui: bool | None = None
     serve_spec: bool | None = None
-    swagger_ui_path: str | None = None
+    # Not empty or `/` only, as Connexion would serve the UI's static files
+    # for all paths under the base path
+    swagger_ui_path: str | None = Field(default=None, pattern=r"[^/]")
     base_path: str | None = None
     resolver: Any = None
     options: dict[str, Any] | None = None
