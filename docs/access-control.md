@@ -841,8 +841,8 @@ Keep in mind that:
 * `resource_filter()` lists the identifiers of all resources the caller has
   roles on in the filter, so it suits apps where users have roles on up to a
   few thousand resources. Like enforcement, each helper call loads all rules
-  (cf. [scaling](#scaling)); `grant_role()` and `revoke_roles()` do so a few
-  times per call.
+  (cf. [scaling](#scaling)); `grant_role()` and `revoke_roles()` do so
+  several times per call (see there for numbers).
 
 #### Endpoints for managing roles
 
@@ -1096,6 +1096,15 @@ it. As resource-scoped roles add rules per created resource (e.g., one `g2`
 rule for its owner), apps that let users create many resources should
 consider limiting this, e.g., via quotas or rate limits on the endpoints
 creating them.
+
+The [resource ownership](#resource-ownership) helpers load all rules on each
+call too, and those changing roles load them again after the change, to
+notice concurrent changes (e.g., owners removing each other, or the resource
+being deleted meanwhile). So each request to the [endpoints for managing
+roles](#endpoints-for-managing-roles) loads all rules several times,
+including the enforcement of the request (`GET .../permissions` 3 times,
+`PUT` and `DELETE` 5 to 7 times in FOCA 0.16), which matters more than for
+other operations once there are many rules.
 
 ## Exploring the API
 
