@@ -327,6 +327,43 @@ def test_AccessControlConfig_mapped_roles(mapping: str) -> None:
     assert getattr(res, mapping) == {"x": "admin"}
 
 
+@pytest.mark.parametrize("mapping", ["group_mapping", "client_mapping"])
+@pytest.mark.parametrize(
+    "role,resource_roles",
+    [
+        ("owner", None),
+        ("maintainer", None),
+        ("reader", ["owner", "reader"]),
+    ],
+)
+def test_AccessControlConfig_mapped_resource_roles_invalid(
+    mapping: str, role: str, resource_roles: list[str] | None
+) -> None:
+    """Test AccessControlConfig instantiation; mapped resource roles.
+
+    A mapped role is a subject of its own, which would have the role on every
+    resource.
+    """
+    data: dict[str, Any] = {mapping: {"x": role}}
+    if resource_roles is not None:
+        data["resource_roles"] = resource_roles
+    with pytest.raises(ValidationError, match=f"must not map to '{role}'"):
+        AccessControlConfig.model_validate(data)
+
+
+@pytest.mark.parametrize("mapping", ["group_mapping", "client_mapping"])
+def test_AccessControlConfig_mapped_other_roles(mapping: str) -> None:
+    """Test AccessControlConfig instantiation; mapped non-resource roles.
+
+    Roles that are resource roles by default may be mapped if they are not
+    configured as such.
+    """
+    res = AccessControlConfig.model_validate(
+        {mapping: {"x": "maintainer"}, "resource_roles": ["owner"]}
+    )
+    assert getattr(res, mapping) == {"x": "maintainer"}
+
+
 @pytest.mark.parametrize(
     "charset,length",
     [("abcdef", 8), ("0123456789", 6), ("0123456789", 64), ("a-._~", 9)],
