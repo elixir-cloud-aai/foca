@@ -268,9 +268,10 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
     # Reject tokens of untrusted issuers before any network request; the
     # signature is verified in `_verify_signature()`
     try:
+        # nosemgrep: jwt-decode-without-verification
         unverified_claims = jwt.decode(
             token,
-            options={"verify_signature": False},  # nosemgrep
+            options={"verify_signature": False},
         )
     except jwt.PyJWTError as exc:
         raise _unauthorized("JWT could not be decoded") from exc
