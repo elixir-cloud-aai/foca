@@ -1,0 +1,240 @@
+# Scan the Docker images for known vulnerabilities with Grype: on pull
+# requests and pushes, build the images (as `release.yml` does, without
+# pushing them) and scan them; weekly (and on manual runs), scan the published
+# images of the latest release, so that new vulnerabilities in released images
+# are found. Fails on critical and high vulnerabilities that have a fix;
+# reports all vulnerabilities to code scanning (Security tab). Accepted
+# findings go into `.grype.yaml`, each with a reason and an expiry date, which
+# the `ignores` job checks.
+
+name: Image scan
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  schedule:
+    # Mondays, 05:17 UTC
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ignores:
+    name: Check ignored vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Scheduled runs use the default branch (`main`, i.e., the latest
+          # release); check the current ignore file on `dev` instead
+          ref: ${{ github.event_name == 'schedule' && 'dev' || '' }}
+      - name: Check reasons and expiry dates
+        # Every rule needs a `reason` and an `expires` date (YYYY-MM-DD) from
+        # today to at most three months ahead; Grype itself ignores `expires`
+        run: |
+          today="$(date -u '+%Y-%m-%d')"
+          max="$(date -u -d '+3 months' '+%Y-%m-%d')"
+          invalid="$(yq -o=json '.ignore // []' .grype.yaml | jq -c \
+              --arg today "${today}" --arg max "${max}" '
+              .[] | select(
+                  ((.reason // "") | tostring | test("\\S") | not)
+                  or ((.expires // "") | tostring | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") | not)
+                  or ((.expires | tostring) < $today)
+                  or ((.expires | tostring) > $max)
+              )')"
+          if [ -n "${invalid}" ]; then
+              echo "::error file=.grype.yaml::Ignore rules need a reason and an expiry date from ${today} to ${max}:"
+              echo "${invalid}"
+              exit 1
+          fi
+          echo "All ignore rules have a reason and an expiry date from ${today} to ${max}"
+
+  build:
+    name: Build and scan image (Python ${{ matrix.python-version }})
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    needs: ignores
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # upload the results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    env:
+      IMAGE: foca-scan:py${{ matrix.python-version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history, to derive the version from git tags
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Determine version
+        id: version
+        run: |
+          pip install -c requirements/release.txt setuptools-scm
+          echo "version=$(python -m setuptools_scm)" >> "${GITHUB_OUTPUT}"
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Dry run of the release build: the same settings, with the SBOM and
+      # provenance attestations, but written to an OCI archive instead of
+      # being pushed
+      - name: Build image with attestations
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            PY_IMAGE=${{ matrix.python-version }}-slim-trixie
+            FOCA_VERSION=${{ steps.version.outputs.version }}
+          tags: ${{ env.IMAGE }}
+          sbom: true
+          provenance: mode=max
+          outputs: type=oci,dest=${{ runner.temp }}/image.tar
+      - name: Check attestations
+        env:
+          ARCHIVE: ${{ runner.temp }}/image.tar
+        run: |
+          dir="$(mktemp -d)"
+          tar -xf "${ARCHIVE}" -C "${dir}"
+          blob() { cat "${dir}/blobs/sha256/${1#sha256:}"; }
+          index="$(blob "$(jq -r '.manifests[0].digest' "${dir}/index.json")")"
+          attestation="$(jq -r '.manifests[]
+              | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest")
+              | .digest' <<< "${index}")"
+          if [ -z "${attestation}" ]; then
+              echo "::error::The image has no attestation manifest"
+              exit 1
+          fi
+          types="$(blob "${attestation}" | jq -r '.layers[].annotations["in-toto.io/predicate-type"]')"
+          echo "${types}"
+          grep -qx 'https://spdx.dev/Document' <<< "${types}" \
+              || { echo "::error::The image has no SBOM attestation"; exit 1; }
+          grep -q '^https://slsa.dev/provenance/' <<< "${types}" \
+              || { echo "::error::The image has no provenance attestation"; exit 1; }
+      # Loaded into Docker for the scans; the build cache of the previous
+      # step makes this fast
+      - name: Build image for scanning
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            PY_IMAGE=${{ matrix.python-version }}-slim-trixie
+            FOCA_VERSION=${{ steps.version.outputs.version }}
+          tags: ${{ env.IMAGE }}
+          # Docker's image store does not support attestations
+          sbom: false
+          provenance: false
+          load: true
+      - name: Scan image (all vulnerabilities)
+        id: scan
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ env.IMAGE }}
+          fail-build: false
+          # Critical and high vulnerabilities are errors, others warnings
+          severity-cutoff: high
+          output-format: sarif
+          cache-db: true
+      - name: Upload results to code scanning
+        # Pull requests from forks get no write access to code scanning
+        if: >-
+          !cancelled() && steps.scan.outputs.sarif != ''
+          && (github.event_name != 'pull_request'
+          || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: image-py${{ matrix.python-version }}
+      - name: Fail on fixable critical or high vulnerabilities
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ env.IMAGE }}
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+          output-format: table
+          cache-db: true
+
+  release:
+    name: Scan release image (Python ${{ matrix.python-version }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: ignores
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # upload the results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # All tags, to find the latest release
+          fetch-depth: 0
+          # The current ignore file (`.grype.yaml`), so that findings
+          # accepted after the release apply (see the `ignores` job)
+          ref: ${{ github.event_name == 'schedule' && 'dev' || '' }}
+      - name: Determine image of the latest release
+        id: image
+        env:
+          DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          PY_VERSION: ${{ matrix.python-version }}
+        run: |
+          # Highest final version, as for the `latest` tag in `release.yml`
+          tag="$(git tag -l 'v*' --sort=-v:refname \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          if [ -z "${tag}" ]; then
+              echo "::error::No release tag found"
+              exit 1
+          fi
+          image="docker.io/${DOCKERHUB_ORG}/${REPO_NAME}:${tag#v}-py${PY_VERSION}"
+          echo "Scanning ${image}"
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+      - name: Scan image (all vulnerabilities)
+        id: scan
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ steps.image.outputs.image }}
+          fail-build: false
+          severity-cutoff: high
+          output-format: sarif
+          cache-db: true
+      - name: Upload results to code scanning
+        if: ${{ !cancelled() && steps.scan.outputs.sarif != '' }}
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: release-image-py${{ matrix.python-version }}
+      - name: Fail on fixable critical or high vulnerabilities
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ steps.image.outputs.image }}
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+          output-format: table
+          cache-db: true
