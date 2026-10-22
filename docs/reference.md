@@ -57,6 +57,15 @@ configuration models, see [Configuration](configuration/index.md).
         - ResourceRole
         - SubjectResourceRole
 
+::: foca.security.access_control.ownership_server
+    options:
+      members:
+        - getResourceRoles
+        - putUserRole
+        - deleteUserRole
+        - putGroupRole
+        - deleteGroupRole
+
 ::: foca.security.access_control.foca_casbin_adapter.adapter
     options:
       members:
