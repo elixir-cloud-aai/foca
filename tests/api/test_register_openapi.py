@@ -16,7 +16,8 @@ from foca.api.register_openapi import (
     _iter_operations,
     register_openapi,
 )
-from foca.models.config import ConnexionOptions, SpecConfig
+from foca.factories.connexion_app import create_connexion_app
+from foca.models.config import Config, ConnexionOptions, SpecConfig
 
 # Define mock data
 DIR = Path(__file__).parents[1].resolve() / "test_files"
@@ -397,11 +398,36 @@ class TestConnexionAddApiKwargs:
             "options": {
                 "swagger_ui": False,
                 "serve_spec": True,
-                "swagger_ui_path": "/docs",
+                "swagger_url": "/docs",
                 "other": 1,
             },
         }
         assert kwargs["resolver"] is resolver
+
+    def test_swagger_ui_path_precedence(self) -> None:
+        """`swagger_ui_path` overrides Connexion's `swagger_url` option."""
+        kwargs = _connexion_add_api_kwargs(
+            ConnexionOptions(swagger_ui_path="/docs", options={"swagger_url": "/x"})
+        )
+        assert kwargs == {"options": {"swagger_url": "/docs"}}
+
+    def test_swagger_ui_path_served(self) -> None:
+        """The Swagger UI is served at `swagger_ui_path` only."""
+        app = create_connexion_app(Config())
+        app.add_api(
+            {
+                "openapi": "3.0.0",
+                "info": {"title": "UI path test", "version": "1.0.0"},
+                "servers": [{"url": "http://localhost/v1"}],
+                "paths": {},
+            },
+            **_connexion_add_api_kwargs(ConnexionOptions(swagger_ui_path="/docs")),
+        )
+        client = app.app.test_client()
+        response = client.get("/v1/docs/")
+        assert response.status_code == 200
+        assert 'url: "/v1/openapi.json"' in response.get_data(as_text=True)
+        assert client.get("/v1/ui/").status_code == 404
 
     def test_spec_config(self) -> None:
         """`SpecConfig.connexion` is parsed into typed options."""

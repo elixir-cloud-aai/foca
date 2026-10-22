@@ -331,7 +331,7 @@ class ConnexionOptions(BaseModel):
         base_path: Base path overriding that of the specification.
         resolver: Resolver of operations to functions.
         options: Further Connexion options; `swagger_ui`, `serve_spec` and
-            `swagger_ui_path` take precedence.
+            `swagger_ui_path` (Connexion's `swagger_url`) take precedence.
 
     Attributes:
         strict_validation: Whether to reject requests with parameters not

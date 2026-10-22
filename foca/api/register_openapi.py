@@ -30,8 +30,13 @@ _OPERATION_OBJECT_FIELDS = frozenset(
 )
 
 
-# Options passed to Connexion 2 via the `options` argument of `add_api()`
-_UI_OPTIONS = ("swagger_ui", "serve_spec", "swagger_ui_path")
+# Options passed to Connexion 2 via the `options` argument of `add_api()`,
+# with Connexion's names
+_UI_OPTIONS = {
+    "swagger_ui": "swagger_ui",
+    "serve_spec": "serve_spec",
+    "swagger_ui_path": "swagger_url",
+}
 
 
 def _connexion_add_api_kwargs(options: ConnexionOptions | None) -> dict[str, Any]:
@@ -55,7 +60,9 @@ def _connexion_add_api_kwargs(options: ConnexionOptions | None) -> dict[str, Any
         if key not in (*_UI_OPTIONS, "options")
     }
     ui_options = dict(values.get("options", {}))
-    ui_options.update({key: values[key] for key in _UI_OPTIONS if key in values})
+    ui_options.update(
+        {name: values[key] for key, name in _UI_OPTIONS.items() if key in values}
+    )
     if ui_options:
         kwargs["options"] = ui_options
     return kwargs
