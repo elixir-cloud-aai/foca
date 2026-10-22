@@ -19,8 +19,11 @@ on:
 permissions:
   contents: read
 
+# Prefixed, as a called workflow gets the caller's name (`github.workflow`):
+# the group must differ from that of `release-chart.yml`, or GitHub cancels
+# the release when this workflow is called
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: charts-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
