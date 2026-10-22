@@ -283,10 +283,11 @@ jobs:
           fi
       # A task queued while no worker runs survives a restart of the bundled
       # broker (PersistentVolumeClaim, durable queue, persistent message) and
-      # is delivered to the worker afterwards. The task is sent with the
-      # Celery app of the example's worker entry point (`worker.py`); the
-      # example has no tasks, so the worker logs the task as unregistered,
-      # which shows that it received it
+      # is delivered to the worker afterwards. The task is sent from the
+      # app's pod with a bare Celery app (to the default queue, as FOCA's
+      # apps do; loading the whole app would need more memory); the example
+      # has no tasks, so the worker logs the task as unregistered, which
+      # shows that it received it
       - name: Check that queued tasks survive a broker restart
         env:
           APP: petstore-celery
@@ -312,7 +313,7 @@ jobs:
             exit 1
           fi
           kubectl exec -n "${NAMESPACE}" "deployment/${APP}" -- python -c \
-              "from worker import celery_app; celery_app.send_task('ci.persistence_check')"
+              "import os; from celery import Celery; Celery(broker=os.environ['CELERY_BROKER_URL']).send_task('ci.persistence_check')"
           before=""
           for _ in $(seq 1 10); do
             before="$(queued)" || true
