@@ -84,6 +84,7 @@ mongodb:
 | `maxContentLength` | Size limit of request bodies of the app's base config (`server.max_content_length`), in bytes, if it sets one; the Ingress passes it on to ingress-nginx, unless `config.server.max_content_length` overrides it. |
 | `requireAudience` | If `true`, rendering fails without an audience for tokens (`config.security.auth.audience`), unless audience validation is disabled; set it if the app's base config has token issuers. |
 | `mongodb.databases` | Databases of the app's base config (`db.dbs`); the first one is the one FOCA authenticates against. Required for the bundled MongoDB with authentication, whose init script creates the app user with access to them. |
+| `mongodb.accessControlDatabase` | Database of [access control](access-control.md) (`security.access_control.db_name`, by default `access_control_db`), if the app's base config enables it; the init script of the bundled MongoDB also gives the app user access to it (see the [deployment notes](#deployment-notes)). |
 
 For example, an app that advertises its public URL in its config can
 generate it from the `hostName` value:
@@ -181,6 +182,19 @@ library's schema of these values is
   as the root user, and roll the app's pods after changing the Secret. Authentication can be disabled with
   `mongodb.auth.enabled: false`, but then any pod that can reach MongoDB can
   read and modify its data.
+- **Access control:** FOCA keeps the rules of [access
+  control](access-control.md) in a database of their own
+  (`security.access_control.db_name`, by default `access_control_db`),
+  which the app user needs access to, or the app fails at startup (`not
+  authorized on access_control_db`). The init script of the bundled MongoDB
+  grants it, in this order of precedence: `db_name` of the config overlay
+  (`config.security.access_control.db_name`); the setting
+  `mongodb.accessControlDatabase`, which app charts set if the app's base
+  config enables access control; FOCA's default database, if the overlay
+  enables access control (`config.security.access_control.enabled`). If
+  `db_name` is one of the app's databases, the rules are kept there. For
+  existing databases (the init script has run) and external databases,
+  grant the app user `readWrite` on that database with `mongosh`.
 - **External databases:** with `mongodb.enabled: false`, no MongoDB is
   deployed; set its host (and port) in `config.db` (rendering fails without
   `config.db.host`), and the credentials of the app user via
@@ -275,7 +289,10 @@ which runs the chart's test (`templates/tests/`, `helm test`): it adds a
 pet and reads it back, so that the app, its MongoDB and the app user are
 checked. A second installation (`ci/celery-values.yaml`) adds the Celery
 worker and the bundled broker; CI checks that the worker logs that it is
-ready, i.e., connected to the broker.
+ready, i.e., connected to the broker. A third one
+(`ci/access-control-values.yaml`) enables access control with configured
+policies, which FOCA stores on startup, so that the app user's access to the
+access-control database is checked.
 
 ### Releases
 

@@ -2,8 +2,8 @@
 # (`charts/foca-common`) and the thin chart of the petstore example built on
 # it (`examples/petstore/chart`), with template and snapshot tests
 # (`charts/foca-common/tests`); install the petstore example on a kind
-# cluster with chart-testing, also with the Celery worker and broker, and run
-# its test (`helm test`). Releases of the
+# cluster with chart-testing, also with the Celery worker and broker and with
+# access control, and run its test (`helm test`). Releases of the
 # library chart are published by `release-chart.yml`, which calls this
 # workflow first.
 

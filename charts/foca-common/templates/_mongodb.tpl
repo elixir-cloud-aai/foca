@@ -119,11 +119,60 @@ spec:
 {{- end -}}
 
 {{/*
+Database of FOCA's access control (`security.access_control.db_name`), if
+the app uses it; empty otherwise. In order of precedence: `db_name` of the
+config overlay, `mongodb.accessControlDatabase` of the settings (the
+`db_name` of the app's base config, if the base config enables access
+control) and, if the overlay enables access control (as pydantic parses
+`enabled`), FOCA's default database. Fails if the name is not valid (see
+`foca-common.checkDatabaseName`). Call with the context dict.
+*/}}
+{{- define "foca-common.accessControlDatabase" -}}
+{{- $accessControl := dict -}}
+{{- $security := get (include "foca-common.configOverlay" . | fromYaml) "security" -}}
+{{- if and (kindIs "map" $security) (kindIs "map" (get $security "access_control")) -}}
+{{- $accessControl = get $security "access_control" -}}
+{{- end -}}
+{{- $enabled := get $accessControl "enabled" -}}
+{{- if kindIs "string" $enabled -}}
+{{- $enabled = has (lower $enabled) (list "1" "on" "t" "true" "y" "yes") -}}
+{{- else if not (kindIs "bool" $enabled) -}}
+{{- $enabled = eq (toString $enabled) "1" -}}
+{{- end -}}
+{{- if hasKey $accessControl "db_name" -}}
+{{- $name := get $accessControl "db_name" -}}
+{{- include "foca-common.checkDatabaseName" (dict "name" $name "key" "config.security.access_control.db_name") -}}
+{{- $name -}}
+{{- else if hasKey (dig "mongodb" dict .settings) "accessControlDatabase" -}}
+{{- $name := .settings.mongodb.accessControlDatabase -}}
+{{- include "foca-common.checkDatabaseName" (dict "name" $name "key" "mongodb.accessControlDatabase of the settings") -}}
+{{- $name -}}
+{{- else if $enabled -}}
+access_control_db
+{{- end -}}
+{{- end -}}
+
+{{/*
+Fails unless a database name can be used by MongoDB (on any platform) and
+in the init script: a non-empty string of fewer than 64 bytes without
+`/\. "$*<>:|?`, single quotes or control characters. Call with a dict of the
+name (`name`) and where it is set (`key`).
+*/}}
+{{- define "foca-common.checkDatabaseName" -}}
+{{- $name := .name -}}
+{{- if not (and (kindIs "string" $name) (lt (len $name) 64) (regexMatch `^[^/\\. "$*<>:|?'\x00-\x1f\x7f]+$` $name)) -}}
+{{- fail (printf "%s: %v is not a valid MongoDB database name (fewer than 64 bytes, none of /\\. \"$*<>:|?' or control characters)" .key $name) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Init script of MongoDB, if authentication is enabled: run by MongoDB on its
 first start with an empty data directory, as the root user; FOCA creates the
 app's collections and indexes on startup. Creates the app user in the first
 of the app's databases (`mongodb.databases` of the settings), which FOCA
-authenticates against, with access to all of them.
+authenticates against, with access to all of them and to the database of
+FOCA's access control, if the app uses it (see
+`foca-common.accessControlDatabase`).
 */}}
 {{- define "foca-common.mongodbInitScript" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -132,6 +181,12 @@ authenticates against, with access to all of them.
 {{- $databases := dig "mongodb" "databases" (list) .settings -}}
 {{- if not (and (kindIs "slice" $databases) $databases) -}}
 {{- fail "foca-common: the app's settings must list the app's databases (mongodb.databases) for the bundled MongoDB with authentication" -}}
+{{- end -}}
+{{- range $databases -}}
+{{- include "foca-common.checkDatabaseName" (dict "name" . "key" "mongodb.databases of the settings") -}}
+{{- end -}}
+{{- with include "foca-common.accessControlDatabase" . -}}
+{{- $databases = append $databases . | uniq -}}
 {{- end -}}
 {{- $roles := list -}}
 {{- range $databases -}}
