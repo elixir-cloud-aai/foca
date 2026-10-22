@@ -734,6 +734,71 @@ def add_resource_role(
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).
     """
+    enforcer, rule = _get_grantable_rule(subject, role, resource, ptype, subject_type)
+    return enforcer.add_named_grouping_policy(ptype, *rule)
+
+
+def _replace_resource_role(
+    subject: str,
+    role: str,
+    resource: str,
+    roles: list[str],
+    ptype: str = RESOURCE_ROLE_PTYPE,
+    subject_type: SubjectType = "user",
+) -> bool:
+    """Grant a subject a role on a resource, replacing some of its roles.
+
+    Unlike revoking the other roles and then granting the role, the subject
+    keeps a role throughout, and concurrent calls for the same subject and
+    resource leave it with one of `roles` (cf.
+    :py:meth:`foca.security.access_control.foca_casbin_adapter.adapter.Adapter.replace_role_rule`).
+    Roles set via the app's configuration (`access_control.policies`) are
+    kept, with a warning.
+
+    Args:
+        subject: Subject without prefix (cf. :py:func:`add_resource_role`).
+        role: Role to grant.
+        resource: Resource, i.e., its full request path.
+        roles: Roles of the subject on the resource to replace.
+        ptype: Policy type of resource-scoped role rules.
+        subject_type: Type of the subject: `user`, `group` or `client`.
+
+    Returns:
+        `True` if the role was granted, `False` if it already existed.
+
+    Raises:
+        ValueError: As for :py:func:`add_resource_role`.
+    """
+    _, rule = _get_grantable_rule(subject, role, resource, ptype, subject_type)
+    adapter = _get_adapter()
+    for configured in adapter.get_filtered_rules(ptype, 0, rule[0], configured=True):
+        if configured[2:] == [resource] and configured[1] in set(roles) - {role}:
+            _warn_configured_rule(ptype, configured)
+    return adapter.replace_role_rule(ptype, rule, roles)
+
+
+def _get_grantable_rule(
+    subject: str,
+    role: str,
+    resource: str,
+    ptype: str,
+    subject_type: SubjectType,
+) -> tuple[Enforcer, list[str]]:
+    """Get and validate a resource-scoped role rule to grant.
+
+    Args:
+        subject: Subject without prefix (cf. :py:func:`add_resource_role`).
+        role: Role to grant.
+        resource: Resource, i.e., its full request path.
+        ptype: Policy type of resource-scoped role rules.
+        subject_type: Type of the subject.
+
+    Returns:
+        Casbin enforcer and values of the rule.
+
+    Raises:
+        ValueError: As for :py:func:`add_resource_role`.
+    """
     # Only checked when granting roles, so that rules with empty subjects
     # (e.g., stored by previous versions) can still be revoked
     if not subject:
@@ -760,7 +825,7 @@ def add_resource_role(
             escape_log_value(subject),
             escape_log_value(resource),
         )
-    return enforcer.add_named_grouping_policy(ptype, *rule)
+    return enforcer, rule
 
 
 def remove_resource_role(

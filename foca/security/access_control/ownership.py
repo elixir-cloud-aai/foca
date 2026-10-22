@@ -41,6 +41,7 @@ from foca.security.access_control.enforcement import (
     _get_resource_role_enforcer,
     _get_subject_prefix,
     _prefix_subject,
+    _replace_resource_role,
     add_resource_role,
     get_current_client,
     get_current_groups,
@@ -468,6 +469,10 @@ def _grant(
 ) -> None:
     """Grant a subject a role on a resource, unless it was deleted.
 
+    The role replaces the subject's other roles of
+    `access_control.resource_roles` on the resource (cf.
+    :py:func:`grant_role`).
+
     Checking that a resource exists before granting a role is not atomic:
     the resource may be deleted in between (after its roles were revoked),
     which would leave the role on the deleted resource. So existence is
@@ -492,10 +497,11 @@ def _grant(
             again if `revoke_on_error` is set and the role was not granted
             before.
     """
-    added = add_resource_role(
+    added = _replace_resource_role(
         subject=subject,
         role=role,
         resource=resource,
+        roles=_get_resource_roles(),
         ptype=ptype,
         subject_type=subject_type,
     )
@@ -577,9 +583,14 @@ def grant_role(
     """Grant a subject a role on a resource, replacing its other roles.
 
     The other roles of `access_control.resource_roles` of the subject on the
-    resource are revoked before the role is granted, so that a failure
-    leaves the subject with fewer rights, not more. Other roles (e.g.,
-    granted via :py:func:`foca.security.access_control.add_resource_role`)
+    resource are revoked once the role is granted, so that the subject keeps
+    a role throughout (e.g., a maintainer promoted to owner). Concurrent
+    grants for the same subject and resource leave it with one of these
+    roles, that of the grant stored last. If revoking the other roles fails,
+    the granted role is revoked again, so that a failure leaves the subject
+    with fewer rights, not more. Other roles (e.g., granted via
+    :py:func:`foca.security.access_control.add_resource_role`) and roles set
+    via the app's configuration (`access_control.policies`, with a warning)
     are kept. Which subjects may grant which roles to which subjects (e.g.,
     only to groups they are members of) is up to the app.
 
@@ -628,18 +639,9 @@ def grant_role(
                 f"'{OWNER_ROLE}' first"
             )
         _check_other_owners(resource, subject, subject_type, ptype)
-    for other in roles:
-        if other != role:
-            remove_resource_role(
-                subject=subject,
-                role=other,
-                resource=resource,
-                ptype=ptype,
-                subject_type=subject_type,
-            )
+    _grant(resource, subject, role, subject_type, ptype, exists)
     if OWNER_ROLE in previous and role != OWNER_ROLE:
         _restore_owner_if_none(resource, subject, subject_type, ptype, exists)
-    _grant(resource, subject, role, subject_type, ptype, exists)
     logger.info(
         "Role '%s' on '%s' granted to %s by %s (previous roles: %s)",
         escape_log_value(role),

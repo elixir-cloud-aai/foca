@@ -1,8 +1,10 @@
 """Casbin rule adapter."""
 
 import logging
+from collections.abc import Iterable
 from typing import Any, cast
 
+from bson import Timestamp
 from casbin import persist
 from casbin.model import Assertion, Model
 from casbin.model.policy import DEFAULT_SEP
@@ -13,6 +15,7 @@ from foca.security.access_control.constants import (
     CONFIGURED_FIELD,
     DEFAULT_ID_CHARSET,
     DEFAULT_ID_LENGTH,
+    GRANTED_FIELD,
     ID_ATTEMPTS,
 )
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
@@ -180,6 +183,123 @@ class Adapter(persist.Adapter):
                     raise
                 logger.debug("Generated rule identifier exists; retrying")
                 document.pop("_id", None)
+
+    def replace_role_rule(
+        self, ptype: str, rule: list[str], roles: Iterable[str]
+    ) -> bool:
+        """Store a role rule, replacing other roles of its subject.
+
+        The rule is stored first (or, if stored before, marked as granted
+        anew), then the subject's other rules with one of `roles` on the
+        resource are removed, so that the subject keeps a role throughout.
+        Rules are ordered by when they were stored or marked, via a
+        timestamp of the database server (`granted`), and only the latest
+        one is kept, so that concurrent replacements for the same subject
+        and resource leave one role, that of the latest call; rules stored
+        before without timestamp count as the oldest. If removing the other
+        roles fails, a rule stored by this call is removed again, so that
+        the subject is left with fewer rights, not more.
+
+        Rules marked as set via the app's configuration
+        (`access_control.policies`) are neither replaced nor marked, as they
+        would be added again on the next start; if the rule is only stored
+        with that mark, an unmarked copy is stored.
+
+        Args:
+            ptype: Policy type of the rule.
+            rule: Values of the rule: subject, role and resource.
+            roles: Roles to replace, besides the rule's role.
+
+        Returns:
+            `True` if the rule was not stored before, `False` if it was
+            (also if only with the configured mark).
+
+        Raises:
+            ValueError: The rule does not have three values, or is invalid
+                (cf. :py:func:`validate_rule`).
+            pymongo.errors.DuplicateKeyError: No unique identifier could be
+                generated in `ID_ATTEMPTS` attempts.
+        """
+        if len(rule) != 3:
+            raise ValueError("Role rules have three values: subject, role, resource")
+        validate_rule(ptype, rule, self.model)
+        self._ensure_id_index()
+        subject, role, resource = rule
+        marked = self._collection.update_many(
+            {**_rule_query(ptype, rule), CONFIGURED_FIELD: {"$ne": True}},
+            _GRANTED_UPDATE,
+        ).matched_count
+        inserted_id = None if marked else self._insert_granted(ptype, rule)
+        try:
+            self._keep_latest_role(ptype, subject, resource, [role, *roles])
+        except BaseException:
+            if inserted_id is not None:
+                self._collection.delete_one({"_id": inserted_id})
+            raise
+        return inserted_id is not None and not self.is_configured_rule(ptype, rule)
+
+    def _insert_granted(self, ptype: str, rule: list[str]) -> Any:
+        """Store a rule with the time it was granted.
+
+        Args:
+            ptype: Policy type of the rule.
+            rule: Values of the rule.
+
+        Returns:
+            MongoDB identifier (`_id`) of the stored rule, or `None` if a
+            copy with the generated identifier was stored concurrently,
+            which was marked as granted instead.
+
+        Raises:
+            pymongo.errors.DuplicateKeyError: No unique identifier could be
+                generated in `ID_ATTEMPTS` attempts.
+        """
+        document = CasbinRule.from_values(ptype, rule).to_dict()
+        attempts_left = ID_ATTEMPTS
+        while True:
+            id = generate_id(charset=self.id_charset, length=self.id_length)
+            # An upsert, as the timestamp is set by the database server
+            try:
+                return self._collection.update_one(
+                    {**document, "id": id}, _GRANTED_UPDATE, upsert=True
+                ).upserted_id
+            except DuplicateKeyError:
+                attempts_left -= 1
+                if not attempts_left:
+                    raise
+                logger.debug("Generated rule identifier exists; retrying")
+
+    def _keep_latest_role(
+        self, ptype: str, subject: str, resource: str, roles: list[str]
+    ) -> None:
+        """Remove role rules of a subject on a resource but the latest.
+
+        Args:
+            ptype: Policy type of the rules.
+            subject: Subject of the rules.
+            resource: Resource of the rules.
+            roles: Roles of the rules.
+        """
+        query = {
+            **_rule_query(ptype, [subject, roles[0], resource]),
+            "v1": {"$in": roles},
+            CONFIGURED_FIELD: {"$ne": True},
+        }
+        documents = list(self._collection.find(query, projection=[GRANTED_FIELD]))
+        if len(documents) < 2:
+            return
+        latest = max(documents, key=_granted_order)
+        self._collection.delete_many(
+            {
+                "_id": {
+                    "$in": [
+                        document["_id"]
+                        for document in documents
+                        if document["_id"] != latest["_id"]
+                    ]
+                }
+            }
+        )
 
     def _delete_policy_lines(self, ptype: str, rule: list[str]) -> int:
         """Delete stored rules with exactly the given values.
@@ -380,6 +500,28 @@ class Adapter(persist.Adapter):
             query[CONFIGURED_FIELD] = {"$ne": True}
         results = self._collection.delete_many(query)
         return results.deleted_count > 0
+
+
+# Marks rules as granted now, by a timestamp of the database server, which
+# is unique per server
+_GRANTED_UPDATE = {"$currentDate": {GRANTED_FIELD: {"$type": "timestamp"}}}
+
+
+def _granted_order(document: dict[str, Any]) -> tuple[bool, Timestamp, str]:
+    """Get the order of a stored rule by when it was granted.
+
+    Args:
+        document: Stored rule.
+
+    Returns:
+        Sort key: rules without timestamp (e.g., stored by
+        :py:meth:`Adapter.save_policy_line`) come first, ties are broken by
+        MongoDB identifier.
+    """
+    granted = document.get(GRANTED_FIELD)
+    if not isinstance(granted, Timestamp):
+        return (False, Timestamp(0, 0), str(document["_id"]))
+    return (True, granted, str(document["_id"]))
 
 
 def _append_rule(assertion: Assertion, values: list[str]) -> None:

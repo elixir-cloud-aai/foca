@@ -500,6 +500,91 @@ class TestGrantRole:
                 ResourceRole("user", "alice", "owner")
             ]
 
+    @pytest.mark.parametrize(
+        ("before", "role"), [("maintainer", "owner"), ("owner", "maintainer")]
+    )
+    def test_no_window_without_role(
+        self,
+        store_app: Flask,
+        monkeypatch: pytest.MonkeyPatch,
+        before: str,
+        role: str,
+    ) -> None:
+        """Subjects keep their role until the new one is granted."""
+        adapter = store_app.config["casbin_adapter"]
+        keep_latest = adapter._keep_latest_role
+        seen: list[set[str]] = []
+
+        def observe(*args: Any) -> None:
+            seen.append(
+                {
+                    granted.role
+                    for granted in list_roles(TASK)
+                    if granted.subject == "bob"
+                }
+            )
+            keep_latest(*args)
+
+        with as_caller(store_app, ALICE):
+            add_owner(TASK)
+            grant_role(TASK, "bob", before)
+            monkeypatch.setattr(adapter, "_keep_latest_role", observe)
+            assert grant_role(TASK, "bob", role) == [before]
+            assert seen == [{before, role}]
+            assert ResourceRole("user", "bob", role) in list_roles(TASK)
+            assert ResourceRole("user", "bob", before) not in list_roles(TASK)
+
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [("owner", "maintainer"), ("maintainer", "owner"), ("owner", "owner")],
+    )
+    def test_concurrent_grants(
+        self,
+        store_app: Flask,
+        monkeypatch: pytest.MonkeyPatch,
+        first: str,
+        second: str,
+    ) -> None:
+        """Concurrent grants leave the subject with one role."""
+        adapter = store_app.config["casbin_adapter"]
+        keep_latest = adapter._keep_latest_role
+        previous: list[set[str]] = []
+
+        def interleave(*args: Any) -> None:
+            # a concurrent request grants a role after the first one stored
+            # its rule, before it removed the other roles
+            if not previous:
+                previous.append(set())
+                previous[0].update(grant_role(TASK, "bob", second))
+            keep_latest(*args)
+
+        with as_caller(store_app, ALICE):
+            add_owner(TASK)
+            grant_role(TASK, "bob", "maintainer")
+            monkeypatch.setattr(adapter, "_keep_latest_role", interleave)
+            grant_role(TASK, "bob", first)
+            # the concurrent request saw both roles
+            assert previous == [{"maintainer", first}]
+            assert [
+                granted.role for granted in list_roles(TASK) if granted.subject == "bob"
+            ] == [second]
+
+    def test_configured_role_kept(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Roles set via the configuration are kept, with a warning."""
+        adapter = app.config["casbin_adapter"]
+        adapter.save_policy_line(
+            "g2", ["user:bob", "maintainer", TASK], configured=True
+        )
+        with as_caller(app, ALICE):
+            add_owner(TASK)
+            assert grant_role(TASK, "bob", "owner") == ["maintainer"]
+            assert {
+                granted.role for granted in list_roles(TASK) if granted.subject == "bob"
+            } == {"owner", "maintainer"}
+        assert "set via the configuration" in caplog.text
+
     def test_resource_gone(self, app: Flask) -> None:
         """Roles granted on resources deleted meanwhile are revoked."""
         with as_caller(app, ALICE):
