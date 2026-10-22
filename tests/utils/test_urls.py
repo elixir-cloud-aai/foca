@@ -1,6 +1,7 @@
 """Tests for URL checks and normalization."""
 
 from typing import Any
+from unittest import mock
 
 import pytest
 
@@ -109,6 +110,7 @@ def test_normalize_url_keep_query_only() -> None:
         "https://.",
         "https://[::g]",
         f"https://{'ü' * 64}.example.org",
+        "https://bü-.example.org",
         "https://tes example.org",
         "https://tes<x>.example.org",
         "https://tes%zz.example.org",
@@ -170,6 +172,61 @@ def test_normalize_host_invalid_zone(zone: str) -> None:
     """
     with pytest.raises(InvalidURL, match="need a valid host"):
         normalize_host(f"fe80::1{zone}", bracketed=True, name="URLs")
+
+
+# Host names of the maximum length: 253 characters, labels of 63
+LONGEST_HOST = ".".join(["a" * 63, "b" * 63, "c" * 63, "d" * 61])
+
+
+@pytest.mark.parametrize(
+    "host",
+    [LONGEST_HOST, f"{LONGEST_HOST}.", f"{'ü' * 30}。{'a' * 63}。org"],
+    ids=["253", "253-trailing-dot", "international"],
+)
+def test_normalize_url_longest_host(host: str) -> None:
+    """Hosts of up to 253 characters, with labels of up to 63, are valid."""
+    assert normalize_url(f"https://{host}/v1").startswith("https://")
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        f"{LONGEST_HOST}a",
+        f"{LONGEST_HOST}a.",
+        f"{'a' * 64}.example.org",
+        f"{'ü' * 64}.example.org",
+        f"{'ü' * 20000}.example.org",
+        f"{'ü' * 63}。{'ü' * 63}。{'ü' * 63}。{'ü' * 63}。org",
+    ],
+    ids=["254", "254-trailing-dot", "label", "international-label", "huge", "dots"],
+)
+def test_normalize_url_long_host(host: str) -> None:
+    """Long hosts are rejected before IDNA encoding, which is slow for them.
+
+    Hosts must not be longer than 253 characters, labels not longer than 63.
+    UTS 46 full stops (e.g., `。`) separate labels, as `.` does.
+    """
+    with (
+        mock.patch("idna.encode", side_effect=AssertionError("encoded")),
+        mock.patch("idna.decode", side_effect=AssertionError("decoded")),
+        pytest.raises(InvalidURL, match="need a valid host: too long") as exc_info,
+    ):
+        normalize_url(f"https://{host}/v1")
+    assert host not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [f"{'ü' * 64}.org", f"{'ü.' * 127}org", f"{'ü' * 20000}.org"],
+    ids=["label", "254", "huge"],
+)
+def test_check_url_mailto_long_domain(domain: str) -> None:
+    """Long email domains are rejected before IDNA encoding."""
+    with (
+        mock.patch("idna.encode", side_effect=AssertionError("encoded")),
+        pytest.raises(InvalidURL, match="with a domain name"),
+    ):
+        check_url(f"mailto:a@{domain}", schemes=["mailto"])
 
 
 def test_normalize_url_schemes() -> None:

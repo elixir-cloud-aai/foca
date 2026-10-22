@@ -69,7 +69,9 @@ def post_service(body: dict) -> str:
   as is. It rejects, among others, URLs with whitespace (also leading or
   trailing; strip it first to tolerate it), control or format characters,
   unencoded characters that URLs do not allow (e.g., `<` or `|`) or user
-  info, and hosts that are not valid domain names or IP addresses.
+  info, and hosts that are not valid domain names or IP addresses, or that
+  are longer than DNS allows (253 characters, labels of 63; also checked
+  before international names are encoded).
 * `check_url_fields(data, fields)` checks the URLs in the given fields of an
   object, as dot-separated paths of keys (e.g., `organization.url`). Missing
   fields are not checked.

@@ -47,6 +47,13 @@ _LDH_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 # which would let different spellings of a host (e.g., `ex%61mple.org`)
 # and encoded control characters pass
 _REG_NAME = re.compile(r"[A-Za-z0-9\-._~!$&'()*+,;=]*")
+# Label separators of host names: `.` and the full stops that IDNA (UTS 46)
+# maps to it
+_LABEL_SEPARATORS = re.compile(r"[.\u3002\uff0e\uff61]")
+# Maximum lengths of host names, without a trailing dot, and of their labels
+# (RFC 1035, section 2.3.4)
+_MAX_HOST_LENGTH = 253
+_MAX_LABEL_LENGTH = 63
 # Last labels of hosts that WHATWG URL parsers (e.g., browsers) take as
 # IPv4 addresses, e.g., `127.1` or `0x7f.0.0.1`
 _NUMERIC_LABEL = re.compile(r"[0-9]+|0[xX][0-9A-Fa-f]*")
@@ -356,6 +363,34 @@ def _check_a_labels(host: str, message: str) -> None:
                 raise InvalidURL(message) from exc
 
 
+def _check_host_length(host: str, message: str) -> None:
+    """Check the length of a host name and of its labels, before encoding.
+
+    IDNA encoding takes time quadratic in the length of the host in some
+    versions of `idna` (before 3.15, CVE-2026-45409), so long hosts are
+    rejected before they are encoded. Labels are separated by `.` and the
+    full stops that IDNA maps to it (e.g., U+3002, ideographic full stop);
+    as international labels get longer when encoded (`xn--` labels), hosts
+    are only rejected if they would be too long anyway, except for labels
+    with characters that IDNA ignores (e.g., variation selectors).
+
+    Args:
+        host: Host, possibly with international labels, and a trailing dot.
+        message: Message of the exception.
+
+    Raises:
+        InvalidURL: The host, without a trailing dot, is longer than 253
+            characters, or one of its labels is longer than 63.
+    """
+    labels = _LABEL_SEPARATORS.split(host)
+    if len(labels) > 1 and not labels[-1]:
+        labels.pop()
+    if sum(map(len, labels)) + len(labels) - 1 > _MAX_HOST_LENGTH or any(
+        len(label) > _MAX_LABEL_LENGTH for label in labels
+    ):
+        raise InvalidURL(message)
+
+
 def _check_percent_encodings(text: str, name: str) -> None:
     """Check that the percent signs in a URL, or part of it, start encodings.
 
@@ -400,9 +435,11 @@ def _check_domain(domain: str, name: str) -> None:
             or not valid as per IDNA 2008): after IDNA encoding, it needs at
             least two labels of letters, digits and hyphens (1 to 63
             characters, no leading or trailing hyphen), the last one not
-            only digits, and at most 253 characters.
+            only digits, and at most 253 characters (also before encoding,
+            cf. `_check_host_length()`).
     """
     message = f"{name} need email addresses with a domain name."
+    _check_host_length(domain, message=message)
     if not domain.isascii():
         try:
             domain = idna.encode(domain, uts46=True, transitional=False).decode()
@@ -482,9 +519,11 @@ def _normalize_host(host: str, bracketed: bool, name: str) -> str:
             brackets other than an IPv6 address (e.g., IPvFuture), an IPv6
             address with a `%` not followed by `25` and a zone identifier
             (`_ZONE_ID`, non-empty), a host with percent-encodings or empty
-            labels (other than a trailing dot), or a host
-            whose last label is numeric (cf. `_NUMERIC_LABEL`) but that is not
-            an IPv4 address in dotted-decimal form.
+            labels (other than a trailing dot), a host longer than 253
+            characters or with labels longer than 63 (cf.
+            `_check_host_length()`), or a host whose last label is numeric
+            (cf. `_NUMERIC_LABEL`) but that is not an IPv4 address in
+            dotted-decimal form.
     """
     if bracketed:
         address, percent, zone = host.partition("%")
@@ -497,6 +536,7 @@ def _normalize_host(host: str, bracketed: bool, name: str) -> str:
         if not zone.startswith("25") or not _ZONE_ID.fullmatch(zone[2:]):
             raise InvalidURL(f"{name} need a valid host: '{host}'.")
         return f"[{address}%{zone}]"
+    _check_host_length(host, message=f"{name} need a valid host: too long.")
     if not host.isascii():
         try:
             host = idna.encode(host, uts46=True, transitional=False).decode()
