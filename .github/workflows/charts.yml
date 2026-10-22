@@ -2,8 +2,9 @@
 # (`charts/foca-common`) and the thin chart of the petstore example built on
 # it (`examples/petstore/chart`), with template and snapshot tests
 # (`charts/foca-common/tests`); install the petstore example on a kind
-# cluster with chart-testing, also with the Celery worker and broker and with
-# access control, and run its test (`helm test`); and check that changes of
+# cluster with chart-testing, also with the Celery worker and broker, with
+# access control and with an HTTPRoute of the Gateway API (via Envoy
+# Gateway), and run its test (`helm test`); and check that changes of
 # the library chart since its latest release raise its version. Releases of
 # the library chart are published by `release-chart.yml`, which calls this
 # workflow first.
@@ -124,6 +125,28 @@ jobs:
         with:
           version: v0.33.0
           cluster_name: chart-testing
+      # Envoy Gateway, which installs the Gateway API CRDs, and the Gateway
+      # `eg` of `.github/kind/gateway.yaml` with a self-signed certificate,
+      # for the HTTPRoute of `ci/gateway-values.yaml`. Not bumped by
+      # Dependabot; update the version manually
+      - name: Install Envoy Gateway
+        env:
+          ENVOY_GATEWAY_VERSION: v1.9.2
+          HOST: petstore-gateway.example.org
+        run: |
+          helm install eg oci://docker.io/envoyproxy/gateway-helm \
+              --version "${ENVOY_GATEWAY_VERSION}" \
+              --namespace envoy-gateway-system --create-namespace \
+              --wait --timeout 300s
+          kubectl create namespace gateway
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+              -subj "/CN=${HOST}" -addext "subjectAltName=DNS:${HOST}" \
+              -keyout "${RUNNER_TEMP}/tls.key" -out "${RUNNER_TEMP}/tls.crt"
+          kubectl create secret tls gateway-tls -n gateway \
+              --cert "${RUNNER_TEMP}/tls.crt" --key "${RUNNER_TEMP}/tls.key"
+          kubectl apply -f .github/kind/gateway.yaml
+          kubectl wait gateway/eg -n gateway --for=condition=Programmed \
+              --timeout=300s
       # The FOCA image from the repository (tagged as in the `FROM` line of
       # `examples/petstore/Dockerfile`), and the petstore image on it, which
       # serves the app with Gunicorn
@@ -155,6 +178,55 @@ jobs:
         run: |
           ct install --charts examples/petstore/chart --skip-clean-up \
               --namespace "${NAMESPACE}" --helm-extra-args "--timeout 600s"
+      # The release of `ci/gateway-values.yaml` via the Gateway (port
+      # forwarding to the Envoy proxy's Service): HTTP is redirected to HTTPS,
+      # and HTTPS reaches the app through its NetworkPolicy, which blocks
+      # pods outside its peers (checked from the namespace `default`)
+      - name: Check app via the Gateway
+        env:
+          HOST: petstore-gateway.example.org
+          SERVICE: petstore-gateway
+        run: |
+          proxy="$(kubectl get service -n envoy-gateway-system -o name \
+              -l gateway.envoyproxy.io/owning-gateway-namespace=gateway,gateway.envoyproxy.io/owning-gateway-name=eg)"
+          kubectl port-forward -n envoy-gateway-system "${proxy}" \
+              8080:80 8443:443 > "${RUNNER_TEMP}/port-forward.log" 2>&1 &
+          forward=$!
+          trap 'kill "${forward}" || true' EXIT
+          for _ in $(seq 1 30); do
+            if curl -s -o /dev/null http://127.0.0.1:8080/; then
+              break
+            fi
+            sleep 1
+          done
+          # The URLs' host and default ports, via the forwarded ports
+          redirect="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' \
+              --connect-to "${HOST}:80:127.0.0.1:8080" "http://${HOST}/pets")"
+          echo "HTTP: ${redirect}"
+          if [ "${redirect}" != "301 https://${HOST}/pets" ]; then
+            echo "::error::HTTP is not redirected to HTTPS"
+            exit 1
+          fi
+          curl -sSf --cacert "${RUNNER_TEMP}/tls.crt" \
+              --connect-to "${HOST}:443:127.0.0.1:8443" \
+              "https://${HOST}/openapi.json" -o /dev/null
+          echo "HTTPS: the app is reachable"
+          result="$(kubectl run network-policy-check -n default \
+              --image foca-petstore:latest --image-pull-policy Never \
+              --restart Never --rm -i --quiet --command -- python -c "
+          import socket
+          address = socket.getaddrinfo('${SERVICE}.${NAMESPACE}', 8080)[0][4]
+          try:
+              socket.create_connection(address, timeout=10)
+              print('admitted')
+          except OSError:
+              print('blocked')
+          ")" || true
+          echo "Pod outside the peers: ${result}"
+          if ! grep -qx blocked <<< "${result}"; then
+            echo "::error::The app's NetworkPolicy does not block pods outside its peers"
+            exit 1
+          fi
       # Errors that don't fail the install, e.g., of Gunicorn at startup on
       # the read-only root file system, in Gunicorn's (`[ERROR]`) and FOCA's
       # (`: ERROR   ]`) log formats
@@ -196,6 +268,8 @@ jobs:
         if: failure()
         run: |
           kubectl get all,networkpolicies,pvc -n "${NAMESPACE}"
+          kubectl get gateways,httproutes -A -o yaml
+          kubectl logs -n envoy-gateway-system deployment/envoy-gateway --tail=100
           kubectl describe pods -n "${NAMESPACE}"
           kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
               -l app.kubernetes.io/instance --tail=100
