@@ -23,6 +23,7 @@ the operations using the helpers is decided by the app's policies.
 
 import logging
 from collections.abc import Callable
+from contextlib import suppress
 from typing import NamedTuple
 
 from casbin import Enforcer
@@ -639,8 +640,19 @@ def grant_role(
                 f"'{OWNER_ROLE}' first"
             )
         _check_other_owners(resource, subject, subject_type, ptype)
-    _grant(resource, subject, role, subject_type, ptype, exists)
-    if OWNER_ROLE in previous and role != OWNER_ROLE:
+    downgraded = OWNER_ROLE in previous and role != OWNER_ROLE
+    try:
+        _grant(resource, subject, role, subject_type, ptype, exists)
+    except NotFound:
+        raise
+    # The owner role may be gone (e.g., if the existence check failed), so
+    # restore it if other owners were removed concurrently, and fail anyway
+    except Exception:
+        if downgraded:
+            with suppress(LastOwner):
+                _restore_owner_if_none(resource, subject, subject_type, ptype, exists)
+        raise
+    if downgraded:
         _restore_owner_if_none(resource, subject, subject_type, ptype, exists)
     logger.info(
         "Role '%s' on '%s' granted to %s by %s (previous roles: %s)",

@@ -548,14 +548,13 @@ class TestGrantRole:
         """Concurrent grants leave the subject with one role."""
         adapter = store_app.config["casbin_adapter"]
         keep_latest = adapter._keep_latest_role
-        previous: list[set[str]] = []
+        concurrent_previous: list[str] = []
 
         def interleave(*args: Any) -> None:
             # a concurrent request grants a role after the first one stored
             # its rule, before it removed the other roles
-            if not previous:
-                previous.append(set())
-                previous[0].update(grant_role(TASK, "bob", second))
+            monkeypatch.setattr(adapter, "_keep_latest_role", keep_latest)
+            concurrent_previous.extend(grant_role(TASK, "bob", second))
             keep_latest(*args)
 
         with as_caller(store_app, ALICE):
@@ -563,11 +562,35 @@ class TestGrantRole:
             grant_role(TASK, "bob", "maintainer")
             monkeypatch.setattr(adapter, "_keep_latest_role", interleave)
             grant_role(TASK, "bob", first)
-            # the concurrent request saw both roles
-            assert previous == [{"maintainer", first}]
+            # the concurrent request found both roles of bob
+            assert set(concurrent_previous) == {"maintainer", first}
             assert [
                 granted.role for granted in list_roles(TASK) if granted.subject == "bob"
             ] == [second]
+
+    def test_failed_downgrade_restores_owner(
+        self, store_app: Flask, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Owners removed concurrently are restored if a downgrade fails."""
+        check_other_owners = ownership._check_other_owners
+
+        def leave(*args: Any) -> None:
+            check_other_owners(*args)
+            # bob leaves after alice's check for other owners
+            monkeypatch.setattr(ownership, "_check_other_owners", check_other_owners)
+            with as_caller(store_app, BOB):
+                revoke_roles(TASK, "bob")
+
+        def fail() -> bool:
+            raise RuntimeError("database not available")
+
+        with as_caller(store_app, ALICE):
+            add_owner(TASK)
+            grant_role(TASK, "bob", "owner")
+            monkeypatch.setattr(ownership, "_check_other_owners", leave)
+            with pytest.raises(RuntimeError, match="database"):
+                grant_role(TASK, "alice", "maintainer", exists=fail)
+            assert list_roles(TASK) == [ResourceRole("user", "alice", "owner")]
 
     def test_configured_role_kept(
         self, app: Flask, caplog: pytest.LogCaptureFixture

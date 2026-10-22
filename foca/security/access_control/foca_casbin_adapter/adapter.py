@@ -27,6 +27,10 @@ from foca.utils.misc import generate_id
 
 logger = logging.getLogger(__name__)
 
+# Marks rules as granted now, by a timestamp of the database server, which
+# is unique per server
+_GRANTED_UPDATE = {"$currentDate": {GRANTED_FIELD: {"$type": "timestamp"}}}
+
 
 class Adapter(persist.Adapter):
     """Casbin adapter for MongoDB.
@@ -224,18 +228,19 @@ class Adapter(persist.Adapter):
             raise ValueError("Role rules have three values: subject, role, resource")
         validate_rule(ptype, rule, self.model)
         self._ensure_id_index()
-        subject, role, resource = rule
         marked = self._collection.update_many(
             {**_rule_query(ptype, rule), CONFIGURED_FIELD: {"$ne": True}},
             _GRANTED_UPDATE,
         ).matched_count
         inserted_id = None if marked else self._insert_granted(ptype, rule)
         try:
-            self._keep_latest_role(ptype, subject, resource, [role, *roles])
+            self._keep_latest_role(ptype, rule, roles)
+        # Also if interrupted, so that the subject is not left with more rights
         except BaseException:
             if inserted_id is not None:
                 self._collection.delete_one({"_id": inserted_id})
             raise
+        # A configured copy grants the role already, also without our copy
         return inserted_id is not None and not self.is_configured_rule(ptype, rule)
 
     def _insert_granted(self, ptype: str, rule: list[str]) -> Any:
@@ -270,34 +275,43 @@ class Adapter(persist.Adapter):
                 logger.debug("Generated rule identifier exists; retrying")
 
     def _keep_latest_role(
-        self, ptype: str, subject: str, resource: str, roles: list[str]
+        self, ptype: str, rule: list[str], roles: Iterable[str]
     ) -> None:
         """Remove role rules of a subject on a resource but the latest.
 
+        Rules are only removed if they were not marked as granted since they
+        were read, so that a rule granted again concurrently is kept (and
+        the older rules are removed by the call granting it).
+
         Args:
             ptype: Policy type of the rules.
-            subject: Subject of the rules.
-            resource: Resource of the rules.
-            roles: Roles of the rules.
+            rule: Values of the granted rule: subject, role and resource.
+            roles: Other roles of the subject on the resource to remove.
         """
-        query = {
-            **_rule_query(ptype, [subject, roles[0], resource]),
-            "v1": {"$in": roles},
+        subject, role, resource = rule
+        query: dict[str, Any] = {
+            "ptype": ptype,
+            "v0": subject,
+            "v1": {"$in": [role, *roles]},
+            "v2": resource,
             CONFIGURED_FIELD: {"$ne": True},
         }
+        for index in range(3, MAX_RULE_VALUES):
+            query[f"v{index}"] = None
         documents = list(self._collection.find(query, projection=[GRANTED_FIELD]))
         if len(documents) < 2:
             return
         latest = max(documents, key=_granted_order)
         self._collection.delete_many(
             {
-                "_id": {
-                    "$in": [
-                        document["_id"]
-                        for document in documents
-                        if document["_id"] != latest["_id"]
-                    ]
-                }
+                "$or": [
+                    {
+                        "_id": document["_id"],
+                        GRANTED_FIELD: document.get(GRANTED_FIELD, {"$exists": False}),
+                    }
+                    for document in documents
+                    if document["_id"] != latest["_id"]
+                ]
             }
         )
 
@@ -500,11 +514,6 @@ class Adapter(persist.Adapter):
             query[CONFIGURED_FIELD] = {"$ne": True}
         results = self._collection.delete_many(query)
         return results.deleted_count > 0
-
-
-# Marks rules as granted now, by a timestamp of the database server, which
-# is unique per server
-_GRANTED_UPDATE = {"$currentDate": {GRANTED_FIELD: {"$type": "timestamp"}}}
 
 
 def _granted_order(document: dict[str, Any]) -> tuple[bool, Timestamp, str]:

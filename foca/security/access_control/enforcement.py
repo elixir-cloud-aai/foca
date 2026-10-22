@@ -734,7 +734,10 @@ def add_resource_role(
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).
     """
-    enforcer, rule = _get_grantable_rule(subject, role, resource, ptype, subject_type)
+    enforcer = _get_resource_role_enforcer(ptype)
+    rule = _validate_grantable_rule(
+        subject, role, resource, ptype, subject_type, enforcer
+    )
     return enforcer.add_named_grouping_policy(ptype, *rule)
 
 
@@ -769,22 +772,29 @@ def _replace_resource_role(
     Raises:
         ValueError: As for :py:func:`add_resource_role`.
     """
-    _, rule = _get_grantable_rule(subject, role, resource, ptype, subject_type)
+    rule = _validate_grantable_rule(
+        subject, role, resource, ptype, subject_type, _get_resource_role_enforcer(ptype)
+    )
     adapter = _get_adapter()
-    for configured in adapter.get_filtered_rules(ptype, 0, rule[0], configured=True):
-        if configured[2:] == [resource] and configured[1] in set(roles) - {role}:
+    others = set(roles) - {role}
+    for configured in adapter.get_filtered_rules(ptype, 2, resource, configured=True):
+        if configured[0] == rule[0] and configured[1] in others:
             _warn_configured_rule(ptype, configured)
     return adapter.replace_role_rule(ptype, rule, roles)
 
 
-def _get_grantable_rule(
+def _validate_grantable_rule(
     subject: str,
     role: str,
     resource: str,
     ptype: str,
     subject_type: SubjectType,
-) -> tuple[Enforcer, list[str]]:
+    enforcer: Enforcer,
+) -> list[str]:
     """Get and validate a resource-scoped role rule to grant.
+
+    Logs a warning if the role would not apply (cf.
+    :py:func:`add_resource_role`).
 
     Args:
         subject: Subject without prefix (cf. :py:func:`add_resource_role`).
@@ -792,9 +802,10 @@ def _get_grantable_rule(
         resource: Resource, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
         subject_type: Type of the subject.
+        enforcer: Casbin enforcer (cf. :py:func:`_get_resource_role_enforcer`).
 
     Returns:
-        Casbin enforcer and values of the rule.
+        Values of the rule, with the subject prefixed according to its type.
 
     Raises:
         ValueError: As for :py:func:`add_resource_role`.
@@ -803,7 +814,6 @@ def _get_grantable_rule(
     # (e.g., stored by previous versions) can still be revoked
     if not subject:
         raise ValueError("Subjects must not be empty")
-    enforcer = _get_resource_role_enforcer(ptype)
     rule = _get_resource_role_rule(
         subject, role, resource, ptype, subject_type, enforcer
     )
@@ -825,7 +835,7 @@ def _get_grantable_rule(
             escape_log_value(subject),
             escape_log_value(resource),
         )
-    return enforcer, rule
+    return rule
 
 
 def remove_resource_role(

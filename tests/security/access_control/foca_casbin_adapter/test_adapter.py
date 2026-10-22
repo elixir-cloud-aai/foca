@@ -1,6 +1,6 @@
 """Tests for `adapter.py` module."""
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, ClassVar, NoReturn
 
@@ -572,7 +572,7 @@ class TestConfiguredRules:
         assert mock_adapter._collection.count_documents({}) == 2
 
 
-ROLES = ["owner", "maintainer"]
+ROLES = ("owner", "maintainer")
 
 
 def _roles(adapter: Adapter, subject: str = "user:a") -> list[str]:
@@ -666,13 +666,14 @@ class TestReplaceRoleRule:
         """Concurrent replacements leave one role, of the later rule."""
         first, second = roles
         keep_latest = adapter._keep_latest_role
-        calls: list[Callable[..., None]] = []
+        interleaved = False
 
         def interleave(*args: Any) -> None:
             # a concurrent request replaces the role after the first one
             # stored its rule
-            if not calls:
-                calls.append(keep_latest)
+            nonlocal interleaved
+            if not interleaved:
+                interleaved = True
                 adapter.replace_role_rule("g2", ["user:a", second, "/x"], ROLES)
             keep_latest(*args)
 
@@ -697,6 +698,29 @@ class TestReplaceRoleRule:
         # cleanups in either order keep the later rule
         for args in reversed(pending):
             keep_latest(*args)
+        assert _roles(adapter) == ["maintainer"]
+
+    def test_granted_again_during_cleanup(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rules granted again after being read for removal are kept."""
+        adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        delete_many = adapter._collection.delete_many
+        interleaved = False
+
+        def interleave(*args: Any, **kwargs: Any) -> Any:
+            # a concurrent request grants the role to be removed again
+            # after the first one read the rules, before it removed them
+            nonlocal interleaved
+            if not interleaved:
+                interleaved = True
+                adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+                assert _roles(adapter) == ["maintainer"]
+            return delete_many(*args, **kwargs)
+
+        monkeypatch.setattr(adapter._collection, "delete_many", interleave)
+        adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert interleaved
         assert _roles(adapter) == ["maintainer"]
 
     def test_cleanup_fails(

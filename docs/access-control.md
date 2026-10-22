@@ -756,7 +756,8 @@ service registry:
   before the others are removed, so the subject keeps a role throughout
   (e.g., a maintainer promoted to owner); concurrent grants for the same
   subject and resource leave it with one role, that of the grant stored
-  last.
+  last (ordered by a timestamp of the database server in the field
+  `granted` of stored rules; rules without it count as the oldest).
   `revoke_roles(resource, subject)` revokes them. Both raise `LastOwner`
   (`409 Conflict`) instead of removing or downgrading the last owner of a
   resource, so that every resource keeps an owner, which may be a group.
