@@ -462,6 +462,15 @@ class TestConnexionAddApiKwargs:
             ({"options": {"serve_spec": False}}, {"serve_spec": False}),
             # deprecated name of `serve_spec`
             ({"options": {"swagger_json": False}}, {"swagger_json": False}),
+            # `None` values are ignored, as by Connexion
+            (
+                {"options": {"swagger_ui": None, "serve_spec": False}},
+                {"serve_spec": False},
+            ),
+            (
+                {"options": {"serve_spec": None, "swagger_json": False}},
+                {"serve_spec": None, "swagger_json": False},
+            ),
         ],
     )
     def test_swagger_ui_disabled_without_spec(

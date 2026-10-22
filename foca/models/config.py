@@ -375,6 +375,18 @@ class ConnexionOptions(BaseModel):
     resolver: Any = None
     options: dict[str, Any] | None = None
 
+    def _set_options(self) -> dict[str, Any]:
+        """Get the further Connexion options that are set.
+
+        Returns:
+            `options` without `None` values, which Connexion ignores.
+        """
+        return {
+            key: value
+            for key, value in (self.options or {}).items()
+            if value is not None
+        }
+
     def _spec_disabled(self) -> bool:
         """Check whether serving the specification is disabled.
 
@@ -384,7 +396,7 @@ class ConnexionOptions(BaseModel):
         Returns:
             Whether serving the specification is set and disabled.
         """
-        options = self.options or {}
+        options = self._set_options()
         serve_spec = self.serve_spec
         if serve_spec is None:
             serve_spec = options.get("serve_spec", options.get("swagger_json"))
@@ -403,7 +415,7 @@ class ConnexionOptions(BaseModel):
         """
         swagger_ui = self.swagger_ui
         if swagger_ui is None:
-            swagger_ui = (self.options or {}).get("swagger_ui")
+            swagger_ui = self._set_options().get("swagger_ui")
         if swagger_ui and self._spec_disabled():
             raise ValueError(
                 "The Swagger UI ('swagger_ui') needs the specification, so "
