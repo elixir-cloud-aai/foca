@@ -343,10 +343,11 @@ def register_casbin_enforcer(
     )
     app.app.config["casbin_adapter"] = adapter
     if access_control_config.policies is not None:
+        named = access_control_config.named_policies
         _add_policies(
             adapter=adapter,
             policies=access_control_config.policies,
-            names=access_control_config._policy_names,
+            names=None if named is None else list(named),
         )
     logger.info("Casbin enforcer registered.")
 

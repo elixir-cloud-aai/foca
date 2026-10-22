@@ -556,18 +556,70 @@ class TestPatches:
             "schemes. Make sure that this is intended."
         ]
 
-    def test_invalid_operation(self) -> None:
-        """Errors adding operations of patched specs raise a clear error."""
+    def test_registration_error(
+        self, monkeypatch: pytest.MonkeyPatch, logs: pytest.LogCaptureFixture
+    ) -> None:
+        """Other errors registering patched specs are raised as they are.
+
+        An error is logged, pointing to the patches.
+        """
+        monkeypatch.setattr(module.logger, "disabled", False)
         spec_config = SpecConfig.model_validate(
             {
                 **SPEC_CONFIG_3,
+                "name": "pets",
                 "patches": [{"paths": {"/pets": {"get": {"security": [{"no": []}]}}}}],
             }
         )
-        with pytest.raises(
-            ValueError, match="invalid after applying patches: KeyError: 'no'"
-        ):
+        with pytest.raises(KeyError, match="no"):
             register_openapi(app=App(__name__), specs=[spec_config])
+        assert [
+            record.getMessage()
+            for record in logs.records
+            if record.name == module.logger.name and record.levelno == logging.ERROR
+        ] == [
+            "Registering API spec 'pets' failed; patches were applied to it, "
+            "check whether they cause the error"
+        ]
+
+    def test_registration_error_without_patches(
+        self, monkeypatch: pytest.MonkeyPatch, logs: pytest.LogCaptureFixture
+    ) -> None:
+        """Errors registering specs without patches are not logged."""
+
+        def fail(*args: Any, **kwargs: Any) -> None:
+            raise KeyError("x")
+
+        monkeypatch.setattr(App, "add_api", fail)
+        with pytest.raises(KeyError):
+            register_openapi(app=App(__name__), specs=[SpecConfig(**SPEC_CONFIG_3)])
+        assert not [r for r in logs.records if r.levelno == logging.ERROR]
+
+    @pytest.mark.parametrize(
+        "patch",
+        [
+            # fields next to an existing reference
+            {"paths": {"/pets": {"get": {"security": [{"bearerAuth": []}]}}}},
+            # reference added next to existing fields
+            {
+                "paths": {
+                    "/pets": {"$ref": "#/x-items", "summary": "Pets"},
+                }
+            },
+        ],
+    )
+    def test_fields_next_to_reference(
+        self, monkeypatch: pytest.MonkeyPatch, patch: dict[str, Any]
+    ) -> None:
+        """Patching fields of path items defined via `$ref` is rejected.
+
+        Connexion replaces them with the fields of the referenced object.
+        """
+        patches = [{"x-items": {"get": {"responses": {}}}}, patch]
+        if "$ref" not in patch["paths"]["/pets"]:
+            patches.insert(1, {"paths": {"/pets": {"$ref": "#/x-items"}}})
+        with pytest.raises(ValueError, match=r"defined via '\$ref'.*: /pets;"):
+            self._patched(monkeypatch, *patches)
 
     def test_invalid_spec(self) -> None:
         """Patches making the specification invalid raise a clear error."""
@@ -622,7 +674,7 @@ class TestPatches:
         ({"$ref": "#/x-items/b~1c"}, {"get": {"b": 2}}),
         # references to other files and to values that are not mappings
         ({"$ref": "other.yaml#/a"}, {"$ref": "other.yaml#/a"}),
-        ({"$ref": "#/x-items/missing"}, None),
+        ({"$ref": "#/x-items/missing"}, {"$ref": "#/x-items/missing"}),
         # cyclic references
         ({"$ref": "#/x-items/cycle"}, {"$ref": "#/x-items/cycle"}),
     ],
@@ -643,10 +695,10 @@ def test_protections_without_paths() -> None:
     """Specifications without valid paths have no operations."""
     assert module._protections({}) == {}
     assert module._protections({"paths": None}) == {}
-    assert (
-        module._protections({"x-a": 1, "paths": {"/a": None, "/b": {"$ref": "#/x-a"}}})
-        == {}
-    )
+    # references that cannot be resolved are listed
+    assert module._protections(
+        {"x-a": 1, "paths": {"/a": None, "/b": {"$ref": "#/x-a"}}}
+    ) == {"/b": {"reference #/x-a"}}
 
 
 def test_iter_operations() -> None:

@@ -95,9 +95,24 @@ def _iter_routes(spec: dict[str, Any]) -> Iterator[tuple[str, str, dict[str, Any
     for path, path_item_object in paths.items():
         if not isinstance(path_item_object, dict):
             continue
-        for field, operation_object in path_item_object.items():
-            if field in _OPERATION_OBJECT_FIELDS and isinstance(operation_object, dict):
-                yield path, field, operation_object
+        for method, operation_object in _iter_path_item(path_item_object):
+            yield path, method, operation_object
+
+
+def _iter_path_item(
+    path_item_object: dict[str, Any],
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Iterate over the Operation Objects of a Path Item Object.
+
+    Args:
+        path_item_object: Path Item Object.
+
+    Yields:
+        HTTP method and Operation Object of each operation.
+    """
+    for field, operation_object in path_item_object.items():
+        if field in _OPERATION_OBJECT_FIELDS and isinstance(operation_object, dict):
+            yield field, operation_object
 
 
 def _iter_operations(spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
@@ -128,7 +143,9 @@ def _add_operation_fields(spec: dict[str, Any], fields: dict[str, Any]) -> None:
             operation_object.setdefault(key, val)
 
 
-def _resolve_path_item(spec: dict[str, Any], path_item: dict[str, Any]) -> Any:
+def _resolve_path_item(
+    spec: dict[str, Any], path_item: dict[str, Any]
+) -> dict[str, Any]:
     """Resolve a local reference (`$ref`) of a Path Item Object.
 
     As Connexion does, the fields of the referenced object replace those set
@@ -140,8 +157,8 @@ def _resolve_path_item(spec: dict[str, Any], path_item: dict[str, Any]) -> Any:
 
     Returns:
         Path Item Object with local references resolved (up to a depth of
-        10), or the referenced value if it is not a mapping, or the Path Item
-        Object as it is if it has no local reference.
+        10); references that cannot be resolved to a mapping (e.g., to other
+        files) are kept.
     """
     for _ in range(10):
         ref = path_item.get("$ref")
@@ -152,7 +169,7 @@ def _resolve_path_item(spec: dict[str, Any], path_item: dict[str, Any]) -> Any:
             key = token.replace("~1", "/").replace("~0", "~")
             target = target.get(key) if isinstance(target, dict) else None
         if not isinstance(target, dict):
-            return target
+            return path_item
         path_item = {
             **{key: val for key, val in path_item.items() if key != "$ref"},
             **target,
@@ -174,8 +191,8 @@ def _protections(spec: dict[str, Any]) -> dict[str, set[str]]:
         requirements, none of them empty), `access control` if it does not
         opt out of policy enforcement (via `x-foca-access-control: false` or
         `x-foca-self-service: true`). Path items with references that cannot
-        be resolved locally (e.g., to other files) are listed as `<path>`,
-        with protection `reference <$ref>`.
+        be resolved (e.g., to other files) are listed as `<path>`, with
+        protection `reference <$ref>`.
     """
     protections: dict[str, set[str]] = {}
     paths = spec.get("paths")
@@ -185,11 +202,9 @@ def _protections(spec: dict[str, Any]) -> dict[str, set[str]]:
         if not isinstance(path_item_object, dict):
             continue
         resolved = _resolve_path_item(spec, path_item_object)
-        if not isinstance(resolved, dict):
-            continue
         if "$ref" in resolved:
             protections[path] = {f"reference {resolved['$ref']}"}
-        for _, method, operation_object in _iter_routes({"paths": {path: resolved}}):
+        for method, operation_object in _iter_path_item(resolved):
             protected = set()
             if _requires_authentication(
                 operation_object.get("security", spec.get("security"))
@@ -293,11 +308,37 @@ def _apply_patches(
 
     Raises:
         OSError: A patch file cannot be read.
-        ValueError: A patch file cannot be parsed or is not a mapping.
+        ValueError: A patch file cannot be parsed or is not a mapping, or
+            patches set fields of path items defined via `$ref` (Connexion
+            replaces them with the fields of the referenced object, so the
+            patches would not take effect).
     """
     patched = spec
+    patched_paths: set[str] = set()
     for patch in patches:
-        patched = deep_merge(patched, _load_patch(patch))
+        content = _load_patch(patch)
+        patch_paths = content.get("paths")
+        if isinstance(patch_paths, dict):
+            patched_paths.update(
+                path
+                for path, path_item in patch_paths.items()
+                if isinstance(path_item, dict) and set(path_item) - {"$ref"}
+            )
+        patched = deep_merge(patched, content)
+    paths = patched.get("paths")
+    overridden = sorted(
+        path
+        for path in patched_paths
+        if isinstance(paths, dict)
+        and isinstance(paths.get(path), dict)
+        and "$ref" in paths[path]
+    )
+    if overridden:
+        raise ValueError(
+            f"Patches of API spec {label} set fields of path items defined via "
+            "'$ref', which the fields of the referenced objects replace: "
+            f"{', '.join(overridden)}; patch the referenced objects instead"
+        )
     logger.info(
         "Applied patches to API spec %s: %s",
         label,
@@ -334,8 +375,8 @@ def register_openapi(
         ValueError: Operations routed to the controllers of
             :py:mod:`foca.security.access_control.ownership_server` do not
             enforce access control policies, a patch cannot be parsed or is
-            not a mapping, or the specification is invalid after applying
-            patches.
+            not a mapping, patches set fields of path items defined via
+            `$ref`, or the specification is invalid after applying patches.
     """
     # Iterate over OpenAPI specs
     for spec in specs:
@@ -419,17 +460,20 @@ def register_openapi(
                 specification=spec_parsed,
                 **connexion_kwargs,
             )
-        except Exception as exc:
+        except InvalidSpecification as exc:
             if not spec.patches:
                 raise
-            message = (
-                exc.message
-                if isinstance(exc, InvalidSpecification)
-                else f"{type(exc).__name__}: {exc}"
-            )
             raise ValueError(
-                f"API spec {label} is invalid after applying patches: {message}"
+                f"API spec {label} is invalid after applying patches: {exc.message}"
             ) from exc
+        except Exception:
+            if spec.patches:
+                logger.error(
+                    "Registering API spec %s failed; patches were applied to it, "
+                    "check whether they cause the error",
+                    label,
+                )
+            raise
         logger.info("API endpoints added from spec: %s", list_specs)
 
     _check_routes_enforced(app.app)

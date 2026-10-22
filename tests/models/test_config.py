@@ -393,6 +393,9 @@ def test_AccessControlConfig_named_policies() -> None:
     assert AccessControlConfig.model_validate(res).named_policies == (
         res.named_policies
     )
+    # names no longer apply if rules are added or removed after validation
+    changed = res.model_copy(update={"policies": res.policies[:1]})
+    assert changed.named_policies is None
     # listed rules have no names
     assert (
         AccessControlConfig(policies=[["p", "*", "/a", "GET"]]).named_policies is None

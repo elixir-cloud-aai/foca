@@ -104,9 +104,13 @@ directory of the base configuration, see [relative
 paths](index.md#relative-paths)), so overlays usually refer to mounted files
 with absolute paths, or give patches inline.
 
-FOCA fails to start if a patch file cannot be read or is not a mapping, or if
-the patched specification is invalid or cannot be registered. It logs the
-patches applied to each specification, and warns of
+FOCA fails to start if a patch file cannot be read or is not a mapping, if
+the patched specification is invalid, or if patches set fields of a path item
+defined via `$ref` (Connexion replaces them with the fields of the
+referenced object, so they would silently not take effect; patch the
+referenced object instead). Other errors registering a patched specification
+are logged with a hint to the patches. FOCA logs the patches applied to each
+specification, and warns of
 
 - operations that required authentication (non-empty `security`
   requirements, of the operation or the specification, without an empty

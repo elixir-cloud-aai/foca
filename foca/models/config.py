@@ -892,10 +892,15 @@ class AccessControlConfig(FOCABaseConfig):
 
     @property
     def named_policies(self) -> dict[str, list[str]] | None:
-        """Named policy rules, if `policies` was given as named rules."""
-        if self._policy_names is None or self.policies is None:
+        """Named policy rules, if `policies` was given as named rules.
+
+        `None` if the rules were given as a list, or if their number was
+        changed after validation, so that the names no longer apply.
+        """
+        names = self._policy_names
+        if names is None or self.policies is None or len(names) != len(self.policies):
             return None
-        return dict(zip(self._policy_names, self.policies, strict=True))
+        return dict(zip(names, self.policies, strict=True))
 
     @field_validator("subject_prefix")
     @classmethod
