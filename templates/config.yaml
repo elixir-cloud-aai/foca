@@ -57,6 +57,14 @@ security:
     # of the app; usable in addition to `audience` or, with
     # `verify_audience: False`, instead of it; `null` accepts any client
     clients: null
+    # Clients calling the app with client-credentials tokens of their own
+    # (service tokens; no user info is requested for them); check which
+    # subject (`claim_identity`) the issuer puts into their tokens and set
+    # `subject` if it is not the client ID
+    service_clients: []
+    # Request header in which service clients with `on_behalf_of: True`
+    # name the user they act for
+    on_behalf_of_header: null
 
 # API CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/api/

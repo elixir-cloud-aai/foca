@@ -4,7 +4,7 @@ import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
 import jwt
@@ -16,7 +16,7 @@ from flask import request as auth_request
 from pydantic import ValidationError
 
 from foca.config.access import get_app_config
-from foca.models.config import AuthConfig, Config
+from foca.models.config import AuthConfig, Config, ServiceClientConfig
 from foca.security import auth
 from foca.security.auth import log_auth_config_warnings, validate_token
 from tests.mock_data import INVALID_TOKEN_CHALLENGE
@@ -909,6 +909,38 @@ class TestLogAuthConfigWarnings:
             log_auth_config_warnings(conf)
         assert caplog.text == ""
 
+    def test_service_clients_of_several_issuers(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Service clients are warned about with several trusted issuers."""
+        conf = AuthConfig(
+            issuers=[ISSUER, "https://other.example.org"],
+            audience=[AUDIENCE],
+            service_clients=[ServiceClientConfig(client_id=CLIENT)],
+        )
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert "service clients are not scoped by issuer" in caplog.text
+
+    @pytest.mark.parametrize("on_behalf_of", [False, True])
+    def test_on_behalf_of_header(
+        self, caplog: pytest.LogCaptureFixture, on_behalf_of: bool
+    ) -> None:
+        """A header without service clients acting for users is warned about."""
+        conf = AuthConfig.model_validate(
+            {
+                "issuers": [ISSUER],
+                "audience": [AUDIENCE],
+                "service_clients": [
+                    {"client_id": CLIENT, "on_behalf_of": on_behalf_of}
+                ],
+                "on_behalf_of_header": "X-On-Behalf-Of",
+            }
+        )
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert ("on_behalf_of_header" in caplog.text) is not on_behalf_of
+
     def test_clients_instead_of_audience(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -917,6 +949,90 @@ class TestLogAuthConfigWarnings:
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
         assert caplog.text == ""
+
+
+class TestServiceClients:
+    """Tests for recognizing tokens of service clients."""
+
+    SERVICE_CLIENTS: ClassVar[list[dict[str, Any]]] = [
+        {"client_id": "conquest"},
+        {"client_id": "protes", "subject": "uuid-protes"},
+    ]
+
+    @pytest.fixture(autouse=True)
+    def userinfo(self, idp: MagicMock) -> Iterator[None]:
+        """User info cache cleared."""
+        auth._userinfo_cache.clear()
+        yield
+        auth._userinfo_cache.clear()
+
+    def _app(self, **auth_conf: Any) -> Flask:
+        return make_app(
+            service_clients=self.SERVICE_CLIENTS,
+            userinfo_claims=["eduperson_entitlement"],
+            **auth_conf,
+        )
+
+    @pytest.mark.parametrize(
+        "claims,client",
+        [
+            ({"sub": "conquest", "client_id": "conquest"}, "conquest"),
+            ({"sub": "conquest", "azp": "conquest"}, "conquest"),
+            ({"sub": "uuid-protes", "client_id": "protes"}, "protes"),
+        ],
+    )
+    def test_service_token(
+        self, idp: MagicMock, claims: dict[str, Any], client: str
+    ) -> None:
+        """Service tokens are accepted without a user info request."""
+        res = validate(self._app(), make_token(**claims))
+        assert res["service_client"] == client
+        assert res["user_id"] == claims["sub"]
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI]
+
+    def test_validate_userinfo_skipped(self, idp: MagicMock) -> None:
+        """Service tokens are not validated via user info either."""
+        app = self._app(validate_userinfo=True)
+        res = validate(app, make_token(sub="conquest", client_id="conquest"))
+        assert res["service_client"] == "conquest"
+        assert USERINFO_URI not in urls(idp)
+
+    @pytest.mark.parametrize(
+        "claims",
+        [
+            # user tokens obtained by a service client
+            {"client_id": "conquest"},
+            {"azp": "conquest"},
+            {"sub": "conquest", "client_id": "protes"},
+            # other clients
+            {"sub": "other", "client_id": "other"},
+            {"client_id": None},
+            {"sub": "conquest", "client_id": ["conquest"]},
+            # `client_id` takes precedence over `azp`
+            {"sub": "conquest", "client_id": "other", "azp": "conquest"},
+        ],
+    )
+    def test_user_token(self, idp: MagicMock, claims: dict[str, Any]) -> None:
+        """Other tokens are user tokens, as before."""
+        idp.responses[USERINFO_URI] = MockResponse({"sub": claims.get("sub", SUBJECT)})
+        res = validate(self._app(), make_token(**claims))
+        assert res["service_client"] is None
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI, USERINFO_URI]
+
+    def test_not_configured(self, idp: MagicMock) -> None:
+        """Without service clients, all tokens are user tokens."""
+        token = make_token(sub="conquest", client_id="conquest")
+        assert validate(make_app(), token)["service_client"] is None
+
+    def test_get_service_client(self) -> None:
+        """Service clients are looked up by client and subject."""
+        conf = AuthConfig.model_validate({"service_clients": self.SERVICE_CLIENTS})
+        client = auth.get_service_client(
+            {"sub": "uuid-protes", "client_id": "protes"}, conf
+        )
+        assert client is not None
+        assert client.client_id == "protes"
+        assert auth.get_service_client({"sub": "protes"}, conf) is None
 
 
 class TestUnauthorized:

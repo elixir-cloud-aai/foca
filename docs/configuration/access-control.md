@@ -10,6 +10,8 @@ security:
       - https://login.elixir-czech.org/oidc/
     audience:
       - my-app
+    service_clients:
+      - client_id: conquest-client-id
   access_control:
     enabled: true
     enforce: true
@@ -19,6 +21,8 @@ security:
     claim_groups: eduperson_entitlement
     group_mapping:
       "urn:geant:elixir-europe.org:group:elixir:my-app:admins": admin
+    client_mapping:
+      conquest-client-id: submitter
     self_service: true
     policies:
       - [p, "*", /pets, "(GET)|(POST)"]
@@ -30,8 +34,11 @@ security:
 Access control requires `enabled: true` and trusted token
 [`issuers`](auth.md); the other options are rejected otherwise. With
 `enforce: true`, policies are enforced on all operations that require
-authentication. See [Access control](../access-control.md) for how policies,
-roles and the permissions API work.
+authentication. `client_mapping` maps [service
+clients](../authentication.md#service-tokens) (`security.auth.service_clients`)
+to roles; other clients cannot be mapped. See [Access
+control](../access-control.md) for how policies, roles and the permissions API
+work.
 
 ::: foca.models.config.AccessControlConfig
     options:

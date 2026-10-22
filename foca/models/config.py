@@ -30,8 +30,8 @@ from foca.security.access_control.constants import (
     DEFAULT_ID_CHARSET,
     DEFAULT_ID_LENGTH,
     DEFAULT_MODEL_FILE,
-    GROUP_PREFIX,
     MIN_ID_SPACE,
+    SUBJECT_TYPE_PREFIXES,
 )
 from foca.utils.service_info import (
     import_runtime_function,
@@ -560,6 +560,11 @@ class AccessControlConfig(FOCABaseConfig):
             mapped to (e.g., to grant resource-scoped roles to groups). Has
             no effect without `group_mapping`, as values are then always
             used as such.
+        client_mapping: Mapping of service clients (client IDs of
+            `AuthConfig.service_clients`) to roles. Requests with service
+            tokens are enforced with the subject `client:<client ID>` and
+            the role of the client, if mapped. Clients that are not service
+            clients cannot be mapped.
         resource_roles_cover_subpaths: Whether resource-scoped roles (role
             definitions with three fields, e.g., `g2 = _, _, _`) granted on
             a resource path also apply to its sub-paths (e.g., a role on
@@ -609,6 +614,7 @@ class AccessControlConfig(FOCABaseConfig):
         group_mapping: Mapping of values of `claim_groups` to roles.
         keep_group_subjects: Whether to also use values of `claim_groups`
             as subjects if `group_mapping` is set.
+        client_mapping: Mapping of service clients to roles.
         resource_roles_cover_subpaths: Whether resource-scoped roles apply to
             sub-paths of the resource path they were granted on.
         id_charset: Characters of generated policy rule identifiers.
@@ -648,6 +654,7 @@ class AccessControlConfig(FOCABaseConfig):
     claim_groups: str | None = None
     group_mapping: dict[str, str] | None = None
     keep_group_subjects: bool = False
+    client_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
     id_charset: str = DEFAULT_ID_CHARSET
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
@@ -672,19 +679,49 @@ class AccessControlConfig(FOCABaseConfig):
         Raises:
             ValueError: The prefix is empty, so that subjects may collide with
                 role names, or it overlaps with the prefix of group claim
-                values, so that subjects may collide with groups.
+                values (`group:`) or service clients (`client:`), so that
+                subjects may collide with groups or clients.
         """
         if not v:
             raise ValueError(
                 "'subject_prefix' must not be empty, as subjects could "
                 "otherwise collide with role names"
             )
-        if GROUP_PREFIX.startswith(v) or v.startswith(GROUP_PREFIX):
-            raise ValueError(
-                f"'subject_prefix' must not overlap with '{GROUP_PREFIX}', "
-                "as subjects could otherwise collide with groups"
-            )
+        for subject_type, prefix in SUBJECT_TYPE_PREFIXES.items():
+            if prefix.startswith(v) or v.startswith(prefix):
+                raise ValueError(
+                    f"'subject_prefix' must not overlap with '{prefix}', as "
+                    f"subjects could otherwise collide with {subject_type}s"
+                )
         return v
+
+    @model_validator(mode="after")
+    def validate_mapped_roles(self) -> Self:
+        """Ensure that roles mapped from group claims or clients are not subjects.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: A role of `group_mapping` or `client_mapping` starts
+                with `subject_prefix`, `group:` or `client:`, so that the
+                mapped groups or clients would get the rights of that
+                subject.
+        """
+        prefixes = [self.subject_prefix, *SUBJECT_TYPE_PREFIXES.values()]
+        for name, mapping in (
+            ("group_mapping", self.group_mapping),
+            ("client_mapping", self.client_mapping),
+        ):
+            for role in (mapping or {}).values():
+                for prefix in prefixes:
+                    if role.startswith(prefix):
+                        raise ValueError(
+                            f"Roles of '{name}' must not start with '{prefix}', "
+                            "the prefix of subjects, as mapped subjects would "
+                            "otherwise get the rights of that subject"
+                        )
+        return self
 
     @field_validator("id_charset")
     @classmethod
@@ -763,6 +800,51 @@ class AccessControlConfig(FOCABaseConfig):
         return None if v is None else str(_resolve_path(v, info))
 
 
+class ServiceClientConfig(FOCABaseConfig):
+    """Model for a service client, i.e., a client using its own tokens.
+
+    Services call each other with OAuth 2.0 client-credentials tokens (e.g.,
+    a workflow engine calling a task service), which represent the client,
+    not a user, and have no user info. A token is a service token of a
+    service client if it was issued to the client (its `client_id` claim, or
+    `azp` without `client_id`, is `client_id`) and its subject (the claim
+    configured as `AuthConfig.claim_identity`) is `subject`. Other tokens
+    issued to the client (e.g., for users, with their subjects) are user
+    tokens. Check which claims your identity provider puts into
+    client-credentials tokens, and set `subject` accordingly.
+
+    Args:
+        client_id: Client ID of the service client.
+        subject: Subject of the client's service tokens. If `None`, the
+            client ID.
+        on_behalf_of: Whether the client may name the user it acts for (cf.
+            `AuthConfig.on_behalf_of_header` and
+            :py:func:`foca.security.access_control.get_on_behalf_of_user`),
+            e.g., so that the app makes that user the owner of a resource
+            the client creates.
+
+    Attributes:
+        client_id: Client ID of the service client.
+        subject: Subject of the client's service tokens.
+        on_behalf_of: Whether the client may name the user it acts for.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type, or `client_id` or `subject` is empty.
+
+    Examples:
+        >>> client = ServiceClientConfig(client_id="conquest")
+        >>> client.subject is None
+        True
+        >>> client.on_behalf_of
+        False
+    """
+
+    client_id: str = Field(min_length=1)
+    subject: str | None = Field(default=None, min_length=1)
+    on_behalf_of: bool = False
+
+
 class AuthConfig(FOCABaseConfig):
     """Model for configuring JSON Web Token (JWT)-based authorization.
 
@@ -828,9 +910,24 @@ class AuthConfig(FOCABaseConfig):
             replaced. The user info needs to report the token's subject; it
             is cached per token for `cache_ttl` seconds (unless
             `validate_userinfo` is set), but not beyond the token's expiry.
+            The claims `client_id` and `azp` cannot be added, as they
+            identify the client that obtained the token (cf. `clients` and
+            `service_clients`).
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
+        service_clients: Service clients, whose client-credentials tokens
+            (service tokens) represent the client, not a user (cf.
+            :py:class:`ServiceClientConfig`). No user info is requested for
+            service tokens (neither for `userinfo_claims` nor for
+            `validate_userinfo`), and access control enforces policies on
+            them with the subject `client:<client ID>` (cf.
+            `AccessControlConfig.client_mapping`). Client IDs must be unique.
+        on_behalf_of_header: Request header in which service clients allowed
+            to (cf. `ServiceClientConfig.on_behalf_of`) name the user they
+            act for (e.g., `X-On-Behalf-Of`). If `None`, only the app can
+            pass a named user (e.g., from a request field) to
+            :py:func:`foca.security.access_control.get_on_behalf_of_user`.
 
     Attributes:
         issuers: Trusted token issuers.
@@ -852,13 +949,18 @@ class AuthConfig(FOCABaseConfig):
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
+        service_clients: Service clients.
+        on_behalf_of_header: Request header in which service clients name
+            the user they act for.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
             data type, `issuers` are set without `audience` while
             `verify_audience` is ``True``, `token_types` are empty while
-            `verify_token_type` is ``True``, or `clients` are set but empty
-            (or blank).
+            `verify_token_type` is ``True``, `clients` are set but empty
+            (or blank), client IDs of `service_clients` are not unique,
+            service clients are not among the accepted `clients`, or
+            `userinfo_claims` contain `client_id` or `azp`.
 
     Examples:
         >>> auth = AuthConfig(
@@ -887,9 +989,58 @@ class AuthConfig(FOCABaseConfig):
     userinfo_claims: list[str] = []
     timeout: float = Field(default=10, gt=0)
     cache_ttl: float = Field(default=300, ge=0)
+    service_clients: list[ServiceClientConfig] = []
+    on_behalf_of_header: str | None = Field(default=None, min_length=1)
     # Whether warnings about the settings were logged, i.e., on the first
     # token validation
     _warnings_logged: bool = PrivateAttr(default=False)
+
+    @field_validator("userinfo_claims")
+    @classmethod
+    def validate_userinfo_claims(cls, v: list[str]) -> list[str]:
+        """Ensure that claims identifying clients are not added from user info.
+
+        Args:
+            v: Claims to add from user info.
+
+        Returns:
+            Claims to add from user info.
+
+        Raises:
+            ValueError: `client_id` or `azp` is to be added, so that user
+                info could make tokens appear to be obtained by other
+                clients (e.g., by service clients).
+        """
+        # Client claims as per `foca.security.auth.CLIENT_CLAIMS` (import cycle)
+        client_claims = sorted({"client_id", "azp"} & set(v))
+        if client_claims:
+            raise ValueError(
+                "Claims identifying the client that obtained a token cannot be "
+                f"added from user info: {', '.join(client_claims)}"
+            )
+        return v
+
+    @field_validator("service_clients")
+    @classmethod
+    def validate_service_clients(
+        cls, v: list[ServiceClientConfig]
+    ) -> list[ServiceClientConfig]:
+        """Ensure that service clients are unique.
+
+        Args:
+            v: Service clients.
+
+        Returns:
+            Service clients.
+
+        Raises:
+            ValueError: Several service clients have the same client ID.
+        """
+        client_ids = [client.client_id for client in v]
+        duplicates = sorted({c for c in client_ids if client_ids.count(c) > 1})
+        if duplicates:
+            raise ValueError(f"Duplicate service clients: {', '.join(duplicates)}")
+        return v
 
     @model_validator(mode="after")
     def validate_audience(self) -> Self:
@@ -936,6 +1087,32 @@ class AuthConfig(FOCABaseConfig):
                 "`security.auth.clients` to the (non-blank) IDs of the clients "
                 "whose tokens the app accepts (`client_id` claim, or `azp` claim "
                 "if there is none), or omit it to accept tokens of any client."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_service_clients_accepted(self) -> Self:
+        """Require service clients to be accepted if clients are restricted.
+
+        Returns:
+            Model instance.
+
+        Raises:
+            ValueError: Clients are restricted, but service clients are not
+                among the accepted clients.
+        """
+        if self.clients is None:
+            return self
+        missing = [
+            client.client_id
+            for client in self.service_clients
+            if client.client_id not in self.clients
+        ]
+        if missing:
+            raise ValueError(
+                "Service clients must be accepted clients: add "
+                f"{', '.join(missing)} to `security.auth.clients`, so that "
+                "their tokens are accepted."
             )
         return self
 
@@ -1087,10 +1264,11 @@ class SecurityConfig(FOCABaseConfig):
         Raises:
             ValueError: Access control options are set while access control
                 is not enabled, in which case they would not take effect
-                (e.g., policies would not be enforced), or access control is
+                (e.g., policies would not be enforced), access control is
                 enabled without trusted token issuers, in which case all
                 requests to the permissions API and to enforced operations
-                would be rejected.
+                would be rejected, or clients that are not service clients
+                are mapped to roles.
         """
         access_control = self.access_control
         if not access_control.enabled:
@@ -1101,6 +1279,7 @@ class SecurityConfig(FOCABaseConfig):
                     ("api_specs", access_control.api_specs),
                     ("self_service", access_control.self_service),
                     ("policies", access_control.policies),
+                    ("client_mapping", access_control.client_mapping),
                 ]
                 if value
             ]
@@ -1113,6 +1292,13 @@ class SecurityConfig(FOCABaseConfig):
             raise ValueError(
                 "'access_control.enabled' requires trusted token issuers "
                 "('auth.issuers')"
+            )
+        service_clients = {client.client_id for client in self.auth.service_clients}
+        unknown = sorted(set(access_control.client_mapping or {}) - service_clients)
+        if unknown:
+            raise ValueError(
+                "'access_control.client_mapping' maps clients that are not "
+                f"service clients ('auth.service_clients'): {', '.join(unknown)}"
             )
         return self
 

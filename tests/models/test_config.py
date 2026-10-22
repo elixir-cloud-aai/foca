@@ -299,7 +299,9 @@ def test_AccessControlConfig_subject_prefix(prefix: str) -> None:
     assert res.subject_prefix == prefix
 
 
-@pytest.mark.parametrize("prefix", ["", "group:", "group:x", "g", "group"])
+@pytest.mark.parametrize(
+    "prefix", ["", "group:", "group:x", "g", "group", "client:", "client:x", "c"]
+)
 def test_AccessControlConfig_subject_prefix_invalid(prefix: str) -> None:
     """Test AccessControlConfig instantiation; invalid subject prefixes.
 
@@ -308,6 +310,21 @@ def test_AccessControlConfig_subject_prefix_invalid(prefix: str) -> None:
     """
     with pytest.raises(ValidationError):
         AccessControlConfig(subject_prefix=prefix)
+
+
+@pytest.mark.parametrize("mapping", ["group_mapping", "client_mapping"])
+@pytest.mark.parametrize("role", ["user:alice", "group:admins", "client:conquest"])
+def test_AccessControlConfig_mapped_roles_invalid(mapping: str, role: str) -> None:
+    """Test AccessControlConfig instantiation; mapped roles that are subjects."""
+    with pytest.raises(ValidationError, match="must not start with"):
+        AccessControlConfig.model_validate({mapping: {"x": role}})
+
+
+@pytest.mark.parametrize("mapping", ["group_mapping", "client_mapping"])
+def test_AccessControlConfig_mapped_roles(mapping: str) -> None:
+    """Test AccessControlConfig instantiation; mapped roles."""
+    res = AccessControlConfig.model_validate({mapping: {"x": "admin"}})
+    assert getattr(res, mapping) == {"x": "admin"}
 
 
 @pytest.mark.parametrize(
@@ -395,6 +412,115 @@ def test_SecurityConfig_access_control(
         access_control=AccessControlConfig(**access_control),
     )
     assert res.access_control.enabled is access_control.get("enabled", False)
+
+
+@pytest.mark.parametrize(
+    "service_clients",
+    [
+        [{"client_id": "conquest"}, {"client_id": "conquest", "subject": "x"}],
+        [{"client_id": ""}],
+        [{"client_id": "conquest", "subject": ""}],
+        [{"client_id": "conquest", "extra": True}],
+    ],
+)
+def test_AuthConfig_service_clients_invalid(
+    service_clients: list[dict[str, Any]],
+) -> None:
+    """Test AuthConfig instantiation; duplicate, empty or unknown fields."""
+    with pytest.raises(ValidationError):
+        AuthConfig.model_validate({"service_clients": service_clients})
+
+
+def test_AuthConfig_service_clients() -> None:
+    """Test AuthConfig instantiation; service clients with defaults."""
+    res = AuthConfig.model_validate(
+        {
+            "service_clients": [
+                {"client_id": "conquest"},
+                {"client_id": "protes", "subject": "uuid-1", "on_behalf_of": True},
+            ],
+            "on_behalf_of_header": "X-On-Behalf-Of",
+        }
+    )
+    assert [client.subject for client in res.service_clients] == [None, "uuid-1"]
+    assert [client.on_behalf_of for client in res.service_clients] == [False, True]
+
+
+def test_AuthConfig_service_clients_not_accepted() -> None:
+    """Test AuthConfig instantiation; service client not an accepted client."""
+    with pytest.raises(ValidationError, match="conquest"):
+        AuthConfig.model_validate(
+            {
+                "clients": ["dashboard"],
+                "service_clients": [{"client_id": "conquest"}],
+            }
+        )
+
+
+def test_AuthConfig_service_clients_accepted() -> None:
+    """Test AuthConfig instantiation; service client among accepted clients."""
+    res = AuthConfig.model_validate(
+        {
+            "clients": ["dashboard", "conquest"],
+            "service_clients": [{"client_id": "conquest"}],
+        }
+    )
+    assert res.service_clients[0].client_id == "conquest"
+
+
+@pytest.mark.parametrize("claims", [["client_id"], ["eduperson_entitlement", "azp"]])
+def test_AuthConfig_userinfo_claims_invalid(claims: list[str]) -> None:
+    """Test AuthConfig instantiation; client claims from user info."""
+    with pytest.raises(ValidationError, match="identifying the client"):
+        AuthConfig(userinfo_claims=claims)
+
+
+@pytest.mark.parametrize(
+    "service_clients,access_control",
+    [
+        # client mapping requires access control
+        ([{"client_id": "conquest"}], {"client_mapping": {"conquest": "submitter"}}),
+        # mapped clients must be service clients
+        ([], {"enabled": True, "client_mapping": {"conquest": "submitter"}}),
+        (
+            [{"client_id": "protes"}],
+            {"enabled": True, "client_mapping": {"conquest": "submitter"}},
+        ),
+    ],
+)
+def test_SecurityConfig_client_mapping_invalid(
+    service_clients: list[dict[str, Any]], access_control: dict[str, Any]
+) -> None:
+    """Test SecurityConfig instantiation; inconsistent client mapping."""
+    with pytest.raises(ValidationError):
+        SecurityConfig.model_validate(
+            {
+                "auth": {
+                    "issuers": ISSUERS,
+                    "audience": ["my-app"],
+                    "service_clients": service_clients,
+                },
+                "access_control": access_control,
+            }
+        )
+
+
+def test_SecurityConfig_client_mapping() -> None:
+    """Test SecurityConfig instantiation; service clients mapped to roles."""
+    res = SecurityConfig.model_validate(
+        {
+            "auth": {
+                "issuers": ISSUERS,
+                "audience": ["my-app"],
+                "service_clients": [{"client_id": "conquest"}],
+            },
+            "access_control": {
+                "enabled": True,
+                "client_mapping": {"conquest": "submitter"},
+            },
+        }
+    )
+    assert res.access_control.client_mapping == {"conquest": "submitter"}
 
 
 def test_AuthConfig_required_removed() -> None:
