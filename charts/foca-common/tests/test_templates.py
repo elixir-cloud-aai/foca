@@ -718,15 +718,20 @@ def test_mongodb_settings(render: Callable[..., Docs]) -> None:
         "--set",
         "mongodb.image=mongo:7.0.1",
         "--set",
-        "mongodb.imagePullPolicy=IfNotPresent",
+        "mongodb.imagePullPolicy=Never",
     )
     pvc = docs[("PersistentVolumeClaim", MONGODB)]["spec"]
     assert pvc["resources"]["requests"]["storage"] == "5Gi"
     assert pvc["accessModes"] == ["ReadWriteOnce"]
     container = _container(docs, MONGODB)
     assert container["image"] == "mongo:7.0.1"
-    assert container["imagePullPolicy"] == "IfNotPresent"
-    assert _container(render(), MONGODB)["imagePullPolicy"] == "Always"
+    assert container["imagePullPolicy"] == "Never"
+    default = _container(render(), MONGODB)
+    assert default["image"] == "docker.io/library/mongo:7.0.45"
+    assert default["imagePullPolicy"] == "IfNotPresent"
+    docs = render("--set-json", "mongodb.imagePullPolicy=null")
+    assert _container(docs, MONGODB)["imagePullPolicy"] == "Always"
+
 
 def test_mongodb_values_required(
     chart_with_settings: Callable[[str], Path],
@@ -1134,8 +1139,8 @@ def test_broker(render: Callable[..., Docs]) -> None:
     docs = render(*CELERY)
     broker = _container(docs, BROKER)
     assert broker["name"] == "broker"
-    assert broker["image"] == "docker.io/library/rabbitmq:4.3"
-    assert broker["imagePullPolicy"] == "Always"
+    assert broker["image"] == "docker.io/library/rabbitmq:4.3.7"
+    assert broker["imagePullPolicy"] == "IfNotPresent"
     assert _env(broker) == {
         "RABBITMQ_LOGS": "-",
         "RABBITMQ_DEFAULT_USER": {
@@ -1263,7 +1268,7 @@ def test_broker_settings(render: Callable[..., Docs]) -> None:
     docs = render(
         *CELERY,
         "--set",
-        "broker.imagePullPolicy=IfNotPresent",
+        "broker.imagePullPolicy=Never",
         "--set",
         "broker.image=registry.example.org/rabbitmq:4.3",
         "--set-json",
@@ -1275,7 +1280,7 @@ def test_broker_settings(render: Callable[..., Docs]) -> None:
     )
     broker = _container(docs, BROKER)
     assert broker["image"] == "registry.example.org/rabbitmq:4.3"
-    assert broker["imagePullPolicy"] == "IfNotPresent"
+    assert broker["imagePullPolicy"] == "Never"
     assert broker["resources"]["limits"] == {"cpu": "200m", "memory": "1Gi"}
     assert _pod_spec(docs, BROKER)["volumes"] == [
         {"name": "data", "emptyDir": {}},
