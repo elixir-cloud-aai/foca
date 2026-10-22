@@ -143,7 +143,7 @@ def validate_token(token: str) -> dict[str, Any]:
         conf._warnings_logged = True
     claims = _validate(token=token, conf=conf)
     # Logs the issuer and subject only, not the token
-    logger.debug(  # nosemgrep
+    logger.debug(
         "Token issued by '%s' validated for subject '%s'",
         escape_log_value(claims["iss"]),
         escape_log_value(claims[conf.claim_identity]),
