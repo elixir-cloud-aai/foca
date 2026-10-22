@@ -1,16 +1,23 @@
 {{/*
-OpenShift Route for `hostName`, without an Ingress if the cluster serves
-Routes (see `foca-common.routeEnabled`); TLS is terminated at the router.
-Call with the context dict.
+OpenShift Route for `hostName`, without an Ingress or HTTPRoute, if the
+cluster serves Routes (see `foca-common.routeEnabled`); TLS is terminated at
+the router, which redirects HTTP to HTTPS. Annotations from
+`<valuesKey>.route.annotations` (e.g., the router's rate limits). Call with
+the context dict.
 */}}
 {{- define "foca-common.route" -}}
 {{- include "foca-common.checkSettings" . -}}
 {{- $root := .root -}}
 {{- if include "foca-common.routeEnabled" . -}}
-{{- $hostName := required "hostName must be set if an OpenShift Route is created" $root.Values.hostName }}
+{{- $hostName := required "hostName must be set if an OpenShift Route is created" $root.Values.hostName -}}
+{{- $route := (index $root.Values .settings.valuesKey).route | default dict }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
+  {{- with $route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   name: {{ include "foca-common.fullname" $root | quote }}
   labels:
     {{- include "foca-common.labels" (dict "root" $root "component" "app") | nindent 4 }}

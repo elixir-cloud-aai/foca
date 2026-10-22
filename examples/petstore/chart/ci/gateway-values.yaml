@@ -1,0 +1,41 @@
+# Installation with a Gateway API HTTPRoute instead of the Ingress, in CI:
+# attached to the HTTPS listener of the Gateway `eg` of Envoy Gateway (see
+# `.github/kind/gateway.yaml`), with a redirect on its HTTP listener, and
+# with the app's NetworkPolicy, which admits the Gateway's Envoy proxies and
+# the chart's test pod only; the fixed name and host are checked via the
+# Gateway (see `.github/workflows/charts.yml`)
+fullnameOverride: petstore-gateway
+hostName: petstore-gateway.example.org
+mongodb:
+  auth:
+    existingSecret: mongodb
+petstore:
+  ingress:
+    enabled: false
+  httpRoute:
+    enabled: true
+    parentRefs:
+    - name: eg
+      namespace: gateway
+      sectionName: https
+    httpsRedirect:
+      enabled: true
+      parentRefs:
+      - name: eg
+        namespace: gateway
+        sectionName: http
+  networkPolicy:
+    enabled: true
+    ingressFrom:
+    # Envoy Gateway runs the proxies in its own namespace
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: envoy-gateway-system
+      podSelector:
+        matchLabels:
+          gateway.envoyproxy.io/owning-gateway-namespace: gateway
+          gateway.envoyproxy.io/owning-gateway-name: eg
+    # The test pod of `helm test` (`templates/tests/`)
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: test

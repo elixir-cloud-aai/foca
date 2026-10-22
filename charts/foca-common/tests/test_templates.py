@@ -849,6 +849,258 @@ def test_route(render: Callable[..., Docs]) -> None:
     assert ("Route", APP) not in render(*ROUTE_API)
 
 
+def test_route_annotations(render: Callable[..., Docs]) -> None:
+    """Route annotations are passed on."""
+    annotations = {"haproxy.router.openshift.io/rate-limit-connections": "true"}
+    docs = render(
+        *NO_INGRESS,
+        *ROUTE_API,
+        "--set-json",
+        f"petstore.route.annotations={json.dumps(annotations)}",
+    )
+    assert docs[("Route", APP)]["metadata"]["annotations"] == annotations
+    assert (
+        "annotations" not in render(*NO_INGRESS, *ROUTE_API)[("Route", APP)]["metadata"]
+    )
+
+
+# HTTPRoute (Gateway API)
+
+
+HTTP_ROUTE = "petstore"
+REDIRECT_ROUTE = "petstore-https-redirect"
+HTTPS_LISTENER = {"name": "gateway", "namespace": "gateway", "sectionName": "https"}
+HTTP_LISTENER = {"name": "gateway", "namespace": "gateway", "sectionName": "http"}
+GATEWAY = (
+    *NO_INGRESS,
+    "--set",
+    "petstore.httpRoute.enabled=true",
+    "--set-json",
+    f"petstore.httpRoute.parentRefs=[{json.dumps(HTTPS_LISTENER)}]",
+)
+HTTPS_REDIRECT = (
+    "--set",
+    "petstore.httpRoute.httpsRedirect.enabled=true",
+    "--set-json",
+    f"petstore.httpRoute.httpsRedirect.parentRefs=[{json.dumps(HTTP_LISTENER)}]",
+)
+
+
+def test_http_route(render: Callable[..., Docs]) -> None:
+    """An HTTPRoute routes the host to the app's Service via the Gateway."""
+    docs = render(*GATEWAY, *ROUTE_API)
+    assert not {kind for kind, _ in docs} & {"Ingress", "Route"}
+    route = docs[("HTTPRoute", HTTP_ROUTE)]
+    assert route["apiVersion"] == "gateway.networking.k8s.io/v1"
+    assert "annotations" not in route["metadata"]
+    assert route["metadata"]["labels"]["app.kubernetes.io/component"] == "app"
+    assert route["spec"] == {
+        "parentRefs": [HTTPS_LISTENER],
+        "hostnames": ["petstore.example.org"],
+        "rules": [
+            {
+                "matches": [{"path": {"type": "PathPrefix", "value": "/"}}],
+                "backendRefs": [{"name": APP, "port": 8080}],
+            }
+        ],
+    }
+    assert ("HTTPRoute", REDIRECT_ROUTE) not in docs
+
+
+def test_http_route_disabled_by_default(render: Callable[..., Docs]) -> None:
+    """Without httpRoute values, no HTTPRoute renders."""
+    assert "HTTPRoute" not in {kind for kind, _ in render()}
+    assert "HTTPRoute" not in {
+        kind for kind, _ in render("--set-json", "petstore.httpRoute=null")
+    }
+
+
+def test_http_route_annotations_and_filters(render: Callable[..., Docs]) -> None:
+    """Annotations and filters of the HTTPRoute are passed on."""
+    filters = [
+        {
+            "type": "ExtensionRef",
+            "extensionRef": {
+                "group": "traefik.io",
+                "kind": "Middleware",
+                "name": "limits",
+            },
+        }
+    ]
+    docs = render(
+        *GATEWAY,
+        "--set",
+        "petstore.httpRoute.annotations.a=b",
+        "--set-json",
+        f"petstore.httpRoute.filters={json.dumps(filters)}",
+    )
+    route = docs[("HTTPRoute", HTTP_ROUTE)]
+    assert route["metadata"]["annotations"] == {"a": "b"}
+    (rule,) = route["spec"]["rules"]
+    assert rule["filters"] == filters
+
+
+def test_http_route_needs_parent_refs(render_error: Callable[..., str]) -> None:
+    """An HTTPRoute needs a Gateway to attach to."""
+    error = render_error(*NO_INGRESS, "--set", "petstore.httpRoute.enabled=true")
+    assert "httpRoute.parentRefs must list at least one" in error
+
+
+def test_http_route_host_required(render_error: Callable[..., str]) -> None:
+    """An HTTPRoute needs a host name."""
+    error = render_error(
+        *GATEWAY, "--set", "mongodb.auth.existingSecret=s", required=False
+    )
+    assert "hostName must be set" in error
+
+
+def test_http_route_excludes_ingress(render_error: Callable[..., str]) -> None:
+    """An HTTPRoute and an Ingress are mutually exclusive."""
+    error = render_error(
+        "--set",
+        "petstore.httpRoute.enabled=true",
+        "--set-json",
+        f"petstore.httpRoute.parentRefs=[{json.dumps(HTTPS_LISTENER)}]",
+    )
+    assert "ingress.enabled and petstore.httpRoute.enabled" in error
+
+
+def test_https_redirect_route(render: Callable[..., Docs]) -> None:
+    """A second HTTPRoute redirects HTTP to HTTPS."""
+    docs = render(*GATEWAY, *HTTPS_REDIRECT)
+    route = docs[("HTTPRoute", REDIRECT_ROUTE)]
+    assert route["metadata"]["labels"]["app.kubernetes.io/component"] == "app"
+    assert route["spec"] == {
+        "parentRefs": [HTTP_LISTENER],
+        "hostnames": ["petstore.example.org"],
+        "rules": [
+            {
+                "filters": [
+                    {
+                        "type": "RequestRedirect",
+                        "requestRedirect": {"scheme": "https", "statusCode": 301},
+                    }
+                ],
+            }
+        ],
+    }
+    # Only with the app's HTTPRoute
+    docs = render(*HTTPS_REDIRECT)
+    assert "HTTPRoute" not in {kind for kind, _ in docs}
+
+
+def test_https_redirect_needs_parent_refs(render_error: Callable[..., str]) -> None:
+    """The redirect needs the Gateway's HTTP listener."""
+    error = render_error(
+        *GATEWAY, "--set", "petstore.httpRoute.httpsRedirect.enabled=true"
+    )
+    assert "httpsRedirect.parentRefs must list at least one" in error
+
+
+def test_https_redirect_parent_refs_differ(render_error: Callable[..., str]) -> None:
+    """The redirect must not attach where the app's HTTPRoute does."""
+    error = render_error(
+        *GATEWAY,
+        "--set",
+        "petstore.httpRoute.httpsRedirect.enabled=true",
+        "--set-json",
+        f"petstore.httpRoute.httpsRedirect.parentRefs=[{json.dumps(HTTPS_LISTENER)}]",
+    )
+    assert "would redirect all requests" in error
+
+
+@pytest.mark.parametrize(
+    ("app_ref", "redirect_ref", "overlap"),
+    [
+        # All listeners of the same Gateway
+        ({"name": "gateway"}, {"name": "gateway", "sectionName": "http"}, True),
+        ({"name": "gateway", "sectionName": "https"}, {"name": "gateway"}, True),
+        # The release's namespace is the default
+        (
+            {"name": "gateway", "port": 443},
+            {"name": "gateway", "namespace": "default", "port": 443},
+            True,
+        ),
+        (
+            {"name": "gateway", "sectionName": "https"},
+            {"name": "gateway", "sectionName": "https", "port": 443},
+            True,
+        ),
+        # A section name and a port may select the same listener
+        (
+            {"name": "gateway", "sectionName": "https"},
+            {"name": "gateway", "port": 443},
+            True,
+        ),
+        # Other listeners or Gateways
+        ({"name": "gateway", "port": 443}, {"name": "gateway", "port": 80}, False),
+        (
+            {"name": "gateway", "sectionName": "https", "port": 443},
+            {"name": "gateway", "sectionName": "http"},
+            False,
+        ),
+        ({"name": "gateway"}, {"name": "gateway", "namespace": "other"}, False),
+        ({"name": "gateway"}, {"name": "other"}, False),
+        (
+            {"name": "gateway"},
+            {"name": "gateway", "kind": "ListenerSet"},
+            False,
+        ),
+    ],
+)
+def test_https_redirect_overlap(
+    chart: Path,
+    app_ref: dict[str, Any],
+    redirect_ref: dict[str, Any],
+    overlap: bool,
+) -> None:
+    """The redirect fails only on listeners that the app's route may use."""
+    args = (
+        *NO_INGRESS,
+        "--namespace",
+        "default",
+        "--set",
+        "petstore.httpRoute.enabled=true",
+        "--set-json",
+        f"petstore.httpRoute.parentRefs=[{json.dumps(app_ref)}]",
+        "--set",
+        "petstore.httpRoute.httpsRedirect.enabled=true",
+        "--set-json",
+        f"petstore.httpRoute.httpsRedirect.parentRefs=[{json.dumps(redirect_ref)}]",
+    )
+    if overlap:
+        assert "would redirect all requests" in template_error(chart, *args)
+    else:
+        assert ("HTTPRoute", REDIRECT_ROUTE) in index(template(chart, *args))
+
+
+def test_https_redirect_name_collision_fails(render_error: Callable[..., str]) -> None:
+    """Names that would collide with the redirect's fail."""
+    suffix = "-https-redirect"
+    long_name = "a" * (63 - len(suffix)) + suffix
+    error = render_error(
+        *GATEWAY, *HTTPS_REDIRECT, "--set", f"fullnameOverride={long_name}"
+    )
+    assert "would both be named" in error
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--set-json", 'petstore.httpRoute.parentRefs=[{"namespace": "x"}]'),
+        ("--set-json", 'petstore.httpRoute.parentRefs=[{"name": "x", "y": "z"}]'),
+        ("--set-json", 'petstore.httpRoute.filters=[{"requestRedirect": {}}]'),
+        ("--set", "petstore.httpRoute.unknown=true"),
+        ("--set", "petstore.route.unknown=true"),
+    ],
+)
+def test_schema_rejects_invalid_http_route_values(
+    render_error: Callable[..., str], args: tuple[str, ...]
+) -> None:
+    """The schema rejects invalid HTTPRoute and Route values."""
+    assert "schema" in render_error(*args)
+
+
 # NetworkPolicies
 
 
@@ -919,7 +1171,13 @@ def test_library_lints() -> None:
 
 
 @pytest.mark.parametrize(
-    "values", ["test-values.yaml", "celery-values.yaml", "access-control-values.yaml"]
+    "values",
+    [
+        "test-values.yaml",
+        "celery-values.yaml",
+        "access-control-values.yaml",
+        "gateway-values.yaml",
+    ],
 )
 def test_app_chart_lints(chart: Path, values: str) -> None:
     """The app chart passes a strict lint with the values of CI."""

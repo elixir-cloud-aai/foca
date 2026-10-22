@@ -56,6 +56,14 @@ Service; truncated like `foca-common.mongodbFullname`.
 {{- end -}}
 
 {{/*
+Name of the HTTPRoute redirecting HTTP to HTTPS; truncated like
+`foca-common.mongodbFullname`.
+*/}}
+{{- define "foca-common.httpsRedirectFullname" -}}
+{{- printf "%s-https-redirect" (include "foca-common.fullname" . | trunc 48 | trimSuffix "-") -}}
+{{- end -}}
+
+{{/*
 Labels that select the pods of a component; call with a dict of the root
 context (`root`) and the component (`component`: `app`, `mongodb`, `worker`
 or `broker`).
@@ -190,11 +198,12 @@ take precedence over the `jobs` config. Call with the root context.
 
 {{/*
 Whether an OpenShift Route is created ("true") or not (empty): without an
-Ingress, if the cluster serves Routes.
+Ingress or HTTPRoute, if the cluster serves Routes.
 */}}
 {{- define "foca-common.routeEnabled" -}}
 {{- $values := index .root.Values .settings.valuesKey -}}
-{{- if and (not (dig "ingress" "enabled" false $values)) (.root.Capabilities.APIVersions.Has "route.openshift.io/v1") -}}
+{{- $exposed := or (dig "ingress" "enabled" false $values) (dig "httpRoute" "enabled" false $values) -}}
+{{- if and (not $exposed) (.root.Capabilities.APIVersions.Has "route.openshift.io/v1") -}}
 true
 {{- end -}}
 {{- end -}}
@@ -214,6 +223,15 @@ ConfigMap template, which every app chart renders.
 {{- end -}}
 {{- if and (include "foca-common.brokerEnabled" .root) (eq $fullname (include "foca-common.brokerFullname" .root)) -}}
 {{- fail (printf "the app and broker resources would both be named %s: choose a fullnameOverride that does not end in -broker" $fullname) -}}
+{{- end -}}
+{{- $values := index .root.Values .settings.valuesKey -}}
+{{- $key := .settings.valuesKey -}}
+{{- $httpRoute := dig "httpRoute" "enabled" false $values -}}
+{{- if and $httpRoute (dig "ingress" "enabled" false $values) -}}
+{{- fail (printf "%s.ingress.enabled and %s.httpRoute.enabled are mutually exclusive: set %s.ingress.enabled to false to expose the app via a Gateway" $key $key $key) -}}
+{{- end -}}
+{{- if and $httpRoute (dig "httpRoute" "httpsRedirect" "enabled" false $values) (eq $fullname (include "foca-common.httpsRedirectFullname" .root)) -}}
+{{- fail (printf "the app's HTTPRoute and the HTTPS redirect would both be named %s: choose a fullnameOverride that does not end in -https-redirect" $fullname) -}}
 {{- end -}}
 {{- $_ := include "foca-common.brokerSecret" .root -}}
 {{- $config := include "foca-common.configOverlay" . | fromYaml -}}
