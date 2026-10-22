@@ -734,6 +734,9 @@ class TestResourceFilter:
         app = _create_app(client_mapping={"conquest": "admin"})
         with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
             assert resource_filter("/tasks") == {}
+        # Named users are checked also for admins
+        with as_caller(app, CONQUEST), pytest.raises(BadRequestProblem):
+            resource_filter("/tasks", on_behalf_of=" alice")
 
     def test_on_behalf_of_admin(self, app: Flask) -> None:
         """Users' admin rights do not apply to clients acting for them."""
