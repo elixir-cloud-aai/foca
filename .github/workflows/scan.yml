@@ -1,0 +1,66 @@
+# Scan the images of the latest release (`X.Y.Z-pyV` for every Python version)
+# weekly for known vulnerabilities with Trivy, as the `scan` job of
+# `checks.yml` scans the images of pull requests and pushes, so that
+# vulnerabilities found after a release are reported: all findings are
+# uploaded to code scanning, and the workflow fails on critical and high
+# vulnerabilities that have a fix (fixed by a new release). Accepted findings
+# are listed in `.trivyignore.yaml`; scheduled runs use the default branch
+# (`main`, the latest release), so the file is taken from `dev`, where
+# findings are accepted. The images are public, so no Docker Hub secrets are
+# needed; their name is the one documented in the README. Same as in
+# cloud-registry, which has one image.
+
+name: Scan release image
+
+on:
+  schedule:
+    # Mondays, 05:17 UTC
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan release image (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # All tags, to find the latest release, and `dev`
+          fetch-depth: 0
+      - name: Use ignore file of dev
+        # The checkout stays on the triggering commit, which code scanning
+        # gets the results for
+        run: git show origin/dev:.trivyignore.yaml > .trivyignore.yaml
+      - name: Determine image of the latest release
+        id: image
+        env:
+          PY_VERSION: ${{ matrix.python-version }}
+        run: |
+          # Highest final version, as for the `latest` tag in `release.yml`
+          tag="$(git tag -l 'v*' --sort=-v:refname \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          if [ -z "${tag}" ]; then
+              echo "::error::No release tag found"
+              exit 1
+          fi
+          image="docker.io/elixircloud/foca:${tag#v}-py${PY_VERSION}"
+          echo "Scanning ${image}"
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+      - name: Scan image
+        uses: ./.github/actions/scan-image
+        with:
+          image: ${{ steps.image.outputs.image }}
+          category: release-image-py${{ matrix.python-version }}

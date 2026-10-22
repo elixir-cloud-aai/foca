@@ -248,8 +248,9 @@ gets the same attestation and signature from version 0.2.0 on.
 
 To check that an image was built from this repository by its release
 workflow, use the [GitHub CLI](https://cli.github.com/) or
-[cosign](https://docs.sigstore.dev/cosign/system_config/installation/) (v3 or
-later), e.g., for release 0.17.0:
+[cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3 or
+later (which reads the signatures in the Sigstore bundle format), e.g., for
+release 0.17.0:
 
 ```bash
 gh attestation verify oci://docker.io/elixircloud/foca:0.17.0 \
@@ -261,7 +262,9 @@ cosign verify docker.io/elixircloud/foca:0.17.0 \
     --certificate-identity https://github.com/elixir-cloud-aai/foca/.github/workflows/release.yml@refs/tags/v0.17.0
 ```
 
-Both fail unless the image was signed by that workflow for that tag. Images
+Both fail unless the image was signed by that workflow for that tag;
+replace `0.17.0` with the version to verify (and add the Python version, e.g.,
+`0.17.0-py3.12`, for other images than the default 3.13 one). Images
 built from `dev` are signed by `.github/workflows/checks.yml` with the ref
 `refs/heads/dev`; the chart by `.github/workflows/release-chart.yml` with the
 ref `refs/tags/chart-vX.Y.Z`, e.g.:
@@ -283,13 +286,15 @@ built, from which commit), run:
 
 ```bash
 docker buildx imagetools inspect elixircloud/foca:0.17.0 \
-    --format '{{ json .SBOM.SPDX }}'
+    --format '{{ json .SBOM }}'
 docker buildx imagetools inspect elixircloud/foca:0.17.0 \
-    --format '{{ json .Provenance.SLSA }}'
+    --format '{{ json .Provenance }}'
 ```
 
-CI scans the images for known vulnerabilities on every change and the images
-of the latest release every week (see
-[Image scan](contributing.md#image-scan)); the results are in the
-repository's code scanning alerts. Images derived from FOCA's image (e.g.,
-apps) need their own scans, as they add packages.
+Images are scanned for known vulnerabilities with
+[Trivy](https://trivy.dev/) in CI and again before a release is published
+(both fail on fixable critical and high vulnerabilities), and the images of
+the latest release weekly (see [Image scan](contributing.md#image-scan)); the
+maintainers see the results in the repository's code scanning alerts.
+Images derived from FOCA's image (e.g., apps) need their own scans, as they
+add packages.

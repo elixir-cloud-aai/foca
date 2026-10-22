@@ -1,6 +1,7 @@
 # Release when a version tag (`vX.Y.Z`) is pushed: build the distributions,
-# publish them to PyPI, build, push, attest and sign Docker images, and
-# create the GitHub release. The version is derived from the tag (via
+# build and scan the Docker images, publish the distributions to PyPI, build,
+# push, attest, sign and tag the Docker images, and create the GitHub
+# release. The version is derived from the tag (via
 # setuptools-scm). Uses PyPI trusted publishing (no API token); the PyPI
 # project trusts this workflow file in the `pypi` environment. See
 # "Releasing" in README.md.
@@ -100,7 +101,8 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: build
+    # Only once the images passed the scan, as PyPI files are immutable
+    needs: [build, scan]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -121,18 +123,61 @@ jobs:
           # re-running a partially failed upload completes the release
           skip-existing: true
 
-  docker:
-    name: Publish image (Python ${{ matrix.python-version }})
-    needs: [build, publish]
+  # Builds and scans the release commit's images again before anything is
+  # published, in a job without credentials or signing permissions (the Trivy
+  # action resolves the Trivy binary from a mutable tag); see the `scan` job
+  # of `checks.yml`. No upload to code scanning
+  scan:
+    name: Scan image (Python ${{ matrix.python-version }})
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Images get SBOM and provenance attestations (Buildx), a GitHub artifact
-    # attestation and a Sigstore signature (see "Verifying images and
-    # charts" in docs/deployment.md)
     permissions:
       contents: read
-      id-token: write # sign the attestation and the image (Sigstore)
-      attestations: write # store the attestation on GitHub
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            PY_IMAGE=${{ matrix.python-version }}-slim-trixie
+            FOCA_VERSION=${{ needs.build.outputs.version }}
+          load: true
+          # Single image, for the local Docker daemon (no attestations)
+          provenance: false
+          tags: foca:scan
+      - name: Scan image
+        uses: ./.github/actions/scan-image
+        with:
+          image: foca:scan
+          category: release-py${{ matrix.python-version }}
+          upload: "false"
+
+  # Pushes each image by digest (untagged, with SBOM and provenance
+  # attestations, `mode=max`), attests its build provenance (GitHub artifact
+  # attestation, also pushed to the registry) and signs it (cosign keyless
+  # signing, via the workflow's OIDC token), and only then tags exactly that
+  # digest; see "Verifying images and charts" in docs/deployment.md
+  docker:
+    name: Publish image (Python ${{ matrix.python-version }})
+    needs: [build, scan, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # Sigstore signing certificates
+      attestations: write # GitHub artifact attestations
     strategy:
       fail-fast: true
       matrix:
@@ -147,44 +192,22 @@ jobs:
           persist-credentials: false
           # All tags, to check whether this is the latest release
           fetch-depth: 0
-      - name: Determine tags
-        id: tags
+      - name: Determine image name
+        id: image
         env:
           DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
           REPO_NAME: ${{ github.event.repository.name }}
-          PY_VERSION: ${{ matrix.python-version }}
-          DEFAULT: ${{ matrix.default }}
-          VERSION: ${{ needs.build.outputs.version }}
-          STABLE: ${{ needs.build.outputs.stable }}
-        run: |
-          # Fully qualified (`docker.io/`), as the attestation needs it
-          image="docker.io/${DOCKERHUB_ORG}/${REPO_NAME}"
-          tags=("${image}:${VERSION}-py${PY_VERSION}")
-          if [[ "${DEFAULT}" == "true" ]]; then
-              tags+=("${image}:${VERSION}")
-              # `latest` only for the highest stable release, e.g., not for
-              # a patch release of an older minor version
-              latest_tag="$(git tag -l 'v*' --sort=-v:refname \
-                  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
-              if [[ "${STABLE}" == "true" && "${latest_tag}" == "v${VERSION}" ]]; then
-                  tags+=("${image}:latest")
-              fi
-          fi
-          echo "image=${image}" >> "${GITHUB_OUTPUT}"
-          {
-              echo "tags<<EOF"
-              printf '%s\n' "${tags[@]}" | tee /dev/stderr
-              echo "EOF"
-          } >> "${GITHUB_OUTPUT}"
+        # Fully qualified (`docker.io/`), as the attestation needs it
+        run: echo "name=docker.io/${DOCKERHUB_ORG}/${REPO_NAME}" >> "${GITHUB_OUTPUT}"
       - name: Log in to Docker Hub
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_LOGIN }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Set up Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Build and push image
-        id: build
+      - name: Build and push image by digest
+        id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -192,26 +215,56 @@ jobs:
           build-args: |
             PY_IMAGE=${{ matrix.python-version }}-slim-trixie
             FOCA_VERSION=${{ needs.build.outputs.version }}
-          tags: ${{ steps.tags.outputs.tags }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           sbom: true
           provenance: mode=max
-          push: true
-      - name: Attest image
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ${{ steps.tags.outputs.image }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
-          # Would need `artifact-metadata: write`
+          # No artifact metadata storage record (needs another permission)
           create-storage-record: false
-      - name: Set up cosign
-        # Installs the cosign version pinned by the action, which it verifies
+      - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      # The signature covers the digest, and so every tag of it
       - name: Sign image
         env:
-          IMAGE: ${{ steps.tags.outputs.image }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.push.outputs.digest }}
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
+      # Tags `X.Y.Z-pyV` (and, for the default Python version, `X.Y.Z` and
+      # `latest`) point to the signed digest: a single source is copied as is
+      - name: Tag image
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          PY_VERSION: ${{ matrix.python-version }}
+          DEFAULT: ${{ matrix.default }}
+          VERSION: ${{ needs.build.outputs.version }}
+          STABLE: ${{ needs.build.outputs.stable }}
+        run: |
+          tags=("${IMAGE}:${VERSION}-py${PY_VERSION}")
+          if [[ "${DEFAULT}" == "true" ]]; then
+              tags+=("${IMAGE}:${VERSION}")
+              # `latest` only for the highest stable release, e.g., not for
+              # a patch release of an older minor version
+              latest_tag="$(git tag -l 'v*' --sort=-v:refname \
+                  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+              if [[ "${STABLE}" == "true" && "${latest_tag}" == "v${VERSION}" ]]; then
+                  tags+=("${IMAGE}:latest")
+              fi
+          fi
+          for tag in "${tags[@]}"; do
+              docker buildx imagetools create --tag "${tag}" "${IMAGE}@${DIGEST}"
+              actual="$(docker buildx imagetools inspect "${tag}" \
+                  --format '{{ json .Manifest }}' | jq -r .digest)"
+              if [[ "${actual}" != "${DIGEST}" ]]; then
+                  echo "::error::${tag} points to ${actual}, expected ${DIGEST}"
+                  exit 1
+              fi
+          done
 
   github-release:
     name: Create GitHub release

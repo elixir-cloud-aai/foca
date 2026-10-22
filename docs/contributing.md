@@ -165,25 +165,30 @@ matches the one pinned in `requirements/lint.txt` (update both together).
 
 ### Image scan
 
-The image scan (`.github/workflows/images.yml`) builds the Docker images of
-all Python versions and scans them with [Grype](https://github.com/anchore/grype);
-it also checks that the build creates the SBOM and provenance attestations of
-the release images. It fails for critical and high vulnerabilities that have
-a fix, and lists all vulnerabilities in the repository's code scanning alerts
-(Security tab). Every Monday, it scans the images of the latest release
-instead. If a scan fails:
+CI (`checks.yml`) builds the Docker images of all Python versions for every
+pull request and push and scans them with [Trivy](https://trivy.dev/)
+(`.github/actions/scan-image`); the release workflow builds and scans the
+release commit's images again before publishing anything (in a job without
+its credentials), and a weekly workflow (`scan.yml`) scans the images of the
+latest release. They fail on critical and high vulnerabilities that have a
+fix, and upload all findings to code scanning (Security tab; not for pull
+requests from forks, nor in the release workflow). If a scan fails:
 
 1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
    in `pyproject.toml` or update the base image (Dependabot's PRs do both).
-2. Otherwise (e.g., no fixed base image yet, or a vulnerability that does not
-   affect FOCA), accept it in `.grype.yaml`, as narrowly as possible, with a
-   `reason` and an `expires` date at most three months ahead (see the
-   comments there), in a PR of its own. Once the date passes, the scan fails
-   again, so that the decision is reviewed.
+2. Otherwise (e.g., no fixed version yet, or a vulnerability that does not
+   affect FOCA), accept it in `.trivyignore.yaml` with the affected package
+   versions (`purls`), the reason (`statement`) and an expiry date
+   (`expired_at`), after which the scans fail again, so that the decision is
+   reviewed. Trivy also scans for secrets (critical and high ones fail the
+   scans too); accept those under `secrets:` in the same file.
 3. For a released image, release a patch version once the fix is on `dev`.
 
-Scheduled scans use the `.grype.yaml` of `dev`, so that accepting a finding
-on `dev` also applies to the released images.
+The weekly scan uses the `.trivyignore.yaml` of `dev`, so that accepting a
+finding on `dev` also applies to the released images. Dependabot updates the
+actions, but not the Trivy version (`version:` in
+`.github/actions/scan-image/action.yml`): bump it by hand. The setup is the
+same as in [cloud-registry](https://github.com/elixir-cloud-aai/cloud-registry).
 
 ## Citation metadata
 
