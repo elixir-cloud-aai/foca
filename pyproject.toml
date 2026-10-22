@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
-    { name = "ELIXIR Cloud & AAI", email = "alexander.kanitz@alumni.ethz.ch" },
+    { name = "ELIXIR On-Cloud", email = "alexander.kanitz@alumni.ethz.ch" },
 ]
 maintainers = [
     { name = "Alexander Kanitz", email = "alexander.kanitz@alumni.ethz.ch" },
@@ -78,7 +78,7 @@ docs = [
 Repository = "https://github.com/elixir-cloud-aai/foca"
 Documentation = "https://foca.readthedocs.io"
 Tracker = "https://github.com/elixir-cloud-aai/foca/issues"
-"ELIXIR Cloud & AAI" = "https://elixir-europe.github.io/cloud/"
+"ELIXIR On-Cloud" = "https://elixir-europe.github.io/cloud/"
 
 [tool.setuptools_scm]
 # Version from git tags (`vX.Y.Z`); see "Releasing" in README.md. Only

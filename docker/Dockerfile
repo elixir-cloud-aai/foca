@@ -7,7 +7,7 @@ LABEL software.description="Kickstart OpenAPI-based microservice development wit
 LABEL software.website="https://github.com/elixir-cloud-aai/foca"
 LABEL software.license="https://spdx.org/licenses/Apache-2.0"
 LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
-LABEL maintainer.organisation="ELIXIR Cloud & AAI"
+LABEL maintainer.organisation="ELIXIR On-Cloud"
 
 # Build image
 FROM base AS builder

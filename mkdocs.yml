@@ -6,7 +6,7 @@ site_url: !ENV [READTHEDOCS_CANONICAL_URL, "https://foca.readthedocs.io/en/lates
 repo_url: https://github.com/elixir-cloud-aai/foca
 repo_name: elixir-cloud-aai/foca
 edit_uri: edit/dev/docs/
-copyright: Copyright &copy; ELIXIR Cloud & AAI
+copyright: Copyright &copy; ELIXIR On-Cloud
 
 theme:
   name: material
