@@ -125,8 +125,11 @@ jobs:
           mongodb-port: 12345
       - name: Run unit tests with coverage
         if: steps.kernel.outputs.skip != 'true'
+        # `coverage report` (with the missing lines) and `coverage xml` fail
+        # below 100% (`fail_under` in `pyproject.toml`)
         run: |
-          coverage run --source foca -m pytest
+          coverage run -m pytest
+          coverage report -m
           coverage xml
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.13' && matrix.mongodb-version == '7.0'
