@@ -4,7 +4,8 @@
 # `.github/workflows/checks.yml`, which also checks that the ruff hook of
 # `.pre-commit-config.yaml` has the same version: when ruff is updated here
 # (Dependabot opens separate pull requests for it), update the `rev` of
-# `ruff-pre-commit` in the same pull request. semgrep is pinned in
+# `ruff-pre-commit` in the same pull request. The ast-grep hook uses the
+# ast-grep of the dev dependencies instead; semgrep is pinned in
 # `semgrep.txt`.
 ast-grep-cli==0.51.0
 mypy==2.4.0

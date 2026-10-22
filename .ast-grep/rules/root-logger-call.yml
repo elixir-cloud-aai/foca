@@ -6,7 +6,9 @@ note: |
   Log with the module's logger (`logger = logging.getLogger(__name__)`), so
   that apps can configure FOCA's log messages by logger name.
 rule:
-  pattern: logging.$METHOD($$$ARGS)
+  any:
+    - pattern: logging.$METHOD($$$ARGS)
+    - pattern: logging.getLogger().$METHOD($$$ARGS)
 constraints:
   METHOD:
     regex: ^(debug|info|warning|warn|error|exception|critical|fatal|log)$

@@ -199,7 +199,8 @@ reviews.
   anti-patterns (rules in `.ast-grep/`, e.g., the root logger or `print()` in
   the package), each rule with tests (`.semgrep/foca.py` and
   `.semgrep/foca.test.yaml`, `.ast-grep/rule-tests/`). Rules shared with FOCA
-  apps (e.g., Cloud Registry) are kept identical there. Suppress a false
+  apps (e.g., Cloud Registry) are kept identical there, except for the files
+  they apply to. Suppress a false
   positive with `# nosemgrep: <rule-id>` or `# ast-grep-ignore: <rule-id>` on
   the line before, with the reason in a comment.
 - **Docstrings:** Google-style docstrings at all levels: packages, modules,

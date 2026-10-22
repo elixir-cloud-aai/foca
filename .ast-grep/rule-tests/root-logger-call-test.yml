@@ -7,3 +7,4 @@ invalid:
   - logging.info("Started")
   - logging.exception("Failed")
   - logging.log(logging.WARNING, "Retrying %s", url)
+  - logging.getLogger().error("Failed")

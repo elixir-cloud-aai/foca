@@ -76,9 +76,9 @@ jobs:
       - name: Test ast-grep rules
         run: ast-grep test --skip-snapshot-tests
       - name: Check security issues with semgrep
-        # Rules in `.semgrep/`, whose rule tests contain findings on purpose
+        # Rules in `.semgrep/`; skips the files of `.semgrepignore`
         run: >-
-          "${RUNNER_TEMP}/semgrep/bin/semgrep" scan --config .semgrep --exclude .semgrep --error
+          "${RUNNER_TEMP}/semgrep/bin/semgrep" scan --config .semgrep --error
           --metrics=off --disable-version-check
       - name: Test semgrep rules
         # semgrep finds no tests in hidden directories passed as targets
