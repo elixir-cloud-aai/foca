@@ -143,6 +143,8 @@ cd examples/petstore
 docker compose build foca-petstore-root  # FOCA image
 docker compose up -d --build
 cd ../..
+# Wait until the app accepts requests
+until curl -s -o /dev/null http://localhost:8080/; do sleep 2; done
 pytest tests/integration_tests.py
 ```
 
