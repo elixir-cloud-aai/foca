@@ -396,6 +396,14 @@ def test_AccessControlConfig_named_policies() -> None:
     # names no longer apply if rules are added or removed after validation
     changed = res.model_copy(update={"policies": res.policies[:1]})
     assert changed.named_policies is None
+    reordered = res.model_copy(update={"policies": res.policies[::-1]})
+    assert reordered.named_policies is None
+    # the names are not changed via the returned mapping
+    res.named_policies["read"].append("x")  # type: ignore[index]  # named
+    assert res.named_policies == {
+        "read": ["p", "*", "/pets", "GET"],
+        "admin": ["g", "user:bob", "admin"],
+    }
     # listed rules have no names
     assert (
         AccessControlConfig(policies=[["p", "*", "/a", "GET"]]).named_policies is None

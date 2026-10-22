@@ -846,8 +846,8 @@ class AccessControlConfig(FOCABaseConfig):
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
     _registered_collection: tuple[str, str, bool] | None = PrivateAttr(default=None)
-    # Names of the rules of `policies`, if given as named rules
-    _policy_names: list[str] | None = PrivateAttr(default=None)
+    # Named rules, if `policies` was given as named rules
+    _named_policies: dict[str, list[str]] | None = PrivateAttr(default=None)
 
     @model_validator(mode="wrap")
     @classmethod
@@ -868,7 +868,7 @@ class AccessControlConfig(FOCABaseConfig):
             ValueError: Names of rules are not non-empty strings, or rules
                 are not lists of strings.
         """
-        names: list[str] | None = None
+        named_policies: dict[str, list[str]] | None = None
         if isinstance(data, dict) and isinstance(data.get("policies"), dict):
             named: dict[str, list[str]] = {}
             for name, rule in data["policies"].items():
@@ -884,23 +884,25 @@ class AccessControlConfig(FOCABaseConfig):
                     raise ValueError(f"Policy rule '{name}' must be a list of strings")
                 named[name] = rule
             data = {**data, "policies": list(named.values())}
-            names = list(named)
+            named_policies = named
         model = handler(data)
-        if names is not None:
-            model._policy_names = names
+        if named_policies is not None:
+            model._named_policies = {
+                name: list(rule) for name, rule in named_policies.items()
+            }
         return model
 
     @property
     def named_policies(self) -> dict[str, list[str]] | None:
         """Named policy rules, if `policies` was given as named rules.
 
-        `None` if the rules were given as a list, or if their number was
-        changed after validation, so that the names no longer apply.
+        `None` if the rules were given as a list, or if they were changed
+        after validation, so that the names no longer apply.
         """
-        names = self._policy_names
-        if names is None or self.policies is None or len(names) != len(self.policies):
+        named = self._named_policies
+        if named is None or list(named.values()) != self.policies:
             return None
-        return dict(zip(names, self.policies, strict=True))
+        return {name: list(rule) for name, rule in named.items()}
 
     @field_validator("subject_prefix")
     @classmethod

@@ -405,12 +405,17 @@ class TestPatches:
     def test_json_and_empty_files(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """Patch files may be JSON; empty files do not change the spec."""
+        """Patch files may be JSON; empty files do not change the spec.
+
+        Files with comments only count as empty.
+        """
         patch = tmp_path / "patch.json"
         patch.write_text('{"info": {"title": "JSON"}}')
         empty = tmp_path / "empty.yaml"
         empty.write_text("")
-        spec = self._patched(monkeypatch, patch, empty)
+        comments = tmp_path / "comments.yaml"
+        comments.write_text("# nothing to patch yet\n")
+        spec = self._patched(monkeypatch, patch, empty, comments)
         assert spec["info"]["title"] == "JSON"
 
     def test_no_patches(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -506,13 +511,8 @@ class TestPatches:
             {"info": {"title": "Patched"}},
             # requiring other authentication
             {"paths": {"/pets": {"get": {"security": [{"bearerAuth": ["read"]}]}}}},
-            # adding a protected operation, and removing one
-            {
-                "paths": {
-                    "/new": {"post": {"responses": {}}},
-                    "/pets/{petId}": None,
-                }
-            },
+            # adding a protected operation
+            {"paths": {"/new": {"post": {"responses": {}}}}},
         ],
     )
     def test_not_weakened(
@@ -595,6 +595,21 @@ class TestPatches:
             register_openapi(app=App(__name__), specs=[SpecConfig(**SPEC_CONFIG_3)])
         assert not [r for r in logs.records if r.levelno == logging.ERROR]
 
+    def test_reference_after_removed_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Path items replaced by references after patching fields are fine."""
+        spec = self._patched(
+            monkeypatch,
+            {"paths": {"/pets": {"summary": "Pets"}}},
+            {"paths": {"/pets": None}},
+            {
+                "x-items": {"get": {"responses": {}}},
+                "paths": {"/pets": {"$ref": "#/x-items"}},
+            },
+        )
+        assert spec["paths"]["/pets"] == {"$ref": "#/x-items"}
+
     @pytest.mark.parametrize(
         "patch",
         [
@@ -640,6 +655,8 @@ class TestPatches:
         "content,error,message",
         [
             ("- a\n", ValueError, "is not a mapping"),
+            # explicit null, unlike empty files
+            ("null\n", ValueError, "is not a mapping"),
             ("a: [\n", ValueError, "not valid YAML"),
             (None, OSError, "could not be read"),
         ],
@@ -670,8 +687,9 @@ class TestPatches:
             {"$ref": "#/x-items/a", "get": {"a": 1}, "post": {}},
             {"get": {"b": 2}, "post": {}},
         ),
-        # nested references, escaped keys
+        # nested references, escaped and percent-encoded keys
         ({"$ref": "#/x-items/b~1c"}, {"get": {"b": 2}}),
+        ({"$ref": "#/x-items/%7Bd%7D"}, {"get": {"b": 2}}),
         # references to other files and to values that are not mappings
         ({"$ref": "other.yaml#/a"}, {"$ref": "other.yaml#/a"}),
         ({"$ref": "#/x-items/missing"}, {"$ref": "#/x-items/missing"}),
@@ -685,6 +703,7 @@ def test_resolve_path_item(path_item: dict[str, Any], expected: Any) -> None:
         "x-items": {
             "a": {"get": {"b": 2}},
             "b/c": {"$ref": "#/x-items/a"},
+            "{d}": {"$ref": "#/x-items/a"},
             "cycle": {"$ref": "#/x-items/cycle"},
         }
     }
@@ -694,6 +713,10 @@ def test_resolve_path_item(path_item: dict[str, Any], expected: Any) -> None:
 def test_protections_without_paths() -> None:
     """Specifications without valid paths have no operations."""
     assert module._protections({}) == {}
+    # invalid security requirements, rejected by Connexion, do not count
+    assert module._protections({"security": 1, "paths": {"/a": {"get": {}}}}) == {
+        "GET /a": {"access control"}
+    }
     assert module._protections({"paths": None}) == {}
     # references that cannot be resolved are listed
     assert module._protections(

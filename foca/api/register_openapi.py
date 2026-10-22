@@ -5,7 +5,9 @@ from collections.abc import Iterator
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
+import yaml
 from connexion import App
 from connexion.exceptions import InvalidSpecification
 
@@ -166,7 +168,7 @@ def _resolve_path_item(
             return path_item
         target: Any = spec
         for token in ref[2:].split("/"):
-            key = token.replace("~1", "/").replace("~0", "~")
+            key = unquote(token).replace("~1", "/").replace("~0", "~")
             target = target.get(key) if isinstance(target, dict) else None
         if not isinstance(target, dict):
             return path_item
@@ -206,9 +208,9 @@ def _protections(spec: dict[str, Any]) -> dict[str, set[str]]:
             protections[path] = {f"reference {resolved['$ref']}"}
         for method, operation_object in _iter_path_item(resolved):
             protected = set()
-            if _requires_authentication(
-                operation_object.get("security", spec.get("security"))
-            ):
+            security = operation_object.get("security", spec.get("security"))
+            # Invalid values are rejected by Connexion
+            if isinstance(security, list) and _requires_authentication(security):
                 protected.add("security")
             if (
                 operation_object.get("x-foca-access-control") is not False
@@ -275,7 +277,7 @@ def _load_patch(patch: Path | dict[str, Any]) -> dict[str, Any]:
         patch: Path to a YAML or JSON file, or a mapping.
 
     Returns:
-        Patch; empty if the file is empty.
+        Patch; empty if the file is empty or has comments only.
 
     Raises:
         OSError: The file cannot be read.
@@ -284,7 +286,8 @@ def _load_patch(patch: Path | dict[str, Any]) -> dict[str, Any]:
     if isinstance(patch, dict):
         return patch
     content = ConfigParser.parse_yaml(patch)
-    if content is None:
+    # Empty files (also with comments only) have no document, unlike `null`
+    if content is None and yaml.compose(patch.read_text()) is None:
         return {}
     if not isinstance(content, dict):
         raise ValueError(f"Patch '{patch}' is not a mapping")
@@ -332,6 +335,7 @@ def _apply_patches(
         if isinstance(paths, dict)
         and isinstance(paths.get(path), dict)
         and "$ref" in paths[path]
+        and set(paths[path]) - {"$ref"}
     )
     if overridden:
         raise ValueError(
@@ -474,7 +478,7 @@ def register_openapi(
                     label,
                 )
             raise
-        logger.info("API endpoints added from spec: %s", list_specs)
+        logger.info("API endpoints added from spec: %s", label)
 
     _check_routes_enforced(app.app)
     return app
