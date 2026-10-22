@@ -21,6 +21,14 @@ CLIENT_PREFIX = "client:"
 # configurable via `access_control.subject_prefix`)
 SUBJECT_TYPE_PREFIXES = {"group": GROUP_PREFIX, "client": CLIENT_PREFIX}
 
+# Default roles on resources managed by the resource ownership helpers: the
+# owner role, which the creator of a resource gets, and the maintainer role
+OWNER_ROLE = "owner"
+MAINTAINER_ROLE = "maintainer"
+# Role of subjects that may do everything, as in the reference model
+# (`resource_role_model.conf`)
+ADMIN_ROLE = "admin"
+
 # Identifiers of policy rules: characters, length and attempts to generate a
 # unique identifier
 DEFAULT_ID_CHARSET = string.ascii_letters + string.digits

@@ -426,6 +426,9 @@ def postTask(**kwargs):
 with `403 Forbidden`; call it in every controller that should honor the
 header, so that clients notice when they are not allowed to act for users.
 
+`add_owner(resource)` does the same in one call (see [resource
+ownership](#resource-ownership)).
+
 ### Resource-scoped roles
 
 FOCA ships a [reference model][resource-role-model] for resource-scoped
@@ -644,6 +647,182 @@ three fields (subject, role, resource), e.g., with the default model, whose
 `g2` groups objects, or if a value is not valid in rules (see [rule
 values](#rule-values)).
 
+### Resource ownership
+
+Many apps let users create resources that belong to them, e.g., services in a
+registry or tasks in a task execution service: the creator becomes the owner,
+owners let others access the resource, and users only see their own
+resources, while admins see everything. FOCA's ownership helpers implement
+this on top of the [resource role helpers](#resource-scoped-roles), following
+the behaviour of [cloud-registry][res-cloud-registry], ELIXIR On-Cloud's
+service registry:
+
+* `add_owner(resource)` makes the creator of a resource its owner: the user
+  that an allowed service client [acts for](#service-clients), otherwise the
+  calling service client, otherwise the calling user. Pass users that service
+  clients name in request fields as `on_behalf_of`, so that they are checked
+  like the header, and `subject` (and `subject_type`) only to choose the
+  owner yourself, as it is not checked against the caller.
+* `grant_role(resource, subject, role)` grants a user (or, with
+  `subject_type`, a group or service client) a role, replacing the roles it
+  had on the resource, and returns the previous ones.
+  `revoke_roles(resource, subject)` revokes them. Both raise `LastOwner`
+  (`409 Conflict`) instead of removing or downgrading the last owner of a
+  resource, so that every resource keeps an owner, which may be a group.
+* `list_roles(resource)` lists the roles granted on a resource: users first,
+  then groups and service clients, as `ResourceRole(subject_type, subject,
+  role)`.
+* `resource_filter(prefix)` returns a MongoDB filter for listings: all
+  resources for admins (`{}`), otherwise those that the calling user or
+  service client, or one of its groups, has any role on (e.g., `{"id":
+  {"$in": ["1", "2"]}}`). `list_subject_roles(prefix)` lists these roles
+  (e.g., for an endpoint telling users which resources they have roles on).
+  Only resources directly below the prefix count, e.g., `/tasks/1` for
+  `/tasks`, but not `/tasks/1/logs`. The filter only selects by identifier,
+  so if a collection holds resources under several prefixes (e.g., files of
+  several projects), combine it with a filter for the scope (e.g.,
+  `{"project": "x", **resource_filter("/projects/x/files")}`), also for
+  admins.
+* `is_admin()` tells whether the caller has the role `admin`, which may do
+  everything in the [reference model][resource-role-model]: mapped from its
+  groups (`group_mapping`) or its service client (`client_mapping`), or
+  granted via `g` rules.
+
+The helpers grant and revoke the roles configured via `resource_roles`
+(default: `owner` and `maintainer`; it must contain `owner` and must not
+contain `admin`, which is fixed). `grant_role()` rejects other roles with a
+`ValueError`, so that users cannot grant, e.g., `admin`, as well as roles
+that would not apply: to groups while group claim values are not used as
+subjects (`group_mapping` without `keep_group_subjects`), and to clients
+that are not service clients. Otherwise, a resource could be left with only
+owners that never apply. Roles not in `resource_roles` (e.g., granted via
+`add_resource_role()`) are listed, but neither replaced nor revoked by
+`revoke_roles()`, which returns `False` if the subject has no roles to
+revoke (also for subjects that cannot have roles). Owners whose role does
+not apply (e.g., groups granted the role before `keep_group_subjects` was
+unset) do not count as owners for the last-owner rule. Every role change is
+logged on level `INFO`, naming the resource, the subject, the caller and the
+previous roles, for auditing.
+
+For example, an app whose users only see their own tasks:
+
+```yaml
+security:
+  access_control:
+    enabled: True
+    model: path/to/resource_role_model.conf
+    enforce: True
+    claim_groups: eduperson_entitlement
+    group_mapping:
+      "urn:geant:example.org:group:admins#example.org": admin
+    keep_group_subjects: True
+    policies:
+      - [p, "*", /api/tasks, "(GET)|(POST)"]
+      - [p, owner, "/api/tasks/:id", "(GET)|(DELETE)"]
+      - [p, maintainer, "/api/tasks/:id", GET]
+```
+
+```python
+from flask import request
+
+from foca import get_collection
+from foca.security.access_control import add_owner, remove_resource, resource_filter
+
+
+def CreateTask(**kwargs):
+    task_id = ...  # create task
+    add_owner(f"{request.path}/{task_id}")
+    return {"id": task_id}
+
+
+def ListTasks(**kwargs):
+    tasks = get_collection("tasks").find(resource_filter(request.path))
+    return {"tasks": [{"id": task["id"]} for task in tasks]}
+
+
+def DeleteTask(id, **kwargs):
+    ...  # check that the task exists and may be deleted
+    # before deleting, so that nobody can act on the task meanwhile, and
+    # after, to revoke roles granted meanwhile
+    remove_resource(request.path)
+    ...  # delete task
+    remove_resource(request.path)
+    return {"id": id}
+```
+
+The resource paths are full request paths, including the base path of the
+API, as policies are enforced on them; the collection path passed to
+`resource_filter()` must match the prefix of the paths passed to
+`add_owner()`. Revoke all roles on a deleted resource via `remove_resource()`.
+Apps that let owners manage access expose their own endpoints (e.g.,
+`PUT /tasks/{id}/permissions/users/{userId}`) calling `grant_role()` and
+`revoke_roles()`:
+
+```python
+import logging
+
+from connexion.exceptions import BadRequestProblem
+from flask import request
+
+from foca import get_collection
+from foca.security.access_control import grant_role
+
+logger = logging.getLogger(__name__)
+
+
+def PutTaskUserRole(id, userId, body, **kwargs):
+    resource = request.path.removesuffix(f"/permissions/users/{userId}")
+    try:
+        grant_role(
+            resource,
+            userId,
+            body["role"],
+            exists=lambda: get_collection("tasks").count_documents({"id": id}) > 0,
+        )
+    except ValueError as exc:
+        # messages may name configuration options, so they are only logged
+        logger.info("Role not granted: %s", exc)
+        raise BadRequestProblem(detail="Invalid role or user") from exc
+    return {"user_id": userId, "role": body["role"]}
+```
+
+Such endpoints are enforced by policies such as `p, owner,
+/api/tasks/:id/permissions/*, (GET)|(PUT)|(DELETE)`. `LastOwner` and
+`NotFound` result in `409` and `404` responses. As for
+`add_resource_role()`, which groups a caller may grant roles to is up to the
+app; cloud-registry only lets owners grant roles to groups they are members
+of (cf. `get_current_group_values()`), and admins to any group.
+
+Keep in mind that:
+
+* Checking for other owners and changing roles is not atomic, as policy
+  rules are stored one by one. If concurrent requests remove each other's
+  owner roles, each restores the owner role it removed when no owner is left,
+  and raises `LastOwner`. Concurrent requests granting a subject different
+  roles may leave it with both, and a request failing halfway (e.g., if the
+  database becomes unavailable) may leave a subject with fewer roles, or a
+  resource without owners; roles are revoked before others are granted, so
+  that failures leave fewer rights, not more. Admins can fix such cases.
+  Non-owner roles are not granted on resources without owners.
+* A resource may be deleted while a role on it is granted, which would leave
+  the role behind. Pass a function checking that the resource still exists
+  as `exists` to `grant_role()` and `revoke_roles()`: if it returns `False`
+  after the role was granted, the role is revoked again, and `NotFound`
+  (`404`) is raised. Deleting a resource should revoke its roles both before
+  and after deleting it (cf. `DeleteTask()` above), so that roles granted
+  meanwhile are revoked, too. If deleting then fails, the resource is left
+  without roles, i.e., only admins can access it; so only revoke them once
+  the resource is going to be deleted.
+* Listings only consider roles of the caller itself and of its groups (with
+  `keep_group_subjects`, if `group_mapping` is set). A service client acting
+  for a user sees the resources the _client_ has roles on, not those of the
+  user, as it is also enforced as the client.
+* `resource_filter()` lists the identifiers of all resources the caller has
+  roles on in the filter, so it suits apps where users have roles on up to a
+  few thousand resources. Like enforcement, each helper call loads all rules
+  (cf. [scaling](#scaling)); `grant_role()` and `revoke_roles()` do so a few
+  times per call.
+
 ### Securing the permissions API
 
 The [permissions API](#exploring-the-api) requires a bearer token
@@ -769,6 +948,7 @@ firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
 [default-model]: <https://github.com/elixir-cloud-aai/foca/blob/dev/foca/security/access_control/api/default_model.conf>
 [resource-role-model]: <https://github.com/elixir-cloud-aai/foca/blob/dev/foca/security/access_control/api/resource_role_model.conf>
 [img-casbin-flow]: images/casbin_model.jpeg
+[res-cloud-registry]: <https://github.com/elixir-cloud-aai/cloud-registry>
 [res-casbin-models]: <https://casbin.org/docs/en/supported-models>
 [res-foca]: <https://pypi.org/project/foca/>
 [res-ga4gh-pagination]: <https://github.com/ga4gh/TASC/blob/main/recommendations/API%20pagination%20guide.md>
