@@ -1,9 +1,10 @@
 # Migrating to 0.16.0
 
 FOCA 0.16.0 tightens token validation for the ELIXIR On-Cloud authentication
-policy and requires Python 3.11 or later. Apps using LS Login need no other
-changes; apps whose identity provider does not issue RFC 9068 access tokens
-should check the breaking changes below.
+policy, accepts tokens of service clients, adds resource ownership helpers and
+requires Python 3.11 or later. Apps using LS Login need no other changes;
+apps whose identity provider does not issue RFC 9068 access tokens, and apps
+setting `swagger_ui_path`, should check the breaking changes below.
 Upgrading from 0.14 or earlier? Start with [Migrating to
 0.15.0](migration-0.15.md).
 
@@ -11,7 +12,11 @@ Upgrading from 0.14 or earlier? Start with [Migrating to
 
 ### Python 3.11 or later
 
-Python 3.10 is no longer supported; FOCA requires Python 3.11 or later.
+Python 3.10 is no longer supported; FOCA requires Python 3.11 or later. Images
+are published for Python 3.11 to 3.14; there are no `py3.10` images anymore.
+
+`typing_extensions` is no longer a dependency of FOCA. If your app imports it,
+declare it as a dependency of your app.
 
 ### Access tokens only
 
@@ -50,6 +55,45 @@ the rights of that subject, and `security.auth.userinfo_claims` must not
 contain `client_id` or `azp`, as user info must not change which client a
 token was obtained by.
 
+### Swagger UI path
+
+The `swagger_ui_path` option of
+[`api.specs[].connexion`](configuration/api.md) now takes effect. FOCA passed
+it to Connexion under the wrong key, so the Swagger UI stayed at `/ui`
+regardless of its value. If your configuration sets it, the Swagger UI is now
+served at that path (relative to the base path); remove the option to keep
+`/ui`. Empty values and values consisting of slashes only (e.g., `/`) are
+rejected on startup, as Connexion would then serve the UI's static files for
+all paths under the base path.
+
+## Behaviour changes
+
+- Error responses keep the headers of werkzeug HTTP exceptions and of
+  Connexion's `ProblemException` (e.g., `Allow`, `WWW-Authenticate` and
+  `Retry-After`), except headers describing the body, unless the exception
+  is mapped to another status. `401 Unauthorized` responses of FOCA's token
+  validation and access control carry a Bearer challenge as per RFC 6750
+  (`WWW-Authenticate: Bearer error="invalid_token"` for invalid tokens), and
+  other security errors of Connexion get `WWW-Authenticate: Bearer`
+  ([details](configuration/exceptions.md#headers)). Clients that relied on
+  responses without these headers may need adjustments.
+- On Python 3.11 and 3.12, default problem titles for `413`, `414`, `416` and
+  `422` are the RFC 9110 reason phrases (`Content Too Large`, `URI Too Long`,
+  `Range Not Satisfiable` and `Unprocessable Content`), as on Python 3.13 and
+  later. Adjust clients or tests that compare titles.
+- Tokens of issuers whose JWK set is malformed (not a JSON object, or with
+  keys of the wrong type) are rejected with `401 Unauthorized` instead of
+  `500 Internal Server Error`, and fetching the JWK set again is throttled,
+  as for unreachable JWK sets.
+- The Swagger UI works for APIs served at `/`; with Connexion 2, it returned
+  `500 Internal Server Error`.
+- The petstore example and the
+  [deployment docs](deployment.md#running-in-production) start Gunicorn with `--no-control-socket`. With Gunicorn 25.1 or later on
+  a read-only root file system (e.g., in Kubernetes), add it to your app's
+  command too, as Gunicorn otherwise logs an error for its control server.
+- Package metadata, Docker image labels and the default permissions API
+  specification name "ELIXIR On-Cloud" instead of "ELIXIR Cloud & AAI".
+
 ## New options
 
 - [`security.auth.token_types`](configuration/auth.md) and
@@ -76,5 +120,32 @@ token was obtained by.
 - [`security.access_control.resource_roles`](configuration/access-control.md):
   roles on resources (default: `owner` and `maintainer`) that the new
   resource ownership helpers grant and revoke, e.g., to make the creator of a
-  resource its owner and to filter listings to the caller's resources
+  resource its owner and to filter listings to the caller's resources, or to
+  those of the user that a service client acts for
   ([details](access-control.md#resource-ownership)).
+
+## New features
+
+- Resource ownership helpers in `foca.security.access_control`
+  (`add_owner()`, `grant_role()`, `revoke_roles()`, `list_roles()`,
+  `list_subject_roles()`, `resource_filter()` and `is_admin()`), with
+  last-owner protection (`LastOwner`, `409 Conflict`)
+  ([details](access-control.md#resource-ownership)), and ready-made
+  controllers for endpoints managing roles on resources in
+  `foca.security.access_control.ownership_server`
+  ([details](access-control.md#endpoints-for-managing-roles)). Apps managing
+  owners with the resource role helpers of 0.15 can switch to them.
+- `foca.utils.urls` for checking and normalizing URLs (`http`, `https` and
+  `mailto`), with the allowed schemes chosen per field by the app
+  ([details](utilities.md#checking-and-normalizing-urls)).
+- `foca-common`, a Helm library chart for deploying FOCA apps, versioned and
+  released separately (`chart-v*` tags,
+  `oci://ghcr.io/elixir-cloud-aai/charts`), optionally with a Celery worker and RabbitMQ broker
+  ([details](helm-chart.md)).
+
+## Dependencies
+
+- Python 3.11 or later (see [above](#python-311-or-later)).
+- New: `idna>=3.7,<4` (for `foca.utils.urls`).
+- Removed: `typing_extensions`.
+- Building FOCA from source requires `setuptools-scm>=9`.
