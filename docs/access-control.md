@@ -181,8 +181,9 @@ served, and the `operationId` of each operation which controller handles it
 `foca.security.access_control.access_control_server`, or your own).
 
 The Swagger UI and the specification of the permissions API are not served
-by default. Set `api_swagger_ui: True` and/or `api_serve_spec: True` to serve
-them.
+by default. Set `api_swagger_ui: True` to serve the Swagger UI, together with
+the specification, which the UI needs (`api_serve_spec: False` is then
+rejected), or `api_serve_spec: True` to serve the specification only.
 
 Requests to FOCA's default controllers and their responses are logged (cf.
 [`log_traffic`](utilities.md#logging-requests-and-responses)), as in FOCA

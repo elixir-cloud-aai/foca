@@ -40,8 +40,11 @@ requirements and schemes instead, e.g., for local development.
 
 Options for registering a specification with Connexion are set via
 `connexion`, e.g., whether to validate requests strictly and responses at all,
-and whether to serve the Swagger UI and the specification itself. Options not
-listed below are passed through to Connexion's `add_api()` as they are.
+and whether to serve the Swagger UI and the specification itself (both are
+served by default). The Swagger UI needs the specification, so with
+`serve_spec: false`, the UI is not served either, and `swagger_ui: true`
+together with `serve_spec: false` is rejected. Options not listed below are
+passed through to Connexion's `add_api()` as they are.
 
 Which operations require authentication is defined by the security
 requirements of the operations in the specifications; FOCA's access control

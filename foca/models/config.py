@@ -8,6 +8,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import (
     Any,
+    Literal,
     Self,
 )
 
@@ -328,8 +329,12 @@ class ConnexionOptions(BaseModel):
             defined in the specification.
         validate_responses: Whether to validate responses against the
             specification.
-        swagger_ui: Whether to serve the Swagger UI.
-        serve_spec: Whether to serve the specification.
+        swagger_ui: Whether to serve the Swagger UI (Connexion's default:
+            `True`). The UI needs the specification, so it is not served if
+            `serve_spec` is disabled, and enabling both the UI and
+            disabling `serve_spec` is rejected.
+        serve_spec: Whether to serve the specification (Connexion's default:
+            `True`).
         swagger_ui_path: Path of the Swagger UI, relative to the base path
             (Connexion's default: `/ui`); must not be empty or `/`.
         base_path: Base path overriding that of the specification.
@@ -370,6 +375,42 @@ class ConnexionOptions(BaseModel):
     base_path: str | None = None
     resolver: Any = None
     options: dict[str, Any] | None = None
+
+    def get_ui_option(self, name: Literal["swagger_ui", "serve_spec"]) -> Any:
+        """Get a UI option, set as a field or via `options`.
+
+        Args:
+            name: Name of the option.
+
+        Returns:
+            Value of the field, if set, otherwise that of `options`, if set,
+            otherwise `None`.
+        """
+        value = getattr(self, name)
+        return (self.options or {}).get(name) if value is None else value
+
+    @model_validator(mode="after")
+    def validate_swagger_ui(self) -> Self:
+        """Ensure that the specification is served if the Swagger UI is.
+
+        Returns:
+            Validated options.
+
+        Raises:
+            ValueError: The Swagger UI is enabled, but serving the
+                specification is disabled.
+        """
+        serve_spec = self.get_ui_option("serve_spec")
+        if (
+            self.get_ui_option("swagger_ui")
+            and serve_spec is not None
+            and not serve_spec
+        ):
+            raise ValueError(
+                "The Swagger UI ('swagger_ui') needs the specification, so "
+                "'serve_spec' must not be disabled"
+            )
+        return self
 
 
 class SpecConfig(FOCABaseConfig):
@@ -534,7 +575,9 @@ class AccessControlConfig(FOCABaseConfig):
         api_specs: Path to a custom API specification of the permissions
             API. If None, the default specification is used. Controllers are
             resolved via the `operationId` of each operation.
-        api_swagger_ui: Serve the Swagger UI of the permissions API.
+        api_swagger_ui: Serve the Swagger UI of the permissions API, and
+            its specification, which the UI needs (`api_serve_spec` must
+            then not be set to `False`).
         api_serve_spec: Serve the API specification of the permissions API.
         db_name: Name of the database of the policy collection. If it is the
             name of one of the app's databases, the policy collection is
@@ -715,6 +758,30 @@ class AccessControlConfig(FOCABaseConfig):
                     f"subjects could otherwise collide with {subject_type}s"
                 )
         return v
+
+    @model_validator(mode="after")
+    def validate_swagger_ui(self) -> Self:
+        """Ensure that the specification is served if the Swagger UI is.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: `api_swagger_ui` is enabled, but `api_serve_spec` is
+                set to `False` (the specification is served with the UI
+                unless it is set).
+        """
+        if (
+            self.api_swagger_ui
+            and not self.api_serve_spec
+            and "api_serve_spec" in self.model_fields_set
+        ):
+            raise ValueError(
+                "The Swagger UI of the permissions API ('api_swagger_ui') "
+                "needs the specification, so 'api_serve_spec' must not be "
+                "disabled"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_mapped_roles(self) -> Self:

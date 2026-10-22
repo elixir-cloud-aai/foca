@@ -440,6 +440,42 @@ class TestConnexionAddApiKwargs:
         assert 'url: "/v1/openapi.json"' in response.get_data(as_text=True)
         assert client.get("/v1/ui/").status_code == 404
 
+    @pytest.mark.parametrize(
+        "options",
+        [
+            {"swagger_ui": True, "serve_spec": False},
+            {"swagger_ui": True, "options": {"serve_spec": False}},
+            {"serve_spec": False, "options": {"swagger_ui": True}},
+            {"options": {"swagger_ui": True, "serve_spec": False}},
+        ],
+    )
+    def test_swagger_ui_without_spec_invalid(self, options: dict[str, Any]) -> None:
+        """The Swagger UI can't be served without the specification."""
+        with pytest.raises(ValidationError, match="needs the specification"):
+            ConnexionOptions(**options)
+
+    @pytest.mark.parametrize(
+        "options",
+        [{"serve_spec": False}, {"options": {"serve_spec": False}}],
+    )
+    def test_swagger_ui_disabled_without_spec(self, options: dict[str, Any]) -> None:
+        """The Swagger UI is not served if the specification is not."""
+        kwargs = _connexion_add_api_kwargs(ConnexionOptions(**options))
+        assert kwargs == {"options": {"serve_spec": False, "swagger_ui": False}}
+        app = create_connexion_app(Config())
+        app.add_api(
+            {
+                "openapi": "3.0.0",
+                "info": {"title": "UI test", "version": "1.0.0"},
+                "servers": [{"url": "http://localhost/v1"}],
+                "paths": {},
+            },
+            **kwargs,
+        )
+        client = app.app.test_client()
+        assert client.get("/v1/ui/").status_code == 404
+        assert client.get("/v1/openapi.json").status_code == 404
+
     def test_spec_config(self) -> None:
         """`SpecConfig.connexion` is parsed into typed options."""
         spec = SpecConfig(**SPEC_CONFIG_3)
