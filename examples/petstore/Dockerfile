@@ -23,5 +23,7 @@ WORKDIR /app
 ## Copy app files
 COPY ./ /app
 
-## Serve the app with Gunicorn; further options via `GUNICORN_CMD_ARGS`
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "wsgi:create_app()"]
+## Serve the app with Gunicorn; further options via `GUNICORN_CMD_ARGS`.
+## Without Gunicorn's control socket (`gunicornc`), which the app does not
+## use and which fails on a read-only root file system (as in the chart)
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--no-control-socket", "wsgi:create_app()"]
