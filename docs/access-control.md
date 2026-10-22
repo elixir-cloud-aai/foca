@@ -678,7 +678,11 @@ service registry:
   {"$in": ["1", "2"]}}`). `list_subject_roles(prefix)` lists these roles
   (e.g., for an endpoint telling users which resources they have roles on).
   Only resources directly below the prefix count, e.g., `/tasks/1` for
-  `/tasks`, but not `/tasks/1/logs`.
+  `/tasks`, but not `/tasks/1/logs`. The filter only selects by identifier,
+  so if a collection holds resources under several prefixes (e.g., files of
+  several projects), combine it with a filter for the scope (e.g.,
+  `{"project": "x", **resource_filter("/projects/x/files")}`), also for
+  admins.
 * `is_admin()` tells whether the caller has the role `admin`, which may do
   everything in the [reference model][resource-role-model]: mapped from its
   groups (`group_mapping`) or its service client (`client_mapping`), or
@@ -792,9 +796,15 @@ of (cf. `get_current_group_values()`), and admins to any group.
 
 Keep in mind that:
 
-* Checking for other owners and changing roles is not atomic. If concurrent
-  requests remove each other's owner roles, each restores the owner role it
-  removed when no owner is left, and raises `LastOwner`.
+* Checking for other owners and changing roles is not atomic, as policy
+  rules are stored one by one. If concurrent requests remove each other's
+  owner roles, each restores the owner role it removed when no owner is left,
+  and raises `LastOwner`. Concurrent requests granting a subject different
+  roles may leave it with both, and a request failing halfway (e.g., if the
+  database becomes unavailable) may leave a subject with fewer roles, or a
+  resource without owners; roles are revoked before others are granted, so
+  that failures leave fewer rights, not more. Admins can fix such cases.
+  Non-owner roles are not granted on resources without owners.
 * A resource may be deleted while a role on it is granted, which would leave
   the role behind. Pass a function checking that the resource still exists
   as `exists` to `grant_role()` and `revoke_roles()`: if it returns `False`

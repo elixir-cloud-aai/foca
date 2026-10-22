@@ -459,6 +459,8 @@ def _grant(
 
     Raises:
         werkzeug.exceptions.NotFound: The resource was deleted meanwhile.
+        Exception: Any exception raised by `exists`; the role is revoked
+            again.
     """
     add_resource_role(
         subject=subject,
@@ -467,14 +469,22 @@ def _grant(
         ptype=ptype,
         subject_type=subject_type,
     )
-    if exists is not None and not exists():
-        remove_resource_role(
-            subject=subject,
-            role=role,
-            resource=resource,
-            ptype=ptype,
-            subject_type=subject_type,
-        )
+    if exists is None:
+        return
+    resource_exists = False
+    try:
+        resource_exists = exists()
+    # The role is revoked again also if the check fails
+    finally:
+        if not resource_exists:
+            remove_resource_role(
+                subject=subject,
+                role=role,
+                resource=resource,
+                ptype=ptype,
+                subject_type=subject_type,
+            )
+    if not resource_exists:
         raise NotFound
 
 
@@ -554,7 +564,8 @@ def grant_role(
         werkzeug.exceptions.NotFound: `exists` returned `False` after the
             role was granted; the role was revoked again.
         ValueError: The role is not one of `access_control.resource_roles`,
-            the subject is empty, the role would not apply to the subject
+            the role is not `owner` and the resource has no owner (whose
+            role applies), the subject is empty, the role would not apply to the subject
             (a group while group claim values are not used as subjects, or a
             client that is not a service client), or the role cannot be
             granted (cf.
@@ -571,6 +582,11 @@ def grant_role(
     _check_applicable(subject, subject_type)
     previous = _get_roles_of(resource, subject, subject_type, ptype)
     if role != OWNER_ROLE:
+        if not _get_owners(resource, ptype):
+            raise ValueError(
+                f"Resource '{resource}' has no owner whose role applies: grant "
+                f"'{OWNER_ROLE}' first"
+            )
         _check_other_owners(resource, subject, subject_type, ptype)
     for other in roles:
         if other != role:
@@ -725,7 +741,13 @@ def resource_filter(
     """Get a MongoDB filter for the resources the current subject may see.
 
     Use this to filter listings of resources, e.g., so that users only list
-    their own tasks: `collection.find(resource_filter("/tasks"))`.
+    their own tasks: `collection.find(resource_filter("/tasks"))`. The filter
+    only selects by `field`, so `field` must identify the resources under
+    `prefix` uniquely among the queried documents. If a collection holds
+    resources under several prefixes (e.g., files of several projects at
+    `/projects/{id}/files`), combine the filter with one for the scope
+    (e.g., `{"project": "x", **resource_filter("/projects/x/files")}`),
+    also for admins, who get an empty filter.
 
     Args:
         prefix: Path prefix of the resources (cf.
