@@ -1,0 +1,28 @@
+# Editor settings (https://editorconfig.org), consistent with the pre-commit
+# hooks (end-of-file-fixer, trailing-whitespace) and ruff
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Line length as in ruff (`line-length` in `pyproject.toml`)
+[*.{py,pyi}]
+indent_style = space
+indent_size = 4
+max_line_length = 88
+
+[*.toml]
+indent_style = space
+indent_size = 4
+
+# Also Helm charts (templates and helpers)
+[*.{yaml,yml,json,tpl}]
+indent_style = space
+indent_size = 2
+
+# Two trailing spaces are a hard line break in Markdown; prefer a backslash
+[*.md]
+trim_trailing_whitespace = false

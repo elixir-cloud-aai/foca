@@ -202,6 +202,12 @@ Things to keep in mind:
   restarts them.
 - The [FOCA image](getting-started.md#docker) runs as a non-root user that
   also works with arbitrary user IDs, e.g., on OpenShift.
+- **Expose the app via the Gateway API** on new clusters: ingress-nginx, a
+  common ingress controller, is
+  [retired](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/).
+  Proxies differ in how they limit body sizes and rates, redirect to HTTPS
+  and which pods a NetworkPolicy must admit; see [Exposing the
+  app](helm-chart.md#exposing-the-app) for the common setups.
 
 ## Docker Compose
 
