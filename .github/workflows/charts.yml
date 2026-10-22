@@ -195,7 +195,7 @@ jobs:
           trap 'kill "${forward}" || true' EXIT
           # The URLs' host and default ports, via the forwarded ports; retried
           # until the ports are forwarded and Envoy Gateway has programmed
-          # the routes
+          # the redirect
           for _ in $(seq 1 60); do
             redirect="$(curl -sS -o /dev/null \
                 -w '%{http_code} %{redirect_url}' \
@@ -211,10 +211,22 @@ jobs:
             echo "::error::HTTP is not redirected to HTTPS"
             exit 1
           fi
-          curl -sSf --cacert "${RUNNER_TEMP}/tls.crt" \
-              --connect-to "${HOST}:443:127.0.0.1:8443" \
-              "https://${HOST}/openapi.json" -o /dev/null
-          echo "HTTPS: the app is reachable"
+          # The app's route is a separate HTTPRoute, so it is retried, too
+          for _ in $(seq 1 30); do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' \
+                --cacert "${RUNNER_TEMP}/tls.crt" \
+                --connect-to "${HOST}:443:127.0.0.1:8443" \
+                "https://${HOST}/openapi.json")" || true
+            if [ "${status}" = "200" ]; then
+              break
+            fi
+            sleep 2
+          done
+          echo "HTTPS: ${status}"
+          if [ "${status}" != "200" ]; then
+            echo "::error::The app is not reachable via HTTPS"
+            exit 1
+          fi
           result="$(kubectl run network-policy-check -n default \
               --image foca-petstore:latest --image-pull-policy Never \
               --restart Never --rm -i --quiet --command -- python -c "

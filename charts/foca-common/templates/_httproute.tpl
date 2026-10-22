@@ -43,7 +43,7 @@ spec:
     filters:
       {{- toYaml . | nindent 4 }}
     {{- end }}
-    {{- /* Port numbers only (not names, as in the Ingress); see `foca-common.service` */}}
+    {{- /* A port number, as backendRefs take no names (see foca-common.service) */}}
     backendRefs:
     - name: {{ include "foca-common.fullname" $root | quote }}
       port: 8080

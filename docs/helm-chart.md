@@ -342,13 +342,15 @@ policies; [ingress2gateway](https://github.com/kubernetes-sigs/ingress2gateway)
 converts Ingresses (including many ingress-nginx annotations) to Gateway API
 resources, which helps to translate them. The Gateway usually has another
 address than the ingress controller, and one release cannot have both an
-Ingress and an HTTPRoute: to switch without downtime, add the Gateway's
-peers to `<valuesKey>.networkPolicy.ingressFrom` (if enabled) and upgrade
-the release, create an HTTPRoute by hand (e.g., rendered with `helm
-template` and the new values, under another name), switch the DNS records
-of `hostName` to the Gateway, then upgrade the release to the HTTPRoute
-(without the ingress controller's peers) and delete the one created by
-hand.
+Ingress and an HTTPRoute. To switch without downtime:
+
+1. If the app's NetworkPolicy is enabled, add the Gateway's peers to
+   `<valuesKey>.networkPolicy.ingressFrom` and upgrade the release.
+2. Create an HTTPRoute by hand, e.g., rendered with `helm template` and the
+   new values, under another name.
+3. Switch the DNS records of `hostName` to the Gateway.
+4. Upgrade the release to the HTTPRoute, removing the ingress controller's
+   peers from `ingressFrom`, and delete the HTTPRoute created by hand.
 
 ### Traefik
 
