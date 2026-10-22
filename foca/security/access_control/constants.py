@@ -12,6 +12,8 @@ ACCESS_CONTROL_BASE_PATH = "foca.security.access_control.api"
 
 # Field marking stored policy rules set via `access_control.policies`
 CONFIGURED_FIELD = "configured"
+# Field ordering role rules stored by `Adapter.replace_role_rule()`
+GRANTED_FIELD = "granted"
 
 # Prefix of group claim values used as roles without `group_mapping`
 GROUP_PREFIX = "group:"
