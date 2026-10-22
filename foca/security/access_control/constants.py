@@ -15,6 +15,11 @@ CONFIGURED_FIELD = "configured"
 
 # Prefix of group claim values used as roles without `group_mapping`
 GROUP_PREFIX = "group:"
+# Prefix of service clients (client IDs) in policy rules
+CLIENT_PREFIX = "client:"
+# Fixed prefixes of subject types other than users (whose prefix is
+# configurable via `access_control.subject_prefix`)
+SUBJECT_TYPE_PREFIXES = {"group": GROUP_PREFIX, "client": CLIENT_PREFIX}
 
 # Identifiers of policy rules: characters, length and attempts to generate a
 # unique identifier

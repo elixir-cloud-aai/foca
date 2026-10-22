@@ -19,9 +19,7 @@ from foca.security.access_control.constants import (
     MAX_PAGE_SIZE,
 )
 from foca.security.access_control.enforcement import (
-    _prefix_subject,
-    get_current_groups,
-    get_current_subject,
+    _get_current_policy_subjects,
     is_permitted,
 )
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
@@ -68,7 +66,8 @@ def _get_visibility_filter() -> dict[str, Any]:
         is only accessible to subjects allowed by the policies) or if the
         policies allow the subject to access the requested resource.
         Otherwise, a filter for the rules that apply to the subject: rules
-        whose subject (`v0`) is the prefixed subject, one of its roles from
+        whose subject (`v0`) is the prefixed subject (for service tokens, the
+        prefixed client ID or the role of the client), one of its roles from
         group claims, or `*`.
 
     Raises:
@@ -78,9 +77,7 @@ def _get_visibility_filter() -> dict[str, Any]:
     conf = get_config().security.access_control
     if not conf.self_service or is_permitted():
         return {}
-    subject = get_current_subject()
-    subjects = [_prefix_subject(str(subject)), *get_current_groups(), "*"]
-    return {"v0": {"$in": subjects}}
+    return {"v0": {"$in": [*_get_current_policy_subjects(), "*"]}}
 
 
 def _get_rule() -> tuple[str, list[str]]:

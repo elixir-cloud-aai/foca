@@ -335,14 +335,16 @@ To keep users, groups and roles apart, subjects are namespaced in rules:
 | --- | --- | --- |
 | User identifier | prefixed with `subject_prefix` (default: `user:`) | `user:alice` |
 | Group claim value without `group_mapping` or with `keep_group_subjects` | prefixed with `group:` | `group:vo-members` |
-| Role (from `group_mapping` or `g` rules) | as is | `admin` |
+| Client ID of a [service client](#service-clients) | prefixed with `client:` | `client:conquest` |
+| Role (from `group_mapping`, `client_mapping` or `g` rules) | as is | `admin` |
 
 This way, a user whose identifier equals a role name (e.g., `admin`), or an
 identity provider group of that name, is not granted that role. For the same
 reason, `subject_prefix` must not be empty and must not overlap with
-`group:`. All rules, including those for the permissions API, must use these
-forms (e.g., `p, user:alice, /admin/access-control/permissions, GET`); rules
-naming unprefixed user identifiers do not match.
+`group:` or `client:`. All rules, including those for the permissions API,
+must use these forms (e.g., `p, user:alice,
+/admin/access-control/permissions, GET`); rules naming unprefixed user
+identifiers do not match.
 
 In your controllers, use `get_current_subject()` and `get_current_groups()`
 to get the subject (without prefix) and roles of the current request, and
@@ -356,6 +358,73 @@ from foca.security.access_control import (
     get_current_subject,
 )
 ```
+
+### Service clients
+
+Requests with [service tokens](authentication.md#service-tokens) of service
+clients (`security.auth.service_clients`) are enforced with the subject
+`client:<client ID>` instead of the token's subject, so that a client never
+gets the rights of a user of the same name and vice versa. Group claims
+apply as for users, if service tokens have them. To give service clients
+roles without rules per client, map them to roles via `client_mapping`; only
+service clients can be mapped. As for `group_mapping`, mapped roles must not
+start with `subject_prefix`, `group:` or `client:`, as the mapped clients
+would otherwise get the rights of that subject:
+
+```yaml
+security:
+  auth:
+    service_clients:
+      - client_id: conquest
+  access_control:
+    enabled: True
+    client_mapping:
+      conquest: submitter
+    policies:
+      - [p, submitter, /tasks, "(GET)|(POST)"]
+```
+
+Requests with this client's service tokens are checked as `client:conquest`
+and `submitter`, also if they lack the identity claim (`claim_identity`).
+Rules may also name `client:conquest` directly. Tokens that the client
+obtained for users are user tokens and are checked as their users.
+
+In your controllers, `get_current_client()` returns the client ID of the
+service client of the current request (`None` for user tokens), and
+`get_on_behalf_of_user()` the user that a service client allowed to act for
+users names (cf. [service tokens](authentication.md#service-tokens)). Use
+them, e.g., to make the user a gateway acts for, or else the calling client,
+the owner of a new resource: pass `subject_type="client"` and the client ID
+(without `client:`) to the [resource role helpers](#resource-scoped-roles):
+
+```python
+from foca.security.access_control import (
+    add_resource_role,
+    get_current_client,
+    get_current_subject,
+    get_on_behalf_of_user,
+)
+
+
+def postTask(**kwargs):
+    resource = ...  # create resource
+    user = get_on_behalf_of_user()
+    client = get_current_client()
+    if user is not None:
+        add_resource_role(subject=user, role="owner", resource=resource)
+    elif client is not None:
+        add_resource_role(
+            subject=client, role="owner", resource=resource, subject_type="client"
+        )
+    else:
+        add_resource_role(
+            subject=get_current_subject(), role="owner", resource=resource
+        )
+```
+
+`get_on_behalf_of_user()` rejects requests of other callers that name a user
+with `403 Forbidden`; call it in every controller that should honor the
+header, so that clients notice when they are not allowed to act for users.
 
 ### Resource-scoped roles
 
@@ -431,9 +500,10 @@ resource, and `remove_resource_role(subject, role, resource)` revokes a
 single role. The helpers take and return user identifiers without prefix and
 add `subject_prefix` to the rules themselves. `add_resource_role()` raises a
 `ValueError` for empty subjects and for roles starting with
-`subject_prefix` or `group:`: as Casbin resolves roles transitively,
-granting, e.g., the "role" `group:auditors` to a user would otherwise give
-the user all rights of that group. `remove_resource_role()` accepts both, so
+`subject_prefix`, `group:` or `client:`: as Casbin resolves roles
+transitively, granting, e.g., the "role" `group:auditors` to a user would
+otherwise give the user all rights of that group. `remove_resource_role()`
+accepts both, so
 that existing rules with them can be revoked; it removes all stored copies of
 a rule, and `list_resource_roles()` returns each subject and role pair
 once, also if a rule was stored more than once (e.g., by concurrent

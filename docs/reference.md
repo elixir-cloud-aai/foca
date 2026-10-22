@@ -21,6 +21,8 @@ configuration models, see [Configuration](configuration/index.md).
     options:
       members:
         - validate_token
+        - get_token_client
+        - get_service_client
 
 ## Access control
 
@@ -32,6 +34,8 @@ configuration models, see [Configuration](configuration/index.md).
         - get_current_subject
         - get_current_groups
         - get_current_group_values
+        - get_current_client
+        - get_on_behalf_of_user
         - get_enforcer
         - add_resource_role
         - remove_resource_role
