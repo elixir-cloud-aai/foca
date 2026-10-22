@@ -73,3 +73,8 @@ token was obtained by.
 - [`security.access_control.client_mapping`](configuration/access-control.md):
   roles of service clients, which access control checks as
   `client:<client ID>` ([details](access-control.md#service-clients)).
+- [`security.access_control.resource_roles`](configuration/access-control.md):
+  roles on resources (default: `owner` and `maintainer`) that the new
+  resource ownership helpers grant and revoke, e.g., to make the creator of a
+  resource its owner and to filter listings to the caller's resources
+  ([details](access-control.md#resource-ownership)).
