@@ -341,9 +341,10 @@ To keep users, groups and roles apart, subjects are namespaced in rules:
 This way, a user whose identifier equals a role name (e.g., `admin`), or an
 identity provider group of that name, is not granted that role. For the same
 reason, `subject_prefix` must not be empty and must not overlap with
-`group:` or `client:`. All rules, including those for the permissions API, must use these
-forms (e.g., `p, user:alice, /admin/access-control/permissions, GET`); rules
-naming unprefixed user identifiers do not match.
+`group:` or `client:`. All rules, including those for the permissions API,
+must use these forms (e.g., `p, user:alice,
+/admin/access-control/permissions, GET`); rules naming unprefixed user
+identifiers do not match.
 
 In your controllers, use `get_current_subject()` and `get_current_groups()`
 to get the subject (without prefix) and roles of the current request, and
@@ -382,9 +383,9 @@ security:
 ```
 
 Requests with this client's service tokens are checked as `client:conquest`
-and `submitter`. Rules may also name `client:conquest` directly. Tokens that
-the client obtained for users are user tokens and are checked as their
-users.
+and `submitter`, also if they lack the identity claim (`claim_identity`).
+Rules may also name `client:conquest` directly. Tokens that the client
+obtained for users are user tokens and are checked as their users.
 
 In your controllers, `get_current_client()` returns the client ID of the
 service client of the current request (`None` for user tokens), and
@@ -497,9 +498,10 @@ resource, and `remove_resource_role(subject, role, resource)` revokes a
 single role. The helpers take and return user identifiers without prefix and
 add `subject_prefix` to the rules themselves. `add_resource_role()` raises a
 `ValueError` for empty subjects and for roles starting with
-`subject_prefix`, `group:` or `client:`: as Casbin resolves roles transitively,
-granting, e.g., the "role" `group:auditors` to a user would otherwise give
-the user all rights of that group. `remove_resource_role()` accepts both, so
+`subject_prefix`, `group:` or `client:`: as Casbin resolves roles
+transitively, granting, e.g., the "role" `group:auditors` to a user would
+otherwise give the user all rights of that group. `remove_resource_role()`
+accepts both, so
 that existing rules with them can be revoked; it removes all stored copies of
 a rule, and `list_resource_roles()` returns each subject and role pair
 once, also if a rule was stored more than once (e.g., by concurrent

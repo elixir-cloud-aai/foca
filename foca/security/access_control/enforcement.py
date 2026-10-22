@@ -177,8 +177,8 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
         user.
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The named user is empty or
-            blank.
+        connexion.exceptions.BadRequestProblem: The named user is not a
+            string, is empty or blank, or has surrounding whitespace.
         connexion.exceptions.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
@@ -197,8 +197,13 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
             escape_log_value(user),
         )
         raise Forbidden(description="Only allowed service clients may act for users")
-    if not user.strip():
+    # Values passed by the app may come from request fields of any type
+    if not isinstance(user, str) or not user.strip():
         raise BadRequestProblem(detail="The user acted for must not be empty")
+    if user != user.strip():
+        raise BadRequestProblem(
+            detail="The user acted for must not have surrounding whitespace"
+        )
     logger.debug(
         "Service client '%s' acts for user '%s'",
         escape_log_value(client.client_id),
@@ -429,10 +434,13 @@ def is_permitted() -> bool:
         policy rules (cf. :py:func:`validate_rule_value`).
 
     Raises:
-        connexion.exceptions.Unauthorized: The subject could not be
-            identified.
+        connexion.exceptions.Unauthorized: The subject of a token that is not
+            a service token could not be identified.
     """
-    subject = get_current_subject()
+    client = _get_current_service_client()
+    # Service tokens are identified by their client, also if they lack the
+    # identity claim of access control (e.g., a claim only users have)
+    subject = get_current_subject() if client is None else client.client_id
     if subject is None:
         from foca.security.auth import _unauthorized  # noqa: PLC0415 (import cycle)
 
@@ -647,8 +655,8 @@ def _validate_grantable_role(role: str) -> None:
         role: Role to grant.
 
     Raises:
-        ValueError: The role starts with `access_control.subject_prefix` or
-            `group:`.
+        ValueError: The role starts with `access_control.subject_prefix`,
+            `group:` or `client:`.
     """
     for prefix in [_get_subject_prefix("user"), *SUBJECT_TYPE_PREFIXES.values()]:
         if role.startswith(prefix):
@@ -680,14 +688,16 @@ def add_resource_role(
 
     Args:
         subject: Subject to grant role to, without prefix: a user identifier
-            (e.g., as returned by :py:func:`get_current_subject`), or a group
-            claim value if `subject_type` is `group`. It is prefixed with
-            `access_control.subject_prefix` or `group:`, respectively, in the
-            rule.
+            (e.g., as returned by :py:func:`get_current_subject`), a group
+            claim value if `subject_type` is `group`, or a client ID of a
+            service client if `subject_type` is `client` (e.g., as returned
+            by :py:func:`get_current_client`). It is prefixed with
+            `access_control.subject_prefix`, `group:` or `client:`,
+            respectively, in the rule.
         role: Role to grant (e.g., `owner`).
         resource: Resource to grant role on, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
-        subject_type: Type of the subject: `user` or `group`.
+        subject_type: Type of the subject: `user`, `group` or `client`.
 
     Returns:
         `True` if the role was granted, `False` if it already existed.
@@ -695,8 +705,9 @@ def add_resource_role(
     Raises:
         ValueError: The model does not define resource-scoped roles, the
             subject is empty, the subject type is not supported, the role
-            starts with `access_control.subject_prefix` or `group:` (so that
-            subjects cannot get the roles of other subjects through it), or
+            starts with `access_control.subject_prefix`, `group:` or
+            `client:` (so that subjects cannot get the roles of other
+            subjects through it), or
             the prefixed subject, role or resource is not a valid value for
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).
@@ -741,11 +752,12 @@ def remove_resource_role(
 
     Args:
         subject: Subject to revoke role from, without prefix: a user
-            identifier, or a group claim value if `subject_type` is `group`.
+            identifier, a group claim value if `subject_type` is `group`, or a
+            client ID if `subject_type` is `client`.
         role: Role to revoke (e.g., `owner`).
         resource: Resource to revoke role on, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
-        subject_type: Type of the subject: `user` or `group`.
+        subject_type: Type of the subject: `user`, `group` or `client`.
 
     Returns:
         `True` if the role was revoked, `False` if it did not exist or is
@@ -760,9 +772,9 @@ def remove_resource_role(
             subject type is not supported, or the prefixed subject, role or
             resource is not a valid value for policy rules. Unlike
             :py:func:`add_resource_role`, empty subjects and roles starting
-            with `access_control.subject_prefix` or `group:` are accepted,
-            so that such rules (e.g., stored before they were rejected) can
-            be revoked.
+            with `access_control.subject_prefix`, `group:` or `client:` are
+            accepted, so that such rules (e.g., stored before they were
+            rejected) can be revoked.
     """
     # Subject and role checks of `add_resource_role()` do not apply here
     enforcer = _get_resource_role_enforcer(ptype)
@@ -788,12 +800,12 @@ def list_resource_roles(
     Args:
         resource: Resource to list roles of, i.e., its full request path.
         ptype: Policy type of resource-scoped role rules.
-        subject_type: Type of subjects to list roles of: `user` or `group`.
-            If `None`, roles of all subjects are listed, with user
+        subject_type: Type of subjects to list roles of: `user`, `group` or
+            `client`. If `None`, roles of all subjects are listed, with user
             identifiers without `access_control.subject_prefix` and all other
             subjects as is (e.g., `group:vo-members`), so that a user whose
-            identifier starts with `group:` cannot be told apart from a
-            group; pass the type to tell them apart.
+            identifier starts with `group:` or `client:` cannot be told apart
+            from a group or client; pass the type to tell them apart.
 
     Returns:
         Subject and role of each role granted on the resource, without

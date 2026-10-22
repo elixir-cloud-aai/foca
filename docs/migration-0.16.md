@@ -40,9 +40,9 @@ See [Authentication](authentication.md#how-tokens-are-validated) for details.
 ### Subject prefix must not overlap with `client:`
 
 Service clients are namespaced with `client:` in access control rules (see
-below). A `security.access_control.subject_prefix` overlapping with it (e.g.,
-`client:` or `c`) is rejected on startup, as for `group:`; choose another
-prefix, and migrate the rules accordingly.
+[new options](#new-options)). A `security.access_control.subject_prefix`
+overlapping with it (e.g., `client:` or `c`) is rejected on startup, as for
+`group:`; choose another prefix, and migrate the rules accordingly.
 
 ## New options
 

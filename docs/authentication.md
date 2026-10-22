@@ -185,7 +185,10 @@ are enforced on them with the subject `client:<client ID>`.
     usually fails.
 
 If `clients` are restricted, service clients must be among them; FOCA refuses
-to start otherwise.
+to start otherwise. Like subjects, service clients are not scoped by issuer:
+if you trust several `issuers`, make sure that they cannot issue tokens for
+the same client IDs to different clients; FOCA logs a warning on the first
+validation if service clients are configured with several trusted issuers.
 
 Service clients with `on_behalf_of: true` (e.g., a gateway forwarding user
 requests) may name the user they act for, in the `on_behalf_of_header` or in
@@ -193,8 +196,10 @@ a request field that the app reads. Call
 `foca.security.access_control.get_on_behalf_of_user()` (optionally with the
 value of the field) to get that user, e.g., to make them the owner of a
 resource the client creates. Requests of other callers naming a user are
-rejected with `403 Forbidden`, and empty or blank names with `400 Bad
-Request`. FOCA does not check whether the named user exists: service clients
+rejected with `403 Forbidden`, and names that are empty, blank or have
+surrounding whitespace with `400 Bad Request`. FOCA logs a warning on the
+first validation if `on_behalf_of_header` is set, but no service client may
+act for users. FOCA does not check whether the named user exists: service clients
 allowed to act for users are trusted to name the user whose request they
 handle.
 

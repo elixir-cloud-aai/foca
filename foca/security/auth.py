@@ -230,6 +230,24 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
         )
     if conf.allow_expired:
         logger.warning("Expired tokens are accepted (`security.auth.allow_expired`).")
+    if len(set(conf.issuers)) > 1 and conf.service_clients:
+        logger.warning(
+            "Several trusted token issuers and service clients are configured "
+            "(`security.auth.issuers`, `security.auth.service_clients`): "
+            "service clients are not scoped by issuer, so tokens of any "
+            "trusted issuer for a service client's ID and subject are its "
+            "service tokens. Only trust several issuers if they cannot issue "
+            "tokens for the same client IDs to different clients."
+        )
+    if conf.on_behalf_of_header is not None and not any(
+        client.on_behalf_of for client in conf.service_clients
+    ):
+        logger.warning(
+            "An on-behalf-of header is configured "
+            "(`security.auth.on_behalf_of_header`), but no service client may "
+            "act for users (`on_behalf_of`): requests naming users in the "
+            "header are rejected."
+        )
 
 
 def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:

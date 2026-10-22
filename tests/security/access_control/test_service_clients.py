@@ -7,7 +7,7 @@ from typing import Any
 
 import mongomock
 import pytest
-from connexion.exceptions import BadRequestProblem, Forbidden
+from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from flask import Flask
 from flask.globals import request_ctx
 
@@ -19,6 +19,9 @@ from foca.security.access_control import (
     get_on_behalf_of_user,
     is_permitted,
     list_resource_roles,
+)
+from foca.security.access_control.access_control_server import (
+    _get_visibility_filter,
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
@@ -162,6 +165,31 @@ class TestSubjects:
         with request(app, claims, path=path, method=method):
             assert is_permitted() is allowed
 
+    def test_identity_claim_of_users(self, app: Flask) -> None:
+        """Service tokens need not have the identity claim of users."""
+        conf = app.config.foca.security.access_control  # type: ignore[attr-defined]  # dynamic attribute
+        conf.claim_identity = "email"
+        with request(app, CONQUEST, method="POST"):
+            assert is_permitted() is True
+        with request(app, ALICE, method="POST"), pytest.raises(Unauthorized):
+            is_permitted()
+
+    @pytest.mark.parametrize(
+        "claims,subjects",
+        [
+            (CONQUEST, ["client:conquest", "submitter", "*"]),
+            (USER_CONQUEST, ["user:conquest", "*"]),
+        ],
+    )
+    def test_visibility_filter(
+        self, app: Flask, claims: dict[str, Any], subjects: list[str]
+    ) -> None:
+        """Self-service permissions are filtered by the policy subjects."""
+        conf = app.config.foca.security.access_control  # type: ignore[attr-defined]  # dynamic attribute
+        conf.self_service = True
+        with request(app, claims, path="/permissions"):
+            assert _get_visibility_filter() == {"v0": {"$in": subjects}}
+
     def test_resource_role(self, app: Flask) -> None:
         """Clients can be granted resource-scoped roles."""
         with request(app, PROTES, path="/tasks/1"):
@@ -209,14 +237,24 @@ class TestOnBehalfOf:
             with pytest.raises(Forbidden):
                 get_on_behalf_of_user("alice")
 
-    @pytest.mark.parametrize("user", ["", " "])
+    @pytest.mark.parametrize("user", ["", " ", " alice", "alice\t"])
     def test_empty(self, app: Flask, user: str) -> None:
-        """Named users must not be empty."""
+        """Named users must not be empty or have surrounding whitespace."""
         with request(app, CONQUEST, headers={HEADER: user}):
             with pytest.raises(BadRequestProblem):
                 get_on_behalf_of_user()
             with pytest.raises(BadRequestProblem):
                 get_on_behalf_of_user(user)
+
+    def test_not_string(self, app: Flask) -> None:
+        """Named users passed by the app must be strings."""
+        with request(app, CONQUEST), pytest.raises(BadRequestProblem):
+            get_on_behalf_of_user(123)  # type: ignore[arg-type]  # invalid on purpose
+
+    def test_no_request(self, app: Flask) -> None:
+        """No user is named outside of requests."""
+        with app.app_context():
+            assert get_on_behalf_of_user() is None
 
     def test_header_not_configured(self, app: Flask) -> None:
         """Without a configured header, headers are ignored."""

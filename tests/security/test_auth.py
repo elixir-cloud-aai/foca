@@ -16,7 +16,7 @@ from flask import request as auth_request
 from pydantic import ValidationError
 
 from foca.config.access import get_app_config
-from foca.models.config import AuthConfig, Config
+from foca.models.config import AuthConfig, Config, ServiceClientConfig
 from foca.security import auth
 from foca.security.auth import log_auth_config_warnings, validate_token
 from tests.mock_data import INVALID_TOKEN_CHALLENGE
@@ -878,6 +878,38 @@ class TestLogAuthConfigWarnings:
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
         assert caplog.text == ""
+
+    def test_service_clients_of_several_issuers(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Service clients are warned about with several trusted issuers."""
+        conf = AuthConfig(
+            issuers=[ISSUER, "https://other.example.org"],
+            audience=[AUDIENCE],
+            service_clients=[ServiceClientConfig(client_id=CLIENT)],
+        )
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert "service clients are not scoped by issuer" in caplog.text
+
+    @pytest.mark.parametrize("on_behalf_of", [False, True])
+    def test_on_behalf_of_header(
+        self, caplog: pytest.LogCaptureFixture, on_behalf_of: bool
+    ) -> None:
+        """A header without service clients acting for users is warned about."""
+        conf = AuthConfig.model_validate(
+            {
+                "issuers": [ISSUER],
+                "audience": [AUDIENCE],
+                "service_clients": [
+                    {"client_id": CLIENT, "on_behalf_of": on_behalf_of}
+                ],
+                "on_behalf_of_header": "X-On-Behalf-Of",
+            }
+        )
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert ("on_behalf_of_header" in caplog.text) is not on_behalf_of
 
     def test_clients_instead_of_audience(
         self, caplog: pytest.LogCaptureFixture
