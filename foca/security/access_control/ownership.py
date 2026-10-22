@@ -464,9 +464,10 @@ def _grant(
     Raises:
         werkzeug.exceptions.NotFound: The resource was deleted meanwhile.
         Exception: Any exception raised by `exists`; the role is revoked
-            again if `revoke_on_error` is set.
+            again if `revoke_on_error` is set and the role was not granted
+            before.
     """
-    add_resource_role(
+    added = add_resource_role(
         subject=subject,
         role=role,
         resource=resource,
@@ -475,11 +476,12 @@ def _grant(
     )
     if exists is None:
         return
-    resource_exists = not revoke_on_error
+    resource_exists = not (revoke_on_error and added)
     try:
         resource_exists = exists()
     # The role is revoked again if the resource is gone, or if the check
-    # fails, unless `revoke_on_error` is unset
+    # fails, unless `revoke_on_error` is unset or the role was granted
+    # before
     finally:
         if not resource_exists:
             remove_resource_role(

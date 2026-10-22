@@ -305,6 +305,7 @@ class TestUserRoles:
             }
             with pytest.raises(NotFound):
                 put(body={"role": "maintainer"}, exists=lambda: False)
+            assert ResourceRole(subject_type, "devs", "maintainer") not in _roles(app)
             put(body={"role": "maintainer"}, exists=lambda: True)
         assert _roles(app)[-1] == ResourceRole(subject_type, "devs", "maintainer")
 
@@ -332,6 +333,22 @@ class TestUserRoles:
             pytest.raises(RuntimeError),
         ):
             ownership_server.deleteUserRole(exists=fail)
+        assert _roles(app) == [ResourceRole("user", "alice", "owner")]
+
+    def test_failing_check_on_repeated_grant(self, app: Flask) -> None:
+        """Roles granted before are kept if checking the resource fails."""
+
+        def fail() -> bool:
+            raise RuntimeError("database not available")
+
+        path = f"{TASK}/permissions/users/alice"
+        with app.test_request_context(path, method="PUT"):
+            # token info, as set by Connexion
+            request_ctx.connexion_context = {  # type: ignore[attr-defined]
+                "token_info": mock_token_info("alice")
+            }
+            with pytest.raises(RuntimeError):
+                ownership_server.putUserRole(body={"role": "owner"}, exists=fail)
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
     def test_deleted_during_grant(self, app: Flask) -> None:

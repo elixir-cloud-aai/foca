@@ -858,8 +858,9 @@ role to a user called `groups`.
 * The controllers cannot know whether a resource still exists, so a role
   granted while the resource is deleted would be left behind. To revoke it
   again (`404`), route to a wrapper passing an existence check as `exists`
-  (cf. `grant_role()`), which also serves as an alias; `exists` must
-  therefore not be the name of a parameter of these operations:
+  (cf. `grant_role()`), which also serves as an alias; `exists` (like
+  `body`, which holds request bodies) must therefore not be the name of a
+  parameter of these operations:
 
     ```python
     from foca import get_collection

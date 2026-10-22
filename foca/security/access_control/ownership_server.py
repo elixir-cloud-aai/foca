@@ -20,8 +20,8 @@ endpoints is decided by the app's policies. Requests and responses are logged
 unless disabled via config option `security.access_control.log_traffic`.
 
 The controllers take an optional existence check as `exists` (cf.
-:py:func:`putUserRole`), so `exists` must not be the name of a parameter of
-operations routed to them.
+:py:func:`putUserRole`) and request bodies as `body`, so neither may be the
+name of a parameter of operations routed to them.
 """
 
 import logging
