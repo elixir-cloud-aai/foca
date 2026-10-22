@@ -510,6 +510,26 @@ class TestGrantRole:
             grant_role(TASK, "bob", "maintainer", exists=lambda: True)
             assert ResourceRole("user", "bob", "maintainer") in list_roles(TASK)
 
+    def test_existence_check_fails(self, app: Flask) -> None:
+        """Roles are revoked again if checking the resource fails."""
+
+        def fail() -> bool:
+            raise RuntimeError("database not available")
+
+        with as_caller(app, ALICE):
+            add_owner(TASK)
+            with pytest.raises(RuntimeError, match="database"):
+                grant_role(TASK, "bob", "maintainer", exists=fail)
+            assert list_roles(TASK) == [ResourceRole("user", "alice", "owner")]
+
+    def test_no_owner(self, app: Flask) -> None:
+        """Resources without owners only get owners."""
+        with as_caller(app, CAROL):
+            add_resource_role("bob", "maintainer", TASK)
+            with pytest.raises(ValueError, match="no owner"):
+                grant_role(TASK, "dave", "maintainer")
+            assert grant_role(TASK, "bob", "owner") == ["maintainer"]
+
     def test_restored_owner_resource_gone(self, app: Flask) -> None:
         """Owners are not restored on resources deleted meanwhile."""
         with as_caller(app, ALICE):
