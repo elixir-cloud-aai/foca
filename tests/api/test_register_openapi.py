@@ -340,6 +340,390 @@ class TestModifiedSpecs:
         assert operations["post"]["x-openapi-router-controller"] == ("controllers")
 
 
+class TestPatches:
+    """Tests for patching specifications via `patches`."""
+
+    @pytest.fixture
+    def logs(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> pytest.LogCaptureFixture:
+        """Capture records of the module from INFO up."""
+        monkeypatch.setattr(module.logger, "disabled", False)
+        caplog.set_level(logging.INFO, logger=module.logger.name)
+        return caplog
+
+    @staticmethod
+    def _patched(
+        monkeypatch: pytest.MonkeyPatch, *patches: Any, **spec_config: Any
+    ) -> dict[str, Any]:
+        """Register the OpenAPI 3 spec with patches; return the patched spec."""
+        return _registered_spec(
+            monkeypatch,
+            {**SPEC_CONFIG_3, **spec_config, "patches": list(patches)},
+        )
+
+    @staticmethod
+    def _warnings(logs: pytest.LogCaptureFixture) -> list[str]:
+        return [
+            record.getMessage()
+            for record in logs.records
+            if record.name == module.logger.name and record.levelno == logging.WARNING
+        ]
+
+    def test_merge_order(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Patches are merged in order, after `path` and `append`.
+
+        Mappings are merged, other values replaced; fields set by patches
+        are kept by `add_operation_fields` and `add_security_fields`.
+        """
+        patch = tmp_path / "patch.yaml"
+        patch.write_text(
+            "info:\n"
+            "  title: From file\n"
+            "  x-patched: file\n"
+            "paths:\n"
+            "  /pets:\n"
+            "    get:\n"
+            "      tags: [patched]\n"
+            "      x-openapi-router-controller: other_controllers\n"
+        )
+        spec = self._patched(monkeypatch, patch, {"info": {"title": "Inline"}})
+        # appended `info` is merged with the patches
+        assert spec["info"] == {
+            **APPEND["info"],
+            "title": "Inline",
+            "x-patched": "file",
+        }
+        operations = spec["paths"]["/pets"]
+        assert operations["get"]["tags"] == ["patched"]
+        assert operations["get"]["summary"] == "List all pets"
+        assert operations["get"]["x-openapi-router-controller"] == "other_controllers"
+        assert operations["post"]["x-openapi-router-controller"] == "controllers"
+        scheme = spec["components"]["securitySchemes"]["bearerAuth"]
+        assert scheme["x-bearerInfoFunc"] == "controllers.validate_token"
+
+    def test_json_and_empty_files(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Patch files may be JSON; empty files do not change the spec.
+
+        Files with comments only count as empty.
+        """
+        patch = tmp_path / "patch.json"
+        patch.write_text('{"info": {"title": "JSON"}}')
+        empty = tmp_path / "empty.yaml"
+        empty.write_text("")
+        comments = tmp_path / "comments.yaml"
+        comments.write_text("# nothing to patch yet\n")
+        spec = self._patched(monkeypatch, patch, empty, comments)
+        assert spec["info"]["title"] == "JSON"
+
+    def test_no_patches(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without patches, the spec is not changed."""
+        assert self._patched(monkeypatch) == _registered_spec(
+            monkeypatch, SPEC_CONFIG_3
+        )
+
+    def test_logged(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        logs: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Applied patches are logged, with the name of the spec."""
+        patch = tmp_path / "patch.yaml"
+        patch.write_text("info:\n  title: Patched\n")
+        self._patched(monkeypatch, patch, {"info": {"title": "Inline"}}, name="pets")
+        infos = [
+            record.getMessage()
+            for record in logs.records
+            if record.levelno == logging.INFO and "patches" in record.getMessage()
+        ]
+        assert infos == [
+            f"Applied patches to API spec 'pets': {patch}, inline patch #2"
+        ]
+        assert not self._warnings(logs)
+
+    @pytest.mark.parametrize(
+        "patch,operations",
+        [
+            # public operation
+            ({"paths": {"/pets": {"get": {"security": []}}}}, ["GET /pets"]),
+            # optional authentication
+            ({"paths": {"/pets": {"post": {"security": [{}]}}}}, ["POST /pets"]),
+            # root requirement inherited by `GET /pets/{petId}` only
+            ({"security": []}, ["GET /pets/{petId}"]),
+            # opted out of enforcement
+            (
+                {"paths": {"/pets": {"post": {"x-foca-access-control": False}}}},
+                ["POST /pets"],
+            ),
+            (
+                {"paths": {"/pets": {"post": {"x-foca-self-service": True}}}},
+                ["POST /pets"],
+            ),
+            # several operations
+            (
+                {
+                    "paths": {
+                        "/pets": {"get": {"security": []}},
+                        "/pets/{petId}": {"get": {"security": []}},
+                    }
+                },
+                ["GET /pets", "GET /pets/{petId}"],
+            ),
+            # new public operation
+            (
+                {"paths": {"/new": {"get": {"security": [], "responses": {}}}}},
+                ["GET /new"],
+            ),
+            # path item replaced by a local reference to a public one
+            (
+                {
+                    "x-open": {"get": {"security": [], "responses": {}}},
+                    "paths": {"/pets": {"$ref": "#/x-open"}},
+                },
+                ["GET /pets"],
+            ),
+            # path item replaced by a reference to another file
+            (
+                {"paths": {"/pets": {"$ref": "other.yaml#/pets"}}},
+                ["/pets"],
+            ),
+        ],
+    )
+    def test_weakened_warned(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        logs: pytest.LogCaptureFixture,
+        patch: dict[str, Any],
+        operations: list[str],
+    ) -> None:
+        """Patches removing authentication or access control are warned of."""
+        self._patched(monkeypatch, patch)
+        warnings = self._warnings(logs)
+        assert len(warnings) == 1
+        assert f": {', '.join(operations)}." in warnings[0]
+
+    @pytest.mark.parametrize(
+        "patch",
+        [
+            {"info": {"title": "Patched"}},
+            # requiring other authentication
+            {"paths": {"/pets": {"get": {"security": [{"bearerAuth": ["read"]}]}}}},
+            # adding a protected operation
+            {"paths": {"/new": {"post": {"responses": {}}}}},
+        ],
+    )
+    def test_not_weakened(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        logs: pytest.LogCaptureFixture,
+        patch: dict[str, Any],
+    ) -> None:
+        """Other patches are not warned of."""
+        self._patched(monkeypatch, patch)
+        assert not self._warnings(logs)
+
+    def test_weakened_operation_fields(
+        self, monkeypatch: pytest.MonkeyPatch, logs: pytest.LogCaptureFixture
+    ) -> None:
+        """Protections added via `add_operation_fields` are compared, too."""
+        self._patched(
+            monkeypatch,
+            {"paths": {"/pets/{petId}": {"get": {"security": []}}}},
+            append=[APPEND, {"security": []}],
+            add_operation_fields={
+                **OPERATION_FIELDS_3,
+                "security": [{"bearerAuth": []}],
+            },
+        )
+        warnings = self._warnings(logs)
+        assert len(warnings) == 1
+        assert ": GET /pets/{petId}." in warnings[0]
+
+    def test_security_schemes_changed(
+        self, monkeypatch: pytest.MonkeyPatch, logs: pytest.LogCaptureFixture
+    ) -> None:
+        """Patches changing security schemes are warned of."""
+        self._patched(
+            monkeypatch,
+            {"components": {"securitySchemes": {"bearerAuth": {"scheme": "basic"}}}},
+        )
+        assert self._warnings(logs) == [
+            "Patches of API spec "
+            f"{PATH_SPECS_3_YAML_ORIGINAL} change its security definitions or "
+            "schemes. Make sure that this is intended."
+        ]
+
+    def test_registration_error(
+        self, monkeypatch: pytest.MonkeyPatch, logs: pytest.LogCaptureFixture
+    ) -> None:
+        """Other errors registering patched specs are raised as they are.
+
+        An error is logged, pointing to the patches.
+        """
+        monkeypatch.setattr(module.logger, "disabled", False)
+        spec_config = SpecConfig.model_validate(
+            {
+                **SPEC_CONFIG_3,
+                "name": "pets",
+                "patches": [{"paths": {"/pets": {"get": {"security": [{"no": []}]}}}}],
+            }
+        )
+        with pytest.raises(KeyError, match="no"):
+            register_openapi(app=App(__name__), specs=[spec_config])
+        assert [
+            record.getMessage()
+            for record in logs.records
+            if record.name == module.logger.name and record.levelno == logging.ERROR
+        ] == [
+            "Registering API spec 'pets' failed; patches were applied to it, "
+            "check whether they cause the error"
+        ]
+
+    def test_registration_error_without_patches(
+        self, monkeypatch: pytest.MonkeyPatch, logs: pytest.LogCaptureFixture
+    ) -> None:
+        """Errors registering specs without patches are not logged."""
+
+        def fail(*args: Any, **kwargs: Any) -> None:
+            raise KeyError("x")
+
+        monkeypatch.setattr(App, "add_api", fail)
+        with pytest.raises(KeyError):
+            register_openapi(app=App(__name__), specs=[SpecConfig(**SPEC_CONFIG_3)])
+        assert not [r for r in logs.records if r.levelno == logging.ERROR]
+
+    def test_reference_after_removed_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Path items replaced by references after patching fields are fine."""
+        spec = self._patched(
+            monkeypatch,
+            {"paths": {"/pets": {"summary": "Pets"}}},
+            {"paths": {"/pets": None}},
+            {
+                "x-items": {"get": {"responses": {}}},
+                "paths": {"/pets": {"$ref": "#/x-items"}},
+            },
+        )
+        assert spec["paths"]["/pets"] == {"$ref": "#/x-items"}
+
+    @pytest.mark.parametrize(
+        "patch",
+        [
+            # fields next to an existing reference
+            {"paths": {"/pets": {"get": {"security": [{"bearerAuth": []}]}}}},
+            # reference added next to existing fields
+            {
+                "paths": {
+                    "/pets": {"$ref": "#/x-items", "summary": "Pets"},
+                }
+            },
+        ],
+    )
+    def test_fields_next_to_reference(
+        self, monkeypatch: pytest.MonkeyPatch, patch: dict[str, Any]
+    ) -> None:
+        """Patching fields of path items defined via `$ref` is rejected.
+
+        Connexion replaces them with the fields of the referenced object.
+        """
+        patches = [{"x-items": {"get": {"responses": {}}}}, patch]
+        if "$ref" not in patch["paths"]["/pets"]:
+            patches.insert(1, {"paths": {"/pets": {"$ref": "#/x-items"}}})
+        with pytest.raises(ValueError, match=r"defined via '\$ref'.*: /pets;"):
+            self._patched(monkeypatch, *patches)
+
+    def test_invalid_spec(self) -> None:
+        """Patches making the specification invalid raise a clear error."""
+        spec_config = SpecConfig.model_validate(
+            {
+                **SPEC_CONFIG_3,
+                "name": "pets",
+                "patches": [{"paths": {"/pets": {"get": {"responses": "none"}}}}],
+            }
+        )
+        with pytest.raises(
+            ValueError, match="API spec 'pets' is invalid after applying patches"
+        ) as exc_info:
+            register_openapi(app=App(__name__), specs=[spec_config])
+        assert isinstance(exc_info.value.__cause__, InvalidSpecification)
+
+    @pytest.mark.parametrize(
+        "content,error,message",
+        [
+            ("- a\n", ValueError, "is not a mapping"),
+            # explicit null, unlike empty files
+            ("null\n", ValueError, "is not a mapping"),
+            ("a: [\n", ValueError, "not valid YAML"),
+            (None, OSError, "could not be read"),
+        ],
+    )
+    def test_invalid_file(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        content: str | None,
+        error: type[Exception],
+        message: str,
+    ) -> None:
+        """Patch files that are missing or not mappings raise an error."""
+        patch = tmp_path / "patch.yaml"
+        if content is not None:
+            patch.write_text(content)
+        with pytest.raises(error, match=message):
+            self._patched(monkeypatch, patch)
+
+
+@pytest.mark.parametrize(
+    "path_item,expected",
+    [
+        # no reference
+        ({"get": {}}, {"get": {}}),
+        # referenced fields replace those set next to the reference
+        (
+            {"$ref": "#/x-items/a", "get": {"a": 1}, "post": {}},
+            {"get": {"b": 2}, "post": {}},
+        ),
+        # nested references, escaped and percent-encoded keys
+        ({"$ref": "#/x-items/b~1c"}, {"get": {"b": 2}}),
+        ({"$ref": "#/x-items/%7Bd%7D"}, {"get": {"b": 2}}),
+        # references to other files and to values that are not mappings
+        ({"$ref": "other.yaml#/a"}, {"$ref": "other.yaml#/a"}),
+        ({"$ref": "#/x-items/missing"}, {"$ref": "#/x-items/missing"}),
+        # cyclic references
+        ({"$ref": "#/x-items/cycle"}, {"$ref": "#/x-items/cycle"}),
+    ],
+)
+def test_resolve_path_item(path_item: dict[str, Any], expected: Any) -> None:
+    """Local references of Path Item Objects are resolved."""
+    spec = {
+        "x-items": {
+            "a": {"get": {"b": 2}},
+            "b/c": {"$ref": "#/x-items/a"},
+            "{d}": {"$ref": "#/x-items/a"},
+            "cycle": {"$ref": "#/x-items/cycle"},
+        }
+    }
+    assert module._resolve_path_item(spec, path_item) == expected
+
+
+def test_protections_without_paths() -> None:
+    """Specifications without valid paths have no operations."""
+    assert module._protections({}) == {}
+    # invalid security requirements, rejected by Connexion, do not count
+    assert module._protections({"security": 1, "paths": {"/a": {"get": {}}}}) == {
+        "GET /a": {"access control"}
+    }
+    assert module._protections({"paths": None}) == {}
+    # references that cannot be resolved are listed
+    assert module._protections(
+        {"x-a": 1, "paths": {"/a": None, "/b": {"$ref": "#/x-a"}}}
+    ) == {"/b": {"reference #/x-a"}}
+
+
 def test_iter_operations() -> None:
     """Only Operation Objects are yielded."""
     get, post = {"operationId": "a"}, {"operationId": "b"}

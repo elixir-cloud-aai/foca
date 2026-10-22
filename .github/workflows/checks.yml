@@ -1,8 +1,8 @@
 # Lint, type-check and test the package and build the docs and distributions;
 # run the unit tests again with the lowest direct dependency versions; run
-# integration tests on the petstore example; on pushes to `dev`, build and
-# push Docker images with dated tags (release images are built by
-# `release.yml`).
+# integration tests on the petstore example; scan the Docker images for known
+# vulnerabilities; on pushes to `dev`, build, push, attest and sign Docker
+# images with dated tags (release images are built by `release.yml`).
 
 name: CI
 
@@ -61,6 +61,11 @@ jobs:
         run: mypy
       - name: Build documentation
         run: mkdocs build --strict
+      # In its own environment, as cffconvert pins an old jsonschema; its
+      # dependencies resolve within its own bounds. 2.0.0 is the latest stable
+      # release (not bumped by Dependabot; update manually)
+      - name: Validate citation metadata
+        run: pipx run --spec cffconvert==2.0.0 cffconvert --validate -i CITATION.cff
       - name: Build distributions
         env:
           # Pins the build requirements in the isolated build environment
@@ -242,12 +247,61 @@ jobs:
         working-directory: examples/petstore
         run: docker compose logs
 
+  # Scans the images with Trivy (`.github/actions/scan-image`): all findings
+  # are uploaded to code scanning (not for pull requests from forks, whose
+  # token cannot write them), and the job fails on critical and high
+  # vulnerabilities that have a fix. Accepted findings are listed, with a
+  # reason and an expiry date, in `.trivyignore.yaml`. The release workflow
+  # scans the release commit's images again (`release.yml`), and the images of
+  # the latest release are scanned weekly (`scan.yml`)
+  scan:
+    name: Scan image (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: PY_IMAGE=${{ matrix.python-version }}-slim-trixie
+          load: true
+          # Single image, for the local Docker daemon (no attestations)
+          provenance: false
+          tags: foca:scan
+      - name: Scan image
+        uses: ./.github/actions/scan-image
+        with:
+          image: foca:scan
+          category: image-py${{ matrix.python-version }}
+          upload: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+
   docker:
     name: Publish image (Python ${{ matrix.python-version }})
     if: github.event_name == 'push'
-    needs: [lint, test, test-lowest, integration]
+    needs: [lint, test, test-lowest, integration, scan]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Images get SBOM and provenance attestations (Buildx), a GitHub artifact
+    # attestation and a Sigstore signature (see "Verifying images and charts"
+    # in docs/deployment.md)
+    permissions:
+      contents: read
+      id-token: write # Sigstore signing certificates
+      attestations: write # GitHub artifact attestations
     strategy:
       fail-fast: true
       matrix:
@@ -263,16 +317,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - name: Determine version
-        run: |
-          pip install -c requirements/release.txt setuptools-scm
-          echo "FOCA_VERSION=$(python -m setuptools_scm)" >> "${GITHUB_ENV}"
-      - name: Log in to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          username: ${{ secrets.DOCKERHUB_LOGIN }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push image
+      - name: Determine version and tag
+        id: tag
         env:
           DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
           REPO_NAME: ${{ github.event.repository.name }}
@@ -280,13 +326,44 @@ jobs:
           # Same date for all matrix jobs of a push, even across midnight
           COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
         run: |
-          set -x
-          IMAGE="${DOCKERHUB_ORG}/${REPO_NAME}"
-          TAG="$(date -u -d "${COMMIT_TIMESTAMP}" '+%Y%m%d')-py${PY_VERSION}"
-          docker build \
-              -t "${IMAGE}:${TAG}" \
-              -f docker/Dockerfile \
-              --build-arg PY_IMAGE="${PY_VERSION}-slim-trixie" \
-              --build-arg FOCA_VERSION="${FOCA_VERSION}" \
-              .
-          docker push "${IMAGE}:${TAG}"
+          pip install -c requirements/release.txt setuptools-scm
+          echo "version=$(python -m setuptools_scm)" >> "${GITHUB_OUTPUT}"
+          # Fully qualified (`docker.io/`), as the attestation needs it
+          image="docker.io/${DOCKERHUB_ORG}/${REPO_NAME}"
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${image}:$(date -u -d "${COMMIT_TIMESTAMP}" '+%Y%m%d')-py${PY_VERSION}" >> "${GITHUB_OUTPUT}"
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_LOGIN }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            PY_IMAGE=${{ matrix.python-version }}-slim-trixie
+            FOCA_VERSION=${{ steps.tag.outputs.version }}
+          tags: ${{ steps.tag.outputs.tag }}
+          sbom: true
+          provenance: mode=max
+          push: true
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.tag.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          # No artifact metadata storage record (needs another permission)
+          create-storage-record: false
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sign image
+        env:
+          IMAGE: ${{ steps.tag.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"

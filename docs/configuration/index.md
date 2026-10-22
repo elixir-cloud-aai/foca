@@ -29,9 +29,10 @@ example](https://github.com/elixir-cloud-aai/foca/blob/dev/examples/petstore/con
 ## Relative paths
 
 Relative file paths in the configuration (`api.specs[].path`,
-`security.access_control.api_specs` and `security.access_control.model`) are
-resolved against the directory of the configuration file (the first one, if
-several are used), so that an app finds its files irrespective of the
+`api.specs[].patches`, `security.access_control.api_specs` and
+`security.access_control.model`) are resolved against the directory of the
+configuration file (the first one, if several are used, also for paths set
+in later files), so that an app finds its files irrespective of the
 directory it is started from. Without a configuration file (e.g., if the
 configuration is created in code), they are resolved against the current
 working directory. Use `Foca.config_dir` to resolve paths in your custom
@@ -70,6 +71,56 @@ log:
 The merged configuration is validated once, and the merged files are logged.
 If your app needs to know its environment, define a value in your
 [custom configuration](custom.md) and set it in the overlays.
+
+### Named entries
+
+As lists are replaced, an overlay that changes one API specification or
+policy rule would have to restate all of them, and would silently drop
+entries that a new version of the app adds. Therefore, `api.specs` and
+`security.access_control.policies` can also be given as mappings of names to
+entries. Later files then add, change or remove single entries by name:
+entries are merged like other mappings, and `null` removes an entry.
+
+```yaml title="config.yaml (app)"
+api:
+  specs:
+    my-api:
+      path: specs/openapi.yaml
+security:
+  access_control:
+    policies:
+      create-items: [p, "*", /api/items, POST]
+      admins-delete: [p, admin, "/api/items/:id", DELETE]
+```
+
+```yaml title="overlay.yaml (deployment)"
+api:
+  specs:
+    my-api:
+      patches:
+        - /etc/my-app/openapi.patch.yaml
+security:
+  access_control:
+    policies:
+      admins-delete: null
+      read-items: [p, "*", "/api/items/:id", GET]
+```
+
+To keep mistakes from going unnoticed, FOCA refuses to start if a file
+
+- gives named entries for a section that earlier files set to a non-empty
+  list (the entries of the list would be lost; give the complete list
+  instead, which replaces the named entries, too),
+- removes (`null`) entries that are not set, e.g., because of a misspelled
+  name, or
+- changes an API specification that is not set (an entry of `api.specs`
+  without `path`).
+
+Named entries also compose with other tools that merge mappings but replace
+lists, e.g., Helm when merging several values files. See [patching
+specifications](api.md#patching-specifications) and [configuring
+policies](../access-control.md#configuring-policies) for what to do with
+them.
 
 See [Deployment](../deployment.md) for how to split the configuration between
 the app and its deployments, e.g., with Helm on Kubernetes.

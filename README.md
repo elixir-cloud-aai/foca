@@ -90,7 +90,9 @@ Images of releases are tagged with the FOCA and Python versions (e.g.,
 `0.14.0-py3.12`); the FOCA version alone (e.g., `0.14.0`) tags the Python
 3.13 image, and `latest` that of the highest stable release (not an alpha,
 beta or release candidate). Images built from the `dev` branch are tagged
-with their date and the Python version (e.g., `20261019-py3.13`).
+with their date and the Python version (e.g., `20261019-py3.13`). Images
+are signed and come with SBOM and provenance attestations, and CI scans them
+for vulnerabilities; see [verifying images and charts][docs-verifying].
 
 The image contains no build tools and runs as non-root user `foca` (UID
 `1000`, group `0`); `/app` and the home directory are writable by group `0`,
@@ -107,31 +109,9 @@ USER 1000
 
 ## Contributing
 
-This project is a community effort and lives off your contributions, be it in
-the form of bug reports, feature requests, discussions, or fixes and other code
-changes. Please refer to our organization's [contributing
-guidelines][res-elixir-cloud-contributing] if you are interested to contribute.
-Please mind the [code of conduct][res-elixir-cloud-coc] for all interactions
-with the community.
-
-Test coverage of `foca` is kept at 100%, which is enforced: `coverage report`
-(and CI) fails below 100% (`fail_under` in `pyproject.toml`), and so do
-Codecov's checks of the whole code and of the changes of a pull request
-(`codecov.yml`). The tests marked `mongodb` need a MongoDB server on
-`localhost:12345`:
-
-```bash
-pip install -e .[dev]
-coverage run -m pytest
-coverage report -m
-```
-
-To build the documentation locally, install the `docs` extra and run MkDocs:
-
-```bash
-pip install -e .[docs]
-mkdocs serve
-```
+Contributions are welcome! See [`CONTRIBUTING.md`][contributing] and
+[Contributing][docs-contributing] in the documentation (development setup,
+tests and guidelines), and mind our [code of conduct][code-of-conduct].
 
 ## Versioning
 
@@ -145,20 +125,33 @@ development versions (e.g., `0.14.1.dev3+g1a2b3c4`).
 ### Releasing
 
 Features and fixes are merged into `dev`. Branch `main` only ever moves
-forward to commits on `dev` that are released. To release version `X.Y.Z`
-from commit `<sha>` on `dev`, after CI passed for it:
+forward to commits on `dev` that are released. First, shortly before the
+release, set its version and date in the citation metadata, which Zenodo
+archives with each release, and merge the change into `dev`; each version,
+also each pre-release (e.g., `X.Y.Zrc1`), needs its own such change:
 
 ```bash
+python scripts/citation.py set X.Y.Z  # date: today (UTC), or --date YYYY-MM-DD
+```
+
+Then, to release version `X.Y.Z` from commit `<sha>` on `dev` (with that
+change), after CI passed for it:
+
+```bash
+git switch --detach <sha>
+python scripts/citation.py check X.Y.Z  # as the release workflow does
 git push origin <sha>:main  # fails unless it is a fast-forward
 git tag -s vX.Y.Z <sha> -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
 Pushing the tag triggers the [release workflow][release-workflow], which
-checks that the tagged commit is on `main`, publishes the distributions to
-PyPI (after approval in the `pypi` environment), pushes Docker images
-tagged `X.Y.Z` and `latest`, and creates a GitHub release with generated
-notes. Tags of alpha, beta and release candidate versions (e.g.,
+checks that the tagged commit is on `main` and that its `CITATION.cff` has
+the release version and a date that is not in the future (UTC), publishes
+the distributions to PyPI (after approval in the `pypi` environment),
+pushes, attests and signs Docker images tagged `X.Y.Z` and `latest`, and
+creates a GitHub release with generated notes. Tags of alpha, beta and
+release candidate versions (e.g.,
 `vX.Y.Zrc1`) do not update `latest`. These and, until 1.0.0, all other
 releases are GitHub pre-releases (never marked as the latest release).
 
@@ -197,14 +190,18 @@ question etc.
 [badge-url-github-tag]: <https://github.com/elixir-cloud-aai/foca/releases>
 [badge-url-license]: <http://www.apache.org/licenses/LICENSE-2.0>
 [badge-url-pypi]: <https://pypi.python.org/pypi/foca>
+[code-of-conduct]: CODE_OF_CONDUCT.md
+[contributing]: CONTRIBUTING.md
 [docs]: <https://foca.readthedocs.io/en/latest/>
 [docs-config]: <https://foca.readthedocs.io/en/latest/configuration/>
+[docs-contributing]: <https://foca.readthedocs.io/en/latest/contributing/>
 [docs-getting-started]: <https://foca.readthedocs.io/en/latest/getting-started/>
 [docs-helm-chart-releases]: <https://foca.readthedocs.io/en/latest/helm-chart/#releases>
 [docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.16/>
 [docs-migration-0.15]: <https://foca.readthedocs.io/en/latest/migration-0.15/>
 [docs-migration-0.14]: <https://foca.readthedocs.io/en/latest/migration-0.14/>
 [docs-production]: <https://foca.readthedocs.io/en/latest/deployment/#running-in-production>
+[docs-verifying]: <https://foca.readthedocs.io/en/latest/deployment/#verifying-images-and-charts>
 [example]: examples/petstore/README.md
 [foca-dockerfile]: docker/Dockerfile
 [foca-logo]: images/foca_logo_192px.png
@@ -218,8 +215,6 @@ question etc.
 [res-celery]: <https://docs.celeryq.dev/>
 [res-connexion]: <https://github.com/spec-first/connexion>
 [res-cors]: <https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS>
-[res-elixir-cloud-coc]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md>
-[res-elixir-cloud-contributing]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CONTRIBUTING.md>
 [res-flask]: <https://flask.palletsprojects.com/>
 [res-foca-docker]: <https://hub.docker.com/r/elixircloud/foca>
 [res-jwt]: <https://jwt.io>

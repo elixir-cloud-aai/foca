@@ -570,3 +570,284 @@ class TestConfiguredRules:
         ]
         assert mock_adapter.remove_filtered_policy("g", "g2", 2, "/x")
         assert mock_adapter._collection.count_documents({}) == 2
+
+
+ROLES = ("owner", "maintainer")
+
+
+def _roles(adapter: Adapter, subject: str = "user:a") -> list[str]:
+    """Get roles of a subject on resource `/x`, as loaded."""
+    return sorted(
+        rule[1]
+        for rule in adapter.get_filtered_rules("g2", 0, subject, configured=False)
+        + adapter.get_filtered_rules("g2", 0, subject, configured=True)
+        if rule[2:] == ["/x"]
+    )
+
+
+class TestReplaceRoleRule:
+    """Tests for `Adapter.replace_role_rule()`."""
+
+    @pytest.fixture
+    def adapter(self, policy_collection: Collection[dict[str, Any]]) -> Adapter:
+        """Adapter with an in-memory or MongoDB collection."""
+        return Adapter(policy_collection)
+
+    def test_replace(self, adapter: Adapter) -> None:
+        """Rules replace other roles of the subject on the resource."""
+        assert adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        assert _roles(adapter) == ["maintainer"]
+        # granting a role again replaces the others, too
+        adapter.save_policy_line("g2", ["user:a", "owner", "/x"])
+        assert not adapter.replace_role_rule(
+            "g2", ["user:a", "maintainer", "/x"], ROLES
+        )
+        assert _roles(adapter) == ["maintainer"]
+        assert adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert _roles(adapter) == ["owner"]
+        # stored rules get identifiers
+        assert adapter._collection.find_one({"v1": "owner"})["id"]  # type: ignore[index]  # found
+
+    def test_other_rules_kept(self, adapter: Adapter) -> None:
+        """Other roles, subjects, resources and rules are kept."""
+        others = [
+            ["user:a", "auditor", "/x"],
+            ["user:b", "owner", "/x"],
+            ["user:a", "owner", "/y"],
+            ["user:a", "owner", "/x", "extra"],
+        ]
+        for rule in others:
+            adapter.save_policy_line("g2", rule)
+        adapter.save_policy_line("g", ["user:a", "owner", "/x"])
+        adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        assert adapter._collection.count_documents({}) == len(others) + 2
+
+    def test_configured_rules_kept(self, adapter: Adapter) -> None:
+        """Rules set via the configuration are not replaced."""
+        adapter.save_policy_line("g2", ["user:a", "owner", "/x"], configured=True)
+        assert adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        assert _roles(adapter) == ["maintainer", "owner"]
+        # granting the configured role adds an unmarked copy
+        assert not adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert _roles(adapter) == ["owner", "owner"]
+
+    def test_duplicates_removed(self, adapter: Adapter) -> None:
+        """Copies of rules and roles stored before are replaced."""
+        for role in ["owner", "owner", "maintainer"]:
+            adapter.save_policy_line("g2", ["user:a", role, "/x"])
+        assert not adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert _roles(adapter) == ["owner"]
+        assert adapter._collection.count_documents({}) == 1
+
+    def test_no_window_without_role(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The new rule is stored before the other roles are removed."""
+        adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        seen: list[list[str]] = []
+        keep_latest = adapter._keep_latest_role
+
+        def observe(*args: Any) -> None:
+            seen.append(_roles(adapter))
+            keep_latest(*args)
+
+        monkeypatch.setattr(adapter, "_keep_latest_role", observe)
+        adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert seen == [["maintainer", "owner"]]
+        assert _roles(adapter) == ["owner"]
+
+    @pytest.mark.parametrize("roles", [("owner", "maintainer"), ("owner", "owner")])
+    def test_concurrent(
+        self,
+        adapter: Adapter,
+        monkeypatch: pytest.MonkeyPatch,
+        roles: tuple[str, str],
+    ) -> None:
+        """Concurrent replacements leave one role, of the later rule."""
+        first, second = roles
+        keep_latest = adapter._keep_latest_role
+        interleaved = False
+
+        def interleave(*args: Any) -> None:
+            # a concurrent request replaces the role after the first one
+            # stored its rule
+            nonlocal interleaved
+            if not interleaved:
+                interleaved = True
+                adapter.replace_role_rule("g2", ["user:a", second, "/x"], ROLES)
+            keep_latest(*args)
+
+        monkeypatch.setattr(adapter, "_keep_latest_role", interleave)
+        adapter.replace_role_rule("g2", ["user:a", first, "/x"], ROLES)
+        assert _roles(adapter) == [second]
+
+    def test_concurrent_before_cleanup(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rules stored concurrently before either cleanup leave one role."""
+        keep_latest = adapter._keep_latest_role
+        pending: list[tuple[Any, ...]] = []
+
+        def defer(*args: Any) -> None:
+            pending.append(args)
+
+        monkeypatch.setattr(adapter, "_keep_latest_role", defer)
+        adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        assert _roles(adapter) == ["maintainer", "owner"]
+        # cleanups in either order keep the later rule
+        for args in reversed(pending):
+            keep_latest(*args)
+        assert _roles(adapter) == ["maintainer"]
+
+    def test_granted_again_during_cleanup(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rules granted again after being read for removal are kept."""
+        adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        delete_many = adapter._collection.delete_many
+        interleaved = False
+
+        def interleave(*args: Any, **kwargs: Any) -> Any:
+            # a concurrent request grants the role to be removed again
+            # after the first one read the rules, before it removed them
+            nonlocal interleaved
+            if not interleaved:
+                interleaved = True
+                adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+                assert _roles(adapter) == ["maintainer"]
+            return delete_many(*args, **kwargs)
+
+        monkeypatch.setattr(adapter._collection, "delete_many", interleave)
+        adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert interleaved
+        assert _roles(adapter) == ["maintainer"]
+
+    def test_cleanup_fails(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """New rules are removed again if other roles cannot be removed."""
+        adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+
+        def fail(*args: Any) -> NoReturn:
+            raise ConnectionFailure("database not available")
+
+        monkeypatch.setattr(adapter, "_keep_latest_role", fail)
+        with pytest.raises(ConnectionFailure):
+            adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert _roles(adapter) == ["maintainer"]
+        # rules stored before are kept
+        with pytest.raises(ConnectionFailure):
+            adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        assert _roles(adapter) == ["maintainer"]
+
+    def test_cleanup_fails_after_granted_again(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rules granted again concurrently are kept if a cleanup fails."""
+        adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        keep_latest = adapter._keep_latest_role
+
+        def fail(*args: Any) -> NoReturn:
+            # a concurrent request grants the same role, which succeeds
+            monkeypatch.setattr(adapter, "_keep_latest_role", keep_latest)
+            assert not adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+            raise ConnectionFailure("database not available")
+
+        monkeypatch.setattr(adapter, "_keep_latest_role", fail)
+        with pytest.raises(ConnectionFailure):
+            adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert _roles(adapter) == ["owner"]
+
+    def test_invalid_rule(self, adapter: Adapter) -> None:
+        """Invalid rules are rejected."""
+        with pytest.raises(ValueError):
+            adapter.replace_role_rule("g2", ["user:a", "a,b", "/x"], ROLES)
+        with pytest.raises(ValueError, match="three values"):
+            adapter.replace_role_rule("g2", ["user:a", "owner"], ROLES)
+        assert adapter._collection.count_documents({}) == 0
+
+    def test_retry_on_collision(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Identifiers are generated again on collisions."""
+        adapter.save_policy_line("g", ["a", "b"], id="abcdef")
+        ids = iter(["abcdef", "ghijkl"])
+        monkeypatch.setattr(module, "generate_id", lambda **kwargs: next(ids))
+        assert adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert adapter._collection.find_one({"v1": "owner"})["id"] == "ghijkl"  # type: ignore[index]  # found
+
+    def test_retries_exhausted(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Replacing fails if no unique identifier is generated in time."""
+        adapter.save_policy_line("g", ["a", "b"], id="abcdef")
+        monkeypatch.setattr(module, "generate_id", lambda **kwargs: "abcdef")
+        with pytest.raises(DuplicateKeyError):
+            adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert adapter._collection.count_documents({}) == 1
+
+    def test_stored_concurrently_with_same_id(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Copies stored concurrently with the same identifier are not used."""
+        # stored after checking for copies of the rule, before storing it
+        update_many = adapter._collection.update_many
+
+        def store_copy(*args: Any, **kwargs: Any) -> Any:
+            result = update_many(*args, **kwargs)
+            adapter.save_policy_line("g2", ["user:a", "owner", "/x"], id="abcdef")
+            return result
+
+        def fail(*args: Any) -> NoReturn:
+            raise ConnectionFailure("database not available")
+
+        monkeypatch.setattr(adapter._collection, "update_many", store_copy)
+        ids = iter(["abcdef", "ghijkl"])
+        monkeypatch.setattr(module, "generate_id", lambda **kwargs: next(ids))
+        monkeypatch.setattr(adapter, "_keep_latest_role", fail)
+        with pytest.raises(ConnectionFailure):
+            adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        # only the rule stored by the call is removed again
+        assert [document["id"] for document in adapter._collection.find()] == ["abcdef"]
+
+    def test_rollback_fails(
+        self,
+        adapter: Adapter,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Rules that cannot be removed again are logged."""
+
+        def fail(*args: Any, **kwargs: Any) -> NoReturn:
+            raise ConnectionFailure("database not available")
+
+        monkeypatch.setattr(adapter, "_keep_latest_role", fail)
+        monkeypatch.setattr(adapter._collection, "delete_one", fail)
+        with pytest.raises(ConnectionFailure):
+            adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert "could not be removed" in caplog.text
+        assert "g2, user:a, owner, /x" in caplog.text
+
+    def test_changed_during_cleanup(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rules changed or configured after being read are kept."""
+        adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        adapter.save_policy_line("g2", ["user:a", "owner", "/x"], id="abcdef")
+        delete_many = adapter._collection.delete_many
+
+        def change(*args: Any, **kwargs: Any) -> Any:
+            # the rules to remove are marked as configured, or changed
+            adapter._collection.update_many(
+                {"v1": "maintainer"}, {"$set": {"configured": True}}
+            )
+            adapter.save_policy_line("g2", ["user:b", "owner", "/x"], id="abcdef")
+            return delete_many(*args, **kwargs)
+
+        monkeypatch.setattr(adapter._collection, "delete_many", change)
+        adapter.replace_role_rule(
+            "g2", ["user:a", "auditor", "/x"], [*ROLES, "auditor"]
+        )
+        assert adapter._collection.count_documents({}) == 3

@@ -70,8 +70,11 @@ security:
 # API CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/api/
 api:
+  # Named specs (a list works, too), so that config overlays can change a
+  # single spec by its name, e.g., add `patches` (deep-merged into the spec)
   specs:
-    - path:
+    my-api:
+      path:
         - path/to/my/openapi/specs.yaml
       add_operation_fields:
         x-openapi-router-controller: myapi.controllers

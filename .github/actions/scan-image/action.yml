@@ -1,0 +1,55 @@
+# Scan a Docker image for known vulnerabilities (and secrets) with Trivy, for
+# the workflows that scan images (`checks.yml`, `release.yml`, `scan.yml`;
+# not in jobs with publishing credentials or signing permissions): all
+# findings are uploaded to code scanning (SARIF, unless `upload` is false,
+# e.g., for pull requests from forks), then the step fails on critical and
+# high findings that have a fix (unless `fail` is false). Accepted findings
+# are listed in `.trivyignore.yaml` (of the checked-out commit). The job needs
+# the `security-events: write` permission to upload results. Same as in
+# cloud-registry.
+
+name: Scan image
+description: Scan a Docker image with Trivy and fail on fixable critical and high findings
+
+inputs:
+  image:
+    description: Image to scan (a local image or a registry reference)
+    required: true
+  category:
+    description: Code scanning category of the results (one per image variant)
+    required: true
+  upload:
+    description: Upload the results to code scanning ("true" or "false")
+    default: "true"
+  fail:
+    description: Fail on fixable critical and high findings ("true" or "false")
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Scan image (all findings)
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        image-ref: ${{ inputs.image }}
+        trivyignores: .trivyignore.yaml
+        format: sarif
+        output: trivy-results.sarif
+        version: v0.75.0
+    - name: Upload results to code scanning
+      if: inputs.upload == 'true'
+      uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      with:
+        sarif_file: trivy-results.sarif
+        category: ${{ inputs.category }}
+    - name: Fail on fixable critical and high findings
+      if: inputs.fail == 'true'
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        image-ref: ${{ inputs.image }}
+        trivyignores: .trivyignore.yaml
+        severity: CRITICAL,HIGH
+        ignore-unfixed: true
+        exit-code: "1"
+        version: v0.75.0
+        skip-setup-trivy: true

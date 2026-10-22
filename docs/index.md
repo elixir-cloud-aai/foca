@@ -51,10 +51,8 @@ app.run()
 
 FOCA is developed by [ELIXIR On-Cloud](https://elixir-cloud-aai.github.io/)
 and licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
-Contributions are welcome; please refer to the [contributing
-guidelines](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CONTRIBUTING.md)
-and the [code of
-conduct](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CODE_OF_CONDUCT.md).
+Contributions are welcome; see [Contributing](contributing.md) and the [code
+of conduct](https://github.com/elixir-cloud-aai/foca/blob/dev/CODE_OF_CONDUCT.md).
 The project adopts [semantic versioning](https://semver.org/); while the major
 version is 0, minor releases may contain breaking changes, which are listed in
 the [changelog](changelog.md) and migration notes (for

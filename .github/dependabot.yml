@@ -34,8 +34,9 @@ updates:
       python-dependencies:
         update-types: [minor, patch]
 
+  # Actions in the workflows and in the local composite action
   - package-ecosystem: github-actions
-    directory: /
+    directories: ["/", "/.github/actions/scan-image"]
     target-branch: dev
     schedule:
       interval: weekly

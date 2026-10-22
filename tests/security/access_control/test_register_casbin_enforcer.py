@@ -1,5 +1,7 @@
 """Tests for registering the Casbin enforcer."""
 
+import logging
+from collections.abc import Mapping
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -96,14 +98,17 @@ def test_adapter_dbname_override(
 
 
 def _register_policies(
-    policies: list[list[str]] | None, model: str = RESOURCE_ROLE_MODEL
+    policies: list[list[str]] | Mapping[str, list[str] | None] | None,
+    model: str = RESOURCE_ROLE_MODEL,
 ) -> tuple[Collection[dict[str, Any]], list[list[str]]]:
     """Register enforcer with policies; return stored rules."""
     mongo_config = MongoConfig()
     app = App(__name__)
     module.register_casbin_enforcer(
         app=app,
-        access_control_config=AccessControlConfig(model=model, policies=policies),
+        access_control_config=AccessControlConfig.model_validate(
+            {"model": model, "policies": policies}
+        ),
         mongo_config=mongo_config,
     )
     collection = app.app.config["casbin_adapter"]._collection
@@ -245,3 +250,36 @@ class TestPolicies:
             _register_policies([["p", "*", "/pets"]])
         collection = clients["access_control_db"]["policy_rules"]
         assert collection.count_documents({}) == len(POLICIES)
+
+    def test_named(
+        self,
+        clients: MongoClient[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Named rules are stored like listed ones; their names are logged."""
+        monkeypatch.setattr(module.logger, "disabled", False)
+        named = {"read-write": POLICIES[0], "owner": POLICIES[1], "bob": POLICIES[2]}
+        with caplog.at_level(logging.INFO, logger=module.logger.name):
+            _, rules = _register_policies(named)
+        assert rules == POLICIES
+        assert "Named policy rules applied: read-write, owner, bob" in caplog.messages
+        # switching between named and listed rules keeps stored rules
+        collection, _ = _register_policies(POLICIES)
+        assert collection.count_documents({}) == len(POLICIES)
+
+    def test_named_invalid(self, clients: MongoClient[dict[str, Any]]) -> None:
+        """Invalid named rules prevent startup; errors name the rule."""
+        with pytest.raises(ValueError, match="Invalid policy rule 'broken': "):
+            _register_policies({"ok": POLICIES[0], "broken": ["p", "*", "/pets"]})
+        collection = clients["access_control_db"]["policy_rules"]
+        assert collection.count_documents({}) == 0
+
+    def test_named_all_removed(self, clients: MongoClient[dict[str, Any]]) -> None:
+        """Removing all named rules removes all configured rules.
+
+        E.g., an overlay setting each rule of the app to `null`.
+        """
+        _register_policies({"read-write": POLICIES[0]})
+        _, rules = _register_policies({"read-write": None})
+        assert rules == []
