@@ -7,9 +7,10 @@ from typing import Any
 
 import pytest
 from connexion import App
-from flask import Flask, request
+from flask import Flask, request, url_for
 from flask.testing import FlaskClient
 from pydantic import ValidationError
+from werkzeug.routing import BuildError
 from werkzeug.test import TestResponse
 
 from foca.config.access import get_app_config
@@ -60,6 +61,99 @@ def test_create_connexion_app_with_config() -> None:
         False,
     )
     assert cnx_app.app.config["TESTING"] is True
+
+
+def _ui_spec(server_url: str) -> dict[str, Any]:
+    """Return a minimal OpenAPI 3 specification served at `server_url`.
+
+    Args:
+        server_url: URL of the specification's server.
+
+    Returns:
+        Specification without operations.
+    """
+    return {
+        "openapi": "3.0.0",
+        "info": {"title": "UI test", "version": "1.0.0"},
+        "servers": [{"url": server_url}],
+        "paths": {},
+    }
+
+
+@pytest.mark.parametrize(
+    ("server_url", "base_path", "options", "ui_url", "spec_url"),
+    [
+        ("http://localhost/", None, {}, "/ui/", "/openapi.json"),
+        ("http://localhost", None, {}, "/ui/", "/openapi.json"),
+        ("http://localhost/v1", None, {}, "/v1/ui/", "/v1/openapi.json"),
+        ("http://localhost/v1", "/", {}, "/ui/", "/openapi.json"),
+        (
+            "http://localhost/",
+            None,
+            {"swagger_url": "/docs"},
+            "/docs/",
+            "/openapi.json",
+        ),
+    ],
+)
+def test_swagger_ui(
+    server_url: str,
+    base_path: str | None,
+    options: dict[str, Any],
+    ui_url: str,
+    spec_url: str,
+) -> None:
+    """The Swagger UI is served, also for APIs at `/`, and loads the spec."""
+    cnx_app = create_connexion_app(Config())
+    cnx_app.add_api(
+        _ui_spec(server_url),
+        base_path=base_path,
+        options={"swagger_ui": True, **options},
+    )
+    client = cnx_app.app.test_client()
+    response = client.get(ui_url)
+    assert response.status_code == HTTPStatus.OK
+    assert f'url: "{spec_url}"' in response.get_data(as_text=True)
+    assert client.get(spec_url).status_code == HTTPStatus.OK
+
+
+def test_swagger_ui_openapi_2_root() -> None:
+    """The Swagger UI of an OpenAPI 2 API at `/` loads the spec."""
+    cnx_app = create_connexion_app(Config())
+    cnx_app.add_api(
+        {
+            "swagger": "2.0",
+            "info": {"title": "UI test", "version": "1.0.0"},
+            "basePath": "/",
+            "paths": {},
+        }
+    )
+    response = cnx_app.app.test_client().get("/ui/")
+    assert response.status_code == HTTPStatus.OK
+    assert 'url: "/swagger.json"' in response.get_data(as_text=True)
+
+
+def test_swagger_ui_root_and_other_api() -> None:
+    """The Swagger UIs of an API at `/` and of another API are both served."""
+    cnx_app = create_connexion_app(Config())
+    cnx_app.add_api(_ui_spec("http://localhost/"))
+    cnx_app.add_api(_ui_spec("http://localhost/admin"))
+    client = cnx_app.app.test_client()
+    for ui_url, spec_url in [
+        ("/ui/", "/openapi.json"),
+        ("/admin/ui/", "/admin/openapi.json"),
+    ]:
+        response = client.get(ui_url)
+        assert response.status_code == HTTPStatus.OK
+        assert f'url: "{spec_url}"' in response.get_data(as_text=True)
+
+
+def test_url_build_errors_raised() -> None:
+    """Other URLs that can't be built still raise `BuildError`."""
+    cnx_app = create_connexion_app()
+    cnx_app.add_api(_ui_spec("http://localhost/"))
+    with cnx_app.app.test_request_context("/"), pytest.raises(BuildError):
+        url_for("/._missing")
 
 
 def test_debug_off_by_default() -> None:

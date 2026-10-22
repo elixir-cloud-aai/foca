@@ -4,9 +4,10 @@ import logging
 import re
 from io import BytesIO
 from ipaddress import ip_address
+from typing import Any
 
 from connexion import App
-from flask import current_app, request
+from flask import current_app, request, url_for
 from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 
 from foca.config.access import set_app_config
@@ -17,6 +18,12 @@ logger = logging.getLogger(__name__)
 
 # Valid declared sizes of request bodies (`Content-Length`)
 _DECIMAL = re.compile(r"[0-9]+")
+
+# Endpoint of the specification of an API at `/` (Connexion 2 names its
+# blueprint `/`), and the endpoint that Connexion's Swagger UI builds for it
+# instead (from the empty base path, relative to the blueprint)
+_ROOT_SPEC_ENDPOINT = "/./_openapi_json"
+_ROOT_SPEC_ENDPOINT_UI = "/._openapi_json"
 
 
 def create_connexion_app(config: Config | None = None) -> App:
@@ -33,6 +40,7 @@ def create_connexion_app(config: Config | None = None) -> App:
         __name__,
         skip_error_handlers=True,
     )
+    app.app.url_build_error_handlers.append(_build_root_spec_url)
     logger.debug("Connexion app created.")
 
     # Configure Connexion app
@@ -43,6 +51,33 @@ def create_connexion_app(config: Config | None = None) -> App:
         )
 
     return app
+
+
+def _build_root_spec_url(
+    error: Exception, endpoint: str, values: dict[str, Any]
+) -> str:
+    """Build the URL of the specification of an API at `/` for its Swagger UI.
+
+    Registered as a URL build error handler of the Flask app. For an API at
+    `/`, Connexion 2 names the blueprint `/`, but its Swagger UI builds the
+    URL of the specification from the empty base path, which fails
+    (`BuildError`), so that the UI returns `500`. Other errors are raised
+    again.
+
+    Args:
+        error: Error raised when building the URL.
+        endpoint: Endpoint whose URL is built.
+        values: Arguments of the URL.
+
+    Returns:
+        URL of the specification of the API at `/`.
+
+    Raises:
+        Exception: `error`, for other endpoints.
+    """
+    if endpoint != _ROOT_SPEC_ENDPOINT_UI:
+        raise error
+    return url_for(_ROOT_SPEC_ENDPOINT, **values)
 
 
 def _is_loopback(host: str) -> bool:
