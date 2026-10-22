@@ -179,3 +179,6 @@ def test_swagger_ui_200() -> None:
     response = requests.get(url=f"{PETSTORE_URL}/ui/", timeout=TIMEOUT)
     assert response.status_code == 200
     assert 'url: "/openapi.json"' in response.text
+    spec = requests.get(url=f"{PETSTORE_URL}/openapi.json", timeout=TIMEOUT)
+    assert spec.status_code == 200
+    assert spec.json()["info"]["title"] == "Swagger Petstore"

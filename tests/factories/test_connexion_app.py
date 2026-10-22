@@ -86,12 +86,15 @@ def _assert_ui(client: FlaskClient, ui_url: str, spec_url: str) -> None:
     Args:
         client: Test client of the app.
         ui_url: URL of the Swagger UI.
-        spec_url: Expected URL of the specification.
+        spec_url: Expected URL of the specification (of `_ui_spec()` or
+            with the same `info`).
     """
     response = client.get(ui_url)
     assert response.status_code == HTTPStatus.OK
     assert f'url: "{spec_url}"' in response.get_data(as_text=True)
-    assert client.get(spec_url).status_code == HTTPStatus.OK
+    spec = client.get(spec_url)
+    assert spec.status_code == HTTPStatus.OK
+    assert spec.get_json()["info"] == {"title": "UI test", "version": "1.0.0"}
 
 
 @pytest.mark.parametrize(
