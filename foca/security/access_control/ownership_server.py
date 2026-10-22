@@ -16,8 +16,12 @@ path parameter before the subject's (e.g., `/tasks/1` for
 `/tasks/1/permissions/users/alice`), or up to the last path parameter for
 :py:func:`getResourceRoles`. Path parameters may have any names; the subject
 is the last one. Resources without owners are not found. Who may call the
-endpoints is decided by the app's policies. Requests and responses are logged
-unless disabled via config option `security.access_control.log_traffic`.
+endpoints is decided by the app's policies, which must be enforced on them, as
+the controllers do not check the caller themselves: apps routing operations
+that do not enforce policies to the controllers do not start, and requests on
+which policies were not enforced (e.g., via wrappers of the controllers, or
+routes added later) are refused. Requests and responses are logged unless
+disabled via config option `security.access_control.log_traffic`.
 
 The controllers take an optional existence check as `exists` (cf.
 :py:func:`putUserRole`) and request bodies as `body`, so neither may be the
@@ -27,9 +31,11 @@ name of a parameter of operations routed to them.
 import logging
 import re
 from collections.abc import Callable
+from functools import wraps
+from inspect import unwrap
 from typing import Any, NamedTuple
 
-from flask import request
+from flask import Flask, current_app, request
 from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
 # Internal helpers of the same package: whether traffic is logged (as for
@@ -41,6 +47,7 @@ from foca.security.access_control.access_control_server import (
 from foca.security.access_control.enforcement import (
     RESOURCE_ROLE_PTYPE,
     SubjectType,
+    _enforces_access_control,
     get_current_group_values,
 )
 from foca.security.access_control.ownership import (
@@ -58,6 +65,46 @@ logger = logging.getLogger(__name__)
 
 # Variables of Flask URL rules, e.g., `<id>` or `<path:group>`
 _RULE_VARIABLE = re.compile(r"<(?:[^<>:]+:)?([^<>:]+)>")
+# Methods that Flask adds to routes itself
+_AUTOMATIC_METHODS = frozenset({"HEAD", "OPTIONS"})
+
+
+def _require_enforcement(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Decorator refusing requests on which policies were not enforced.
+
+    The controllers do not check who is calling: without enforcement, any
+    caller could grant themselves roles. Policies are enforced if the view
+    function of the route enforces them (cf.
+    :py:func:`foca.security.access_control.enforce_access_control`), e.g.,
+    for wrappers of the controllers, which :py:func:`_check_routes_enforced`
+    cannot find.
+
+    Args:
+        fn: Controller.
+
+    Returns:
+        The decorated controller.
+
+    Raises:
+        RuntimeError: Policies are not enforced on the route of the request,
+            or the request was not routed via a URL rule.
+    """
+
+    @wraps(fn)
+    def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        rule = request.url_rule
+        view = None if rule is None else current_app.view_functions.get(rule.endpoint)
+        if view is None or not _enforces_access_control(view):
+            message = (
+                "Access control policies are not enforced on route "
+                f"'{request.method} {getattr(rule, 'rule', None)}', so "
+                f"controller '{fn.__name__}' refuses requests"
+            )
+            logger.error(escape_log_value(message))
+            raise RuntimeError(message)
+        return fn(*args, **kwargs)
+
+    return _wrapper
 
 
 class _Route(NamedTuple):
@@ -243,6 +290,7 @@ def _delete_roles(
 
 
 @log_traffic_if(_permissions_traffic_logged)
+@_require_enforcement
 def getResourceRoles(**kwargs: Any) -> list[dict[str, str]]:
     """List the roles granted on the resource of the route.
 
@@ -265,6 +313,7 @@ def getResourceRoles(**kwargs: Any) -> list[dict[str, str]]:
 
 
 @log_traffic_if(_permissions_traffic_logged)
+@_require_enforcement
 def putUserRole(
     body: Any = None,
     exists: Callable[[], bool] | None = None,
@@ -292,6 +341,7 @@ def putUserRole(
 
 
 @log_traffic_if(_permissions_traffic_logged)
+@_require_enforcement
 def deleteUserRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> str:
     """Revoke the roles of the user of the route on the resource.
 
@@ -308,6 +358,7 @@ def deleteUserRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> s
 
 
 @log_traffic_if(_permissions_traffic_logged)
+@_require_enforcement
 def putGroupRole(
     body: Any = None,
     exists: Callable[[], bool] | None = None,
@@ -348,6 +399,7 @@ def putGroupRole(
 
 
 @log_traffic_if(_permissions_traffic_logged)
+@_require_enforcement
 def deleteGroupRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> str:
     """Revoke the roles of the group of the route on the resource.
 
@@ -364,3 +416,55 @@ def deleteGroupRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> 
         The group.
     """
     return _delete_roles(_get_subject(), "group", exists)
+
+
+_CONTROLLERS = (
+    getResourceRoles,
+    putUserRole,
+    deleteUserRole,
+    putGroupRole,
+    deleteGroupRole,
+)
+
+
+def _check_routes_enforced(app: Flask) -> None:
+    """Check that policies are enforced on the routes to the controllers.
+
+    Routes are found by their view functions, unwrapping decorators (e.g.,
+    of Connexion), so routes to aliases of the controllers are found too, but
+    not routes to wrappers of them (which refuse unenforced requests, cf.
+    :py:func:`_require_enforcement`).
+
+    Args:
+        app: Flask app, with API specifications registered.
+
+    Raises:
+        ValueError: Routes to the controllers do not enforce access control
+            policies (e.g., with `access_control.enforce` disabled, or for
+            operations without security requirements), so that any caller
+            could grant themselves roles.
+    """
+    controllers = {unwrap(controller): controller for controller in _CONTROLLERS}
+    unenforced = []
+    for rule in app.url_map.iter_rules():
+        view = app.view_functions[rule.endpoint]
+        controller = controllers.get(unwrap(view))
+        if controller is None or _enforces_access_control(view):
+            continue
+        # Methods of operations, without those Flask adds itself (`OPTIONS`,
+        # and `HEAD` for `GET`), unless the operation is one of them
+        methods = rule.methods or set()
+        for method in sorted(
+            methods - _AUTOMATIC_METHODS or methods - {"OPTIONS"} or methods
+        ):
+            unenforced.append(f"{method} {rule.rule} ({controller.__name__})")
+    if unenforced:
+        raise ValueError(
+            "Access control policies are not enforced on operations routed to "
+            f"controllers of '{__name__}', so any caller could grant "
+            f"themselves roles: {', '.join(unenforced)}. Enforce policies on "
+            "them: enable 'security.access_control.enforce', require "
+            "authentication (security requirements without empty "
+            "alternatives, no 'disable_auth') and do not set "
+            "'x-foca-access-control: false' or 'x-foca-self-service: true'."
+        )

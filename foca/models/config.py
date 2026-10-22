@@ -560,7 +560,9 @@ class AccessControlConfig(FOCABaseConfig):
             `group_mapping` is set.
         group_mapping: Mapping of values of `claim_groups` to roles. If set,
             only mapped values are used as roles, unless
-            `keep_group_subjects` is set.
+            `keep_group_subjects` is set. Roles must not be roles of
+            `resource_roles` (mapped roles apply to every resource) and must
+            not start with `subject_prefix`, `group:` or `client:`.
         keep_group_subjects: Whether to also use all values of
             `claim_groups`, prefixed with `group:`, as subjects if
             `group_mapping` is set, i.e., in addition to the roles they are
@@ -571,7 +573,8 @@ class AccessControlConfig(FOCABaseConfig):
             `AuthConfig.service_clients`) to roles. Requests with service
             tokens are enforced with the subject `client:<client ID>` and
             the role of the client, if mapped. Clients that are not service
-            clients cannot be mapped.
+            clients cannot be mapped. Roles are restricted as for
+            `group_mapping`.
         resource_roles_cover_subpaths: Whether resource-scoped roles (role
             definitions with three fields, e.g., `g2 = _, _, _`) granted on
             a resource path also apply to its sub-paths (e.g., a role on
@@ -715,16 +718,19 @@ class AccessControlConfig(FOCABaseConfig):
 
     @model_validator(mode="after")
     def validate_mapped_roles(self) -> Self:
-        """Ensure that roles mapped from group claims or clients are not subjects.
+        """Ensure that roles mapped from group claims or clients are global roles.
 
         Returns:
             Validated access control configuration.
 
         Raises:
-            ValueError: A role of `group_mapping` or `client_mapping` starts
-                with `subject_prefix`, `group:` or `client:`, so that the
-                mapped groups or clients would get the rights of that
-                subject.
+            ValueError: A role of `group_mapping` or `client_mapping` is one
+                of `resource_roles`, so that the mapped groups or clients
+                would have that role on every resource (a mapped role is a
+                subject of its own, which matches the policy rules of the
+                role on all resources), or it starts with `subject_prefix`,
+                `group:` or `client:`, so that the mapped groups or clients
+                would get the rights of that subject.
         """
         prefixes = [self.subject_prefix, *SUBJECT_TYPE_PREFIXES.values()]
         for name, mapping in (
@@ -732,6 +738,12 @@ class AccessControlConfig(FOCABaseConfig):
             ("client_mapping", self.client_mapping),
         ):
             for role in (mapping or {}).values():
+                if role in self.resource_roles:
+                    raise ValueError(
+                        f"'{name}' must not map to '{role}', a role of "
+                        "'resource_roles', as mapped subjects would otherwise "
+                        "have that role on every resource"
+                    )
                 for prefix in prefixes:
                     if role.startswith(prefix):
                         raise ValueError(

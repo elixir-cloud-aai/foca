@@ -1311,7 +1311,7 @@ class TestCurrentSubject:
         finally:
             ctx.pop()
 
-    @pytest.mark.parametrize("group_mapping", [None, {"a": "maintainer"}])
+    @pytest.mark.parametrize("group_mapping", [None, {"a": "auditor"}])
     def test_group_subjects(
         self, helper_app: Flask, group_mapping: dict[str, str] | None
     ) -> None:
@@ -1328,7 +1328,7 @@ class TestCurrentSubject:
             {"sub": "x", "groups": [ADMIN_ENTITLEMENT, "a", "b", "a"]},
         )
         try:
-            mapped = [] if group_mapping is None else ["admin", "maintainer"]
+            mapped = [] if group_mapping is None else ["admin", "auditor"]
             assert get_current_groups() == [
                 *mapped,
                 f"group:{ADMIN_ENTITLEMENT}",

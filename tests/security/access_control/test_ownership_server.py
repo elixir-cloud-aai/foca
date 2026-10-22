@@ -74,6 +74,7 @@ def mock_token_info(token: str) -> dict[str, Any]:
 getFileRoles = ownership_server.getResourceRoles
 putFileUserRole = ownership_server.putUserRole
 putUnidentifiedRole = ownership_server.putUserRole
+headUserRole = ownership_server.putUserRole
 
 
 def _operation(
@@ -106,7 +107,7 @@ ROLE_BODY = {
     },
 }
 
-SPEC = {
+SPEC: dict[str, Any] = {
     "openapi": "3.0.2",
     "info": {"title": "Test API", "version": "1.0.0"},
     "servers": [{"url": "/api"}],
@@ -153,11 +154,15 @@ SPEC = {
 }
 
 
-@pytest.fixture
-def app(tmp_path: Path) -> Flask:
-    """App with the test API and in-memory policies."""
+def _create_app(
+    tmp_path: Path,
+    spec: dict[str, Any] = SPEC,
+    enforce: bool = True,
+    disable_auth: bool = False,
+) -> Flask:
+    """Create an app with an API and in-memory policies."""
     spec_file = tmp_path / "spec.yaml"
-    spec_file.write_text(yaml.safe_dump(deepcopy(SPEC)))
+    spec_file.write_text(yaml.safe_dump(deepcopy(spec)))
     with resource_path(ACCESS_CONTROL_BASE_PATH, RESOURCE_ROLE_MODEL_FILE) as model:
         model_path = str(model)
     config = Config.model_validate(
@@ -166,7 +171,7 @@ def app(tmp_path: Path) -> Flask:
                 "auth": {"issuers": [ISSUER], "audience": ["foca"]},
                 "access_control": {
                     "enabled": True,
-                    "enforce": True,
+                    "enforce": enforce,
                     "model": model_path,
                     "claim_groups": "groups",
                     "group_mapping": {ADMINS: "admin"},
@@ -179,8 +184,10 @@ def app(tmp_path: Path) -> Flask:
     cnx_app = register_exception_handler(cnx_app)
     cnx_app = register_openapi(
         app=cnx_app,
-        specs=[SpecConfig.model_validate({"path": spec_file})],
-        enforce_access_control=True,
+        specs=[
+            SpecConfig.model_validate({"path": spec_file, "disable_auth": disable_auth})
+        ],
+        enforce_access_control=enforce,
     )
     adapter = Adapter(
         collection=mongomock.MongoClient()["access_control_db"]["policy_rules"]
@@ -190,6 +197,12 @@ def app(tmp_path: Path) -> Flask:
     cnx_app.app.config["CASBIN_MODEL"] = model_path
     cnx_app.app.config["casbin_adapter"] = adapter
     return cnx_app.app
+
+
+@pytest.fixture
+def app(tmp_path: Path) -> Flask:
+    """App with the test API and in-memory policies."""
+    return _create_app(tmp_path)
 
 
 def _call(
@@ -398,6 +411,110 @@ class TestRoutes:
             pytest.raises(RuntimeError, match="not routed"),
         ):
             ownership_server._get_resource(with_subject=False)
+
+
+def putWrappedUserRole(**kwargs: Any) -> dict[str, str]:
+    """Wrap a controller, as apps do to pass existence checks."""
+    return ownership_server.putUserRole(**kwargs)
+
+
+def _spec_with(path: str, method: str, **fields: Any) -> dict[str, Any]:
+    """Copy the test API, adding fields to one of its operations."""
+    spec = deepcopy(SPEC)
+    spec["paths"][path][method].update(fields)
+    return spec
+
+
+USER_ROLE = "/tasks/{taskId}/permissions/users/{userId}"
+USER_ROUTE = "PUT /api/tasks/<taskId>/permissions/users/<userId> (putUserRole)"
+
+
+class TestEnforcementRequired:
+    """Tests for refusing operations that do not enforce policies."""
+
+    @pytest.mark.parametrize(
+        "enforce,disable_auth",
+        [(False, False), (True, True)],
+        ids=["not-enforced", "disable-auth"],
+    )
+    def test_startup_refused(
+        self, tmp_path: Path, enforce: bool, disable_auth: bool
+    ) -> None:
+        """Apps routing unenforced operations to the controllers don't start.
+
+        All such operations are named, also those routed to aliases.
+        """
+        with pytest.raises(ValueError, match="not enforced") as exc_info:
+            _create_app(tmp_path, SPEC, enforce=enforce, disable_auth=disable_auth)
+        message = str(exc_info.value)
+        assert USER_ROUTE in message
+        assert "GET /api/tasks/<taskId>/permissions (getResourceRoles)" in message
+        assert "PUT /api/projects/<p>/files/<f>/permissions/users/<u>" in message
+
+    @pytest.mark.parametrize(
+        "fields",
+        [{"security": []}, {"security": [{}]}, {"x-foca-access-control": False}],
+        ids=["no-security", "anonymous", "opt-out"],
+    )
+    def test_startup_refused_for_operation(
+        self, tmp_path: Path, fields: dict[str, Any]
+    ) -> None:
+        """Only the operations that do not enforce policies are named."""
+        with pytest.raises(ValueError, match="not enforced") as exc_info:
+            _create_app(tmp_path, _spec_with(USER_ROLE, "put", **fields))
+        message = str(exc_info.value)
+        assert USER_ROUTE in message
+        assert "DELETE" not in message
+        assert "getResourceRoles" not in message
+
+    def test_startup_refused_for_head(self, tmp_path: Path) -> None:
+        """Operations of methods that Flask also adds itself are named."""
+        spec = deepcopy(SPEC)
+        spec["paths"][USER_ROLE]["head"] = _operation(
+            "headUserRole", __name__, security=[]
+        )
+        with pytest.raises(ValueError, match="not enforced") as exc_info:
+            _create_app(tmp_path, spec)
+        message = str(exc_info.value)
+        assert "HEAD /api/tasks/<taskId>/permissions/users/<userId>" in message
+        assert "OPTIONS" not in message
+
+    def test_request_refused(self, tmp_path: Path) -> None:
+        """Wrappers of the controllers refuse unenforced requests."""
+        spec = deepcopy(SPEC)
+        spec["paths"] = {
+            USER_ROLE: {
+                "parameters": [_parameter("taskId"), _parameter("userId")],
+                "put": _operation(
+                    "putWrappedUserRole", __name__, requestBody=ROLE_BODY, security=[]
+                ),
+            }
+        }
+        app = _create_app(tmp_path, spec)
+        path = f"{TASK}/permissions/users/mallory"
+        with mock.patch.object(ownership_server.logger, "error") as error:
+            assert _call(app, "put", path, "mallory", "owner").status_code == 500
+        assert "not enforced" in str(error.call_args)
+        assert _roles(app) == [ResourceRole("user", "alice", "owner")]
+
+    def test_enforced_wrapper(self, tmp_path: Path) -> None:
+        """Wrappers of the controllers serve enforced requests."""
+        spec = _spec_with(
+            USER_ROLE, "put", operationId=f"{__name__}.putWrappedUserRole"
+        )
+        app = _create_app(tmp_path, spec)
+        path = f"{TASK}/permissions/users/bob"
+        assert _call(app, "put", path, "bob", "owner").status_code == 403
+        assert _call(app, "put", path, "alice", "owner").status_code == 200
+        assert ResourceRole("user", "bob", "owner") in _roles(app)
+
+    def test_unrouted_call(self, app: Flask) -> None:
+        """Calls outside of routed requests are refused."""
+        with (
+            app.test_request_context("/unknown", method="PUT"),
+            pytest.raises(RuntimeError, match="not enforced"),
+        ):
+            ownership_server.putUserRole(body={"role": "owner"})
 
 
 class TestGroupRoles:

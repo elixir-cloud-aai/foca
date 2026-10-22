@@ -55,6 +55,15 @@ the rights of that subject, and `security.auth.userinfo_claims` must not
 contain `client_id` or `azp`, as user info must not change which client a
 token was obtained by.
 
+Roles of `group_mapping` (and of the new `client_mapping`) must not be roles of
+`security.access_control.resource_roles` (by default, `owner` and
+`maintainer`) either: a mapped role is a subject of its own, which matches the
+rules of that role on every resource, so all members of a group mapped to
+`owner` would own all resources. Such configurations are rejected on startup;
+map groups to global roles such as `admin` instead, and grant resource roles
+to groups on single resources (see [granting roles to
+groups](access-control.md#granting-roles-to-groups)).
+
 ### Swagger UI path
 
 The `swagger_ui_path` option of
@@ -132,7 +141,9 @@ all paths under the base path.
   last-owner protection (`LastOwner`, `409 Conflict`)
   ([details](access-control.md#resource-ownership)), and ready-made
   controllers for endpoints managing roles on resources in
-  `foca.security.access_control.ownership_server`
+  `foca.security.access_control.ownership_server`, which require access
+  control policies to be enforced on their operations (apps routing
+  unenforced operations to them do not start)
   ([details](access-control.md#endpoints-for-managing-roles)). Apps managing
   owners with the resource role helpers of 0.15 can switch to them.
 - `foca.utils.urls` for checking URLs (`http`, `https` and `mailto`), with
@@ -147,6 +158,9 @@ all paths under the base path.
 ## Dependencies
 
 - Python 3.11 or later (see [above](#python-311-or-later)).
-- New: `idna>=3.7,<4` (for `foca.utils.urls`).
+- New: `idna>=3.15,<4` (for `foca.utils.urls`; 3.15 fixes CVE-2026-45409).
+- Raised lower bound: `PyJWT>=2.15` (fixes CVE-2026-48523, which let tokens
+  signed with an algorithm not in `security.auth.algorithms` pass, and
+  CVE-2026-32597).
 - Removed: `typing_extensions`.
 - Building FOCA from source requires `setuptools-scm>=9`.
