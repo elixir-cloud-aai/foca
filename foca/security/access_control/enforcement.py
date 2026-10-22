@@ -1,5 +1,6 @@
 """Enforcement of access control policies and helpers for managing them."""
 
+import inspect
 import logging
 import threading
 from collections.abc import Callable
@@ -39,6 +40,9 @@ RESOURCE_ROLE_PTYPE = "g2"
 # checked for roles that are subjects
 _SUBJECT_ROLES_CHECKED_KEY = "FOCA_ACCESS_CONTROL_SUBJECT_ROLES_CHECKED"
 _subject_roles_check_lock = threading.Lock()
+
+# Attribute marking the wrappers of `enforce_access_control()`
+_ENFORCING_ATTRIBUTE = "_foca_enforces_access_control"
 
 SubjectType = Literal["user", "group", "client"]
 """Types of subjects of resource role helpers: users, groups or service clients."""
@@ -414,7 +418,25 @@ def enforce_access_control(fn: Callable[..., Any]) -> Callable[..., Any]:
             raise Forbidden
         return fn(*args, **kwargs)
 
+    setattr(_wrapper, _ENFORCING_ATTRIBUTE, True)
     return _wrapper
+
+
+def _enforces_access_control(fn: Callable[..., Any]) -> bool:
+    """Check whether a function enforces access control policies.
+
+    Args:
+        fn: Function, e.g., the view function of a route.
+
+    Returns:
+        Whether the function is a wrapper of :py:func:`enforce_access_control`,
+        or wraps one (via `functools.wraps()`, e.g., Connexion's decorators).
+    """
+
+    def _is_enforcing(function: Callable[..., Any]) -> bool:
+        return getattr(function, _ENFORCING_ATTRIBUTE, False) is True
+
+    return _is_enforcing(inspect.unwrap(fn, stop=_is_enforcing))
 
 
 def is_permitted() -> bool:

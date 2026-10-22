@@ -10,6 +10,7 @@ from connexion import App
 from foca.config.config_parser import ConfigParser
 from foca.models.config import ConnexionOptions, SpecConfig
 from foca.security.access_control.enforcement import AccessControlResolver
+from foca.security.access_control.ownership_server import _check_routes_enforced
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -108,6 +109,9 @@ def register_openapi(
     Raises:
         OSError: Specification cannot be read.
         yaml.YAMLError: Specification cannot be parsed.
+        ValueError: Operations routed to the controllers of
+            :py:mod:`foca.security.access_control.ownership_server` do not
+            enforce access control policies.
     """
     # Iterate over OpenAPI specs
     for spec in specs:
@@ -177,4 +181,5 @@ def register_openapi(
         )
         logger.info("API endpoints added from spec: %s", list_specs)
 
+    _check_routes_enforced(app.app)
     return app
