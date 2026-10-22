@@ -134,10 +134,11 @@ mongodb:
   enabled: true
   # MongoDB 8.0 refuses to start on Linux kernels 6.19 to 7.0.13
   # (https://jira.mongodb.org/browse/SERVER-121912)
-  # Pinned to a minor version; patch versions are updated on restarts
-  image: docker.io/library/mongo:7.0
+  # Pinned to a patch version (or pin a digest), so that restarts don't
+  # change it; update it with the chart (Dependabot proposes patch updates)
+  image: docker.io/library/mongo:7.0.45
   # Pull policy of the image (`Always`, `IfNotPresent` or `Never`)
-  imagePullPolicy: Always
+  imagePullPolicy: IfNotPresent
   auth:
     # Require credentials (set `existingSecret`); enforced on every start,
     # but users are only created when MongoDB starts with an empty data
@@ -236,10 +237,11 @@ broker:
   # Required if `worker.enabled` or `enabled`; for an external broker, set it
   # without enabling either to pass the broker URL to the app only
   existingSecret: ""
-  # Pinned to a minor version; patch versions are updated on restarts
-  image: docker.io/library/rabbitmq:4.3
+  # Pinned to a patch version (or pin a digest), so that restarts don't
+  # change it; update it with the chart (Dependabot proposes patch updates)
+  image: docker.io/library/rabbitmq:4.3.7
   # Pull policy of the image (`Always`, `IfNotPresent` or `Never`)
-  imagePullPolicy: Always
+  imagePullPolicy: IfNotPresent
   # NetworkPolicy allowing connections to the broker only from the app's and
   # the worker's pods of this release (and the kubelet's probes); clusters
   # without NetworkPolicy support ignore it

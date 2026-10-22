@@ -75,6 +75,12 @@ def _checksum(docs: Docs) -> str:
     return checksum
 
 
+def _example_values() -> dict[str, Any]:
+    """Values of the petstore example's chart."""
+    values: dict[str, Any] = yaml.safe_load((APP_CHART / "values.yaml").read_text())
+    return values
+
+
 def _pod_spec(docs: Docs, name: str = APP) -> Manifest:
     spec: Manifest = docs[("Deployment", name)]["spec"]["template"]["spec"]
     return spec
@@ -269,6 +275,147 @@ def test_init_script_needs_databases(
     chart = chart_with_settings("valuesKey: petstore")
     assert re.search(r"mongodb\.databases", template_error(chart))
     template(chart, "--set", "mongodb.auth.enabled=false")
+
+
+ACCESS_CONTROL_SETTINGS = """
+valuesKey: petstore
+mongodb:
+  databases: [petstore]
+  accessControlDatabase: policies
+"""
+
+
+def _roles(docs: Docs) -> list[str]:
+    """Databases of the app user's roles in the init script, in order."""
+    script = docs[("ConfigMap", INIT_SCRIPT)]["data"]["create-app-user.js"]
+    assert "db.getSiblingDB('petstore').createUser" in script
+    return re.findall(r"\{ role: 'readWrite', db: '([^']*)' \}", script)
+
+
+def test_init_script_without_access_control(render: Callable[..., Docs]) -> None:
+    """Without access control, the app user may only use the app's databases."""
+    assert _roles(render()) == ["petstore"]
+
+
+def test_init_script_access_control_setting(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """The access-control database of the settings is granted after the app's."""
+    chart = chart_with_settings(ACCESS_CONTROL_SETTINGS)
+    assert _roles(index(template(chart))) == ["petstore", "policies"]
+
+
+def test_init_script_access_control_overlay_db_name(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """The overlay's access-control database takes precedence."""
+    chart = chart_with_settings(ACCESS_CONTROL_SETTINGS)
+    docs = index(
+        template(chart, "--set", "config.security.access_control.db_name=rules")
+    )
+    assert _roles(docs) == ["petstore", "rules"]
+
+
+def test_init_script_access_control_setting_when_disabled(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """The setting is granted even if the overlay disables access control."""
+    chart = chart_with_settings(ACCESS_CONTROL_SETTINGS)
+    docs = index(
+        template(chart, "--set", "config.security.access_control.enabled=false")
+    )
+    assert _roles(docs) == ["petstore", "policies"]
+
+
+def test_init_script_access_control_enabled_in_overlay(
+    render: Callable[..., Docs],
+) -> None:
+    """Access control enabled by the overlay grants FOCA's default database."""
+    docs = render("--set", "config.security.access_control.enabled=true")
+    assert _roles(docs) == ["petstore", "access_control_db"]
+    docs = render("--set", "config.security.access_control.enabled=false")
+    assert _roles(docs) == ["petstore"]
+
+
+def test_init_script_access_control_ci_values(chart: Path) -> None:
+    """The access-control installation of CI grants the policy database."""
+    values = chart / "ci" / "access-control-values.yaml"
+    docs = index(template(chart, "-f", str(values), required=False))
+    assert _roles(docs) == ["petstore", "access_control_db"]
+
+
+@pytest.mark.parametrize(
+    ("enabled", "granted"),
+    [("Yes", True), ("on", True), (1, True), ("off", False), (0, False)],
+)
+def test_init_script_access_control_enabled_as_pydantic(
+    chart: Path, tmp_path: Path, enabled: object, granted: bool
+) -> None:
+    """The overlay's `enabled` counts as pydantic parses it."""
+    values = tmp_path / "values.yaml"
+    access_control = {"enabled": enabled}
+    values.write_text(
+        yaml.safe_dump({"config": {"security": {"access_control": access_control}}})
+    )
+    roles = _roles(index(template(chart, "-f", str(values))))
+    assert roles == ["petstore", "access_control_db"][: 2 if granted else 1]
+
+
+def test_init_script_access_control_null_db_name(chart: Path, tmp_path: Path) -> None:
+    """A `null` access-control database of the overlay fails."""
+    values = tmp_path / "values.yaml"
+    values.write_text(
+        yaml.safe_dump({"config": {"security": {"access_control": {"db_name": None}}}})
+    )
+    error = template_error(chart, "-f", str(values))
+    assert "not a valid MongoDB database name" in error
+
+
+def test_init_script_access_control_in_app_database(
+    render: Callable[..., Docs],
+) -> None:
+    """An access-control database that is an app database is granted once."""
+    docs = render(
+        "--set",
+        "config.security.access_control.enabled=true",
+        "--set",
+        "config.security.access_control.db_name=petstore",
+    )
+    assert _roles(docs) == ["petstore"]
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        'mongodb:\n  databases: [petstore]\n  accessControlDatabase: "it\'s"',
+        "mongodb:\n  databases: [petstore]\n  accessControlDatabase: 1",
+        "mongodb:\n  databases: [petstore]\n  accessControlDatabase: ''",
+        "mongodb:\n  databases: [pet.store]",
+        'mongodb:\n  databases: [petstore, "a b"]',
+        "mongodb:\n  databases: [" + "a" * 64 + "]",
+        # Line separators of YAML (in the init script's block scalar), and
+        # other non-ASCII characters
+        'mongodb:\n  databases: ["a\\u2028b"]',
+        'mongodb:\n  databases: ["caf\\u00e9"]',
+    ],
+)
+def test_init_script_invalid_database_names(
+    chart_with_settings: Callable[[str], Path], settings: str
+) -> None:
+    """Database names that MongoDB or the init script can't take fail."""
+    chart = chart_with_settings(f"valuesKey: petstore\n{settings}")
+    assert "not a valid MongoDB database name" in template_error(chart)
+
+
+@pytest.mark.parametrize("db_name", ["a/b", "x'y", " "])
+def test_init_script_invalid_overlay_db_name(
+    render_error: Callable[..., str], db_name: str
+) -> None:
+    """An invalid access-control database name of the overlay fails."""
+    error = render_error(
+        "--set-string", f"config.security.access_control.db_name={db_name}"
+    )
+    assert "not a valid MongoDB database name" in error
 
 
 # Config overlay
@@ -592,15 +739,19 @@ def test_mongodb_settings(render: Callable[..., Docs]) -> None:
         "--set",
         "mongodb.image=mongo:7.0.1",
         "--set",
-        "mongodb.imagePullPolicy=IfNotPresent",
+        "mongodb.imagePullPolicy=Never",
     )
     pvc = docs[("PersistentVolumeClaim", MONGODB)]["spec"]
     assert pvc["resources"]["requests"]["storage"] == "5Gi"
     assert pvc["accessModes"] == ["ReadWriteOnce"]
     container = _container(docs, MONGODB)
     assert container["image"] == "mongo:7.0.1"
-    assert container["imagePullPolicy"] == "IfNotPresent"
-    assert _container(render(), MONGODB)["imagePullPolicy"] == "Always"
+    assert container["imagePullPolicy"] == "Never"
+    default = _container(render(), MONGODB)
+    assert default["image"] == _example_values()["mongodb"]["image"]
+    assert default["imagePullPolicy"] == "IfNotPresent"
+    docs = render("--set-json", "mongodb.imagePullPolicy=null")
+    assert _container(docs, MONGODB)["imagePullPolicy"] == "Always"
 
 
 def test_mongodb_values_required(
@@ -767,7 +918,9 @@ def test_library_lints() -> None:
     helm("lint", "--strict", str(LIBRARY))
 
 
-@pytest.mark.parametrize("values", ["test-values.yaml", "celery-values.yaml"])
+@pytest.mark.parametrize(
+    "values", ["test-values.yaml", "celery-values.yaml", "access-control-values.yaml"]
+)
 def test_app_chart_lints(chart: Path, values: str) -> None:
     """The app chart passes a strict lint with the values of CI."""
     helm("lint", "--strict", str(chart), "-f", str(chart / "ci" / values))
@@ -1007,8 +1160,8 @@ def test_broker(render: Callable[..., Docs]) -> None:
     docs = render(*CELERY)
     broker = _container(docs, BROKER)
     assert broker["name"] == "broker"
-    assert broker["image"] == "docker.io/library/rabbitmq:4.3"
-    assert broker["imagePullPolicy"] == "Always"
+    assert broker["image"] == _example_values()["broker"]["image"]
+    assert broker["imagePullPolicy"] == "IfNotPresent"
     assert _env(broker) == {
         "RABBITMQ_LOGS": "-",
         "RABBITMQ_DEFAULT_USER": {
@@ -1136,7 +1289,7 @@ def test_broker_settings(render: Callable[..., Docs]) -> None:
     docs = render(
         *CELERY,
         "--set",
-        "broker.imagePullPolicy=IfNotPresent",
+        "broker.imagePullPolicy=Never",
         "--set",
         "broker.image=registry.example.org/rabbitmq:4.3",
         "--set-json",
@@ -1148,7 +1301,7 @@ def test_broker_settings(render: Callable[..., Docs]) -> None:
     )
     broker = _container(docs, BROKER)
     assert broker["image"] == "registry.example.org/rabbitmq:4.3"
-    assert broker["imagePullPolicy"] == "IfNotPresent"
+    assert broker["imagePullPolicy"] == "Never"
     assert broker["resources"]["limits"] == {"cpu": "200m", "memory": "1Gi"}
     assert _pod_spec(docs, BROKER)["volumes"] == [
         {"name": "data", "emptyDir": {}},

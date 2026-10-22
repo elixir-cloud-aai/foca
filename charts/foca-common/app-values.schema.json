@@ -233,7 +233,7 @@
         },
         "image": {
           "type": "string",
-          "description": "MongoDB image, pinned to a minor version"
+          "description": "MongoDB image, pinned to a patch version or digest"
         },
         "imagePullPolicy": {
           "enum": ["Always", "IfNotPresent", "Never"],
@@ -337,7 +337,7 @@
         },
         "image": {
           "type": "string",
-          "description": "RabbitMQ image, pinned to a minor version"
+          "description": "RabbitMQ image, pinned to a patch version or digest"
         },
         "imagePullPolicy": {
           "enum": [

@@ -316,8 +316,8 @@ spec:
       # No `<SERVICE>_PORT` etc. variables of the Services in the namespace
       enableServiceLinks: false
       containers:
-      - image: docker.io/library/mongo:7.0
-        imagePullPolicy: Always
+      - image: docker.io/library/mongo:7.0.45
+        imagePullPolicy: IfNotPresent
         name: mongodb
         env:
         - name: MONGO_APP_PASSWORD

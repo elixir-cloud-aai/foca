@@ -8,4 +8,7 @@ valuesKey: petstore
 mongodb:
   # `db.dbs` of the base config (`config.yaml`)
   databases: [petstore]
+  # For apps whose base config enables access control: its database
+  # (`security.access_control.db_name`), e.g., FOCA's default
+  # accessControlDatabase: access_control_db
 {{- end -}}

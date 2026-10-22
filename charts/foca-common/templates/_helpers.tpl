@@ -96,7 +96,11 @@ settings are a dict with the keys:
   (`config.security.auth.audience`), as the app requires one;
 - `mongodb.databases`: databases of the app's base config (`db.dbs`), the
   first of which FOCA authenticates against; required for the bundled
-  MongoDB with authentication, which creates the app user.
+  MongoDB with authentication, which creates the app user;
+- `mongodb.accessControlDatabase`: database of FOCA's access control
+  (`security.access_control.db_name`), if the app's base config enables it;
+  the app user of the bundled MongoDB gets access to it, too (see
+  `foca-common.accessControlDatabase`).
 
 The app's values must also contain the maps `mongodb` and `mongodb.auth`,
 even for an external MongoDB (see the docs).
