@@ -36,12 +36,12 @@ from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 ISSUER = "https://login.example.org/oidc/"
 HEADER = "X-On-Behalf-Of"
 # Claims of validated tokens
-CONQUEST = {"sub": "conquest", "client_id": "conquest"}
-PROTES = {"sub": "protes", "client_id": "protes"}
-OTHER = {"sub": "other", "client_id": "other"}
-ALICE = {"sub": "alice", "client_id": "conquest", "groups": ["devs"]}
+CONQUEST = {"iss": ISSUER, "sub": "conquest", "client_id": "conquest"}
+PROTES = {"iss": ISSUER, "sub": "protes", "client_id": "protes"}
+OTHER = {"iss": ISSUER, "sub": "other", "client_id": "other"}
+ALICE = {"iss": ISSUER, "sub": "alice", "client_id": "conquest", "groups": ["devs"]}
 # User whose identifier equals a service client's
-USER_CONQUEST = {"sub": "conquest", "client_id": "krini"}
+USER_CONQUEST = {"iss": ISSUER, "sub": "conquest", "client_id": "krini"}
 
 
 @pytest.fixture

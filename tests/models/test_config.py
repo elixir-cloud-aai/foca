@@ -446,6 +446,73 @@ def test_AuthConfig_service_clients() -> None:
     assert [client.on_behalf_of for client in res.service_clients] == [False, True]
 
 
+@pytest.mark.parametrize(
+    "issuers,issuer",
+    [
+        # required with several trusted issuers
+        (["https://a.example.org", "https://b.example.org"], None),
+        # must be trusted
+        (["https://a.example.org", "https://b.example.org"], "https://c.example.org"),
+        (["https://a.example.org"], "https://b.example.org"),
+        ([], "https://a.example.org"),
+        # must not be empty
+        (["https://a.example.org"], ""),
+    ],
+)
+def test_AuthConfig_service_client_issuers_invalid(
+    issuers: list[str], issuer: str | None
+) -> None:
+    """Test AuthConfig instantiation; missing or untrusted client issuers."""
+    with pytest.raises(ValidationError, match="issuer"):
+        AuthConfig.model_validate(
+            {
+                "issuers": issuers,
+                "audience": ["foca"],
+                "service_clients": [{"client_id": "conquest", "issuer": issuer}],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "issuers,issuer",
+    [
+        (["https://a.example.org", "https://b.example.org"], "https://b.example.org"),
+        # implied with one trusted issuer, given twice
+        (["https://a.example.org", "https://a.example.org"], None),
+        (["https://a.example.org"], None),
+        (["https://a.example.org"], "https://a.example.org"),
+        ([], None),
+    ],
+)
+def test_AuthConfig_service_client_issuers(
+    issuers: list[str], issuer: str | None
+) -> None:
+    """Test AuthConfig instantiation; issuers of service clients."""
+    res = AuthConfig.model_validate(
+        {
+            "issuers": issuers,
+            "audience": ["foca"],
+            "service_clients": [{"client_id": "conquest", "issuer": issuer}],
+        }
+    )
+    assert res.service_clients[0].issuer == issuer
+
+
+def test_AuthConfig_service_client_issuers_one_missing() -> None:
+    """Test AuthConfig instantiation; one of several clients lacks an issuer."""
+    with pytest.raises(ValidationError, match="'protes' needs an issuer"):
+        AuthConfig.model_validate(
+            {
+                "issuers": ["https://a.example.org", "https://b.example.org"],
+                "audience": ["foca"],
+                "service_clients": [
+                    {"client_id": "conquest", "issuer": "https://a.example.org"},
+                    {"client_id": "protes"},
+                ],
+            }
+        )
+
+
 def test_AuthConfig_service_clients_not_accepted() -> None:
     """Test AuthConfig instantiation; service client not an accepted client."""
     with pytest.raises(ValidationError, match="conquest"):
