@@ -1,0 +1,22 @@
+# Installation with the Celery worker and the bundled broker (RabbitMQ), in
+# CI; the fixed name gives the broker's Service a known host for the broker
+# URL of the Secret `celery` (see `.github/workflows/charts.yml`)
+fullnameOverride: petstore-celery
+hostName: petstore-celery.example.org
+mongodb:
+  auth:
+    existingSecret: mongodb
+worker:
+  enabled: true
+  command:
+  - python
+  - -m
+  - celery
+  - --app
+  - worker:celery_app
+  - worker
+  - --concurrency=1
+  - --loglevel=INFO
+broker:
+  enabled: true
+  existingSecret: celery

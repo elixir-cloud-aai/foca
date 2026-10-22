@@ -1,0 +1,1 @@
+{{- include "foca-common.workerDeployment" (dict "root" . "settings" (include "petstore.settings" . | fromYaml)) }}

@@ -17,7 +17,12 @@ chart: its values, a few settings and one line per resource. It renders:
 - `NetworkPolicy`s for the app (opt-in) and MongoDB;
 - an optional MongoDB (`Deployment`, `Service`, `PersistentVolumeClaim`, and
   an init script that creates the app user), with credentials from an
-  existing `Secret`; external databases work too.
+  existing `Secret`; external databases work too;
+- an optional [Celery](https://docs.celeryq.dev/) worker (`Deployment` with
+  the app's image) for [background tasks](configuration/jobs.md), and an
+  optional [RabbitMQ](https://www.rabbitmq.com/) broker (`Deployment`,
+  `Service`, `NetworkPolicy`), with the broker URL from an existing `Secret`;
+  external brokers work too.
 
 The library chart lives in [`charts/foca-common`][library] and is versioned
 independently of FOCA. The [petstore example][petstore-chart] has a thin chart
@@ -119,6 +124,13 @@ and the settings (`settings`), one per file:
 | `foca-common.mongodbNetworkPolicy` | MongoDB's `NetworkPolicy`, if `mongodb.networkPolicy.enabled` |
 | `foca-common.mongodbPersistentVolumeClaim` | MongoDB's data volume |
 | `foca-common.mongodbService` | MongoDB's `Service` (port 27017), the host of `db.host` in the overlay |
+| `foca-common.workerDeployment` | the Celery worker's `Deployment`, if `worker.enabled` |
+| `foca-common.brokerDeployment` | the broker's (RabbitMQ's) `Deployment`, if `broker.enabled` |
+| `foca-common.brokerNetworkPolicy` | the broker's `NetworkPolicy`, if `broker.enabled` and `broker.networkPolicy.enabled` |
+| `foca-common.brokerService` | the broker's `Service` (port 5672), the host of the broker URL |
+
+App charts without background tasks may leave out the worker's and broker's
+templates and values.
 
 Helpers such as `foca-common.fullname`, `foca-common.labels` and
 `foca-common.routeEnabled` are available for the app's own resources and
@@ -141,11 +153,13 @@ your app's `valuesKey`:
 
 | Values | Description |
 | --- | --- |
-| `nameOverride`, `fullnameOverride` | Resource names: `<release>-<chart>` (or `<release>` if it contains the chart name) for the app, the same with the suffix `-mongodb` for MongoDB |
+| `nameOverride`, `fullnameOverride` | Resource names: `<release>-<chart>` (or `<release>` if it contains the chart name) for the app, the same with the suffixes `-mongodb`, `-worker` and `-broker` for MongoDB, the worker and the broker |
 | `hostName` | Public host name of the Ingress or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
 | `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `probePath`, `ingress`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `volumeSize`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
+| `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
+| `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `dataSizeLimit`, `tmpSizeLimit` |
 
 The values are described in detail in the example's `values.yaml`. The
 library's schema of these values is
@@ -171,8 +185,38 @@ library's schema of these values is
   `config.db.host`), and the credentials of the app user via
   `mongodb.auth.existingSecret` (or disable `mongodb.auth.enabled`). The
   app's values keep the `mongodb` map for these settings.
+- **Celery worker and broker:** for apps with [background
+  tasks](configuration/jobs.md), `worker.enabled` deploys a worker with the
+  app's image, run with `worker.command` (e.g., `["celery", "--app",
+  "my_app.worker:celery_app", "worker"]`, with the app's worker entry point;
+  the petstore example has one, `worker.py`), and with the app's config
+  overlay, MongoDB credentials and security contexts. `broker.enabled`
+  deploys RabbitMQ as the broker. Both need an existing Secret
+  (`broker.existingSecret`) with the key `broker-url`, passed to the app and
+  the worker as `CELERY_BROKER_URL`, which takes precedence over `jobs.host`
+  and `jobs.port`; an optional key `result-backend` is passed as
+  `CELERY_RESULT_BACKEND`. For the bundled RabbitMQ, the Secret also has the
+  keys `username` and `password` of its user, and the broker URL contains
+  them and the broker's Service (URL-encode reserved characters):
+
+    ```bash
+    password="$(openssl rand -hex 16)"
+    kubectl create secret generic my-app-celery \
+        --from-literal=username=my-app \
+        --from-literal=password="${password}" \
+        --from-literal=broker-url="pyamqp://my-app:${password}@my-app-broker:5672//"
+    ```
+
+    The bundled RabbitMQ keeps its data in an `emptyDir` (up to
+  `broker.dataSizeLimit`), so queued tasks are lost when its pod is replaced
+  (e.g., on upgrades); each new pod creates the user from the Secret, so
+  roll the broker's, the app's and the worker's pods after changing it. For
+  durable queues, use an external broker: set only
+  `broker.existingSecret` (and `worker.enabled`, if the release runs the
+  worker).
 - **Network policies:** MongoDB's NetworkPolicy, enabled by default, admits
-  only the app's pods of the release. The app's NetworkPolicy is opt-in, as
+  only the app's pods of the release (and the worker's, if enabled); the
+  broker's admits only the app's and the worker's pods. The app's NetworkPolicy is opt-in, as
   its peers depend on the cluster: set `<valuesKey>.networkPolicy.ingressFrom`
   to the namespace of the ingress controller (by default that of
   ingress-nginx; on OpenShift, `policy-group.network.openshift.io/ingress:
@@ -215,7 +259,9 @@ In CI, the petstore example is also installed with its thin chart on a
 [chart-testing](https://github.com/helm/chart-testing) (`ct install`),
 which runs the chart's test (`templates/tests/`, `helm test`): it adds a
 pet and reads it back, so that the app, its MongoDB and the app user are
-checked.
+checked. A second installation (`ci/celery-values.yaml`) adds the Celery
+worker and the bundled broker; CI checks that the worker logs that it is
+ready, i.e., connected to the broker.
 
 ### Releases
 

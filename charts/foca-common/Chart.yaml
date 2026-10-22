@@ -2,8 +2,8 @@ apiVersion: v2
 name: foca-common
 description: >-
   Library chart for FOCA apps by ELIXIR On-Cloud: the app's Deployment,
-  config overlay, Service, Ingress or OpenShift Route and NetworkPolicy, and
-  an optional MongoDB
+  config overlay, Service, Ingress or OpenShift Route and NetworkPolicy, an
+  optional MongoDB, and an optional Celery worker and broker (RabbitMQ)
 type: library
 # Independent of FOCA's version; bump it with every change, following
 # semantic versioning (see docs/helm-chart.md)
@@ -17,6 +17,8 @@ keywords:
   - flask
   - connexion
   - mongodb
+  - celery
+  - rabbitmq
   - elixir
 maintainers:
   - name: ELIXIR Cloud & AAI

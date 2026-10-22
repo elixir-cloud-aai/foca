@@ -41,6 +41,17 @@ CASES: dict[str, tuple[str, ...]] = {
         "--set",
         "config.server.max_content_length=1048576",
     ),
+    "celery": (
+        "--set",
+        "worker.enabled=true",
+        "--set-json",
+        'worker.command=["python", "-m", "celery", "--app", "worker:celery_app", '
+        '"worker"]',
+        "--set",
+        "broker.enabled=true",
+        "--set",
+        "broker.existingSecret=celery",
+    ),
 }
 
 

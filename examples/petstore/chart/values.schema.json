@@ -283,6 +283,97 @@
         }
       }
     },
+    "worker": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy a Celery worker with the app's image; requires broker.existingSecret"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Command of the worker's container; required if enabled"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of worker pods"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds that the worker gets to finish running tasks on shutdown"
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resource requests and limits of the container"
+        },
+        "tmpSizeLimit": {
+          "$ref": "#/$defs/tmpSizeLimit"
+        }
+      }
+    },
+    "broker": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy RabbitMQ as the Celery broker (queued tasks are lost when its pod is replaced); requires existingSecret"
+        },
+        "existingSecret": {
+          "type": "string",
+          "description": "Secret with the broker URL (key broker-url), optionally the result backend (result-backend) and, for the bundled broker, its user's credentials (username and password); passed to the app and the worker"
+        },
+        "image": {
+          "type": "string",
+          "description": "RabbitMQ image, pinned to a minor version"
+        },
+        "imagePullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ],
+          "description": "Pull policy of the RabbitMQ image; Always if not set"
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Create a NetworkPolicy allowing connections to the broker only from the app's and the worker's pods"
+            }
+          }
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Security context of the pod (runAsUser, runAsGroup and fsGroup are omitted on OpenShift)"
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Security context of the container (runAsUser and runAsGroup are omitted on OpenShift)"
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resource requests and limits of the container"
+        },
+        "dataSizeLimit": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/tmpSizeLimit"
+            }
+          ],
+          "description": "Size limit of the emptyDir with the broker's data: a positive Kubernetes quantity (e.g., 1Gi) or number of bytes; none if null"
+        },
+        "tmpSizeLimit": {
+          "$ref": "#/$defs/tmpSizeLimit"
+        }
+      }
+    },
     "petstore": {"$ref": "#/$defs/app"}
   }
 }

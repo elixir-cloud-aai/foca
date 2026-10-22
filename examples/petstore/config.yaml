@@ -52,5 +52,13 @@ db:
                 pets:
                     indexes: null
 
+# Background tasks with Celery, for the worker entry point (`worker.py`); the
+# example has no tasks. Deployments set the broker URL via
+# `CELERY_BROKER_URL` (e.g., the Helm chart's `broker.existingSecret`)
+jobs:
+    host: rabbitmq
+    port: 5672
+    backend: rpc://
+
 exceptions:
     mapping: exceptions.exceptions
