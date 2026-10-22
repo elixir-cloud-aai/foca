@@ -163,6 +163,26 @@ The lint job also builds the documentation (see [Documentation](#documentation))
 and the distributions, and checks that the ruff version of the pre-commit hook
 matches the one pinned in `requirements/lint.txt` (update both together).
 
+The image scan (`.github/workflows/images.yml`) builds the Docker images of
+all Python versions and scans them with [Grype](https://github.com/anchore/grype);
+it also checks that the build creates the SBOM and provenance attestations of
+the release images. It fails for critical and high vulnerabilities that have
+a fix, and lists all vulnerabilities in the repository's code scanning alerts
+(Security tab). Every Monday, it scans the images of the latest release
+instead. If a scan fails:
+
+1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
+   in `pyproject.toml` or update the base image (Dependabot's PRs do both).
+2. Otherwise (e.g., no fixed base image yet, or a vulnerability that does not
+   affect FOCA), accept it in `.grype.yaml`, as narrowly as possible, with a
+   `reason` and an `expires` date at most three months ahead (see the
+   comments there), in a PR of its own. Once the date passes, the scan fails
+   again, so that the decision is reviewed.
+3. For a released image, release a patch version once the fix is on `dev`.
+
+Scheduled scans use the `.grype.yaml` of `dev`, so that accepting a finding
+on `dev` also applies to the released images.
+
 ## Python guidelines
 
 Most of the following is checked by pre-commit and CI; the rest is checked in
