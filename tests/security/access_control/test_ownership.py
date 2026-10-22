@@ -47,12 +47,12 @@ HEADER = "X-On-Behalf-Of"
 ADMINS = "urn:example:group:admins"
 TASK = "/tasks/1"
 # Claims of validated tokens
-ALICE = {"sub": "alice", "groups": ["devs"]}
-BOB = {"sub": "bob", "groups": ["ops/team"]}
-CAROL = {"sub": "carol", "groups": [ADMINS]}
-DAVE = {"sub": "dave"}
-CONQUEST = {"sub": "conquest", "client_id": "conquest"}
-PROTES = {"sub": "protes", "client_id": "protes"}
+ALICE = {"iss": ISSUER, "sub": "alice", "groups": ["devs"]}
+BOB = {"iss": ISSUER, "sub": "bob", "groups": ["ops/team"]}
+CAROL = {"iss": ISSUER, "sub": "carol", "groups": [ADMINS]}
+DAVE = {"iss": ISSUER, "sub": "dave"}
+CONQUEST = {"iss": ISSUER, "sub": "conquest", "client_id": "conquest"}
+PROTES = {"iss": ISSUER, "sub": "protes", "client_id": "protes"}
 NO_SUBJECT = {"iss": ISSUER}
 # Model with resource-scoped roles only
 MODEL_WITHOUT_GLOBAL_ROLES = """
