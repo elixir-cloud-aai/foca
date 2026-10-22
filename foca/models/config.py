@@ -18,6 +18,7 @@ from pydantic import (
     PositiveInt,
     PrivateAttr,
     ValidationInfo,
+    ValidatorFunctionWrapHandler,
     field_validator,
     model_validator,
 )
@@ -469,15 +470,12 @@ class SpecConfig(FOCABaseConfig):
             `APIConfig.specs` is given as a mapping of named specifications,
             so that config overlays can change single specifications.
             Must be unique.
-        patches: Patches deep-merged into the specification in order, after
-            the files of `path` and `append`, and before
-            `add_operation_fields` and `add_security_fields`, with the same
-            rules as the files of `path`: mappings are merged, other values
-            (including lists and ``None``) replace earlier ones. Each patch
-            is a path to a YAML or JSON file (relative paths are resolved
-            like those of `path`) or a mapping. Meant for operators of an
-            app; patches can weaken or remove authentication and access
-            control.
+        patches: Paths to YAML or JSON files (resolved like those of `path`)
+            or mappings, deep-merged into the specification in order after
+            `path` and `append`, with the same rules as `path`. Meant for
+            operators; patches can weaken or remove authentication and
+            access control. Cf. the documentation on patching
+            specifications.
 
     Attributes:
         path: A single path or list of paths to OpenAPI 2.x or 3.x
@@ -802,8 +800,7 @@ class AccessControlConfig(FOCABaseConfig):
         self_service: Allow subjects to list and get the permissions that
             apply to them.
         policies: Policy rules the app relies on, managed on startup, as a
-            list or a mapping of names to rules, as given (without removed
-            rules).
+            list (names of named rules are kept in `named_policies`).
         log_traffic: Whether requests to the permissions API and their
             responses are logged.
 
@@ -844,34 +841,61 @@ class AccessControlConfig(FOCABaseConfig):
     id_charset: str = DEFAULT_ID_CHARSET
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
     self_service: bool = False
-    policies: list[list[str]] | dict[str, list[str]] | None = None
+    policies: list[list[str]] | None = None
     log_traffic: bool = True
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
     _registered_collection: tuple[str, str, bool] | None = PrivateAttr(default=None)
+    # Names of the rules of `policies`, if given as named rules
+    _policy_names: list[str] | None = PrivateAttr(default=None)
 
-    @field_validator("policies", mode="before")
+    @model_validator(mode="wrap")
     @classmethod
-    def drop_removed_policies(cls, v: Any) -> Any:
-        """Drop named policy rules removed by setting them to `None`.
+    def named_policies_to_list(
+        cls, data: Any, handler: ValidatorFunctionWrapHandler
+    ) -> Any:
+        """Convert named policy rules to a list, keeping their names.
 
         Args:
-            v: Policy rules.
+            data: Input data.
+            handler: Validation handler.
 
         Returns:
-            Policy rules, without named rules set to `None`.
+            Validated access control configuration; named rules set to
+            `None` are dropped.
 
         Raises:
-            ValueError: Names of rules are not non-empty strings.
+            ValueError: Names of rules are not non-empty strings, or rules
+                are not lists of strings.
         """
-        if not isinstance(v, dict):
-            return v
-        for name in v:
-            if not isinstance(name, str) or not name:
-                raise ValueError(
-                    f"Names of policy rules must be non-empty strings: {name!r}"
-                )
-        return {name: rule for name, rule in v.items() if rule is not None}
+        names: list[str] | None = None
+        if isinstance(data, dict) and isinstance(data.get("policies"), dict):
+            named: dict[str, list[str]] = {}
+            for name, rule in data["policies"].items():
+                if not isinstance(name, str) or not name:
+                    raise ValueError(
+                        f"Names of policy rules must be non-empty strings: {name!r}"
+                    )
+                if rule is None:
+                    continue
+                if not isinstance(rule, list) or not all(
+                    isinstance(value, str) for value in rule
+                ):
+                    raise ValueError(f"Policy rule '{name}' must be a list of strings")
+                named[name] = rule
+            data = {**data, "policies": list(named.values())}
+            names = list(named)
+        model = handler(data)
+        if names is not None:
+            model._policy_names = names
+        return model
+
+    @property
+    def named_policies(self) -> dict[str, list[str]] | None:
+        """Named policy rules, if `policies` was given as named rules."""
+        if self._policy_names is None or self.policies is None:
+            return None
+        return dict(zip(self._policy_names, self.policies, strict=True))
 
     @field_validator("subject_prefix")
     @classmethod

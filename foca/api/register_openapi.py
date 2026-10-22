@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Iterator
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -113,8 +114,56 @@ def _iter_operations(spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
         yield operation_object
 
 
-def _protected_routes(spec: dict[str, Any]) -> dict[str, set[str]]:
-    """Get the protections of each operation of a specification.
+def _add_operation_fields(spec: dict[str, Any], fields: dict[str, Any]) -> None:
+    """Add fields to the Operation Objects of a specification, in place.
+
+    Fields that operations set themselves are kept.
+
+    Args:
+        spec: OpenAPI 2.x or 3.x specification.
+        fields: Fields to add.
+    """
+    for operation_object in _iter_operations(spec):
+        for key, val in fields.items():
+            operation_object.setdefault(key, val)
+
+
+def _resolve_path_item(spec: dict[str, Any], path_item: dict[str, Any]) -> Any:
+    """Resolve a local reference (`$ref`) of a Path Item Object.
+
+    As Connexion does, the fields of the referenced object replace those set
+    next to the reference.
+
+    Args:
+        spec: OpenAPI 2.x or 3.x specification.
+        path_item: Path Item Object.
+
+    Returns:
+        Path Item Object with local references resolved (up to a depth of
+        10), or the referenced value if it is not a mapping, or the Path Item
+        Object as it is if it has no local reference.
+    """
+    for _ in range(10):
+        ref = path_item.get("$ref")
+        if not isinstance(ref, str) or not ref.startswith("#/"):
+            return path_item
+        target: Any = spec
+        for token in ref[2:].split("/"):
+            key = token.replace("~1", "/").replace("~0", "~")
+            target = target.get(key) if isinstance(target, dict) else None
+        if not isinstance(target, dict):
+            return target
+        path_item = {
+            **{key: val for key, val in path_item.items() if key != "$ref"},
+            **target,
+        }
+    return path_item
+
+
+def _protections(spec: dict[str, Any]) -> dict[str, set[str]]:
+    """Get the protections of the operations of a specification.
+
+    Path items given via local references are resolved, as by Connexion.
 
     Args:
         spec: OpenAPI 2.x or 3.x specification.
@@ -124,22 +173,84 @@ def _protected_routes(spec: dict[str, Any]) -> dict[str, set[str]]:
         requires authentication (operation-level or inherited security
         requirements, none of them empty), `access control` if it does not
         opt out of policy enforcement (via `x-foca-access-control: false` or
-        `x-foca-self-service: true`).
+        `x-foca-self-service: true`). Path items with references that cannot
+        be resolved locally (e.g., to other files) are listed as `<path>`,
+        with protection `reference <$ref>`.
     """
     protections: dict[str, set[str]] = {}
-    for path, method, operation_object in _iter_routes(spec):
-        protected = set()
-        if _requires_authentication(
-            operation_object.get("security", spec.get("security"))
-        ):
-            protected.add("security")
-        if (
-            operation_object.get("x-foca-access-control") is not False
-            and operation_object.get("x-foca-self-service") is not True
-        ):
-            protected.add("access control")
-        protections[f"{method.upper()} {path}"] = protected
+    paths = spec.get("paths")
+    if not isinstance(paths, dict):
+        return protections
+    for path, path_item_object in paths.items():
+        if not isinstance(path_item_object, dict):
+            continue
+        resolved = _resolve_path_item(spec, path_item_object)
+        if not isinstance(resolved, dict):
+            continue
+        if "$ref" in resolved:
+            protections[path] = {f"reference {resolved['$ref']}"}
+        for _, method, operation_object in _iter_routes({"paths": {path: resolved}}):
+            protected = set()
+            if _requires_authentication(
+                operation_object.get("security", spec.get("security"))
+            ):
+                protected.add("security")
+            if (
+                operation_object.get("x-foca-access-control") is not False
+                and operation_object.get("x-foca-self-service") is not True
+            ):
+                protected.add("access control")
+            protections[f"{method.upper()} {path}"] = protected
     return protections
+
+
+def _security_schemes(spec: dict[str, Any]) -> Any:
+    """Get the security definitions (OpenAPI 2) and schemes (OpenAPI 3)."""
+    components = spec.get("components")
+    return (
+        spec.get("securityDefinitions"),
+        components.get("securitySchemes") if isinstance(components, dict) else None,
+    )
+
+
+def _warn_weakened(before: dict[str, Any], after: dict[str, Any], label: str) -> None:
+    """Warn of protections that patches remove from a specification.
+
+    Warns of operations that are new or required authentication or were
+    subject to access control before the patches, but not after, and of
+    changed security definitions or schemes.
+
+    Args:
+        before: Specification before the patches.
+        after: Specification after the patches.
+        label: Name or paths of the specification, for logs.
+    """
+    protected_before = _protections(before)
+    weakened = []
+    for route, protected in _protections(after).items():
+        if route not in protected_before:
+            # new operations (and references) are compared with full
+            # protection, so that new or renamed public operations are listed
+            if protected != {"security", "access control"}:
+                weakened.append(route)
+        elif protected_before[route] - protected:
+            weakened.append(route)
+    if weakened:
+        logger.warning(
+            "Patches of API spec %s add or change operations so that they do "
+            "not require authentication ('security') or opt out of access "
+            "control ('x-foca-access-control', 'x-foca-self-service'), or "
+            "add references to other files: %s. Make sure that this is "
+            "intended.",
+            label,
+            ", ".join(weakened),
+        )
+    if _security_schemes(before) != _security_schemes(after):
+        logger.warning(
+            "Patches of API spec %s change its security definitions or "
+            "schemes. Make sure that this is intended.",
+            label,
+        )
 
 
 def _load_patch(patch: Path | dict[str, Any]) -> dict[str, Any]:
@@ -170,8 +281,7 @@ def _apply_patches(
 ) -> dict[str, Any]:
     """Deep-merge patches into a specification.
 
-    Applied patches are logged, and a warning lists operations whose
-    authentication or access control the patches remove.
+    Applied patches are logged.
 
     Args:
         spec: OpenAPI 2.x or 3.x specification.
@@ -196,20 +306,6 @@ def _apply_patches(
             for index, patch in enumerate(patches, start=1)
         ),
     )
-    after = _protected_routes(patched)
-    weakened = [
-        route
-        for route, protected in _protected_routes(spec).items()
-        if route in after and protected - after[route]
-    ]
-    if weakened:
-        logger.warning(
-            "Patches of API spec %s remove authentication ('security') or "
-            "access control ('x-foca-access-control', 'x-foca-self-service') "
-            "from operations: %s. Make sure that this is intended.",
-            label,
-            ", ".join(weakened),
-        )
     return patched
 
 
@@ -260,15 +356,21 @@ def register_openapi(
             if spec.name is not None
             else ", ".join(str(path) for path in list_specs)
         )
+        unpatched: dict[str, Any] | None = None
         if spec.patches:
+            # Compare protections with operation fields added, as they are
+            # added after patches
+            unpatched = deepcopy(spec_parsed)
+            if spec.add_operation_fields is not None:
+                _add_operation_fields(unpatched, spec.add_operation_fields)
             spec_parsed = _apply_patches(spec_parsed, spec.patches, label)
 
         # Add fields to Operation Objects, keeping fields they set themselves
         if spec.add_operation_fields is not None:
-            for operation_object in _iter_operations(spec_parsed):
-                for key, val in spec.add_operation_fields.items():
-                    operation_object.setdefault(key, val)
+            _add_operation_fields(spec_parsed, spec.add_operation_fields)
             logger.debug("Added operation fields: %s", spec.add_operation_fields)
+        if unpatched is not None:
+            _warn_weakened(unpatched, spec_parsed, label)
 
         # Add fields to security definitions/schemes
         if not spec.disable_auth and spec.add_security_fields is not None:
@@ -317,11 +419,16 @@ def register_openapi(
                 specification=spec_parsed,
                 **connexion_kwargs,
             )
-        except InvalidSpecification as exc:
+        except Exception as exc:
             if not spec.patches:
                 raise
+            message = (
+                exc.message
+                if isinstance(exc, InvalidSpecification)
+                else f"{type(exc).__name__}: {exc}"
+            )
             raise ValueError(
-                f"API spec {label} is invalid after applying patches: {exc.message}"
+                f"API spec {label} is invalid after applying patches: {message}"
             ) from exc
         logger.info("API endpoints added from spec: %s", list_specs)
 

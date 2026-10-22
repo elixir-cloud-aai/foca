@@ -343,39 +343,44 @@ def register_casbin_enforcer(
     )
     app.app.config["casbin_adapter"] = adapter
     if access_control_config.policies is not None:
-        _add_policies(adapter=adapter, policies=access_control_config.policies)
+        _add_policies(
+            adapter=adapter,
+            policies=access_control_config.policies,
+            names=access_control_config._policy_names,
+        )
     logger.info("Casbin enforcer registered.")
 
     return app
 
 
 def _add_policies(
-    adapter: Adapter, policies: list[list[str]] | dict[str, list[str]]
+    adapter: Adapter,
+    policies: list[list[str]],
+    names: list[str] | None = None,
 ) -> None:
     """Make the stored configured policy rules match the configured ones.
 
     All rules are validated before any stored rule is changed, so that
-    invalid configurations leave stored rules unchanged. The names of named
-    rules are logged.
+    invalid configurations leave stored rules unchanged.
 
     Args:
         adapter: Casbin adapter of the app.
         policies: Policy rules, each given as its policy type followed by its
-            values, as a list or a mapping of names to rules.
+            values.
+        names: Names of the rules, if given as named rules; used in errors
+            and logged.
 
     Raises:
         ValueError: A rule is invalid for the adapter's model (cf.
             :py:func:`validate_rule`).
     """
-    if isinstance(policies, dict):
-        for name, rule in policies.items():
-            try:
-                validate_rule(rule[0] if rule else None, rule[1:], adapter.model)
-            except ValueError as exc:
-                raise ValueError(f"Invalid policy rule '{name}': {exc}") from exc
-        adapter.set_configured_policies(list(policies.values()))
-        logger.info("Named policy rules applied: %s", ", ".join(policies) or "none")
-        return
-    for ptype, *rule in policies:
-        validate_rule(ptype, rule, adapter.model)
+    for index, rule in enumerate(policies):
+        try:
+            validate_rule(rule[0] if rule else None, rule[1:], adapter.model)
+        except ValueError as exc:
+            if names is None:
+                raise
+            raise ValueError(f"Invalid policy rule '{names[index]}': {exc}") from exc
     adapter.set_configured_policies(policies)
+    if names is not None:
+        logger.info("Named policy rules applied: %s", ", ".join(names) or "none")

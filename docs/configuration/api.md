@@ -105,13 +105,25 @@ paths](index.md#relative-paths)), so overlays usually refer to mounted files
 with absolute paths, or give patches inline.
 
 FOCA fails to start if a patch file cannot be read or is not a mapping, or if
-the patched specification is invalid. It logs the patches applied to each
-specification, and a warning listing the operations that required
-authentication (non-empty `security` requirements, of the operation or the
-specification, without an empty alternative) or were subject to [access
-control](../access-control.md#enforcing-policies-with-oidc-tokens) before the
-patches, but not after (e.g., because a patch sets `security: []` or
-`x-foca-access-control: false`).
+the patched specification is invalid or cannot be registered. It logs the
+patches applied to each specification, and warns of
+
+- operations that required authentication (non-empty `security`
+  requirements, of the operation or the specification, without an empty
+  alternative) or were subject to [access
+  control](../access-control.md#enforcing-policies-with-oidc-tokens) before
+  the patches, but not after (e.g., because a patch sets `security: []` or
+  `x-foca-access-control: false`),
+- operations added by patches (also by renaming paths or via local
+  references) that do not require authentication or opt out of access
+  control, and path items that patches refer to other files (which FOCA
+  cannot check), and
+- patches that change security definitions or schemes.
+
+Protections are compared after `add_operation_fields` (applied before and
+after the patches for the comparison), and with path items given via local
+references resolved, as Connexion does. The warnings are a safety net, not a
+review: check what a patch does before deploying it.
 
 See [requiring login for reads](../access-control.md#requiring-login-for-reads)
 for a recipe that combines a patch with named policy rules.

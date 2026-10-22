@@ -250,7 +250,8 @@ security:
 
 Named rules are stored like listed ones (names are not stored, so switching
 between both forms does not change stored rules); their names are logged on
-startup, and errors name the invalid rule. Apps that expect operators to adapt
+startup, and errors name the invalid rule. As with `policies: []`, removing all
+named rules removes all configured rules. Apps that expect operators to adapt
 their rules should use named rules.
 
 !!! danger "Review overlays like code"

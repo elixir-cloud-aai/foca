@@ -1,6 +1,7 @@
 """Tests for registering the Casbin enforcer."""
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -97,7 +98,7 @@ def test_adapter_dbname_override(
 
 
 def _register_policies(
-    policies: list[list[str]] | dict[str, list[str]] | None,
+    policies: list[list[str]] | Mapping[str, list[str] | None] | None,
     model: str = RESOURCE_ROLE_MODEL,
 ) -> tuple[Collection[dict[str, Any]], list[list[str]]]:
     """Register enforcer with policies; return stored rules."""
@@ -105,7 +106,9 @@ def _register_policies(
     app = App(__name__)
     module.register_casbin_enforcer(
         app=app,
-        access_control_config=AccessControlConfig(model=model, policies=policies),
+        access_control_config=AccessControlConfig.model_validate(
+            {"model": model, "policies": policies}
+        ),
         mongo_config=mongo_config,
     )
     collection = app.app.config["casbin_adapter"]._collection
@@ -271,3 +274,12 @@ class TestPolicies:
             _register_policies({"ok": POLICIES[0], "broken": ["p", "*", "/pets"]})
         collection = clients["access_control_db"]["policy_rules"]
         assert collection.count_documents({}) == 0
+
+    def test_named_all_removed(self, clients: MongoClient[dict[str, Any]]) -> None:
+        """Removing all named rules removes all configured rules.
+
+        E.g., an overlay setting each rule of the app to `null`.
+        """
+        _register_policies({"read-write": POLICIES[0]})
+        _, rules = _register_policies({"read-write": None})
+        assert rules == []

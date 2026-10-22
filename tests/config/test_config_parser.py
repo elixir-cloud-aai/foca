@@ -333,7 +333,7 @@ class TestNamedEntries:
             "x-swagger-router-controller": "controllers"
         }
         assert spec.patches == [tmp_path / "patch.yaml"]
-        assert conf.security.access_control.policies == {
+        assert conf.security.access_control.named_policies == {
             "read": ["p", "*", "/pets", "(GET)|(HEAD)"],
             "delete": ["p", "admin", "/pets", "DELETE"],
         }
@@ -352,13 +352,16 @@ class TestNamedEntries:
             "      read: [p, '*', /pets, GET]\n",
         )
         conf = ConfigParser(config_file=[base, remove], format_logs=False).config
-        assert set(conf.security.access_control.policies or {}) == {"write"}
+        assert set(conf.security.access_control.named_policies or {}) == {"write"}
         conf = ConfigParser(
             config_file=[base, remove, remove], format_logs=False
         ).config
-        assert set(conf.security.access_control.policies or {}) == {"write"}
+        assert set(conf.security.access_control.named_policies or {}) == {"write"}
         conf = ConfigParser(config_file=[base, remove, add], format_logs=False).config
-        assert set(conf.security.access_control.policies or {}) == {"read", "write"}
+        assert set(conf.security.access_control.named_policies or {}) == {
+            "read",
+            "write",
+        }
 
     def test_list_replaced(self, base: Path, tmp_path: Path) -> None:
         """Lists in overlays replace named entries, as before."""
@@ -373,6 +376,7 @@ class TestNamedEntries:
         conf = ConfigParser(config_file=[base, overlay], format_logs=False).config
         assert [spec.name for spec in conf.api.specs] == [None]
         assert conf.security.access_control.policies == [["p", "*", "/pets", "GET"]]
+        assert conf.security.access_control.named_policies is None
 
     @pytest.mark.parametrize(
         "content,message",

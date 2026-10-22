@@ -372,17 +372,32 @@ def test_APIConfig_named_specs_invalid(specs: Any, message: str) -> None:
 def test_AccessControlConfig_named_policies() -> None:
     """Test AccessControlConfig instantiation; named policy rules.
 
-    Removed rules (`None`) are dropped.
+    Rules are converted to a list, keeping their names; removed rules
+    (`None`) are dropped.
     """
     res = AccessControlConfig.model_validate(
         {
             "policies": {
                 "read": ["p", "*", "/pets", "GET"],
                 "removed": None,
+                "admin": ["g", "user:bob", "admin"],
             }
         }
     )
-    assert res.policies == {"read": ["p", "*", "/pets", "GET"]}
+    assert res.policies == [["p", "*", "/pets", "GET"], ["g", "user:bob", "admin"]]
+    assert res.named_policies == {
+        "read": ["p", "*", "/pets", "GET"],
+        "admin": ["g", "user:bob", "admin"],
+    }
+    # names are kept on revalidation of the instance, e.g., in a parent model
+    assert AccessControlConfig.model_validate(res).named_policies == (
+        res.named_policies
+    )
+    # listed rules have no names
+    assert (
+        AccessControlConfig(policies=[["p", "*", "/a", "GET"]]).named_policies is None
+    )
+    assert AccessControlConfig().named_policies is None
 
 
 @pytest.mark.parametrize(
@@ -390,6 +405,7 @@ def test_AccessControlConfig_named_policies() -> None:
     [
         {"read": "p, *, /pets, GET"},
         {"read": [["p", "*", "/pets", "GET"]]},
+        {1: ["p", "*", "/pets", "GET"]},
         [{"read": ["p", "*", "/pets", "GET"]}],
         {"": ["p", "*", "/pets", "GET"]},
     ],

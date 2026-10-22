@@ -113,7 +113,8 @@ To keep mistakes from going unnoticed, FOCA refuses to start if a file
   instead, which replaces the named entries, too),
 - removes (`null`) entries that are not set, e.g., because of a misspelled
   name, or
-- changes a specification that is not set (an entry without `path`).
+- changes an API specification that is not set (an entry of `api.specs`
+  without `path`).
 
 Named entries also compose with other tools that merge mappings but replace
 lists, e.g., Helm when merging several values files. See [patching
