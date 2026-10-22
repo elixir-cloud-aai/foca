@@ -136,6 +136,16 @@ ignore = [
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.coverage.run]
+source = ["foca"]
+
+[tool.coverage.report]
+# Excluded by default only since coverage 7.10; the dev extra allows 7.6
+exclude_also = ["if (typing\\.)?TYPE_CHECKING:"]
+# `coverage report` and `coverage xml` (CI) fail below 100%; Codecov's
+# targets are the same (`codecov.yml`)
+fail_under = 100
+
 [tool.mypy]
 files = ["foca", "tests"]
 python_version = "3.11"
