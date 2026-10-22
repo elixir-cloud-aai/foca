@@ -1,0 +1,61 @@
+{{- /*
+Test of the release (`helm test`, run by chart-testing in CI): adds a pet and
+reads it back via the app's Service, so that the app and its MongoDB (with
+the app user, if authentication is enabled) are checked. Runs the app image,
+as it has Python. With `petstore.networkPolicy.enabled`, add this pod to
+`petstore.networkPolicy.ingressFrom` (e.g., a `podSelector` on the label
+`app.kubernetes.io/component: test`), or the policy blocks the test.
+*/ -}}
+{{- $context := dict "root" . "settings" (include "petstore.settings" . | fromYaml) -}}
+{{- include "foca-common.checkSettings" $context -}}
+{{- $fullname := include "foca-common.fullname" . -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ printf "%s-test-api" $fullname | quote }}
+  labels:
+    {{- include "foca-common.labels" (dict "root" . "component" "test") | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  restartPolicy: Never
+  securityContext:
+    {{- include "foca-common.securityContext" (dict "root" . "context" .Values.petstore.podSecurityContext) | nindent 4 }}
+  containers:
+  - name: test
+    image: {{ include "foca-common.image" $context | quote }}
+    imagePullPolicy: {{ .Values.petstore.imagePullPolicy | default "Always" }}
+    env:
+    - name: PETSTORE_URL
+      value: {{ printf "http://%s:8080" $fullname | quote }}
+    command:
+    - python
+    - -c
+    - |
+      import json, os, urllib.request
+      url = os.environ["PETSTORE_URL"] + "/pets"
+      pet = {"name": "helm-test", "tag": "cat"}
+      request = urllib.request.Request(
+          url,
+          data=json.dumps(pet).encode(),
+          headers={"Content-Type": "application/json"},
+      )
+      with urllib.request.urlopen(request, timeout=10) as response:
+          added = json.load(response)
+      assert added["name"] == pet["name"], added
+      with urllib.request.urlopen(url, timeout=10) as response:
+          pets = json.load(response)
+      assert added in pets, pets
+      print("added and found pet", added["id"])
+    securityContext:
+      {{- include "foca-common.securityContext" (dict "root" . "context" .Values.petstore.securityContext) | nindent 6 }}
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi
+      requests:
+        cpu: 100m
+        memory: 64Mi
