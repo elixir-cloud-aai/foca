@@ -13,6 +13,8 @@ from chart_helpers import (
     APP_CHART,
     HELM,
     LIBRARY,
+    NO_HOOKS,
+    REQUIRED_VALUES,
     Docs,
     Manifest,
     helm,
@@ -125,6 +127,7 @@ def test_names(chart: Path, release: str, args: tuple[str, ...], app: str) -> No
         "template",
         release,
         str(chart),
+        NO_HOOKS,
         "--set",
         "hostName=x",
         "--set",
@@ -327,7 +330,7 @@ def test_container(render: Callable[..., Docs]) -> None:
     ]:
         assert env[var] == {"secretKeyRef": {"name": "mongodb-credentials", "key": key}}
     for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
-        assert container[probe]["httpGet"] == {"path": "/ui/", "port": 8080}
+        assert container[probe]["httpGet"] == {"path": "/openapi.json", "port": 8080}
     assert container["lifecycle"]["preStop"]["exec"]["command"] == [
         "python",
         "-c",
@@ -768,6 +771,27 @@ def test_app_chart_lints(chart: Path) -> None:
     """The app chart passes a strict lint."""
     values = chart / "ci" / "test-values.yaml"
     helm("lint", "--strict", str(chart), "-f", str(values))
+
+
+def test_app_chart_test_hook(chart: Path) -> None:
+    """The test hook runs a Python check of the API against the app."""
+    rendered = helm(
+        "template",
+        "petstore",
+        str(chart),
+        "--show-only",
+        "templates/tests/test-api.yaml",
+        *REQUIRED_VALUES,
+    )
+    (pod,) = index(rendered).values()
+    assert pod["metadata"]["annotations"]["helm.sh/hook"] == "test"
+    (container,) = pod["spec"]["containers"]
+    app_version = yaml.safe_load((APP_CHART / "Chart.yaml").read_text())["appVersion"]
+    assert container["image"] == f"foca-petstore:{app_version}"
+    assert _env(container)["PETSTORE_URL"] == "http://petstore:8080"
+    command = container["command"]
+    assert command[:2] == ["python", "-c"]
+    compile(command[2], "test-api", "exec")
 
 
 GENERATED_CONFIG_SETTINGS = """

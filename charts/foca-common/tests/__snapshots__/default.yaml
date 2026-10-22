@@ -212,21 +212,21 @@ spec:
         # Up to 5 minutes are allowed for the start before liveness checks
         startupProbe:
           httpGet:
-            path: "/ui/"
+            path: "/openapi.json"
             port: 8080
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 30
         readinessProbe:
           httpGet:
-            path: "/ui/"
+            path: "/openapi.json"
             port: 8080
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         livenessProbe:
           httpGet:
-            path: "/ui/"
+            path: "/openapi.json"
             port: 8080
           periodSeconds: 20
           timeoutSeconds: 5

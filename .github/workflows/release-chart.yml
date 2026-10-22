@@ -1,0 +1,140 @@
+# Release the library chart foca-common when a chart tag (`chart-vX.Y.Z`) is
+# pushed: lint, test and install the charts (`charts.yml`), check that the
+# tag is signed, on `dev` and matches the chart's `version`, and that the
+# version was not published yet, then package the chart and push it as an
+# OCI artifact to `oci://ghcr.io/elixir-cloud-aai/charts`. Only final
+# versions (no pre-releases). Independent of FOCA's releases (`release.yml`,
+# tags `vX.Y.Z`). Chart releases come from `dev` on purpose, unlike FOCA's
+# releases from `main`, so that app charts can use a chart change without
+# waiting for a FOCA release. See "Releases" in docs/helm-chart.md.
+
+name: Release chart
+
+on:
+  push:
+    tags: ["chart-v*"]
+
+permissions:
+  contents: read
+
+# One run per tag (e.g., a rerun waits for a running one); releases of
+# different versions run independently, so that none is dropped from the
+# queue
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  REPOSITORY: oci://ghcr.io/elixir-cloud-aai/charts
+  CHART: charts/foca-common
+
+jobs:
+  charts:
+    name: Test charts
+    uses: ./.github/workflows/charts.yml
+
+  release:
+    name: Publish foca-common
+    needs: charts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write # push the chart to GHCR
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history, to check that the release commit is on `dev`
+          fetch-depth: 0
+      # Same Helm version as in `charts.yml`
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.22.1
+      - name: Check tag and version
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [[ ! "${TAG}" =~ ^chart-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              echo "::error::Tag '${TAG}' is not a chart release (e.g., chart-v1.2.3; no pre-releases)"
+              exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+          chart_version="$(yq '.version' "${CHART}/Chart.yaml")"
+          if [ "${chart_version}" != "${version}" ]; then
+              echo "::error::Tag '${TAG}' does not match version ${chart_version} in ${CHART}/Chart.yaml"
+              exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD origin/dev; then
+              echo "::error::Release commit is not on 'dev'"
+              exit 1
+          fi
+          # Annotated tags only, named as the pushed tag, with a signature
+          # that GitHub verified, of the checked-out commit
+          ref="$(gh api "repos/${GH_REPO}/git/ref/tags/${TAG}")"
+          if [ "$(jq -r '.object.type' <<< "${ref}")" != "tag" ]; then
+              echo "::error::Tag '${TAG}' is not an annotated (signed) tag"
+              exit 1
+          fi
+          tag="$(gh api "repos/${GH_REPO}/git/tags/$(jq -r '.object.sha' <<< "${ref}")")"
+          if [ "$(jq -r '.verification.verified' <<< "${tag}")" != "true" ]; then
+              echo "::error::Tag '${TAG}' has no verified signature"
+              exit 1
+          fi
+          if [ "$(jq -r '.tag' <<< "${tag}")" != "${TAG}" ]; then
+              echo "::error::Tag '${TAG}' points to a tag object of another name"
+              exit 1
+          fi
+          if [ "$(jq -r '.object.sha' <<< "${tag}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::Tag '${TAG}' does not point to the checked-out commit"
+              exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Log in to GHCR
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ github.token }}
+        run: |
+          helm registry login "${REGISTRY}" --username "${ACTOR}" --password-stdin <<< "${TOKEN}"
+      # Published versions are never overwritten: continue only if GHCR
+      # reports the version as not found, or, for the first release (no
+      # other chart tag), denies access to the package, which does not
+      # exist yet; fail on any other error. The matching of Helm's error
+      # messages is best-effort: if they change, the check fails closed.
+      # If a first release failed after its tag was pushed, delete that
+      # tag before tagging again.
+      - name: Check that version is not published
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if output="$(helm show chart "${REPOSITORY}/foca-common" --version "${VERSION}" 2>&1)"; then
+              echo "::error::foca-common ${VERSION} is already published"
+              exit 1
+          fi
+          echo "${output}"
+          if grep -q ': not found' <<< "${output}"; then
+              exit 0
+          fi
+          others="$(git tag -l 'chart-v*' | grep -vxF "${TAG}" || true)"
+          if [ -z "${others}" ] && grep -q 'denied' <<< "${output}"; then
+              echo "First release: the package does not exist yet"
+              exit 0
+          fi
+          echo "::error::Could not check whether foca-common ${VERSION} is published"
+          exit 1
+      - name: Package and push chart
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          helm package "${CHART}" -d dist
+          helm push "dist/foca-common-${VERSION}.tgz" "${REPOSITORY}"
+      - name: Log out of GHCR
+        if: always()
+        run: helm registry logout "${REGISTRY}" || true
