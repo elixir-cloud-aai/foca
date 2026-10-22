@@ -3,7 +3,9 @@
 import sys
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
+import mongomock
 import pytest
 from connexion.exceptions import OAuthProblem
 from flask.testing import FlaskClient
@@ -178,4 +180,15 @@ def test_service_client_acts_for_user(client: FlaskClient) -> None:
     response = client.post(
         "/pets", json={"name": "Rex"}, headers=_headers("alice", on_behalf_of="bob")
     )
+    assert response.status_code == 403
+
+
+def test_pet_not_stored(client: FlaskClient) -> None:
+    """Owners of pets that cannot be stored lose their role again."""
+    failure = RuntimeError("database not available")
+    with mock.patch.object(mongomock.Collection, "insert_one", side_effect=failure):
+        response = client.post("/pets", json={"name": "Rex"}, headers=_headers("alice"))
+    assert response.status_code == 500
+    # the first pet had ID 0
+    response = client.get("/pets/0/permissions", headers=_headers("alice"))
     assert response.status_code == 403

@@ -116,9 +116,14 @@ def addPet(pet: dict[str, Any]) -> dict[str, Any]:
     record = {"id": pet_id, "name": pet["name"]}
     if "tag" in pet:
         record["tag"] = pet["tag"]
-    # Make the creator the owner of the new pet, before it can be found
+    # Make the creator the owner of the new pet, before it can be found, and
+    # remove the role again if the pet cannot be stored
     add_owner(_pet_path(pet_id))
-    db_collection.insert_one(record)
+    try:
+        db_collection.insert_one(record)
+    except Exception:
+        remove_resource(_pet_path(pet_id))
+        raise
     del record["_id"]
     return record
 
