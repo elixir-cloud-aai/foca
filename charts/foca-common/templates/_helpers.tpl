@@ -40,8 +40,25 @@ rejects the one name that still collides).
 {{- end -}}
 
 {{/*
+Name of the Celery worker's Deployment; truncated like
+`foca-common.mongodbFullname`.
+*/}}
+{{- define "foca-common.workerFullname" -}}
+{{- printf "%s-worker" (include "foca-common.fullname" . | trunc 56 | trimSuffix "-") -}}
+{{- end -}}
+
+{{/*
+Name of the resources of the bundled broker and the host name of its
+Service; truncated like `foca-common.mongodbFullname`.
+*/}}
+{{- define "foca-common.brokerFullname" -}}
+{{- printf "%s-broker" (include "foca-common.fullname" . | trunc 56 | trimSuffix "-") -}}
+{{- end -}}
+
+{{/*
 Labels that select the pods of a component; call with a dict of the root
-context (`root`) and the component (`component`: `app` or `mongodb`).
+context (`root`) and the component (`component`: `app`, `mongodb`, `worker`
+or `broker`).
 */}}
 {{- define "foca-common.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "foca-common.name" .root | quote }}
@@ -114,6 +131,60 @@ true
 {{- end -}}
 
 {{/*
+Whether the Celery worker is deployed ("true") or not (empty):
+`worker.enabled`, false if not set (also without a `worker` map).
+*/}}
+{{- define "foca-common.workerEnabled" -}}
+{{- if dig "enabled" false (.Values.worker | default dict) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Whether the bundled broker is deployed ("true") or not (empty):
+`broker.enabled`, false if not set (also without a `broker` map).
+*/}}
+{{- define "foca-common.brokerEnabled" -}}
+{{- if dig "enabled" false (.Values.broker | default dict) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Name of the existing Secret with the broker settings (`broker.existingSecret`),
+required for the worker and the bundled broker; empty if not set otherwise.
+*/}}
+{{- define "foca-common.brokerSecret" -}}
+{{- $secret := dig "existingSecret" "" (.Values.broker | default dict) -}}
+{{- if and (not $secret) (or (include "foca-common.workerEnabled" .) (include "foca-common.brokerEnabled" .)) -}}
+{{- fail "broker.existingSecret must be set if worker.enabled or broker.enabled: a Secret with the key broker-url (and username and password for the bundled broker)" -}}
+{{- end -}}
+{{- $secret -}}
+{{- end -}}
+
+{{/*
+Environment variables of the app and the worker with the broker settings, if
+`broker.existingSecret` is set: `CELERY_BROKER_URL` (key `broker-url`) and,
+if the Secret has the key `result-backend`, `CELERY_RESULT_BACKEND`, which
+take precedence over the `jobs` config. Call with the root context.
+*/}}
+{{- define "foca-common.celeryEnv" -}}
+{{- with include "foca-common.brokerSecret" . }}
+- name: CELERY_BROKER_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ . | quote }}
+      key: broker-url
+- name: CELERY_RESULT_BACKEND
+  valueFrom:
+    secretKeyRef:
+      name: {{ . | quote }}
+      key: result-backend
+      optional: true
+{{- end }}
+{{- end -}}
+
+{{/*
 Whether an OpenShift Route is created ("true") or not (empty): without an
 Ingress, if the cluster serves Routes.
 */}}
@@ -134,6 +205,13 @@ ConfigMap template, which every app chart renders.
 {{- if and (include "foca-common.mongodbEnabled" .root) (eq $fullname (include "foca-common.mongodbFullname" .root)) -}}
 {{- fail (printf "the app and MongoDB resources would both be named %s: choose a fullnameOverride that does not end in -mongodb" $fullname) -}}
 {{- end -}}
+{{- if and (include "foca-common.workerEnabled" .root) (eq $fullname (include "foca-common.workerFullname" .root)) -}}
+{{- fail (printf "the app and worker resources would both be named %s: choose a fullnameOverride that does not end in -worker" $fullname) -}}
+{{- end -}}
+{{- if and (include "foca-common.brokerEnabled" .root) (eq $fullname (include "foca-common.brokerFullname" .root)) -}}
+{{- fail (printf "the app and broker resources would both be named %s: choose a fullnameOverride that does not end in -broker" $fullname) -}}
+{{- end -}}
+{{- $_ := include "foca-common.brokerSecret" .root -}}
 {{- $config := include "foca-common.configOverlay" . | fromYaml -}}
 {{- if not (include "foca-common.mongodbEnabled" .root) -}}
 {{- $db := get $config "db" -}}

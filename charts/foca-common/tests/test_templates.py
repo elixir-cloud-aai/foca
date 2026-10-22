@@ -767,10 +767,10 @@ def test_library_lints() -> None:
     helm("lint", "--strict", str(LIBRARY))
 
 
-def test_app_chart_lints(chart: Path) -> None:
-    """The app chart passes a strict lint."""
-    values = chart / "ci" / "test-values.yaml"
-    helm("lint", "--strict", str(chart), "-f", str(values))
+@pytest.mark.parametrize("values", ["test-values.yaml", "celery-values.yaml"])
+def test_app_chart_lints(chart: Path, values: str) -> None:
+    """The app chart passes a strict lint with the values of CI."""
+    helm("lint", "--strict", str(chart), "-f", str(chart / "ci" / values))
 
 
 def test_app_chart_test_hook(chart: Path) -> None:
@@ -844,3 +844,355 @@ def test_mongodb_auth_required(
     (chart / "values.schema.json").unlink()
     error = template_error(chart, "--set", "hostName=x", required=False)
     assert "mongodb and mongodb.auth must be maps" in error
+
+
+# Celery worker and broker
+
+WORKER = "petstore-worker"
+BROKER = "petstore-broker"
+BROKER_CONFIG = "petstore-broker-config"
+WORKER_COMMAND = ["python", "-m", "celery", "--app", "worker:celery_app", "worker"]
+CELERY = (
+    "--set",
+    "worker.enabled=true",
+    "--set-json",
+    f"worker.command={json.dumps(WORKER_COMMAND)}",
+    "--set",
+    "broker.enabled=true",
+    "--set",
+    "broker.existingSecret=celery",
+)
+CELERY_ENV = {
+    "CELERY_BROKER_URL": {"secretKeyRef": {"name": "celery", "key": "broker-url"}},
+    "CELERY_RESULT_BACKEND": {
+        "secretKeyRef": {"name": "celery", "key": "result-backend", "optional": True}
+    },
+}
+
+
+def _selector(component: str) -> dict[str, str]:
+    return {
+        "app.kubernetes.io/name": "petstore",
+        "app.kubernetes.io/instance": "petstore",
+        "app.kubernetes.io/component": component,
+    }
+
+
+def _celery_env(container: dict[str, Any]) -> dict[str, Any]:
+    return {name: value for name, value in _env(container).items() if "CELERY" in name}
+
+
+def test_celery_resources(render: Callable[..., Docs]) -> None:
+    """The worker and the broker add their resources."""
+    assert set(render(*CELERY)) == set(render()) | {
+        ("Deployment", WORKER),
+        ("Deployment", BROKER),
+        ("ConfigMap", BROKER_CONFIG),
+        ("NetworkPolicy", BROKER),
+        ("Service", BROKER),
+    }
+
+
+def test_celery_disabled_by_default(render: Callable[..., Docs]) -> None:
+    """Without the worker and broker values, the app has no broker settings."""
+    assert _celery_env(_container(render())) == {}
+
+
+def test_celery_without_values(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """App charts without worker and broker values render as before."""
+    chart = chart_with_settings("valuesKey: petstore\nmongodb: {databases: [p]}")
+    values = yaml.safe_load((chart / "values.yaml").read_text())
+    for key in ("worker", "broker"):
+        del values[key]
+    (chart / "values.yaml").write_text(yaml.safe_dump(values))
+    docs = index(template(chart))
+    assert not [name for _, name in docs if name.endswith(("-worker", "-broker"))]
+    assert _celery_env(_container(docs)) == {}
+
+
+def test_worker(render: Callable[..., Docs]) -> None:
+    """The worker runs the app's image with the worker command."""
+    docs = render(*CELERY)
+    app, worker = _container(docs), _container(docs, WORKER)
+    assert worker["name"] == "worker"
+    assert worker["image"] == app["image"]
+    assert worker["imagePullPolicy"] == app["imagePullPolicy"]
+    assert worker["command"] == WORKER_COMMAND
+    assert worker["securityContext"] == app["securityContext"]
+    assert worker["resources"]["limits"] == {"cpu": "100m", "memory": "256Mi"}
+    assert worker["volumeMounts"] == app["volumeMounts"]
+    assert not {"ports", "startupProbe", "readinessProbe", "livenessProbe"} & set(
+        worker
+    )
+    env = _env(worker)
+    assert {name: env[name] for name in CELERY_ENV} == CELERY_ENV
+    assert env == {
+        name: value for name, value in _env(app).items() if name != "GUNICORN_CMD_ARGS"
+    }
+    spec = _pod_spec(docs, WORKER)
+    assert spec["securityContext"] == _pod_spec(docs)["securityContext"]
+    assert spec["volumes"] == _pod_spec(docs)["volumes"]
+    assert spec["automountServiceAccountToken"] is False
+    assert spec["enableServiceLinks"] is False
+    assert spec["terminationGracePeriodSeconds"] == 30
+    pod = docs[("Deployment", WORKER)]["spec"]
+    assert pod["replicas"] == 1
+    assert pod["template"]["metadata"]["annotations"] == {
+        "checksum/config": _checksum(docs)
+    }
+
+
+def test_worker_settings(render: Callable[..., Docs]) -> None:
+    """The worker's values take effect."""
+    docs = render(
+        *CELERY,
+        "--set",
+        "worker.replicas=3",
+        "--set",
+        "worker.terminationGracePeriodSeconds=0",
+        "--set-json",
+        "worker.tmpSizeLimit=null",
+        "--set",
+        "mongodb.auth.enabled=false",
+    )
+    assert docs[("Deployment", WORKER)]["spec"]["replicas"] == 3
+    spec = _pod_spec(docs, WORKER)
+    assert spec["terminationGracePeriodSeconds"] == 0
+    assert spec["volumes"][1] == {"name": "tmp", "emptyDir": {}}
+    assert "MONGO_USERNAME" not in _env(_container(docs, WORKER))
+
+
+@pytest.mark.parametrize("command", ["[]", "null"])
+def test_worker_command_required(
+    render_error: Callable[..., str], command: str
+) -> None:
+    """The worker needs a command."""
+    error = render_error(*CELERY, "--set-json", f"worker.command={command}")
+    assert "worker.command must list" in error
+
+
+@pytest.mark.parametrize("component", ["worker", "broker"])
+def test_broker_secret_required(
+    render_error: Callable[..., str], component: str
+) -> None:
+    """The worker and the bundled broker need the Secret with the broker URL."""
+    error = render_error(
+        "--set",
+        f"{component}.enabled=true",
+        "--set-json",
+        f"worker.command={json.dumps(WORKER_COMMAND)}",
+    )
+    assert "broker.existingSecret must be set" in error
+
+
+def test_external_broker(render: Callable[..., Docs]) -> None:
+    """With only the Secret, the app gets the URL of an external broker."""
+    docs = render("--set", "broker.existingSecret=celery")
+    assert set(docs) == set(render())
+    assert _celery_env(_container(docs)) == CELERY_ENV
+
+
+def test_external_broker_with_worker(render: Callable[..., Docs]) -> None:
+    """A worker can use an external broker."""
+    docs = render(*CELERY, "--set", "broker.enabled=false")
+    assert ("Deployment", WORKER) in docs
+    assert not {name for _, name in docs if name == BROKER}
+    assert _celery_env(_container(docs, WORKER)) == CELERY_ENV
+
+
+def test_broker(render: Callable[..., Docs]) -> None:
+    """The bundled broker runs RabbitMQ with the user from the Secret."""
+    docs = render(*CELERY)
+    broker = _container(docs, BROKER)
+    assert broker["name"] == "broker"
+    assert broker["image"] == "docker.io/library/rabbitmq:4.3"
+    assert broker["imagePullPolicy"] == "Always"
+    assert _env(broker) == {
+        "RABBITMQ_LOGS": "-",
+        "RABBITMQ_DEFAULT_USER": {
+            "secretKeyRef": {"name": "celery", "key": "username"}
+        },
+        "RABBITMQ_DEFAULT_PASS": {
+            "secretKeyRef": {"name": "celery", "key": "password"}
+        },
+    }
+    assert broker["ports"] == [
+        {"name": "amqp", "containerPort": 5672, "protocol": "TCP"}
+    ]
+    for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
+        assert broker[probe]["tcpSocket"] == {"port": 5672}
+    assert broker["securityContext"]["readOnlyRootFilesystem"] is True
+    mounts = {mount["name"]: mount["mountPath"] for mount in broker["volumeMounts"]}
+    assert mounts == {
+        "data": "/var/lib/rabbitmq",
+        "tmp": "/tmp",  # noqa: S108
+        "config": "/etc/rabbitmq/conf.d/90-foca.conf",
+    }
+    assert broker["volumeMounts"][2]["subPath"] == "90-foca.conf"
+    config = docs[("ConfigMap", BROKER_CONFIG)]["data"]["90-foca.conf"]
+    assert "deprecated_features.permit.transient_nonexcl_queues = true" in config
+    pod = docs[("Deployment", BROKER)]["spec"]["template"]["metadata"]
+    assert pod["annotations"]["checksum/config"]
+    spec = _pod_spec(docs, BROKER)
+    assert spec["securityContext"]["runAsUser"] == 999
+    assert spec["securityContext"]["runAsNonRoot"] is True
+    assert spec["enableServiceLinks"] is False
+    assert spec["volumes"] == [
+        {"name": "data", "emptyDir": {"sizeLimit": "1Gi"}},
+        {"name": "tmp", "emptyDir": {"sizeLimit": "64Mi"}},
+        {"name": "config", "configMap": {"name": "petstore-broker-config"}},
+    ]
+    deployment = docs[("Deployment", BROKER)]["spec"]
+    assert deployment["strategy"] == {"type": "Recreate"}
+    service = docs[("Service", BROKER)]["spec"]
+    assert service["ports"] == [
+        {"name": "amqp", "port": 5672, "protocol": "TCP", "targetPort": "amqp"}
+    ]
+    assert service["selector"]["app.kubernetes.io/component"] == "broker"
+
+
+def test_broker_network_policy(render: Callable[..., Docs]) -> None:
+    """The broker's NetworkPolicy admits only the app and the worker."""
+    docs = render(*CELERY)
+    policy = docs[("NetworkPolicy", BROKER)]["spec"]
+    assert policy["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == (
+        "broker"
+    )
+    (rule,) = policy["ingress"]
+    peers = [peer["podSelector"]["matchLabels"] for peer in rule["from"]]
+    assert peers == [_selector("app"), _selector("worker")]
+    assert rule["ports"] == [{"port": 5672, "protocol": "TCP"}]
+    docs = render(*CELERY, "--set", "broker.networkPolicy.enabled=false")
+    assert ("NetworkPolicy", BROKER) not in docs
+
+
+def test_mongodb_network_policy_admits_worker(render: Callable[..., Docs]) -> None:
+    """MongoDB's NetworkPolicy admits the worker if it is enabled."""
+    (rule,) = render(*CELERY)[("NetworkPolicy", MONGODB)]["spec"]["ingress"]
+    peers = [peer["podSelector"]["matchLabels"] for peer in rule["from"]]
+    assert peers == [_selector("app"), _selector("worker")]
+
+
+def test_celery_labels(render: Callable[..., Docs]) -> None:
+    """The worker's and the broker's resources carry their component."""
+    docs = render(*CELERY)
+    resources = {
+        ("Deployment", WORKER): "worker",
+        ("Deployment", BROKER): "broker",
+        ("Service", BROKER): "broker",
+        ("NetworkPolicy", BROKER): "broker",
+        ("ConfigMap", BROKER_CONFIG): "broker",
+    }
+    for resource, component in resources.items():
+        labels = docs[resource]["metadata"]["labels"]
+        assert labels["app.kubernetes.io/component"] == component
+        assert labels["app.kubernetes.io/instance"] == "petstore"
+
+
+def test_celery_security_contexts_openshift(render: Callable[..., Docs]) -> None:
+    """On OpenShift, the worker and the broker leave the IDs unset."""
+    docs = render(*CELERY, *OPENSHIFT_API)
+    for name in (WORKER, BROKER):
+        context = _pod_spec(docs, name)["securityContext"]
+        assert not {"runAsUser", "runAsGroup", "fsGroup"} & set(context)
+        assert context["runAsNonRoot"] is True
+
+
+def test_celery_names(chart: Path) -> None:
+    """The worker's and the broker's names follow the app's."""
+    docs = index(template(chart, *CELERY, "--set", "fullnameOverride=shop"))
+    assert {
+        ("Deployment", "shop-worker"),
+        ("Deployment", "shop-broker"),
+        ("Service", "shop-broker"),
+        ("NetworkPolicy", "shop-broker"),
+    } <= set(docs)
+    # Long names are truncated before the suffix
+    long_name = "a" * 63
+    docs = index(template(chart, *CELERY, "--set", f"fullnameOverride={long_name}"))
+    assert ("Deployment", "a" * 56 + "-worker") in docs
+    assert ("Service", "a" * 56 + "-broker") in docs
+
+
+def test_worker_probes(render: Callable[..., Docs]) -> None:
+    """The worker's probes are taken from the values."""
+    probe = {"exec": {"command": ["celery", "inspect", "ping"]}, "periodSeconds": 60}
+    docs = render(
+        *CELERY,
+        "--set-json",
+        f"worker.readinessProbe={json.dumps(probe)}",
+        "--set-json",
+        f"worker.livenessProbe={json.dumps(probe)}",
+    )
+    worker = _container(docs, WORKER)
+    assert worker["readinessProbe"] == probe
+    assert worker["livenessProbe"] == probe
+
+
+def test_broker_settings(render: Callable[..., Docs]) -> None:
+    """The broker's values take effect."""
+    docs = render(
+        *CELERY,
+        "--set",
+        "broker.imagePullPolicy=IfNotPresent",
+        "--set",
+        "broker.image=registry.example.org/rabbitmq:4.3",
+        "--set-json",
+        "broker.dataSizeLimit=null",
+        "--set",
+        "broker.tmpSizeLimit=32Mi",
+        "--set-json",
+        'broker.resources={"limits": {"memory": "1Gi"}}',
+    )
+    broker = _container(docs, BROKER)
+    assert broker["image"] == "registry.example.org/rabbitmq:4.3"
+    assert broker["imagePullPolicy"] == "IfNotPresent"
+    assert broker["resources"]["limits"] == {"cpu": "200m", "memory": "1Gi"}
+    assert _pod_spec(docs, BROKER)["volumes"] == [
+        {"name": "data", "emptyDir": {}},
+        {"name": "tmp", "emptyDir": {"sizeLimit": "32Mi"}},
+        {"name": "config", "configMap": {"name": "petstore-broker-config"}},
+    ]
+
+
+def test_broker_image_required(render_error: Callable[..., str]) -> None:
+    """The bundled broker needs an image."""
+    error = render_error(*CELERY, "--set", "broker.image=")
+    assert "broker.image must be set" in error
+
+
+def test_worker_follows_app_values(render: Callable[..., Docs]) -> None:
+    """The worker takes the app's image and pull policy."""
+    docs = render(
+        *CELERY,
+        "--set",
+        "petstore.tag=1.2.3",
+        "--set",
+        "petstore.imagePullPolicy=Always",
+        "--set-json",
+        'worker.resources={"limits": {"memory": "1Gi"}}',
+    )
+    worker = _container(docs, WORKER)
+    assert worker["image"] == "foca-petstore:1.2.3"
+    assert worker["imagePullPolicy"] == "Always"
+    assert worker["resources"]["limits"] == {"cpu": "100m", "memory": "1Gi"}
+
+
+@pytest.mark.parametrize("suffix", ["-worker", "-broker"])
+def test_celery_name_collision_fails(
+    render_error: Callable[..., str], suffix: str
+) -> None:
+    """Names that would collide with the worker's or broker's fail."""
+    long_name = "a" * (63 - len(suffix)) + suffix
+    error = render_error(*CELERY, "--set", f"fullnameOverride={long_name}")
+    assert "would both be named" in error
+
+
+def test_schema_rejects_invalid_celery_values(
+    render_error: Callable[..., str],
+) -> None:
+    """The schema rejects invalid worker and broker values."""
+    assert "schema" in render_error("--set", "worker.replicas=0")
+    assert "schema" in render_error("--set", "broker.dataSizeLimit=0")

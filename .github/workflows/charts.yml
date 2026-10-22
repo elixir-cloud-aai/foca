@@ -2,7 +2,8 @@
 # (`charts/foca-common`) and the thin chart of the petstore example built on
 # it (`examples/petstore/chart`), with template and snapshot tests
 # (`charts/foca-common/tests`); install the petstore example on a kind
-# cluster with chart-testing and run its test (`helm test`). Releases of the
+# cluster with chart-testing, also with the Celery worker and broker, and run
+# its test (`helm test`). Releases of the
 # library chart are published by `release-chart.yml`, which calls this
 # workflow first.
 
@@ -50,8 +51,9 @@ jobs:
           helm lint --strict charts/foca-common
           # Fails if Chart.lock is out of sync with Chart.yaml
           helm dependency build examples/petstore/chart
-          helm lint --strict examples/petstore/chart \
-              -f examples/petstore/chart/ci/test-values.yaml
+          for values in examples/petstore/chart/ci/*-values.yaml; do
+            helm lint --strict examples/petstore/chart -f "${values}"
+          done
       # Fails instead of skipping the tests if Helm is missing
       - name: Test charts
         run: |
@@ -92,9 +94,10 @@ jobs:
           docker build -t foca-petstore-root:latest -f docker/Dockerfile .
           docker build -t foca-petstore:latest examples/petstore
           kind load docker-image foca-petstore:latest --name chart-testing
-      # The Secret with the MongoDB credentials (`ci/test-values.yaml`),
-      # with random passwords
-      - name: Create namespace and MongoDB credentials
+      # The Secrets with the MongoDB credentials and the broker settings
+      # (`ci/*-values.yaml`), with random passwords; the broker URL has the
+      # host of the broker's Service of `ci/celery-values.yaml`
+      - name: Create namespace and Secrets
         run: |
           kubectl create namespace "${NAMESPACE}"
           kubectl create secret generic mongodb -n "${NAMESPACE}" \
@@ -102,6 +105,11 @@ jobs:
               --from-literal=root-password="$(openssl rand -hex 16)" \
               --from-literal=username=petstore \
               --from-literal=password="$(openssl rand -hex 16)"
+          password="$(openssl rand -hex 16)"
+          kubectl create secret generic celery -n "${NAMESPACE}" \
+              --from-literal=username=petstore \
+              --from-literal=password="${password}" \
+              --from-literal=broker-url="pyamqp://petstore:${password}@petstore-celery-broker:5672//"
       # Installs the chart with each `ci/*-values.yaml`, waits until it is
       # ready and runs `helm test` (`templates/tests/`); keeps the releases
       # for the next step (the cluster is discarded with the runner)
@@ -119,6 +127,31 @@ jobs:
           printf '%s\n' "${logs}"
           if grep -E '\[ERROR\]|: ERROR +\]' <<< "${logs}"; then
             echo "::error::The app logged errors"
+            exit 1
+          fi
+      # The worker logs that it is ready once it has created the app and
+      # connected to the broker; it has no probes, so the step polls its
+      # logs. Errors as above, and in Celery's log format
+      # (`ERROR/MainProcess]`), except the connection retries while the
+      # broker starts (`consumer: Cannot connect to`)
+      - name: Check worker logs
+        run: |
+          for _ in $(seq 1 30); do
+            logs="$(kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
+                -l app.kubernetes.io/component=worker --tail=-1 2>&1)" || true
+            if grep -q ' ready\.$' <<< "${logs}"; then
+              break
+            fi
+            sleep 5
+          done
+          printf '%s\n' "${logs}"
+          if grep -v 'consumer: Cannot connect to' <<< "${logs}" \
+              | grep -E '\[ERROR\]|: ERROR +\]|ERROR/'; then
+            echo "::error::The worker logged errors"
+            exit 1
+          fi
+          if ! grep -q ' ready\.$' <<< "${logs}"; then
+            echo "::error::The worker is not ready"
             exit 1
           fi
       - name: Show cluster state

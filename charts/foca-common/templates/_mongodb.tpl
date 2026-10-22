@@ -158,8 +158,9 @@ data:
 
 {{/*
 NetworkPolicy of MongoDB, if `mongodb.networkPolicy.enabled`: only the app's
-pods of this release may connect to MongoDB; connections from the pod's node
-(the kubelet's probes) are always allowed. Egress is not restricted.
+pods of this release (and the worker's, if `worker.enabled`) may connect to
+MongoDB; connections from the pod's node (the kubelet's probes) are always
+allowed. Egress is not restricted.
 */}}
 {{- define "foca-common.mongodbNetworkPolicy" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -182,6 +183,11 @@ spec:
     - podSelector:
         matchLabels:
           {{- include "foca-common.selectorLabels" (dict "root" $root "component" "app") | nindent 10 }}
+    {{- if include "foca-common.workerEnabled" $root }}
+    - podSelector:
+        matchLabels:
+          {{- include "foca-common.selectorLabels" (dict "root" $root "component" "worker") | nindent 10 }}
+    {{- end }}
     ports:
     - port: 27017
       protocol: TCP

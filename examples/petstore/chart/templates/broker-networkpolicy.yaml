@@ -1,0 +1,1 @@
+{{- include "foca-common.brokerNetworkPolicy" (dict "root" . "settings" (include "petstore.settings" . | fromYaml)) }}

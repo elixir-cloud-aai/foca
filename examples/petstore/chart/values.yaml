@@ -184,3 +184,92 @@ mongodb:
   # Size limit of the `emptyDir` at `/tmp` (the pod is evicted if it is
   # exceeded): a quantity (e.g., `64Mi`) or a number of bytes; `null` for none
   tmpSizeLimit: 64Mi
+
+# Celery worker for background tasks (FOCA's `jobs` config): a Deployment
+# with the app's image, config overlay, MongoDB credentials and security
+# contexts, connected to the broker via `broker.existingSecret`. The
+# example's image has a worker entry point (`worker.py`), but no tasks
+worker:
+  # Deploy the worker (requires `broker.existingSecret`)
+  enabled: false
+  # Command of the worker's container (required if enabled), e.g.,
+  # `["python", "-m", "celery", "--app", "worker:celery_app", "worker"]`;
+  # set `--concurrency` to fit `resources` (by default, Celery starts one
+  # process per CPU of the node)
+  command: []
+  replicas: 1
+  # Probes of the worker's container (Kubernetes probe specs; none by
+  # default, so its pods are ready once started, also while Celery retries
+  # to connect to the broker), e.g., an `exec` probe that runs
+  # `celery inspect ping` for the pod's worker; such a check starts Python
+  # and creates the app, so give it long periods and timeouts
+  readinessProbe: {}
+  livenessProbe: {}
+  # Seconds that the worker gets to finish running tasks after its pod is
+  # deleted (Celery's warm shutdown), before it is killed
+  terminationGracePeriodSeconds: 30
+  resources:
+    limits:
+      cpu: 100m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  # Size limit of the `emptyDir` at `/tmp` (the pod is evicted if it is
+  # exceeded): a quantity (e.g., `64Mi`) or a number of bytes; `null` for none
+  tmpSizeLimit: 64Mi
+
+# Message broker of Celery
+broker:
+  # Deploy RabbitMQ as the broker. It keeps queued tasks in an `emptyDir`,
+  # so they are lost when its pod is replaced (e.g., on upgrades or node
+  # failures); use an external broker for durable queues
+  enabled: false
+  # Name of an existing Secret with the key `broker-url`, the broker URL
+  # (passed to the app and the worker as `CELERY_BROKER_URL`), optionally
+  # `result-backend` (`CELERY_RESULT_BACKEND`; by default `jobs.backend` of
+  # the config) and, for the bundled RabbitMQ, `username` and `password` of
+  # its user, which its URL must contain, e.g.,
+  # `pyamqp://<username>:<password>@<app name>-broker:5672//` (the Service
+  # is named like the app's resources, see `fullnameOverride`, with the
+  # suffix `-broker`; URL-encode reserved characters of the credentials).
+  # Required if `worker.enabled` or `enabled`; for an external broker, set it
+  # without enabling either to pass the broker URL to the app only
+  existingSecret: ""
+  # Pinned to a minor version; patch versions are updated on restarts
+  image: docker.io/library/rabbitmq:4.3
+  # Pull policy of the image (`Always`, `IfNotPresent` or `Never`)
+  imagePullPolicy: Always
+  # NetworkPolicy allowing connections to the broker only from the app's and
+  # the worker's pods of this release (and the kubelet's probes); clusters
+  # without NetworkPolicy support ignore it
+  networkPolicy:
+    enabled: true
+  # Security contexts of the pod and the container; the image runs as user
+  # `rabbitmq` (999), and `fsGroup` makes the data volume writable for it.
+  # On OpenShift, `runAsUser`, `runAsGroup` and `fsGroup` are omitted, as
+  # OpenShift assigns them
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  # Size limits of the `emptyDir`s with the broker's data (queued tasks) and
+  # at `/tmp` (the pod is evicted if they are exceeded): quantities (e.g.,
+  # `1Gi`) or numbers of bytes; `null` for none
+  dataSizeLimit: 1Gi
+  tmpSizeLimit: 64Mi
