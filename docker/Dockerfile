@@ -9,6 +9,11 @@ LABEL software.license="https://spdx.org/licenses/Apache-2.0"
 LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
 LABEL maintainer.organisation="ELIXIR On-Cloud"
 
+# Images of Python 3.11 ship setuptools and wheel (later ones do not), with
+# known vulnerabilities; FOCA needs neither, as pip builds packages in
+# isolated environments, so remove them for the same contents on all versions
+RUN pip uninstall --yes --no-cache-dir setuptools wheel
+
 # Build image
 FROM base AS builder
 

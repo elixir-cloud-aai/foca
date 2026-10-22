@@ -163,6 +163,33 @@ The lint job also builds the documentation (see [Documentation](#documentation))
 and the distributions, and checks that the ruff version of the pre-commit hook
 matches the one pinned in `requirements/lint.txt` (update both together).
 
+### Image scan
+
+CI (`checks.yml`) builds the Docker images of all Python versions for every
+pull request and push and scans them with [Trivy](https://trivy.dev/)
+(`.github/actions/scan-image`); the release workflow builds and scans the
+release commit's images again before publishing anything (in a job without
+its credentials), and a weekly workflow (`scan.yml`) scans the images of the
+latest release. They fail on critical and high vulnerabilities that have a
+fix, and upload all findings to code scanning (Security tab; not for pull
+requests from forks, nor in the release workflow). If a scan fails:
+
+1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
+   in `pyproject.toml` or update the base image (Dependabot's PRs do both).
+2. Otherwise (e.g., no fixed version yet, or a vulnerability that does not
+   affect FOCA), accept it in `.trivyignore.yaml` with the affected package
+   versions (`purls`), the reason (`statement`) and an expiry date
+   (`expired_at`), after which the scans fail again, so that the decision is
+   reviewed. Trivy also scans for secrets (critical and high ones fail the
+   scans too); accept those under `secrets:` in the same file.
+3. For a released image, release a patch version once the fix is on `dev`.
+
+The weekly scan uses the `.trivyignore.yaml` of `dev`, so that accepting a
+finding on `dev` also applies to the released images. Dependabot updates the
+actions, but not the Trivy version (`version:` in
+`.github/actions/scan-image/action.yml`): bump it by hand. The setup is the
+same as in [cloud-registry](https://github.com/elixir-cloud-aai/cloud-registry).
+
 ## Citation metadata
 
 FOCA is cited with the metadata in

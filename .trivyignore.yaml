@@ -1,0 +1,38 @@
+# Vulnerabilities accepted in the Docker image (`docker/Dockerfile`), which the
+# scans in CI (`.github/actions/scan-image`) ignore: each with the reason
+# (`statement`) and an expiry date (`expired_at`), after which Trivy reports
+# it again, so that the decision is reviewed. Limit entries to the affected
+# package versions (`purls`), so that other packages with the same
+# vulnerability are still reported. Example:
+#
+#   vulnerabilities:
+#     - id: CVE-2026-12345
+#       purls: ["pkg:pypi/example@1.2.3"]
+#       statement: Only in the test extra, which the image does not install
+#       expired_at: 2027-01-31
+#
+# See https://trivy.dev/latest/docs/configuration/filtering/#trivyignoreyaml
+vulnerabilities:
+  # Copies vendored by pip (listed in its SBOM, `pip-*.dist-info/sboms/`) of
+  # the base image (Python's), used only when pip runs (to install the app's
+  # dependencies at build time), not by the app; the installed packages are
+  # separate (urllib3 2.8.0 on 2026-10-22). pip 26.2.2, the latest release on
+  # 2026-10-22, still vendors these versions. Trivy reports the vendored
+  # copies without a path, so the entries can't be limited with `paths`; they
+  # would also hide these versions if installed normally
+  - id: CVE-2025-47273
+    purls: ["pkg:pypi/setuptools@70.3.0"]
+    statement: Vendored by pip, not used by the app (path traversal in PackageIndex, which pip doesn't use)
+    expired_at: 2027-01-31
+  - id: CVE-2026-97687
+    purls: ["pkg:pypi/urllib3@2.7.0"]
+    statement: Vendored by pip, not used by the app (pip only runs at build time)
+    expired_at: 2027-01-31
+  - id: CVE-2026-97689
+    purls: ["pkg:pypi/urllib3@2.7.0"]
+    statement: Vendored by pip, not used by the app (pip only runs at build time)
+    expired_at: 2027-01-31
+  - id: GHSA-6v7p-g79w-8964
+    purls: ["pkg:pypi/msgpack@1.1.2"]
+    statement: Vendored by pip, not used by the app (pip only runs at build time)
+    expired_at: 2027-01-31
