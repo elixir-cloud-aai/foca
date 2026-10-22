@@ -202,7 +202,8 @@ def _get_creator(on_behalf_of: str | None = None) -> tuple[SubjectType, str]:
 
     Returns:
         Type and identifier of the subject: the user that an allowed service
-        client acts for (cf.
+        client acts for, named via `on_behalf_of` or the header configured
+        via `auth.on_behalf_of_header` (cf.
         :py:func:`foca.security.access_control.get_on_behalf_of_user`),
         otherwise the service client (cf.
         :py:func:`foca.security.access_control.get_current_client`),
@@ -260,8 +261,9 @@ def add_owner(
         on_behalf_of: User that the caller names to act for (e.g., from a
             request field), checked by
             :py:func:`foca.security.access_control.get_on_behalf_of_user`;
-            by default, the value of the header configured via
-            `auth.on_behalf_of_header`. Ignored if `subject` is given.
+            if `None`, the value of the header configured via
+            `auth.on_behalf_of_header`, if any. Must not be given together
+            with `subject`.
 
     Returns:
         The granted owner role.
@@ -273,10 +275,13 @@ def add_owner(
             but is not a service client allowed to.
         connexion.exceptions.Unauthorized: `subject` is `None`, and the
             current request has neither a user nor a service client.
-        ValueError: The role would not apply to the subject (cf.
-            :py:func:`grant_role`), or cannot be granted (cf.
+        ValueError: Both `subject` and `on_behalf_of` are given, the role
+            would not apply to the subject (cf. :py:func:`grant_role`), or
+            cannot be granted (cf.
             :py:func:`foca.security.access_control.add_resource_role`).
     """
+    if subject is not None and on_behalf_of is not None:
+        raise ValueError("Pass either 'subject' or 'on_behalf_of', not both")
     if subject is None:
         subject_type, subject = _get_creator(on_behalf_of)
     _check_applicable(subject, subject_type)
@@ -333,11 +338,27 @@ def list_roles(
 
 
 def _get_owners(resource: str, ptype: str) -> set[tuple[SubjectType, str]]:
-    """Get type and identifier of each owner of a resource."""
+    """Get type and identifier of each owner of a resource whose role applies.
+
+    Owners whose role does not apply (cf. :py:func:`_check_applicable`),
+    e.g., groups granted the role before `access_control.keep_group_subjects`
+    was unset, do not count, so that the last owner whose role applies is
+    kept.
+    """
     return {
         (owner.subject_type, owner.subject)
         for owner in list_roles(resource, role=OWNER_ROLE, ptype=ptype)
+        if _applies(owner.subject, owner.subject_type)
     }
+
+
+def _applies(subject: str, subject_type: SubjectType) -> bool:
+    """Check whether roles granted to a subject apply to requests."""
+    try:
+        _check_applicable(subject, subject_type)
+    except ValueError:
+        return False
+    return True
 
 
 def _get_roles_of(

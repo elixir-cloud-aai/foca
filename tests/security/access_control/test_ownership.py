@@ -280,6 +280,16 @@ class TestAddOwner:
         with as_caller(app, PROTES), pytest.raises(Forbidden):
             add_owner("/tasks/2", on_behalf_of="alice")
 
+    def test_subject_and_on_behalf_of(self, app: Flask) -> None:
+        """Owners are either given or named by the caller."""
+        with as_caller(app, CONQUEST), pytest.raises(ValueError, match="both"):
+            add_owner(TASK, subject="bob", on_behalf_of="alice")
+
+    def test_on_behalf_of_user_overrides_header(self, app: Flask) -> None:
+        """Users named in request fields take precedence over the header."""
+        with as_caller(app, CONQUEST, headers={HEADER: "bob"}):
+            assert add_owner(TASK, on_behalf_of="alice").subject == "alice"
+
     def test_not_allowed_on_behalf_of(self, app: Flask) -> None:
         """Other callers cannot name users to act for."""
         with as_caller(app, PROTES, headers={HEADER: "alice"}):
@@ -334,6 +344,23 @@ class TestListRoles:
                 ResourceRole("user", "alice", "owner"),
                 ResourceRole("client", "protes", "owner"),
             ]
+
+    def test_duplicates(self, app: Flask) -> None:
+        """Rules stored more than once are listed once."""
+        adapter = app.config["casbin_adapter"]
+        for _ in range(2):
+            adapter.save_policy_line("g2", ["user:alice", "owner", TASK])
+            adapter.save_policy_line("g2", ["group:devs", "owner", TASK])
+        with as_caller(app, ALICE):
+            assert list_roles(TASK) == [
+                ResourceRole("user", "alice", "owner"),
+                ResourceRole("group", "devs", "owner"),
+            ]
+            assert [
+                (role.subject, role.role)
+                for role in list_roles(TASK)
+                if role.subject_type == "user"
+            ] == list_resource_roles(TASK, subject_type="user")
 
     def test_other_rules_ignored(self, app: Flask) -> None:
         """Rules of subjects of other types are not listed."""
@@ -401,6 +428,20 @@ class TestGrantRole:
             with pytest.raises(LastOwner):
                 revoke_roles(TASK, "alice")
             assert list_roles(TASK) == [ResourceRole("user", "alice", "owner")]
+
+    def test_owners_not_applying(self) -> None:
+        """Owners whose role does not apply do not count."""
+        app = _create_app(keep_group_subjects=False)
+        with as_caller(app, ALICE):
+            add_owner(TASK)
+            add_resource_role("devs", "owner", TASK, subject_type="group")
+            add_resource_role("krini", "owner", TASK, subject_type="client")
+            with pytest.raises(LastOwner):
+                revoke_roles(TASK, "alice")
+            with pytest.raises(LastOwner):
+                grant_role(TASK, "alice", "maintainer")
+            # owners whose role does not apply may be removed
+            assert revoke_roles(TASK, "devs", subject_type="group")
 
     def test_unknown_client(self, app: Flask) -> None:
         """Roles are only granted to service clients."""

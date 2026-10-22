@@ -694,9 +694,11 @@ that are not service clients. Otherwise, a resource could be left with only
 owners that never apply. Roles not in `resource_roles` (e.g., granted via
 `add_resource_role()`) are listed, but neither replaced nor revoked by
 `revoke_roles()`, which returns `False` if the subject has no roles to
-revoke (also for subjects that cannot have roles). Every role change is logged on level
-`INFO`, naming the resource, the subject, the caller and the previous roles,
-for auditing.
+revoke (also for subjects that cannot have roles). Owners whose role does
+not apply (e.g., groups granted the role before `keep_group_subjects` was
+unset) do not count as owners for the last-owner rule. Every role change is
+logged on level `INFO`, naming the resource, the subject, the caller and the
+previous roles, for auditing.
 
 For example, an app whose users only see their own tasks:
 
@@ -735,6 +737,7 @@ def ListTasks(**kwargs):
 
 
 def DeleteTask(id, **kwargs):
+    ...  # check that the task exists and may be deleted
     # before deleting, so that nobody can act on the task meanwhile, and
     # after, to revoke roles granted meanwhile
     remove_resource(request.path)
@@ -752,11 +755,15 @@ Apps that let owners manage access expose their own endpoints (e.g.,
 `revoke_roles()`:
 
 ```python
+import logging
+
 from connexion.exceptions import BadRequestProblem
 from flask import request
 
 from foca import get_collection
 from foca.security.access_control import grant_role
+
+logger = logging.getLogger(__name__)
 
 
 def PutTaskUserRole(id, userId, body, **kwargs):
@@ -769,7 +776,9 @@ def PutTaskUserRole(id, userId, body, **kwargs):
             exists=lambda: get_collection("tasks").count_documents({"id": id}) > 0,
         )
     except ValueError as exc:
-        raise BadRequestProblem(detail=str(exc)) from exc
+        # messages may name configuration options, so they are only logged
+        logger.info("Role not granted: %s", exc)
+        raise BadRequestProblem(detail="Invalid role or user") from exc
     return {"user_id": userId, "role": body["role"]}
 ```
 
@@ -791,7 +800,9 @@ Keep in mind that:
   after the role was granted, the role is revoked again, and `NotFound`
   (`404`) is raised. Deleting a resource should revoke its roles both before
   and after deleting it (cf. `DeleteTask()` above), so that roles granted
-  meanwhile are revoked, too.
+  meanwhile are revoked, too. If deleting then fails, the resource is left
+  without roles, i.e., only admins can access it; so only revoke them once
+  the resource is going to be deleted.
 * Listings only consider roles of the caller itself and of its groups (with
   `keep_group_subjects`, if `group_mapping` is set). A service client acting
   for a user sees the resources the _client_ has roles on, not those of the
