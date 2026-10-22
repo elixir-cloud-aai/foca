@@ -297,7 +297,7 @@ jobs:
                 -l "app.kubernetes.io/component=$1"
           }
           queued() {
-            kubectl exec -n "${NAMESPACE}" "deployment/${APP}-broker" -- \
+            kubectl exec -n "${NAMESPACE}" "statefulset/${APP}-broker" -- \
                 rabbitmqctl --quiet list_queues --no-table-headers name messages \
                 | awk '$1 == "celery" {print $2}'
           }
@@ -325,7 +325,7 @@ jobs:
           echo "Queued before the restart: ${before}"
           kubectl delete pod -n "${NAMESPACE}" -l app.kubernetes.io/component=broker \
               --wait
-          kubectl wait deployment "${APP}-broker" -n "${NAMESPACE}" \
+          kubectl wait statefulset "${APP}-broker" -n "${NAMESPACE}" \
               --for=jsonpath='{.status.readyReplicas}'=1 --timeout=300s
           after=""
           for _ in $(seq 1 10); do

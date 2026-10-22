@@ -22,7 +22,7 @@ chart: its values, a few settings and one line per resource. It renders:
   existing `Secret`; external databases work too;
 - an optional [Celery](https://docs.celeryq.dev/) worker (`Deployment` with
   the app's image) for [background tasks](configuration/jobs.md), and an
-  optional [RabbitMQ](https://www.rabbitmq.com/) broker (`Deployment`,
+  optional [RabbitMQ](https://www.rabbitmq.com/) broker (`StatefulSet`,
   `Service`, `NetworkPolicy`, `PersistentVolumeClaim`, and a `ConfigMap`
   with its config), with the broker URL from an existing `Secret`; external
   brokers work too.
@@ -131,7 +131,7 @@ and the settings (`settings`), one per file:
 | `foca-common.mongodbPersistentVolumeClaim` | MongoDB's data volume |
 | `foca-common.mongodbService` | MongoDB's `Service` (port 27017), the host of `db.host` in the overlay |
 | `foca-common.workerDeployment` | the Celery worker's `Deployment`, if `worker.enabled` |
-| `foca-common.brokerDeployment` | the broker's (RabbitMQ's) `Deployment`, if `broker.enabled` |
+| `foca-common.brokerStatefulSet` | the broker's (RabbitMQ's) `StatefulSet`, if `broker.enabled` (`foca-common.brokerDeployment`, the name up to 0.1.0, is a deprecated alias) |
 | `foca-common.brokerConfigMap` | `ConfigMap` with the broker's config file, if `broker.enabled` |
 | `foca-common.brokerNetworkPolicy` | the broker's `NetworkPolicy`, if `broker.enabled` and `broker.networkPolicy.enabled` |
 | `foca-common.brokerPersistentVolumeClaim` | the broker's data volume, if `broker.enabled` and `broker.persistence.enabled`, without `broker.persistence.existingClaim` |
@@ -514,7 +514,8 @@ them (e.g., its health check ranges).
         --from-literal=broker-url="pyamqp://my-app:${password}@my-app-broker:5672//"
     ```
 
-    The bundled RabbitMQ (one pod) keeps its data in a
+    The bundled RabbitMQ (a StatefulSet with one pod, which is replaced
+    only once the old pod is gone) keeps its data in a
     PersistentVolumeClaim (`broker.persistence`: `size`, `accessModes`,
     `storageClass`, or an `existingClaim`), mounted at
     `/var/lib/rabbitmq/mnesia`, so queued tasks survive the replacement of
@@ -530,7 +531,7 @@ them (e.g., its health check ranges).
     user's, too, and roll the app's and the worker's pods:
 
     ```bash
-    kubectl exec deployment/my-app-broker -- \
+    kubectl exec statefulset/my-app-broker -- \
         rabbitmqctl change_password my-app "${password}"
     ```
 

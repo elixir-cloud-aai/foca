@@ -49,9 +49,14 @@ AUDIENCE = ("--set-json", 'config.security.auth.audience=["petstore"]')
 pytestmark = pytest.mark.skipif(HELM is None, reason="helm not installed")
 
 
+def _workload(docs: Docs, name: str) -> Manifest:
+    """The Deployment, or StatefulSet (the broker), of that name."""
+    kind = "StatefulSet" if ("StatefulSet", name) in docs else "Deployment"
+    return docs[(kind, name)]
+
+
 def _container(docs: Docs, name: str = APP) -> dict[str, Any]:
-    spec = docs[("Deployment", name)]["spec"]["template"]["spec"]
-    container: dict[str, Any] = spec["containers"][0]
+    container: dict[str, Any] = _pod_spec(docs, name)["containers"][0]
     return container
 
 
@@ -82,7 +87,7 @@ def _example_values() -> dict[str, Any]:
 
 
 def _pod_spec(docs: Docs, name: str = APP) -> Manifest:
-    spec: Manifest = docs[("Deployment", name)]["spec"]["template"]["spec"]
+    spec: Manifest = _workload(docs, name)["spec"]["template"]["spec"]
     return spec
 
 
@@ -1297,7 +1302,7 @@ def test_celery_resources(render: Callable[..., Docs]) -> None:
     """The worker and the broker add their resources."""
     assert set(render(*CELERY)) == set(render()) | {
         ("Deployment", WORKER),
-        ("Deployment", BROKER),
+        ("StatefulSet", BROKER),
         ("ConfigMap", BROKER_CONFIG),
         ("NetworkPolicy", BROKER),
         ("PersistentVolumeClaim", BROKER),
@@ -1449,7 +1454,7 @@ def test_broker(render: Callable[..., Docs]) -> None:
     assert broker["volumeMounts"][3]["subPath"] == "90-foca.conf"
     config = docs[("ConfigMap", BROKER_CONFIG)]["data"]["90-foca.conf"]
     assert "deprecated_features.permit.transient_nonexcl_queues = true" in config
-    pod = docs[("Deployment", BROKER)]["spec"]["template"]["metadata"]
+    pod = docs[("StatefulSet", BROKER)]["spec"]["template"]["metadata"]
     assert pod["annotations"]["checksum/config"]
     spec = _pod_spec(docs, BROKER)
     assert spec["securityContext"]["runAsUser"] == 999
@@ -1467,8 +1472,11 @@ def test_broker(render: Callable[..., Docs]) -> None:
         "accessModes": ["ReadWriteOnce"],
         "resources": {"requests": {"storage": "1Gi"}},
     }
-    deployment = docs[("Deployment", BROKER)]["spec"]
-    assert deployment["strategy"] == {"type": "Recreate"}
+    # A new pod only once the old one is gone
+    statefulset = docs[("StatefulSet", BROKER)]["spec"]
+    assert statefulset["replicas"] == 1
+    assert statefulset["serviceName"] == BROKER
+    assert statefulset["updateStrategy"] == {"type": "RollingUpdate"}
     service = docs[("Service", BROKER)]["spec"]
     assert service["ports"] == [
         {"name": "amqp", "port": 5672, "protocol": "TCP", "targetPort": "amqp"}
@@ -1503,7 +1511,7 @@ def test_celery_labels(render: Callable[..., Docs]) -> None:
     docs = render(*CELERY)
     resources = {
         ("Deployment", WORKER): "worker",
-        ("Deployment", BROKER): "broker",
+        ("StatefulSet", BROKER): "broker",
         ("Service", BROKER): "broker",
         ("NetworkPolicy", BROKER): "broker",
         ("ConfigMap", BROKER_CONFIG): "broker",
@@ -1528,7 +1536,7 @@ def test_celery_names(chart: Path) -> None:
     docs = index(template(chart, *CELERY, "--set", "fullnameOverride=shop"))
     assert {
         ("Deployment", "shop-worker"),
-        ("Deployment", "shop-broker"),
+        ("StatefulSet", "shop-broker"),
         ("Service", "shop-broker"),
         ("NetworkPolicy", "shop-broker"),
         ("PersistentVolumeClaim", "shop-broker"),
@@ -1673,6 +1681,21 @@ def test_broker_without_persistence_values(chart: Path, tmp_path: Path) -> None:
     (chart_copy / "values.schema.json").unlink()
     docs = index(template(chart_copy, *CELERY, "--set-json", "broker.persistence=null"))
     _assert_broker_without_claim(docs)
+
+
+def test_broker_deployment_alias(
+    render: Callable[..., Docs], chart: Path, tmp_path: Path
+) -> None:
+    """The template name of 0.1.0 (`brokerDeployment`) renders the StatefulSet."""
+    chart_copy = tmp_path / "chart"
+    shutil.copytree(chart, chart_copy)
+    template_file = chart_copy / "templates" / "broker-statefulset.yaml"
+    template_file.write_text(
+        template_file.read_text().replace("brokerStatefulSet", "brokerDeployment")
+    )
+    docs = index(template(chart_copy, *CELERY))
+    expected = render(*CELERY)[("StatefulSet", BROKER)]
+    assert docs[("StatefulSet", BROKER)] == expected
 
 
 def test_broker_image_required(render_error: Callable[..., str]) -> None:

@@ -5,7 +5,7 @@ nothing otherwise. Call them with the context dict.
 */ -}}
 
 {{/*
-Deployment of RabbitMQ: one pod, whose data (queued tasks, in
+StatefulSet of RabbitMQ: one pod, whose data (queued tasks, in
 `/var/lib/rabbitmq/mnesia`) is kept in a PersistentVolumeClaim if
 `broker.persistence.enabled` (see `foca-common.brokerClaimName`), otherwise
 in the `emptyDir` with RabbitMQ's home, which is lost when the pod is
@@ -16,9 +16,13 @@ read. RabbitMQ creates its user from the credentials in the existing Secret
 (`broker.existingSecret`) when it starts with empty data, i.e., only once
 with persistence. The node name is fixed, as RabbitMQ keeps its data in a
 directory named after it (by default after the pod's host name, which
-changes with every pod); changing it would orphan existing data.
+changes with every pod); changing it would orphan existing data. A
+StatefulSet, not a Deployment, as it starts a new pod only once the old one
+is gone (also when a pod is deleted or evicted), so that two RabbitMQ
+processes never use the same data (a `ReadWriteOnce` claim can be mounted
+by several pods on one node).
 */}}
-{{- define "foca-common.brokerDeployment" -}}
+{{- define "foca-common.brokerStatefulSet" -}}
 {{- include "foca-common.checkSettings" . -}}
 {{- $root := .root -}}
 {{- if include "foca-common.brokerEnabled" $root -}}
@@ -26,22 +30,22 @@ changes with every pod); changing it would orphan existing data.
 {{- $secret := include "foca-common.brokerSecret" $root -}}
 {{- $claimName := include "foca-common.brokerClaimName" $root -}}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "foca-common.brokerFullname" $root | quote }}
   labels:
     {{- include "foca-common.labels" (dict "root" $root "component" "broker") | nindent 4 }}
 spec:
-  progressDeadlineSeconds: 600
   replicas: 1
   revisionHistoryLimit: 10
+  # The broker's Service (the pod's DNS name is not used)
+  serviceName: {{ include "foca-common.brokerFullname" $root | quote }}
   selector:
     matchLabels:
       {{- include "foca-common.selectorLabels" (dict "root" $root "component" "broker") | nindent 6 }}
-  # One broker at a time, so that tasks are not queued on a broker that is
-  # being replaced
-  strategy:
-    type: Recreate
+  # Replaces the pod on changes only after the old one is gone
+  updateStrategy:
+    type: RollingUpdate
   template:
     metadata:
       annotations:
@@ -139,6 +143,14 @@ spec:
         configMap:
           name: {{ printf "%s-config" (include "foca-common.brokerFullname" $root) | quote }}
 {{ end -}}
+{{- end -}}
+
+{{/*
+Deprecated alias of `foca-common.brokerStatefulSet` (the broker was a
+Deployment up to foca-common 0.1.0), for app charts written for 0.1.0.
+*/}}
+{{- define "foca-common.brokerDeployment" -}}
+{{- include "foca-common.brokerStatefulSet" . -}}
 {{- end -}}
 
 {{/*
