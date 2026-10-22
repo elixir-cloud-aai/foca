@@ -82,7 +82,7 @@ def make_token(
 class MockResponse:
     """Mock response of `requests.get()`."""
 
-    def __init__(self, data: dict[str, Any], status_code: int = 200) -> None:
+    def __init__(self, data: Any, status_code: int = 200) -> None:
         """Create mock response with JSON data and status code."""
         self.data = data
         self.status_code = status_code
@@ -256,11 +256,41 @@ class TestValidateToken:
             validate(make_app(), make_token())
         assert urls(idp) == [DISCOVERY_URI]
 
-    def test_jwks_invalid(self, idp: MagicMock) -> None:
-        """Tokens are rejected if the JWK set is invalid."""
-        idp.responses[JWKS_URI] = MockResponse({"keys": []})
-        with raises_unauthorized("Bearer"):
-            validate(make_app(), make_token())
+    @pytest.mark.parametrize(
+        "jwks",
+        [
+            pytest.param({"keys": []}, id="no-keys"),
+            pytest.param({"keys": "abc"}, id="keys-not-list"),
+            pytest.param({"keys": [1]}, id="key-not-object"),
+            pytest.param({"keys": [{"kty": "foo"}]}, id="key-unusable"),
+            pytest.param({"keys": [{"kty": "oct", "k": 1}]}, id="key-material-number"),
+            pytest.param(
+                {"keys": [{"kty": "RSA", "n": "!!!", "e": "AQAB"}]},
+                id="key-material-invalid",
+            ),
+            pytest.param(
+                {"keys": [{"kty": "oct", "k": "AAAA", "alg": ["HS256"]}]},
+                id="alg-not-string",
+            ),
+            pytest.param({}, id="empty-object"),
+            pytest.param([], id="list"),
+            pytest.param("keys", id="string"),
+            pytest.param(None, id="null"),
+        ],
+    )
+    def test_jwks_invalid(self, idp: MagicMock, jwks: Any) -> None:
+        """Tokens are rejected if the JWK set is invalid or not a JSON object.
+
+        Like failed fetches, invalid JWK sets are not fetched again within
+        cooldown.
+        """
+        app = make_app()
+        idp.responses[JWKS_URI] = MockResponse(jwks)
+        for _ in range(3):
+            with raises_unauthorized("Bearer"):
+                validate(app, make_token())
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI]
+        assert JWKS_URI in auth._failed_fetches
 
     def test_jwks_unavailable(self, idp: MagicMock) -> None:
         """Tokens are rejected if the JWK set is unavailable."""
