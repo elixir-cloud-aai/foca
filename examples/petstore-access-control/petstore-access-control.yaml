@@ -164,6 +164,180 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /pets/{id}/permissions:
+    get:
+      description: Lists the roles granted on a pet; owners only.
+      operationId: getPetRoles
+      parameters:
+        - name: id
+          in: path
+          description: ID of the pet
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: roles on the pet
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResourceRole'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The pet does not exist (or has no owners).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: unexpected error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /pets/{id}/permissions/users/{userId}:
+    put:
+      description: >-
+        Grants a user a role on a pet, replacing their other roles; owners
+        only.
+      operationId: putPetUserRole
+      parameters:
+        - name: id
+          in: path
+          description: ID of the pet
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: userId
+          in: path
+          description: Identifier of the user (`sub` claim)
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - role
+              properties:
+                role:
+                  type: string
+                  enum: [owner, maintainer]
+      responses:
+        '200':
+          description: granted role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRole'
+        '400':
+          description: The role cannot be granted to the user.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The user is the last owner of the pet.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The pet does not exist (or has no owners).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: unexpected error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      description: Revokes the roles of a user on a pet; owners only.
+      operationId: deletePetUserRole
+      parameters:
+        - name: id
+          in: path
+          description: ID of the pet
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: userId
+          in: path
+          description: Identifier of the user (`sub` claim)
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: identifier of the user
+          content:
+            application/json:
+              schema:
+                type: string
+        '409':
+          description: The user is the last owner of the pet.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The requester is not authorized to perform this action.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The pet does not exist (or has no owners).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: unexpected error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   securitySchemes:
       bearerAuth:
@@ -190,6 +364,22 @@ components:
         name:
           type: string
         tag:
+          type: string
+
+    ResourceRole:
+      description: Role of a subject on a resource.
+      type: object
+      required:
+        - subject_type
+        - subject
+        - role
+      properties:
+        subject_type:
+          type: string
+          enum: [user, group, client]
+        subject:
+          type: string
+        role:
           type: string
 
     Error:

@@ -254,7 +254,10 @@ def register_permission_specs(
         strict_validation=True,
         validate_responses=True,
         swagger_ui=access_control_config.api_swagger_ui,
-        serve_spec=access_control_config.api_serve_spec,
+        # the Swagger UI needs the specification
+        serve_spec=(
+            access_control_config.api_serve_spec or access_control_config.api_swagger_ui
+        ),
         resolver=AccessControlResolver(
             enforce_all=True,
             self_service=access_control_config.self_service,

@@ -96,6 +96,13 @@ all paths under the base path.
   as for unreachable JWK sets.
 - The Swagger UI works for APIs served at `/`; with Connexion 2, it returned
   `500 Internal Server Error`.
+- The Swagger UI is not served without the specification, which it needs (it
+  returned `500 Internal Server Error`): with `serve_spec: false` in
+  [`api.specs[].connexion`](configuration/api.md), the UI is disabled too,
+  and `swagger_ui: true` with `serve_spec: false` is rejected on startup.
+  `security.access_control.api_swagger_ui: true` also serves the
+  specification of the permissions API, unless `api_serve_spec` is set to
+  `false`, which is rejected.
 - The petstore example and the
   [deployment docs](deployment.md#running-in-production) start Gunicorn with `--no-control-socket`. With Gunicorn 25.1 or later on
   a read-only root file system (e.g., in Kubernetes), add it to your app's

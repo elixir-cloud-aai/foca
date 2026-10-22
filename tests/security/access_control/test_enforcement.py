@@ -19,6 +19,7 @@ from connexion.resolver import Resolution, Resolver
 from flask import Flask, request
 from flask.ctx import RequestContext
 from flask.globals import request_ctx
+from pydantic import ValidationError
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from werkzeug.test import TestResponse
@@ -763,6 +764,18 @@ class TestPermissionsApi:
         client = app.test_client()
         assert client.get("/admin/access-control/ui/").status_code == 200
         assert client.get("/admin/access-control/openapi.json").status_code == 200
+
+    def test_ui_served_with_spec(self, tmp_path: Path) -> None:
+        """The specification is served with the UI, which needs it."""
+        app = _create_app(tmp_path, _access_control_config(api_swagger_ui=True))
+        client = app.test_client()
+        assert client.get("/admin/access-control/ui/").status_code == 200
+        assert client.get("/admin/access-control/openapi.json").status_code == 200
+
+    def test_ui_without_spec_invalid(self) -> None:
+        """The UI can't be served if serving the specification is disabled."""
+        with pytest.raises(ValidationError, match="needs the specification"):
+            AccessControlConfig(api_swagger_ui=True, api_serve_spec=False)
 
 
 class TestPagination:

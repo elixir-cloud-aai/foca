@@ -181,8 +181,9 @@ served, and the `operationId` of each operation which controller handles it
 `foca.security.access_control.access_control_server`, or your own).
 
 The Swagger UI and the specification of the permissions API are not served
-by default. Set `api_swagger_ui: True` and/or `api_serve_spec: True` to serve
-them.
+by default. Set `api_swagger_ui: True` to serve the Swagger UI, together with
+the specification, which the UI needs (`api_serve_spec: False` is then
+rejected), or `api_serve_spec: True` to serve the specification only.
 
 Requests to FOCA's default controllers and their responses are logged (cf.
 [`log_traffic`](utilities.md#logging-requests-and-responses)), as in FOCA
@@ -748,8 +749,10 @@ def CreateTask(**kwargs):
 
 
 def ListTasks(**kwargs):
-    tasks = get_collection("tasks").find(resource_filter(request.path))
-    return {"tasks": [{"id": task["id"]} for task in tasks]}
+    tasks = get_collection(db="myDb", collection="tasks")
+    return {
+        "tasks": [{"id": t["id"]} for t in tasks.find(resource_filter(request.path))]
+    }
 
 
 def DeleteTask(id, **kwargs):
@@ -785,12 +788,13 @@ logger = logging.getLogger(__name__)
 
 def PutTaskUserRole(id, userId, body, **kwargs):
     resource = request.path.removesuffix(f"/permissions/users/{userId}")
+    tasks = get_collection(db="myDb", collection="tasks")
     try:
         grant_role(
             resource,
             userId,
             body["role"],
-            exists=lambda: get_collection("tasks").count_documents({"id": id}) > 0,
+            exists=lambda: tasks.count_documents({"id": id}) > 0,
         )
     except ValueError as exc:
         # messages may name configuration options, so they are only logged
@@ -837,8 +841,8 @@ Keep in mind that:
 * `resource_filter()` lists the identifiers of all resources the caller has
   roles on in the filter, so it suits apps where users have roles on up to a
   few thousand resources. Like enforcement, each helper call loads all rules
-  (cf. [scaling](#scaling)); `grant_role()` and `revoke_roles()` do so a few
-  times per call.
+  (cf. [scaling](#scaling)); `grant_role()` and `revoke_roles()` do so
+  several times per call.
 
 #### Endpoints for managing roles
 
@@ -885,10 +889,9 @@ role to a user called `groups`.
 
     # `id` is the path parameter of the task in the route
     def putTaskUserRole(**kwargs):
+        tasks = get_collection(db="myDb", collection="tasks")
         return ownership_server.putUserRole(
-            exists=lambda: (
-                get_collection("tasks").count_documents({"id": kwargs["id"]}) > 0
-            ),
+            exists=lambda: tasks.count_documents({"id": kwargs["id"]}) > 0,
             **kwargs,
         )
     ```
@@ -1093,6 +1096,15 @@ it. As resource-scoped roles add rules per created resource (e.g., one `g2`
 rule for its owner), apps that let users create many resources should
 consider limiting this, e.g., via quotas or rate limits on the endpoints
 creating them.
+
+The [resource ownership](#resource-ownership) helpers load all rules on each
+call too, and those changing roles load them again after the change, to
+notice concurrent changes (e.g., owners removing each other, or the resource
+being deleted meanwhile). So each request to the [endpoints for managing
+roles](#endpoints-for-managing-roles) loads all rules several times,
+including the enforcement of the request (more often for `PUT` and `DELETE`
+than for `GET`), which matters more than for other operations once there are
+many rules.
 
 ## Exploring the API
 

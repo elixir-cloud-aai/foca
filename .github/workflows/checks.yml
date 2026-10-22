@@ -36,9 +36,22 @@ jobs:
           cache: pip
           cache-dependency-path: |
             pyproject.toml
+            requirements/lint.txt
             requirements/release.txt
       - name: Install package and tools
-        run: pip install -e .[dev,docs] -r requirements/release.txt
+        run: >-
+          pip install -e .[dev,docs] -r requirements/lint.txt
+          -r requirements/release.txt
+      - name: Check ruff version of pre-commit hook
+        # The pre-commit hook must lint as the lint job does
+        run: |
+          pinned="$(sed -n 's/^ruff==//p' requirements/lint.txt)"
+          hook="$(grep -A1 'astral-sh/ruff-pre-commit' .pre-commit-config.yaml \
+            | sed -n 's/^ *rev: v//p')"
+          if [ -z "${pinned}" ] || [ "${pinned}" != "${hook}" ]; then
+            echo "::error file=.pre-commit-config.yaml::ruff hook ${hook:-?} differs from requirements/lint.txt (${pinned:-?})"
+            exit 1
+          fi
       - name: Lint with ruff
         run: ruff check --output-format=github
       - name: Check formatting with ruff

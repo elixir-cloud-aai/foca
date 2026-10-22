@@ -64,6 +64,10 @@ def _connexion_add_api_kwargs(options: ConnexionOptions | None) -> dict[str, Any
     ui_options.update(
         {name: values[key] for key, name in _UI_OPTIONS.items() if key in values}
     )
+    # The Swagger UI needs the specification, so it is not served without it;
+    # enabling it nevertheless is rejected on validation
+    if options._spec_disabled() and ui_options.get("swagger_ui") is None:
+        ui_options["swagger_ui"] = False
     if ui_options:
         kwargs["options"] = ui_options
     return kwargs

@@ -14,6 +14,11 @@ updates:
       # setuptools-scm requires a matching vcs-versioning
       setuptools-scm:
         patterns: [setuptools-scm, vcs-versioning]
+      # The ruff hook of `.pre-commit-config.yaml` must be updated with ruff
+      # (checked by the lint job), so that failing updates of ruff do not
+      # hold up others
+      ruff:
+        patterns: [ruff]
       python-dependencies:
         update-types: [minor, patch]
 
