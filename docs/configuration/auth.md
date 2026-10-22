@@ -24,6 +24,7 @@ security:
     userinfo_claims: []
     service_clients:
       - client_id: conquest-client-id
+        issuer: null
         subject: null
         on_behalf_of: false
     on_behalf_of_header: null
@@ -47,8 +48,10 @@ clients (`client_id` claim, or `azp` claim if there is none), e.g., by a
 gateway in front of the app, list their IDs in `clients`, in addition to
 `audience` or instead of it (with `verify_audience: false`). Clients calling
 the app with client-credentials tokens of their own are listed as
-`service_clients`; no user info is requested for their tokens (cf.
-[Service tokens](../authentication.md#service-tokens)). See
+`service_clients`; no user info is requested for their tokens. Each
+service client is tied to a trusted issuer, which is required if several
+`issuers` are trusted (cf. [Service
+tokens](../authentication.md#service-tokens)). See
 [Authentication](../authentication.md) for how tokens are validated and how to
 require them for operations.
 
