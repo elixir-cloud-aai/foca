@@ -21,8 +21,8 @@ chart: its values, a few settings and one line per resource. It renders:
 - an optional [Celery](https://docs.celeryq.dev/) worker (`Deployment` with
   the app's image) for [background tasks](configuration/jobs.md), and an
   optional [RabbitMQ](https://www.rabbitmq.com/) broker (`Deployment`,
-  `Service`, `NetworkPolicy`), with the broker URL from an existing `Secret`;
-  external brokers work too.
+  `Service`, `NetworkPolicy`, and a `ConfigMap` with its config), with the
+  broker URL from an existing `Secret`; external brokers work too.
 
 The library chart lives in [`charts/foca-common`][library] and is versioned
 independently of FOCA. The [petstore example][petstore-chart] has a thin chart
@@ -126,6 +126,7 @@ and the settings (`settings`), one per file:
 | `foca-common.mongodbService` | MongoDB's `Service` (port 27017), the host of `db.host` in the overlay |
 | `foca-common.workerDeployment` | the Celery worker's `Deployment`, if `worker.enabled` |
 | `foca-common.brokerDeployment` | the broker's (RabbitMQ's) `Deployment`, if `broker.enabled` |
+| `foca-common.brokerConfigMap` | `ConfigMap` with the broker's config file, if `broker.enabled` |
 | `foca-common.brokerNetworkPolicy` | the broker's `NetworkPolicy`, if `broker.enabled` and `broker.networkPolicy.enabled` |
 | `foca-common.brokerService` | the broker's `Service` (port 5672), the host of the broker URL |
 
@@ -218,6 +219,14 @@ library's schema of these values is
     changing it. For durable queues, use an external broker: set only
     `broker.existingSecret` (and `worker.enabled`, if the release runs the
     worker).
+
+    Celery declares transient non-exclusive queues, e.g., for the `rpc://`
+    result backend (FOCA's default) and for remote control of the workers.
+    RabbitMQ has deprecated them and denies them by default from 4.3 on, so
+    the bundled RabbitMQ permits them in its config file (ConfigMap
+    `<app name>-broker-config`); for an external RabbitMQ, set
+    `deprecated_features.permit.transient_nonexcl_queues = true`, or the
+    worker fails to start.
 - **Network policies:** MongoDB's NetworkPolicy, enabled by default, admits
   only the app's pods of the release (and the worker's, if enabled); the
   broker's admits only the app's and the worker's pods. The app's

@@ -71,6 +71,24 @@ spec:
     - port: 27017
       protocol: TCP
 ---
+# Source: petstore/templates/broker-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "petstore-broker-config"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "broker"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+data:
+  90-foca.conf: |
+    # Celery declares transient non-exclusive queues (e.g., for the rpc://
+    # result backend and remote control), which RabbitMQ 4.3 denies by default
+    deprecated_features.permit.transient_nonexcl_queues = true
+---
 # Source: petstore/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -232,6 +250,9 @@ spec:
     type: Recreate
   template:
     metadata:
+      annotations:
+        # Restart RabbitMQ when its config changes
+        checksum/config: c9327e83eba8207c2105684a0653fdb196f5ef3b3e46cc21c3464d016474e188
       labels:
         app.kubernetes.io/name: "petstore"
         app.kubernetes.io/instance: "petstore"
@@ -302,6 +323,11 @@ spec:
         # Writable, as the root file system is read-only by default
         - mountPath: /tmp
           name: tmp
+        # Added to the image's config files
+        - mountPath: /etc/rabbitmq/conf.d/90-foca.conf
+          name: config
+          subPath: 90-foca.conf
+          readOnly: true
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler
@@ -320,6 +346,9 @@ spec:
       - name: tmp
         emptyDir:
           sizeLimit: "64Mi"
+      - name: config
+        configMap:
+          name: "petstore-broker-config"
 ---
 # Source: petstore/templates/deployment.yaml
 apiVersion: apps/v1

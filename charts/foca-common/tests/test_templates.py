@@ -850,6 +850,7 @@ def test_mongodb_auth_required(
 
 WORKER = "petstore-worker"
 BROKER = "petstore-broker"
+BROKER_CONFIG = "petstore-broker-config"
 WORKER_COMMAND = ["python", "-m", "celery", "--app", "worker:celery_app", "worker"]
 CELERY = (
     "--set",
@@ -878,6 +879,7 @@ def test_celery_resources(render: Callable[..., Docs]) -> None:
     assert set(render(*CELERY)) - set(render()) == {
         ("Deployment", WORKER),
         ("Deployment", BROKER),
+        ("ConfigMap", BROKER_CONFIG),
         ("NetworkPolicy", BROKER),
         ("Service", BROKER),
     }
@@ -1015,7 +1017,16 @@ def test_broker(render: Callable[..., Docs]) -> None:
         assert broker[probe]["tcpSocket"] == {"port": 5672}
     assert broker["securityContext"]["readOnlyRootFilesystem"] is True
     mounts = {mount["name"]: mount["mountPath"] for mount in broker["volumeMounts"]}
-    assert mounts == {"data": "/var/lib/rabbitmq", "tmp": "/tmp"}  # noqa: S108
+    assert mounts == {
+        "data": "/var/lib/rabbitmq",
+        "tmp": "/tmp",  # noqa: S108
+        "config": "/etc/rabbitmq/conf.d/90-foca.conf",
+    }
+    assert broker["volumeMounts"][2]["subPath"] == "90-foca.conf"
+    config = docs[("ConfigMap", BROKER_CONFIG)]["data"]["90-foca.conf"]
+    assert "deprecated_features.permit.transient_nonexcl_queues = true" in config
+    pod = docs[("Deployment", BROKER)]["spec"]["template"]["metadata"]
+    assert pod["annotations"]["checksum/config"]
     spec = _pod_spec(docs, BROKER)
     assert spec["securityContext"]["runAsUser"] == 999
     assert spec["securityContext"]["runAsNonRoot"] is True
@@ -1023,6 +1034,7 @@ def test_broker(render: Callable[..., Docs]) -> None:
     assert spec["volumes"] == [
         {"name": "data", "emptyDir": {"sizeLimit": "1Gi"}},
         {"name": "tmp", "emptyDir": {"sizeLimit": "64Mi"}},
+        {"name": "config", "configMap": {"name": "petstore-broker-config"}},
     ]
     deployment = docs[("Deployment", BROKER)]["spec"]
     assert deployment["strategy"] == {"type": "Recreate"}
@@ -1070,6 +1082,7 @@ def test_celery_labels(render: Callable[..., Docs]) -> None:
         ("Deployment", BROKER): "broker",
         ("Service", BROKER): "broker",
         ("NetworkPolicy", BROKER): "broker",
+        ("ConfigMap", BROKER_CONFIG): "broker",
     }
     for resource, component in resources.items():
         labels = docs[resource]["metadata"]["labels"]
@@ -1124,6 +1137,7 @@ def test_broker_settings(render: Callable[..., Docs]) -> None:
     assert _pod_spec(docs, BROKER)["volumes"] == [
         {"name": "data", "emptyDir": {}},
         {"name": "tmp", "emptyDir": {"sizeLimit": "32Mi"}},
+        {"name": "config", "configMap": {"name": "petstore-broker-config"}},
     ]
 
 

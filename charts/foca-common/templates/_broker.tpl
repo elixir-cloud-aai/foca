@@ -35,6 +35,9 @@ spec:
     type: Recreate
   template:
     metadata:
+      annotations:
+        # Restart RabbitMQ when its config changes
+        checksum/config: {{ include "foca-common.brokerConfigMap" . | sha256sum }}
       labels:
         {{- include "foca-common.selectorLabels" (dict "root" $root "component" "broker") | nindent 8 }}
     spec:
@@ -93,6 +96,11 @@ spec:
         # Writable, as the root file system is read-only by default
         - mountPath: /tmp
           name: tmp
+        # Added to the image's config files
+        - mountPath: /etc/rabbitmq/conf.d/90-foca.conf
+          name: config
+          subPath: 90-foca.conf
+          readOnly: true
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler
@@ -104,6 +112,34 @@ spec:
         {{- include "foca-common.emptyDir" $broker.dataSizeLimit | nindent 8 }}
       - name: tmp
         {{- include "foca-common.emptyDir" $broker.tmpSizeLimit | nindent 8 }}
+      - name: config
+        configMap:
+          name: {{ printf "%s-config" (include "foca-common.brokerFullname" $root) | quote }}
+{{ end -}}
+{{- end -}}
+
+{{/*
+ConfigMap with RabbitMQ's config file for Celery (`90-foca.conf`), mounted by
+its Deployment, whose pod is restarted when it changes. Celery declares
+transient non-exclusive queues (e.g., for the `rpc://` result backend, FOCA's
+default, and for remote control of the workers), a feature that RabbitMQ
+deprecated and denies by default from 4.3 on, so it is permitted here.
+*/}}
+{{- define "foca-common.brokerConfigMap" -}}
+{{- include "foca-common.checkSettings" . -}}
+{{- $root := .root -}}
+{{- if include "foca-common.brokerEnabled" $root -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-config" (include "foca-common.brokerFullname" $root) | quote }}
+  labels:
+    {{- include "foca-common.labels" (dict "root" $root "component" "broker") | nindent 4 }}
+data:
+  90-foca.conf: |
+    # Celery declares transient non-exclusive queues (e.g., for the rpc://
+    # result backend and remote control), which RabbitMQ 4.3 denies by default
+    deprecated_features.permit.transient_nonexcl_queues = true
 {{ end -}}
 {{- end -}}
 
