@@ -8,6 +8,7 @@ from bson import Timestamp
 from casbin import persist
 from casbin.model import Assertion, Model
 from casbin.model.policy import DEFAULT_SEP
+from pymongo import ReturnDocument
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -232,28 +233,31 @@ class Adapter(persist.Adapter):
             {**_rule_query(ptype, rule), CONFIGURED_FIELD: {"$ne": True}},
             _GRANTED_UPDATE,
         ).matched_count
-        inserted_id = None if marked else self._insert_granted(ptype, rule)
+        inserted = None if marked else self._insert_granted(ptype, rule)
         try:
             self._keep_latest_role(ptype, rule, roles)
         # Also if interrupted, so that the subject is not left with more rights
         except BaseException:
-            if inserted_id is not None:
-                self._collection.delete_one({"_id": inserted_id})
+            # Unless granted again concurrently, by a call that succeeds
+            if inserted is not None:
+                self._collection.delete_one(inserted)
             raise
         # A configured copy grants the role already, also without our copy
-        return inserted_id is not None and not self.is_configured_rule(ptype, rule)
+        return inserted is not None and not self.is_configured_rule(ptype, rule)
 
-    def _insert_granted(self, ptype: str, rule: list[str]) -> Any:
+    def _insert_granted(self, ptype: str, rule: list[str]) -> dict[str, Any]:
         """Store a rule with the time it was granted.
+
+        If a copy of the rule with the generated identifier is stored
+        concurrently, it is marked as granted instead.
 
         Args:
             ptype: Policy type of the rule.
             rule: Values of the rule.
 
         Returns:
-            MongoDB identifier (`_id`) of the stored rule, or `None` if a
-            copy with the generated identifier was stored concurrently,
-            which was marked as granted instead.
+            MongoDB identifier (`_id`) and timestamp (`granted`) of the
+            stored rule, as a query matching it until it is granted again.
 
         Raises:
             pymongo.errors.DuplicateKeyError: No unique identifier could be
@@ -265,9 +269,16 @@ class Adapter(persist.Adapter):
             id = generate_id(charset=self.id_charset, length=self.id_length)
             # An upsert, as the timestamp is set by the database server
             try:
-                return self._collection.update_one(
-                    {**document, "id": id}, _GRANTED_UPDATE, upsert=True
-                ).upserted_id
+                return cast(
+                    dict[str, Any],
+                    self._collection.find_one_and_update(
+                        {**document, "id": id},
+                        _GRANTED_UPDATE,
+                        projection=[GRANTED_FIELD],
+                        upsert=True,
+                        return_document=ReturnDocument.AFTER,
+                    ),
+                )
             except DuplicateKeyError:
                 attempts_left -= 1
                 if not attempts_left:

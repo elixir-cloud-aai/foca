@@ -741,6 +741,24 @@ class TestReplaceRoleRule:
             adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
         assert _roles(adapter) == ["maintainer"]
 
+    def test_cleanup_fails_after_granted_again(
+        self, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rules granted again concurrently are kept if a cleanup fails."""
+        adapter.replace_role_rule("g2", ["user:a", "maintainer", "/x"], ROLES)
+        keep_latest = adapter._keep_latest_role
+
+        def fail(*args: Any) -> NoReturn:
+            # a concurrent request grants the same role, which succeeds
+            monkeypatch.setattr(adapter, "_keep_latest_role", keep_latest)
+            assert not adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+            raise ConnectionFailure("database not available")
+
+        monkeypatch.setattr(adapter, "_keep_latest_role", fail)
+        with pytest.raises(ConnectionFailure):
+            adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        assert _roles(adapter) == ["owner"]
+
     def test_invalid_rule(self, adapter: Adapter) -> None:
         """Invalid rules are rejected."""
         with pytest.raises(ValueError):
@@ -783,5 +801,6 @@ class TestReplaceRoleRule:
 
         monkeypatch.setattr(adapter._collection, "update_many", store_copy)
         monkeypatch.setattr(module, "generate_id", lambda **kwargs: "abcdef")
-        assert not adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
+        adapter.replace_role_rule("g2", ["user:a", "owner", "/x"], ROLES)
         assert _roles(adapter) == ["owner"]
+        assert adapter._collection.find_one({"id": "abcdef"})["granted"]  # type: ignore[index]  # found
