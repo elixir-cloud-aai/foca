@@ -114,6 +114,18 @@ guidelines][res-elixir-cloud-contributing] if you are interested to contribute.
 Please mind the [code of conduct][res-elixir-cloud-coc] for all interactions
 with the community.
 
+Test coverage of `foca` is kept at 100%, which is enforced: `coverage report`
+(and CI) fails below 100% (`fail_under` in `pyproject.toml`), and so do
+Codecov's checks of the whole code and of the changes of a pull request
+(`codecov.yml`). The tests marked `mongodb` need a MongoDB server on
+`localhost:12345`:
+
+```bash
+pip install -e .[dev]
+coverage run -m pytest
+coverage report -m
+```
+
 To build the documentation locally, install the `docs` extra and run MkDocs:
 
 ```bash
