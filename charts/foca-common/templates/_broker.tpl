@@ -5,10 +5,14 @@ nothing otherwise. Call them with the context dict.
 */ -}}
 
 {{/*
-Deployment of RabbitMQ: one pod whose user is created from the credentials
-in the existing Secret (`broker.existingSecret`), as each new pod starts with
-empty data: its data (queued tasks) is kept in an `emptyDir`, so it is lost
-when the pod is replaced.
+Deployment of RabbitMQ: one pod, whose data (queued tasks) is kept in a
+PersistentVolumeClaim if `broker.persistence.enabled` (see
+`foca-common.brokerPersistence`), otherwise in an `emptyDir`, which is lost
+when the pod is replaced. RabbitMQ creates its user from the credentials in
+the existing Secret (`broker.existingSecret`) when it starts with empty
+data, i.e., only once with persistence. The node name is fixed, as RabbitMQ
+keeps its data in a directory named after it (by default after the pod's
+host name, which changes with every pod).
 */}}
 {{- define "foca-common.brokerDeployment" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -54,6 +58,9 @@ spec:
         # Logs to standard output only, as the root file system is read-only
         - name: RABBITMQ_LOGS
           value: "-"
+        # Fixed, as RabbitMQ keeps its data in a directory named after it
+        - name: RABBITMQ_NODENAME
+          value: rabbit@localhost
         - name: RABBITMQ_DEFAULT_USER
           valueFrom:
             secretKeyRef:
@@ -89,8 +96,7 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
-        # RabbitMQ's data directory and home (with the Erlang cookie), up to
-        # `broker.dataSizeLimit`
+        # RabbitMQ's data directory and home (with the Erlang cookie)
         - mountPath: /var/lib/rabbitmq
           name: data
         # Writable, as the root file system is read-only by default
@@ -109,13 +115,67 @@ spec:
       terminationGracePeriodSeconds: 30
       volumes:
       - name: data
+        {{- with include "foca-common.brokerPersistence" $root | fromJson }}
+        persistentVolumeClaim:
+          claimName: {{ .claimName | quote }}
+        {{- else }}
         {{- include "foca-common.emptyDir" $broker.dataSizeLimit | nindent 8 }}
+        {{- end }}
       - name: tmp
         {{- include "foca-common.emptyDir" $broker.tmpSizeLimit | nindent 8 }}
       - name: config
         configMap:
           name: {{ printf "%s-config" (include "foca-common.brokerFullname" $root) | quote }}
 {{ end -}}
+{{- end -}}
+
+{{/*
+Persistence of the broker's data, as JSON: a dict with the name of the
+PersistentVolumeClaim (`claimName`; `broker.persistence.existingClaim`, or
+the broker's own claim) and whether the chart creates it (`create`), if
+`broker.persistence.enabled`; otherwise an empty dict. Without a
+`broker.persistence` map (values written for foca-common 0.1.0), persistence
+is disabled. Call with the root context.
+*/}}
+{{- define "foca-common.brokerPersistence" -}}
+{{- $persistence := dig "persistence" dict (.Values.broker | default dict) | default dict -}}
+{{- if $persistence.enabled -}}
+{{- $existing := $persistence.existingClaim | default "" -}}
+{{- dict "claimName" ($existing | default (include "foca-common.brokerFullname" .)) "create" (not $existing) | toJson -}}
+{{- else -}}
+{{- dict | toJson -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+PersistentVolumeClaim of the broker's data, if `broker.persistence.enabled`
+without `broker.persistence.existingClaim`: of `size`, with `accessModes`
+(by default `ReadWriteOnce`) and `storageClass` (the cluster's default
+class if empty; "-" for none, i.e., no dynamic provisioning).
+*/}}
+{{- define "foca-common.brokerPersistentVolumeClaim" -}}
+{{- include "foca-common.checkSettings" . -}}
+{{- $root := .root -}}
+{{- if include "foca-common.brokerEnabled" $root -}}
+{{- if (include "foca-common.brokerPersistence" $root | fromJson).create -}}
+{{- $persistence := $root.Values.broker.persistence -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "foca-common.brokerFullname" $root | quote }}
+  labels:
+    {{- include "foca-common.labels" (dict "root" $root "component" "broker") | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml ($persistence.accessModes | default (list "ReadWriteOnce")) | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ required "broker.persistence.size must be set if broker.persistence.enabled" $persistence.size | quote }}
+  {{- with $persistence.storageClass }}
+  storageClassName: {{ ternary "" . (eq . "-") | quote }}
+  {{- end }}
+{{ end -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

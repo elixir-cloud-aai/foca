@@ -1,0 +1,1 @@
+{{- include "foca-common.brokerPersistentVolumeClaim" (dict "root" . "settings" (include "petstore.settings" . | fromYaml)) }}

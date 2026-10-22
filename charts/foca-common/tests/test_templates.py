@@ -1300,6 +1300,7 @@ def test_celery_resources(render: Callable[..., Docs]) -> None:
         ("Deployment", BROKER),
         ("ConfigMap", BROKER_CONFIG),
         ("NetworkPolicy", BROKER),
+        ("PersistentVolumeClaim", BROKER),
         ("Service", BROKER),
     }
 
@@ -1422,6 +1423,7 @@ def test_broker(render: Callable[..., Docs]) -> None:
     assert broker["imagePullPolicy"] == "IfNotPresent"
     assert _env(broker) == {
         "RABBITMQ_LOGS": "-",
+        "RABBITMQ_NODENAME": "rabbit@localhost",
         "RABBITMQ_DEFAULT_USER": {
             "secretKeyRef": {"name": "celery", "key": "username"}
         },
@@ -1451,10 +1453,16 @@ def test_broker(render: Callable[..., Docs]) -> None:
     assert spec["securityContext"]["runAsNonRoot"] is True
     assert spec["enableServiceLinks"] is False
     assert spec["volumes"] == [
-        {"name": "data", "emptyDir": {"sizeLimit": "1Gi"}},
+        {"name": "data", "persistentVolumeClaim": {"claimName": BROKER}},
         {"name": "tmp", "emptyDir": {"sizeLimit": "64Mi"}},
         {"name": "config", "configMap": {"name": "petstore-broker-config"}},
     ]
+    claim = docs[("PersistentVolumeClaim", BROKER)]
+    assert claim["metadata"]["labels"]["app.kubernetes.io/component"] == "broker"
+    assert claim["spec"] == {
+        "accessModes": ["ReadWriteOnce"],
+        "resources": {"requests": {"storage": "1Gi"}},
+    }
     deployment = docs[("Deployment", BROKER)]["spec"]
     assert deployment["strategy"] == {"type": "Recreate"}
     service = docs[("Service", BROKER)]["spec"]
@@ -1519,6 +1527,7 @@ def test_celery_names(chart: Path) -> None:
         ("Deployment", "shop-broker"),
         ("Service", "shop-broker"),
         ("NetworkPolicy", "shop-broker"),
+        ("PersistentVolumeClaim", "shop-broker"),
     } <= set(docs)
     # Long names are truncated before the suffix
     long_name = "a" * 63
@@ -1550,6 +1559,8 @@ def test_broker_settings(render: Callable[..., Docs]) -> None:
         "broker.imagePullPolicy=Never",
         "--set",
         "broker.image=registry.example.org/rabbitmq:4.3",
+        "--set",
+        "broker.persistence.enabled=false",
         "--set-json",
         "broker.dataSizeLimit=null",
         "--set",
@@ -1566,6 +1577,72 @@ def test_broker_settings(render: Callable[..., Docs]) -> None:
         {"name": "tmp", "emptyDir": {"sizeLimit": "32Mi"}},
         {"name": "config", "configMap": {"name": "petstore-broker-config"}},
     ]
+
+
+def test_broker_without_persistence(render: Callable[..., Docs]) -> None:
+    """Without persistence, the broker keeps its data in an emptyDir."""
+    docs = render(*CELERY, "--set", "broker.persistence.enabled=false")
+    assert ("PersistentVolumeClaim", BROKER) not in docs
+    (data, *_) = _pod_spec(docs, BROKER)["volumes"]
+    assert data == {"name": "data", "emptyDir": {"sizeLimit": "1Gi"}}
+
+
+def test_broker_persistence_settings(render: Callable[..., Docs]) -> None:
+    """The size and access modes of the broker's claim take effect."""
+    docs = render(
+        *CELERY,
+        "--set",
+        "broker.persistence.size=5Gi",
+        "--set-json",
+        'broker.persistence.accessModes=["ReadWriteOncePod"]',
+    )
+    assert docs[("PersistentVolumeClaim", BROKER)]["spec"] == {
+        "accessModes": ["ReadWriteOncePod"],
+        "resources": {"requests": {"storage": "5Gi"}},
+    }
+
+
+@pytest.mark.parametrize(
+    ("storage_class", "expected"),
+    [("fast", "fast"), ("-", "")],
+)
+def test_broker_storage_class(
+    render: Callable[..., Docs], storage_class: str, expected: str
+) -> None:
+    """A storage class is set, or "-" disables dynamic provisioning."""
+    docs = render(*CELERY, "--set", f"broker.persistence.storageClass={storage_class}")
+    spec = docs[("PersistentVolumeClaim", BROKER)]["spec"]
+    assert spec["storageClassName"] == expected
+
+
+def test_broker_existing_claim(render: Callable[..., Docs]) -> None:
+    """An existing claim replaces the broker's own."""
+    docs = render(*CELERY, "--set", "broker.persistence.existingClaim=queues")
+    assert ("PersistentVolumeClaim", BROKER) not in docs
+    (data, *_) = _pod_spec(docs, BROKER)["volumes"]
+    assert data == {"name": "data", "persistentVolumeClaim": {"claimName": "queues"}}
+
+
+def test_broker_persistence_size_required(chart: Path, tmp_path: Path) -> None:
+    """The broker's claim needs a size."""
+    # Bypasses the schema, which rejects an empty size already
+    chart_copy = tmp_path / "chart"
+    shutil.copytree(chart, chart_copy)
+    (chart_copy / "values.schema.json").unlink()
+    error = template_error(chart_copy, *CELERY, "--set", "broker.persistence.size=")
+    assert "broker.persistence.size must be set" in error
+
+
+def test_broker_without_persistence_values(chart: Path, tmp_path: Path) -> None:
+    """Values without `broker.persistence` (as for 0.1.0) keep the emptyDir."""
+    # Bypasses the schema, which requires the map in the app chart's values
+    chart_copy = tmp_path / "chart"
+    shutil.copytree(chart, chart_copy)
+    (chart_copy / "values.schema.json").unlink()
+    docs = index(template(chart_copy, *CELERY, "--set-json", "broker.persistence=null"))
+    assert ("PersistentVolumeClaim", BROKER) not in docs
+    (data, *_) = _pod_spec(docs, BROKER)["volumes"]
+    assert data == {"name": "data", "emptyDir": {"sizeLimit": "1Gi"}}
 
 
 def test_broker_image_required(render_error: Callable[..., str]) -> None:
@@ -1607,3 +1684,8 @@ def test_schema_rejects_invalid_celery_values(
     """The schema rejects invalid worker and broker values."""
     assert "schema" in render_error("--set", "worker.replicas=0")
     assert "schema" in render_error("--set", "broker.dataSizeLimit=0")
+    assert "schema" in render_error("--set", "broker.persistence.size=1x")
+    assert "schema" in render_error(
+        "--set-json", 'broker.persistence.accessModes=["ReadWriteSometimes"]'
+    )
+    assert "schema" in render_error("--set", "broker.persistence.unknown=true")

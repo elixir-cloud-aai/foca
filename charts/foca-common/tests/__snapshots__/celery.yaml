@@ -129,6 +129,25 @@ data:
       roles: [{ role: 'readWrite', db: 'petstore' }],
     });
 ---
+# Source: petstore/templates/broker-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: "petstore-broker"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "broker"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: "1Gi"
+---
 # Source: petstore/templates/mongodb-pvc.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -271,6 +290,9 @@ spec:
         # Logs to standard output only, as the root file system is read-only
         - name: RABBITMQ_LOGS
           value: "-"
+        # Fixed, as RabbitMQ keeps its data in a directory named after it
+        - name: RABBITMQ_NODENAME
+          value: rabbit@localhost
         - name: RABBITMQ_DEFAULT_USER
           valueFrom:
             secretKeyRef:
@@ -316,8 +338,7 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
-        # RabbitMQ's data directory and home (with the Erlang cookie), up to
-        # `broker.dataSizeLimit`
+        # RabbitMQ's data directory and home (with the Erlang cookie)
         - mountPath: /var/lib/rabbitmq
           name: data
         # Writable, as the root file system is read-only by default
@@ -341,8 +362,8 @@ spec:
       terminationGracePeriodSeconds: 30
       volumes:
       - name: data
-        emptyDir:
-          sizeLimit: "1Gi"
+        persistentVolumeClaim:
+          claimName: "petstore-broker"
       - name: tmp
         emptyDir:
           sizeLimit: "64Mi"
