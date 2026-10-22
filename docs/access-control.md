@@ -234,6 +234,32 @@ helpers](#resource-scoped-roles) keep them, with a warning. Other stored
 rules are kept. Without `policies`, stored rules are not changed on startup;
 with `policies: []`, all configured rules are removed.
 
+Rules can also be given as a mapping of names to rules (named rules), so
+that config overlays can add, change or remove (`null`) single rules without
+restating the others (see [named
+entries](configuration/index.md#named-entries)):
+
+```yaml
+security:
+  access_control:
+    policies:
+      create-services: [p, "*", /services, POST]
+      owners-manage: [p, owner, "/services/:id", "(PUT)|(DELETE)"]
+      alice-admin: [g, "user:alice", admin]
+```
+
+Named rules are stored like listed ones (names are not stored, so switching
+between both forms does not change stored rules); their names are logged on
+startup, and errors name the invalid rule. As with `policies: []`, removing all
+named rules removes all configured rules. Apps that expect operators to adapt
+their rules should use named rules.
+
+!!! danger "Review overlays like code"
+    Rules in overlays grant rights: a broad rule (e.g., `[p, "*", "/*",
+    GET]`) also applies to operations it was not meant for, including the
+    permissions API, which then exposes all rules to any authenticated user.
+    Limit rules to the paths they are meant for.
+
 Rules that depend on the app's data, such as roles on resources, are better
 managed by the app (cf. [resource-scoped roles](#resource-scoped-roles)).
 
@@ -293,6 +319,57 @@ policy allows them.
   permissions API and on controllers decorated with
   `foca.security.access_control.enforce_access_control`, which applies the
   same checks to a single controller.
+
+### Requiring login for reads
+
+Many apps make reads public (operations with `security: []`). Operators who
+want all reads to require login, except, e.g., `GET /service-info`, can do so
+in a config overlay, without changing the app, by combining a [spec
+patch](configuration/api.md#patching-specifications) with a [named policy
+rule](#configuring-policies). This requires that the app uses a named
+specification and named policy rules, and enforces policies (`enforce:
+True`).
+
+!!! danger "With great power comes great responsibility"
+    Patches and rules in overlays can weaken or remove authentication and
+    access control as easily as they add it. Review them like code and check
+    the startup logs, which list the applied patches and named rules and warn
+    of operations that patches make public.
+
+Given an app whose specification (named `my-api` in its configuration, with
+base path `/api`) makes `GET /items` and `GET /items/{id}` public:
+
+```yaml title="overlay.yaml"
+api:
+  specs:
+    my-api:
+      patches:
+        # require a token for the public reads, except `/service-info`
+        - paths:
+            /items:
+              get:
+                security:
+                  - bearerAuth: []
+            /items/{id}:
+              get:
+                security:
+                  - bearerAuth: []
+security:
+  access_control:
+    policies:
+      # any authenticated user may read the app's API
+      read-api: [p, "*", "/api/*", GET]
+```
+
+The patch sets the security requirements of each public read operation (here
+with the app's security scheme `bearerAuth`); operations not listed, such as
+`GET /service-info`, stay public. As the operations now require
+authentication, policies are enforced on them, so the rule allows `GET` for
+any authenticated user (`*`), on the app's API only (`/api/*`). Without the
+rule, reads would be denied with `403` unless other rules allow them. The
+rule is added to the app's rules, which are kept. Use the app's actual
+specification name, base path and security scheme; for an app that lists its
+specifications or rules, the overlay has to restate them.
 
 ### Identity and group claims
 

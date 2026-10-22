@@ -18,6 +18,7 @@ from pydantic import (
     PositiveInt,
     PrivateAttr,
     ValidationInfo,
+    ValidatorFunctionWrapHandler,
     field_validator,
     model_validator,
 )
@@ -465,6 +466,16 @@ class SpecConfig(FOCABaseConfig):
             https://swagger.io/docs/specification/authentication/.
         connexion: Options for registering the specification with
             Connexion (cf. :py:class:`ConnexionOptions`).
+        name: Name of the specification, used in logs. Set from the key if
+            `APIConfig.specs` is given as a mapping of named specifications,
+            so that config overlays can change single specifications.
+            Must be unique.
+        patches: Paths to YAML or JSON files (resolved like those of `path`)
+            or mappings, deep-merged into the specification in order after
+            `path` and `append`, with the same rules as `path`. Meant for
+            operators; patches can weaken or remove authentication and
+            access control. Cf. the documentation on patching
+            specifications.
 
     Attributes:
         path: A single path or list of paths to OpenAPI 2.x or 3.x
@@ -504,6 +515,9 @@ class SpecConfig(FOCABaseConfig):
             https://swagger.io/docs/specification/authentication/.
         connexion: Options for registering the specification with
             Connexion (cf. :py:class:`ConnexionOptions`).
+        name: Name of the specification.
+        patches: Patches deep-merged into the specification, given as
+            absolute paths or mappings.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -530,13 +544,16 @@ class SpecConfig(FOCABaseConfig):
     add_security_fields: dict[str, Any] | None = None
     disable_auth: bool = False
     connexion: ConnexionOptions | None = None
+    name: str | None = Field(default=None, min_length=1)
+    patches: list[Path | dict[str, Any]] | None = None
 
     @model_validator(mode="after")
     def make_paths_absolute(self, info: ValidationInfo) -> Self:
         """Make paths absolute.
 
-        Relative paths are resolved against the directory of the base config
-        file, if available, otherwise against the current working directory.
+        Relative paths of `path` and `patches` are resolved against the
+        directory of the base config file, if available, otherwise against
+        the current working directory.
 
         Args:
             info: Validation info.
@@ -546,6 +563,11 @@ class SpecConfig(FOCABaseConfig):
         """
         paths = self.path if isinstance(self.path, list) else [self.path]
         self.path = [_resolve_path(path, info) for path in paths]
+        if self.patches is not None:
+            self.patches = [
+                _resolve_path(patch, info) if isinstance(patch, Path) else patch
+                for patch in self.patches
+            ]
         return self
 
 
@@ -554,11 +576,16 @@ class APIConfig(FOCABaseConfig):
 
     Args:
         specs: List of configuration parameters for OpenAPI 2.x or 3.x
-            specifications to be attached to a Connexion app.
+            specifications to be attached to a Connexion app, or a mapping
+            of names to such parameters (named specifications), so that
+            config overlays can change single specifications (cf.
+            :py:class:`foca.config.config_parser.ConfigParser`); `None`
+            values remove specifications. Names are set as
+            `SpecConfig.name`.
 
     Attributes:
         specs: List of configuration parameters for OpenAPI 2.x or 3.x
-            specifications to be attached to a Connexion app.
+            specifications to be attached to a Connexion app, in order.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -568,9 +595,84 @@ class APIConfig(FOCABaseConfig):
         >>> api = APIConfig(specs=[SpecConfig(path="/path/to/specs.yaml")])
         >>> api.specs[0].path[0].name
         'specs.yaml'
+        >>> api = APIConfig.model_validate(
+        ...     {"specs": {"pets": {"path": "/path/to/specs.yaml"}}}
+        ... )
+        >>> api.specs[0].name
+        'pets'
     """
 
     specs: list[SpecConfig] = []
+
+    @field_validator("specs", mode="before")
+    @classmethod
+    def named_specs_to_list(cls, v: Any) -> Any:
+        """Convert named specifications to a list.
+
+        Args:
+            v: Specifications, as a list or a mapping of names to
+                specifications.
+
+        Returns:
+            Specifications, with names set from the keys of a mapping, in
+            order; specifications set to `None` are dropped. Other values
+            are returned as they are, for validation.
+
+        Raises:
+            ValueError: A named specification has no `path`, e.g., because an
+                overlay changes a specification under a misspelled name, or
+                its `name` differs from its key.
+        """
+        if not isinstance(v, dict):
+            return v
+        specs: list[Any] = []
+        for name, spec in v.items():
+            if not isinstance(name, str) or not name:
+                raise ValueError(
+                    f"Names of API specs must be non-empty strings: {name!r}"
+                )
+            if spec is None:
+                continue
+            if isinstance(spec, dict) and "path" not in spec:
+                raise ValueError(
+                    f"API spec '{name}' has no 'path'; to change a spec of "
+                    "the app, use its name in the app's configuration"
+                )
+            if not isinstance(spec, (dict, SpecConfig)):
+                # invalid, rejected on validation
+                specs.append(spec)
+                continue
+            given = spec.get("name") if isinstance(spec, dict) else spec.name
+            if given not in (None, name):
+                raise ValueError(f"API spec '{name}' must not set a different 'name'")
+            specs.append(
+                {**spec, "name": name}
+                if isinstance(spec, dict)
+                else spec.model_copy(update={"name": name})
+            )
+        return specs
+
+    @field_validator("specs")
+    @classmethod
+    def validate_unique_names(cls, v: list[SpecConfig]) -> list[SpecConfig]:
+        """Ensure that names of specifications are unique.
+
+        Args:
+            v: Specifications.
+
+        Returns:
+            Specifications.
+
+        Raises:
+            ValueError: Several specifications have the same name.
+        """
+        names = [spec.name for spec in v if spec.name is not None]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(
+                f"Names of API specs must be unique: {', '.join(duplicates)}"
+            )
+        return v
 
 
 class AccessControlConfig(FOCABaseConfig):
@@ -662,7 +764,11 @@ class AccessControlConfig(FOCABaseConfig):
             missing rules are added, and rules removed from the
             configuration are removed. Configured rules cannot be changed or
             deleted via the permissions API. Other stored rules are kept. If
-            not set, stored rules are not changed on startup.
+            not set, stored rules are not changed on startup. Given as a
+            list, or as a mapping of names to rules (named rules), so that
+            config overlays can add, change or remove single rules (cf.
+            :py:class:`foca.config.config_parser.ConfigParser`); `None`
+            values remove rules.
         log_traffic: Whether requests to the permissions API and their
             responses are logged (cf.
             :py:func:`foca.utils.logging.log_traffic`).
@@ -693,7 +799,8 @@ class AccessControlConfig(FOCABaseConfig):
         id_length: Length of generated policy rule identifiers.
         self_service: Allow subjects to list and get the permissions that
             apply to them.
-        policies: Policy rules the app relies on, managed on startup.
+        policies: Policy rules the app relies on, managed on startup, as a
+            list (names of named rules are kept in `named_policies`).
         log_traffic: Whether requests to the permissions API and their
             responses are logged.
 
@@ -739,6 +846,63 @@ class AccessControlConfig(FOCABaseConfig):
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
     _registered_collection: tuple[str, str, bool] | None = PrivateAttr(default=None)
+    # Named rules, if `policies` was given as named rules
+    _named_policies: dict[str, list[str]] | None = PrivateAttr(default=None)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def named_policies_to_list(
+        cls, data: Any, handler: ValidatorFunctionWrapHandler
+    ) -> Any:
+        """Convert named policy rules to a list, keeping their names.
+
+        Args:
+            data: Input data.
+            handler: Validation handler.
+
+        Returns:
+            Validated access control configuration; named rules set to
+            `None` are dropped.
+
+        Raises:
+            ValueError: Names of rules are not non-empty strings, or rules
+                are not lists of strings.
+        """
+        named_policies: dict[str, list[str]] | None = None
+        if isinstance(data, dict) and isinstance(data.get("policies"), dict):
+            named: dict[str, list[str]] = {}
+            for name, rule in data["policies"].items():
+                if not isinstance(name, str) or not name:
+                    raise ValueError(
+                        f"Names of policy rules must be non-empty strings: {name!r}"
+                    )
+                if rule is None:
+                    continue
+                if not isinstance(rule, list) or not all(
+                    isinstance(value, str) for value in rule
+                ):
+                    raise ValueError(f"Policy rule '{name}' must be a list of strings")
+                named[name] = rule
+            data = {**data, "policies": list(named.values())}
+            named_policies = named
+        model = handler(data)
+        if named_policies is not None:
+            model._named_policies = {
+                name: list(rule) for name, rule in named_policies.items()
+            }
+        return model
+
+    @property
+    def named_policies(self) -> dict[str, list[str]] | None:
+        """Named policy rules, if `policies` was given as named rules.
+
+        `None` if the rules were given as a list, or if they were changed
+        after validation, so that the names no longer apply.
+        """
+        named = self._named_policies
+        if named is None or list(named.values()) != self.policies:
+            return None
+        return {name: list(rule) for name, rule in named.items()}
 
     @field_validator("subject_prefix")
     @classmethod

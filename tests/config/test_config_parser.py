@@ -278,6 +278,184 @@ class TestConfigFiles:
         assert conf.config.server.port == 8000
 
 
+NAMED_BASE = f"""
+api:
+  specs:
+    petstore:
+      path: {PATH}
+      add_operation_fields:
+        x-swagger-router-controller: controllers
+    addition:
+      path: {PATH_ADDITION}
+security:
+  auth:
+    issuers: [https://login.example.org/oidc/]
+    audience: [my-app]
+  access_control:
+    enabled: true
+    policies:
+      read: [p, "*", /pets, GET]
+      write: [p, admin, /pets, POST]
+"""
+
+
+class TestNamedEntries:
+    """Tests for overlays changing named entries of specs and policies."""
+
+    @pytest.fixture
+    def base(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """Base config with named specs and policies."""
+        monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
+        return _write(tmp_path / "config.yaml", NAMED_BASE)
+
+    def test_change_add_remove(self, base: Path, tmp_path: Path) -> None:
+        """Overlays change, add and remove single entries."""
+        overlay = _write(
+            tmp_path / "overlay.yaml",
+            "api:\n"
+            "  specs:\n"
+            "    petstore:\n"
+            "      patches: [patch.yaml]\n"
+            "    addition: null\n"
+            "security:\n"
+            "  access_control:\n"
+            "    policies:\n"
+            "      read: [p, '*', /pets, (GET)|(HEAD)]\n"
+            "      write: null\n"
+            "      delete: [p, admin, /pets, DELETE]\n",
+        )
+        conf = ConfigParser(config_file=[base, overlay], format_logs=False).config
+        assert len(conf.api.specs) == 1
+        spec = conf.api.specs[0]
+        assert spec.name == "petstore"
+        assert spec.path == [Path(PATH)]
+        assert spec.add_operation_fields == {
+            "x-swagger-router-controller": "controllers"
+        }
+        assert spec.patches == [tmp_path / "patch.yaml"]
+        assert conf.security.access_control.named_policies == {
+            "read": ["p", "*", "/pets", "(GET)|(HEAD)"],
+            "delete": ["p", "admin", "/pets", "DELETE"],
+        }
+
+    def test_removed_entry_added_again(self, base: Path, tmp_path: Path) -> None:
+        """Entries removed by an overlay can be added by a later one."""
+        remove = _write(
+            tmp_path / "remove.yaml",
+            "security:\n  access_control:\n    policies:\n      read: null\n",
+        )
+        add = _write(
+            tmp_path / "add.yaml",
+            "security:\n"
+            "  access_control:\n"
+            "    policies:\n"
+            "      read: [p, '*', /pets, GET]\n",
+        )
+        conf = ConfigParser(config_file=[base, remove], format_logs=False).config
+        assert set(conf.security.access_control.named_policies or {}) == {"write"}
+        conf = ConfigParser(
+            config_file=[base, remove, remove], format_logs=False
+        ).config
+        assert set(conf.security.access_control.named_policies or {}) == {"write"}
+        conf = ConfigParser(config_file=[base, remove, add], format_logs=False).config
+        assert set(conf.security.access_control.named_policies or {}) == {
+            "read",
+            "write",
+        }
+
+    def test_list_replaced(self, base: Path, tmp_path: Path) -> None:
+        """Lists in overlays replace named entries, as before."""
+        overlay = _write(
+            tmp_path / "overlay.yaml",
+            f"api:\n  specs:\n    - path: {PATH}\n"
+            "security:\n"
+            "  access_control:\n"
+            "    policies:\n"
+            "      - [p, '*', /pets, GET]\n",
+        )
+        conf = ConfigParser(config_file=[base, overlay], format_logs=False).config
+        assert [spec.name for spec in conf.api.specs] == [None]
+        assert conf.security.access_control.policies == [["p", "*", "/pets", "GET"]]
+        assert conf.security.access_control.named_policies is None
+
+    @pytest.mark.parametrize(
+        "content,message",
+        [
+            # removing entries that are not set
+            (
+                "security:\n  access_control:\n    policies:\n      reed: null\n",
+                "removes unknown entries of 'security.access_control.policies': reed",
+            ),
+            ("api:\n  specs:\n    other: null\n", "'api.specs': other"),
+            # changing entries that are not set
+            (
+                "api:\n  specs:\n    pet-store:\n      patches: [patch.yaml]\n",
+                "API spec 'pet-store' has no 'path'",
+            ),
+        ],
+    )
+    def test_unknown_names(
+        self, base: Path, tmp_path: Path, content: str, message: str
+    ) -> None:
+        """Overlays naming unknown entries are rejected."""
+        overlay = _write(tmp_path / "overlay.yaml", content)
+        with pytest.raises((ValueError, ValidationError), match=message):
+            ConfigParser(config_file=[base, overlay], format_logs=False)
+
+    @pytest.mark.parametrize(
+        "content,section",
+        [
+            (f"api:\n  specs:\n    - path: {PATH}\n", "api.specs"),
+            (
+                "security:\n"
+                "  auth:\n"
+                "    issuers: [https://login.example.org/oidc/]\n"
+                "    audience: [my-app]\n"
+                "  access_control:\n"
+                "    enabled: true\n"
+                "    policies:\n"
+                "      - [p, '*', /pets, GET]\n",
+                "security.access_control.policies",
+            ),
+        ],
+    )
+    def test_named_entries_into_list(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        content: str,
+        section: str,
+    ) -> None:
+        """Named entries cannot be merged into lists of earlier files.
+
+        The entries of the list would be lost otherwise.
+        """
+        monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
+        base = _write(tmp_path / "config.yaml", content)
+        overlay = _write(tmp_path / "overlay.yaml", NAMED_BASE)
+        with pytest.raises(ValueError, match=f"'{section}' to named entries"):
+            ConfigParser(config_file=[base, overlay], format_logs=False)
+
+    def test_named_entries_into_empty_list(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Named entries can replace empty lists, as no entries are lost."""
+        monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
+        base = _write(tmp_path / "config.yaml", "api:\n  specs: []\n")
+        overlay = _write(tmp_path / "overlay.yaml", NAMED_BASE)
+        conf = ConfigParser(config_file=[base, overlay], format_logs=False).config
+        assert [spec.name for spec in conf.api.specs] == ["petstore", "addition"]
+
+    def test_unknown_name_in_first_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Removing entries is rejected in the first config file, too."""
+        monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
+        base = _write(tmp_path / "config.yaml", "api:\n  specs:\n    a: null\n")
+        with pytest.raises(ValueError, match=r"'api\.specs': a"):
+            ConfigParser(config_file=base, format_logs=False)
+
+
 def test_no_config_values_logged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

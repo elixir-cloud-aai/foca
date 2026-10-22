@@ -43,6 +43,61 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+# Sections that can be given as mappings of names to entries (named entries),
+# so that config overlays can add, change or remove single entries
+NAMED_ENTRY_SECTIONS: tuple[tuple[str, ...], ...] = (
+    ("api", "specs"),
+    ("security", "access_control", "policies"),
+)
+
+
+def _get_section(data: Any, keys: Sequence[str]) -> Any:
+    """Get the value of a nested section, or `None` if it is not set."""
+    for key in keys:
+        if not isinstance(data, dict):
+            return None
+        data = data.get(key)
+    return data
+
+
+def _check_named_entries(base: dict[str, Any], overlay: dict[str, Any]) -> None:
+    """Check that an overlay can be merged into the named entries of a base.
+
+    Args:
+        base: Configuration merged so far.
+        overlay: Configuration to merge.
+
+    Raises:
+        ValueError: The overlay sets named entries of a section (cf.
+            `NAMED_ENTRY_SECTIONS`) that is a non-empty list in `base`, so
+            that the entries of the list would be lost, or it removes
+            (`null`) entries that are not set in `base`, e.g., because of a
+            misspelled name.
+    """
+    for keys in NAMED_ENTRY_SECTIONS:
+        entries = _get_section(overlay, keys)
+        if not isinstance(entries, dict):
+            continue
+        section = ".".join(keys)
+        current = _get_section(base, keys)
+        if isinstance(current, list) and current:
+            raise ValueError(
+                f"Cannot change '{section}' to named entries, as earlier config "
+                "files set it to a list, whose entries would be lost; give the "
+                "complete list instead, or use named entries in all files"
+            )
+        known = current if isinstance(current, dict) else {}
+        unknown = [
+            str(name)
+            for name, entry in entries.items()
+            if entry is None and name not in known
+        ]
+        if unknown:
+            raise ValueError(
+                f"Config removes unknown entries of '{section}': {', '.join(unknown)}"
+            )
+
+
 def _as_paths(config_file: Path | str | Sequence[Path | str] | None) -> list[Any]:
     """Normalize one or more config file paths to a list of paths."""
     if config_file is None:
@@ -78,10 +133,14 @@ class ConfigParser:
 
     Config files are merged in order (cf. :py:func:`deep_merge`), followed by
     any files listed in environment variable `FOCA_CONFIG_OVERLAY`, and the
-    result is validated. Relative file paths in the configuration (e.g., of
-    API specifications) are resolved against the directory of the first
-    config file (the base config file), or against the current working
-    directory if no config file is given.
+    result is validated. Sections of `NAMED_ENTRY_SECTIONS` (API specs and
+    access control policies) can be given as mappings of names to entries,
+    so that later files can add, change (merge) or remove (`null`) single
+    entries; files must not change such a section from a non-empty list to
+    named entries, nor remove entries that are not set. Relative file paths
+    in the configuration (e.g., of API specifications) are resolved against
+    the directory of the first config file (the base config file), or
+    against the current working directory if no config file is given.
 
     Args:
         config_file: Path to config file in YAML format, or sequence of paths
@@ -135,6 +194,10 @@ class ConfigParser:
                 content = {}
             if not isinstance(content, dict):
                 raise ValueError(f"file '{path}' is not a YAML mapping")
+            try:
+                _check_named_entries(data, content)
+            except ValueError as exc:
+                raise ValueError(f"file '{path}': {exc}") from exc
             data = deep_merge(data, content)
         self.config = Config.model_validate(data, context={"base_dir": self.config_dir})
         if custom_config_model is not None:
