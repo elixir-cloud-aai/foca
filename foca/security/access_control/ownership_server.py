@@ -18,11 +18,15 @@ path parameter before the subject's (e.g., `/tasks/1` for
 is the last one. Resources without owners are not found. Who may call the
 endpoints is decided by the app's policies. Requests and responses are logged
 unless disabled via config option `security.access_control.log_traffic`.
+
+The module uses internal helpers of the ownership and permissions API
+modules of the same package.
 """
 
 import logging
 import re
-from typing import Any
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
 from flask import request
 from werkzeug.exceptions import BadRequest, Forbidden, NotFound
@@ -52,12 +56,26 @@ logger = logging.getLogger(__name__)
 _RULE_VARIABLE = re.compile(r"<(?:[^<>:]+:)?([^<>:]+)>")
 
 
-def _get_route() -> tuple[str, list[str]]:
-    """Get the URL rule of the current request and its path parameters.
+class _Route(NamedTuple):
+    """Route of a request: its URL rule and the values of its variables.
+
+    Attributes:
+        rule: URL rule, e.g., `/tasks/<id>/permissions/users/<userId>`.
+        variables: Name and position (start, end) of each variable of the
+            rule, in order.
+        values: Values of the variables, as routed (i.e., decoded).
+    """
+
+    rule: str
+    variables: list[tuple[str, int, int]]
+    values: dict[str, Any]
+
+
+def _get_route() -> _Route:
+    """Get the route of the current request.
 
     Returns:
-        URL rule (e.g., `/tasks/<id>/permissions/users/<userId>`) and names
-        of its variables, in order.
+        URL rule, variables and their values.
 
     Raises:
         RuntimeError: The current request was not routed via a URL rule.
@@ -65,7 +83,11 @@ def _get_route() -> tuple[str, list[str]]:
     rule = request.url_rule
     if rule is None or request.view_args is None:
         raise RuntimeError("The current request was not routed via a URL rule")
-    return rule.rule, _RULE_VARIABLE.findall(rule.rule)
+    variables = [
+        (match.group(1), match.start(), match.end())
+        for match in _RULE_VARIABLE.finditer(rule.rule)
+    ]
+    return _Route(rule.rule, variables, request.view_args)
 
 
 def _get_resource(with_subject: bool) -> str:
@@ -82,26 +104,24 @@ def _get_resource(with_subject: bool) -> str:
     Raises:
         RuntimeError: The route has too few path parameters.
     """
-    rule, names = _get_route()
-    count = len(names) - 1 if with_subject else len(names)
+    route = _get_route()
+    count = len(route.variables) - (1 if with_subject else 0)
     if count < 1:
         raise RuntimeError(
-            f"Route '{rule}' has no path parameter identifying the resource"
+            f"Route '{route.rule}' has no path parameter identifying the resource"
         )
-    matches = list(_RULE_VARIABLE.finditer(rule))
-    view_args = request.view_args or {}
     resource = ""
     position = 0
-    for match in matches[:count]:
-        resource += rule[position : match.start()] + str(view_args[match.group(1)])
-        position = match.end()
+    for name, start, end in route.variables[:count]:
+        resource += f"{route.rule[position:start]}{route.values[name]}"
+        position = end
     return resource
 
 
 def _get_subject() -> str:
     """Get the subject of the current request, i.e., its last path parameter."""
-    _, names = _get_route()
-    return str((request.view_args or {})[names[-1]])
+    route = _get_route()
+    return str(route.values[route.variables[-1][0]])
 
 
 def _get_owned_resource(with_subject: bool) -> str:
@@ -126,8 +146,15 @@ def _get_owned_resource(with_subject: bool) -> str:
 def _get_role(body: Any) -> str:
     """Get the role from a request body (`{"role": ...}`).
 
+    Args:
+        body: Request body.
+
+    Returns:
+        Role.
+
     Raises:
-        werkzeug.exceptions.BadRequest: The body has no role.
+        werkzeug.exceptions.BadRequest: The body is not an object with a
+            role (a string).
     """
     role = body.get("role") if isinstance(body, dict) else None
     if not isinstance(role, str):
@@ -135,13 +162,20 @@ def _get_role(body: Any) -> str:
     return role
 
 
-def _put_role(subject: str, subject_type: SubjectType, body: Any) -> dict[str, str]:
+def _put_role(
+    subject: str,
+    subject_type: SubjectType,
+    body: Any,
+    exists: Callable[[], bool] | None,
+) -> dict[str, str]:
     """Grant a subject the role in the request body, replacing others.
 
     Args:
         subject: Subject without prefix.
         subject_type: Type of the subject.
         body: Request body.
+        exists: Function checking whether the resource exists (cf.
+            :py:func:`foca.security.access_control.grant_role`).
 
     Returns:
         Subject type, subject and granted role.
@@ -151,25 +185,15 @@ def _put_role(subject: str, subject_type: SubjectType, body: Any) -> dict[str, s
             `access_control.resource_roles`, or the role cannot be granted to
             the subject (cf.
             :py:func:`foca.security.access_control.grant_role`).
-        werkzeug.exceptions.NotFound: The resource has no owners, or had
-            none left after the role was granted (e.g., as it was deleted
-            meanwhile).
+        werkzeug.exceptions.NotFound: The resource has no owners, or `exists`
+            returned `False` after the role was granted.
         foca.security.access_control.LastOwner: The subject is the last
             owner of the resource, and the role is not `owner`.
     """
     role = _get_role(body)
     resource = _get_owned_resource(with_subject=True)
-    was_owner = (subject_type, subject) in _get_owners(resource, RESOURCE_ROLE_PTYPE)
-
-    def _exists() -> bool:
-        # Resources are deleted with their roles, so a resource whose only
-        # owner is the one just granted was deleted meanwhile, unless the
-        # subject was an owner before
-        owners = _get_owners(resource, RESOURCE_ROLE_PTYPE)
-        return was_owner or bool(owners - {(subject_type, subject)})
-
     try:
-        grant_role(resource, subject, role, subject_type=subject_type, exists=_exists)
+        grant_role(resource, subject, role, subject_type=subject_type, exists=exists)
     # Messages may name configuration options, so they are only logged
     except ValueError as exc:
         logger.info(
@@ -183,12 +207,18 @@ def _put_role(subject: str, subject_type: SubjectType, body: Any) -> dict[str, s
     return {"subject_type": subject_type, "subject": subject, "role": role}
 
 
-def _delete_roles(subject: str, subject_type: SubjectType) -> str:
+def _delete_roles(
+    subject: str,
+    subject_type: SubjectType,
+    exists: Callable[[], bool] | None,
+) -> str:
     """Revoke all roles of a subject.
 
     Args:
         subject: Subject without prefix.
         subject_type: Type of the subject.
+        exists: Function checking whether the resource exists (cf.
+            :py:func:`foca.security.access_control.revoke_roles`).
 
     Returns:
         The subject.
@@ -200,7 +230,7 @@ def _delete_roles(subject: str, subject_type: SubjectType) -> str:
             owner of the resource.
     """
     resource = _get_owned_resource(with_subject=True)
-    if not revoke_roles(resource, subject, subject_type=subject_type):
+    if not revoke_roles(resource, subject, subject_type=subject_type, exists=exists):
         raise NotFound
     return subject
 
@@ -228,7 +258,11 @@ def getResourceRoles(**kwargs: Any) -> list[dict[str, str]]:
 
 
 @log_traffic_if(_permissions_traffic_logged)
-def putUserRole(body: Any = None, **kwargs: Any) -> dict[str, str]:
+def putUserRole(
+    body: Any = None,
+    exists: Callable[[], bool] | None = None,
+    **kwargs: Any,
+) -> dict[str, str]:
     """Grant the user of the route the role in the request body.
 
     Other roles of `access_control.resource_roles` of the user on the
@@ -237,31 +271,41 @@ def putUserRole(body: Any = None, **kwargs: Any) -> dict[str, str]:
 
     Args:
         body: Request body, with the role to grant (`{"role": "owner"}`).
+        exists: Function checking whether the resource exists, so that a
+            role granted while the resource is deleted is revoked again;
+            passed by apps that route to a wrapper of the controller. Not
+            checked if `None`.
         **kwargs: Path parameters and further arguments that Connexion
             passes; unused, as resource and user are taken from the route.
 
     Returns:
         Subject type (`user`), user identifier and granted role.
     """
-    return _put_role(_get_subject(), "user", body)
+    return _put_role(_get_subject(), "user", body, exists)
 
 
 @log_traffic_if(_permissions_traffic_logged)
-def deleteUserRole(**kwargs: Any) -> str:
+def deleteUserRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> str:
     """Revoke the roles of the user of the route on the resource.
 
     Args:
+        exists: Function checking whether the resource exists, if an owner
+            role removed concurrently is restored (cf. :py:func:`putUserRole`).
         **kwargs: Path parameters and further arguments that Connexion
             passes; unused, as resource and user are taken from the route.
 
     Returns:
         User identifier.
     """
-    return _delete_roles(_get_subject(), "user")
+    return _delete_roles(_get_subject(), "user", exists)
 
 
 @log_traffic_if(_permissions_traffic_logged)
-def putGroupRole(body: Any = None, **kwargs: Any) -> dict[str, str]:
+def putGroupRole(
+    body: Any = None,
+    exists: Callable[[], bool] | None = None,
+    **kwargs: Any,
+) -> dict[str, str]:
     """Grant the group of the route the role in the request body.
 
     Callers may only grant roles to groups they are members of (i.e., whose
@@ -273,6 +317,8 @@ def putGroupRole(body: Any = None, **kwargs: Any) -> dict[str, str]:
 
     Args:
         body: Request body, with the role to grant (`{"role": "owner"}`).
+        exists: Function checking whether the resource exists (cf.
+            :py:func:`putUserRole`).
         **kwargs: Path parameters and further arguments that Connexion
             passes; unused, as resource and group are taken from the route.
 
@@ -291,21 +337,23 @@ def putGroupRole(body: Any = None, **kwargs: Any) -> dict[str, str]:
             _describe_caller(),
         )
         raise Forbidden
-    return _put_role(group, "group", body)
+    return _put_role(group, "group", body, exists)
 
 
 @log_traffic_if(_permissions_traffic_logged)
-def deleteGroupRole(**kwargs: Any) -> str:
+def deleteGroupRole(exists: Callable[[], bool] | None = None, **kwargs: Any) -> str:
     """Revoke the roles of the group of the route on the resource.
 
     Callers allowed by the policies may revoke roles of any group, also of
     groups they are not members of.
 
     Args:
+        exists: Function checking whether the resource exists (cf.
+            :py:func:`deleteUserRole`).
         **kwargs: Path parameters and further arguments that Connexion
             passes; unused, as resource and group are taken from the route.
 
     Returns:
         The group.
     """
-    return _delete_roles(_get_subject(), "group")
+    return _delete_roles(_get_subject(), "group", exists)

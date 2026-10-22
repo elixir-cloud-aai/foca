@@ -1,6 +1,5 @@
 """Tests for the controllers managing roles on owned resources."""
 
-from collections.abc import Callable
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
@@ -11,17 +10,21 @@ import mongomock
 import pytest
 import yaml
 from flask import Flask
+from flask.globals import request_ctx
+from werkzeug.exceptions import BadRequest, NotFound
 from werkzeug.test import TestResponse
 
 from foca.api.register_openapi import register_openapi
+from foca.config.access import get_app_config
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, SpecConfig
 from foca.security.access_control import (
     ResourceRole,
+    SubjectType,
     list_roles,
+    ownership,
     ownership_server,
-    remove_resource,
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
@@ -49,8 +52,12 @@ POLICIES = [
     ("p", ["owner", "/api/tasks/:id/permissions/groups/*", "(PUT)|(DELETE)"]),
     ("p", ["owner", "/api/projects/:p/files/:f/permissions", "GET"]),
     ("p", ["owner", "/api/projects/:p/files/:f/permissions/users/:u", "PUT"]),
+    # reaches the controller of a misconfigured route
+    ("p", ["*", "/api/permissions/users/:u", "PUT"]),
     ("g2", ["user:alice", "owner", TASK]),
     ("g2", ["user:alice", "owner", FILE]),
+    # owner without group claim
+    ("g2", ["user:bob", "owner", "/api/tasks/3"]),
 ]
 
 
@@ -282,19 +289,40 @@ class TestUserRoles:
         assert _call(app, "delete", path, "carol").status_code == 404
         assert _roles(app, "/api/tasks/2") == []
 
-    def test_deleted_meanwhile(self, app: Flask) -> None:
-        """Roles granted while the resource is deleted are revoked again."""
-        grant_role = ownership_server.grant_role
+    @pytest.mark.parametrize("subject_type", ["user", "group"])
+    def test_existence_checked(self, app: Flask, subject_type: SubjectType) -> None:
+        """Roles granted on resources deleted meanwhile are revoked again.
 
-        def delete_then_grant(*args: Any, **kwargs: Any) -> list[str]:
-            # the resource is deleted after the controller checked it
-            remove_resource(TASK)
-            return grant_role(*args, **kwargs)
+        Apps pass existence checks via wrappers of the controllers.
+        """
+        put = getattr(ownership_server, f"put{subject_type.capitalize()}Role")
+        path = f"{TASK}/permissions/{subject_type}s/devs"
+        with app.test_request_context(path, method="PUT"):
+            # token info, as set by Connexion
+            request_ctx.connexion_context = {  # type: ignore[attr-defined]
+                "token_info": mock_token_info("alice")
+            }
+            with pytest.raises(NotFound):
+                put(body={"role": "maintainer"}, exists=lambda: False)
+            put(body={"role": "maintainer"}, exists=lambda: True)
+        assert _roles(app)[-1] == ResourceRole(subject_type, "devs", "maintainer")
 
-        path = f"{TASK}/permissions/users/bob"
-        with mock.patch.object(ownership_server, "grant_role", delete_then_grant):
-            assert _call(app, "put", path, "alice", "owner").status_code == 404
+    def test_existence_checked_on_restore(self, app: Flask) -> None:
+        """Owners restored on resources deleted meanwhile are revoked again."""
+        path = f"{TASK}/permissions/users/alice"
+        with (
+            app.test_request_context(path, method="DELETE"),
+            mock.patch.object(ownership, "_check_other_owners"),
+            pytest.raises(NotFound),
+        ):
+            ownership_server.deleteUserRole(exists=lambda: False)
         assert _roles(app) == []
+
+    @pytest.mark.parametrize("body", [None, [], "owner", {"role": 1}, {}])
+    def test_invalid_body(self, body: Any) -> None:
+        """Bodies must be objects with a role."""
+        with pytest.raises(BadRequest):
+            ownership_server._get_role(body)
 
     def test_owner_granted_again(self, app: Flask) -> None:
         """Owners may be granted the owner role again."""
@@ -302,10 +330,16 @@ class TestUserRoles:
         assert _call(app, "put", path, "alice", "owner").status_code == 200
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
+
+class TestRoutes:
+    """Tests for taking resources from routes."""
+
     def test_misconfigured_route(self, app: Flask) -> None:
         """Routes must identify the resource by a path parameter."""
+        path = "/api/permissions/users/bob"
+        assert _call(app, "put", path, "alice", "owner").status_code == 500
         with (
-            app.test_request_context("/api/permissions/users/bob", method="PUT"),
+            app.test_request_context(path, method="PUT"),
             pytest.raises(RuntimeError, match="no path parameter"),
         ):
             ownership_server._get_resource(with_subject=True)
@@ -344,23 +378,49 @@ class TestGroupRoles:
         assert _call(app, "put", path, "alice", "maintainer").status_code == 403
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
+    def test_owner_without_groups(self, app: Flask) -> None:
+        """Owners without group claim may not grant roles to groups."""
+        path = "/api/tasks/3/permissions/groups/devs"
+        assert _call(app, "put", path, "bob", "maintainer").status_code == 403
+
     def test_admin(self, app: Flask) -> None:
         """Admins grant roles to any group, and owners revoke them."""
         path = f"{TASK}/permissions/groups/auditors"
         assert _call(app, "put", path, "carol", "maintainer").status_code == 200
         assert _call(app, "delete", path, "alice").status_code == 200
 
+    def test_errors(self, app: Flask) -> None:
+        """Groups get the same errors as users."""
+        path = f"{TASK}/permissions/groups/devs"
+        assert _call(app, "delete", path, "alice").status_code == 404
+        assert _call(app, "put", path, "alice", "admin").status_code == 400
+        missing = "/api/tasks/2/permissions/groups/devs"
+        assert _call(app, "put", missing, "carol", "owner").status_code == 404
+        # the group is the last owner
+        assert _call(app, "put", path, "alice", "owner").status_code == 200
+        user = f"{TASK}/permissions/users/alice"
+        assert _call(app, "delete", user, "alice").status_code == 200
+        assert _call(app, "put", path, "alice", "maintainer").status_code == 409
+        assert _call(app, "delete", path, "alice").status_code == 409
 
+
+@pytest.mark.parametrize("log_traffic", [True, False])
 @pytest.mark.parametrize(
-    "controller",
+    "method,path,role",
     [
-        ownership_server.getResourceRoles,
-        ownership_server.putUserRole,
-        ownership_server.deleteUserRole,
-        ownership_server.putGroupRole,
-        ownership_server.deleteGroupRole,
+        ("get", f"{TASK}/permissions", None),
+        ("put", f"{TASK}/permissions/users/bob", "maintainer"),
+        ("delete", f"{TASK}/permissions/users/bob", None),
+        ("put", f"{TASK}/permissions/groups/devs", "maintainer"),
+        ("delete", f"{TASK}/permissions/groups/devs", None),
     ],
 )
-def test_traffic_logged(controller: Callable[..., Any]) -> None:
-    """Controllers log traffic as the permissions API does."""
-    assert hasattr(controller, "__wrapped__")
+def test_traffic_logged(
+    app: Flask, log_traffic: bool, method: str, path: str, role: str | None
+) -> None:
+    """Controllers log traffic as the permissions API does, if enabled."""
+    get_app_config(app).security.access_control.log_traffic = log_traffic
+    with mock.patch("foca.utils.logging.logger") as logger:
+        _call(app, method, path, "alice", role)
+    messages = [str(call) for call in logger.log.call_args_list]
+    assert any("Incoming request" in message for message in messages) is log_traffic
