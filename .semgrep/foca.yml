@@ -1,0 +1,70 @@
+# Semgrep rules for security issues that ruff's bandit rules (`S`) do not
+# cover (e.g., `eval()`, `exec()`, `yaml.load()` with unsafe loaders and
+# `verify=False` in requests are covered by ruff); test cases are in
+# `foca.py` and `foca.test.yaml` (`semgrep --test .semgrep/`). The rules
+# `flask-debug-enabled` and `jwt-decode-without-verification` are shared with
+# FOCA apps (e.g., Cloud Registry): keep them identical there
+rules:
+  - id: flask-debug-enabled
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Flask debug mode allows executing arbitrary code; only enable it for
+      local development, in an overlay config (`FOCA_CONFIG_OVERLAY`)
+    paths:
+      include:
+        - "*.yaml"
+        - "*.yml"
+      # Test configs may enable debug mode
+      exclude:
+        - "tests/"
+    pattern-regex: (?im)^\s*debug:\s*['"]?(true|yes|on)['"]?\s*(#.*)?$
+  - id: jwt-decode-without-verification
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Access tokens must be verified; use FOCA's `validate_token()` for
+      tokens of callers
+    patterns:
+      - pattern-either:
+          - pattern: 'jwt.decode(..., options={..., "verify_signature": False, ...}, ...)'
+          - pattern: "jwt.decode(..., verify=False, ...)"
+  - id: jwt-decode-unsafe-algorithms
+    languages: [python]
+    severity: ERROR
+    message: >-
+      JWTs must be verified with a fixed list of signature algorithms: not
+      with `none`, and not with the algorithm that the token's header names
+    pattern-either:
+      - patterns:
+          - pattern: jwt.decode(..., algorithms=[..., $ALG, ...], ...)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: (?i)^['"]none['"]$
+      - pattern: jwt.decode(..., algorithms=[..., jwt.get_unverified_header(...)[...], ...], ...)
+      - pattern: jwt.decode(..., algorithms=[..., jwt.get_unverified_header(...).get(...), ...], ...)
+      - pattern: jwt.decode(..., algorithms=jwt.get_unverified_header(...)[...], ...)
+      - pattern: jwt.decode(..., algorithms=jwt.get_unverified_header(...).get(...), ...)
+  - id: yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Loading YAML with PyYAML's full or unsafe loader can instantiate
+      arbitrary objects; use `yaml.safe_load()`
+    pattern-either:
+      - pattern: yaml.unsafe_load(...)
+      - pattern: yaml.unsafe_load_all(...)
+      - pattern: yaml.full_load(...)
+      - pattern: yaml.full_load_all(...)
+      - patterns:
+          - pattern: yaml.load_all(..., Loader=$LOADER, ...)
+          - metavariable-regex:
+              metavariable: $LOADER
+              regex: ^(yaml\.)?(Loader|UnsafeLoader|FullLoader)$
+  - id: tls-verification-disabled
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Certificate verification must not be disabled; configure a CA bundle
+      instead (`verify` may name its path)
+    pattern: $SESSION.verify = False

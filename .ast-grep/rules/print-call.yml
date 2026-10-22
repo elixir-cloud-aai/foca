@@ -1,0 +1,12 @@
+id: print-call
+language: python
+severity: error
+message: Output with `print()` in the package
+note: |
+  Log with the module's logger (`logger = logging.getLogger(__name__)`)
+  instead, so that the output goes where the app configures logging.
+# Scoped to the package: tests and examples may print
+files:
+  - foca/**
+rule:
+  pattern: print($$$ARGS)

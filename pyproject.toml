@@ -58,6 +58,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    # The ast-grep hook of `.pre-commit-config.yaml` uses this one
+    "ast-grep-cli>=0.51",
     "coverage>=7.6",
     "mongomock>=4.3",
     "mypy>=1.13",

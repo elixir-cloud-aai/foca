@@ -1,0 +1,9 @@
+id: string-status-code
+valid:
+  - return body, 201
+  - return body, 201, headers
+  - return "201", 201
+  - 'return body, 201, {"X-Code": "201"}'
+invalid:
+  - return body, "201"
+  - return body, '201', headers

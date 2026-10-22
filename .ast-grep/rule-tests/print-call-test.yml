@@ -1,0 +1,7 @@
+id: print-call
+valid:
+  - logger.info("Started")
+  - pprint(data)
+invalid:
+  - print("Started")
+  - print(data, file=sys.stderr)
