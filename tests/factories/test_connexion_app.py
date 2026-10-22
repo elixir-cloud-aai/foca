@@ -80,6 +80,20 @@ def _ui_spec(server_url: str) -> dict[str, Any]:
     }
 
 
+def _assert_ui(client: FlaskClient, ui_url: str, spec_url: str) -> None:
+    """Assert that the Swagger UI is served and loads the spec.
+
+    Args:
+        client: Test client of the app.
+        ui_url: URL of the Swagger UI.
+        spec_url: Expected URL of the specification.
+    """
+    response = client.get(ui_url)
+    assert response.status_code == HTTPStatus.OK
+    assert f'url: "{spec_url}"' in response.get_data(as_text=True)
+    assert client.get(spec_url).status_code == HTTPStatus.OK
+
+
 @pytest.mark.parametrize(
     ("server_url", "base_path", "options", "ui_url", "spec_url"),
     [
@@ -110,11 +124,7 @@ def test_swagger_ui(
         base_path=base_path,
         options={"swagger_ui": True, **options},
     )
-    client = cnx_app.app.test_client()
-    response = client.get(ui_url)
-    assert response.status_code == HTTPStatus.OK
-    assert f'url: "{spec_url}"' in response.get_data(as_text=True)
-    assert client.get(spec_url).status_code == HTTPStatus.OK
+    _assert_ui(cnx_app.app.test_client(), ui_url, spec_url)
 
 
 def test_swagger_ui_openapi_2_root() -> None:
@@ -128,9 +138,7 @@ def test_swagger_ui_openapi_2_root() -> None:
             "paths": {},
         }
     )
-    response = cnx_app.app.test_client().get("/ui/")
-    assert response.status_code == HTTPStatus.OK
-    assert 'url: "/swagger.json"' in response.get_data(as_text=True)
+    _assert_ui(cnx_app.app.test_client(), "/ui/", "/swagger.json")
 
 
 def test_swagger_ui_root_and_other_api() -> None:
@@ -139,21 +147,23 @@ def test_swagger_ui_root_and_other_api() -> None:
     cnx_app.add_api(_ui_spec("http://localhost/"))
     cnx_app.add_api(_ui_spec("http://localhost/admin"))
     client = cnx_app.app.test_client()
-    for ui_url, spec_url in [
-        ("/ui/", "/openapi.json"),
-        ("/admin/ui/", "/admin/openapi.json"),
-    ]:
-        response = client.get(ui_url)
-        assert response.status_code == HTTPStatus.OK
-        assert f'url: "{spec_url}"' in response.get_data(as_text=True)
+    _assert_ui(client, "/ui/", "/openapi.json")
+    _assert_ui(client, "/admin/ui/", "/admin/openapi.json")
 
 
-def test_url_build_errors_raised() -> None:
-    """Other URLs that can't be built still raise `BuildError`."""
+@pytest.mark.parametrize(
+    ("server_url", "endpoint"),
+    [
+        ("http://localhost/", "/._missing"),
+        ("http://localhost/admin", "/._openapi_json"),
+    ],
+)
+def test_url_build_errors_raised(server_url: str, endpoint: str) -> None:
+    """Other URLs, or the spec URL without an API at `/`, still fail."""
     cnx_app = create_connexion_app()
-    cnx_app.add_api(_ui_spec("http://localhost/"))
+    cnx_app.add_api(_ui_spec(server_url))
     with cnx_app.app.test_request_context("/"), pytest.raises(BuildError):
-        url_for("/._missing")
+        url_for(endpoint)
 
 
 def test_debug_off_by_default() -> None:

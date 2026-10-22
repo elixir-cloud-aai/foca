@@ -21,7 +21,8 @@ _DECIMAL = re.compile(r"[0-9]+")
 
 # Endpoint of the specification of an API at `/` (Connexion 2 names its
 # blueprint `/`), and the endpoint that Connexion's Swagger UI builds for it
-# instead (from the empty base path, relative to the blueprint)
+# instead (from the empty base path, relative to the blueprint); specific to
+# Connexion 2 (cf. #368), checked by the tests of the Swagger UI
 _ROOT_SPEC_ENDPOINT = "/./_openapi_json"
 _ROOT_SPEC_ENDPOINT_UI = "/._openapi_json"
 
@@ -61,8 +62,8 @@ def _build_root_spec_url(
     Registered as a URL build error handler of the Flask app. For an API at
     `/`, Connexion 2 names the blueprint `/`, but its Swagger UI builds the
     URL of the specification from the empty base path, which fails
-    (`BuildError`), so that the UI returns `500`. Other errors are raised
-    again.
+    (`BuildError`), so that the UI returns `500`. Can be removed with
+    Connexion 3.
 
     Args:
         error: Error raised when building the URL.
@@ -73,7 +74,9 @@ def _build_root_spec_url(
         URL of the specification of the API at `/`.
 
     Raises:
-        Exception: `error`, for other endpoints.
+        Exception: `error` for other endpoints, so that Flask tries further
+            handlers or raises it; a `BuildError` if there is no
+            specification of an API at `/`.
     """
     if endpoint != _ROOT_SPEC_ENDPOINT_UI:
         raise error
