@@ -29,12 +29,17 @@ from casbin import Enforcer
 from werkzeug.exceptions import Conflict, NotFound
 
 from foca.config.access import get_config
-from foca.security.access_control.constants import GROUP_PREFIX, OWNER_ROLE
+from foca.security.access_control.constants import (
+    ADMIN_ROLE,
+    GROUP_PREFIX,
+    OWNER_ROLE,
+)
 from foca.security.access_control.enforcement import (
     RESOURCE_ROLE_PTYPE,
     SubjectType,
     _get_current_policy_subjects,
     _get_resource_role_enforcer,
+    _get_subject_prefix,
     _prefix_subject,
     add_resource_role,
     get_current_client,
@@ -42,7 +47,6 @@ from foca.security.access_control.enforcement import (
     get_current_subject,
     get_enforcer,
     get_on_behalf_of_user,
-    list_resource_roles,
     remove_resource_role,
 )
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
@@ -52,9 +56,6 @@ from foca.utils.logging import escape_log_value
 
 logger = logging.getLogger(__name__)
 
-# Role of subjects that may do everything, as in the reference model
-# (`resource_role_model.conf`)
-ADMIN_ROLE = "admin"
 # Types of subjects roles are granted to, in the order they are listed
 SUBJECT_TYPES: tuple[SubjectType, ...] = ("user", "group", "client")
 
@@ -192,8 +193,12 @@ def is_admin() -> bool:
     return any(role_manager.has_link(subject, ADMIN_ROLE) for subject in subjects)
 
 
-def _get_creator() -> tuple[SubjectType, str]:
+def _get_creator(on_behalf_of: str | None = None) -> tuple[SubjectType, str]:
     """Get the subject that a resource created by the current request belongs to.
+
+    Args:
+        on_behalf_of: User named by the caller to act for (cf.
+            :py:func:`foca.security.access_control.get_on_behalf_of_user`).
 
     Returns:
         Type and identifier of the subject: the user that an allowed service
@@ -210,7 +215,7 @@ def _get_creator() -> tuple[SubjectType, str]:
         connexion.exceptions.Unauthorized: The current request has neither a
             user nor a service client.
     """
-    user = get_on_behalf_of_user()
+    user = get_on_behalf_of_user(on_behalf_of)
     if user is not None:
         return "user", user
     client = get_current_client()
@@ -229,6 +234,7 @@ def add_owner(
     subject: str | None = None,
     subject_type: SubjectType = "user",
     ptype: str = RESOURCE_ROLE_PTYPE,
+    on_behalf_of: str | None = None,
 ) -> ResourceRole:
     """Make the creator of a resource its owner.
 
@@ -245,9 +251,17 @@ def add_owner(
             :py:func:`foca.security.access_control.get_on_behalf_of_user`),
             otherwise the service client (cf.
             :py:func:`foca.security.access_control.get_current_client`),
-            otherwise the user of the current request.
+            otherwise the user of the current request. A given subject is
+            not checked against the caller, so never take it from requests
+            unchecked; pass users that service clients name in request
+            fields via `on_behalf_of` instead.
         subject_type: Type of `subject`; ignored if `subject` is `None`.
         ptype: Policy type of resource-scoped role rules.
+        on_behalf_of: User that the caller names to act for (e.g., from a
+            request field), checked by
+            :py:func:`foca.security.access_control.get_on_behalf_of_user`;
+            by default, the value of the header configured via
+            `auth.on_behalf_of_header`. Ignored if `subject` is given.
 
     Returns:
         The granted owner role.
@@ -259,11 +273,13 @@ def add_owner(
             but is not a service client allowed to.
         connexion.exceptions.Unauthorized: `subject` is `None`, and the
             current request has neither a user nor a service client.
-        ValueError: The role cannot be granted (cf.
+        ValueError: The role would not apply to the subject (cf.
+            :py:func:`grant_role`), or cannot be granted (cf.
             :py:func:`foca.security.access_control.add_resource_role`).
     """
     if subject is None:
-        subject_type, subject = _get_creator()
+        subject_type, subject = _get_creator(on_behalf_of)
+    _check_applicable(subject, subject_type)
     add_resource_role(
         subject=subject,
         role=OWNER_ROLE,
@@ -295,20 +311,25 @@ def list_roles(
 
     Returns:
         Roles granted to users, followed by those granted to groups and to
-        service clients, each in the order they were granted. Rules of other
-        subjects (e.g., roles) are not listed.
+        service clients, each in the order they were granted, without
+        duplicates. Rules of other subjects (e.g., roles) are not listed.
 
     Raises:
         ValueError: The model does not define resource-scoped roles.
     """
-    return [
-        ResourceRole(subject_type, subject, _role)
-        for subject_type in SUBJECT_TYPES
-        for subject, _role in list_resource_roles(
-            resource, ptype=ptype, subject_type=subject_type
+    # Policies are loaded once; prefixes of subject types do not overlap
+    rules = _get_resource_role_enforcer(ptype).get_filtered_named_grouping_policy(
+        ptype, 2, resource
+    )
+    roles: list[ResourceRole] = []
+    for subject_type in SUBJECT_TYPES:
+        prefix = _get_subject_prefix(subject_type)
+        roles.extend(
+            ResourceRole(subject_type, subject.removeprefix(prefix), granted_role)
+            for subject, granted_role, _ in rules
+            if subject.startswith(prefix) and role in (None, granted_role)
         )
-        if role is None or _role == role
-    ]
+    return list(dict.fromkeys(roles))
 
 
 def _get_owners(resource: str, ptype: str) -> set[tuple[SubjectType, str]]:
@@ -325,12 +346,46 @@ def _get_roles_of(
     """Get the roles of a subject on a resource managed by the helpers."""
     roles = _get_resource_roles()
     return [
-        role
-        for other, role in list_resource_roles(
-            resource, ptype=ptype, subject_type=subject_type
-        )
-        if other == subject and role in roles
+        granted.role
+        for granted in list_roles(resource, ptype=ptype)
+        if (granted.subject_type, granted.subject) == (subject_type, subject)
+        and granted.role in roles
     ]
+
+
+def _check_applicable(subject: str, subject_type: SubjectType) -> None:
+    """Check that roles granted to a subject apply to requests.
+
+    Args:
+        subject: Subject without prefix.
+        subject_type: Type of the subject.
+
+    Raises:
+        ValueError: The subject is a group, but group claim values are not
+            used as subjects (`access_control.group_mapping` is set, and
+            `access_control.keep_group_subjects` is not), or a client that
+            is not a service client (`auth.service_clients`), so that the
+            role would not apply, and the resource could be left without an
+            owner that applies.
+    """
+    conf = get_config().security
+    if (
+        subject_type == "group"
+        and conf.access_control.group_mapping is not None
+        and not conf.access_control.keep_group_subjects
+    ):
+        raise ValueError(
+            "Roles granted to groups do not apply: group claim values are not "
+            "used as subjects with 'access_control.group_mapping', unless "
+            "'access_control.keep_group_subjects' is set"
+        )
+    if subject_type == "client" and subject not in {
+        client.client_id for client in conf.auth.service_clients
+    }:
+        raise ValueError(
+            f"Roles granted to client '{subject}' do not apply: not a service "
+            "client ('auth.service_clients')"
+        )
 
 
 def _check_other_owners(
@@ -478,7 +533,10 @@ def grant_role(
         werkzeug.exceptions.NotFound: `exists` returned `False` after the
             role was granted; the role was revoked again.
         ValueError: The role is not one of `access_control.resource_roles`,
-            the subject is empty, or the role cannot be granted (cf.
+            the subject is empty, the role would not apply to the subject
+            (a group while group claim values are not used as subjects, or a
+            client that is not a service client), or the role cannot be
+            granted (cf.
             :py:func:`foca.security.access_control.add_resource_role`).
     """
     roles = _get_resource_roles()
@@ -489,6 +547,7 @@ def grant_role(
         )
     if not subject:
         raise ValueError("Subjects must not be empty")
+    _check_applicable(subject, subject_type)
     previous = _get_roles_of(resource, subject, subject_type, ptype)
     if role != OWNER_ROLE:
         _check_other_owners(resource, subject, subject_type, ptype)
@@ -524,7 +583,9 @@ def revoke_roles(
 ) -> bool:
     """Revoke the roles of a subject on a resource.
 
-    Only roles of `access_control.resource_roles` are revoked.
+    Only roles of `access_control.resource_roles` are revoked. Unlike
+    :py:func:`grant_role`, subjects that cannot have roles (e.g., invalid
+    values of policy rules) are accepted, as they have nothing to revoke.
 
     Args:
         resource: Resource, i.e., its full request path.

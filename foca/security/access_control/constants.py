@@ -25,6 +25,9 @@ SUBJECT_TYPE_PREFIXES = {"group": GROUP_PREFIX, "client": CLIENT_PREFIX}
 # owner role, which the creator of a resource gets, and the maintainer role
 OWNER_ROLE = "owner"
 MAINTAINER_ROLE = "maintainer"
+# Role of subjects that may do everything, as in the reference model
+# (`resource_role_model.conf`)
+ADMIN_ROLE = "admin"
 
 # Identifiers of policy rules: characters, length and attempts to generate a
 # unique identifier

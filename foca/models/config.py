@@ -25,6 +25,7 @@ from pymongo import MongoClient, collection, database
 
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    ADMIN_ROLE,
     DEFAULT_ACCESS_CONTROL_COLLECTION_NAME,
     DEFAULT_ACCESS_CONTROL_DB_NAME,
     DEFAULT_ID_CHARSET,
@@ -576,8 +577,9 @@ class AccessControlConfig(FOCABaseConfig):
         resource_roles: Roles on resources that the resource ownership
             helpers (cf. :py:mod:`foca.security.access_control.ownership`)
             grant and revoke. Must contain `owner`, the role of the creator
-            of a resource. Roles must be valid values of policy rules and
-            must not start with `subject_prefix`, `group:` or `client:`.
+            of a resource. Roles must be valid values of policy rules, must
+            not be `admin` and must not start with `subject_prefix`,
+            `group:` or `client:`.
         id_charset: Characters of generated policy rule identifiers. Only
             letters, digits, `-`, `.`, `_` and `~` are allowed, as
             identifiers are used in URL paths.
@@ -744,10 +746,11 @@ class AccessControlConfig(FOCABaseConfig):
 
         Raises:
             ValueError: `resource_roles` does not contain `owner`, contains
-                duplicates or a role that is not a valid value of policy
-                rules, or a role starting with `subject_prefix`, `group:` or
-                `client:`, so that subjects granted the role would get the
-                rights of that subject.
+                duplicates, `admin` (so that owners cannot grant admin
+                rights on their resources), a role that is not a valid value
+                of policy rules, or a role starting with `subject_prefix`,
+                `group:` or `client:`, so that subjects granted the role
+                would get the rights of that subject.
         """
         # Imported here, as the access control package imports this module
         from foca.security.access_control.foca_casbin_adapter.casbin_rule import (  # noqa: PLC0415
@@ -758,6 +761,8 @@ class AccessControlConfig(FOCABaseConfig):
             raise ValueError(f"'resource_roles' must contain '{OWNER_ROLE}'")
         if len(set(self.resource_roles)) != len(self.resource_roles):
             raise ValueError("'resource_roles' must not contain duplicates")
+        if ADMIN_ROLE in self.resource_roles:
+            raise ValueError(f"'resource_roles' must not contain '{ADMIN_ROLE}'")
         prefixes = [self.subject_prefix, *SUBJECT_TYPE_PREFIXES.values()]
         for role in self.resource_roles:
             try:

@@ -659,8 +659,10 @@ service registry:
 
 * `add_owner(resource)` makes the creator of a resource its owner: the user
   that an allowed service client [acts for](#service-clients), otherwise the
-  calling service client, otherwise the calling user. Pass `subject` (and
-  `subject_type`) to choose the owner yourself.
+  calling service client, otherwise the calling user. Pass users that service
+  clients name in request fields as `on_behalf_of`, so that they are checked
+  like the header, and `subject` (and `subject_type`) only to choose the
+  owner yourself, as it is not checked against the caller.
 * `grant_role(resource, subject, role)` grants a user (or, with
   `subject_type`, a group or service client) a role, replacing the roles it
   had on the resource, and returns the previous ones.
@@ -683,10 +685,16 @@ service registry:
   granted via `g` rules.
 
 The helpers grant and revoke the roles configured via `resource_roles`
-(default: `owner` and `maintainer`; it must contain `owner`) and reject
-others with a `ValueError`, so that users cannot grant, e.g., `admin`. Roles
-not in `resource_roles` (e.g., granted via `add_resource_role()`) are listed,
-but neither replaced nor revoked. Every role change is logged on level
+(default: `owner` and `maintainer`; it must contain `owner` and must not
+contain `admin`, which is fixed). `grant_role()` rejects other roles with a
+`ValueError`, so that users cannot grant, e.g., `admin`, as well as roles
+that would not apply: to groups while group claim values are not used as
+subjects (`group_mapping` without `keep_group_subjects`), and to clients
+that are not service clients. Otherwise, a resource could be left with only
+owners that never apply. Roles not in `resource_roles` (e.g., granted via
+`add_resource_role()`) are listed, but neither replaced nor revoked by
+`revoke_roles()`, which returns `False` if the subject has no roles to
+revoke (also for subjects that cannot have roles). Every role change is logged on level
 `INFO`, naming the resource, the subject, the caller and the previous roles,
 for auditing.
 
@@ -727,6 +735,9 @@ def ListTasks(**kwargs):
 
 
 def DeleteTask(id, **kwargs):
+    # before deleting, so that nobody can act on the task meanwhile, and
+    # after, to revoke roles granted meanwhile
+    remove_resource(request.path)
     ...  # delete task
     remove_resource(request.path)
     return {"id": id}
@@ -738,9 +749,33 @@ API, as policies are enforced on them; the collection path passed to
 `add_owner()`. Revoke all roles on a deleted resource via `remove_resource()`.
 Apps that let owners manage access expose their own endpoints (e.g.,
 `PUT /tasks/{id}/permissions/users/{userId}`) calling `grant_role()` and
-`revoke_roles()`, enforced by policies such as `p, owner,
-/api/tasks/:id/permissions/*, (GET)|(PUT)|(DELETE)`, and map
-`LastOwner` (`409`) and `ValueError` (`400`) to responses. As for
+`revoke_roles()`:
+
+```python
+from connexion.exceptions import BadRequestProblem
+from flask import request
+
+from foca import get_collection
+from foca.security.access_control import grant_role
+
+
+def PutTaskUserRole(id, userId, body, **kwargs):
+    resource = request.path.removesuffix(f"/permissions/users/{userId}")
+    try:
+        grant_role(
+            resource,
+            userId,
+            body["role"],
+            exists=lambda: get_collection("tasks").count_documents({"id": id}) > 0,
+        )
+    except ValueError as exc:
+        raise BadRequestProblem(detail=str(exc)) from exc
+    return {"user_id": userId, "role": body["role"]}
+```
+
+Such endpoints are enforced by policies such as `p, owner,
+/api/tasks/:id/permissions/*, (GET)|(PUT)|(DELETE)`. `LastOwner` and
+`NotFound` result in `409` and `404` responses. As for
 `add_resource_role()`, which groups a caller may grant roles to is up to the
 app; cloud-registry only lets owners grant roles to groups they are members
 of (cf. `get_current_group_values()`), and admins to any group.
@@ -755,14 +790,17 @@ Keep in mind that:
   as `exists` to `grant_role()` and `revoke_roles()`: if it returns `False`
   after the role was granted, the role is revoked again, and `NotFound`
   (`404`) is raised. Deleting a resource should revoke its roles both before
-  and after deleting it, so that roles granted meanwhile are revoked, too.
+  and after deleting it (cf. `DeleteTask()` above), so that roles granted
+  meanwhile are revoked, too.
 * Listings only consider roles of the caller itself and of its groups (with
   `keep_group_subjects`, if `group_mapping` is set). A service client acting
   for a user sees the resources the _client_ has roles on, not those of the
   user, as it is also enforced as the client.
 * `resource_filter()` lists the identifiers of all resources the caller has
-  roles on in the filter, and loads all rules (cf. [scaling](#scaling)), so
-  it suits apps where users have roles on up to a few thousand resources.
+  roles on in the filter, so it suits apps where users have roles on up to a
+  few thousand resources. Like enforcement, each helper call loads all rules
+  (cf. [scaling](#scaling)); `grant_role()` and `revoke_roles()` do so a few
+  times per call.
 
 ### Securing the permissions API
 

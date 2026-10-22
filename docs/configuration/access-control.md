@@ -23,7 +23,6 @@ security:
       "urn:geant:elixir-europe.org:group:elixir:my-app:admins": admin
     client_mapping:
       conquest-client-id: submitter
-    keep_group_subjects: true
     resource_roles: [owner, maintainer]
     self_service: true
     policies:

@@ -182,6 +182,7 @@ class TestConfig:
         [
             (["maintainer"], "must contain 'owner'"),
             (["owner", "owner"], "must not contain duplicates"),
+            (["owner", "admin"], "must not contain 'admin'"),
             (["owner", "user:x"], "must not start with 'user:'"),
             (["owner", "group:x"], "must not start with 'group:'"),
             (["owner", "client:x"], "must not start with 'client:'"),
@@ -270,6 +271,14 @@ class TestAddOwner:
         """Resources created by a service client for itself belong to it."""
         with as_caller(app, PROTES):
             assert add_owner(TASK) == ResourceRole("client", "protes", "owner")
+
+    def test_on_behalf_of_user_from_field(self, app: Flask) -> None:
+        """Users named in request fields are checked like the header."""
+        with as_caller(app, CONQUEST):
+            owner = add_owner(TASK, on_behalf_of="alice")
+            assert owner == ResourceRole("user", "alice", "owner")
+        with as_caller(app, PROTES), pytest.raises(Forbidden):
+            add_owner("/tasks/2", on_behalf_of="alice")
 
     def test_not_allowed_on_behalf_of(self, app: Flask) -> None:
         """Other callers cannot name users to act for."""
@@ -379,6 +388,27 @@ class TestGrantRole:
                 ResourceRole("client", "protes", "maintainer"),
             ]
 
+    def test_group_roles_not_applying(self) -> None:
+        """Roles are not granted to groups if they would not apply."""
+        app = _create_app(keep_group_subjects=False)
+        with as_caller(app, ALICE):
+            add_owner(TASK)
+            with pytest.raises(ValueError, match="keep_group_subjects"):
+                grant_role(TASK, "devs", "owner", subject_type="group")
+            with pytest.raises(ValueError, match="keep_group_subjects"):
+                add_owner("/tasks/2", subject="devs", subject_type="group")
+            # so that the last owner that applies is kept
+            with pytest.raises(LastOwner):
+                revoke_roles(TASK, "alice")
+            assert list_roles(TASK) == [ResourceRole("user", "alice", "owner")]
+
+    def test_unknown_client(self, app: Flask) -> None:
+        """Roles are only granted to service clients."""
+        with as_caller(app, ALICE):
+            add_owner(TASK)
+            with pytest.raises(ValueError, match="not a service client"):
+                grant_role(TASK, "krini", "owner", subject_type="client")
+
     def test_unknown_role(self, app: Flask) -> None:
         """Only configured roles are granted."""
         with as_caller(app, ALICE), pytest.raises(ValueError, match="admin"):
@@ -412,6 +442,8 @@ class TestGrantRole:
 
     def test_concurrent_downgrade(self, store_app: Flask) -> None:
         """Owners removed concurrently are restored."""
+        # Races are simulated by skipping the check for other owners, as a
+        # concurrent request removing them after the check would
         with as_caller(store_app, ALICE):
             add_owner(TASK)
             grant_role(TASK, "bob", "owner")
@@ -497,6 +529,17 @@ class TestRevokeRoles:
             assert revoke_roles(TASK, "alice")
             with pytest.raises(LastOwner):
                 revoke_roles(TASK, "protes", subject_type="client")
+
+    def test_restored_owner_resource_gone(self, app: Flask) -> None:
+        """Owners are not restored on resources deleted meanwhile."""
+        with as_caller(app, ALICE):
+            add_owner(TASK)
+            with (
+                mock.patch.object(ownership, "_check_other_owners"),
+                pytest.raises(NotFound),
+            ):
+                revoke_roles(TASK, "alice", exists=lambda: False)
+            assert list_roles(TASK) == []
 
     def test_concurrent_removal(self, app: Flask) -> None:
         """Owners removed concurrently are restored."""
