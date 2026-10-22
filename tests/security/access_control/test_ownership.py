@@ -10,7 +10,7 @@ from unittest import mock
 
 import mongomock
 import pytest
-from connexion.exceptions import Forbidden, Unauthorized
+from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from flask import Flask
 from flask.globals import request_ctx
 from pydantic import ValidationError
@@ -643,6 +643,32 @@ class TestListSubjectRoles:
                 SubjectResourceRole("1", "owner", "client", "protes")
             ]
 
+    def test_on_behalf_of_user(self, app: Flask) -> None:
+        """Only direct roles of users that service clients act for are listed."""
+        with as_caller(app, ALICE):
+            add_resource_role("alice", "owner", "/tasks/2")
+            add_resource_role("devs", "owner", TASK, subject_type="group")
+            add_resource_role("conquest", "owner", "/tasks/3", subject_type="client")
+        expected = [SubjectResourceRole("2", "owner", "user", "alice")]
+        with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
+            assert list_subject_roles("/tasks") == expected
+        with as_caller(app, CONQUEST, headers={HEADER: "bob"}):
+            assert list_subject_roles("/tasks", on_behalf_of="alice") == expected
+        with as_caller(app, CONQUEST):
+            assert list_subject_roles("/tasks") == [
+                SubjectResourceRole("3", "owner", "client", "conquest")
+            ]
+
+    def test_not_allowed_on_behalf_of(self, app: Flask) -> None:
+        """Other callers cannot name users to list roles for."""
+        with as_caller(app, ALICE, headers={HEADER: "bob"}), pytest.raises(Forbidden):
+            list_subject_roles("/tasks")
+        with (
+            as_caller(app, CONQUEST, headers={HEADER: ""}),
+            pytest.raises(BadRequestProblem),
+        ):
+            list_subject_roles("/tasks")
+
     def test_group_subjects_not_kept(self) -> None:
         """Roles of groups only apply with group subjects."""
         app = _create_app(keep_group_subjects=False)
@@ -682,12 +708,61 @@ class TestResourceFilter:
         with as_caller(app, CAROL):
             assert resource_filter("/tasks") == {}
 
+    def test_service_client(self, app: Flask) -> None:
+        """Service clients see the resources they have roles on.
+
+        Not those of users they created resources for, if not acting for them.
+        """
+        with as_caller(app, CONQUEST):
+            add_owner(TASK, on_behalf_of="alice")
+            add_resource_role("conquest", "owner", "/tasks/2", subject_type="client")
+            assert resource_filter("/tasks") == {"id": {"$in": ["2"]}}
+
     def test_on_behalf_of_user(self, app: Flask) -> None:
-        """Service clients see the resources they have roles on."""
+        """Service clients acting for users see the resources of the users."""
         with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
             add_owner(TASK)
             add_resource_role("conquest", "owner", "/tasks/2", subject_type="client")
-            assert resource_filter("/tasks") == {"id": {"$in": ["2"]}}
+            assert resource_filter("/tasks") == {"id": {"$in": ["1"]}}
+        with as_caller(app, CONQUEST):
+            assert resource_filter("/tasks", on_behalf_of="alice") == {
+                "id": {"$in": ["1"]}
+            }
+
+    def test_admin_client_on_behalf_of_user(self) -> None:
+        """Admin clients see everything, also when acting for users."""
+        app = _create_app(client_mapping={"conquest": "admin"})
+        with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
+            assert resource_filter("/tasks") == {}
+        # Named users are checked also for admins
+        with as_caller(app, CONQUEST), pytest.raises(BadRequestProblem):
+            resource_filter("/tasks", on_behalf_of=" alice")
+
+    def test_on_behalf_of_admin(self, app: Flask) -> None:
+        """Users' admin rights do not apply to clients acting for them."""
+        # Admin via a `g` rule, as service tokens carry no groups of users
+        with app.app_context():
+            get_enforcer().add_grouping_policy("user:dave", "admin")
+        with as_caller(app, DAVE):
+            assert resource_filter("/tasks") == {}
+        with as_caller(app, CONQUEST, headers={HEADER: "dave"}):
+            add_resource_role("dave", "owner", TASK)
+            assert resource_filter("/tasks") == {"id": {"$in": ["1"]}}
+
+    def test_invalid_on_behalf_of(self, app: Flask) -> None:
+        """Invalid users named by service clients are rejected."""
+        with as_caller(app, CONQUEST), pytest.raises(BadRequestProblem):
+            resource_filter("/tasks", on_behalf_of=" alice")
+
+    def test_not_allowed_on_behalf_of(self, app: Flask) -> None:
+        """Other callers cannot name users to list resources for."""
+        with (
+            as_caller(app, PROTES, headers={HEADER: "alice"}),
+            pytest.raises(Forbidden),
+        ):
+            resource_filter("/tasks")
+        with as_caller(app, CAROL), pytest.raises(Forbidden):
+            resource_filter("/tasks", on_behalf_of="alice")
 
 
 def test_default_model() -> None:
