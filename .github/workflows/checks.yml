@@ -61,6 +61,9 @@ jobs:
         run: mypy
       - name: Build documentation
         run: mkdocs build --strict
+      # In its own environment, as cffconvert pins an old jsonschema
+      - name: Validate citation metadata
+        run: pipx run --spec cffconvert==2.0.0 cffconvert --validate -i CITATION.cff
       - name: Build distributions
         env:
           # Pins the build requirements in the isolated build environment

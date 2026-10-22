@@ -123,8 +123,17 @@ development versions (e.g., `0.14.1.dev3+g1a2b3c4`).
 ### Releasing
 
 Features and fixes are merged into `dev`. Branch `main` only ever moves
-forward to commits on `dev` that are released. To release version `X.Y.Z`
-from commit `<sha>` on `dev`, after CI passed for it:
+forward to commits on `dev` that are released. First, set the version and
+date of the release in the citation metadata, which Zenodo archives with each
+release, and merge the change into `dev` (the release workflow fails if
+`CITATION.cff` has another version):
+
+```bash
+python scripts/citation.py set X.Y.Z  # date: today (UTC), or --date YYYY-MM-DD
+```
+
+Then, to release version `X.Y.Z` from commit `<sha>` on `dev` (with that
+change), after CI passed for it:
 
 ```bash
 git push origin <sha>:main  # fails unless it is a fast-forward
