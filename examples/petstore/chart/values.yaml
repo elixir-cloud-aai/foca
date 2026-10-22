@@ -40,7 +40,8 @@ petstore:
   # `IfNotPresent` for the locally built image, `Always` if not set
   imagePullPolicy: IfNotPresent
   # Path of the app's startup, readiness and liveness probes: the served
-  # OpenAPI spec (the Swagger UI, `/ui/`, fails for APIs at `/`)
+  # OpenAPI spec (no authentication or database access, and lighter than
+  # the Swagger UI, `/ui/`)
   probePath: /openapi.json
   # Ingress for `hostName`; if disabled, an OpenShift Route is created
   # instead, if the cluster serves Routes
