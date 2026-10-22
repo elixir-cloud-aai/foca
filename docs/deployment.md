@@ -43,7 +43,7 @@ def create_app():
 ```
 
 ```bash
-gunicorn --bind 0.0.0.0:8080 --workers 4 "wsgi:create_app()"
+gunicorn --bind 0.0.0.0:8080 --workers 4 --no-control-socket "wsgi:create_app()"
 ```
 
 The [FOCA image](getting-started.md#docker) does not include a WSGI server;
