@@ -173,8 +173,8 @@ This project is covered by the [Apache License 2.0][license-apache] also
 
 ## Contact
 
-The project is a collaborative effort under the umbrella of [ELIXIR Cloud &
-AAI][org-elixir-cloud]. Follow the link to get in touch with us via chat or
+The project is a collaborative effort under the umbrella of [ELIXIR
+On-Cloud][org-elixir-cloud]. Follow the link to get in touch with us via chat or
 email. Please mention the name of this service for any inquiry, proposal,
 question etc.
 

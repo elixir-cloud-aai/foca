@@ -49,7 +49,7 @@ app.run()
 
 ## Project
 
-FOCA is developed by [ELIXIR Cloud & AAI](https://elixir-cloud-aai.github.io/)
+FOCA is developed by [ELIXIR On-Cloud](https://elixir-cloud-aai.github.io/)
 and licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
 Contributions are welcome; please refer to the [contributing
 guidelines](https://github.com/elixir-cloud-aai/elixir-cloud-aai/blob/dev/CONTRIBUTING.md)
