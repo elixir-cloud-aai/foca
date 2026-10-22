@@ -135,8 +135,9 @@ all paths under the base path.
   `foca.security.access_control.ownership_server`
   ([details](access-control.md#endpoints-for-managing-roles)). Apps managing
   owners with the resource role helpers of 0.15 can switch to them.
-- `foca.utils.urls` for checking and normalizing URLs (`http`, `https` and
-  `mailto`), with the allowed schemes chosen per field by the app
+- `foca.utils.urls` for checking URLs (`http`, `https` and `mailto`), with
+  the allowed schemes chosen per field by the app, and for normalizing HTTP(S)
+  URLs, e.g., to compare base URLs
   ([details](utilities.md#checking-and-normalizing-urls)).
 - `foca-common`, a Helm library chart for deploying FOCA apps, versioned and
   released separately (`chart-v*` tags,
