@@ -9,6 +9,9 @@ rule:
   any:
     - pattern: logging.$METHOD($$$ARGS)
     - pattern: logging.getLogger().$METHOD($$$ARGS)
+    - pattern: logging.getLogger($NAME).$METHOD($$$ARGS)
 constraints:
+  NAME:
+    regex: ^(None|""|'')$
   METHOD:
     regex: ^(debug|info|warning|warn|error|exception|critical|fatal|log)$

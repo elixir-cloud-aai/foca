@@ -24,6 +24,9 @@ jwt.decode(TOKEN, verify=False)
 unverified = {"verify_signature": False}
 # ruleid: jwt-decode-without-verification
 jwt.decode(TOKEN, options=unverified)
+unverified_dict = dict(verify_signature=False)  # noqa: C408
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options=unverified_dict)
 # ok: jwt-decode-without-verification
 jwt.decode(TOKEN, KEY, algorithms=["RS256"], options={"verify_aud": False})
 # ok: jwt-decode-without-verification

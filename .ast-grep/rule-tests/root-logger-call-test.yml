@@ -8,3 +8,4 @@ invalid:
   - logging.exception("Failed")
   - logging.log(logging.WARNING, "Retrying %s", url)
   - logging.getLogger().error("Failed")
+  - logging.getLogger(None).error("Failed")

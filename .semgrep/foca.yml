@@ -35,9 +35,13 @@ rules:
           - pattern: "$JWT.$DECODE(..., options=dict(..., verify_signature=False, ...), ...)"
           - pattern: "$JWT.$DECODE(..., verify=False, ...)"
           - patterns:
-              - pattern-inside: |
-                  $OPTIONS = {..., "verify_signature": False, ...}
-                  ...
+              - pattern-either:
+                  - pattern-inside: |
+                      $OPTIONS = {..., "verify_signature": False, ...}
+                      ...
+                  - pattern-inside: |
+                      $OPTIONS = dict(..., verify_signature=False, ...)
+                      ...
               - pattern: $JWT.$DECODE(..., options=$OPTIONS, ...)
       # `decode()` and `decode_complete()` of `jwt` and `jwt.PyJWT()` (also
       # imported under other names)
