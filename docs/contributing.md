@@ -14,6 +14,10 @@ conduct](https://github.com/elixir-cloud-aai/foca/blob/dev/CODE_OF_CONDUCT.md)
 in all interactions with the community. To report a violation, email
 [cloud-service@elixir-europe.org](mailto:cloud-service@elixir-europe.org).
 
+Report vulnerabilities privately, not in issues, as described in the
+[security
+policy](https://github.com/elixir-cloud-aai/foca/blob/dev/SECURITY.md).
+
 ## Getting started
 
 1. Find an issue in the [issue

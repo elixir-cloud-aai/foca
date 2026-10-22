@@ -6,6 +6,8 @@ guide of ELIXIR On-Cloud](https://elixir-cloud-aai.github.io/contribute/); in
 short:
 
 - Follow our [code of conduct](CODE_OF_CONDUCT.md).
+- Report vulnerabilities privately, as described in the [security
+  policy](SECURITY.md).
 - Work on [issues](https://github.com/elixir-cloud-aai/foca/issues): open or
   find one and agree on the approach before you change code.
 - Branch off `dev` and open a pull request against `dev` that resolves the
