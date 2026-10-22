@@ -185,7 +185,10 @@ library's schema of these values is
   image as `GUNICORN_CMD_ARGS` (see [Running in
   production](deployment.md#running-in-production)); omit them if the image
   does not run Gunicorn. Options that the chart or FOCA rely on (`--bind`,
-  `--preload`, `--graceful-timeout`) are rejected.
+  `--preload`, `--graceful-timeout`) are rejected. As the root file system
+  is read-only, start Gunicorn with `--no-control-socket` in the image (as
+  the petstore example does) or via `extraArgs`; otherwise, Gunicorn 25.1
+  or later logs a control server error at startup.
 
 ## Developing the library chart
 
