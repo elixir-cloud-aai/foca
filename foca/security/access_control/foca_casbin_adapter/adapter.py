@@ -4,7 +4,7 @@ import logging
 from collections.abc import Iterable
 from typing import Any, cast
 
-from bson import Timestamp
+from bson import ObjectId, Timestamp
 from casbin import persist
 from casbin.model import Assertion, Model
 from casbin.model.policy import DEFAULT_SEP
@@ -240,16 +240,39 @@ class Adapter(persist.Adapter):
         except BaseException:
             # Unless granted again concurrently, by a call that succeeds
             if inserted is not None:
-                self._collection.delete_one(inserted)
+                self._remove_inserted(ptype, rule, inserted)
             raise
         # A configured copy grants the role already, also without our copy
         return inserted is not None and not self.is_configured_rule(ptype, rule)
 
+    def _remove_inserted(
+        self, ptype: str, rule: list[str], inserted: dict[str, Any]
+    ) -> None:
+        """Remove a rule stored by a failed replacement, unless granted again.
+
+        If removing it fails, too, an error is logged, so that the rule can
+        be revoked once the database is available, and the error of the
+        replacement is raised by the caller.
+
+        Args:
+            ptype: Policy type of the rule.
+            rule: Values of the rule.
+            inserted: Identifier and timestamp of the stored rule (cf.
+                :py:meth:`_insert_granted`).
+        """
+        try:
+            self._collection.delete_one(inserted)
+        except Exception as exc:
+            logger.error(
+                "Role rule '%s' could not be removed after replacing other "
+                "roles failed, so the subject may have more than one role; "
+                "revoke the role or grant it again: %s",
+                CasbinRule.from_values(ptype, rule),
+                exc,
+            )
+
     def _insert_granted(self, ptype: str, rule: list[str]) -> dict[str, Any]:
         """Store a rule with the time it was granted.
-
-        If a copy of the rule with the generated identifier is stored
-        concurrently, it is marked as granted instead.
 
         Args:
             ptype: Policy type of the rule.
@@ -267,12 +290,14 @@ class Adapter(persist.Adapter):
         attempts_left = ID_ATTEMPTS
         while True:
             id = generate_id(charset=self.id_charset, length=self.id_length)
-            # An upsert, as the timestamp is set by the database server
+            # An upsert, as the timestamp is set by the database server; the
+            # new MongoDB identifier matches no stored rule, so that the rule
+            # is always inserted
             try:
                 return cast(
                     dict[str, Any],
                     self._collection.find_one_and_update(
-                        {**document, "id": id},
+                        {**document, "id": id, "_id": ObjectId()},
                         _GRANTED_UPDATE,
                         projection=[GRANTED_FIELD],
                         upsert=True,
@@ -290,9 +315,10 @@ class Adapter(persist.Adapter):
     ) -> None:
         """Remove role rules of a subject on a resource but the latest.
 
-        Rules are only removed if they were not marked as granted since they
-        were read, so that a rule granted again concurrently is kept (and
-        the older rules are removed by the call granting it).
+        Rules are only removed if they were not changed since they were
+        read, so that a rule granted again concurrently is kept (and the
+        older rules are removed by the call granting it), as are rules
+        changed or marked as configured meanwhile.
 
         Args:
             ptype: Policy type of the rules.
@@ -309,7 +335,7 @@ class Adapter(persist.Adapter):
         }
         for index in range(3, MAX_RULE_VALUES):
             query[f"v{index}"] = None
-        documents = list(self._collection.find(query, projection=[GRANTED_FIELD]))
+        documents = list(self._collection.find(query, projection=[GRANTED_FIELD, "v1"]))
         if len(documents) < 2:
             return
         latest = max(documents, key=_granted_order)
@@ -317,8 +343,10 @@ class Adapter(persist.Adapter):
             {
                 "$or": [
                     {
+                        **_rule_query(ptype, [subject, document["v1"], resource]),
                         "_id": document["_id"],
                         GRANTED_FIELD: document.get(GRANTED_FIELD, {"$exists": False}),
+                        CONFIGURED_FIELD: {"$ne": True},
                     }
                     for document in documents
                     if document["_id"] != latest["_id"]
