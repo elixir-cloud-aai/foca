@@ -30,16 +30,28 @@ security:
         token_types:
           - at+jwt
           - application/at+jwt
+        # Service clients calling with client-credentials tokens of their
+        # own; `pet-shop` may name the user it acts for in the
+        # `X-On-Behalf-Of` header, who then owns the pets it adds (only allow
+        # fully trusted clients to act for users)
+        service_clients:
+          - client_id: pet-shop
+            on_behalf_of: True
+        on_behalf_of_header: X-On-Behalf-Of
     access_control:
         enabled: True
         model: petstore_policies.conf
         enforce: True
         # Policy rules the app relies on, managed on startup (they cannot be
         # changed via the permissions API); ownership rules are added by the
-        # controllers
+        # controllers; roles on a pet also apply to its sub-paths (e.g.,
+        # `/pets/0/permissions`, cf. `resource_roles_cover_subpaths`)
         policies:
           - [p, "*", /pets, "(GET)|(POST)"]
           - [p, owner, "/pets/:id", "(GET)|(DELETE)"]
+          - [p, owner, "/pets/:id/permissions", GET]
+          - [p, owner, "/pets/:id/permissions/users/:userId", "(PUT)|(DELETE)"]
+          - [p, maintainer, "/pets/:id", GET]
         # Serve Swagger UI and specification of the permissions API
         api_swagger_ui: True
         api_serve_spec: True

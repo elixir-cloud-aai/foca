@@ -14,17 +14,46 @@ from tests.mock_data import MongoClients
 
 EXAMPLE_DIR = Path(__file__).parents[2] / "examples" / "petstore-access-control"
 ISSUER = "https://login.example.org/oidc/"
+# Service client of the example, allowed to act for users
+SERVICE_CLIENT = "pet-shop"
 
 
 def mock_validate_token(token: str) -> dict[str, Any]:
-    """Accept bearer tokens `alice` and `bob` as their user identifiers."""
+    """Accept bearer tokens of users `alice` and `bob` and of `pet-shop`.
+
+    Tokens of users are their identifiers; `pet-shop` gets a service token.
+    """
+    if token == SERVICE_CLIENT:
+        claims = {"iss": ISSUER, "sub": token, "client_id": token}
+        return {"claims": claims, "user_id": token}
     if token not in {"alice", "bob"}:
         raise OAuthProblem(description="Invalid token")
     return {"claims": {"iss": ISSUER, "sub": token}, "user_id": token}
 
 
-def _headers(user: str | None) -> dict[str, str]:
-    return {} if user is None else {"Authorization": f"Bearer {user}"}
+def _headers(user: str | None, on_behalf_of: str | None = None) -> dict[str, str]:
+    headers = {} if user is None else {"Authorization": f"Bearer {user}"}
+    if on_behalf_of is not None:
+        headers["X-On-Behalf-Of"] = on_behalf_of
+    return headers
+
+
+def _add_pet(client: FlaskClient, user: str, **headers: str) -> str:
+    """Add a pet as a user, returning its URL."""
+    response = client.post(
+        "/pets", json={"name": "Rex"}, headers={**_headers(user), **headers}
+    )
+    assert response.status_code == 200
+    assert response.json is not None
+    return f"/pets/{response.json['id']}"
+
+
+def _pet_ids(client: FlaskClient, user: str) -> list[int]:
+    """List the identifiers of the pets a user sees."""
+    response = client.get("/pets", headers=_headers(user))
+    assert response.status_code == 200
+    assert response.json is not None
+    return [pet["id"] for pet in response.json]
 
 
 @pytest.fixture
@@ -55,8 +84,9 @@ def test_owners_manage_their_pets(client: FlaskClient) -> None:
     pet_id = response.json["id"]
     url = f"/pets/{pet_id}"
 
-    # any authenticated user may list pets, but not access others' pets
-    assert client.get("/pets", headers=_headers("bob")).status_code == 200
+    # users only list their own pets, and can't access others' pets
+    assert _pet_ids(client, "alice") == [pet_id]
+    assert _pet_ids(client, "bob") == []
     assert client.get(url, headers=_headers("bob")).status_code == 403
     assert client.delete(url, headers=_headers("bob")).status_code == 403
 
@@ -79,3 +109,55 @@ def test_unauthenticated(client: FlaskClient) -> None:
         assert response.mimetype == "application/problem+json"
         assert response.json is not None
         assert response.json["status"] == 401
+
+
+def test_owners_manage_roles(client: FlaskClient) -> None:
+    """Owners grant and revoke roles on their pets; others get 403."""
+    url = _add_pet(client, "alice")
+    bob = f"{url}/permissions/users/bob"
+    alice = f"{url}/permissions/users/alice"
+
+    # only owners manage roles
+    assert client.get(f"{url}/permissions", headers=_headers("bob")).status_code == 403
+    response = client.put(bob, json={"role": "owner"}, headers=_headers("bob"))
+    assert response.status_code == 403
+
+    # maintainers may get, but not delete pets
+    response = client.put(bob, json={"role": "maintainer"}, headers=_headers("alice"))
+    assert response.status_code == 200
+    assert response.json == {
+        "subject_type": "user",
+        "subject": "bob",
+        "role": "maintainer",
+    }
+    assert _pet_ids(client, "bob") == [int(url.rsplit("/", 1)[1])]
+    assert client.get(url, headers=_headers("bob")).status_code == 200
+    assert client.delete(url, headers=_headers("bob")).status_code == 403
+    response = client.get(f"{url}/permissions", headers=_headers("alice"))
+    assert response.status_code == 200
+    assert response.json == [
+        {"subject_type": "user", "subject": "alice", "role": "owner"},
+        {"subject_type": "user", "subject": "bob", "role": "maintainer"},
+    ]
+
+    # the last owner can't be removed
+    assert client.delete(alice, headers=_headers("alice")).status_code == 409
+    assert client.delete(bob, headers=_headers("alice")).status_code == 200
+    assert client.get(url, headers=_headers("bob")).status_code == 403
+
+    # roles are not granted on deleted pets
+    assert client.delete(url, headers=_headers("alice")).status_code == 204
+    response = client.put(bob, json={"role": "owner"}, headers=_headers("alice"))
+    assert response.status_code == 403
+
+
+def test_service_client_acts_for_user(client: FlaskClient) -> None:
+    """Pets added by a service client for a user are owned by the user."""
+    url = _add_pet(client, "pet-shop", **{"X-On-Behalf-Of": "bob"})
+    assert client.get(url, headers=_headers("bob")).status_code == 200
+    assert client.get(url, headers=_headers("pet-shop")).status_code == 403
+    # users can't act for others
+    response = client.post(
+        "/pets", json={"name": "Rex"}, headers=_headers("alice", on_behalf_of="bob")
+    )
+    assert response.status_code == 403

@@ -1,27 +1,34 @@
 """Petstore access control controllers.
 
 Access control policies are enforced by FOCA for all operations
-(`security.access_control.enforce`). The controllers only manage ownership:
-creators of pets become their owners, and ownership is removed together with
-the pet.
+(`security.access_control.enforce`). The controllers only manage ownership,
+with FOCA's resource ownership helpers: creators of pets become their owners,
+users only list the pets they have roles on (admins list all), owners manage
+the roles on their pets via FOCA's ready-made controllers, and roles are
+removed together with the pet.
 """
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from exceptions import NotFound
-from flask import Response, make_response, request
+from flask import Response, make_response
 from pymongo import ReturnDocument
 from pymongo.collection import Collection
 
 from foca import get_collection
 from foca.security.access_control import (
-    add_resource_role,
-    get_current_subject,
+    add_owner,
+    ownership_server,
     remove_resource,
+    resource_filter,
 )
 
 logger = logging.getLogger(__name__)
+
+# Path of the pets, without the base path of the API (none here)
+PETS = "/pets"
 
 
 def _get_collection(name: str = "pets") -> Collection[dict[str, Any]]:
@@ -41,11 +48,28 @@ def _next_pet_id() -> int:
     return counter["value"] - 1
 
 
+def _pet_path(id: int) -> str:
+    # Canonical resource path of a pet, independent of how the request path
+    # spells the ID (e.g., `/pets/00` for pet 0)
+    return f"{PETS}/{id}"
+
+
+def _pets_filter() -> dict[str, Any]:
+    # Filter for the pets the caller (or the user a service client acts for)
+    # has roles on, or for all pets for admins; resource identifiers are
+    # strings, pet IDs integers
+    query = resource_filter(PETS)
+    if "id" in query:
+        ids = [int(i) for i in query["id"]["$in"] if i.isascii() and i.isdigit()]
+        query = {"id": {"$in": ids}}
+    return query
+
+
 def findPets(
     limit: int | None = None,
     tags: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Get pets, newest first.
+    """Get the pets the caller has roles on, newest first.
 
     Args:
         limit: Maximum number of pets to return; all pets if not set or 0.
@@ -55,7 +79,9 @@ def findPets(
         Pets.
     """
     db_collection = _get_collection()
-    filter_dict = {} if tags is None else {"tag": {"$in": tags}}
+    filter_dict = _pets_filter()
+    if tags is not None:
+        filter_dict["tag"] = {"$in": tags}
     if not limit:
         limit = 0
     records = (
@@ -66,17 +92,11 @@ def findPets(
     return list(records)
 
 
-def _pet_path(id: int) -> str:
-    # Canonical resource path of a pet, independent of how the request path
-    # spells the ID (e.g., `/pets/00` for pet 0)
-    base_path = request.path.rstrip("/")
-    if request.view_args and "id" in request.view_args:
-        base_path = base_path.rsplit("/", 1)[0]
-    return f"{base_path}/{id}"
-
-
 def addPet(pet: dict[str, Any]) -> dict[str, Any]:
-    """Add a pet, owned by the current user.
+    """Add a pet, owned by its creator.
+
+    The creator is the calling user or service client, or the user that an
+    allowed service client acts for (`X-On-Behalf-Of` header).
 
     Args:
         pet: Pet to add, with its name and optional tag.
@@ -89,14 +109,10 @@ def addPet(pet: dict[str, Any]) -> dict[str, Any]:
     record = {"id": pet_id, "name": pet["name"]}
     if "tag" in pet:
         record["tag"] = pet["tag"]
+    # Make the creator the owner of the new pet, before it can be found
+    add_owner(_pet_path(pet_id))
     db_collection.insert_one(record)
     del record["_id"]
-    # Make the creator the owner of the new pet
-    add_resource_role(
-        subject=get_current_subject(),
-        role="owner",
-        resource=_pet_path(pet_id),
-    )
     return record
 
 
@@ -135,16 +151,57 @@ def deletePet(id: int) -> Response:
         werkzeug.exceptions.NotFound: The pet does not exist.
     """
     db_collection = _get_collection()
-    record = db_collection.find_one(
-        {"id": id},
-        {"_id": False},
-    )
-    if record is None:
+    if db_collection.find_one({"id": id}) is None:
         raise NotFound
-    db_collection.delete_one(
-        {"id": id},
-    )
-    # Remove all roles granted on the deleted pet
+    # Remove all roles granted on the pet before deleting it, so that nobody
+    # can act on it meanwhile, and after, to revoke roles granted meanwhile
+    remove_resource(_pet_path(id))
+    db_collection.delete_one({"id": id})
     remove_resource(_pet_path(id))
     response = make_response("", 204)
     return response
+
+
+def _pet_exists(id: int) -> Callable[[], bool]:
+    # Existence check for FOCA's role controllers, so that roles granted
+    # while a pet is deleted are revoked again
+    return lambda: _get_collection().count_documents({"id": id}) > 0
+
+
+# Roles on pets are managed by FOCA's ready-made controllers, which take the
+# pet and the user from the route; operations are routed to this module
+# (`x-openapi-router-controller`), so via an alias and wrappers passing
+# existence checks
+getPetRoles = ownership_server.getResourceRoles
+
+
+def putPetUserRole(id: int, **kwargs: Any) -> dict[str, str]:
+    """Grant a user a role on a pet, replacing their other roles.
+
+    Args:
+        id: Identifier of the pet.
+        **kwargs: Further arguments of the controller (cf.
+            `foca.security.access_control.ownership_server.putUserRole`).
+
+    Returns:
+        Subject type (`user`), user identifier and granted role.
+    """
+    role: dict[str, str] = ownership_server.putUserRole(
+        exists=_pet_exists(id), **kwargs
+    )
+    return role
+
+
+def deletePetUserRole(id: int, **kwargs: Any) -> str:
+    """Revoke the roles of a user on a pet.
+
+    Args:
+        id: Identifier of the pet.
+        **kwargs: Further arguments of the controller (cf.
+            `foca.security.access_control.ownership_server.deleteUserRole`).
+
+    Returns:
+        User identifier.
+    """
+    user: str = ownership_server.deleteUserRole(exists=_pet_exists(id), **kwargs)
+    return user

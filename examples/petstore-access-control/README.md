@@ -55,10 +55,24 @@ added when the app starts:
 | --- | --- |
 | `p, *, /pets, (GET)\|(POST)` | Any authenticated user may list and add pets. |
 | `p, owner, /pets/:id, (GET)\|(DELETE)` | Owners may view and delete their pets. |
+| `p, owner, /pets/:id/permissions, GET` | Owners may list the roles on their pets. |
+| `p, owner, /pets/:id/permissions/users/:userId, (PUT)\|(DELETE)` | Owners may grant and revoke roles on their pets. |
+| `p, maintainer, /pets/:id, GET` | Maintainers may view pets. |
 
-The [controllers][app-controllers] only manage ownership, with FOCA's helpers:
-`addPet` makes the creator of a pet its owner (e.g., `g2, user:alice, owner,
-/pets/0`), and `deletePet` removes all roles granted on a deleted pet.
+The [controllers][app-controllers] only manage ownership, with FOCA's
+[resource ownership helpers][res-ownership]: `addPet` makes the creator of a
+pet its owner (`add_owner()`, e.g., `g2, user:alice, owner, /pets/0`),
+`findPets` only lists the pets the caller has a role on (all pets for admins;
+`resource_filter()`), and `deletePet` removes all roles granted on a deleted
+pet (`remove_resource()`). Owners grant and revoke roles (`owner` or
+`maintainer`) via `/pets/{id}/permissions`, routed to FOCA's ready-made
+controllers (`foca.security.access_control.ownership_server`), which keep at
+least one owner per pet.
+
+The service client `pet-shop` (`security.auth.service_clients`) may add pets
+for users, naming them in the `X-On-Behalf-Of` header
+(`on_behalf_of_header`); the named user then owns the pet. Only allow fully
+trusted clients to act for users.
 
 Subjects with the `admin` role may do everything, including managing
 policies via the [permissions API](#explore-app). To make a user an admin,
@@ -173,7 +187,7 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
       'http://localhost/pets'
   ```
 
-* To **retrieve all registered pets**:
+* To **retrieve the pets you have a role on** (all pets for admins):
 
   ```console
   curl -X GET \
@@ -182,7 +196,8 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
       'http://localhost/pets'
   ```
 
-* To **retrieve information on a specific pet** (owners and admins only):
+* To **retrieve information on a specific pet** (owners, maintainers and
+  admins only):
 
   ```console
   curl -X GET \
@@ -198,6 +213,37 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
       --header "Authorization: Bearer ${TOKEN}" \
       --header 'Accept: application/json' \
       'http://localhost/pets/0'  # replace 0 with the the pet ID of choice
+  ```
+
+* To **let user `bob` view a pet** (owners and admins only; `owner` would
+  make `bob` a co-owner):
+
+  ```console
+  curl -X PUT \
+      --header "Authorization: Bearer ${TOKEN}" \
+      --header 'Accept: application/json' \
+      --header 'Content-Type: application/json' \
+      -d '{"role":"maintainer"}' \
+      'http://localhost/pets/0/permissions/users/bob'
+  ```
+
+* To **list the roles on a pet** (owners and admins only):
+
+  ```console
+  curl -X GET \
+      --header "Authorization: Bearer ${TOKEN}" \
+      --header 'Accept: application/json' \
+      'http://localhost/pets/0/permissions'
+  ```
+
+* To **revoke the roles of user `bob` on a pet** (owners and admins only;
+  the last owner can't be removed):
+
+  ```console
+  curl -X DELETE \
+      --header "Authorization: Bearer ${TOKEN}" \
+      --header 'Accept: application/json' \
+      'http://localhost/pets/0/permissions/users/bob'
   ```
 
 The permissions API can only be used by admins:
@@ -285,6 +331,7 @@ of the following:
 [res-flask]: <http://flask.pocoo.org/>
 [res-foca]: <https://pypi.org/project/foca/>
 [res-mongo-db]: <https://www.mongodb.com/>
+[res-ownership]: <https://foca.readthedocs.io/en/latest/access-control/#resource-ownership>
 [res-openapi]: <https://www.openapis.org/>
 [res-petstore]: <https://petstore.swagger.io/>
 [res-swagger-ui]: <https://swagger.io/tools/swagger-ui/>
