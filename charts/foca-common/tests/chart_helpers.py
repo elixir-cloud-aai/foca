@@ -18,6 +18,9 @@ LIBRARY = REPO / "charts" / "foca-common"
 APP_CHART = REPO / "examples" / "petstore" / "chart"
 HELM = shutil.which("helm")
 RELEASE = "petstore"
+# Renders without the app chart's test (`helm test`), which is tested
+# separately
+NO_HOOKS = "--no-hooks"
 # Values required by default: the host name of the Ingress and the Secret
 # with the MongoDB credentials
 REQUIRED_VALUES = (
@@ -101,6 +104,7 @@ def template(chart: Path, *args: str, required: bool = True) -> str:
         "template",
         RELEASE,
         str(chart),
+        NO_HOOKS,
         *(REQUIRED_VALUES if required else ()),
         *args,
     )

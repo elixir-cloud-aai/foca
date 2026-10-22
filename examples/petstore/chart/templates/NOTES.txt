@@ -23,4 +23,4 @@ only reachable within the cluster. To access it from this machine, run:
 
 Once deployed (check with
 `kubectl rollout status deploy/{{ $fullname }} -n {{ .Release.Namespace }}`),
-access the Swagger UI via {{ $url }}/ui/
+access the API via {{ $url }}/pets (OpenAPI spec: {{ $url }}/openapi.json)
