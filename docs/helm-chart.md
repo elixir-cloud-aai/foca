@@ -195,6 +195,16 @@ library's schema of these values is
   `db_name` is one of the app's databases, the rules are kept there. For
   existing databases (the init script has run) and external databases,
   grant the app user `readWrite` on that database with `mongosh`.
+- **HTTPS:** clients send bearer tokens with their requests, so serve the
+  app over HTTPS only. The Ingress serves plain HTTP unless
+  `<valuesKey>.ingress.https.enabled` requests a certificate from
+  cert-manager (via the ClusterIssuer `<valuesKey>.ingress.https.issuer`);
+  otherwise, terminate TLS in front of the cluster (e.g., at a load
+  balancer), or set a TLS certificate of the ingress controller and redirect
+  HTTP to HTTPS via `<valuesKey>.ingress.annotations`. OpenShift Routes use
+  edge TLS termination and redirect HTTP to HTTPS. The petstore example
+  warns in its `NOTES.txt` if the Ingress has no TLS; app charts should do
+  the same.
 - **External databases:** with `mongodb.enabled: false`, no MongoDB is
   deployed; set its host (and port) in `config.db` (rendering fails without
   `config.db.host`), and the credentials of the app user via
