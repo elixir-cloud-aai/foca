@@ -315,7 +315,11 @@ as without `group_mapping` (see [granting roles to
 groups](#granting-roles-to-groups)). Access is granted if any of the subjects
 is allowed.
 This way, no rules are needed per user for group-based access, e.g., for
-administrators.
+administrators. Only map claim values to global roles such as `admin`:
+roles of `resource_roles` (by default, `owner` and `maintainer`) are
+rejected on startup, as a mapped role is a subject of its own, which matches
+the rules of that role on _every_ resource (e.g., all members of the group
+would own all tasks).
 
 !!! warning "Several trusted issuers"
     Subjects and group claim values are not scoped by issuer: a rule for
@@ -368,8 +372,10 @@ gets the rights of a user of the same name and vice versa. Group claims
 apply as for users, if service tokens have them. To give service clients
 roles without rules per client, map them to roles via `client_mapping`; only
 service clients can be mapped. As for `group_mapping`, mapped roles must not
-start with `subject_prefix`, `group:` or `client:`, as the mapped clients
-would otherwise get the rights of that subject:
+be roles of `resource_roles` (e.g., `owner`), which the mapped clients would
+otherwise have on every resource, and must not start with `subject_prefix`,
+`group:` or `client:`, as the mapped clients would otherwise get the rights
+of that subject:
 
 ```yaml
 security:
@@ -618,11 +624,14 @@ Also keep in mind that:
   remove them. The permissions API stores rules as given, i.e., it does not
   apply this check, so only let trusted administrators (by default, subjects
   with role `admin`) write rules via it.
-* Only map group claim values via `group_mapping` to global roles such as
-  `admin`, not to names of resource-scoped roles such as `owner` or
-  `maintainer`: a mapped role is a subject of its own, which matches the `p`
-  rules of that role on _every_ resource (e.g., all members of the group
-  would own all services).
+* Only map group claim values (`group_mapping`) and service clients
+  (`client_mapping`) to global roles such as `admin`, not to names of
+  resource-scoped roles such as `owner` or `maintainer`: a mapped role is a
+  subject of its own, which matches the `p` rules of that role on _every_
+  resource (e.g., all members of the group would own all services). Roles of
+  `resource_roles` are rejected on startup; if you use other names for
+  resource-scoped roles, add them to `resource_roles` or keep them out of
+  the mappings yourself.
 * Declare `subject_type` (and, ideally, `role`) as an `enum` in your API
   specification, so that invalid values are rejected with `400` before your
   controller is called; the helpers raise a `ValueError` for unsupported
@@ -893,7 +902,14 @@ role to a user called `groups`.
   may grant roles to any group. Any caller allowed by the policies may revoke
   roles of any group.
 * Who may call the operations is decided by your policies, as for any other
-  operation, so enforce them (`enforce: True`).
+  operation; the controllers do not check the caller themselves. So the
+  policies must be enforced on these operations: enable `enforce: True`,
+  require authentication (security requirements without an empty
+  alternative such as `{}`, no `disable_auth`) and do not set
+  `x-foca-access-control: false`. Otherwise, any caller could grant
+  themselves roles, so apps routing such operations to the controllers (or
+  to aliases of them) refuse to start, naming the operations, and wrappers
+  of the controllers refuse such requests with `500`.
 * Requests and responses are logged unless `log_traffic` is disabled, as for
   the [permissions API](#securing-the-permissions-api).
 * Operation identifiers must be unique, so for several types of resources,
