@@ -86,6 +86,8 @@ def test_set_release_duplicate_key(extra: str) -> None:
     "line",
     [
         "version: >-\n  0.1.0",
+        "version:\n  0.1.0",
+        "version: 0.1.0\n  rc1",
         "version: \"0.1.0'",
         'version: "0.1#0"',
         "version: 0.1.0#x",

@@ -52,8 +52,9 @@ def _key(name: str) -> re.Pattern[str]:
         optionally a comment; group `value` is the value without quotes.
     """
     return re.compile(
-        rf"^{re.escape(name)}:[ \t]*(?P<quote>[\"']?)(?P<value>[0-9A-Za-z._+-]*)"
-        r"(?P=quote)(?:[ \t]+#.*)?[ \t]*$",
+        rf"^{re.escape(name)}:[ \t]*(?P<quote>[\"']?)(?P<value>[0-9A-Za-z._+-]+)"
+        # Not continued on the next line (as YAML continues plain scalars)
+        r"(?P=quote)(?:[ \t]+#.*)?[ \t]*$(?!\n[ \t]+[^ \t#\n])",
         re.MULTILINE,
     )
 
