@@ -3,8 +3,9 @@
 # it (`examples/petstore/chart`), with template and snapshot tests
 # (`charts/foca-common/tests`); install the petstore example on a kind
 # cluster with chart-testing, also with the Celery worker and broker and with
-# access control, and run its test (`helm test`). Releases of the
-# library chart are published by `release-chart.yml`, which calls this
+# access control, and run its test (`helm test`); and check that changes of
+# the library chart since its latest release raise its version. Releases of
+# the library chart are published by `release-chart.yml`, which calls this
 # workflow first.
 
 name: Charts
@@ -36,6 +37,33 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Full history with tags, for the version check
+          fetch-depth: 0
+      # Every change of the packaged library chart (not its tests) since its
+      # latest release (tag `chart-vX.Y.Z`) needs a higher `version`; until
+      # the first release, any version passes
+      - name: Check library chart version
+        env:
+          CHART: charts/foca-common
+        run: |
+          latest="$(git tag -l 'chart-v*' --sort=-v:refname \
+              | grep -E '^chart-v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+          if [ -z "${latest}" ]; then
+              echo "No release of the library chart yet"
+              exit 0
+          fi
+          if git diff --quiet "${latest}" HEAD -- "${CHART}" ":(exclude)${CHART}/tests"; then
+              echo "The library chart is unchanged since ${latest}"
+              exit 0
+          fi
+          released="${latest#chart-v}"
+          version="$(yq '.version' "${CHART}/Chart.yaml")"
+          highest="$(printf '%s\n' "${released}" "${version}" | sort -V | tail -n 1)"
+          if [ "${version}" = "${released}" ] || [ "${highest}" != "${version}" ]; then
+              echo "::error::${CHART} changed since ${latest}: raise its version (${version}) above ${released} in ${CHART}/Chart.yaml"
+              exit 1
+          fi
+          echo "Version ${version} is above the latest release ${released}"
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:

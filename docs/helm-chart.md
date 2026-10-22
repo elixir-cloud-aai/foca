@@ -298,11 +298,13 @@ access-control database is checked.
 
 The library chart is versioned independently of FOCA, following [semantic
 versioning](https://semver.org/): app charts depend on a particular version,
-so every change of the library chart needs a new `version` in
-`charts/foca-common/Chart.yaml`. To release it, merge the version change
-into `dev`, then create and push a signed tag `chart-vX.Y.Z` of that
-version on the merge commit (only final versions are released, no
-pre-releases):
+so every change of the library chart after a release needs a new
+`version` in `charts/foca-common/Chart.yaml` (one for all changes up to the
+next release); CI fails for changes of the chart (except its tests) since
+its latest release (tag) that keep or lower the version. To release it,
+merge the version change into `dev`, then create and push a signed tag
+`chart-vX.Y.Z` of that version on the merge commit (only final versions are
+released, no pre-releases):
 
 ```bash
 git tag -s chart-v0.1.0 -m "foca-common 0.1.0"
