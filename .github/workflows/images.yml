@@ -50,7 +50,7 @@ jobs:
               .[] | select(
                   ((.reason // "") | tostring | test("\\S") | not)
                   or ((.expires // "") | tostring
-                      | . != (try (strptime("%Y-%m-%d") | mktime | strftime("%Y-%m-%d")) catch ""))
+                      | . != (try (strptime("%Y-%m-%d") | mktime | strftime("%Y-%m-%d")) catch "invalid"))
                   or ((.expires | tostring) < $today)
                   or ((.expires | tostring) > $max)
               )')"
