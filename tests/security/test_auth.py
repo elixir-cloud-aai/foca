@@ -22,6 +22,7 @@ from foca.security.auth import log_auth_config_warnings, validate_token
 from tests.mock_data import INVALID_TOKEN_CHALLENGE
 
 ISSUER = "https://idp.example.org"
+OTHER_ISSUER = "https://other-idp.example.org"
 DISCOVERY_URI = f"{ISSUER}/.well-known/openid-configuration"
 JWKS_URI = f"{ISSUER}/jwks"
 USERINFO_URI = f"{ISSUER}/userinfo"
@@ -912,15 +913,15 @@ class TestLogAuthConfigWarnings:
     def test_service_clients_of_several_issuers(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Service clients are warned about with several trusted issuers."""
+        """Service clients bound to issuers are not warned about."""
         conf = AuthConfig(
-            issuers=[ISSUER, "https://other.example.org"],
+            issuers=[ISSUER, OTHER_ISSUER],
             audience=[AUDIENCE],
-            service_clients=[ServiceClientConfig(client_id=CLIENT)],
+            service_clients=[ServiceClientConfig(client_id=CLIENT, issuer=ISSUER)],
         )
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
-        assert "service clients are not scoped by issuer" in caplog.text
+        assert caplog.text == ""
 
     @pytest.mark.parametrize("on_behalf_of", [False, True])
     def test_on_behalf_of_header(
@@ -1025,14 +1026,46 @@ class TestServiceClients:
         assert validate(make_app(), token)["service_client"] is None
 
     def test_get_service_client(self) -> None:
-        """Service clients are looked up by client and subject."""
-        conf = AuthConfig.model_validate({"service_clients": self.SERVICE_CLIENTS})
-        client = auth.get_service_client(
-            {"sub": "uuid-protes", "client_id": "protes"}, conf
+        """Service clients are looked up by issuer, client and subject."""
+        conf = AuthConfig.model_validate(
+            {
+                "issuers": [ISSUER],
+                "audience": [AUDIENCE],
+                "service_clients": self.SERVICE_CLIENTS,
+            }
         )
+        claims = {"iss": ISSUER, "sub": "uuid-protes", "client_id": "protes"}
+        client = auth.get_service_client(claims, conf)
         assert client is not None
         assert client.client_id == "protes"
-        assert auth.get_service_client({"sub": "protes"}, conf) is None
+        assert auth.get_service_client({"iss": ISSUER, "sub": "protes"}, conf) is None
+        # the only trusted issuer is implied, but must match
+        other = {**claims, "iss": OTHER_ISSUER}
+        assert auth.get_service_client(other, conf) is None
+        assert auth.get_service_client({**claims, "iss": None}, conf) is None
+
+    @pytest.mark.parametrize(
+        "issuer,client",
+        [(ISSUER, None), (OTHER_ISSUER, "conquest"), ("https://x.example.org", None)],
+    )
+    def test_get_service_client_issuers(self, issuer: str, client: str | None) -> None:
+        """With several trusted issuers, the client's issuer must match."""
+        conf = AuthConfig.model_validate(
+            {
+                "issuers": [ISSUER, OTHER_ISSUER],
+                "audience": [AUDIENCE],
+                "service_clients": [{"client_id": "conquest", "issuer": OTHER_ISSUER}],
+            }
+        )
+        claims = {"iss": issuer, "sub": "conquest", "client_id": "conquest"}
+        res = auth.get_service_client(claims, conf)
+        assert (None if res is None else res.client_id) == client
+
+    def test_get_service_client_no_issuers(self) -> None:
+        """Without trusted issuers, there are no service tokens."""
+        conf = AuthConfig.model_validate({"service_clients": self.SERVICE_CLIENTS})
+        claims = {"iss": ISSUER, "sub": "conquest", "client_id": "conquest"}
+        assert auth.get_service_client(claims, conf) is None
 
 
 class TestUnauthorized:

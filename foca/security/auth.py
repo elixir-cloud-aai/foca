@@ -181,8 +181,9 @@ def get_service_client(
 ) -> ServiceClientConfig | None:
     """Get the service client of a service token.
 
-    A token is a service token if it was issued to a service client (cf.
-    :py:func:`get_token_client`) and its subject (`conf.claim_identity`) is
+    A token is a service token if it was issued by the issuer of a service
+    client (by default, the only trusted issuer) to the client (cf.
+    :py:func:`get_token_client`), and its subject (`conf.claim_identity`) is
     the subject of the client's service tokens (by default, its client ID).
     Other tokens issued to service clients, e.g., tokens of users, are user
     tokens.
@@ -197,10 +198,19 @@ def get_service_client(
         service token.
     """
     client_id = get_token_client(claims)
+    trusted_issuers = set(conf.issuers)
     for client in conf.service_clients:
         if client.client_id == client_id:
+            issuer = client.issuer
+            if issuer is None and len(trusted_issuers) == 1:
+                issuer = next(iter(trusted_issuers))
             subject = client.client_id if client.subject is None else client.subject
-            return client if claims.get(conf.claim_identity) == subject else None
+            is_service_token = (
+                issuer is not None
+                and claims.get("iss") == issuer
+                and claims.get(conf.claim_identity) == subject
+            )
+            return client if is_service_token else None
     return None
 
 
@@ -230,15 +240,6 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
         )
     if conf.allow_expired:
         logger.warning("Expired tokens are accepted (`security.auth.allow_expired`).")
-    if len(set(conf.issuers)) > 1 and conf.service_clients:
-        logger.warning(
-            "Several trusted token issuers and service clients are configured "
-            "(`security.auth.issuers`, `security.auth.service_clients`): "
-            "service clients are not scoped by issuer, so tokens of any "
-            "trusted issuer for a service client's ID and subject are its "
-            "service tokens. Only trust several issuers if they cannot issue "
-            "tokens for the same client IDs to different clients."
-        )
     if conf.on_behalf_of_header is not None and not any(
         client.on_behalf_of for client in conf.service_clients
     ):
