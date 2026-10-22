@@ -109,6 +109,17 @@ jobs:
         run: |
           ct install --charts examples/petstore/chart --skip-clean-up \
               --namespace "${NAMESPACE}" --helm-extra-args "--timeout 600s"
+      # Errors that don't fail the install, e.g., of Gunicorn at startup on
+      # the read-only root file system
+      - name: Check app logs for errors
+        run: |
+          logs="$(kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
+              -l app.kubernetes.io/component=app --tail=-1)"
+          printf '%s\n' "${logs}"
+          if grep -F '[ERROR]' <<< "${logs}"; then
+            echo "::error::The app logged errors"
+            exit 1
+          fi
       - name: Show cluster state
         if: failure()
         run: |

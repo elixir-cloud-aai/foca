@@ -57,7 +57,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 USER 1000
 COPY ./ /app
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "wsgi:create_app()"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "--no-control-socket", "wsgi:create_app()"]
 ```
 
 Things to keep in mind:
@@ -65,6 +65,11 @@ Things to keep in mind:
 - **Do not preload the app** (e.g., Gunicorn's `--preload`): MongoDB
   clients must not be shared across forked worker processes, so each worker
   needs to create its own app.
+- **Disable Gunicorn's control socket** (`--no-control-socket`, Gunicorn
+  25.1 or later) unless you use `gunicornc`: Gunicorn creates it in
+  `$XDG_RUNTIME_DIR` or `$HOME/.gunicorn` and logs an error at startup if
+  that is not writable, e.g., on the read-only root file system of the
+  [Helm chart](helm-chart.md).
 - **Settings `server.host` and `server.port` do not apply** to the WSGI
   server, which binds to the address and port it is given. Keep
   `server.debug` off in production.
