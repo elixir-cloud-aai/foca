@@ -25,6 +25,7 @@ from foca.security.access_control import (
     list_roles,
     ownership,
     ownership_server,
+    remove_resource,
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
@@ -316,6 +317,35 @@ class TestUserRoles:
             pytest.raises(NotFound),
         ):
             ownership_server.deleteUserRole(exists=lambda: False)
+        assert _roles(app) == []
+
+    def test_failing_check_on_restore(self, app: Flask) -> None:
+        """Restored owners are kept if checking the resource fails."""
+
+        def fail() -> bool:
+            raise RuntimeError("database not available")
+
+        path = f"{TASK}/permissions/users/alice"
+        with (
+            app.test_request_context(path, method="DELETE"),
+            mock.patch.object(ownership, "_check_other_owners"),
+            pytest.raises(RuntimeError),
+        ):
+            ownership_server.deleteUserRole(exists=fail)
+        assert _roles(app) == [ResourceRole("user", "alice", "owner")]
+
+    def test_deleted_during_grant(self, app: Flask) -> None:
+        """Resources deleted while granting a role are not found."""
+        grant_role = ownership_server.grant_role
+
+        def delete_then_grant(resource: str, *args: Any, **kwargs: Any) -> Any:
+            with app.app_context():
+                remove_resource(resource)
+            return grant_role(resource, *args, **kwargs)
+
+        path = f"{TASK}/permissions/users/bob"
+        with mock.patch.object(ownership_server, "grant_role", delete_then_grant):
+            assert _call(app, "put", path, "alice", "maintainer").status_code == 404
         assert _roles(app) == []
 
     @pytest.mark.parametrize("body", [None, [], "owner", {"role": 1}, {}])

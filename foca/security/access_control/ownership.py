@@ -439,6 +439,7 @@ def _grant(
     subject_type: SubjectType,
     ptype: str,
     exists: Callable[[], bool] | None,
+    revoke_on_error: bool = True,
 ) -> None:
     """Grant a subject a role on a resource, unless it was deleted.
 
@@ -456,11 +457,14 @@ def _grant(
         ptype: Policy type of resource-scoped role rules.
         exists: Function checking whether the resource exists; not checked
             if `None`.
+        revoke_on_error: Whether to revoke the role again if `exists`
+            raises. Restored owners are kept, so that a failing check does
+            not leave the resource without owners.
 
     Raises:
         werkzeug.exceptions.NotFound: The resource was deleted meanwhile.
         Exception: Any exception raised by `exists`; the role is revoked
-            again.
+            again if `revoke_on_error` is set.
     """
     add_resource_role(
         subject=subject,
@@ -471,10 +475,11 @@ def _grant(
     )
     if exists is None:
         return
-    resource_exists = False
+    resource_exists = not revoke_on_error
     try:
         resource_exists = exists()
-    # The role is revoked again also if the check fails
+    # The role is revoked again if the resource is gone, or if the check
+    # fails, unless `revoke_on_error` is unset
     finally:
         if not resource_exists:
             remove_resource_role(
@@ -516,7 +521,15 @@ def _restore_owner_if_none(
     """
     if _get_owners(resource, ptype):
         return
-    _grant(resource, subject, OWNER_ROLE, subject_type, ptype, exists)
+    _grant(
+        resource,
+        subject,
+        OWNER_ROLE,
+        subject_type,
+        ptype,
+        exists,
+        revoke_on_error=False,
+    )
     logger.info(
         "Restored owner %s of '%s', removed concurrently, for %s",
         _describe(subject_type, subject),

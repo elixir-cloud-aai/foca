@@ -19,8 +19,9 @@ is the last one. Resources without owners are not found. Who may call the
 endpoints is decided by the app's policies. Requests and responses are logged
 unless disabled via config option `security.access_control.log_traffic`.
 
-The module uses internal helpers of the ownership and permissions API
-modules of the same package.
+The controllers take an optional existence check as `exists` (cf.
+:py:func:`putUserRole`), so `exists` must not be the name of a parameter of
+operations routed to them.
 """
 
 import logging
@@ -31,6 +32,9 @@ from typing import Any, NamedTuple
 from flask import request
 from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
+# Internal helpers of the same package: whether traffic is logged (as for
+# the permissions API), subject descriptions for logs and owners whose role
+# applies
 from foca.security.access_control.access_control_server import (
     _permissions_traffic_logged,
 )
@@ -196,6 +200,9 @@ def _put_role(
         grant_role(resource, subject, role, subject_type=subject_type, exists=exists)
     # Messages may name configuration options, so they are only logged
     except ValueError as exc:
+        # The resource may have been deleted since it was checked
+        if not _get_owners(resource, RESOURCE_ROLE_PTYPE):
+            raise NotFound from exc
         logger.info(
             "Role '%s' on '%s' not granted to %s: %s",
             escape_log_value(role),
