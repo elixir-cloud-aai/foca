@@ -909,7 +909,8 @@ role to a user called `groups`.
   `x-foca-access-control: false`. Otherwise, any caller could grant
   themselves roles, so apps routing such operations to the controllers (or
   to aliases of them) refuse to start, naming the operations, and wrappers
-  of the controllers refuse such requests with `500`.
+  of the controllers (and routes added after the app was created) refuse such
+  requests with `500`.
 * Requests and responses are logged unless `log_traffic` is disabled, as for
   the [permissions API](#securing-the-permissions-api).
 * Operation identifiers must be unique, so for several types of resources,

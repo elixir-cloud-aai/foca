@@ -14,6 +14,9 @@ from foca.database.register_mongodb import register_mongodb
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.celery_app import create_celery_app
 from foca.factories.connexion_app import create_connexion_app
+from foca.security.access_control.ownership_server import (
+    _check_routes_enforced,
+)
 from foca.security.access_control.register_access_control import (
     register_access_control,
 )
@@ -156,6 +159,10 @@ class Foca:
             logger.info("Access control registered.")
         else:
             logger.info("Access control not enabled.")
+
+        # Check that policies are enforced on all routes to the role
+        # controllers, also of the permissions API and without app specs
+        _check_routes_enforced(cnx_app.app)
 
         # Check service info, including fields computed at runtime, and that
         # it is configured if served

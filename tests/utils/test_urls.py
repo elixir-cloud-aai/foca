@@ -1,5 +1,6 @@
 """Tests for URL checks and normalization."""
 
+import unicodedata
 from typing import Any
 from unittest import mock
 
@@ -180,8 +181,13 @@ LONGEST_HOST = ".".join(["a" * 63, "b" * 63, "c" * 63, "d" * 61])
 
 @pytest.mark.parametrize(
     "host",
-    [LONGEST_HOST, f"{LONGEST_HOST}.", f"{'ü' * 30}。{'a' * 63}。org"],
-    ids=["253", "253-trailing-dot", "international"],
+    [
+        LONGEST_HOST,
+        f"{LONGEST_HOST}.",
+        f"{'ü' * 30}。{'a' * 63}。org",
+        f"{unicodedata.normalize('NFD', 'é' * 40)}.org",
+    ],
+    ids=["253", "253-trailing-dot", "international", "decomposed"],
 )
 def test_normalize_url_longest_host(host: str) -> None:
     """Hosts of up to 253 characters, with labels of up to 63, are valid."""

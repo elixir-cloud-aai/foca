@@ -19,9 +19,9 @@ is the last one. Resources without owners are not found. Who may call the
 endpoints is decided by the app's policies, which must be enforced on them, as
 the controllers do not check the caller themselves: apps routing operations
 that do not enforce policies to the controllers do not start, and requests on
-which policies were not enforced (e.g., via wrappers of the controllers) are
-refused. Requests and responses are logged unless disabled via config option
-`security.access_control.log_traffic`.
+which policies were not enforced (e.g., via wrappers of the controllers, or
+routes added later) are refused. Requests and responses are logged unless
+disabled via config option `security.access_control.log_traffic`.
 
 The controllers take an optional existence check as `exists` (cf.
 :py:func:`putUserRole`) and request bodies as `body`, so neither may be the
@@ -96,7 +96,7 @@ def _require_enforcement(fn: Callable[..., Any]) -> Callable[..., Any]:
         view = None if rule is None else current_app.view_functions.get(rule.endpoint)
         if view is None or not _enforces_access_control(view):
             message = (
-                f"Access control policies are not enforced on route "
+                "Access control policies are not enforced on route "
                 f"'{request.method} {getattr(rule, 'rule', None)}', so "
                 f"controller '{fn.__name__}' refuses requests"
             )
@@ -451,7 +451,9 @@ def _check_routes_enforced(app: Flask) -> None:
         controller = controllers.get(unwrap(view))
         if controller is None or _enforces_access_control(view):
             continue
-        for method in sorted((rule.methods or set()) - _AUTOMATIC_METHODS):
+        # Methods of operations, unless they are only `HEAD` or `OPTIONS`
+        methods = rule.methods or set()
+        for method in sorted(methods - _AUTOMATIC_METHODS or methods):
             unenforced.append(f"{method} {rule.rule} ({controller.__name__})")
     if unenforced:
         raise ValueError(

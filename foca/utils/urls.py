@@ -382,7 +382,9 @@ def _check_host_length(host: str, message: str) -> None:
         InvalidURL: The host, without a trailing dot, is longer than 253
             characters, or one of its labels is longer than 63.
     """
-    labels = _LABEL_SEPARATORS.split(host)
+    # Composed as by IDNA, so that combining marks (e.g., of decomposed
+    # accented letters) do not count separately
+    labels = _LABEL_SEPARATORS.split(unicodedata.normalize("NFC", host))
     if len(labels) > 1 and not labels[-1]:
         labels.pop()
     if sum(map(len, labels)) + len(labels) - 1 > _MAX_HOST_LENGTH or any(

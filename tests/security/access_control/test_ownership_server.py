@@ -74,6 +74,7 @@ def mock_token_info(token: str) -> dict[str, Any]:
 getFileRoles = ownership_server.getResourceRoles
 putFileUserRole = ownership_server.putUserRole
 putUnidentifiedRole = ownership_server.putUserRole
+headUserRole = ownership_server.putUserRole
 
 
 def _operation(
@@ -432,35 +433,51 @@ class TestEnforcementRequired:
     """Tests for refusing operations that do not enforce policies."""
 
     @pytest.mark.parametrize(
-        "spec,enforce,disable_auth",
-        [
-            (SPEC, False, False),
-            (SPEC, True, True),
-            (_spec_with(USER_ROLE, "put", security=[]), True, False),
-            (_spec_with(USER_ROLE, "put", security=[{}]), True, False),
-            (
-                _spec_with(USER_ROLE, "put", **{"x-foca-access-control": False}),
-                True,
-                False,
-            ),
-        ],
-        ids=["not-enforced", "disable-auth", "no-security", "anonymous", "opt-out"],
+        "enforce,disable_auth",
+        [(False, False), (True, True)],
+        ids=["not-enforced", "disable-auth"],
     )
     def test_startup_refused(
-        self, tmp_path: Path, spec: dict[str, Any], enforce: bool, disable_auth: bool
+        self, tmp_path: Path, enforce: bool, disable_auth: bool
     ) -> None:
-        """Apps routing unenforced operations to the controllers don't start."""
+        """Apps routing unenforced operations to the controllers don't start.
+
+        All such operations are named, also those routed to aliases.
+        """
         with pytest.raises(ValueError, match="not enforced") as exc_info:
-            _create_app(tmp_path, spec, enforce=enforce, disable_auth=disable_auth)
+            _create_app(tmp_path, SPEC, enforce=enforce, disable_auth=disable_auth)
         message = str(exc_info.value)
         assert USER_ROUTE in message
-        if spec is not SPEC:
-            # only the unenforced operation is named
-            assert "DELETE" not in message
-            assert "getResourceRoles" not in message
-        else:
-            assert "GET /api/tasks/<taskId>/permissions (getResourceRoles)" in message
-            assert "PUT /api/projects/<p>/files/<f>/permissions/users/<u>" in message
+        assert "GET /api/tasks/<taskId>/permissions (getResourceRoles)" in message
+        assert "PUT /api/projects/<p>/files/<f>/permissions/users/<u>" in message
+
+    @pytest.mark.parametrize(
+        "fields",
+        [{"security": []}, {"security": [{}]}, {"x-foca-access-control": False}],
+        ids=["no-security", "anonymous", "opt-out"],
+    )
+    def test_startup_refused_for_operation(
+        self, tmp_path: Path, fields: dict[str, Any]
+    ) -> None:
+        """Only the operations that do not enforce policies are named."""
+        with pytest.raises(ValueError, match="not enforced") as exc_info:
+            _create_app(tmp_path, _spec_with(USER_ROLE, "put", **fields))
+        message = str(exc_info.value)
+        assert USER_ROUTE in message
+        assert "DELETE" not in message
+        assert "getResourceRoles" not in message
+
+    def test_startup_refused_for_head(self, tmp_path: Path) -> None:
+        """Operations of methods that Flask also adds itself are named."""
+        spec = deepcopy(SPEC)
+        spec["paths"][USER_ROLE]["head"] = _operation(
+            "headUserRole", __name__, security=[]
+        )
+        with pytest.raises(ValueError, match="not enforced") as exc_info:
+            _create_app(tmp_path, spec)
+        assert "HEAD /api/tasks/<taskId>/permissions/users/<userId>" in str(
+            exc_info.value
+        )
 
     def test_request_refused(self, tmp_path: Path) -> None:
         """Wrappers of the controllers refuse unenforced requests."""
