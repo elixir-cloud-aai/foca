@@ -864,15 +864,20 @@ class ServiceClientConfig(FOCABaseConfig):
     Services call each other with OAuth 2.0 client-credentials tokens (e.g.,
     a workflow engine calling a task service), which represent the client,
     not a user, and have no user info. A token is a service token of a
-    service client if it was issued to the client (its `client_id` claim, or
-    `azp` without `client_id`, is `client_id`) and its subject (the claim
-    configured as `AuthConfig.claim_identity`) is `subject`. Other tokens
-    issued to the client (e.g., for users, with their subjects) are user
-    tokens. Check which claims your identity provider puts into
-    client-credentials tokens, and set `subject` accordingly.
+    service client if it was issued by the client's `issuer` (its `iss`
+    claim), to the client (its `client_id` claim, or `azp` without
+    `client_id`, is `client_id`), and its subject (the claim configured as
+    `AuthConfig.claim_identity`) is `subject`. Other tokens issued to the
+    client (e.g., for users, with their subjects) are user tokens. Check
+    which claims your identity provider puts into client-credentials
+    tokens, and set `subject` accordingly.
 
     Args:
         client_id: Client ID of the service client.
+        issuer: Issuer of the client's service tokens (`iss` claim), one of
+            the trusted `AuthConfig.issuers`, as client IDs are only unique
+            per issuer. Required if several issuers are trusted; if `None`,
+            the only trusted issuer.
         subject: Subject of the client's service tokens. If `None`, the
             client ID.
         on_behalf_of: Whether the client may name the user it acts for (cf.
@@ -883,22 +888,24 @@ class ServiceClientConfig(FOCABaseConfig):
 
     Attributes:
         client_id: Client ID of the service client.
+        issuer: Issuer of the client's service tokens.
         subject: Subject of the client's service tokens.
         on_behalf_of: Whether the client may name the user it acts for.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type, or `client_id` or `subject` is empty.
+            data type, or `client_id`, `issuer` or `subject` is empty.
 
     Examples:
         >>> client = ServiceClientConfig(client_id="conquest")
-        >>> client.subject is None
+        >>> client.issuer is None and client.subject is None
         True
         >>> client.on_behalf_of
         False
     """
 
     client_id: str = Field(min_length=1)
+    issuer: str | None = Field(default=None, min_length=1)
     subject: str | None = Field(default=None, min_length=1)
     on_behalf_of: bool = False
 
@@ -1017,8 +1024,10 @@ class AuthConfig(FOCABaseConfig):
             `verify_audience` is ``True``, `token_types` are empty while
             `verify_token_type` is ``True``, `clients` are set but empty
             (or blank), client IDs of `service_clients` are not unique,
-            service clients are not among the accepted `clients`, or
-            `userinfo_claims` contain `client_id` or `azp`.
+            service clients are not among the accepted `clients`, the
+            issuer of a service client is not trusted or, with several
+            trusted `issuers`, not set, or `userinfo_claims` contain
+            `client_id` or `azp`.
 
     Examples:
         >>> auth = AuthConfig(
@@ -1146,6 +1155,37 @@ class AuthConfig(FOCABaseConfig):
                 "whose tokens the app accepts (`client_id` claim, or `azp` claim "
                 "if there is none), or omit it to accept tokens of any client."
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_service_client_issuers(self) -> Self:
+        """Require trusted issuers of service clients.
+
+        Returns:
+            Model instance.
+
+        Raises:
+            ValueError: The issuer of a service client is not a trusted
+                issuer, or several issuers are trusted and the issuer of a
+                service client is not set.
+        """
+        several_issuers = len(set(self.issuers)) > 1
+        for client in self.service_clients:
+            if client.issuer is None:
+                if several_issuers:
+                    raise ValueError(
+                        f"Service client '{client.client_id}' needs an issuer: "
+                        "with several trusted issuers, set "
+                        "`security.auth.service_clients[].issuer` to the issuer "
+                        "of its service tokens, as client IDs are only unique "
+                        "per issuer."
+                    )
+            elif client.issuer not in self.issuers:
+                raise ValueError(
+                    f"Issuer of service client '{client.client_id}' is not "
+                    "trusted: set `security.auth.service_clients[].issuer` to "
+                    "one of `security.auth.issuers`."
+                )
         return self
 
     @model_validator(mode="after")

@@ -67,7 +67,9 @@ token was obtained by.
   `security.auth.on_behalf_of_header`: clients calling the app with
   client-credentials tokens of their own (service tokens), for which no user
   info is requested, and the header in which allowed service clients name
-  the user they act for ([details](authentication.md#service-tokens)).
+  the user they act for ([details](authentication.md#service-tokens)). Each
+  service client is tied to a trusted issuer (`issuer`), which is required
+  if several issuers are trusted.
 - [`security.access_control.client_mapping`](configuration/access-control.md):
   roles of service clients, which access control checks as
   `client:<client ID>` ([details](access-control.md#service-clients)).
