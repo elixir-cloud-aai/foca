@@ -191,10 +191,14 @@ library's schema of these values is
   (`config.security.access_control.db_name`); the setting
   `mongodb.accessControlDatabase`, which app charts set if the app's base
   config enables access control; FOCA's default database, if the overlay
-  enables access control (`config.security.access_control.enabled`). If
-  `db_name` is one of the app's databases, the rules are kept there. For
-  existing databases (the init script has run) and external databases,
-  grant the app user `readWrite` on that database with `mongosh`.
+  enables access control (`config.security.access_control.enabled`). A
+  `db_name` or the setting is granted even if the overlay disables access
+  control. If `db_name` is one of the app's databases, the rules are kept
+  there. Database names (also those of `mongodb.databases`) must be shorter
+  than 64 characters, all printable ASCII except `/\. "$*<>:|?` and single
+  quotes, or rendering fails. For existing databases (the init script has
+  run) and external databases, grant the app user `readWrite` on that
+  database with `mongosh`.
 - **HTTPS:** clients send bearer tokens with their requests, so serve the
   app over HTTPS only. The Ingress serves plain HTTP unless
   `<valuesKey>.ingress.https.enabled` requests a certificate from

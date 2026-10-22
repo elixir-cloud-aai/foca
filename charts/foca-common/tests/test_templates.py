@@ -75,6 +75,12 @@ def _checksum(docs: Docs) -> str:
     return checksum
 
 
+def _example_values() -> dict[str, Any]:
+    """Values of the petstore example's chart."""
+    values: dict[str, Any] = yaml.safe_load((APP_CHART / "values.yaml").read_text())
+    return values
+
+
 def _pod_spec(docs: Docs, name: str = APP) -> Manifest:
     spec: Manifest = docs[("Deployment", name)]["spec"]["template"]["spec"]
     return spec
@@ -310,6 +316,17 @@ def test_init_script_access_control_overlay_db_name(
     assert _roles(docs) == ["petstore", "rules"]
 
 
+def test_init_script_access_control_setting_when_disabled(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """The setting is granted even if the overlay disables access control."""
+    chart = chart_with_settings(ACCESS_CONTROL_SETTINGS)
+    docs = index(
+        template(chart, "--set", "config.security.access_control.enabled=false")
+    )
+    assert _roles(docs) == ["petstore", "policies"]
+
+
 def test_init_script_access_control_enabled_in_overlay(
     render: Callable[..., Docs],
 ) -> None:
@@ -376,6 +393,10 @@ def test_init_script_access_control_in_app_database(
         "mongodb:\n  databases: [pet.store]",
         'mongodb:\n  databases: [petstore, "a b"]',
         "mongodb:\n  databases: [" + "a" * 64 + "]",
+        # Line separators of YAML (in the init script's block scalar), and
+        # other non-ASCII characters
+        'mongodb:\n  databases: ["a\\u2028b"]',
+        'mongodb:\n  databases: ["caf\\u00e9"]',
     ],
 )
 def test_init_script_invalid_database_names(
@@ -727,7 +748,7 @@ def test_mongodb_settings(render: Callable[..., Docs]) -> None:
     assert container["image"] == "mongo:7.0.1"
     assert container["imagePullPolicy"] == "Never"
     default = _container(render(), MONGODB)
-    assert default["image"] == "docker.io/library/mongo:7.0.45"
+    assert default["image"] == _example_values()["mongodb"]["image"]
     assert default["imagePullPolicy"] == "IfNotPresent"
     docs = render("--set-json", "mongodb.imagePullPolicy=null")
     assert _container(docs, MONGODB)["imagePullPolicy"] == "Always"
@@ -1139,7 +1160,7 @@ def test_broker(render: Callable[..., Docs]) -> None:
     docs = render(*CELERY)
     broker = _container(docs, BROKER)
     assert broker["name"] == "broker"
-    assert broker["image"] == "docker.io/library/rabbitmq:4.3.7"
+    assert broker["image"] == _example_values()["broker"]["image"]
     assert broker["imagePullPolicy"] == "IfNotPresent"
     assert _env(broker) == {
         "RABBITMQ_LOGS": "-",

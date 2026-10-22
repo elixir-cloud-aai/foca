@@ -35,7 +35,8 @@ updates:
   # Images in the values of the petstore example's chart, which app charts
   # copy: patch updates only, as minor versions are chosen deliberately (e.g.,
   # MongoDB 8.0 refuses to start on some kernels); the dependency on the
-  # library chart is local (`file://`)
+  # library chart is local (`file://`). The snapshots of the chart tests
+  # contain the images: refresh them in these PRs (see docs/helm-chart.md)
   - package-ecosystem: helm
     directory: /examples/petstore/chart
     target-branch: dev

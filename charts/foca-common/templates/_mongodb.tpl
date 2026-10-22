@@ -154,14 +154,14 @@ access_control_db
 
 {{/*
 Fails unless a database name can be used by MongoDB (on any platform) and
-in the init script: a non-empty string of fewer than 64 bytes without
-`/\. "$*<>:|?`, single quotes or control characters. Call with a dict of the
-name (`name`) and where it is set (`key`).
+in the init script: a non-empty string of fewer than 64 printable ASCII
+characters other than `/\. "$*<>:|?` and single quotes. Call with a dict of
+the name (`name`) and where it is set (`key`).
 */}}
 {{- define "foca-common.checkDatabaseName" -}}
 {{- $name := .name -}}
-{{- if not (and (kindIs "string" $name) (lt (len $name) 64) (regexMatch `^[^/\\. "$*<>:|?'\x00-\x1f\x7f]+$` $name)) -}}
-{{- fail (printf "%s: %v is not a valid MongoDB database name (fewer than 64 bytes, none of /\\. \"$*<>:|?' or control characters)" .key $name) -}}
+{{- if not (and (kindIs "string" $name) (lt (len $name) 64) (regexMatch `^[\x21-\x7e]+$` $name) (not (regexMatch `[/\\."$*<>:|?']` $name))) -}}
+{{- fail (printf "%s: %v is not a valid MongoDB database name (fewer than 64 printable ASCII characters, none of /\\.\"$*<>:|?' or spaces)" .key $name) -}}
 {{- end -}}
 {{- end -}}
 

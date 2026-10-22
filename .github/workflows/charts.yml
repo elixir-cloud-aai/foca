@@ -41,7 +41,8 @@ jobs:
           fetch-depth: 0
       # Every change of the packaged library chart (not its tests) since its
       # latest release (tag `chart-vX.Y.Z`) needs a higher `version`; until
-      # the first release, any version passes
+      # the first release, any version passes. On the release of a tag (via
+      # `release-chart.yml`), the chart is unchanged since that tag
       - name: Check library chart version
         env:
           CHART: charts/foca-common
