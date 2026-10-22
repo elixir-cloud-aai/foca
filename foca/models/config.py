@@ -884,7 +884,10 @@ class ServiceClientConfig(FOCABaseConfig):
             `AuthConfig.on_behalf_of_header` and
             :py:func:`foca.security.access_control.get_on_behalf_of_user`),
             e.g., so that the app makes that user the owner of a resource
-            the client creates.
+            the client creates. Such clients can also list the resources
+            of any user they name (cf.
+            :py:func:`foca.security.access_control.resource_filter`), so
+            only allow fully trusted clients.
 
     Attributes:
         client_id: Client ID of the service client.

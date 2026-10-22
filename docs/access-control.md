@@ -676,7 +676,7 @@ service registry:
   resources for admins (`{}`), otherwise those that the calling user or
   service client, or one of its groups, has any role on (e.g., `{"id":
   {"$in": ["1", "2"]}}`), or the user that an allowed service client acts
-  for (see below). `list_subject_roles(prefix)` lists these roles (e.g., for
+  for (only the user's direct roles; see the notes below). `list_subject_roles(prefix)` lists these roles (e.g., for
   an endpoint telling users which resources they have roles on). Like
   `add_owner()`, both take users named in request fields as `on_behalf_of`.
   Only resources directly below the prefix count, e.g., `/tasks/1` for

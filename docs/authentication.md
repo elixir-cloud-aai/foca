@@ -233,7 +233,9 @@ surrounding whitespace with `400 Bad Request`. FOCA logs a warning on the
 first validation if `on_behalf_of_header` is set, but no service client may
 act for users. FOCA does not check whether the named user exists: service clients
 allowed to act for users are trusted to name the user whose request they
-handle.
+handle. They can also list the resources of any user they name (cf.
+[resource ownership](access-control.md#resource-ownership)), so only allow
+fully trusted clients to act for users.
 
 ## Using token claims
 

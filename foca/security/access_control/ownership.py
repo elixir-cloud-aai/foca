@@ -743,15 +743,15 @@ def list_subject_roles(
             configured via `auth.on_behalf_of_header`, if any.
 
     Returns:
-        Roles granted to the user that an allowed service client acts for
-        (cf. :py:func:`foca.security.access_control.get_on_behalf_of_user`),
-        only directly, because service tokens carry no groups of the user.
-        Otherwise, roles granted to the service client or user of the
-        current request and to its groups (if used as subjects, cf.
-        :py:func:`foca.security.access_control.get_current_groups`). Sorted
-        by resource identifier, then by subject type (user or client first,
-        then groups) and subject. Empty if the request has neither a user
-        nor a service client.
+        Roles granted to the service client or user of the current request
+        and to its groups (if used as subjects, cf.
+        :py:func:`foca.security.access_control.get_current_groups`). If an
+        allowed service client acts for a user (cf.
+        :py:func:`foca.security.access_control.get_on_behalf_of_user`), the
+        roles granted to that user instead, without groups, as service
+        tokens carry none of the user's. Sorted by resource identifier, then
+        by subject type (user or client first, then groups) and subject.
+        Empty if the request has neither a user nor a service client.
 
     Raises:
         connexion.exceptions.BadRequestProblem: The user named by a service
@@ -819,12 +819,11 @@ def resource_filter(
             :py:func:`list_subject_roles`).
 
     Returns:
-        An empty filter (all resources) for admins (cf. :py:func:`is_admin`;
-        for service clients, also when acting for users, whose own admin
-        rights do not apply), otherwise a filter for the resources the
-        current subject or its groups have any role on (cf.
-        :py:func:`list_subject_roles`), i.e., the user that an allowed
-        service client acts for, if any.
+        An empty filter (all resources) if the caller is an admin (cf.
+        :py:func:`is_admin`); for service clients, this is the client's own
+        status, also when it acts for a user, whose admin rights do not
+        apply. Otherwise, a filter for the resources listed by
+        :py:func:`list_subject_roles`.
 
     Raises:
         connexion.exceptions.BadRequestProblem: The user named by a service

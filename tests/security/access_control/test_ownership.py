@@ -10,7 +10,7 @@ from unittest import mock
 
 import mongomock
 import pytest
-from connexion.exceptions import Forbidden, Unauthorized
+from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from flask import Flask
 from flask.globals import request_ctx
 from pydantic import ValidationError
@@ -663,6 +663,11 @@ class TestListSubjectRoles:
         """Other callers cannot name users to list roles for."""
         with as_caller(app, ALICE, headers={HEADER: "bob"}), pytest.raises(Forbidden):
             list_subject_roles("/tasks")
+        with (
+            as_caller(app, CONQUEST, headers={HEADER: ""}),
+            pytest.raises(BadRequestProblem),
+        ):
+            list_subject_roles("/tasks")
 
     def test_group_subjects_not_kept(self) -> None:
         """Roles of groups only apply with group subjects."""
@@ -704,7 +709,10 @@ class TestResourceFilter:
             assert resource_filter("/tasks") == {}
 
     def test_service_client(self, app: Flask) -> None:
-        """Service clients see the resources they have roles on."""
+        """Service clients see the resources they have roles on.
+
+        Not those of users they created resources for, if not acting for them.
+        """
         with as_caller(app, CONQUEST):
             add_owner(TASK, on_behalf_of="alice")
             add_resource_role("conquest", "owner", "/tasks/2", subject_type="client")
@@ -722,16 +730,26 @@ class TestResourceFilter:
             }
 
     def test_admin_client_on_behalf_of_user(self) -> None:
-        """Admin rights are the service client's own, also when acting for users."""
+        """Admin clients see everything, also when acting for users."""
         app = _create_app(client_mapping={"conquest": "admin"})
-        with as_caller(app, CONQUEST, headers={HEADER: "carol"}):
+        with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
             assert resource_filter("/tasks") == {}
-        app = _create_app(group_mapping={})
+
+    def test_on_behalf_of_admin(self, app: Flask) -> None:
+        """Users' admin rights do not apply to clients acting for them."""
+        # Admin via a `g` rule, as service tokens carry no groups of users
         with app.app_context():
-            get_enforcer().add_grouping_policy("user:carol", "admin")
-        with as_caller(app, CONQUEST, headers={HEADER: "carol"}):
-            add_resource_role("carol", "owner", TASK)
+            get_enforcer().add_grouping_policy("user:dave", "admin")
+        with as_caller(app, DAVE):
+            assert resource_filter("/tasks") == {}
+        with as_caller(app, CONQUEST, headers={HEADER: "dave"}):
+            add_resource_role("dave", "owner", TASK)
             assert resource_filter("/tasks") == {"id": {"$in": ["1"]}}
+
+    def test_invalid_on_behalf_of(self, app: Flask) -> None:
+        """Invalid users named by service clients are rejected."""
+        with as_caller(app, CONQUEST), pytest.raises(BadRequestProblem):
+            resource_filter("/tasks", on_behalf_of=" alice")
 
     def test_not_allowed_on_behalf_of(self, app: Flask) -> None:
         """Other callers cannot name users to list resources for."""
