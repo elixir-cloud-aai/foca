@@ -162,13 +162,16 @@ security:
     on_behalf_of_header: X-On-Behalf-Of
 ```
 
-A token is a service token of a service client if it was issued by the
-client's `issuer` (its `iss` claim), to the client (its `client_id` claim
-or, if it has none, its `azp` claim is the client's `client_id`), and its
-subject (the `claim_identity` claim, default: `sub`) is the client's
-`subject` (default: its client ID). Other tokens
-issued to a service client, e.g., tokens it obtained for users, are treated
-as user tokens. For service tokens, FOCA requests no user info (neither for
+A token is a service token of a service client if:
+
+- it was issued by the client's `issuer` (its `iss` claim; see below),
+- it was issued to the client (its `client_id` claim or, if it has none, its
+  `azp` claim is the client's `client_id`), and
+- its subject (the `claim_identity` claim, default: `sub`) is the client's
+  `subject` (default: its client ID).
+
+Other tokens issued to a service client, e.g., tokens it obtained for users,
+are treated as user tokens. For service tokens, FOCA requests no user info (neither for
 `userinfo_claims` nor for `validate_userinfo`), and `token_info` has the
 client ID of the service client as `service_client` (`None` for other
 tokens). With [access control](access-control.md#service-clients), policies
@@ -201,7 +204,8 @@ implied and `issuer` may be omitted. With several trusted issuers, `issuer`
 is required for every service client, so that a client of another issuer
 with the same client ID cannot act as the service client (e.g., name users
 it acts for); FOCA refuses to start otherwise, and also if `issuer` is not
-a trusted issuer:
+a trusted issuer. Without trusted issuers, all tokens are rejected, so that
+service clients do not apply either.
 
 ```yaml
 security:
@@ -213,6 +217,10 @@ security:
       - client_id: conquest-client-id
         issuer: https://login.elixir-czech.org/oidc/
 ```
+
+For example, with this configuration, a token issued by
+`https://login.example.org/oidc/` with the client ID and subject
+`conquest-client-id` is a user token.
 
 Service clients with `on_behalf_of: true` (e.g., a gateway forwarding user
 requests) may name the user they act for, in the `on_behalf_of_header` or in

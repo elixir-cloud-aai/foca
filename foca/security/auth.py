@@ -198,12 +198,12 @@ def get_service_client(
         service token.
     """
     client_id = get_token_client(claims)
+    # Implied issuer of service clients, if only one issuer is trusted
     trusted_issuers = set(conf.issuers)
+    implied_issuer = trusted_issuers.pop() if len(trusted_issuers) == 1 else None
     for client in conf.service_clients:
         if client.client_id == client_id:
-            issuer = client.issuer
-            if issuer is None and len(trusted_issuers) == 1:
-                issuer = next(iter(trusted_issuers))
+            issuer = implied_issuer if client.issuer is None else client.issuer
             subject = client.client_id if client.subject is None else client.subject
             is_service_token = (
                 issuer is not None

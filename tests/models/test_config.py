@@ -498,6 +498,21 @@ def test_AuthConfig_service_client_issuers(
     assert res.service_clients[0].issuer == issuer
 
 
+def test_AuthConfig_service_client_issuers_one_missing() -> None:
+    """Test AuthConfig instantiation; one of several clients lacks an issuer."""
+    with pytest.raises(ValidationError, match="'protes' needs an issuer"):
+        AuthConfig.model_validate(
+            {
+                "issuers": ["https://a.example.org", "https://b.example.org"],
+                "audience": ["foca"],
+                "service_clients": [
+                    {"client_id": "conquest", "issuer": "https://a.example.org"},
+                    {"client_id": "protes"},
+                ],
+            }
+        )
+
+
 def test_AuthConfig_service_clients_not_accepted() -> None:
     """Test AuthConfig instantiation; service client not an accepted client."""
     with pytest.raises(ValidationError, match="conquest"):

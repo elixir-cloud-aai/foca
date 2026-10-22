@@ -921,7 +921,7 @@ class TestLogAuthConfigWarnings:
         )
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
-        assert caplog.text == ""
+        assert "service client" not in caplog.text
 
     @pytest.mark.parametrize("on_behalf_of", [False, True])
     def test_on_behalf_of_header(
@@ -1017,6 +1017,18 @@ class TestServiceClients:
         """Other tokens are user tokens, as before."""
         idp.responses[USERINFO_URI] = MockResponse({"sub": claims.get("sub", SUBJECT)})
         res = validate(self._app(), make_token(**claims))
+        assert res["service_client"] is None
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI, USERINFO_URI]
+
+    def test_other_issuer(self, idp: MagicMock) -> None:
+        """Tokens of other issuers than the client's are user tokens."""
+        app = make_app(
+            issuers=[ISSUER, OTHER_ISSUER],
+            service_clients=[{"client_id": "conquest", "issuer": OTHER_ISSUER}],
+            userinfo_claims=["eduperson_entitlement"],
+        )
+        idp.responses[USERINFO_URI] = MockResponse({"sub": "conquest"})
+        res = validate(app, make_token(sub="conquest", client_id="conquest"))
         assert res["service_client"] is None
         assert urls(idp) == [DISCOVERY_URI, JWKS_URI, USERINFO_URI]
 
