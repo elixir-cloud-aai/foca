@@ -76,5 +76,6 @@ token was obtained by.
 - [`security.access_control.resource_roles`](configuration/access-control.md):
   roles on resources (default: `owner` and `maintainer`) that the new
   resource ownership helpers grant and revoke, e.g., to make the creator of a
-  resource its owner and to filter listings to the caller's resources
+  resource its owner and to filter listings to the caller's resources, or to
+  those of the user that a service client acts for
   ([details](access-control.md#resource-ownership)).

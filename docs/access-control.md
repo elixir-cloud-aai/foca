@@ -675,8 +675,10 @@ service registry:
 * `resource_filter(prefix)` returns a MongoDB filter for listings: all
   resources for admins (`{}`), otherwise those that the calling user or
   service client, or one of its groups, has any role on (e.g., `{"id":
-  {"$in": ["1", "2"]}}`). `list_subject_roles(prefix)` lists these roles
-  (e.g., for an endpoint telling users which resources they have roles on).
+  {"$in": ["1", "2"]}}`), or the user that an allowed service client acts
+  for (see below). `list_subject_roles(prefix)` lists these roles (e.g., for
+  an endpoint telling users which resources they have roles on). Like
+  `add_owner()`, both take users named in request fields as `on_behalf_of`.
   Only resources directly below the prefix count, e.g., `/tasks/1` for
   `/tasks`, but not `/tasks/1/logs`. The filter only selects by identifier,
   so if a collection holds resources under several prefixes (e.g., files of
@@ -814,10 +816,14 @@ Keep in mind that:
   meanwhile are revoked, too. If deleting then fails, the resource is left
   without roles, i.e., only admins can access it; so only revoke them once
   the resource is going to be deleted.
-* Listings only consider roles of the caller itself and of its groups (with
+* Listings consider roles of the caller itself and of its groups (with
   `keep_group_subjects`, if `group_mapping` is set). A service client acting
-  for a user sees the resources the _client_ has roles on, not those of the
-  user, as it is also enforced as the client.
+  for a user lists the resources of the _user_ instead, but only those the
+  user has roles on directly, as service tokens carry no groups of the user.
+  Admin rights stay the client's own (`client_mapping`): a client acting for
+  an admin does not see everything, and an admin client does, also when
+  acting for a user. Access to the listed resources is still enforced as the
+  client.
 * `resource_filter()` lists the identifiers of all resources the caller has
   roles on in the filter, so it suits apps where users have roles on up to a
   few thousand resources. Like enforcement, each helper call loads all rules
