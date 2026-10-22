@@ -20,6 +20,74 @@ them for secrets such as tokens. Pass the characters themselves as
 `charset`; expressions such as `string.ascii_uppercase + string.digits` are
 not evaluated.
 
+## Checking and normalizing URLs
+
+Apps that store URLs sent by clients (e.g., service URLs, documentation or
+contact links, access URLs) should check them before storing them, and
+compare base URLs in a normalized form, e.g., to detect duplicate
+registrations. FOCA does not know which fields of your data hold URLs, so you
+name the fields and the schemes each allows (`http`, `https` and `mailto` are
+supported). For example, to let deployments restrict service URLs, which
+clients send tokens to, to `https`, add an option to your [custom
+configuration](configuration/custom.md):
+
+```python
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from foca import get_config
+from foca.utils.urls import (
+    HTTP_SCHEMES,
+    SUPPORTED_SCHEMES,
+    check_url_fields,
+    normalize_url,
+)
+
+
+# Field `services` of the custom configuration model
+class ServicesConfig(BaseModel):
+    url_schemes: list[Literal["http", "https"]] = Field(default=["https"], min_length=1)
+
+
+def post_service(body: dict) -> str:
+    url_schemes = get_config().custom.services.url_schemes
+    check_url_fields(
+        body,
+        fields={
+            "url": url_schemes,
+            "documentationUrl": HTTP_SCHEMES,
+            "contactUrl": SUPPORTED_SCHEMES,
+            "organization.url": HTTP_SCHEMES,
+        },
+    )
+    key = normalize_url(body["url"], schemes=url_schemes, name="Service URLs")
+    ...
+```
+
+* `check_url(url, schemes)` checks a URL as written, so that it can be stored
+  as is. It rejects, among others, URLs with whitespace (also leading or
+  trailing; strip it first to tolerate it), control or format characters,
+  unencoded characters that URLs do not allow (e.g., `<` or `|`) or user
+  info, and hosts that are not valid domain names or IP addresses.
+* `check_url_fields(data, fields)` checks the URLs in the given fields of an
+  object, as dot-separated paths of keys (e.g., `organization.url`). Missing
+  fields are not checked.
+* `normalize_url(url, schemes)` checks an HTTP(S) URL and returns it
+  normalized (e.g., lowercase host, no default port or trailing slash).
+  Queries and fragments are removed, unless you pass `keep_query=True` or
+  `keep_fragment=True`.
+
+See the [API reference](reference.md#utilities) for all rules. Invalid URLs
+raise `InvalidURL`, a `ValueError` whose message says why, naming the URLs
+as passed via `name` (e.g., `URLs in 'contactUrl' need valid email
+addresses.`). FOCA's problem handler responds to uncaught `InvalidURL`s with
+`400 Bad Request`, without the message; to return it to clients, catch the
+exception in your controller. Unsupported schemes raise a plain `ValueError`,
+as they are an error of the app, not of the client. For configuration fields
+that may also allow `mailto`, use `URLScheme` (`Literal["http", "https",
+"mailto"]`) from `foca.utils.urls`.
+
 ## Logging requests and responses
 
 Decorate controllers with `log_traffic` to log requests and responses:
