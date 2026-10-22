@@ -248,7 +248,8 @@ After the first release, an organization admin opens the package
   it.
 
 The organization may also need to allow members' Actions to create packages
-for the first release. To inspect a release, run:
+for the first release. Anyone who may push a signed `chart-v*` tag can
+release, so restrict who may create these tags with a tag ruleset. To inspect a release, run:
 
 ```bash
 helm show chart oci://ghcr.io/elixir-cloud-aai/charts/foca-common --version 0.1.0

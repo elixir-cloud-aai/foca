@@ -17,9 +17,11 @@ on:
 permissions:
   contents: read
 
-# One release at a time
+# One run per tag (e.g., a rerun waits for a running one); releases of
+# different versions run independently, so that none is dropped from the
+# queue
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -73,8 +75,8 @@ jobs:
               echo "::error::Release commit is not on 'dev'"
               exit 1
           fi
-          # Annotated tags only, with a signature that GitHub verified, of
-          # the checked-out commit
+          # Annotated tags only, named as the pushed tag, with a signature
+          # that GitHub verified, of the checked-out commit
           ref="$(gh api "repos/${GH_REPO}/git/ref/tags/${TAG}")"
           if [ "$(jq -r '.object.type' <<< "${ref}")" != "tag" ]; then
               echo "::error::Tag '${TAG}' is not an annotated (signed) tag"
@@ -83,6 +85,10 @@ jobs:
           tag="$(gh api "repos/${GH_REPO}/git/tags/$(jq -r '.object.sha' <<< "${ref}")")"
           if [ "$(jq -r '.verification.verified' <<< "${tag}")" != "true" ]; then
               echo "::error::Tag '${TAG}' has no verified signature"
+              exit 1
+          fi
+          if [ "$(jq -r '.tag' <<< "${tag}")" != "${TAG}" ]; then
+              echo "::error::Tag '${TAG}' points to a tag object of another name"
               exit 1
           fi
           if [ "$(jq -r '.object.sha' <<< "${tag}")" != "$(git rev-parse HEAD)" ]; then

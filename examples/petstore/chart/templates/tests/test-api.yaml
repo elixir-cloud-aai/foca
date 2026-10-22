@@ -2,7 +2,9 @@
 Test of the release (`helm test`, run by chart-testing in CI): adds a pet and
 reads it back via the app's Service, so that the app and its MongoDB (with
 the app user, if authentication is enabled) are checked. Runs the app image,
-as it has Python.
+as it has Python. With `petstore.networkPolicy.enabled`, add this pod to
+`petstore.networkPolicy.ingressFrom` (e.g., a `podSelector` on the label
+`app.kubernetes.io/component: test`), or the policy blocks the test.
 */ -}}
 {{- $context := dict "root" . "settings" (include "petstore.settings" . | fromYaml) -}}
 {{- include "foca-common.checkSettings" $context -}}
