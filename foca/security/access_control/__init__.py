@@ -14,3 +14,15 @@ from foca.security.access_control.enforcement import (  # noqa: F401 (re-export)
     remove_resource,
     remove_resource_role,
 )
+from foca.security.access_control.ownership import (  # noqa: F401 (re-export)
+    LastOwner,
+    ResourceRole,
+    SubjectResourceRole,
+    add_owner,
+    grant_role,
+    is_admin,
+    list_roles,
+    list_subject_roles,
+    resource_filter,
+    revoke_roles,
+)

@@ -30,7 +30,9 @@ from foca.security.access_control.constants import (
     DEFAULT_ID_CHARSET,
     DEFAULT_ID_LENGTH,
     DEFAULT_MODEL_FILE,
+    MAINTAINER_ROLE,
     MIN_ID_SPACE,
+    OWNER_ROLE,
     SUBJECT_TYPE_PREFIXES,
 )
 from foca.utils.service_info import (
@@ -571,6 +573,11 @@ class AccessControlConfig(FOCABaseConfig):
             `/services/ABC` also applies to `/services/ABC/permissions`, but
             not to `/services/ABCD`). What a role may do on a sub-path is
             still decided by policy rules.
+        resource_roles: Roles on resources that the resource ownership
+            helpers (cf. :py:mod:`foca.security.access_control.ownership`)
+            grant and revoke. Must contain `owner`, the role of the creator
+            of a resource. Roles must be valid values of policy rules and
+            must not start with `subject_prefix`, `group:` or `client:`.
         id_charset: Characters of generated policy rule identifiers. Only
             letters, digits, `-`, `.`, `_` and `~` are allowed, as
             identifiers are used in URL paths.
@@ -617,6 +624,8 @@ class AccessControlConfig(FOCABaseConfig):
         client_mapping: Mapping of service clients to roles.
         resource_roles_cover_subpaths: Whether resource-scoped roles apply to
             sub-paths of the resource path they were granted on.
+        resource_roles: Roles on resources managed by the resource ownership
+            helpers.
         id_charset: Characters of generated policy rule identifiers.
         id_length: Length of generated policy rule identifiers.
         self_service: Allow subjects to list and get the permissions that
@@ -656,6 +665,9 @@ class AccessControlConfig(FOCABaseConfig):
     keep_group_subjects: bool = False
     client_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
+    resource_roles: list[str] = Field(
+        default_factory=lambda: [OWNER_ROLE, MAINTAINER_ROLE]
+    )
     id_charset: str = DEFAULT_ID_CHARSET
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
     self_service: bool = False
@@ -721,6 +733,43 @@ class AccessControlConfig(FOCABaseConfig):
                             "the prefix of subjects, as mapped subjects would "
                             "otherwise get the rights of that subject"
                         )
+        return self
+
+    @model_validator(mode="after")
+    def validate_resource_roles(self) -> Self:
+        """Validate the roles managed by the resource ownership helpers.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: `resource_roles` does not contain `owner`, contains
+                duplicates or a role that is not a valid value of policy
+                rules, or a role starting with `subject_prefix`, `group:` or
+                `client:`, so that subjects granted the role would get the
+                rights of that subject.
+        """
+        # Imported here, as the access control package imports this module
+        from foca.security.access_control.foca_casbin_adapter.casbin_rule import (  # noqa: PLC0415
+            validate_rule_value,
+        )
+
+        if OWNER_ROLE not in self.resource_roles:
+            raise ValueError(f"'resource_roles' must contain '{OWNER_ROLE}'")
+        if len(set(self.resource_roles)) != len(self.resource_roles):
+            raise ValueError("'resource_roles' must not contain duplicates")
+        prefixes = [self.subject_prefix, *SUBJECT_TYPE_PREFIXES.values()]
+        for role in self.resource_roles:
+            try:
+                validate_rule_value(role)
+            except ValueError as exc:
+                raise ValueError(f"Invalid role in 'resource_roles': {exc}") from exc
+            for prefix in prefixes:
+                if role.startswith(prefix):
+                    raise ValueError(
+                        f"Roles of 'resource_roles' must not start with "
+                        f"'{prefix}', the prefix of subjects"
+                    )
         return self
 
     @field_validator("id_charset")
