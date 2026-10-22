@@ -23,8 +23,9 @@ chart: its values, a few settings and one line per resource. It renders:
 - an optional [Celery](https://docs.celeryq.dev/) worker (`Deployment` with
   the app's image) for [background tasks](configuration/jobs.md), and an
   optional [RabbitMQ](https://www.rabbitmq.com/) broker (`Deployment`,
-  `Service`, `NetworkPolicy`, and a `ConfigMap` with its config), with the
-  broker URL from an existing `Secret`; external brokers work too.
+  `Service`, `NetworkPolicy`, `PersistentVolumeClaim`, and a `ConfigMap`
+  with its config), with the broker URL from an existing `Secret`; external
+  brokers work too.
 
 The library chart lives in [`charts/foca-common`][library] and is versioned
 independently of FOCA. The [petstore example][petstore-chart] has a thin chart
@@ -133,6 +134,7 @@ and the settings (`settings`), one per file:
 | `foca-common.brokerDeployment` | the broker's (RabbitMQ's) `Deployment`, if `broker.enabled` |
 | `foca-common.brokerConfigMap` | `ConfigMap` with the broker's config file, if `broker.enabled` |
 | `foca-common.brokerNetworkPolicy` | the broker's `NetworkPolicy`, if `broker.enabled` and `broker.networkPolicy.enabled` |
+| `foca-common.brokerPersistentVolumeClaim` | the broker's data volume, if `broker.enabled` and `broker.persistence.enabled`, without `broker.persistence.existingClaim` |
 | `foca-common.brokerService` | the broker's `Service` (port 5672), the host of the broker URL |
 
 App charts without background tasks may leave out the worker's and broker's
@@ -165,7 +167,7 @@ your app's `valuesKey`:
 | `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `probePath`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `volumeSize`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
-| `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `dataSizeLimit`, `tmpSizeLimit` |
+| `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `persistence`, `dataSizeLimit`, `tmpSizeLimit` |
 
 The values are described in detail in the example's `values.yaml`. The
 library's schema of these values is
@@ -512,11 +514,25 @@ them (e.g., its health check ranges).
         --from-literal=broker-url="pyamqp://my-app:${password}@my-app-broker:5672//"
     ```
 
-    The bundled RabbitMQ keeps its data in an `emptyDir` (up to
-    `broker.dataSizeLimit`), so queued tasks are lost when its pod is
-    replaced (e.g., on upgrades); each new pod creates the user from the
-    Secret, so roll the broker's, the app's and the worker's pods after
-    changing it. For durable queues, use an external broker: set only
+    The bundled RabbitMQ (one pod) keeps its data in a
+    PersistentVolumeClaim (`broker.persistence`: `size`, `accessModes`,
+    `storageClass`, or an `existingClaim`), so queued tasks survive the
+    replacement of its pod (e.g., on upgrades): Celery's default queue is
+    durable and its task messages are persistent. Results of the `rpc://`
+    result backend (FOCA's default) are transient, though; set a persistent
+    result backend (`result-backend`) if they matter. RabbitMQ creates its
+    user from the Secret only when it starts with empty data: after
+    changing the password in the Secret, change the user's, too
+    (`kubectl exec deployment/my-app-broker -- rabbitmqctl change_password
+    my-app "${password}"`), and roll the app's and the worker's pods. On
+    OpenShift, which assigns the pod's group, the volume is writable as on
+    other clusters. Without `broker.persistence.enabled`, the data is kept
+    in an `emptyDir` (up to `broker.dataSizeLimit`) and lost with the pod,
+    and each new pod creates the user from the Secret; values without a
+    `broker.persistence` map (written for foca-common 0.1.0) disable it.
+    App charts add the template file with
+    `foca-common.brokerPersistentVolumeClaim` (see the petstore example).
+    For a highly available broker, use an external one: set only
     `broker.existingSecret` (and `worker.enabled`, if the release runs the
     worker).
 
@@ -575,7 +591,8 @@ which runs the chart's test (`templates/tests/`, `helm test`): it adds a
 pet and reads it back, so that the app, its MongoDB and the app user are
 checked. A second installation (`ci/celery-values.yaml`) adds the Celery
 worker and the bundled broker; CI checks that the worker logs that it is
-ready, i.e., connected to the broker. A third one
+ready, i.e., connected to the broker, and that a task queued while no
+worker runs survives a restart of the broker and reaches the worker. A third one
 (`ci/access-control-values.yaml`) enables access control with configured
 policies, which FOCA stores on startup, so that the app user's access to the
 access-control database is checked. A fourth one (`ci/gateway-values.yaml`)
