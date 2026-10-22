@@ -16,7 +16,7 @@ from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.http import quote_header_value
 
 from foca.config.access import get_config
-from foca.models.config import AuthConfig
+from foca.models.config import AuthConfig, ServiceClientConfig
 from foca.utils.logging import escape_log_value
 
 # Get logger instance
@@ -33,6 +33,11 @@ JWKS_REFETCH_COOLDOWN = 30
 
 # Maximum number of tokens whose user info is cached
 USERINFO_CACHE_SIZE = 1000
+
+# Claims identifying the client a token was issued to, in order of
+# precedence: `client_id` of access tokens as per RFC 9068 (e.g., LS Login),
+# `azp` (authorized party) of identity providers using OpenID Connect's claim
+CLIENT_CLAIMS = ("client_id", "azp")
 
 # Description of the `invalid_token` error of `WWW-Authenticate` challenges,
 # deliberately generic, so that clients learn nothing about the identity
@@ -115,13 +120,18 @@ def validate_token(token: str) -> dict[str, Any]:
     obtained via OpenID Connect discovery, and, if configured, additionally
     via the issuer's user info endpoint. Claims configured via
     `security.auth.userinfo_claims` that the token lacks are added from the
-    issuer's user info endpoint.
+    issuer's user info endpoint. For service tokens of service clients (cf.
+    `security.auth.service_clients` and :py:func:`get_service_client`), user
+    info is not requested.
 
     Args:
         token: JSON Web Token (JWT).
 
     Returns:
-        Token info, including the verified claims.
+        Token info: the token (`jwt`), the verified claims (`claims`), the
+        subject (`user_id`), the scope (`scope`) and, for service tokens,
+        the client ID of the service client (`service_client`; `None` for
+        other tokens).
 
     Raises:
         connexion.exceptions.Unauthorized: Raised if the JWT could not be
@@ -139,12 +149,59 @@ def validate_token(token: str) -> dict[str, Any]:
         escape_log_value(claims[conf.claim_identity]),
     )
 
+    service_client = get_service_client(claims=claims, conf=conf)
     return {
         "jwt": token,
         "claims": claims,
         "user_id": claims[conf.claim_identity],
         "scope": claims.get("scope", ""),
+        "service_client": None if service_client is None else service_client.client_id,
     }
+
+
+def get_token_client(claims: dict[str, Any]) -> str | None:
+    """Get the client that a token was issued to.
+
+    Args:
+        claims: Claims of the token.
+
+    Returns:
+        Value of the first of the claims `client_id` (RFC 9068) and `azp`
+        that the token has, if it is a non-empty string; otherwise `None`.
+    """
+    for claim in CLIENT_CLAIMS:
+        if claim in claims:
+            client = claims[claim]
+            return client if isinstance(client, str) and client else None
+    return None
+
+
+def get_service_client(
+    claims: dict[str, Any], conf: AuthConfig
+) -> ServiceClientConfig | None:
+    """Get the service client of a service token.
+
+    A token is a service token if it was issued to a service client (cf.
+    :py:func:`get_token_client`) and its subject (`conf.claim_identity`) is
+    the subject of the client's service tokens (by default, its client ID).
+    Other tokens issued to service clients, e.g., tokens of users, are user
+    tokens.
+
+    Args:
+        claims: Claims of a validated token.
+        conf: Authentication settings, with the service clients
+            (`service_clients`).
+
+    Returns:
+        Service client of the token, or `None` if the token is not a
+        service token.
+    """
+    client_id = get_token_client(claims)
+    for client in conf.service_clients:
+        if client.client_id == client_id:
+            subject = client.client_id if client.subject is None else client.subject
+            return client if claims.get(conf.claim_identity) == subject else None
+    return None
 
 
 def log_auth_config_warnings(conf: AuthConfig) -> None:
@@ -224,7 +281,14 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
     if conf.clients is not None:
         _verify_client(claims=claims, conf=conf)
     missing_claims = [claim for claim in conf.userinfo_claims if claim not in claims]
-    if conf.validate_userinfo or missing_claims:
+    service_client = get_service_client(claims=claims, conf=conf)
+    if service_client is not None:
+        # Service tokens represent clients, which have no user info
+        logger.debug(
+            "Service token of client '%s': user info not requested",
+            escape_log_value(service_client.client_id),
+        )
+    elif conf.validate_userinfo or missing_claims:
         userinfo = _get_userinfo(
             token=token,
             claims=claims,
@@ -446,9 +510,8 @@ def _verify_client(claims: dict[str, Any], conf: AuthConfig) -> None:
         connexion.exceptions.Unauthorized: Raised if the client is not
             accepted or the token has neither claim.
     """
-    client = claims["client_id"] if "client_id" in claims else claims.get("azp")
-    # Claim values may be of any type; only strings can name a client
-    if not isinstance(client, str) or client not in (conf.clients or []):
+    client = get_token_client(claims)
+    if client is None or client not in (conf.clients or []):
         raise _unauthorized("JWT client is not accepted")
 
 

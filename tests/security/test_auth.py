@@ -4,7 +4,7 @@ import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
 import jwt
@@ -887,6 +887,90 @@ class TestLogAuthConfigWarnings:
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
         assert caplog.text == ""
+
+
+class TestServiceClients:
+    """Tests for recognizing tokens of service clients."""
+
+    SERVICE_CLIENTS: ClassVar[list[dict[str, Any]]] = [
+        {"client_id": "conquest"},
+        {"client_id": "protes", "subject": "uuid-protes"},
+    ]
+
+    @pytest.fixture(autouse=True)
+    def userinfo(self, idp: MagicMock) -> Iterator[None]:
+        """User info cache cleared."""
+        auth._userinfo_cache.clear()
+        yield
+        auth._userinfo_cache.clear()
+
+    def _app(self, **auth_conf: Any) -> Flask:
+        return make_app(
+            service_clients=self.SERVICE_CLIENTS,
+            userinfo_claims=["eduperson_entitlement"],
+            **auth_conf,
+        )
+
+    @pytest.mark.parametrize(
+        "claims,client",
+        [
+            ({"sub": "conquest", "client_id": "conquest"}, "conquest"),
+            ({"sub": "conquest", "azp": "conquest"}, "conquest"),
+            ({"sub": "uuid-protes", "client_id": "protes"}, "protes"),
+        ],
+    )
+    def test_service_token(
+        self, idp: MagicMock, claims: dict[str, Any], client: str
+    ) -> None:
+        """Service tokens are accepted without a user info request."""
+        res = validate(self._app(), make_token(**claims))
+        assert res["service_client"] == client
+        assert res["user_id"] == claims["sub"]
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI]
+
+    def test_validate_userinfo_skipped(self, idp: MagicMock) -> None:
+        """Service tokens are not validated via user info either."""
+        app = self._app(validate_userinfo=True)
+        res = validate(app, make_token(sub="conquest", client_id="conquest"))
+        assert res["service_client"] == "conquest"
+        assert USERINFO_URI not in urls(idp)
+
+    @pytest.mark.parametrize(
+        "claims",
+        [
+            # user tokens obtained by a service client
+            {"client_id": "conquest"},
+            {"azp": "conquest"},
+            {"sub": "conquest", "client_id": "protes"},
+            # other clients
+            {"sub": "other", "client_id": "other"},
+            {"client_id": None},
+            {"sub": "conquest", "client_id": ["conquest"]},
+            # `client_id` takes precedence over `azp`
+            {"sub": "conquest", "client_id": "other", "azp": "conquest"},
+        ],
+    )
+    def test_user_token(self, idp: MagicMock, claims: dict[str, Any]) -> None:
+        """Other tokens are user tokens, as before."""
+        idp.responses[USERINFO_URI] = MockResponse({"sub": claims.get("sub", SUBJECT)})
+        res = validate(self._app(), make_token(**claims))
+        assert res["service_client"] is None
+        assert urls(idp) == [DISCOVERY_URI, JWKS_URI, USERINFO_URI]
+
+    def test_not_configured(self, idp: MagicMock) -> None:
+        """Without service clients, all tokens are user tokens."""
+        token = make_token(sub="conquest", client_id="conquest")
+        assert validate(make_app(), token)["service_client"] is None
+
+    def test_get_service_client(self) -> None:
+        """Service clients are looked up by client and subject."""
+        conf = AuthConfig.model_validate({"service_clients": self.SERVICE_CLIENTS})
+        client = auth.get_service_client(
+            {"sub": "uuid-protes", "client_id": "protes"}, conf
+        )
+        assert client is not None
+        assert client.client_id == "protes"
+        assert auth.get_service_client({"sub": "protes"}, conf) is None
 
 
 class TestUnauthorized:
