@@ -162,6 +162,11 @@ notes. Tags of alpha, beta and release candidate versions (e.g.,
 `vX.Y.Zrc1`) do not update `latest`. These and, until 1.0.0, all other
 releases are GitHub pre-releases (never marked as the latest release).
 
+A tag ruleset allows only admins to create `v*` and `chart-v*` tags and
+blocks updates and deletions of these tags for everyone, and GitHub
+releases are immutable. If a release fails, re-run its workflow for the
+same tag; if the tagged commit itself is wrong, release a new version.
+
 The Helm library chart `foca-common` (`charts/foca-common`) is versioned
 and released separately, from signed tags `chart-vX.Y.Z`; see [releases of
 the library chart][docs-helm-chart-releases].

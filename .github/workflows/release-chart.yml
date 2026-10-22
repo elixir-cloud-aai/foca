@@ -107,8 +107,10 @@ jobs:
       # other chart tag), denies access to the package, which does not
       # exist yet; fail on any other error. The matching of Helm's error
       # messages is best-effort: if they change, the check fails closed.
-      # If a first release failed after its tag was pushed, delete that
-      # tag before tagging again.
+      # Tags cannot be deleted or moved (tag ruleset): if a release failed,
+      # re-run this workflow for the same tag (this check passes while the
+      # version is unpublished); if the tagged commit is wrong, bump the
+      # chart's version and release a new tag.
       - name: Check that version is not published
         env:
           VERSION: ${{ steps.version.outputs.version }}

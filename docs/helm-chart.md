@@ -330,9 +330,12 @@ installation of CI, checks that the tag is signed (with a signature that
 GitHub verifies), is on `dev` and matches the chart's version, and that the
 version has not been published yet; it then packages the chart and pushes it
 to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`. Published versions
-are never overwritten. If the first release fails, delete its tag before
-tagging again. App charts then depend on the chart as shown in [Building an
-app chart](#building-an-app-chart).
+are never overwritten. Tags cannot be deleted or moved (see below): if a
+release fails, re-run its workflow for the same tag, which passes the
+version check as long as the version has not been published; if the tagged
+commit itself is wrong, fix it, bump the chart's version and release a new
+tag. App charts then depend on the chart as shown in [Building an app
+chart](#building-an-app-chart).
 
 After the first release, an organization admin opens the package
 `charts/foca-common` in the organization's GitHub package settings and:
@@ -345,7 +348,9 @@ After the first release, an organization admin opens the package
 
 The organization may also need to allow members' Actions to create packages
 for the first release. Anyone who may push a signed `chart-v*` tag can
-release, so restrict who may create these tags with a tag ruleset. To inspect a release, run:
+release, so a tag ruleset of the repository restricts who may create
+`chart-v*` and `v*` tags (admins only) and blocks updates and deletions of
+these tags for everyone. To inspect a release, run:
 
 ```bash
 helm show chart oci://ghcr.io/elixir-cloud-aai/charts/foca-common --version 0.1.0
