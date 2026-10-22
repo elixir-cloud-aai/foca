@@ -349,21 +349,33 @@ def register_casbin_enforcer(
     return app
 
 
-def _add_policies(adapter: Adapter, policies: list[list[str]]) -> None:
+def _add_policies(
+    adapter: Adapter, policies: list[list[str]] | dict[str, list[str]]
+) -> None:
     """Make the stored configured policy rules match the configured ones.
 
     All rules are validated before any stored rule is changed, so that
-    invalid configurations leave stored rules unchanged.
+    invalid configurations leave stored rules unchanged. The names of named
+    rules are logged.
 
     Args:
         adapter: Casbin adapter of the app.
         policies: Policy rules, each given as its policy type followed by its
-            values.
+            values, as a list or a mapping of names to rules.
 
     Raises:
         ValueError: A rule is invalid for the adapter's model (cf.
             :py:func:`validate_rule`).
     """
+    if isinstance(policies, dict):
+        for name, rule in policies.items():
+            try:
+                validate_rule(rule[0] if rule else None, rule[1:], adapter.model)
+            except ValueError as exc:
+                raise ValueError(f"Invalid policy rule '{name}': {exc}") from exc
+        adapter.set_configured_policies(list(policies.values()))
+        logger.info("Named policy rules applied: %s", ", ".join(policies) or "none")
+        return
     for ptype, *rule in policies:
         validate_rule(ptype, rule, adapter.model)
     adapter.set_configured_policies(policies)

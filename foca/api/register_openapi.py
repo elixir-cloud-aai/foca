@@ -6,10 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from connexion import App
+from connexion.exceptions import InvalidSpecification
 
-from foca.config.config_parser import ConfigParser
+from foca.config.config_parser import ConfigParser, deep_merge
 from foca.models.config import ConnexionOptions, SpecConfig
-from foca.security.access_control.enforcement import AccessControlResolver
+from foca.security.access_control.enforcement import (
+    AccessControlResolver,
+    _requires_authentication,
+)
 from foca.security.access_control.ownership_server import _check_routes_enforced
 
 # Get logger instance
@@ -73,6 +77,28 @@ def _connexion_add_api_kwargs(options: ConnexionOptions | None) -> dict[str, Any
     return kwargs
 
 
+def _iter_routes(spec: dict[str, Any]) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Iterate over the Operation Objects of an OpenAPI specification.
+
+    Args:
+        spec: OpenAPI 2.x or 3.x specification.
+
+    Yields:
+        Path, HTTP method and Operation Object of each operation of all Path
+        Item Objects, skipping other Path Item Object fields (e.g.,
+        path-level `parameters`, `summary` or `$ref`).
+    """
+    paths = spec.get("paths")
+    if not isinstance(paths, dict):
+        return
+    for path, path_item_object in paths.items():
+        if not isinstance(path_item_object, dict):
+            continue
+        for field, operation_object in path_item_object.items():
+            if field in _OPERATION_OBJECT_FIELDS and isinstance(operation_object, dict):
+                yield path, field, operation_object
+
+
 def _iter_operations(spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Iterate over the Operation Objects of an OpenAPI specification.
 
@@ -83,12 +109,108 @@ def _iter_operations(spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
         Operation Objects of all Path Item Objects, skipping other Path Item
         Object fields (e.g., path-level `parameters`, `summary` or `$ref`).
     """
-    for path_item_object in spec.get("paths", {}).values():
-        if not isinstance(path_item_object, dict):
-            continue
-        for field, operation_object in path_item_object.items():
-            if field in _OPERATION_OBJECT_FIELDS and isinstance(operation_object, dict):
-                yield operation_object
+    for _, _, operation_object in _iter_routes(spec):
+        yield operation_object
+
+
+def _protected_routes(spec: dict[str, Any]) -> dict[str, set[str]]:
+    """Get the protections of each operation of a specification.
+
+    Args:
+        spec: OpenAPI 2.x or 3.x specification.
+
+    Returns:
+        Protections of each operation (`<METHOD> <path>`): `security` if it
+        requires authentication (operation-level or inherited security
+        requirements, none of them empty), `access control` if it does not
+        opt out of policy enforcement (via `x-foca-access-control: false` or
+        `x-foca-self-service: true`).
+    """
+    protections: dict[str, set[str]] = {}
+    for path, method, operation_object in _iter_routes(spec):
+        protected = set()
+        if _requires_authentication(
+            operation_object.get("security", spec.get("security"))
+        ):
+            protected.add("security")
+        if (
+            operation_object.get("x-foca-access-control") is not False
+            and operation_object.get("x-foca-self-service") is not True
+        ):
+            protected.add("access control")
+        protections[f"{method.upper()} {path}"] = protected
+    return protections
+
+
+def _load_patch(patch: Path | dict[str, Any]) -> dict[str, Any]:
+    """Load a patch of a specification.
+
+    Args:
+        patch: Path to a YAML or JSON file, or a mapping.
+
+    Returns:
+        Patch; empty if the file is empty.
+
+    Raises:
+        OSError: The file cannot be read.
+        ValueError: The file cannot be parsed or is not a mapping.
+    """
+    if isinstance(patch, dict):
+        return patch
+    content = ConfigParser.parse_yaml(patch)
+    if content is None:
+        return {}
+    if not isinstance(content, dict):
+        raise ValueError(f"Patch '{patch}' is not a mapping")
+    return content
+
+
+def _apply_patches(
+    spec: dict[str, Any], patches: list[Path | dict[str, Any]], label: str
+) -> dict[str, Any]:
+    """Deep-merge patches into a specification.
+
+    Applied patches are logged, and a warning lists operations whose
+    authentication or access control the patches remove.
+
+    Args:
+        spec: OpenAPI 2.x or 3.x specification.
+        patches: Patches (cf. :py:class:`foca.models.config.SpecConfig`).
+        label: Name or paths of the specification, for logs.
+
+    Returns:
+        Patched specification.
+
+    Raises:
+        OSError: A patch file cannot be read.
+        ValueError: A patch file cannot be parsed or is not a mapping.
+    """
+    patched = spec
+    for patch in patches:
+        patched = deep_merge(patched, _load_patch(patch))
+    logger.info(
+        "Applied patches to API spec %s: %s",
+        label,
+        ", ".join(
+            str(patch) if isinstance(patch, Path) else f"inline patch #{index}"
+            for index, patch in enumerate(patches, start=1)
+        ),
+    )
+    after = _protected_routes(patched)
+    weakened = [
+        route
+        for route, protected in _protected_routes(spec).items()
+        if route in after and protected - after[route]
+    ]
+    if weakened:
+        logger.warning(
+            "Patches of API spec %s remove authentication ('security') or "
+            "access control ('x-foca-access-control', 'x-foca-self-service') "
+            "from operations: %s. Make sure that this is intended.",
+            label,
+            ", ".join(weakened),
+        )
+    return patched
 
 
 def register_openapi(
@@ -111,11 +233,13 @@ def register_openapi(
         Connexion application instance with registered OpenAPI specifications.
 
     Raises:
-        OSError: Specification cannot be read.
+        OSError: Specification or patch cannot be read.
         yaml.YAMLError: Specification cannot be parsed.
         ValueError: Operations routed to the controllers of
             :py:mod:`foca.security.access_control.ownership_server` do not
-            enforce access control policies.
+            enforce access control policies, a patch cannot be parsed or is
+            not a mapping, or the specification is invalid after applying
+            patches.
     """
     # Iterate over OpenAPI specs
     for spec in specs:
@@ -129,6 +253,15 @@ def register_openapi(
             for item in spec.append:
                 spec_parsed.update(item)
             logger.debug("Appended spec: %s", spec.append)
+
+        # Apply patches
+        label = (
+            f"'{spec.name}'"
+            if spec.name is not None
+            else ", ".join(str(path) for path in list_specs)
+        )
+        if spec.patches:
+            spec_parsed = _apply_patches(spec_parsed, spec.patches, label)
 
         # Add fields to Operation Objects, keeping fields they set themselves
         if spec.add_operation_fields is not None:
@@ -179,10 +312,17 @@ def register_openapi(
             connexion_kwargs["resolver"] = AccessControlResolver(
                 resolver=connexion_kwargs.get("resolver"),
             )
-        app.add_api(
-            specification=spec_parsed,
-            **connexion_kwargs,
-        )
+        try:
+            app.add_api(
+                specification=spec_parsed,
+                **connexion_kwargs,
+            )
+        except InvalidSpecification as exc:
+            if not spec.patches:
+                raise
+            raise ValueError(
+                f"API spec {label} is invalid after applying patches: {exc.message}"
+            ) from exc
         logger.info("API endpoints added from spec: %s", list_specs)
 
     _check_routes_enforced(app.app)

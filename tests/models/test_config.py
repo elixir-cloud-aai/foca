@@ -16,6 +16,7 @@ import foca.models.config
 import foca.utils.service_info
 from foca.models.config import (
     AccessControlConfig,
+    APIConfig,
     AuthConfig,
     CollectionConfig,
     Config,
@@ -290,6 +291,113 @@ def test_SpecConfig_extra_arg() -> None:
     """Test SpecConfig instantiation; extra argument."""
     with pytest.raises(ValidationError):
         SpecConfig(non_existing=PATH)  # type: ignore[call-arg]  # invalid on purpose
+
+
+def test_SpecConfig_patches(tmp_path: Path) -> None:
+    """Test SpecConfig instantiation; patch files and inline patches.
+
+    Relative paths of patch files are resolved like those of `path`.
+    """
+    inline = {"info": {"title": "Patched"}}
+    res = SpecConfig.model_validate(
+        {"path": PATH, "patches": ["patch.yaml", inline, "/abs/patch.json"]},
+        context={"base_dir": tmp_path},
+    )
+    assert res.patches == [tmp_path / "patch.yaml", inline, Path("/abs/patch.json")]
+    assert SpecConfig(path=PATH).patches is None  # type: ignore[arg-type]  # coerced by Pydantic
+
+
+@pytest.mark.parametrize("patches", [[1], ["a.yaml", [{"a": 1}]], {"a": 1}])
+def test_SpecConfig_patches_invalid(patches: Any) -> None:
+    """Test SpecConfig instantiation; patches neither paths nor mappings."""
+    with pytest.raises(ValidationError):
+        SpecConfig.model_validate({"path": PATH, "patches": patches})
+
+
+def test_APIConfig_named_specs() -> None:
+    """Test APIConfig instantiation; specs given as named entries.
+
+    Names are set on the specs, in order; removed entries (`None`) are
+    dropped.
+    """
+    res = APIConfig.model_validate(
+        {
+            "specs": {
+                "first": {"path": PATH},
+                "removed": None,
+                "second": SpecConfig(path=PATH_ADDITION),  # type: ignore[arg-type]  # coerced by Pydantic
+                "third": {"path": PATH, "name": "third"},
+            }
+        }
+    )
+    assert [spec.name for spec in res.specs] == ["first", "second", "third"]
+    assert res.specs[1].path == [Path(PATH_ADDITION)]
+
+
+def test_APIConfig_list_specs() -> None:
+    """Test APIConfig instantiation; specs given as a list, names optional."""
+    res = APIConfig.model_validate(
+        {"specs": [{"path": PATH}, {"path": PATH, "name": "named"}]}
+    )
+    assert [spec.name for spec in res.specs] == [None, "named"]
+
+
+@pytest.mark.parametrize(
+    "specs,message",
+    [
+        # spec without `path`, e.g., a misspelled name in an overlay
+        ({"unknown": {"patches": [{"a": 1}]}}, "API spec 'unknown' has no 'path'"),
+        # name differing from the key
+        ({"first": {"path": PATH, "name": "other"}}, "different 'name'"),
+        (
+            {"first": SpecConfig(path=PATH, name="other")},  # type: ignore[arg-type]  # coerced by Pydantic
+            "different 'name'",
+        ),
+        # entries that are not specs
+        ({"first": PATH}, "valid dictionary"),
+        # empty names
+        ({"": {"path": PATH}}, "non-empty strings"),
+        ({1: {"path": PATH}}, "non-empty strings"),
+        ([{"path": PATH, "name": ""}], "at least 1 character"),
+        # duplicate names
+        ([{"path": PATH, "name": "a"}, {"path": PATH, "name": "a"}], "unique"),
+    ],
+)
+def test_APIConfig_named_specs_invalid(specs: Any, message: str) -> None:
+    """Test APIConfig instantiation; invalid named specs."""
+    with pytest.raises(ValidationError, match=message):
+        APIConfig.model_validate({"specs": specs})
+
+
+def test_AccessControlConfig_named_policies() -> None:
+    """Test AccessControlConfig instantiation; named policy rules.
+
+    Removed rules (`None`) are dropped.
+    """
+    res = AccessControlConfig.model_validate(
+        {
+            "policies": {
+                "read": ["p", "*", "/pets", "GET"],
+                "removed": None,
+            }
+        }
+    )
+    assert res.policies == {"read": ["p", "*", "/pets", "GET"]}
+
+
+@pytest.mark.parametrize(
+    "policies",
+    [
+        {"read": "p, *, /pets, GET"},
+        {"read": [["p", "*", "/pets", "GET"]]},
+        [{"read": ["p", "*", "/pets", "GET"]}],
+        {"": ["p", "*", "/pets", "GET"]},
+    ],
+)
+def test_AccessControlConfig_named_policies_invalid(policies: Any) -> None:
+    """Test AccessControlConfig instantiation; invalid named policy rules."""
+    with pytest.raises(ValidationError):
+        AccessControlConfig.model_validate({"policies": policies})
 
 
 @pytest.mark.parametrize("prefix", ["user:", "u/", "user:group:", "groups:"])
