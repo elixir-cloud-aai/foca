@@ -451,9 +451,12 @@ def _check_routes_enforced(app: Flask) -> None:
         controller = controllers.get(unwrap(view))
         if controller is None or _enforces_access_control(view):
             continue
-        # Methods of operations, unless they are only `HEAD` or `OPTIONS`
+        # Methods of operations, without those Flask adds itself (`OPTIONS`,
+        # and `HEAD` for `GET`), unless the operation is one of them
         methods = rule.methods or set()
-        for method in sorted(methods - _AUTOMATIC_METHODS or methods):
+        for method in sorted(
+            methods - _AUTOMATIC_METHODS or methods - {"OPTIONS"} or methods
+        ):
             unenforced.append(f"{method} {rule.rule} ({controller.__name__})")
     if unenforced:
         raise ValueError(
@@ -463,5 +466,5 @@ def _check_routes_enforced(app: Flask) -> None:
             "them: enable 'security.access_control.enforce', require "
             "authentication (security requirements without empty "
             "alternatives, no 'disable_auth') and do not set "
-            "'x-foca-access-control: false'."
+            "'x-foca-access-control: false' or 'x-foca-self-service: true'."
         )

@@ -475,9 +475,9 @@ class TestEnforcementRequired:
         )
         with pytest.raises(ValueError, match="not enforced") as exc_info:
             _create_app(tmp_path, spec)
-        assert "HEAD /api/tasks/<taskId>/permissions/users/<userId>" in str(
-            exc_info.value
-        )
+        message = str(exc_info.value)
+        assert "HEAD /api/tasks/<taskId>/permissions/users/<userId>" in message
+        assert "OPTIONS" not in message
 
     def test_request_refused(self, tmp_path: Path) -> None:
         """Wrappers of the controllers refuse unenforced requests."""

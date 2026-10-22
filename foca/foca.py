@@ -129,6 +129,9 @@ class Foca:
                 specifications route operations to
                 `foca.api.service_info.getServiceInfo`, but no service info is
                 configured.
+            ValueError: Operations routed to the controllers of
+                :py:mod:`foca.security.access_control.ownership_server` do not
+                enforce access control policies.
         """
         cnx_app = self._create_base_app()
 
