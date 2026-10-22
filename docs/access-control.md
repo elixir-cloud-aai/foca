@@ -754,9 +754,10 @@ The resource paths are full request paths, including the base path of the
 API, as policies are enforced on them; the collection path passed to
 `resource_filter()` must match the prefix of the paths passed to
 `add_owner()`. Revoke all roles on a deleted resource via `remove_resource()`.
-Apps that let owners manage access expose their own endpoints (e.g.,
+Apps that let owners manage access expose endpoints (e.g.,
 `PUT /tasks/{id}/permissions/users/{userId}`) calling `grant_role()` and
-`revoke_roles()`:
+`revoke_roles()`, or route them to FOCA's [ready-made
+controllers](#endpoints-for-managing-roles):
 
 ```python
 import logging
@@ -822,6 +823,147 @@ Keep in mind that:
   few thousand resources. Like enforcement, each helper call loads all rules
   (cf. [scaling](#scaling)); `grant_role()` and `revoke_roles()` do so a few
   times per call.
+
+#### Endpoints for managing roles
+
+Instead of writing controllers like `PutTaskUserRole()` above, apps can route
+operations of their API specifications to FOCA's ready-made controllers in
+`foca.security.access_control.ownership_server`, under paths of their
+choice:
+
+| Controller | Example operation | Response |
+| --- | --- | --- |
+| `getResourceRoles` | `GET /tasks/{id}/permissions` | roles on the resource, as `subject_type`, `subject` and `role` (cf. `list_roles()`) |
+| `putUserRole` | `PUT /tasks/{id}/permissions/users/{userId}` | the granted role, replacing others (cf. `grant_role()`) |
+| `deleteUserRole` | `DELETE /tasks/{id}/permissions/users/{userId}` | the user identifier (a JSON string), after revoking their roles (cf. `revoke_roles()`) |
+| `putGroupRole` | `PUT /tasks/{id}/permissions/groups/{group}` | as `putUserRole`, for a group |
+| `deleteGroupRole` | `DELETE /tasks/{id}/permissions/groups/{group}` | as `deleteUserRole`, for a group |
+
+The controllers take the resource and the subject from the route: the
+subject is the last path parameter, and the resource is the request path up to
+the path parameter before it (e.g., `/api/tasks/1` for
+`/api/tasks/1/permissions/users/alice`), or up to the last path parameter for
+`getResourceRoles`. Path parameters may have any names, and resources may be
+identified by several (e.g., `/projects/{p}/files/{f}/permissions`). The `PUT`
+operations take the role as `{"role": "maintainer"}`; an `enum` of the role in
+the specification, as in the example below, rejects other roles before the
+controller is called, and should list the roles of `resource_roles`. Keep
+users and groups apart in the paths (e.g., `.../users/{userId}` and
+`.../groups/{group}`): with users at `.../permissions/{userId}` next to
+`.../permissions/groups/{group}`, `PUT .../permissions/groups` would grant a
+role to a user called `groups`.
+
+* Resources without owners are not found (`404`), so that roles cannot be
+  granted on resources that do not exist.
+* The controllers cannot know whether a resource still exists, so a role
+  granted while the resource is deleted would be left behind. To revoke it
+  again (`404`), route to a wrapper passing an existence check as `exists`
+  (cf. `grant_role()`), which also serves as an alias; `exists` (like
+  `body`, which holds request bodies) must therefore not be the name of a
+  parameter of these operations:
+
+    ```python
+    from foca import get_collection
+    from foca.security.access_control import ownership_server
+
+
+    # `id` is the path parameter of the task in the route
+    def putTaskUserRole(**kwargs):
+        return ownership_server.putUserRole(
+            exists=lambda: (
+                get_collection("tasks").count_documents({"id": kwargs["id"]}) > 0
+            ),
+            **kwargs,
+        )
+    ```
+
+* Roles not in `resource_roles`, and roles that cannot be granted to the
+  subject (cf. `grant_role()`), are rejected with `400`; downgrading or
+  removing the last owner with `409`; revoking the roles of a subject
+  without any with `404`.
+* Callers may only grant roles to groups they are members of (`403`
+  otherwise), as they could otherwise hand resources to any group; admins
+  may grant roles to any group. Any caller allowed by the policies may revoke
+  roles of any group.
+* Who may call the operations is decided by your policies, as for any other
+  operation, so enforce them (`enforce: True`).
+* Requests and responses are logged unless `log_traffic` is disabled, as for
+  the [permissions API](#securing-the-permissions-api).
+* Operation identifiers must be unique, so for several types of resources,
+  route each to an alias or wrapper of the controller (e.g.,
+  `putFileUserRole = ownership_server.putUserRole` in a module of your
+  app).
+
+For example, with the base path `/api`:
+
+```yaml
+servers:
+  - url: /api
+paths:
+  /tasks/{id}/permissions:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: foca.security.access_control.ownership_server.getResourceRoles
+      responses:
+        "200": {description: Roles on the task}
+  /tasks/{id}/permissions/users/{userId}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string}}
+      - {name: userId, in: path, required: true, schema: {type: string}}
+    put:
+      operationId: foca.security.access_control.ownership_server.putUserRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: {type: string, enum: [owner, maintainer]}
+      responses:
+        "200": {description: Granted role}
+    delete:
+      operationId: foca.security.access_control.ownership_server.deleteUserRole
+      responses:
+        "200": {description: Roles revoked}
+  /tasks/{id}/permissions/groups/{group}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string}}
+      # groups may contain slashes
+      - {name: group, in: path, required: true, schema: {type: string, format: path}}
+    put:
+      operationId: foca.security.access_control.ownership_server.putGroupRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: {type: string, enum: [owner, maintainer]}
+      responses:
+        "200": {description: Granted role}
+    delete:
+      operationId: foca.security.access_control.ownership_server.deleteGroupRole
+      responses:
+        "200": {description: Roles revoked}
+```
+
+```yaml
+security:
+  access_control:
+    policies:
+      - [p, owner, "/api/tasks/:id/permissions", GET]
+      - [p, owner, "/api/tasks/:id/permissions/users/:user", "(PUT)|(DELETE)"]
+      # groups may contain slashes
+      - [p, owner, "/api/tasks/:id/permissions/groups/*", "(PUT)|(DELETE)"]
+```
+
+Apps with further needs (e.g., cloud-registry, which also shows display names
+of users) write their own controllers on top of the helpers.
 
 ### Securing the permissions API
 
