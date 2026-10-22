@@ -49,8 +49,9 @@ jobs:
         env:
           PY_VERSION: ${{ matrix.python-version }}
         run: |
-          # Highest final version, as for the `latest` tag in `release.yml`
-          tag="$(git tag -l 'v*' --sort=-v:refname \
+          # Highest final version on `main`, as for the `latest` tag in
+          # `release.yml`
+          tag="$(git tag -l 'v*' --merged origin/main --sort=-v:refname \
               | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
           if [ -z "${tag}" ]; then
               echo "::error::No release tag found"
