@@ -23,6 +23,8 @@ security:
       "urn:geant:elixir-europe.org:group:elixir:my-app:admins": admin
     client_mapping:
       conquest-client-id: submitter
+    keep_group_subjects: true
+    resource_roles: [owner, maintainer]
     self_service: true
     policies:
       - [p, "*", /pets, "(GET)|(POST)"]
@@ -36,7 +38,9 @@ Access control requires `enabled: true` and trusted token
 `enforce: true`, policies are enforced on all operations that require
 authentication. `client_mapping` maps [service
 clients](../authentication.md#service-tokens) (`security.auth.service_clients`)
-to roles; other clients cannot be mapped. See [Access
+to roles; other clients cannot be mapped. `resource_roles` are the roles
+that the [resource ownership](../access-control.md#resource-ownership) helpers
+grant and revoke. See [Access
 control](../access-control.md) for how policies, roles and the permissions API
 work.
 

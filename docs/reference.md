@@ -43,6 +43,20 @@ configuration models, see [Configuration](configuration/index.md).
         - remove_resource
         - SubjectType
 
+::: foca.security.access_control.ownership
+    options:
+      members:
+        - add_owner
+        - grant_role
+        - revoke_roles
+        - list_roles
+        - list_subject_roles
+        - resource_filter
+        - is_admin
+        - LastOwner
+        - ResourceRole
+        - SubjectResourceRole
+
 ::: foca.security.access_control.foca_casbin_adapter.adapter
     options:
       members:
