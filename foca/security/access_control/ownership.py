@@ -161,6 +161,31 @@ def _get_current_subjects() -> list[tuple[SubjectType, str]]:
     return subjects
 
 
+def _get_listing_subjects(
+    on_behalf_of: str | None = None,
+) -> list[tuple[SubjectType, str]]:
+    """Get the subjects whose resources the current request lists.
+
+    Args:
+        on_behalf_of: User named by the caller to act for (cf.
+            :py:func:`foca.security.access_control.get_on_behalf_of_user`).
+
+    Returns:
+        The user that an allowed service client acts for, if any, without
+        groups (service tokens carry none of the user's), otherwise the
+        subjects of the current request (cf. :py:func:`_get_current_subjects`).
+
+    Raises:
+        connexion.exceptions.BadRequestProblem: The named user is invalid.
+        connexion.exceptions.Forbidden: The caller names a user, but is not a
+            service client allowed to act for users.
+    """
+    user = get_on_behalf_of_user(on_behalf_of)
+    if user is not None:
+        return [("user", user)]
+    return _get_current_subjects()
+
+
 def _has_global_roles(enforcer: Enforcer) -> bool:
     """Check whether the model of an enforcer defines global roles (`g`)."""
     return "g" in enforcer.get_model().model.get("g", {})
@@ -701,6 +726,7 @@ def _is_valid_subject(subject: str, subject_type: SubjectType) -> bool:
 def list_subject_roles(
     prefix: str,
     ptype: str = RESOURCE_ROLE_PTYPE,
+    on_behalf_of: str | None = None,
 ) -> list[SubjectResourceRole]:
     """List the roles of the current subject on resources under a path prefix.
 
@@ -712,23 +738,42 @@ def list_subject_roles(
         prefix: Path prefix of the resources, i.e., the full request path of
             their collection (e.g., `/tasks`).
         ptype: Policy type of resource-scoped role rules.
+        on_behalf_of: User that the caller names to act for (cf.
+            :py:func:`add_owner`); if `None`, the value of the header
+            configured via `auth.on_behalf_of_header`, if any.
 
     Returns:
         Roles granted to the service client or user of the current request
         and to its groups (if used as subjects, cf.
-        :py:func:`foca.security.access_control.get_current_groups`), sorted
-        by resource identifier, then by subject type (user or client first,
-        then groups) and subject. Empty if the request has neither a user
-        nor a service client. Roles of a user that a service client acts
-        for are not included.
+        :py:func:`foca.security.access_control.get_current_groups`). If an
+        allowed service client acts for a user (cf.
+        :py:func:`foca.security.access_control.get_on_behalf_of_user`), the
+        roles granted to that user instead, without groups, as service
+        tokens carry none of the user's. Sorted by resource identifier, then
+        by subject type (user or client first, then groups) and subject.
+        Empty if the request has neither a user nor a service client.
 
     Raises:
+        connexion.exceptions.BadRequestProblem: The user named by a service
+            client is invalid.
+        connexion.exceptions.Forbidden: The caller names a user to act for,
+            but is not a service client allowed to.
         ValueError: The model does not define resource-scoped roles.
+    """
+    return _list_roles_of(_get_listing_subjects(on_behalf_of), prefix, ptype)
+
+
+def _list_roles_of(
+    subjects: list[tuple[SubjectType, str]], prefix: str, ptype: str
+) -> list[SubjectResourceRole]:
+    """List the roles of subjects on resources under a path prefix.
+
+    Cf. :py:func:`list_subject_roles`.
     """
     enforcer = _get_resource_role_enforcer(ptype)
     base = f"{prefix.rstrip('/')}/"
     roles: list[SubjectResourceRole] = []
-    for subject_type, subject in _get_current_subjects():
+    for subject_type, subject in subjects:
         for _, role, resource in enforcer.get_filtered_named_grouping_policy(
             ptype, 0, _prefix_subject(subject, subject_type)
         ):
@@ -752,6 +797,7 @@ def resource_filter(
     prefix: str,
     field: str = "id",
     ptype: str = RESOURCE_ROLE_PTYPE,
+    on_behalf_of: str | None = None,
 ) -> dict[str, dict[str, list[str]]]:
     """Get a MongoDB filter for the resources the current subject may see.
 
@@ -769,16 +815,26 @@ def resource_filter(
             :py:func:`list_subject_roles`).
         field: Field of the documents holding the resource identifiers.
         ptype: Policy type of resource-scoped role rules.
+        on_behalf_of: User that the caller names to act for (cf.
+            :py:func:`list_subject_roles`).
 
     Returns:
-        An empty filter (all resources) for admins (cf. :py:func:`is_admin`),
-        otherwise a filter for the resources the current subject or its
-        groups have any role on (cf. :py:func:`list_subject_roles`).
+        An empty filter (all resources) if the caller is an admin (cf.
+        :py:func:`is_admin`); for service clients, this is the client's own
+        status, also when it acts for a user, whose admin rights do not
+        apply. Otherwise, a filter for the resources listed by
+        :py:func:`list_subject_roles`.
 
     Raises:
+        connexion.exceptions.BadRequestProblem: The user named by a service
+            client is invalid.
+        connexion.exceptions.Forbidden: The caller names a user to act for,
+            but is not a service client allowed to.
         ValueError: The model does not define resource-scoped roles.
     """
+    # Named users are checked also for admins, so that callers notice
+    subjects = _get_listing_subjects(on_behalf_of)
     if is_admin():
         return {}
-    ids = [role.id for role in list_subject_roles(prefix, ptype=ptype)]
+    ids = [role.id for role in _list_roles_of(subjects, prefix, ptype)]
     return {field: {"$in": list(dict.fromkeys(ids))}}
