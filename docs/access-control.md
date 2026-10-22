@@ -749,8 +749,10 @@ def CreateTask(**kwargs):
 
 
 def ListTasks(**kwargs):
-    tasks = get_collection("tasks").find(resource_filter(request.path))
-    return {"tasks": [{"id": task["id"]} for task in tasks]}
+    tasks = get_collection(db="myDb", collection="tasks")
+    return {
+        "tasks": [{"id": t["id"]} for t in tasks.find(resource_filter(request.path))]
+    }
 
 
 def DeleteTask(id, **kwargs):
@@ -786,12 +788,13 @@ logger = logging.getLogger(__name__)
 
 def PutTaskUserRole(id, userId, body, **kwargs):
     resource = request.path.removesuffix(f"/permissions/users/{userId}")
+    tasks = get_collection(db="myDb", collection="tasks")
     try:
         grant_role(
             resource,
             userId,
             body["role"],
-            exists=lambda: get_collection("tasks").count_documents({"id": id}) > 0,
+            exists=lambda: tasks.count_documents({"id": id}) > 0,
         )
     except ValueError as exc:
         # messages may name configuration options, so they are only logged
@@ -886,10 +889,9 @@ role to a user called `groups`.
 
     # `id` is the path parameter of the task in the route
     def putTaskUserRole(**kwargs):
+        tasks = get_collection(db="myDb", collection="tasks")
         return ownership_server.putUserRole(
-            exists=lambda: (
-                get_collection("tasks").count_documents({"id": kwargs["id"]}) > 0
-            ),
+            exists=lambda: tasks.count_documents({"id": kwargs["id"]}) > 0,
             **kwargs,
         )
     ```
