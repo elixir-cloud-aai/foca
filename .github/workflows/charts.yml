@@ -129,21 +129,24 @@ jobs:
             echo "::error::The app logged errors"
             exit 1
           fi
-      # The worker logs that it is ready once it has connected to the broker
-      # (and created the app, connecting to MongoDB); errors as above, and in
-      # Celery's log format (`ERROR/MainProcess]`)
+      # The worker logs that it is ready once it has created the app and
+      # connected to the broker; it has no probes, so the step polls its
+      # logs. Errors as above, and in Celery's log format
+      # (`ERROR/MainProcess]`), except the connection retries while the
+      # broker starts (`consumer: Cannot connect to`)
       - name: Check worker logs
         run: |
           for _ in $(seq 1 30); do
             logs="$(kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
-                -l app.kubernetes.io/component=worker --tail=-1)"
+                -l app.kubernetes.io/component=worker --tail=-1 2>&1)" || true
             if grep -q ' ready\.$' <<< "${logs}"; then
               break
             fi
             sleep 5
           done
           printf '%s\n' "${logs}"
-          if grep -E '\[ERROR\]|: ERROR +\]|ERROR/' <<< "${logs}"; then
+          if grep -v 'consumer: Cannot connect to' <<< "${logs}" \
+              | grep -E '\[ERROR\]|: ERROR +\]|ERROR/'; then
             echo "::error::The worker logged errors"
             exit 1
           fi

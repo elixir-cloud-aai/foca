@@ -223,11 +223,11 @@ broker:
   # `result-backend` (`CELERY_RESULT_BACKEND`; by default `jobs.backend` of
   # the config) and, for the bundled RabbitMQ, `username` and `password` of
   # its user, which its URL must contain, e.g.,
-  # `pyamqp://<username>:<password>@<release>-petstore-broker:5672//` (the
-  # Service is named like the app with the suffix `-broker`; URL-encode
-  # reserved characters of the credentials). Required if `worker.enabled` or
-  # `enabled`; for an external broker, set it without enabling either to pass
-  # the broker URL to the app only
+  # `pyamqp://<username>:<password>@<app name>-broker:5672//` (the Service
+  # is named like the app's resources, see `fullnameOverride`, with the
+  # suffix `-broker`; URL-encode reserved characters of the credentials).
+  # Required if `worker.enabled` or `enabled`; for an external broker, set it
+  # without enabling either to pass the broker URL to the app only
   existingSecret: ""
   # Pinned to a minor version; patch versions are updated on restarts
   image: docker.io/library/rabbitmq:4.3

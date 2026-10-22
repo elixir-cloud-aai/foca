@@ -197,7 +197,11 @@ library's schema of these values is
   and `jobs.port`; an optional key `result-backend` is passed as
   `CELERY_RESULT_BACKEND`. For the bundled RabbitMQ, the Secret also has the
   keys `username` and `password` of its user, and the broker URL contains
-  them and the broker's Service (URL-encode reserved characters):
+  them (URL-encode reserved characters) and the host of the broker's
+  Service, named like the app with the suffix `-broker` (see
+  [Values](#values); set `fullnameOverride` to know it before installing,
+  or check it with `helm template`). For an app `my-app` installed as
+  release `my-app`:
 
     ```bash
     password="$(openssl rand -hex 16)"
@@ -208,16 +212,17 @@ library's schema of these values is
     ```
 
     The bundled RabbitMQ keeps its data in an `emptyDir` (up to
-  `broker.dataSizeLimit`), so queued tasks are lost when its pod is replaced
-  (e.g., on upgrades); each new pod creates the user from the Secret, so
-  roll the broker's, the app's and the worker's pods after changing it. For
-  durable queues, use an external broker: set only
-  `broker.existingSecret` (and `worker.enabled`, if the release runs the
-  worker).
+    `broker.dataSizeLimit`), so queued tasks are lost when its pod is
+    replaced (e.g., on upgrades); each new pod creates the user from the
+    Secret, so roll the broker's, the app's and the worker's pods after
+    changing it. For durable queues, use an external broker: set only
+    `broker.existingSecret` (and `worker.enabled`, if the release runs the
+    worker).
 - **Network policies:** MongoDB's NetworkPolicy, enabled by default, admits
   only the app's pods of the release (and the worker's, if enabled); the
-  broker's admits only the app's and the worker's pods. The app's NetworkPolicy is opt-in, as
-  its peers depend on the cluster: set `<valuesKey>.networkPolicy.ingressFrom`
+  broker's admits only the app's and the worker's pods. The app's
+  NetworkPolicy is opt-in, as its peers depend on the cluster: set
+  `<valuesKey>.networkPolicy.ingressFrom`
   to the namespace of the ingress controller (by default that of
   ingress-nginx; on OpenShift, `policy-group.network.openshift.io/ingress:
   ""`). The kubelet's probes are always admitted.

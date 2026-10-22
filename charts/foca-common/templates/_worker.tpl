@@ -2,8 +2,9 @@
 Deployment of the Celery worker, if `worker.enabled`: `worker.replicas` pods
 with the app's image, run with `worker.command`, and the app's config
 overlay, MongoDB credentials, security contexts and `/tmp`, and the broker
-settings of the app (see `foca-common.celeryEnv`). Call with the context
-dict.
+settings of the app (see `foca-common.celeryEnv`). Keep the pod's config,
+MongoDB credentials and volumes in line with the app's Deployment (the tests
+compare them). Call with the context dict.
 */}}
 {{- define "foca-common.workerDeployment" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -62,7 +63,9 @@ spec:
           "MONGO_PASSWORD" "password"
         )) | trim | nindent 8 }}
         {{- end }}
-        {{- include "foca-common.celeryEnv" $root | trim | nindent 8 }}
+        {{- with include "foca-common.celeryEnv" $root | trim }}
+        {{- . | nindent 8 }}
+        {{- end }}
         resources: {{- toYaml ($worker.resources | default dict) | nindent 10 }}
         securityContext:
           {{- include "foca-common.securityContext" (dict "root" $root "context" $values.securityContext) | nindent 10 }}

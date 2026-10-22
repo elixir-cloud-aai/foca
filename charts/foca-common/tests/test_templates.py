@@ -1064,12 +1064,17 @@ def test_mongodb_network_policy_admits_worker(render: Callable[..., Docs]) -> No
 
 def test_celery_labels(render: Callable[..., Docs]) -> None:
     """The worker's and the broker's resources carry their component."""
-    for (_, name), doc in render(*CELERY).items():
-        if name in (WORKER, BROKER):
-            component = name.removeprefix("petstore-")
-            assert doc["metadata"]["labels"]["app.kubernetes.io/component"] == (
-                component
-            )
+    docs = render(*CELERY)
+    resources = {
+        ("Deployment", WORKER): "worker",
+        ("Deployment", BROKER): "broker",
+        ("Service", BROKER): "broker",
+        ("NetworkPolicy", BROKER): "broker",
+    }
+    for resource, component in resources.items():
+        labels = docs[resource]["metadata"]["labels"]
+        assert labels["app.kubernetes.io/component"] == component
+        assert labels["app.kubernetes.io/instance"] == "petstore"
 
 
 def test_celery_security_contexts_openshift(render: Callable[..., Docs]) -> None:
@@ -1083,9 +1088,66 @@ def test_celery_security_contexts_openshift(render: Callable[..., Docs]) -> None
 
 def test_celery_names(chart: Path) -> None:
     """The worker's and the broker's names follow the app's."""
-    rendered = template(chart, *CELERY, "--set", "fullnameOverride=shop")
-    names = {name for _, name in index(rendered)}
-    assert {"shop-worker", "shop-broker"} <= names
+    docs = index(template(chart, *CELERY, "--set", "fullnameOverride=shop"))
+    assert {
+        ("Deployment", "shop-worker"),
+        ("Deployment", "shop-broker"),
+        ("Service", "shop-broker"),
+        ("NetworkPolicy", "shop-broker"),
+    } <= set(docs)
+    # Long names are truncated before the suffix
+    long_name = "a" * 63
+    docs = index(template(chart, *CELERY, "--set", f"fullnameOverride={long_name}"))
+    assert ("Deployment", "a" * 56 + "-worker") in docs
+    assert ("Service", "a" * 56 + "-broker") in docs
+
+
+def test_broker_settings(render: Callable[..., Docs]) -> None:
+    """The broker's values take effect."""
+    docs = render(
+        *CELERY,
+        "--set",
+        "broker.imagePullPolicy=IfNotPresent",
+        "--set",
+        "broker.image=registry.example.org/rabbitmq:4.3",
+        "--set-json",
+        "broker.dataSizeLimit=null",
+        "--set",
+        "broker.tmpSizeLimit=32Mi",
+        "--set-json",
+        'broker.resources={"limits": {"memory": "1Gi"}}',
+    )
+    broker = _container(docs, BROKER)
+    assert broker["image"] == "registry.example.org/rabbitmq:4.3"
+    assert broker["imagePullPolicy"] == "IfNotPresent"
+    assert broker["resources"]["limits"] == {"cpu": "200m", "memory": "1Gi"}
+    assert _pod_spec(docs, BROKER)["volumes"] == [
+        {"name": "data", "emptyDir": {}},
+        {"name": "tmp", "emptyDir": {"sizeLimit": "32Mi"}},
+    ]
+
+
+def test_broker_image_required(render_error: Callable[..., str]) -> None:
+    """The bundled broker needs an image."""
+    error = render_error(*CELERY, "--set", "broker.image=")
+    assert "broker.image must be set" in error
+
+
+def test_worker_follows_app_values(render: Callable[..., Docs]) -> None:
+    """The worker takes the app's image and pull policy."""
+    docs = render(
+        *CELERY,
+        "--set",
+        "petstore.tag=1.2.3",
+        "--set",
+        "petstore.imagePullPolicy=Always",
+        "--set-json",
+        'worker.resources={"limits": {"memory": "1Gi"}}',
+    )
+    worker = _container(docs, WORKER)
+    assert worker["image"] == "foca-petstore:1.2.3"
+    assert worker["imagePullPolicy"] == "Always"
+    assert worker["resources"]["limits"] == {"cpu": "100m", "memory": "1Gi"}
 
 
 @pytest.mark.parametrize("suffix", ["-worker", "-broker"])
