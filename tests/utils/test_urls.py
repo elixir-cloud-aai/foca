@@ -111,6 +111,8 @@ def test_normalize_url_keep_query_only() -> None:
         "https://.",
         "https://[::g]",
         f"https://{'ü' * 64}.example.org",
+        # longer than 253 characters once encoded
+        f"https://{'.'.join(['ü' * 40] * 6)}.org",
         "https://bü-.example.org",
         "https://tes example.org",
         "https://tes<x>.example.org",
@@ -203,8 +205,17 @@ def test_normalize_url_longest_host(host: str) -> None:
         f"{'ü' * 64}.example.org",
         f"{'ü' * 20000}.example.org",
         f"{'ü' * 63}。{'ü' * 63}。{'ü' * 63}。{'ü' * 63}。org",
+        f"a{unicodedata.lookup('COMBINING ACUTE ACCENT') * 20000}.org",
     ],
-    ids=["254", "254-trailing-dot", "label", "international-label", "huge", "dots"],
+    ids=[
+        "254",
+        "254-trailing-dot",
+        "label",
+        "international-label",
+        "huge",
+        "dots",
+        "combining",
+    ],
 )
 def test_normalize_url_long_host(host: str) -> None:
     """Long hosts are rejected before IDNA encoding, which is slow for them.

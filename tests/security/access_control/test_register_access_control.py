@@ -229,6 +229,52 @@ class TestRegisterAccessControlSetup:
         assert set(_collections(dbs, "app_db")) == {"items"}
         assert set(_collections(dbs, "access_control_db")) == {"policy_rules"}
 
+    def test_unenforced_role_controller(self, tmp_path: Path) -> None:
+        """Unenforced routes to the role controllers are refused early.
+
+        Permissions APIs routing such operations are refused before
+        configured policies are stored.
+        """
+        spec = {
+            "openapi": "3.0.2",
+            "info": {"title": "Permissions", "version": "1.0.0"},
+            "servers": [{"url": "/admin"}],
+            "paths": {
+                "/tasks/{id}/permissions": {
+                    "get": {
+                        "operationId": (
+                            "foca.security.access_control.ownership_server."
+                            "getResourceRoles"
+                        ),
+                        "x-foca-self-service": True,
+                        "parameters": [
+                            {
+                                "name": "id",
+                                "in": "path",
+                                "required": True,
+                                "schema": {"type": "string"},
+                            }
+                        ],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+        }
+        spec_file = tmp_path / "spec.yaml"
+        spec_file.write_text(yaml.safe_dump(spec))
+        cnx_app = create_connexion_app(Config())
+        with pytest.raises(ValueError, match="getResourceRoles"):
+            register_access_control(
+                cnx_app=cnx_app,
+                mongo_config=None,
+                access_control_config=AccessControlConfig(
+                    api_specs=str(spec_file),
+                    self_service=True,
+                    policies=[["p", "*", "/tasks", "GET"]],
+                ),
+            )
+        assert "casbin_adapter" not in cnx_app.app.config
+
     def test_shared_db(self) -> None:
         """Policy collection is added to app database of the same name."""
         dbs = _dbs(self._register(self._app_db_config(), db_name="app_db"))

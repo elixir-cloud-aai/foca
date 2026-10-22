@@ -54,6 +54,9 @@ _LABEL_SEPARATORS = re.compile(r"[.\u3002\uff0e\uff61]")
 # (RFC 1035, section 2.3.4)
 _MAX_HOST_LENGTH = 253
 _MAX_LABEL_LENGTH = 63
+# Maximum length of hosts before normalization: decomposed characters (NFD)
+# take up to 4 code points (e.g., Hangul syllables 3)
+_MAX_DECOMPOSED_LENGTH = 4 * (_MAX_HOST_LENGTH + 1)
 # Last labels of hosts that WHATWG URL parsers (e.g., browsers) take as
 # IPv4 addresses, e.g., `127.1` or `0x7f.0.0.1`
 _NUMERIC_LABEL = re.compile(r"[0-9]+|0[xX][0-9A-Fa-f]*")
@@ -384,6 +387,11 @@ def _check_host_length(host: str, message: str) -> None:
     """
     # Composed as by IDNA, so that combining marks (e.g., of decomposed
     # accented letters) do not count separately
+    # Hosts that are too long even decomposed are rejected before
+    # normalization, which takes time quadratic in the length of sequences
+    # of combining marks
+    if len(host) > _MAX_DECOMPOSED_LENGTH:
+        raise InvalidURL(message)
     labels = _LABEL_SEPARATORS.split(unicodedata.normalize("NFC", host))
     if len(labels) > 1 and not labels[-1]:
         labels.pop()

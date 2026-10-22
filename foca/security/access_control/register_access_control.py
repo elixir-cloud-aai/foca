@@ -33,6 +33,7 @@ from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
 )
+from foca.security.access_control.ownership_server import _check_routes_enforced
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,12 @@ def register_access_control(
 
     Returns:
         Connexion application instance with registered access control config.
+
+    Raises:
+        ValueError: Operations of the permissions API routed to the
+            controllers of
+            :py:mod:`foca.security.access_control.ownership_server` do not
+            enforce access control policies.
     """
     if (
         access_control_config.keep_group_subjects
@@ -150,15 +157,18 @@ def register_access_control(
     )
     get_app_config(cnx_app.app).db = mongo_config
 
-    # Register access control api specs and corresponding controller.
+    # Register access control api specs and corresponding controller, and
+    # check them before configured policies are stored, so that a failed
+    # startup does not change them
+    cnx_app = register_permission_specs(
+        app=cnx_app, access_control_config=access_control_config
+    )
+    _check_routes_enforced(cnx_app.app)
+
     cnx_app = register_casbin_enforcer(
         app=cnx_app,
         mongo_config=mongo_config,
         access_control_config=access_control_config,
-    )
-
-    cnx_app = register_permission_specs(
-        app=cnx_app, access_control_config=access_control_config
     )
 
     return cnx_app
