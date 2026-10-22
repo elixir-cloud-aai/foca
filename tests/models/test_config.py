@@ -312,6 +312,21 @@ def test_AccessControlConfig_subject_prefix_invalid(prefix: str) -> None:
         AccessControlConfig(subject_prefix=prefix)
 
 
+@pytest.mark.parametrize("mapping", ["group_mapping", "client_mapping"])
+@pytest.mark.parametrize("role", ["user:alice", "group:admins", "client:conquest"])
+def test_AccessControlConfig_mapped_roles_invalid(mapping: str, role: str) -> None:
+    """Test AccessControlConfig instantiation; mapped roles that are subjects."""
+    with pytest.raises(ValidationError, match="must not start with"):
+        AccessControlConfig.model_validate({mapping: {"x": role}})
+
+
+@pytest.mark.parametrize("mapping", ["group_mapping", "client_mapping"])
+def test_AccessControlConfig_mapped_roles(mapping: str) -> None:
+    """Test AccessControlConfig instantiation; mapped roles."""
+    res = AccessControlConfig.model_validate({mapping: {"x": "admin"}})
+    assert getattr(res, mapping) == {"x": "admin"}
+
+
 @pytest.mark.parametrize(
     "charset,length",
     [("abcdef", 8), ("0123456789", 6), ("0123456789", 64), ("a-._~", 9)],
@@ -451,6 +466,13 @@ def test_AuthConfig_service_clients_accepted() -> None:
         }
     )
     assert res.service_clients[0].client_id == "conquest"
+
+
+@pytest.mark.parametrize("claims", [["client_id"], ["eduperson_entitlement", "azp"]])
+def test_AuthConfig_userinfo_claims_invalid(claims: list[str]) -> None:
+    """Test AuthConfig instantiation; client claims from user info."""
+    with pytest.raises(ValidationError, match="identifying the client"):
+        AuthConfig(userinfo_claims=claims)
 
 
 @pytest.mark.parametrize(

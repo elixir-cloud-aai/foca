@@ -695,6 +695,34 @@ class AccessControlConfig(FOCABaseConfig):
                 )
         return v
 
+    @model_validator(mode="after")
+    def validate_mapped_roles(self) -> Self:
+        """Ensure that roles mapped from group claims or clients are not subjects.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: A role of `group_mapping` or `client_mapping` starts
+                with `subject_prefix`, `group:` or `client:`, so that the
+                mapped groups or clients would get the rights of that
+                subject.
+        """
+        prefixes = [self.subject_prefix, *SUBJECT_TYPE_PREFIXES.values()]
+        for name, mapping in (
+            ("group_mapping", self.group_mapping),
+            ("client_mapping", self.client_mapping),
+        ):
+            for role in (mapping or {}).values():
+                for prefix in prefixes:
+                    if role.startswith(prefix):
+                        raise ValueError(
+                            f"Roles of '{name}' must not start with '{prefix}', "
+                            "the prefix of subjects, as mapped subjects would "
+                            "otherwise get the rights of that subject"
+                        )
+        return self
+
     @field_validator("id_charset")
     @classmethod
     def validate_id_charset(cls, v: str) -> str:
@@ -882,6 +910,9 @@ class AuthConfig(FOCABaseConfig):
             replaced. The user info needs to report the token's subject; it
             is cached per token for `cache_ttl` seconds (unless
             `validate_userinfo` is set), but not beyond the token's expiry.
+            The claims `client_id` and `azp` cannot be added, as they
+            identify the client that obtained the token (cf. `clients` and
+            `service_clients`).
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
@@ -927,8 +958,9 @@ class AuthConfig(FOCABaseConfig):
             data type, `issuers` are set without `audience` while
             `verify_audience` is ``True``, `token_types` are empty while
             `verify_token_type` is ``True``, `clients` are set but empty
-            (or blank), client IDs of `service_clients` are not unique, or
-            service clients are not among the accepted `clients`.
+            (or blank), client IDs of `service_clients` are not unique,
+            service clients are not among the accepted `clients`, or
+            `userinfo_claims` contain `client_id` or `azp`.
 
     Examples:
         >>> auth = AuthConfig(
@@ -962,6 +994,31 @@ class AuthConfig(FOCABaseConfig):
     # Whether warnings about the settings were logged, i.e., on the first
     # token validation
     _warnings_logged: bool = PrivateAttr(default=False)
+
+    @field_validator("userinfo_claims")
+    @classmethod
+    def validate_userinfo_claims(cls, v: list[str]) -> list[str]:
+        """Ensure that claims identifying clients are not added from user info.
+
+        Args:
+            v: Claims to add from user info.
+
+        Returns:
+            Claims to add from user info.
+
+        Raises:
+            ValueError: `client_id` or `azp` is to be added, so that user
+                info could make tokens appear to be obtained by other
+                clients (e.g., by service clients).
+        """
+        # Client claims as per `foca.security.auth.CLIENT_CLAIMS` (import cycle)
+        client_claims = sorted({"client_id", "azp"} & set(v))
+        if client_claims:
+            raise ValueError(
+                "Claims identifying the client that obtained a token cannot be "
+                f"added from user info: {', '.join(client_claims)}"
+            )
+        return v
 
     @field_validator("service_clients")
     @classmethod

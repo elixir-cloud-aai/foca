@@ -37,12 +37,18 @@ security:
 
 See [Authentication](authentication.md#how-tokens-are-validated) for details.
 
-### Subject prefix must not overlap with `client:`
+### Stricter subject and claim options
 
 Service clients are namespaced with `client:` in access control rules (see
 [new options](#new-options)). A `security.access_control.subject_prefix`
 overlapping with it (e.g., `client:` or `c`) is rejected on startup, as for
 `group:`; choose another prefix, and migrate the rules accordingly.
+
+Likewise, roles of `security.access_control.group_mapping` must not start with
+`subject_prefix`, `group:` or `client:`, as mapped groups would otherwise get
+the rights of that subject, and `security.auth.userinfo_claims` must not
+contain `client_id` or `azp`, as user info must not change which client a
+token was obtained by.
 
 ## New options
 

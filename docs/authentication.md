@@ -182,7 +182,14 @@ are enforced on them with the subject `client:<client ID>`.
     tokens are treated as user tokens: access control then uses the
     client's subject as a user, and with `userinfo_claims` or
     `validate_userinfo`, user info is requested for its tokens, which
-    usually fails.
+    usually fails. Conversely, make sure that no user can have the
+    `subject` of a service client in tokens obtained by that client (e.g.,
+    by using an identifier that the identity provider assigns to clients
+    only); such tokens would be treated as service tokens.
+
+The claims identifying the client (`client_id` and `azp`) are always taken
+from the token itself: they cannot be added from user info via
+`userinfo_claims`.
 
 If `clients` are restricted, service clients must be among them; FOCA refuses
 to start otherwise. Like subjects, service clients are not scoped by issuer:

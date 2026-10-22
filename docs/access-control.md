@@ -367,7 +367,9 @@ clients (`security.auth.service_clients`) are enforced with the subject
 gets the rights of a user of the same name and vice versa. Group claims
 apply as for users, if service tokens have them. To give service clients
 roles without rules per client, map them to roles via `client_mapping`; only
-service clients can be mapped:
+service clients can be mapped. As for `group_mapping`, mapped roles must not
+start with `subject_prefix`, `group:` or `client:`, as the mapped clients
+would otherwise get the rights of that subject:
 
 ```yaml
 security:
