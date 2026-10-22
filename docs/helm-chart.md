@@ -159,7 +159,7 @@ your app's `valuesKey`:
 | `config` | Config overlay, merged by FOCA into the base config in the image |
 | `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `probePath`, `ingress`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `volumeSize`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
-| `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
+| `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
 | `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `dataSizeLimit`, `tmpSizeLimit` |
 
 The values are described in detail in the example's `values.yaml`. The

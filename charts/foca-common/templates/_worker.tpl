@@ -66,6 +66,14 @@ spec:
         {{- with include "foca-common.celeryEnv" $root | trim }}
         {{- . | nindent 8 }}
         {{- end }}
+        {{- with $worker.readinessProbe }}
+        readinessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $worker.livenessProbe }}
+        livenessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         resources: {{- toYaml ($worker.resources | default dict) | nindent 10 }}
         securityContext:
           {{- include "foca-common.securityContext" (dict "root" $root "context" $values.securityContext) | nindent 10 }}

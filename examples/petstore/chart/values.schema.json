@@ -302,6 +302,14 @@
           "minimum": 1,
           "description": "Number of worker pods"
         },
+        "readinessProbe": {
+          "type": "object",
+          "description": "Readiness probe of the worker's container; none if empty"
+        },
+        "livenessProbe": {
+          "type": "object",
+          "description": "Liveness probe of the worker's container; none if empty"
+        },
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 0,

@@ -198,6 +198,13 @@ worker:
   # process per CPU of the node)
   command: []
   replicas: 1
+  # Probes of the worker's container (Kubernetes probe specs; none by
+  # default, so its pods are ready once started, also while Celery retries
+  # to connect to the broker), e.g., an `exec` probe that runs
+  # `celery inspect ping` for the pod's worker; such a check starts Python
+  # and creates the app, so give it long periods and timeouts
+  readinessProbe: {}
+  livenessProbe: {}
   # Seconds that the worker gets to finish running tasks after its pod is
   # deleted (Celery's warm shutdown), before it is killed
   terminationGracePeriodSeconds: 30

@@ -870,13 +870,21 @@ CELERY_ENV = {
 }
 
 
+def _selector(component: str) -> dict[str, str]:
+    return {
+        "app.kubernetes.io/name": "petstore",
+        "app.kubernetes.io/instance": "petstore",
+        "app.kubernetes.io/component": component,
+    }
+
+
 def _celery_env(container: dict[str, Any]) -> dict[str, Any]:
     return {name: value for name, value in _env(container).items() if "CELERY" in name}
 
 
 def test_celery_resources(render: Callable[..., Docs]) -> None:
     """The worker and the broker add their resources."""
-    assert set(render(*CELERY)) - set(render()) == {
+    assert set(render(*CELERY)) == set(render()) | {
         ("Deployment", WORKER),
         ("Deployment", BROKER),
         ("ConfigMap", BROKER_CONFIG),
@@ -1054,11 +1062,7 @@ def test_broker_network_policy(render: Callable[..., Docs]) -> None:
     )
     (rule,) = policy["ingress"]
     peers = [peer["podSelector"]["matchLabels"] for peer in rule["from"]]
-    assert [labels["app.kubernetes.io/component"] for labels in peers] == [
-        "app",
-        "worker",
-    ]
-    assert {labels["app.kubernetes.io/instance"] for labels in peers} == {"petstore"}
+    assert peers == [_selector("app"), _selector("worker")]
     assert rule["ports"] == [{"port": 5672, "protocol": "TCP"}]
     docs = render(*CELERY, "--set", "broker.networkPolicy.enabled=false")
     assert ("NetworkPolicy", BROKER) not in docs
@@ -1067,11 +1071,8 @@ def test_broker_network_policy(render: Callable[..., Docs]) -> None:
 def test_mongodb_network_policy_admits_worker(render: Callable[..., Docs]) -> None:
     """MongoDB's NetworkPolicy admits the worker if it is enabled."""
     (rule,) = render(*CELERY)[("NetworkPolicy", MONGODB)]["spec"]["ingress"]
-    components = [
-        peer["podSelector"]["matchLabels"]["app.kubernetes.io/component"]
-        for peer in rule["from"]
-    ]
-    assert components == ["app", "worker"]
+    peers = [peer["podSelector"]["matchLabels"] for peer in rule["from"]]
+    assert peers == [_selector("app"), _selector("worker")]
 
 
 def test_celery_labels(render: Callable[..., Docs]) -> None:
@@ -1113,6 +1114,21 @@ def test_celery_names(chart: Path) -> None:
     docs = index(template(chart, *CELERY, "--set", f"fullnameOverride={long_name}"))
     assert ("Deployment", "a" * 56 + "-worker") in docs
     assert ("Service", "a" * 56 + "-broker") in docs
+
+
+def test_worker_probes(render: Callable[..., Docs]) -> None:
+    """The worker's probes are taken from the values."""
+    probe = {"exec": {"command": ["celery", "inspect", "ping"]}, "periodSeconds": 60}
+    docs = render(
+        *CELERY,
+        "--set-json",
+        f"worker.readinessProbe={json.dumps(probe)}",
+        "--set-json",
+        f"worker.livenessProbe={json.dumps(probe)}",
+    )
+    worker = _container(docs, WORKER)
+    assert worker["readinessProbe"] == probe
+    assert worker["livenessProbe"] == probe
 
 
 def test_broker_settings(render: Callable[..., Docs]) -> None:
