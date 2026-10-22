@@ -30,8 +30,8 @@ _OPERATION_OBJECT_FIELDS = frozenset(
 )
 
 
-# Options passed to Connexion 2 via the `options` argument of `add_api()`,
-# with Connexion's names
+# Options passed to Connexion 2 via the `options` argument of `add_api()`:
+# fields of `ConnexionOptions` and the names of Connexion's options
 _UI_OPTIONS = {
     "swagger_ui": "swagger_ui",
     "serve_spec": "serve_spec",

@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from connexion import App
 from connexion.exceptions import InvalidSpecification
+from pydantic import ValidationError
 from yaml import YAMLError
 
 from foca.api import register_openapi as module
@@ -410,6 +411,12 @@ class TestConnexionAddApiKwargs:
             ConnexionOptions(swagger_ui_path="/docs", options={"swagger_url": "/x"})
         )
         assert kwargs == {"options": {"swagger_url": "/docs"}}
+
+    @pytest.mark.parametrize("path", ["", "/", "//"])
+    def test_swagger_ui_path_invalid(self, path: str) -> None:
+        """Empty or slash-only `swagger_ui_path` values are rejected."""
+        with pytest.raises(ValidationError):
+            ConnexionOptions(swagger_ui_path=path)
 
     def test_swagger_ui_path_served(self) -> None:
         """The Swagger UI is served at `swagger_ui_path` only."""
