@@ -39,7 +39,9 @@ authentication. `client_mapping` maps [service
 clients](../authentication.md#service-tokens) (`security.auth.service_clients`)
 to roles; other clients cannot be mapped. `resource_roles` are the roles
 that the [resource ownership](../access-control.md#resource-ownership) helpers
-grant and revoke. See [Access
+grant and revoke. `policies` can also be given as named rules, so that
+config overlays can change single rules (see [configuring
+policies](../access-control.md#configuring-policies)). See [Access
 control](../access-control.md) for how policies, roles and the permissions API
 work.
 
