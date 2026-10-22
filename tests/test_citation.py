@@ -4,6 +4,7 @@ import datetime
 import importlib.util
 import re
 from pathlib import Path
+from typing import Self
 
 import pytest
 
@@ -143,17 +144,42 @@ def test_main(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert capsys.readouterr().err == ""
 
 
-def test_main_default_date(tmp_path: Path) -> None:
-    """`set` uses the current date (UTC) by default."""
+def test_main_default_date(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`set` uses the current date in UTC by default."""
+
+    class Clock(datetime.datetime):
+        """Clock at a time that is a day later in UTC than in UTC-1."""
+
+        @classmethod
+        def now(cls, tz: datetime.tzinfo | None = None) -> Self:
+            """Return the time in a time zone (local time if `None`)."""
+            utc = cls(2026, 10, 23, 0, 30, tzinfo=datetime.UTC)
+            return utc.astimezone(tz or datetime.timezone(-datetime.timedelta(hours=1)))
+
+    monkeypatch.setattr(citation.datetime, "datetime", Clock)
     path = tmp_path / "CITATION.cff"
     path.write_text(TEXT, encoding="utf-8")
-    before = datetime.datetime.now(datetime.UTC).date()
     assert citation.main(["set", "1.0.0"], path) == 0
-    after = datetime.datetime.now(datetime.UTC).date()
-    text = path.read_text(encoding="utf-8")
-    assert any(
-        f'\ndate-released: "{date.isoformat()}"\n' in text for date in (before, after)
-    )
+    assert '\ndate-released: "2026-10-23"\n' in path.read_text(encoding="utf-8")
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_main_write_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed write leaves the file and no temporary file behind."""
+    path = tmp_path / "CITATION.cff"
+    path.write_text(TEXT, encoding="utf-8")
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        """Fail like a full disk."""
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(Path, "replace", fail)
+    assert citation.main(["set", "1.0.0"], path) == 1
+    assert "No space left on device" in capsys.readouterr().err
+    assert path.read_text(encoding="utf-8") == TEXT
+    assert not list(tmp_path.glob(".*.tmp"))
 
 
 @pytest.mark.parametrize("date", ["soon", "20261023", "2026-02-30"])

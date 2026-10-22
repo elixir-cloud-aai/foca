@@ -184,6 +184,21 @@ def check_release(text: str, version: str, today: datetime.date) -> None:
         raise ValueError(f"'date-released' {released} is in the future (UTC)")
 
 
+def _write(path: Path, text: str) -> None:
+    """Replace a file atomically, so that it is never left half-written.
+
+    Args:
+        path: File.
+        text: New content.
+    """
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def main(argv: Sequence[str] | None = None, path: Path = CITATION) -> int:
     """Run a command (see the module's docstring).
 
@@ -215,7 +230,7 @@ def main(argv: Sequence[str] | None = None, path: Path = CITATION) -> int:
         text = path.read_text(encoding="utf-8")
         if args.command == "set":
             text = set_release(text, args.version, args.date or today)
-            path.write_text(text, encoding="utf-8")
+            _write(path, text)
         else:
             check_release(text, args.version, today)
     except (OSError, ValueError) as error:
