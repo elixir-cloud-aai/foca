@@ -1,4 +1,16 @@
 version: 2
+
+# Docker Hub credentials for image updates, as anonymous pulls fail for
+# the helm job; Dependabot secrets (not Actions secrets) with a personal
+# access token of scope "Public Repo Read-only"
+registries:
+  dockerhub:
+    type: docker-registry
+    url: https://registry.hub.docker.com
+    username: ${{secrets.DOCKERHUB_LOGIN}}
+    password: ${{secrets.DOCKERHUB_TOKEN}}
+    replaces-base: true
+
 updates:
   - package-ecosystem: pip
     directories: ["/", "/requirements"]
@@ -34,6 +46,7 @@ updates:
   - package-ecosystem: docker
     directory: /docker
     target-branch: dev
+    registries: [dockerhub]
     schedule:
       interval: weekly
 
@@ -45,6 +58,7 @@ updates:
   - package-ecosystem: helm
     directory: /examples/petstore/chart
     target-branch: dev
+    registries: [dockerhub]
     schedule:
       interval: weekly
     ignore:
