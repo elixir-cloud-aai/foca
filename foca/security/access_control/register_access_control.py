@@ -5,9 +5,10 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+import pymongo
 import yaml
 from connexion import App
-from pymongo.errors import PyMongoError
+from pymongo.errors import ConnectionFailure, PyMongoError
 
 from foca.api.register_openapi import _connexion_add_api_kwargs
 from foca.config.access import get_app_config
@@ -27,6 +28,7 @@ from foca.models.config import (
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
 )
 from foca.security.access_control.enforcement import AccessControlResolver
@@ -365,27 +367,45 @@ def register_casbin_enforcer(
 def _remove_policies(adapter: Adapter) -> None:
     """Remove stored configured policy rules, if any.
 
-    If the database is not available, a warning is logged instead, so that
-    apps that do not configure policy rules start without it, as before.
+    If the database cannot be reached while checking for configured rules,
+    within `CONFIGURED_POLICIES_CHECK_TIMEOUT` seconds, a warning is logged
+    instead, so that apps that do not configure policy rules start without
+    it, as before. Other errors of the check, and all errors while removing
+    stored configured rules, are raised, so that apps do not start with
+    rules removed from their configuration, as with `policies` set.
 
     Args:
         adapter: Casbin adapter of the app.
+
+    Raises:
+        pymongo.errors.PyMongoError: Checking for stored configured rules
+            failed other than for lack of the database, or removing them
+            failed.
     """
     try:
-        if adapter.has_configured_policies():
-            # E.g., set via a config overlay that was removed since
-            logger.warning(
-                "Removing stored configured policy rules, as "
-                "'security.access_control.policies' is not set."
-            )
-            adapter.set_configured_policies([])
+        # Shorter than the client's server selection timeout (30 s by
+        # default), e.g., than the worker timeout of gunicorn
+        with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
+            configured = adapter.has_configured_policies()
     except PyMongoError as exc:
+        # Also timeouts of the operation itself, as within the timeout
+        if not (isinstance(exc, ConnectionFailure) or exc.timeout):
+            raise
         logger.warning(
-            "Could not remove stored configured policy rules, as "
-            "'security.access_control.policies' is not set; configured rules "
-            "stored before stay in effect until the next startup: %s",
+            "Could not check for stored configured policy rules, as "
+            "'security.access_control.policies' is not set and the database "
+            "is not available; configured rules stored before stay in effect "
+            "until the next startup: %s",
             exc,
         )
+        return
+    if configured:
+        # E.g., set via a config overlay that was removed since
+        logger.warning(
+            "Removing stored configured policy rules, as "
+            "'security.access_control.policies' is not set."
+        )
+        adapter.set_configured_policies([])
 
 
 def _add_policies(

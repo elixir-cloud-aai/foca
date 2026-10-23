@@ -1,6 +1,7 @@
 """Tests for registering the Casbin enforcer."""
 
 import logging
+import time
 from collections.abc import Mapping
 from typing import Any
 from unittest.mock import MagicMock
@@ -10,7 +11,12 @@ import pytest
 from connexion import App
 from pymongo import MongoClient
 from pymongo.collection import Collection
-from pymongo.errors import ServerSelectionTimeoutError
+from pymongo.errors import (
+    ConnectionFailure,
+    OperationFailure,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+)
 
 from foca.database import register_mongodb
 from foca.models.config import AccessControlConfig, MongoConfig
@@ -215,7 +221,69 @@ class TestPolicies:
         monkeypatch.setattr(module.logger, "disabled", False)
         with caplog.at_level(logging.WARNING, logger=module.logger.name):
             _register_policies(None)
-        assert "Could not remove stored configured policy rules" in caplog.text
+        assert "Could not check for stored configured policy rules" in caplog.text
+
+    def test_unset_check_times_out(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The check for configured rules gives up soon without database.
+
+        Rather than after the client's server selection timeout (30 s by
+        default).
+        """
+        monkeypatch.setattr(module, "CONFIGURED_POLICIES_CHECK_TIMEOUT", 0.1)
+        # Nothing listens on port 1; the client connects only when used
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            "mongodb://127.0.0.1:1", connect=False
+        )
+        adapter = module.Adapter(collection=client["db"]["rules"])
+        monkeypatch.setattr(module.logger, "disabled", False)
+        start = time.monotonic()
+        with caplog.at_level(logging.WARNING, logger=module.logger.name):
+            module._remove_policies(adapter)
+        client.close()
+        assert time.monotonic() - start < 10
+        assert "Could not check for stored configured policy rules" in caplog.text
+
+    def test_unset_check_error(
+        self,
+        clients: MongoClient[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Errors other than connection failures from the check are raised."""
+
+        def denied(self: Any) -> bool:
+            raise OperationFailure("not authorized")
+
+        monkeypatch.setattr(module.Adapter, "has_configured_policies", denied)
+        with pytest.raises(OperationFailure):
+            _register_policies(None)
+
+    @pytest.mark.parametrize(
+        "error",
+        [OperationFailure("not authorized"), ConnectionFailure("lost")],
+    )
+    def test_unset_removal_error(
+        self,
+        clients: MongoClient[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+        error: PyMongoError,
+    ) -> None:
+        """Errors while removing stored configured rules are raised.
+
+        Also connection failures, so that apps do not start with rules that
+        were removed from their configuration, as with `policies` set.
+        """
+        _register_policies(POLICIES)
+
+        def fail(self: Any, rules: list[list[str]]) -> None:
+            raise error
+
+        monkeypatch.setattr(module.Adapter, "set_configured_policies", fail)
+        with pytest.raises(type(error)):
+            _register_policies(None)
 
     def test_all_removed(self, clients: MongoClient[dict[str, Any]]) -> None:
         """With empty policies, all configured rules are removed."""
