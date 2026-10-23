@@ -44,6 +44,10 @@
         "existingClaim": {
           "type": "string",
           "description": "Existing PersistentVolumeClaim to use instead of the component's own"
+        },
+        "resourcePolicy": {
+          "enum": ["", "keep"],
+          "description": "keep: Helm keeps the component's own PersistentVolumeClaim (and its data) when the release is uninstalled or the claim is removed from it; empty: Helm deletes it"
         }
       },
       "description": "Volume with a component's data: a PersistentVolumeClaim if enabled, otherwise an emptyDir"
@@ -421,7 +425,10 @@
             {
               "properties": {
                 "enabled": {
-                  "description": "Keep MongoDB's data in a PersistentVolumeClaim (also if not set); otherwise in an emptyDir (limited to size, if set), so that the data is lost when its pod is replaced; disabling it for an existing release deletes the claim and its data"
+                  "description": "Keep MongoDB's data in a PersistentVolumeClaim (also if not set); otherwise in an emptyDir (limited to size, if set), so that the data is lost when its pod is replaced"
+                },
+                "resourcePolicy": {
+                  "description": "keep (also if not set): Helm keeps MongoDB's claim (and the database) when the release is uninstalled or the claim is removed from it, e.g., by disabling persistence; empty: Helm deletes it"
                 }
               }
             }
@@ -537,6 +544,9 @@
               "properties": {
                 "enabled": {
                   "description": "Keep the broker's data (queued tasks) in a PersistentVolumeClaim; otherwise (also if not set) in an emptyDir, so that queued tasks are lost when its pod is replaced"
+                },
+                "resourcePolicy": {
+                  "description": "keep: Helm keeps the broker's claim when the release is uninstalled; empty (also if not set): Helm deletes it, as queued tasks can be rebuilt"
                 }
               }
             }

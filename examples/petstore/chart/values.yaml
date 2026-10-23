@@ -198,9 +198,11 @@ mongodb:
   # class if empty, `-` for no dynamic provisioning), or the existing claim
   # `existingClaim`. If disabled, the data is kept in an `emptyDir` (limited
   # to `size`) and lost when MongoDB's pod is replaced, e.g., for tests.
-  # Disabling it (or switching to an existing claim) for an existing release
-  # deletes the chart's claim and its data, unless the claim is annotated
-  # with `helm.sh/resource-policy: keep` first (see the docs).
+  # With `resourcePolicy: keep`, Helm keeps the claim (and the database) when
+  # the release is uninstalled, or when the claim is removed from it (by
+  # disabling persistence or switching to an existing claim); reinstalling
+  # the release with the same name and namespace uses it again. Delete the
+  # claim by hand to remove the data. Empty: Helm deletes the claim.
   # Replaces `volumeSize`, the setting up to foca-common 0.1.0 (deprecated
   # since 0.2.0; it still sets `size`, but rendering fails if both are set)
   persistence:
@@ -209,6 +211,7 @@ mongodb:
     accessModes: ["ReadWriteOnce"]
     storageClass: ""
     existingClaim: ""
+    resourcePolicy: keep
   # Security contexts of the pod and the container; the image starts as root
   # and switches to user `mongodb` (999), so the user is set here, and
   # `fsGroup` makes the data volume writable for it. On OpenShift,
@@ -329,13 +332,15 @@ broker:
   # `existingSecret` only when it starts with empty data: after changing the
   # Secret's password, also change the user's (`rabbitmqctl change_password`
   # in the broker's pod). If disabled, the data is kept in an `emptyDir`, and
-  # queued tasks are lost when the broker's pod is replaced
+  # queued tasks are lost when the broker's pod is replaced. Helm deletes the
+  # claim when the release is uninstalled, unless `resourcePolicy` is `keep`
   persistence:
     enabled: true
     size: 1Gi
     accessModes: ["ReadWriteOnce"]
     storageClass: ""
     existingClaim: ""
+    resourcePolicy: ""
   # Size limits of the `emptyDir`s with the broker's home (and, without
   # `persistence`, its data) and at `/tmp` (the pod is evicted if they are
   # exceeded): quantities (e.g., `1Gi`) or numbers of bytes; `null` for none

@@ -128,7 +128,7 @@ and the settings (`settings`), one per file:
 | `foca-common.mongodbDeployment` | MongoDB's `Deployment`, unless `mongodb.enabled` is false |
 | `foca-common.mongodbInitScript` | `ConfigMap` with MongoDB's init script, if `mongodb.auth.enabled` |
 | `foca-common.mongodbNetworkPolicy` | MongoDB's `NetworkPolicy`, if `mongodb.networkPolicy.enabled` |
-| `foca-common.mongodbPersistentVolumeClaim` | MongoDB's data volume, unless `mongodb.enabled` or `mongodb.persistence.enabled` is false (both true if not set), without `mongodb.persistence.existingClaim` |
+| `foca-common.mongodbPersistentVolumeClaim` | MongoDB's data volume, unless `mongodb.enabled` or `mongodb.persistence.enabled` is false (both true if not set), without `mongodb.persistence.existingClaim`; kept on uninstallation unless `mongodb.persistence.resourcePolicy` is empty |
 | `foca-common.mongodbService` | MongoDB's `Service` (port 27017), the host of `db.host` in the overlay |
 | `foca-common.workerDeployment` | the Celery worker's `Deployment`, if `worker.enabled` |
 | `foca-common.brokerStatefulSet` | the broker's (RabbitMQ's) `StatefulSet`, if `broker.enabled` (`foca-common.brokerDeployment`, the name up to 0.1.0, is a deprecated alias) |
@@ -465,12 +465,25 @@ them (e.g., its health check ranges).
   foca-common 0.1.0). With `mongodb.persistence.enabled: false` (e.g., for
   tests), the data is kept in an `emptyDir` (limited to
   `mongodb.persistence.size`, if set) and lost when the pod is replaced, and
-  the init script runs on every new pod. Disabling persistence or switching
-  to an `existingClaim` for an existing release deletes the chart's claim
-  (and, with the usual reclaim policy `Delete`, its data) on upgrade. To
-  keep the claim, e.g., to manage it outside the release under its name,
-  annotate it first (`kubectl annotate pvc my-app-mongodb
-  helm.sh/resource-policy=keep`), then set it as `existingClaim`.
+  the init script runs on every new pod.
+
+    Helm keeps the claim, and with it the database, when the release is
+    uninstalled, and when the claim is removed from the release by
+    disabling persistence or switching to an `existingClaim`: the claim is
+    annotated with `helm.sh/resource-policy: keep`
+    (`mongodb.persistence.resourcePolicy: keep`, also if not set). A new
+    release of the same name in the same namespace adopts the kept claim,
+    with its data and the app user (the init script does not run again); a
+    release of another name fails on the existing claim, unless it is set
+    as that release's `existingClaim`. To remove the data, delete the claim
+    by hand after uninstalling the release (`kubectl delete pvc
+    my-app-mongodb`). With an empty `resourcePolicy`, Helm deletes the
+    claim (and, with the usual reclaim policy `Delete`, the data) with the
+    release or when it is removed from it; to keep it once, e.g., to manage
+    it outside the release under its name, annotate it first (`kubectl
+    annotate pvc my-app-mongodb helm.sh/resource-policy=keep`), then set it
+    as `existingClaim`. The broker's claim is not kept by default, as its
+    queue can be rebuilt (`broker.persistence.resourcePolicy`).
 
     `mongodb.volumeSize`, the setting up to foca-common 0.1.0, is
     deprecated since 0.2.0 but still sets the claim's size; the claim keeps
