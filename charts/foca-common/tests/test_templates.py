@@ -31,6 +31,24 @@ NO_INGRESS = ("--set", "petstore.ingress.enabled=false")
 ROUTE_API = ("--api-versions", "route.openshift.io/v1")
 OPENSHIFT_API = ("--api-versions", "security.openshift.io/v1")
 BODY_SIZE = "nginx.ingress.kubernetes.io/proxy-body-size"
+# Peers of the app's NetworkPolicy (the petstore example has none by default)
+PEERS = [
+    {
+        "namespaceSelector": {
+            "matchLabels": {"kubernetes.io/metadata.name": "envoy-gateway-system"}
+        }
+    }
+]
+# Template of an app chart rendering the app's size limit of request bodies
+LIMIT_TEMPLATE = """
+{{- $context := dict "root" . "settings" (include "petstore.settings" . | fromYaml) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: limit
+data:
+  limit: {{ include "foca-common.maxContentLength" $context | quote }}
+"""
 # Settings of the app exercising all settings of the library chart
 FULL_SETTINGS = """
 valuesKey: petstore
@@ -214,15 +232,18 @@ def test_values_key_must_be_map(
 
 def test_all_settings(chart_with_settings: Callable[[str], Path]) -> None:
     """All settings of the app take effect."""
-    docs = index(template(chart_with_settings(FULL_SETTINGS), *AUDIENCE))
+    chart = chart_with_settings(FULL_SETTINGS)
+    (chart / "templates" / "limit.yaml").write_text(LIMIT_TEMPLATE)
+    docs = index(template(chart, *AUDIENCE))
     container = _container(docs)
     assert container["name"] == "store"
     assert _env(container)["FOCA_CONFIG_OVERLAY"] == "/etc/store/overlay.yaml"
     assert container["volumeMounts"][0]["mountPath"] == "/etc/store"
     overlay = _overlay(docs)
     assert overlay["custom"] == {"public_url": "https://petstore.example.org/"}
-    annotations = docs[("Ingress", APP)]["metadata"]["annotations"]
-    assert annotations[BODY_SIZE] == "1048576"
+    assert docs[("ConfigMap", "limit")]["data"] == {"limit": "1048576"}
+    # The size limit sets no annotation of a particular ingress controller
+    assert "annotations" not in docs[("Ingress", APP)]["metadata"]
     script = docs[("ConfigMap", INIT_SCRIPT)]["data"]["create-app-user.js"]
     assert "db.getSiblingDB('pets')" in script
     assert (
@@ -988,29 +1009,49 @@ def test_ingress_annotations(render: Callable[..., Docs]) -> None:
     ingress = render(
         "--set",
         "petstore.ingress.https.enabled=true",
-        "--set",
-        "config.server.max_content_length=2048",
         "--set-json",
         f"petstore.ingress.annotations={json.dumps(annotations)}",
     )[("Ingress", APP)]
     assert ingress["metadata"]["annotations"] == {
         "a": "b",
         "cert-manager.io/cluster-issuer": "letsencrypt-prod",
-        BODY_SIZE: "2048",
     }
+
+
+def test_ingress_body_size_opt_in(render: Callable[..., Docs]) -> None:
+    """The app's size limit sets no annotation; controllers' are opt-in."""
+    limit = ("--set", "config.server.max_content_length=2048")
+    assert "annotations" not in render(*limit)[("Ingress", APP)]["metadata"]
+    ingress = render(
+        *limit, "--set-json", f'petstore.ingress.annotations={{"{BODY_SIZE}": "1m"}}'
+    )[("Ingress", APP)]
+    assert ingress["metadata"]["annotations"] == {BODY_SIZE: "1m"}
 
 
 @pytest.mark.parametrize("value", ["0", "1.5", '"1m"'])
 def test_max_content_length_invalid(chart: Path, value: str, tmp_path: Path) -> None:
-    """Invalid maximum content lengths fail."""
+    """Invalid maximum content lengths fail, also without an Ingress."""
     # Bypasses the schema, which rejects these values already
     chart_copy = tmp_path / "chart"
     shutil.copytree(chart, chart_copy)
     (chart_copy / "values.schema.json").unlink()
     error = template_error(
-        chart_copy, "--set-json", f"config.server.max_content_length={value}"
+        chart_copy,
+        *NO_INGRESS,
+        "--set-json",
+        f"config.server.max_content_length={value}",
     )
     assert "must be a positive integer" in error
+
+
+def test_max_content_length(chart_with_settings: Callable[[str], Path]) -> None:
+    """The overlay's size limit takes precedence over that of the settings."""
+    chart = chart_with_settings(FULL_SETTINGS)
+    (chart / "templates" / "limit.yaml").write_text(LIMIT_TEMPLATE)
+    docs = index(
+        template(chart, *AUDIENCE, "--set", "config.server.max_content_length=2048")
+    )
+    assert docs[("ConfigMap", "limit")]["data"] == {"limit": "2048"}
 
 
 def test_ingress_host_required(render_error: Callable[..., str]) -> None:
@@ -1034,6 +1075,18 @@ def test_route(render: Callable[..., Docs]) -> None:
     assert route["spec"]["tls"]["termination"] == "edge"
     # An Ingress takes precedence
     assert ("Route", APP) not in render(*ROUTE_API)
+
+
+def test_route_disabled(render: Callable[..., Docs]) -> None:
+    """route.enabled false renders no Route, also on OpenShift."""
+    docs = render(*NO_INGRESS, *ROUTE_API, "--set", "petstore.route.enabled=false")
+    assert ("Route", APP) not in docs
+
+
+def test_route_without_enabled(render: Callable[..., Docs]) -> None:
+    """Values without route.enabled (foca-common 0.1.0) keep the Route."""
+    docs = render(*NO_INGRESS, *ROUTE_API, "--set-json", "petstore.route=null")
+    assert ("Route", APP) in docs
 
 
 def test_route_annotations(render: Callable[..., Docs]) -> None:
@@ -1279,6 +1332,7 @@ def test_https_redirect_name_collision_fails(render_error: Callable[..., str]) -
         ("--set-json", 'petstore.httpRoute.filters=[{"requestRedirect": {}}]'),
         ("--set", "petstore.httpRoute.unknown=true"),
         ("--set", "petstore.route.unknown=true"),
+        ("--set", "petstore.route.enabled=maybe"),
     ],
 )
 def test_schema_rejects_invalid_http_route_values(
@@ -1292,31 +1346,34 @@ def test_schema_rejects_invalid_http_route_values(
 
 
 def test_app_network_policy(render: Callable[..., Docs]) -> None:
-    """The app's NetworkPolicy admits the ingress peers."""
-    docs = render("--set", "petstore.networkPolicy.enabled=true")
-    policy = docs[("NetworkPolicy", APP)]["spec"]
-    assert policy["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "app"
-    (rule,) = policy["ingress"]
-    assert rule["from"] == [
-        {
-            "namespaceSelector": {
-                "matchLabels": {"kubernetes.io/metadata.name": "ingress-nginx"}
-            }
-        }
-    ]
-    assert rule["ports"] == [{"port": 8080, "protocol": "TCP"}]
-
-
-def test_app_network_policy_needs_peers(
-    render_error: Callable[..., str],
-) -> None:
-    """The app's NetworkPolicy needs at least one peer."""
-    error = render_error(
+    """The app's NetworkPolicy admits the given peers."""
+    docs = render(
         "--set",
         "petstore.networkPolicy.enabled=true",
         "--set-json",
-        "petstore.networkPolicy.ingressFrom=null",
+        f"petstore.networkPolicy.ingressFrom={json.dumps(PEERS)}",
     )
+    policy = docs[("NetworkPolicy", APP)]["spec"]
+    assert policy["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "app"
+    (rule,) = policy["ingress"]
+    assert rule["from"] == PEERS
+    assert rule["ports"] == [{"port": 8080, "protocol": "TCP"}]
+
+
+@pytest.mark.parametrize(
+    "peers",
+    [
+        (),
+        ("--set-json", "petstore.networkPolicy.ingressFrom=[]"),
+        ("--set-json", "petstore.networkPolicy.ingressFrom=null"),
+    ],
+    ids=["default", "empty", "null"],
+)
+def test_app_network_policy_needs_peers(
+    render_error: Callable[..., str], peers: tuple[str, ...]
+) -> None:
+    """The app's NetworkPolicy has no default peers and needs at least one."""
+    error = render_error("--set", "petstore.networkPolicy.enabled=true", *peers)
     assert "ingressFrom must list at least one" in error
 
 
@@ -1413,9 +1470,9 @@ def test_checks_use_generated_config(
 ) -> None:
     """Checks use the config that the app's settings generate."""
     chart = chart_with_settings(GENERATED_CONFIG_SETTINGS)
+    (chart / "templates" / "limit.yaml").write_text(LIMIT_TEMPLATE)
     docs = index(template(chart, "--set", "mongodb.enabled=false"))
-    annotations = docs[("Ingress", APP)]["metadata"]["annotations"]
-    assert annotations[BODY_SIZE] == "4096"
+    assert docs[("ConfigMap", "limit")]["data"] == {"limit": "4096"}
     assert _overlay(docs)["db"] == {"host": "mongodb.example.org"}
 
 

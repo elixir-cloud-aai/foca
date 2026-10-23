@@ -1,9 +1,9 @@
 {{/*
-Ingress for `hostName`, if `<valuesKey>.ingress.enabled`. Annotations from
-`ingress.annotations` take precedence over those set by the chart: the app's
-size limit of request bodies for ingress-nginx (in bytes; see
-`foca-common.maxContentLength`), and those requesting a certificate from
-cert-manager; `null` removes them. Call with the context dict.
+Ingress for `hostName`, if `<valuesKey>.ingress.enabled`, for any ingress
+controller: the chart sets no controller-specific annotations (e.g., for
+body sizes or rate limits), which `ingress.annotations` add. These take
+precedence over the annotations requesting a certificate from cert-manager
+(`ingress.https`); `null` removes them. Call with the context dict.
 */}}
 {{- define "foca-common.ingress" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -14,9 +14,6 @@ cert-manager; `null` removes them. Call with the context dict.
 {{- $hostName := required (printf "hostName must be set if %s.ingress.enabled" $key) $root.Values.hostName -}}
 {{- $https := $ingress.https | default dict -}}
 {{- $annotations := dict -}}
-{{- with include "foca-common.maxContentLength" . -}}
-{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-body-size" . -}}
-{{- end -}}
 {{- if $https.enabled -}}
 {{- $_ := set $annotations "cert-manager.io/cluster-issuer" (required (printf "%s.ingress.https.issuer must be set if %s.ingress.https.enabled" $key $key) $https.issuer) -}}
 {{- $_ := set $annotations "kubernetes.io/tls-acme" "true" -}}

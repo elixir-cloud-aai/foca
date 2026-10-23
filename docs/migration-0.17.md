@@ -52,17 +52,21 @@ The library chart `foca-common` is released separately (`chart-v0.2.0`).
 App charts written for 0.1.0 render with 0.2.0 as they are, with the broker
 as a StatefulSet (see [below](#broker-statefulset-and-persistence)) but
 without its persistence, with MongoDB unchanged (see [MongoDB
-persistence](#mongodb-persistence)), and without the new features. To
+persistence](#mongodb-persistence)), without the ingress-nginx annotation
+for body sizes (see [No ingress-nginx
+defaults](#no-ingress-nginx-defaults)), and without the new features. To
 upgrade an app chart:
 
 1. Set `version: 0.2.0` for `foca-common` in `Chart.yaml` and run `helm
    dependency update`.
 2. Copy the new values from the petstore example's `values.yaml`:
-   `<valuesKey>.httpRoute`, `<valuesKey>.route`, `mongodb.persistence`
-   (instead of `mongodb.volumeSize`) and, with the bundled broker,
-   `broker.persistence`; copy the library's new `app-values.schema.json` as
-   `values.schema.json`, too, and add the app's key again (see
-   [Values](helm-chart.md#values)).
+   `<valuesKey>.httpRoute`, `<valuesKey>.route` (with `enabled` and
+   `annotations`), `mongodb.persistence` (instead of `mongodb.volumeSize`)
+   and, with the bundled broker, `broker.persistence`; copy the library's
+   new `app-values.schema.json` as `values.schema.json`, too, and add the
+   app's key again (see [Values](helm-chart.md#values)). Drop defaults for
+   a particular ingress controller from the app chart's values, as the
+   petstore example did (see [below](#no-ingress-nginx-defaults)).
 3. Add template files (see [Templates](helm-chart.md#templates)) for
     - `foca-common.httpRoute` and `foca-common.httpsRedirectRoute`, to expose
       the app via the [Gateway API](helm-chart.md#gateway-api) (the petstore
@@ -74,6 +78,37 @@ upgrade an app chart:
 4. Optionally, rename `foca-common.brokerDeployment` to
    `foca-common.brokerStatefulSet` (`broker-statefulset.yaml`); the old name
    is a deprecated alias, which renders the StatefulSet, too.
+
+### No ingress-nginx defaults
+
+foca-common 0.2.0 has no defaults for a particular ingress controller
+(ingress-nginx is
+[retired](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/));
+annotations and NetworkPolicy peers for one go into the values, with
+examples per setup in [Exposing the app](helm-chart.md#exposing-the-app):
+
+- **Body size:** the Ingress no longer sets
+  `nginx.ingress.kubernetes.io/proxy-body-size` to the app's limit
+  (`config.server.max_content_length`). With ingress-nginx, its default
+  limit of 1 MiB then applies at the proxy; for apps that accept larger
+  bodies, set the annotation in `<valuesKey>.ingress.annotations`, e.g.,
+  `nginx.ingress.kubernetes.io/proxy-body-size: 8m` (see
+  [ingress-nginx](helm-chart.md#ingress-nginx)). Other controllers ignored
+  the annotation. The app's own limit applies as before; rendering still
+  fails if it is not a positive integer, now also without an Ingress. The
+  setting `maxContentLength` and the helper `foca-common.maxContentLength`
+  stay, for resources of the app chart's own.
+- **NetworkPolicy peers:** the petstore example's
+  `<valuesKey>.networkPolicy.ingressFrom` is empty instead of the namespace
+  `ingress-nginx`, and the schema allows an empty list (as a default);
+  enabling the policy without peers still fails to render. App charts that
+  copied the old default should drop it too, and deployments that enable
+  the policy set their peers (see [NetworkPolicy
+  peers](helm-chart.md#networkpolicy-peers)).
+- **OpenShift Route:** `<valuesKey>.route.enabled: false` turns off the
+  Route, which serves all paths, e.g., for a Route or HTTPRoute of your own
+  that serves only some paths. Values without it (as for 0.1.0) keep the
+  Route.
 
 ### Broker StatefulSet and persistence
 
@@ -198,8 +233,9 @@ behind `grant_role()` ([details](access-control.md#resource-ownership)).
   With the Helm chart, give them inline in the `config` value.
 - **Gateway API:** the Helm chart exposes the app via an `HTTPRoute`, with an
   optional redirect from HTTP to HTTPS, as an alternative to the Ingress
-  ([details](helm-chart.md#exposing-the-app)), and sets annotations of the
-  OpenShift Route (`<valuesKey>.route.annotations`).
+  ([details](helm-chart.md#exposing-the-app)), sets annotations of the
+  OpenShift Route (`<valuesKey>.route.annotations`) and can turn it off
+  (`<valuesKey>.route.enabled`).
 - **Supply chain:** images and the Helm chart are published with attestations
   and signatures; see [Verifying images and
   charts](deployment.md#verifying-images-and-charts) for how to check them
