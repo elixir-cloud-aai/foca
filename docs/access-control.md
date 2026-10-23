@@ -234,9 +234,10 @@ warning. Other stored rules (e.g., added via the permissions API) are kept,
 also if they have the values of a configured rule. With `policies: []`, all
 configured rules are removed. Without `policies`, stored configured rules
 are removed, too, with a warning (e.g., if they were set via a config
-overlay that was removed since); apps that never configured rules only check
+overlay that was removed since). Apps that never configured rules only check
 for them, and start without the database, with a warning, if it is not
-available.
+available within 5 seconds; if configured rules are stored, the app refuses
+to start if removing them fails, as it does if storing them fails.
 
 Configured rules are replaced atomically, so that requests are always
 checked against either the previous or the new configured rules, never a
@@ -270,7 +271,9 @@ a later version replaces them.
 !!! warning "Apps sharing a policy collection"
     All apps using the same policy collection must configure the same rules:
     each startup replaces the configured rules of the others, also if
-    `policies` is not set.
+    `policies` is not set. By default, all FOCA apps on the same MongoDB
+    server use the same policy collection (`access_control_db.policy_rules`):
+    apps on a shared external MongoDB must set their own `db_name`.
 
 Rules can also be given as a mapping of names to rules (named rules), so
 that config overlays can add, change or remove (`null`) single rules without
