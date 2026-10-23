@@ -149,12 +149,11 @@ Pushing the tag triggers the [release workflow][release-workflow], which
 checks that the tagged commit is on `main` and that its `CITATION.cff` has
 the release version and a date that is not in the future (UTC), pushes the
 Docker images by digest (untagged, before any approval) and scans them for
-vulnerabilities,
-publishes the distributions to PyPI (after approval in the `pypi`
-environment), attests and signs exactly the scanned images and tags them
-`X.Y.Z` and `latest`, and creates a GitHub release with generated notes.
-Tags of alpha, beta and release candidate versions (e.g., `vX.Y.Zrc1`) do
-not update `latest`. These and, until 1.0.0, all other
+vulnerabilities, publishes the distributions to PyPI (after approval in the
+`pypi` environment), attests and signs exactly the scanned images and tags
+them `X.Y.Z` and `latest`, and creates a GitHub release with generated
+notes. Tags of alpha, beta and release candidate versions (e.g.,
+`vX.Y.Zrc1`) do not update `latest`. These and, until 1.0.0, all other
 releases are GitHub pre-releases (never marked as the latest release).
 
 A tag ruleset allows only admins to create `v*` and `chart-v*` tags and

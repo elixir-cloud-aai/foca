@@ -312,6 +312,5 @@ repository's code scanning alerts. From FOCA 0.17.0 on, the published images
 (release and `dev` images) are the scanned ones: the workflows push each
 image by digest, untagged, scan exactly that digest, and only if the scan
 passes (no fixable critical or high vulnerabilities, except accepted ones)
-sign and tag it. Images
-derived from FOCA's image (e.g., apps) need their own scans, as they add
-packages.
+sign and tag it. Images derived from FOCA's image (e.g., apps) need their
+own scans, as they add packages.
