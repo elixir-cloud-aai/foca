@@ -185,7 +185,10 @@ class Adapter(persist.Adapter):
             configured: Whether to store the rule as set via the app's
                 configuration (`access_control.policies`), in the active
                 generation (cf. :py:meth:`set_configured_policies`); it is
-                then removed when configured rules are next replaced.
+                then removed when configured rules are next replaced. Not
+                safe while configured rules are replaced concurrently, as
+                the rule may then join a generation that is no longer
+                active.
 
         Returns:
             Identifier of the stored rule.
@@ -638,7 +641,9 @@ class Adapter(persist.Adapter):
             document[CONFIGURED_FIELD] = True
             document[RULE_GENERATIONS_FIELD] = [generation]
             id = self._insert(document)
-            logger.info("Added configured policy rule '%s'", id)
+            logger.info(
+                "Stored configured policy rule '%s' (generation '%s')", id, generation
+            )
 
     def _activate_generation(self, generation: str) -> str:
         """Make a generation of configured rules the active one.
