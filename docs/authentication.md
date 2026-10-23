@@ -135,9 +135,9 @@ validation is disabled, or expired tokens are accepted.
     Identity providers issue other JWTs than access tokens, e.g., ID tokens,
     which contain user information for the client and are not meant to be
     sent to resource servers. FOCA tells access tokens apart by their `typ`
-    header, which RFC 9068 requires to be `at+jwt`. Only if your identity
-    provider does not set the `typ` header of its access tokens, set
-    `verify_token_type: false`: then any JWT issued by a trusted issuer is
+    header, `at+jwt` or `application/at+jwt` as per RFC 9068 (both are
+    accepted by default). Only if your identity provider does not set the
+    `typ` header of its access tokens, set `verify_token_type: false`: then any JWT issued by a trusted issuer is
     accepted, including ID tokens. If it sets another value, list it in
     `token_types` instead; note that a generic type such as `JWT` does not
     tell access tokens apart from ID tokens either, so that the `audience`
