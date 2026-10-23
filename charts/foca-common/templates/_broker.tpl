@@ -166,11 +166,13 @@ broker's own claim; empty otherwise, also without a `broker.persistence` map
 {{/*
 Arguments of `foca-common.claimName` and `foca-common.persistentVolumeClaim`
 for the broker, as JSON (templates return strings): persistence is disabled
-if `broker.persistence.enabled` is not set. Call with the root context.
+if `broker.persistence.enabled` is not set, and the claim is deleted with the
+release (its queue can be rebuilt) unless `broker.persistence.resourcePolicy`
+is `keep`. Call with the root context.
 */}}
 {{- define "foca-common.brokerPersistence" -}}
 {{- $persistence := dig "persistence" dict (.Values.broker | default dict) | default dict -}}
-{{- dict "persistence" $persistence "name" (include "foca-common.brokerFullname" .) "enabledByDefault" false "key" "broker.persistence" | toJson -}}
+{{- dict "persistence" $persistence "name" (include "foca-common.brokerFullname" .) "enabledByDefault" false "resourcePolicyByDefault" "" "key" "broker.persistence" | toJson -}}
 {{- end -}}
 
 {{/*
