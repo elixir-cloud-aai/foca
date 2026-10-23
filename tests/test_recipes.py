@@ -1,8 +1,8 @@
 """Tests for configuration recipes of the documentation.
 
 Recipe "require login for all reads except `/service-info`": an operator
-overlay patches the app's API specification and adds a policy rule, without
-restating the app's specs or policies.
+overlay patches the app's API specification and adds policy rules for the
+reads it protects, without restating the app's specs or policies.
 """
 
 from pathlib import Path
@@ -40,7 +40,7 @@ def controller(*args: Any, **kwargs: Any) -> str:
 
 
 # Operations need distinct identifiers
-get_service_info = list_items = create_item = get_item = controller
+get_service_info = list_items = create_item = get_item = get_item_details = controller
 
 
 def _operation(operation_id: str, **extra: Any) -> dict[str, Any]:
@@ -57,7 +57,15 @@ def _operation(operation_id: str, **extra: Any) -> dict[str, Any]:
     }
 
 
-# App spec: reads are public, writes need a token
+# Path parameter `id`
+ID_PARAMETER = {
+    "name": "id",
+    "in": "path",
+    "required": True,
+    "schema": {"type": "string"},
+}
+
+# App spec: reads are public, except for an owner-only one; writes need a token
 SPEC = {
     "openapi": "3.0.2",
     "info": {"title": "Recipe API", "version": "1.0.0"},
@@ -70,18 +78,11 @@ SPEC = {
             "post": _operation("create_item"),
         },
         "/items/{id}": {
-            "get": _operation(
-                "get_item",
-                security=[],
-                parameters=[
-                    {
-                        "name": "id",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string"},
-                    }
-                ],
-            ),
+            "get": _operation("get_item", security=[], parameters=[ID_PARAMETER]),
+        },
+        # protected, e.g., for owners only (no app rule allows it here)
+        "/items/{id}/details": {
+            "get": _operation("get_item_details", parameters=[ID_PARAMETER]),
         },
     },
     "components": {
@@ -114,7 +115,7 @@ CONFIG = {
 }
 
 # Operator overlay of the recipe
-OVERLAY = """
+OVERLAY_SPECS = """
 api:
   specs:
     items:
@@ -128,21 +129,35 @@ api:
               get:
                 security:
                   - bearerAuth: []
+"""
+OVERLAYS = {
+    "recipe": OVERLAY_SPECS
+    + """
+security:
+  access_control:
+    policies:
+      read-items: [p, "*", /api/items, GET]
+      read-item: [p, "*", "/api/items/:id", GET]
+""",
+    # a wildcard object also allows protected reads, as the docs warn
+    "wildcard": OVERLAY_SPECS
+    + """
 security:
   access_control:
     policies:
       read-api: [p, "*", "/api/*", GET]
-"""
+""",
+}
 
 
-def _create_app(tmp_path: Path, overlay: bool) -> Flask:
-    """Create the app, with or without the operator overlay."""
+def _create_app(tmp_path: Path, overlay: str | None) -> Flask:
+    """Create the app, with or without an operator overlay."""
     (tmp_path / "spec.yaml").write_text(yaml.safe_dump(SPEC))
     config_files = [tmp_path / "config.yaml"]
     config_files[0].write_text(yaml.safe_dump(CONFIG))
-    if overlay:
+    if overlay is not None:
         config_files.append(tmp_path / "overlay.yaml")
-        config_files[1].write_text(OVERLAY)
+        config_files[1].write_text(OVERLAYS[overlay])
     with mock.patch("foca.security.auth.validate_token", new=mock_token_info):
         return Foca(config_file=config_files).create_app().app
 
@@ -150,28 +165,35 @@ def _create_app(tmp_path: Path, overlay: bool) -> Flask:
 @pytest.mark.parametrize(
     "overlay,method,path,user,status",
     [
-        # app defaults: reads are public
-        (False, "get", "/api/items", None, 200),
-        (False, "get", "/api/items/1", None, 200),
-        (False, "post", "/api/items", None, 401),
+        # app defaults: reads are public, except for the protected one
+        (None, "get", "/api/items", None, 200),
+        (None, "get", "/api/items/1", None, 200),
+        (None, "get", "/api/items/1/details", "dave", 403),
+        (None, "post", "/api/items", None, 401),
         # recipe: reads need a token, except for service info
-        (True, "get", "/api/service-info", None, 200),
-        (True, "get", "/api/items", None, 401),
-        (True, "get", "/api/items/1", None, 401),
-        # any authenticated user may read
-        (True, "get", "/api/items", "dave", 200),
-        (True, "get", "/api/items/1", "dave", 200),
+        ("recipe", "get", "/api/service-info", None, 200),
+        ("recipe", "get", "/api/items", None, 401),
+        ("recipe", "get", "/api/items/1", None, 401),
+        # any authenticated user may read what was public
+        ("recipe", "get", "/api/items", "dave", 200),
+        ("recipe", "get", "/api/items/1", "dave", 200),
+        # but not protected reads
+        ("recipe", "get", "/api/items/1/details", "dave", 403),
         # the app's policy rules are kept
-        (True, "post", "/api/items", "dave", 200),
-        # the rule is limited to the app's API, i.e., not the permissions API
-        (True, "get", "/admin/access-control/permissions", "dave", 403),
+        ("recipe", "post", "/api/items", "dave", 200),
+        # the rules are limited to the app's API, i.e., not the permissions API
+        ("recipe", "get", "/admin/access-control/permissions", "dave", 403),
+        # a wildcard object allows protected reads, too
+        ("wildcard", "get", "/api/items/1", "dave", 200),
+        ("wildcard", "get", "/api/items/1/details", "dave", 200),
+        ("wildcard", "get", "/admin/access-control/permissions", "dave", 403),
     ],
 )
 def test_require_login_for_reads(
     mongo_clients: MongoClients,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    overlay: bool,
+    overlay: str | None,
     method: str,
     path: str,
     user: str | None,
