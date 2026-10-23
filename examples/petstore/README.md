@@ -167,7 +167,7 @@ of the following:
 [app-entrypoint]: app.py
 [app-specs]: petstore.yaml
 [docs]: <https://foca.readthedocs.io/en/latest/>
-[docs-config-file]: ../../README.md#configuration-file
+[docs-config-file]: <https://foca.readthedocs.io/en/latest/configuration/>
 [img-hint]: ../../images/hint.svg
 [res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
 [res-curl]: <https://curl.se/>

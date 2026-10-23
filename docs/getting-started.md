@@ -99,6 +99,15 @@ CMD ["python", "app.py"]
 development only. In production, run the app with a WSGI server such as
 Gunicorn (see [running in production](deployment.md#running-in-production)).
 
+Images of releases are tagged with the FOCA and Python versions (e.g.,
+`0.17.0-py3.12`); the FOCA version alone (e.g., `0.17.0`) tags the Python
+3.13 image, and `latest` that of the highest stable release (not an alpha,
+beta or release candidate). Images built from the `dev` branch are tagged
+with their date and the Python version (e.g., `20261019-py3.13`). Images are
+signed and come with SBOM and provenance attestations, and CI scans them for
+vulnerabilities; see [verifying images and
+charts](deployment.md#verifying-images-and-charts).
+
 The image contains no build tools and runs as non-root user `foca` (UID
 `1000`, group `0`); `/app` and the home directory are writable by group `0`,
 so that the image also runs under arbitrary user IDs (e.g., on OpenShift).
