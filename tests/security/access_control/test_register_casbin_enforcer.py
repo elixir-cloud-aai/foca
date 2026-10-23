@@ -257,7 +257,7 @@ class TestPolicies:
         clients: MongoClient[dict[str, Any]],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Errors other than connection failures from the check are raised."""
+        """Other errors of the check are raised, too (e.g., not authorized)."""
 
         def denied(self: Any) -> bool:
             raise OperationFailure("not authorized")

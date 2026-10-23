@@ -386,21 +386,22 @@ def _remove_policies(adapter: Adapter) -> None:
         # default)
         with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
             configured = adapter.has_configured_policies()
+        if configured:
+            # E.g., set via a config overlay that was removed since
+            logger.warning(
+                "Removing stored configured policy rules, as "
+                "'security.access_control.policies' is not set."
+            )
+            adapter.set_configured_policies([])
     except PyMongoError as exc:
         logger.error(
-            "Could not check for stored configured policy rules, which are "
-            "removed on startup as 'security.access_control.policies' is not "
-            "set; refusing to start (is the database available?): %s",
+            "Could not check for or remove stored configured policy rules, "
+            "which are removed on startup as "
+            "'security.access_control.policies' is not set; refusing to start "
+            "(is the database available, and may the app access it?): %s",
             exc,
         )
         raise
-    if configured:
-        # E.g., set via a config overlay that was removed since
-        logger.warning(
-            "Removing stored configured policy rules, as "
-            "'security.access_control.policies' is not set."
-        )
-        adapter.set_configured_policies([])
 
 
 def _add_policies(
