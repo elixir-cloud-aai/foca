@@ -495,9 +495,9 @@
               "type": "array",
               "minItems": 1,
               "items": {
-                "enum": ["ReadWriteOnce", "ReadWriteOncePod", "ReadWriteMany", "ReadOnlyMany"]
+                "enum": ["ReadWriteOnce", "ReadWriteOncePod", "ReadWriteMany"]
               },
-              "description": "Access modes of the PersistentVolumeClaim; ReadWriteOnce if not set"
+              "description": "Access modes of the PersistentVolumeClaim (writable modes only, since the broker writes its data there); ReadWriteOnce if not set"
             },
             "storageClass": {
               "type": "string",

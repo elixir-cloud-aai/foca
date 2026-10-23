@@ -1742,4 +1742,7 @@ def test_schema_rejects_invalid_celery_values(
     assert "schema" in render_error(
         "--set-json", 'broker.persistence.accessModes=["ReadWriteSometimes"]'
     )
+    assert "schema" in render_error(
+        "--set-json", 'broker.persistence.accessModes=["ReadOnlyMany"]'
+    )
     assert "schema" in render_error("--set", "broker.persistence.unknown=true")
