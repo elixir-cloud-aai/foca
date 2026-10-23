@@ -316,6 +316,30 @@ jobs:
           category: image-py${{ matrix.python-version }}
           upload: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
 
+  # Stable check names for branch protection, independent of the matrices
+  # (supported Python and MongoDB versions)
+  test-passed:
+    name: Unit tests
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check that all unit test jobs passed
+        run: test "${{ needs.test.result }}" = "success"
+
+  scan-passed:
+    name: Scan images
+    if: always()
+    needs: [scan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check that all image scans passed
+        run: test "${{ needs.scan.result }}" = "success"
+
   docker:
     name: Publish image (Python ${{ matrix.python-version }})
     if: github.event_name == 'push'
