@@ -1,0 +1,138 @@
+# Migrating to 0.17.0
+
+FOCA 0.17.0 lets operators adapt an app's API specifications and access
+control policies in config overlays, and comes with version 0.2.0 of the
+[Helm library chart](helm-chart.md), which adds the Gateway API and keeps the
+bundled broker's data. Apps need no changes to run with FOCA 0.17.0; check
+the changes below if your app's image builds packages, your app uses the
+resource ownership helpers, or you deploy it with the Helm chart. Upgrading
+from 0.15 or earlier? Start with [Migrating to 0.16.0](migration-0.16.md).
+
+## Images without setuptools and wheel
+
+The FOCA images no longer contain setuptools and wheel. Only the Python 3.11
+base image shipped them (with known vulnerabilities); FOCA needs neither, as
+pip builds packages in isolated environments. Images derived from FOCA's that
+build packages without build isolation (`pip install --no-build-isolation`)
+or run `python setup.py` must install setuptools (and wheel) themselves.
+
+## Helm chart 0.2.0
+
+The library chart `foca-common` is released separately (`chart-v0.2.0`).
+App charts written for 0.1.0 render with 0.2.0 as they are, with the broker
+as a StatefulSet (see [below](#broker-statefulset-and-persistence)) but
+without persistence and without the new features. To upgrade an app chart:
+
+1. Set `version: 0.2.0` for `foca-common` in `Chart.yaml` and run `helm
+   dependency update`.
+2. Copy the new values from the petstore example's `values.yaml`:
+   `<valuesKey>.httpRoute`, `<valuesKey>.route` and, with the bundled broker,
+   `broker.persistence`; copy the library's new `app-values.schema.json` as
+   `values.schema.json`, too (see [Values](helm-chart.md#values)).
+3. Add template files (see [Templates](helm-chart.md#templates)) for
+    - `foca-common.httpRoute` and `foca-common.httpsRedirectRoute`, to expose
+      the app via the [Gateway API](helm-chart.md#gateway-api) (the petstore
+      example's `httproute.yaml` and `httproute-https-redirect.yaml`);
+    - `foca-common.brokerPersistentVolumeClaim`, if the app chart has the
+      broker (`broker-pvc.yaml`): with `broker.persistence.enabled` but
+      without this template, the broker's pod waits for its claim, and the
+      worker for the broker.
+4. Optionally, rename `foca-common.brokerDeployment` to
+   `foca-common.brokerStatefulSet` (`broker-statefulset.yaml`); the old name
+   is a deprecated alias, which renders the StatefulSet, too.
+
+### Broker StatefulSet and persistence
+
+From 0.2.0 on, the bundled RabbitMQ is a StatefulSet (named like the
+Deployment of 0.1.0, `<app name>-broker`), which keeps its data in a
+PersistentVolumeClaim if `broker.persistence.enabled` (the default of the
+petstore example's values; values without a `broker.persistence` map keep
+the `emptyDir` of 0.1.0). The upgrade from 0.1.0 replaces the broker's
+Deployment with the StatefulSet: Helm creates the StatefulSet, with a new,
+empty claim, before it deletes the Deployment, whose data was in an
+`emptyDir`.
+
+!!! warning "Queued tasks are lost once"
+    Tasks queued in the broker of 0.1.0 are lost on this upgrade, as are
+    results of the `rpc://` result backend. Upgrade when no tasks are
+    queued, e.g., stop submitting tasks and wait until the queues are empty:
+
+    ```bash
+    kubectl exec deployment/my-app-broker -- \
+        rabbitmqctl list_queues name messages
+    ```
+
+    The app and the worker reconnect to the new broker. Later upgrades keep
+    queued tasks, as the new pod starts only once the old one is gone and
+    uses the same claim.
+
+The claim is part of the release:
+
+- `helm uninstall` deletes it, and with it the queued tasks (and, depending
+  on the reclaim policy of its storage class, the volume). To keep the data
+  across installations, create a claim outside the release and set
+  `broker.persistence.existingClaim`.
+- A rollback to a revision with foca-common 0.1.0, or without
+  `broker.persistence.enabled`, deletes the claim, too, and brings back the
+  broker's `emptyDir`; rollbacks between revisions with persistence keep it.
+- Kubernetes does not allow changing `accessModes` or `storageClass` of an
+  existing claim, and allows a larger `size` only if its storage class
+  allows volume expansion; such upgrades fail.
+- RabbitMQ creates its user from the Secret only on its first start: after
+  rotating the broker's credentials, change them in RabbitMQ, too (see the
+  [deployment notes](helm-chart.md#deployment-notes)).
+- RabbitMQ now keeps its data across updates of `broker.image`; follow
+  RabbitMQ's [upgrade guide](https://www.rabbitmq.com/docs/upgrade), e.g.,
+  for the versions it can upgrade from.
+
+## Resource ownership helpers
+
+`grant_role()` stores the new role before it removes the subject's other
+roles on the resource (in 0.16.0, it removed them first), so that the
+subject keeps a role throughout, e.g., a maintainer promoted to owner.
+Concurrent grants for the same subject and resource leave it with one role,
+that of the grant stored last, ordered by a timestamp of the database server
+in the new field `granted` of stored rules (rules stored by earlier versions
+count as the oldest). If removing the other roles fails, the new role is
+removed again. Code that reads or writes the policy collection directly may
+see the new field; `Adapter.replace_role_rule()` is the new adapter method
+behind `grant_role()` ([details](access-control.md#resource-ownership)).
+
+## Configured policies
+
+## New features
+
+- **Named entries:** `api.specs` and `security.access_control.policies` can
+  be given as mappings of names to entries, which config overlays add,
+  change or remove (`null`) by name, without restating the others
+  ([details](configuration/index.md#named-entries)). Lists keep working as
+  before; FOCA refuses to start if an overlay gives named entries for a
+  section that earlier files set to a non-empty list. Give your app's
+  specifications and policies as named entries, as the [app
+  template](https://github.com/elixir-cloud-aai/foca/blob/dev/templates/config.yaml)
+  and the examples do, so that operators can adapt them.
+- **Spec patches:** `api.specs[].patches`, files or inline mappings
+  deep-merged into a specification, e.g., to require login for public reads
+  ([details](configuration/api.md#patching-specifications),
+  [recipe](access-control.md#requiring-login-for-reads)).
+  With the Helm chart, give them inline in the `config` value.
+- **Gateway API:** the Helm chart exposes the app via an `HTTPRoute`, with an
+  optional redirect from HTTP to HTTPS, as an alternative to the Ingress
+  ([details](helm-chart.md#exposing-the-app)), and sets annotations of the
+  OpenShift Route (`<valuesKey>.route.annotations`).
+- **Supply chain:** images and the Helm chart are published with attestations
+  and signatures; see [Verifying images and
+  charts](deployment.md#verifying-images-and-charts) for how to check them
+  before deploying.
+- **Citation:** cite FOCA with the metadata in
+  [`CITATION.cff`](https://github.com/elixir-cloud-aai/foca/blob/dev/CITATION.cff),
+  e.g., via GitHub's "Cite this repository"; Zenodo archives each release.
+
+## Dependencies
+
+Raised lower bounds, for known vulnerabilities:
+
+- `pymongo>=4.18.2` (fixes CVE-2026-88029, CVE-2026-96747, CVE-2026-96748
+  and CVE-2026-96749);
+- `requests>=2.33.0` (fixes CVE-2026-25645);
+- `Werkzeug>=3.1.9` (fixes CVE-2026-27199 and CVE-2026-102598).
