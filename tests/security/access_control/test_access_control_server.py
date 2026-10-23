@@ -122,6 +122,28 @@ class TestDeletePermission:
             unwrap(deletePermission)(id=MOCK_ID)
         assert collection.count_documents({}) == 1
 
+    def test_configured_meanwhile(
+        self,
+        app: Flask,
+        collection: Collection[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Rules configured while deleting them cannot be deleted.
+
+        E.g., if their generation became active after the first check.
+        """
+        collection.insert_one(
+            {**deepcopy(MOCK_RULE), "id": MOCK_ID, "configured": True}
+        )
+        # Not configured before deleting, configured once deleting failed
+        checks = iter([False, True])
+        monkeypatch.setattr(
+            app.config["casbin_adapter"], "is_configured", lambda id: next(checks)
+        )
+        with app.app_context(), pytest.raises(Conflict):
+            unwrap(deletePermission)(id=MOCK_ID)
+        assert collection.count_documents({}) == 1
+
 
 class TestGetAllPermissions:
     """Tests for listing permissions."""
@@ -254,7 +276,8 @@ class TestPutPermission:
     ) -> None:
         """Configured rules not in effect are neither replaced nor deleted.
 
-        E.g., rules of a generation that is not active yet.
+        E.g., rules of a generation that is not active yet. As for getting
+        them, they are not found for deletion.
         """
         adapter = app.config["casbin_adapter"]
         adapter.set_configured_policies([])
@@ -270,7 +293,7 @@ class TestPutPermission:
         with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
             with pytest.raises(Conflict):
                 unwrap(putPermission)(id=MOCK_ID)
-            with pytest.raises(Conflict):
+            with pytest.raises(NotFound):
                 unwrap(deletePermission)(id=MOCK_ID)
         document = collection.find_one({"id": MOCK_ID})
         assert document is not None

@@ -29,7 +29,8 @@ security schemes, and configure the trusted issuers:
 ```yaml title="config.yaml"
 api:
   specs:
-    - path: api/openapi.yaml
+    my-api:
+      path: api/openapi.yaml
       add_security_fields:
         x-bearerInfoFunc: foca.security.auth.validate_token
 security:

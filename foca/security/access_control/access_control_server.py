@@ -328,15 +328,19 @@ def deletePermission(
     Raises:
         werkzeug.exceptions.Conflict: The rule is set via the app's
             configuration (`access_control.policies`).
+        werkzeug.exceptions.NotFound: No rule with the identifier is stored,
+            other than configured rules not in effect (e.g., of a generation
+            that is not active yet), as for getting it.
     """
     _check_not_configured(id)
-    collection = _get_permissions_collection()
     # Not configured rules, also if stored meanwhile
-    if not collection.delete_one(
-        {"id": id, CONFIGURED_FIELD: {"$ne": True}}
-    ).deleted_count:
-        if collection.count_documents({"id": id}, limit=1):
-            _raise_configured(id)
+    if not (
+        _get_permissions_collection()
+        .delete_one({"id": id, CONFIGURED_FIELD: {"$ne": True}})
+        .deleted_count
+    ):
+        # E.g., if its generation became active meanwhile
+        _check_not_configured(id)
         raise NotFound
     logger.info("Policy rule '%s' deleted.", escape_log_value(id))
     return id

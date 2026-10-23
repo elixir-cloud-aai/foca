@@ -25,7 +25,16 @@ collection.
   removes them on startup, with a warning; before, they were left in
   effect. To remove a rule that an overlay added (e.g., a [named
   entry](configuration/index.md#named-entries)), remove it from the overlay.
+  Unset `policies` thus requires MongoDB at startup, as set `policies`
+  does: if checking for stored configured rules (within 5 seconds) or
+  removing them fails, e.g., as MongoDB is not available yet, the app
+  refuses to start, with an error (before, apps without `policies` started
+  without MongoDB). Orchestrators such as Kubernetes restart it until
+  MongoDB is available; with Docker Compose, use a restart policy.
 - Apps that share a policy collection must all configure the same rules.
+  By default, all FOCA apps on the same MongoDB server share one
+  (`access_control_db.policy_rules`): apps on a shared external MongoDB
+  must set their own `db_name`.
 - Rules added via the permissions API with the values of a configured rule
   are no longer turned into configured rules: they stay deletable via the
   API, and stay stored when the rule is removed from the configuration.
@@ -57,8 +66,9 @@ derived from them that use pip features removed since must adapt (see
 The library chart `foca-common` is released separately (`chart-v0.2.0`).
 App charts written for 0.1.0 render with 0.2.0 as they are, with the broker
 as a StatefulSet (see [below](#broker-statefulset-and-persistence)) but
-without its persistence, with MongoDB unchanged (see [MongoDB
-persistence](#mongodb-persistence)), without the ingress-nginx annotation
+without its persistence, with MongoDB unchanged except for the keep
+annotation on its claim (see [MongoDB persistence](#mongodb-persistence)),
+without the ingress-nginx annotation
 for body sizes (see [No ingress-nginx
 defaults](#no-ingress-nginx-defaults)), and without the new features. To
 upgrade an app chart:
@@ -167,7 +177,8 @@ The claim is part of the release:
 `existingClaim`. Persistence stays enabled by default (also without the
 map), and MongoDB's claim keeps its name (`<app name>-mongodb`), so upgrades
 keep the data; values written for 0.1.0 render MongoDB's resources
-unchanged. App charts replace `volumeSize` with the map in their
+unchanged, except for the keep annotation on the claim (see below). App
+charts replace `volumeSize` with the map in their
 `values.yaml` (see the petstore example); the template file with
 `foca-common.mongodbPersistentVolumeClaim` (`mongodb-pvc.yaml`) stays as it
 is:

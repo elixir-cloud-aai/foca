@@ -91,7 +91,8 @@ specification and the module of its controllers, e.g., `config.yaml`:
 ```yaml
 api:
   specs:
-    - path: api/openapi.yaml
+    my-api:
+      path: api/openapi.yaml
       add_operation_fields:
         x-openapi-router-controller: my_app.controllers
 ```

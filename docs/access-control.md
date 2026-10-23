@@ -228,14 +228,20 @@ replaces the stored configured rules with those of the configuration:
 configured rules that were removed from the configuration are removed,
 missing ones are added, and unchanged ones are kept, with their identifiers.
 The configuration is the only place to change configured rules: the
-permissions API responds with `409` to requests to change or delete them,
+permissions API responds with `409` to requests to change or delete them
+(configured rules not in effect yet, e.g., of an instance that is still
+starting, are not found, `404`, by requests to get or delete them),
 and the [resource role helpers](#resource-scoped-roles) keep them, with a
 warning. Other stored rules (e.g., added via the permissions API) are kept,
 also if they have the values of a configured rule. With `policies: []`, all
 configured rules are removed. Without `policies`, stored configured rules
 are removed, too, with a warning (e.g., if they were set via a config
-overlay that was removed since); apps that never configured rules only check
-for them, and start without the database, with a warning, if it is not
+overlay that was removed since). Apps with access control thus need the
+database on startup also without `policies`, as with them: if checking for
+stored configured rules (within 5 seconds) or removing them fails, e.g., as
+the database is not available yet, the app refuses to start, with an error,
+so that it never starts with rules removed from its configuration in
+effect. Orchestrators such as Kubernetes restart it until the database is
 available.
 
 Configured rules are replaced atomically, so that requests are always
@@ -270,7 +276,9 @@ a later version replaces them.
 !!! warning "Apps sharing a policy collection"
     All apps using the same policy collection must configure the same rules:
     each startup replaces the configured rules of the others, also if
-    `policies` is not set.
+    `policies` is not set. By default, all FOCA apps on the same MongoDB
+    server use the same policy collection (`access_control_db.policy_rules`):
+    apps on a shared external MongoDB must set their own `db_name`.
 
 Rules can also be given as a mapping of names to rules (named rules), so
 that config overlays can add, change or remove (`null`) single rules without

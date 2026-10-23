@@ -5,6 +5,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+import pymongo
 import yaml
 from connexion import App
 from pymongo.errors import PyMongoError
@@ -27,6 +28,7 @@ from foca.models.config import (
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
 )
 from foca.security.access_control.enforcement import AccessControlResolver
@@ -365,14 +367,26 @@ def register_casbin_enforcer(
 def _remove_policies(adapter: Adapter) -> None:
     """Remove stored configured policy rules, if any.
 
-    If the database is not available, a warning is logged instead, so that
-    apps that do not configure policy rules start without it, as before.
+    Apps refuse to start if stored configured rules cannot be checked for or
+    removed, e.g., without the database, so that they never start with rules
+    removed from their configuration in effect, as with `policies` set. The
+    check gives up after `CONFIGURED_POLICIES_CHECK_TIMEOUT` seconds, so that
+    startup fails soon (e.g., before the worker timeout of gunicorn) and is
+    retried (e.g., by Kubernetes) until the database is available.
 
     Args:
         adapter: Casbin adapter of the app.
+
+    Raises:
+        pymongo.errors.PyMongoError: Checking for or removing stored
+            configured rules failed, e.g., as the database is not available.
     """
     try:
-        if adapter.has_configured_policies():
+        # Shorter than the client's server selection timeout (30 s by
+        # default)
+        with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
+            configured = adapter.has_configured_policies()
+        if configured:
             # E.g., set via a config overlay that was removed since
             logger.warning(
                 "Removing stored configured policy rules, as "
@@ -380,12 +394,14 @@ def _remove_policies(adapter: Adapter) -> None:
             )
             adapter.set_configured_policies([])
     except PyMongoError as exc:
-        logger.warning(
-            "Could not remove stored configured policy rules, as "
-            "'security.access_control.policies' is not set; configured rules "
-            "stored before stay in effect until the next startup: %s",
+        logger.error(
+            "Could not check for or remove stored configured policy rules, "
+            "which are removed on startup as "
+            "'security.access_control.policies' is not set; refusing to start "
+            "(is the database available, and may the app access it?): %s",
             exc,
         )
+        raise
 
 
 def _add_policies(

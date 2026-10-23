@@ -21,7 +21,8 @@ server:
 
 api:
   specs:
-    - path: openapi.yaml
+    hello-api:
+      path: openapi.yaml
       add_operation_fields:
         x-openapi-router-controller: controllers
 ```

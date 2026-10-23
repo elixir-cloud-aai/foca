@@ -173,7 +173,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: The permission cannot be found.
+          description: The permission cannot be found, also if it is a configured rule that is not in effect yet.
           content:
             application/problem+json:
               schema:
@@ -226,7 +226,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: The permission is set via the app's configuration and cannot be changed.
+          description: The permission is set via the app's configuration and cannot be changed, also if it is a configured rule that is not in effect yet.
           content:
             application/problem+json:
               schema:
@@ -277,13 +277,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: The requested permission was not found.
+          description: The requested permission was not found, also if it is a configured rule that is not in effect yet.
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: The permission is set via the app's configuration and cannot be changed.
+          description: The permission is set via the app's configuration and cannot be deleted.
           content:
             application/problem+json:
               schema:

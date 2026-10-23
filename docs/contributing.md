@@ -271,8 +271,12 @@ beta and release candidate versions (e.g., `vX.Y.Zrc1`) do not update
 
 A tag ruleset allows only admins to create `v*` and `chart-v*` tags and
 blocks updates and deletions of these tags for everyone, and GitHub releases
-are immutable. If a release fails, re-run its workflow for the same tag; if
-the tagged commit itself is wrong, release a new version.
+are immutable. If a release fails, re-run only its failed jobs ("Re-run
+failed jobs"), never all of them ("Re-run all jobs"). Builds are not
+reproducible, so the build jobs would build new distributions and images:
+the assets of the GitHub release would then differ from the files on PyPI,
+and the image tags would move to new images. If the tagged commit itself is
+wrong, release a new version.
 
 The Helm library chart `foca-common` (`charts/foca-common`) is versioned and
 released separately, from signed tags `chart-vX.Y.Z`; see [releases of the

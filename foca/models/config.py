@@ -764,9 +764,11 @@ class AccessControlConfig(FOCABaseConfig):
             missing rules are added, and rules removed from the
             configuration are removed. Configured rules cannot be changed or
             deleted via the permissions API. Other stored rules are kept. If
-            not set, stored rules are not changed on startup. Given as a
-            list, or as a mapping of names to rules (named rules), so that
-            config overlays can add, change or remove single rules (cf.
+            not set, stored configured rules are removed on startup (with a
+            warning); the app then refuses to start without the database, as
+            with policies set. Given as a list, or as a mapping of names
+            to rules (named rules), so that config overlays can add, change
+            or remove single rules (cf.
             :py:class:`foca.config.config_parser.ConfigParser`); `None`
             values remove rules.
         log_traffic: Whether requests to the permissions API and their
