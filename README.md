@@ -32,8 +32,8 @@ the logic of your app. It provides:
   [RabbitMQ](https://www.rabbitmq.com/);
 - CORS and a [GA4GH service
   info](https://github.com/ga4gh-discovery/ga4gh-service-info) endpoint;
-- Docker base images and a Helm library chart for Kubernetes, signed and with
-  SBOM and provenance attestations.
+- Docker base images with SBOM and provenance attestations, and a Helm library
+  chart for Kubernetes with a provenance attestation, all signed.
 <!-- --8<-- [end:synopsis] -->
 
 **Read the [documentation][docs]** for the configuration, authentication,
