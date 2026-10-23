@@ -195,7 +195,8 @@ def _write(path: Path, text: str) -> None:
 
     The temporary file next to it gets a new, unpredictable name, so that
     no existing file or link is written to and concurrent writes don't share
-    it, and the permissions of the file.
+    it. It gets the permissions of the file, set through its descriptor
+    rather than by name.
 
     Args:
         path: File, which must exist.
@@ -208,8 +209,8 @@ def _write(path: Path, text: str) -> None:
     temporary = Path(name)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+            os.fchmod(file.fileno(), mode)
             file.write(text)
-        temporary.chmod(mode)
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
