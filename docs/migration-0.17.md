@@ -153,8 +153,9 @@ it off): uninstalling the release keeps MongoDB's claim, and with it the
 database; delete it by hand to remove the data (`kubectl delete pvc <app
 name>-mongodb`). Reinstalling a release of the same name in the same
 namespace adopts the kept claim, with its data and the app user. A release
-of another name gets a new, empty claim; set the kept claim as its
-`existingClaim` to use the data. The broker's claim is still deleted with
+of another name gets a new, empty claim, or fails on the kept one if its
+resource names are the same (e.g., with the same `fullnameOverride`); set
+the kept claim as its `existingClaim` to use the data. The broker's claim is still deleted with
 the release (`broker.persistence.resourcePolicy`).
 
 !!! warning "Upgrade first, then switch to `existingClaim`"

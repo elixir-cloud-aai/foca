@@ -362,6 +362,8 @@ jobs:
         env:
           RELEASE: petstore-keep
         run: |
+          # Failures of `kubectl exec` are not hidden by `tail`
+          set -o pipefail
           install() {
             helm install "${RELEASE}" examples/petstore/chart -n "${NAMESPACE}" \
                 -f examples/petstore/chart/ci/test-values.yaml --wait --timeout 600s

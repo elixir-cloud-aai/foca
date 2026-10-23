@@ -502,9 +502,11 @@ them (e.g., its health check ranges).
 
     A new release of the same name in the same namespace adopts the kept
     claim, with its data and the app user (the init script does not run
-    again). A release of another name has a claim of another name, i.e., a
-    new, empty database; to use the kept data there, set the kept claim as
-    its `existingClaim`.
+    again). A release with other resource names (another release name,
+    without `fullnameOverride`) gets a new claim, i.e., an empty database,
+    while one of another release name with the same resource names fails
+    on the kept claim; to use the kept data in such a release, set the kept
+    claim as its `existingClaim`.
 
     On upgrades, Helm checks the annotation on the claim in the cluster, so
     the claim of a release installed with foca-common 0.1.0 (or with an
