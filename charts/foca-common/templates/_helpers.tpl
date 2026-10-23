@@ -380,6 +380,54 @@ emptyDir:
 {{- end -}}
 
 {{/*
+Name of the PersistentVolumeClaim with a component's data (MongoDB's or the
+broker's) if its persistence is enabled (`persistence.enabled`, or
+`enabledByDefault` if that is not set, also without a `persistence` map):
+`persistence.existingClaim`, or the component's own claim (`name`); empty
+otherwise. Call with a dict of the component's `persistence` map, its claim's
+`name`, `enabledByDefault` and the values key of the map (`key`, e.g.,
+`mongodb.persistence`, for error messages of
+`foca-common.persistentVolumeClaim`).
+*/}}
+{{- define "foca-common.claimName" -}}
+{{- $persistence := .persistence | default dict -}}
+{{- if dig "enabled" .enabledByDefault $persistence -}}
+{{- $persistence.existingClaim | default .name -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+PersistentVolumeClaim with a component's data, if its persistence is enabled
+without `persistence.existingClaim` (see `foca-common.claimName`): of `size`
+(`persistence.size` if not given; fails if neither is set),
+with `persistence.accessModes` (by default `ReadWriteOnce`) and
+`persistence.storageClass` (the cluster's default class if empty; "-" for
+none, i.e., no dynamic provisioning). Call with a dict of the root context
+(`root`), the `component` (for the labels), the arguments of
+`foca-common.claimName` and `size`.
+*/}}
+{{- define "foca-common.persistentVolumeClaim" -}}
+{{- $persistence := .persistence | default dict -}}
+{{- if and (include "foca-common.claimName" .) (not $persistence.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .name | quote }}
+  labels:
+    {{- include "foca-common.labels" (dict "root" .root "component" .component) | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml ($persistence.accessModes | default (list "ReadWriteOnce")) | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ required (printf "%s.size must be set if %s.enabled" .key .key) (.size | default $persistence.size) }}
+  {{- with $persistence.storageClass }}
+  storageClassName: {{ ternary "" . (eq . "-") | quote }}
+  {{- end }}
+{{ end -}}
+{{- end -}}
+
+{{/*
 Gunicorn options (`GUNICORN_CMD_ARGS`) from `<valuesKey>.gunicorn`: the
 numbers (floats from values files) as integers, followed by `extraArgs`, each
 in single quotes, as Gunicorn splits the options like shell words (the schema
