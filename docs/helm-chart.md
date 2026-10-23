@@ -408,9 +408,9 @@ the default class), and Traefik's annotations in
   `entryPoints.web.http.redirections.entryPoint.to: websecure`), or serve
   the Ingress on the HTTPS entry point only (annotation
   `traefik.ingress.kubernetes.io/router.entrypoints: websecure`).
-- **Body size and rate limiting:** `Middleware` resources (`traefik.io/v1alpha1`,
-  created next to the release) with `buffering.maxRequestBodyBytes` and
-  `rateLimit`; an Ingress refers to them with the annotation
+- **Body size and rate limiting:** `Middleware` resources
+  (`traefik.io/v1alpha1`, created next to the release) with
+  `buffering.maxRequestBodyBytes` and `rateLimit`; an Ingress refers to them with the annotation
   `traefik.ingress.kubernetes.io/router.middlewares:
   <namespace>-<middleware>@kubernetescrd`, an HTTPRoute with a filter:
 
@@ -426,7 +426,6 @@ the default class), and Traefik's annotations in
 
 - **NetworkPolicy peers:** Traefik's pods, e.g., in the namespace
   `kube-system` on k3s (see [NetworkPolicy peers](#networkpolicy-peers)).
-
 - **Keep-alive:** Traefik closes idle connections to the app after 90
   seconds (`forwardingTimeouts.idleConnTimeout` of its servers transport),
   later than Gunicorn by default: raise `<valuesKey>.gunicorn.keepalive`
@@ -521,16 +520,25 @@ myApp:
     # - namespaceSelector:
     #     matchLabels:
     #       policy-group.network.openshift.io/ingress: ""
+    # Implementations that deploy a Gateway's proxies in its namespace
+    # (e.g., Istio): the pods with the Gateway API's label of the Gateway
+    # - namespaceSelector:
+    #     matchLabels:
+    #       kubernetes.io/metadata.name: gateway-system
+    #   podSelector:
+    #     matchLabels:
+    #       gateway.networking.k8s.io/gateway-name: gateway
     # A client in the release's namespace
     - podSelector:
         matchLabels:
           app.kubernetes.io/name: my-portal
 ```
 
-For Gateway API implementations that run their proxies in the Gateway's
-namespace (e.g., Istio, NGINX Gateway Fabric), select that namespace and
-the proxies' labels (see the implementation's documentation); for cloud load
-balancers, see [Cloud load balancers](#cloud-load-balancers).
+The list is not exhaustive: for other ingress controllers and Gateway
+implementations (e.g., NGINX Gateway Fabric, which also runs its proxies in
+the Gateway's namespace), check the namespace and the labels of their proxy
+pods in their documentation (or with `kubectl get pods -A --show-labels`);
+for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
 
 ## Deployment notes
 
