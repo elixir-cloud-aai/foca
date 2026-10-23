@@ -811,6 +811,7 @@ def test_mongodb_persistence_settings(render: Callable[..., Docs]) -> None:
         (("--set", "mongodb.persistence.resourcePolicy="), None),
         (("--set-json", "mongodb.persistence.resourcePolicy=null"), KEEP),
     ],
+    ids=["empty", "not-set"],
 )
 def test_mongodb_resource_policy(
     render: Callable[..., Docs],
@@ -1933,3 +1934,4 @@ def test_schema_rejects_invalid_celery_values(
         "--set-json", 'broker.persistence.accessModes=["ReadOnlyMany"]'
     )
     assert "schema" in render_error("--set", "broker.persistence.unknown=true")
+    assert "schema" in render_error("--set", "broker.persistence.resourcePolicy=no")

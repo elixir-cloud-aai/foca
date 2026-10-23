@@ -200,9 +200,10 @@ mongodb:
   # to `size`) and lost when MongoDB's pod is replaced, e.g., for tests.
   # With `resourcePolicy: keep`, Helm keeps the claim (and the database) when
   # the release is uninstalled, or when the claim is removed from it (by
-  # disabling persistence or switching to an existing claim); reinstalling
-  # the release with the same name and namespace uses it again. Delete the
-  # claim by hand to remove the data. Empty: Helm deletes the claim.
+  # disabling persistence or switching to an existing claim, once a deployed
+  # revision has set the annotation); reinstalling the release with the same
+  # name and namespace uses it again. Delete the claim by hand to remove the
+  # data. Empty: Helm deletes the claim.
   # Replaces `volumeSize`, the setting up to foca-common 0.1.0 (deprecated
   # since 0.2.0; it still sets `size`, but rendering fails if both are set)
   persistence:

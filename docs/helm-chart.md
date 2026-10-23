@@ -496,19 +496,26 @@ them (e.g., its health check ranges).
     uninstalled, and when the claim is removed from the release by
     disabling persistence or switching to an `existingClaim`: the claim is
     annotated with `helm.sh/resource-policy: keep`
-    (`mongodb.persistence.resourcePolicy: keep`, also if not set). A new
-    release of the same name in the same namespace adopts the kept claim,
-    with its data and the app user (the init script does not run again); a
-    release of another name fails on the existing claim, unless it is set
-    as that release's `existingClaim`. To remove the data, delete the claim
-    by hand after uninstalling the release (`kubectl delete pvc
-    my-app-mongodb`). With an empty `resourcePolicy`, Helm deletes the
-    claim (and, with the usual reclaim policy `Delete`, the data) with the
-    release or when it is removed from it; to keep it once, e.g., to manage
-    it outside the release under its name, annotate it first (`kubectl
-    annotate pvc my-app-mongodb helm.sh/resource-policy=keep`), then set it
-    as `existingClaim`. The broker's claim is not kept by default, as its
-    queue can be rebuilt (`broker.persistence.resourcePolicy`).
+    (`mongodb.persistence.resourcePolicy: keep`, also if not set). To remove
+    the data, delete the claim by hand after uninstalling the release
+    (`kubectl delete pvc my-app-mongodb`).
+
+    A new release of the same name in the same namespace adopts the kept
+    claim, with its data and the app user (the init script does not run
+    again). A release of another name has a claim of another name, i.e., a
+    new, empty database; to use the kept data there, set the kept claim as
+    its `existingClaim`.
+
+    On upgrades, Helm checks the annotation on the claim in the cluster, so
+    the claim of a release installed with foca-common 0.1.0 (or with an
+    empty `resourcePolicy`) is annotated only by the next upgrade: disable
+    persistence or switch to an `existingClaim` in a later upgrade, or
+    annotate the claim first (`kubectl annotate pvc my-app-mongodb
+    helm.sh/resource-policy=keep`). With an empty `resourcePolicy`, Helm
+    deletes the claim (and, with the usual reclaim policy `Delete`, the data)
+    with the release or when it is removed from it. The broker's claim is not
+    kept by default, as its queue can be rebuilt
+    (`broker.persistence.resourcePolicy`).
 
     `mongodb.volumeSize`, the setting up to foca-common 0.1.0, is
     deprecated since 0.2.0 but still sets the claim's size; the claim keeps

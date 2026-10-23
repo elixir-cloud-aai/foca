@@ -366,10 +366,10 @@ jobs:
             helm install "${RELEASE}" examples/petstore/chart -n "${NAMESPACE}" \
                 -f examples/petstore/chart/ci/test-values.yaml --wait --timeout 600s
           }
-          mongosh() {
+          mongo_eval() {
             kubectl exec -n "${NAMESPACE}" "deployment/${RELEASE}-mongodb" -- sh -c \
                 'mongosh --quiet -u "${MONGO_INITDB_ROOT_USERNAME}" -p "${MONGO_INITDB_ROOT_PASSWORD}" --eval "$1"' \
-                sh "$1"
+                sh "$1" | tail -n 1
           }
           claim_uid() {
             kubectl get pvc "${RELEASE}-mongodb" -n "${NAMESPACE}" \
@@ -377,7 +377,7 @@ jobs:
           }
           helm dependency build examples/petstore/chart
           install
-          mongosh "db.getSiblingDB('ci').marker.insertOne({kept: true})" > /dev/null
+          mongo_eval "db.getSiblingDB('ci').marker.insertOne({kept: true})" > /dev/null
           before="$(claim_uid)"
           helm uninstall "${RELEASE}" -n "${NAMESPACE}" --wait --timeout 300s
           if [ -z "${before}" ] || [ "$(claim_uid)" != "${before}" ]; then
@@ -389,7 +389,7 @@ jobs:
             echo "::error::The new release did not adopt MongoDB's claim"
             exit 1
           fi
-          kept="$(mongosh "db.getSiblingDB('ci').marker.countDocuments({kept: true})")"
+          kept="$(mongo_eval "db.getSiblingDB('ci').marker.countDocuments({kept: true})")"
           if [ "${kept}" != "1" ]; then
             echo "::error::MongoDB's data did not survive the reinstallation (${kept})"
             exit 1

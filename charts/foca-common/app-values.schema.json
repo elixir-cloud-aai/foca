@@ -428,7 +428,7 @@
                   "description": "Keep MongoDB's data in a PersistentVolumeClaim (also if not set); otherwise in an emptyDir (limited to size, if set), so that the data is lost when its pod is replaced"
                 },
                 "resourcePolicy": {
-                  "description": "keep (also if not set): Helm keeps MongoDB's claim (and the database) when the release is uninstalled or the claim is removed from it, e.g., by disabling persistence; empty: Helm deletes it"
+                  "description": "keep (also if not set): Helm keeps MongoDB's claim (and the database) when the release is uninstalled or the claim is removed from it, e.g., by disabling persistence (on upgrades, only once a deployed revision has set the annotation); empty: Helm deletes it"
                 }
               }
             }
