@@ -117,7 +117,8 @@ To keep mistakes from going unnoticed, FOCA refuses to start if a file
   without `path`).
 
 Named entries also compose with other tools that merge mappings but replace
-lists, e.g., Helm when merging several values files. See [patching
+lists, e.g., Helm when merging several values files (except for removals, see
+[the Helm chart](../helm-chart.md#values)). See [patching
 specifications](api.md#patching-specifications) and [configuring
 policies](../access-control.md#configuring-policies) for what to do with
 them.

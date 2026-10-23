@@ -58,11 +58,11 @@ dependencies:
     repository: oci://ghcr.io/elixir-cloud-aai/charts
 ```
 
-The library chart is published to this OCI repository from its first
-[release](#releases) on; until then, use a `file://` repository in a clone of
-FOCA, as the petstore example does. Run `helm dependency update` to download
-it (into `charts/`, which you may add to `.gitignore`) and to create
-`Chart.lock`, which you commit.
+The library chart's [releases](#releases) are published to this OCI
+repository; to work on the library chart itself, use a `file://` repository
+in a clone of FOCA, as the petstore example does. Run `helm dependency
+update` to download it (into `charts/`, which you may add to `.gitignore`)
+and to create `Chart.lock`, which you commit.
 
 ### Settings
 
@@ -169,8 +169,33 @@ your app's `valuesKey`:
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
 | `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `persistence`, `dataSizeLimit`, `tmpSizeLimit` |
 
-The values are described in detail in the example's `values.yaml`. The
-library's schema of these values is
+The values are described in detail in the example's `values.yaml`.
+
+The `config` value is the config overlay: FOCA merges it into the base
+config of the app's image (see [Deployment](deployment.md#kubernetes-and-helm)),
+so [named entries](configuration/index.md#named-entries) of `api.specs` and
+`security.access_control.policies` can be changed one at a time, by name,
+also across several values files (`-f`), which Helm merges like FOCA does.
+Removals work differently, though: `null` removes an entry of the app's base
+config, but to remove an entry that another values file adds, delete it from
+that values file. A `null` for it reaches FOCA, as the chart has no default
+for it, and FOCA refuses to start, as the base config has no such entry.
+
+The chart mounts only the config overlay, not other files, so give [spec
+patches](configuration/api.md#patching-specifications) inline, as mappings
+in `patches`:
+
+```yaml title="values-prod.yaml"
+config:
+  api:
+    specs:
+      my-api:
+        patches:
+          - info:
+              description: Deployment of My App at Example Org
+```
+
+The library's schema of these values is
 [`app-values.schema.json`][library]: copy it to the app chart as
 `values.schema.json` and add the app's key, e.g., `"myApp": {"$ref":
 "#/$defs/app"}`, so that Helm validates the values.
@@ -519,7 +544,9 @@ them (e.g., its health check ranges).
     PersistentVolumeClaim (`broker.persistence`: `size`, `accessModes`,
     `storageClass`, or an `existingClaim`), mounted at
     `/var/lib/rabbitmq/mnesia`, so queued tasks survive the replacement of
-    its pod (e.g., on upgrades): Celery's default queue is durable and its
+    its pod (e.g., on upgrades, except for the upgrade from foca-common
+    0.1.0, see [Migrating to 0.17.0](migration-0.17.md#broker-statefulset-and-persistence)):
+    Celery's default queue is durable and its
     task messages are persistent. Results of the `rpc://` result backend
     (FOCA's default) are transient, though; set a persistent result backend
     (`result-backend`) if they matter. App charts need a template file with
@@ -527,12 +554,29 @@ them (e.g., its health check ranges).
     or the broker's pod waits for its claim.
 
     RabbitMQ creates its user from the Secret only when it starts with
-    empty data. After changing the password in the Secret, change the
-    user's, too, and roll the app's and the worker's pods:
+    empty data, so with persistence, changing the Secret does not change
+    the user, and the old password stays valid. After changing the password
+    in the Secret, change the user's, too, and roll the app's and the
+    worker's pods:
 
     ```bash
     kubectl exec statefulset/my-app-broker -- \
         rabbitmqctl change_password my-app "${password}"
+    ```
+
+    To change the user name, add the new user (here `my-app-2`) with access
+    to the default virtual host, change the Secret (`username`, `password`
+    and `broker-url`), roll the app's and the worker's pods, and then
+    delete the old user:
+
+    ```bash
+    kubectl exec statefulset/my-app-broker -- \
+        rabbitmqctl add_user my-app-2 "${password}"
+    kubectl exec statefulset/my-app-broker -- \
+        rabbitmqctl set_permissions -p / my-app-2 ".*" ".*" ".*"
+    # change the Secret, roll the pods, then:
+    kubectl exec statefulset/my-app-broker -- \
+        rabbitmqctl delete_user my-app
     ```
 
     Without `broker.persistence.enabled`, the data is kept in the `emptyDir`

@@ -180,9 +180,17 @@ Things to keep in mind:
 - **Mount the ConfigMap as a directory**, not with `subPath`: files mounted
   with `subPath` are not updated, and replacing the base configuration file
   hides all of its other settings.
-- **Lists are replaced, not merged.** An overlay that sets, e.g.,
-  `security.auth.issuers` or `security.access_control.policies` must contain
-  the complete list.
+- **Lists are replaced, not merged.** An overlay that sets a list, e.g.,
+  `security.auth.issuers`, must contain the complete list. `api.specs` and
+  `security.access_control.policies` can instead be given as [named
+  entries](configuration/index.md#named-entries) (as in the [app
+  template](https://github.com/elixir-cloud-aai/foca/blob/dev/templates/config.yaml)),
+  which overlays add, change or remove (`null`) one at a time, by name. If
+  the app gives one of them as a non-empty list, an overlay with named
+  entries makes FOCA refuse to start; restate the complete list instead, or
+  have the app switch to named entries. A list in an overlay replaces all
+  named entries of the app, including those that later versions of the app
+  add.
 - **Check key paths.** Unknown keys in FOCA's sections are rejected, but other
   top-level sections are accepted as they are, so a misplaced key (e.g.,
   `endpoints` instead of `custom.endpoints`) is silently ignored. Validate
@@ -199,7 +207,10 @@ Things to keep in mind:
 - **Secrets are read on startup, too:** after rotating credentials in a
   Secret, restart the pods (e.g., `kubectl rollout restart deployment/my-app`),
   or reference a version of the Secret in the pod template, so that a change
-  restarts them.
+  restarts them. Databases and brokers with persistent data keep their users,
+  though: change the credentials there first (see the [deployment
+  notes](helm-chart.md#deployment-notes) of the Helm chart for the bundled
+  MongoDB and RabbitMQ).
 - The [FOCA image](getting-started.md#docker) runs as a non-root user that
   also works with arbitrary user IDs, e.g., on OpenShift.
 - **Expose the app via the Gateway API** on new clusters: ingress-nginx, a
@@ -292,9 +303,14 @@ docker buildx imagetools inspect elixircloud/foca:0.17.0 \
 ```
 
 Images are scanned for known vulnerabilities with
-[Trivy](https://trivy.dev/) in CI and again before a release is published
-(both fail on fixable critical and high vulnerabilities), and the images of
-the latest release weekly (see [Image scan](contributing.md#image-scan)); the
-maintainers see the results in the repository's code scanning alerts.
+[Trivy](https://trivy.dev/): CI scans the images it builds for every pull
+request and push, the release workflow those it builds from the release
+commit before anything is published (both fail on fixable critical and high
+vulnerabilities), and a weekly workflow the published images of the latest
+release (see [Image scan](contributing.md#image-scan)); the maintainers see
+the results in the repository's code scanning alerts. The published images
+(release and `dev` images) are built again for publishing, so they are not
+the scanned builds themselves: if their base image or dependencies change in
+between, they may contain packages that only the weekly scan checks.
 Images derived from FOCA's image (e.g., apps) need their own scans, as they
 add packages.
