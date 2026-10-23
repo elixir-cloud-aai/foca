@@ -21,14 +21,18 @@ or run `python setup.py` must install setuptools (and wheel) themselves.
 The library chart `foca-common` is released separately (`chart-v0.2.0`).
 App charts written for 0.1.0 render with 0.2.0 as they are, with the broker
 as a StatefulSet (see [below](#broker-statefulset-and-persistence)) but
-without persistence and without the new features. To upgrade an app chart:
+without its persistence, with MongoDB unchanged (see [MongoDB
+persistence](#mongodb-persistence)), and without the new features. To
+upgrade an app chart:
 
 1. Set `version: 0.2.0` for `foca-common` in `Chart.yaml` and run `helm
    dependency update`.
 2. Copy the new values from the petstore example's `values.yaml`:
-   `<valuesKey>.httpRoute`, `<valuesKey>.route` and, with the bundled broker,
+   `<valuesKey>.httpRoute`, `<valuesKey>.route`, `mongodb.persistence`
+   (instead of `mongodb.volumeSize`) and, with the bundled broker,
    `broker.persistence`; copy the library's new `app-values.schema.json` as
-   `values.schema.json`, too (see [Values](helm-chart.md#values)).
+   `values.schema.json`, too, and add the app's key again (see
+   [Values](helm-chart.md#values)).
 3. Add template files (see [Templates](helm-chart.md#templates)) for
     - `foca-common.httpRoute` and `foca-common.httpsRedirectRoute`, to expose
       the app via the [Gateway API](helm-chart.md#gateway-api) (the petstore
@@ -84,6 +88,41 @@ The claim is part of the release:
 - RabbitMQ now keeps its data across updates of `broker.image`; follow
   RabbitMQ's [upgrade guide](https://www.rabbitmq.com/docs/upgrade), e.g.,
   for the versions it can upgrade from.
+
+### MongoDB persistence
+
+`mongodb.persistence` replaces `mongodb.volumeSize`, with the same keys as
+`broker.persistence`: `enabled`, `size`, `accessModes`, `storageClass` and
+`existingClaim`. Persistence stays enabled by default (also without the
+map), and MongoDB's claim keeps its name (`<app name>-mongodb`), so upgrades
+keep the data; values written for 0.1.0 render MongoDB's resources
+unchanged. App charts replace `volumeSize` with the map in their
+`values.yaml` (see the petstore example); the template file with
+`foca-common.mongodbPersistentVolumeClaim` (`mongodb-pvc.yaml`) stays as it
+is:
+
+```yaml title="values.yaml"
+mongodb:
+  persistence:
+    enabled: true
+    size: 1Gi
+    accessModes: ["ReadWriteOnce"]
+    storageClass: ""
+    existingClaim: ""
+```
+
+In deployments, `mongodb.volumeSize` still works, but it is deprecated, and
+rendering fails if `mongodb.persistence.size` is set, too, as one of them
+would be ignored: rename it to `mongodb.persistence.size` in your values. If
+the app chart's own values still set `volumeSize`, unset it with `null`,
+e.g., `--set-json mongodb.volumeSize=null`.
+
+!!! warning "Keep the claim before switching to `existingClaim`"
+    Disabling persistence, or switching an existing release to an
+    `existingClaim`, deletes the chart's claim on upgrade, and, with the
+    usual reclaim policy `Delete`, its data. To keep it, annotate it first
+    (`kubectl annotate pvc <app name>-mongodb
+    helm.sh/resource-policy=keep`), then set it as `existingClaim`.
 
 ## Resource ownership helpers
 
