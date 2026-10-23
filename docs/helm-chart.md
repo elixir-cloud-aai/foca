@@ -545,13 +545,14 @@ them (e.g., its health check ranges).
     `storageClass`, or an `existingClaim`), mounted at
     `/var/lib/rabbitmq/mnesia`, so queued tasks survive the replacement of
     its pod (e.g., on upgrades, except for the upgrade from foca-common
-    0.1.0, see [Migrating to 0.17.0](migration-0.17.md#broker-statefulset-and-persistence)):
-    Celery's default queue is durable and its
-    task messages are persistent. Results of the `rpc://` result backend
-    (FOCA's default) are transient, though; set a persistent result backend
-    (`result-backend`) if they matter. App charts need a template file with
-    `foca-common.brokerPersistentVolumeClaim` (see the petstore example),
-    or the broker's pod waits for its claim.
+    0.1.0, see [Migrating to
+    0.17.0](migration-0.17.md#broker-statefulset-and-persistence)): Celery's
+    default queue is durable and its task messages are persistent. Results
+    of the `rpc://` result backend (FOCA's default) are transient, though;
+    set a persistent result backend (`result-backend`) if they matter. App
+    charts need a template file with
+    `foca-common.brokerPersistentVolumeClaim` (see the petstore example), or
+    the broker's pod waits for its claim.
 
     RabbitMQ creates its user from the Secret only when it starts with
     empty data, so with persistence, changing the Secret does not change
@@ -565,8 +566,8 @@ them (e.g., its health check ranges).
     ```
 
     To change the user name, add the new user (here `my-app-2`) with access
-    to the default virtual host, change the Secret (`username`, `password`
-    and `broker-url`), roll the app's and the worker's pods, and then
+    to the default virtual host, change the Secret (`username`, `password`,
+    `broker-url` and, if it uses the broker, `result-backend`), roll the app's and the worker's pods, and then
     delete the old user:
 
     ```bash

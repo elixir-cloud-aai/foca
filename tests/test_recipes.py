@@ -2,7 +2,8 @@
 
 Recipe "require login for all reads except `/service-info`": an operator
 overlay patches the app's API specification and adds policy rules for the
-reads it protects, without restating the app's specs or policies.
+reads it protects, without restating the app's specs or policies. Keep the
+overlay in sync with the recipe in `docs/access-control.md`.
 """
 
 from pathlib import Path
@@ -40,7 +41,8 @@ def controller(*args: Any, **kwargs: Any) -> str:
 
 
 # Operations need distinct identifiers
-get_service_info = list_items = create_item = get_item = get_item_details = controller
+get_service_info = list_items = create_item = controller
+get_item = get_item_details = controller
 
 
 def _operation(operation_id: str, **extra: Any) -> dict[str, Any]:
@@ -57,13 +59,10 @@ def _operation(operation_id: str, **extra: Any) -> dict[str, Any]:
     }
 
 
-# Path parameter `id`
-ID_PARAMETER = {
-    "name": "id",
-    "in": "path",
-    "required": True,
-    "schema": {"type": "string"},
-}
+def _id_parameter() -> dict[str, Any]:
+    """Build the path parameter `id`."""
+    return {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}
+
 
 # App spec: reads are public, except for an owner-only one; writes need a token
 SPEC = {
@@ -78,11 +77,11 @@ SPEC = {
             "post": _operation("create_item"),
         },
         "/items/{id}": {
-            "get": _operation("get_item", security=[], parameters=[ID_PARAMETER]),
+            "get": _operation("get_item", security=[], parameters=[_id_parameter()]),
         },
         # protected, e.g., for owners only (no app rule allows it here)
         "/items/{id}/details": {
-            "get": _operation("get_item_details", parameters=[ID_PARAMETER]),
+            "get": _operation("get_item_details", parameters=[_id_parameter()]),
         },
     },
     "components": {
