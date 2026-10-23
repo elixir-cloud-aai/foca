@@ -115,7 +115,7 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Create an Ingress (not with httpRoute.enabled); otherwise an OpenShift Route, if the cluster serves route.openshift.io/v1 and httpRoute is disabled"
+              "description": "Create an Ingress, for any ingress controller (not with httpRoute.enabled); otherwise an OpenShift Route, if route.enabled, the cluster serves route.openshift.io/v1 and httpRoute is disabled"
             },
             "className": {
               "type": "string",
@@ -126,7 +126,7 @@
               "additionalProperties": {
                 "type": ["string", "null"]
               },
-              "description": "Annotations of the Ingress; take precedence over those set by the chart, null removes them"
+              "description": "Annotations of the Ingress, e.g., for the ingress controller (the chart sets none for particular controllers); take precedence over those set by the chart for https, null removes them"
             },
             "https": {
               "type": "object",
@@ -205,6 +205,10 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Create an OpenShift Route for all paths if neither ingress nor httpRoute is enabled and the cluster serves route.openshift.io/v1; true if not set"
+            },
             "annotations": {
               "type": ["object", "null"],
               "additionalProperties": {
@@ -224,7 +228,6 @@
             },
             "ingressFrom": {
               "type": "array",
-              "minItems": 1,
               "items": {
                 "type": "object",
                 "minProperties": 1,
@@ -263,7 +266,7 @@
                   }
                 ]
               },
-              "description": "NetworkPolicy peers allowed to connect to the app, e.g., the pods of the ingress controller or Gateway (by default, the namespace ingress-nginx); must not be empty"
+              "description": "NetworkPolicy peers allowed to connect to the app, e.g., the pods of the ingress controller or Gateway; no defaults, as they depend on the cluster; must not be empty if enabled"
             }
           }
         },
@@ -318,7 +321,7 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 3600,
-              "description": "Seconds after which idle keep-alive connections are closed (0: no keep-alive); longer than the upstream keep-alive timeout of the ingress controller (60 for ingress-nginx)"
+              "description": "Seconds after which idle keep-alive connections are closed (0: no keep-alive); longer than the idle timeout of the proxy's connections to the app"
             },
             "extraArgs": {
               "type": "array",
@@ -362,7 +365,7 @@
             "max_content_length": {
               "type": "integer",
               "minimum": 1,
-              "description": "Size limit of request bodies, in bytes; also sets that of ingress-nginx"
+              "description": "Size limit of request bodies, in bytes"
             }
           }
         }
