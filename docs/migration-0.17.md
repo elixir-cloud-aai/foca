@@ -3,10 +3,40 @@
 FOCA 0.17.0 lets operators adapt an app's API specifications and access
 control policies in config overlays, and comes with version 0.2.0 of the
 [Helm library chart](helm-chart.md), which adds the Gateway API and keeps the
-bundled broker's data. Apps need no changes to run with FOCA 0.17.0; check
-the changes below if your app's image builds packages, your app uses the
-resource ownership helpers, or you deploy it with the Helm chart. Upgrading
-from 0.15 or earlier? Start with [Migrating to 0.16.0](migration-0.16.md).
+bundled broker's data and MongoDB's settings. Most apps need no changes to
+run with FOCA 0.17.0; check the breaking change below if your app uses
+access control, and the other changes if your app's image builds packages,
+your app uses the resource ownership helpers, or you deploy it with the Helm
+chart. Upgrading from 0.15 or earlier? Start with [Migrating to
+0.16.0](migration-0.16.md).
+
+## Breaking changes
+
+### Configured policies
+
+Configured policy rules ([`security.access_control.policies`](access-control.md#configuring-policies))
+are now replaced atomically on startup: requests are checked against either
+the previous or the new rules, never a mix, also during rolling updates or
+after a startup that failed midway. FOCA stores the rules in generations,
+with a marker document (`_id: configured_policies`) in the policy
+collection.
+
+- **Stored configured rules are removed if `policies` is not set.** FOCA
+  removes them on startup, with a warning; before, they were left in
+  effect. To remove a rule that an overlay added (e.g., a [named
+  entry](configuration/index.md#named-entries)), remove it from the overlay.
+- Apps that share a policy collection must all configure the same rules.
+- Rules added via the permissions API with the values of a configured rule
+  are no longer turned into configured rules: they stay deletable via the
+  API, and stay stored when the rule is removed from the configuration.
+- Configured rules stored by 0.16.0 stay in effect until the first startup
+  of 0.17.0 replaces them. During a rolling update from 0.16, the old
+  instances do not get the atomicity guarantee: upgrade all instances before
+  changing configured rules, and do not start 0.16 instances again
+  afterwards.
+- To downgrade to 0.16, first delete the document `_id: configured_policies`
+  and all rules with `configured: true`; 0.16 stores its configured rules
+  again on startup.
 
 ## Images without setuptools and wheel
 
@@ -136,8 +166,6 @@ count as the oldest). If removing the other roles fails, the new role is
 removed again. Code that reads or writes the policy collection directly may
 see the new field; `Adapter.replace_role_rule()` is the new adapter method
 behind `grant_role()` ([details](access-control.md#resource-ownership)).
-
-## Configured policies
 
 ## New features
 
