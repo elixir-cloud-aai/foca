@@ -31,6 +31,9 @@ updates:
       # hold up others
       ruff:
         patterns: [ruff]
+      # Likewise for semgrep (`requirements/semgrep.txt`)
+      semgrep:
+        patterns: [semgrep]
       python-dependencies:
         update-types: [minor, patch]
 

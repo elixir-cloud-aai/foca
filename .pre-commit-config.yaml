@@ -25,3 +25,42 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+  # Same version as in `requirements/semgrep.txt` (checked by the lint job);
+  # rules and their tests in `.semgrep/`
+  - repo: https://github.com/semgrep/pre-commit
+    rev: v1.181.0
+    hooks:
+      - id: semgrep
+        args:
+          - --config=.semgrep
+          - --error
+          - --metrics=off
+          - --disable-version-check
+          - --quiet
+          - --skip-unknown-extensions
+        # The rule tests contain findings on purpose
+        exclude: ^\.semgrep/
+      - id: semgrep
+        alias: semgrep-test
+        name: semgrep rule tests
+        # semgrep finds no tests in hidden directories passed as targets
+        entry: >-
+          sh -c 'cd .semgrep &&
+          semgrep --test --metrics=off --disable-version-check --quiet .'
+        files: ^\.semgrep/
+        pass_filenames: false
+  - repo: local
+    hooks:
+      # Uses ast-grep of the dev dependencies (`pip install -e ".[dev]"`);
+      # rules in `.ast-grep/` (`sgconfig.yml`)
+      - id: ast-grep
+        name: ast-grep
+        entry: ast-grep scan
+        language: system
+        types: [python]
+      - id: ast-grep-test
+        name: ast-grep rule tests
+        entry: ast-grep test --skip-snapshot-tests
+        language: system
+        files: ^(sgconfig\.yml|\.ast-grep/)
+        pass_filenames: false

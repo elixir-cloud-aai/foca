@@ -5,12 +5,14 @@
 
 graft tests
 include templates/config.yaml
+prune .ast-grep
 prune .github
+prune .semgrep
 prune charts
 prune docker
 prune docs
 prune examples
 prune images
 prune requirements
-exclude .* mkdocs.yml
+exclude .* mkdocs.yml sgconfig.yml
 global-exclude *.py[cod] __pycache__

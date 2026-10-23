@@ -1,0 +1,17 @@
+# Test cases of the rule `flask-debug-enabled` in `foca.yml`
+# (`semgrep --test`)
+enabled:
+  # ruleid: flask-debug-enabled
+  debug: True
+quoted:
+  # ruleid: flask-debug-enabled
+  debug: "yes"  # local development
+numeric:
+  # ruleid: flask-debug-enabled
+  debug: 1
+disabled:
+  # ok: flask-debug-enabled
+  debug: False
+other_key:
+  # ok: flask-debug-enabled
+  debugger: true

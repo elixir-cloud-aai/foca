@@ -1,0 +1,121 @@
+# Semgrep rules for security issues that ruff's bandit rules (`S`) do not
+# cover: ruff flags `eval()`, `exec()`, `yaml.load()` with unsafe loaders and
+# `verify=False` as an argument of requests calls; `yaml-unsafe-load` and
+# `tls-verification-disabled` cover the variants it misses. Test cases are in
+# `foca.py` and `foca.test.yaml` (`cd .semgrep && semgrep --test .`); the
+# scoping by `paths` can't be tested there. The rules `flask-debug-enabled`
+# and `jwt-decode-without-verification` are shared with FOCA apps (e.g.,
+# Cloud Registry): keep their patterns, messages and severities identical
+# there; `paths` are per repository
+rules:
+  - id: flask-debug-enabled
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Flask debug mode allows executing arbitrary code; only enable it for
+      local development, in an overlay config (`FOCA_CONFIG_OVERLAY`)
+    # All YAML files (FOCA configs of the templates and examples, and charts),
+    # but test configs, which may enable debug mode
+    paths:
+      include:
+        - "*.yaml"
+        - "*.yml"
+      exclude:
+        - "tests/"
+    pattern-regex: (?im)^\s*debug:\s*['"]?(true|yes|on|1)['"]?\s*(#.*)?$
+  - id: jwt-decode-without-verification
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Access tokens must be verified; use FOCA's `validate_token()` for
+      tokens of callers
+    # `False` or `0`, which PyJWT treats alike
+    patterns:
+      - pattern-either:
+          - pattern: '$JWT.$DECODE(..., options={..., "verify_signature": False, ...}, ...)'
+          - pattern: '$JWT.$DECODE(..., options={..., "verify_signature": 0, ...}, ...)'
+          - pattern: "$JWT.$DECODE(..., options=dict(..., verify_signature=False, ...), ...)"
+          - pattern: "$JWT.$DECODE(..., options=dict(..., verify_signature=0, ...), ...)"
+          - pattern: "$JWT.$DECODE(..., verify=False, ...)"
+          - pattern: "$JWT.$DECODE(..., verify=0, ...)"
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $OPTIONS = {..., "verify_signature": False, ...}
+                      ...
+                  - pattern-inside: |
+                      $OPTIONS = {..., "verify_signature": 0, ...}
+                      ...
+                  - pattern-inside: |
+                      $OPTIONS = dict(..., verify_signature=False, ...)
+                      ...
+                  - pattern-inside: |
+                      $OPTIONS = dict(..., verify_signature=0, ...)
+                      ...
+              - pattern: $JWT.$DECODE(..., options=$OPTIONS, ...)
+      # `decode()` and `decode_complete()` of `jwt` and `jwt.PyJWT()` (also
+      # imported under other names)
+      - metavariable-regex:
+          metavariable: $DECODE
+          regex: ^decode(_complete)?$
+  - id: jwt-decode-unsafe-algorithms
+    languages: [python]
+    severity: ERROR
+    message: >-
+      JWTs must be verified with a fixed list of signature algorithms: not
+      with `none`, and not with the algorithm that the token's header names
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $JWT.$DECODE(..., algorithms=[..., $ALG, ...], ...)
+                  - pattern: $JWT.$DECODE(..., algorithms=(..., $ALG, ...), ...)
+                  - pattern: $JWT.$DECODE(..., algorithms={..., $ALG, ...}, ...)
+              - metavariable-regex:
+                  metavariable: $ALG
+                  regex: (?i)^['"]none['"]$
+          - pattern: $JWT.$DECODE(..., algorithms=[..., jwt.get_unverified_header(...)[...], ...], ...)
+          - pattern: $JWT.$DECODE(..., algorithms=[..., jwt.get_unverified_header(...).get(...), ...], ...)
+          - pattern: $JWT.$DECODE(..., algorithms=jwt.get_unverified_header(...)[...], ...)
+          - pattern: $JWT.$DECODE(..., algorithms=jwt.get_unverified_header(...).get(...), ...)
+          - patterns:
+              - pattern-inside: |
+                  $HEADER = jwt.get_unverified_header(...)
+                  ...
+              - pattern-either:
+                  - pattern: $JWT.$DECODE(..., algorithms=[..., $HEADER[...], ...], ...)
+                  - pattern: $JWT.$DECODE(..., algorithms=[..., $HEADER.get(...), ...], ...)
+                  - pattern: $JWT.$DECODE(..., algorithms=$HEADER[...], ...)
+                  - pattern: $JWT.$DECODE(..., algorithms=$HEADER.get(...), ...)
+      - metavariable-regex:
+          metavariable: $DECODE
+          regex: ^decode(_complete)?$
+  - id: yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Loading YAML with PyYAML's full or unsafe loader can instantiate
+      arbitrary objects; use `yaml.safe_load()`
+    pattern-either:
+      - pattern: yaml.unsafe_load(...)
+      - pattern: yaml.unsafe_load_all(...)
+      - pattern: yaml.full_load(...)
+      - pattern: yaml.full_load_all(...)
+      - patterns:
+          - pattern-either:
+              - pattern: yaml.load_all(..., Loader=$LOADER, ...)
+              - pattern: yaml.load_all($STREAM, $LOADER, ...)
+          - metavariable-regex:
+              metavariable: $LOADER
+              regex: ^(yaml\.)?C?(Loader|UnsafeLoader|FullLoader)$
+  - id: tls-verification-disabled
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Certificate verification must not be disabled; configure a CA bundle
+      instead (`verify` may name its path)
+    # ruff flags `verify=False` in calls of requests, not `verify=0`
+    pattern-either:
+      - pattern: $SESSION.verify = False
+      - pattern: $SESSION.verify = 0
+      - pattern: requests.$METHOD(..., verify=0, ...)
