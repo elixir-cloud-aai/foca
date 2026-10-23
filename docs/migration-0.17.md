@@ -223,4 +223,7 @@ Raised lower bounds, for known vulnerabilities:
 - `requests>=2.33.0` (fixes CVE-2026-25645);
 - `Werkzeug>=3.1.9` (fixes CVE-2026-27199 and CVE-2026-102598).
 
+New: `certifi>=2026.10.19` (used via requests; fixes GHSA-6q48-6c7w-9gw2,
+compromised intermediate CAs of the emSign root CAs).
+
 Building FOCA from source requires `setuptools>=83` (fixes CVE-2026-59890).
