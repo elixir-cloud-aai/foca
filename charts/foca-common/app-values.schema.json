@@ -429,8 +429,12 @@
           "description": "Volume with MongoDB's data"
         },
         "volumeSize": {
-          "type": ["string", "integer"],
-          "description": "Deprecated since foca-common 0.2.0 (the setting up to 0.1.0): use persistence.size, which it sets (a Kubernetes quantity, e.g., 1Gi, or a number of bytes); rendering fails if both are set"
+          "allOf": [
+            {
+              "$ref": "#/$defs/tmpSizeLimit"
+            }
+          ],
+          "description": "Deprecated since foca-common 0.2.0 (the setting up to 0.1.0): use persistence.size, which it sets (a positive Kubernetes quantity, e.g., 1Gi, or number of bytes; null to unset it); rendering fails if both are set"
         },
         "resources": {
           "type": "object",

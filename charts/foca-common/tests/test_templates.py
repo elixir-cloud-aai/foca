@@ -849,10 +849,13 @@ def test_mongodb_volume_size_alias(
             f"mongodb.volumeSize={json.dumps(volume_size)}",
         )
     )
-    assert docs[("PersistentVolumeClaim", MONGODB)]["spec"] == {
+    spec = docs[("PersistentVolumeClaim", MONGODB)]["spec"]
+    assert spec == {
         "accessModes": ["ReadWriteOnce"],
         "resources": {"requests": {"storage": storage}},
     }
+    # Numbers of bytes are rendered as integers, not in scientific notation
+    assert type(spec["resources"]["requests"]["storage"]) is type(storage)
     assert _mongodb_volume(docs) == {"persistentVolumeClaim": {"claimName": MONGODB}}
 
 
@@ -870,11 +873,11 @@ def test_mongodb_volume_size_sets_size(render: Callable[..., Docs]) -> None:
         "mongodb.persistence.enabled=false",
     )
     assert _mongodb_volume(docs) == {"emptyDir": {"sizeLimit": "5Gi"}}
-    # An empty `volumeSize` is not set; without a size, the emptyDir has no limit
+    # Without a size (`volumeSize` unset with null), the emptyDir has no limit
     docs = render(
         *alias,
-        "--set",
-        "mongodb.volumeSize=",
+        "--set-json",
+        "mongodb.volumeSize=null",
         "--set",
         "mongodb.persistence.enabled=false",
     )
@@ -908,6 +911,8 @@ def test_schema_rejects_invalid_mongodb_persistence(
         "--set-json", 'mongodb.persistence.accessModes=["ReadOnlyMany"]'
     )
     assert "schema" in render_error("--set", "mongodb.persistence.unknown=true")
+    assert "schema" in render_error("--set", "mongodb.volumeSize=0Gi")
+    assert "schema" in render_error("--set", "mongodb.volumeSize=1x")
 
 
 def test_mongodb_values_required(
