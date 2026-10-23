@@ -557,7 +557,8 @@ them (e.g., its health check ranges).
     RabbitMQ creates its user from the Secret only when it starts with
     empty data, so with persistence, changing the Secret does not change
     the user, and the old password stays valid. After changing the password
-    in the Secret, change the user's, too, and roll the app's and the
+    in the Secret (in `password`, `broker-url` and, if it uses the broker,
+    `result-backend`), change the user's, too, and roll the app's and the
     worker's pods:
 
     ```bash
@@ -567,8 +568,8 @@ them (e.g., its health check ranges).
 
     To change the user name, add the new user (here `my-app-2`) with access
     to the default virtual host, change the Secret (`username`, `password`,
-    `broker-url` and, if it uses the broker, `result-backend`), roll the app's and the worker's pods, and then
-    delete the old user:
+    `broker-url` and, if it uses the broker, `result-backend`), roll the
+    app's and the worker's pods, and then delete the old user:
 
     ```bash
     kubectl exec statefulset/my-app-broker -- \
