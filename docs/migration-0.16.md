@@ -2,9 +2,9 @@
 
 FOCA 0.16.0 tightens token validation for the ELIXIR On-Cloud authentication
 policy, accepts tokens of service clients, adds resource ownership helpers and
-requires Python 3.11 or later. Apps using LS Login need no other changes;
-apps whose identity provider does not issue RFC 9068 access tokens, and apps
-setting `swagger_ui_path`, should check the breaking changes below.
+requires Python 3.11 or later. Apps whose identity provider issues RFC 9068
+access tokens need no other changes; other apps, and apps setting
+`swagger_ui_path`, should check the breaking changes below.
 Upgrading from 0.14 or earlier? Start with [Migrating to
 0.15.0](migration-0.15.md).
 
@@ -25,8 +25,8 @@ Bearer tokens must be OAuth 2.0 access tokens as per
 `at+jwt` or `application/at+jwt` (compared case-insensitively). Other JWTs of
 trusted issuers, such as ID tokens, and tokens without `typ` header are
 rejected with `401 Unauthorized` (`WWW-Authenticate: Bearer
-error="invalid_token"`), without contacting the issuer. LS Login issues such
-access tokens, so apps using it need no changes.
+error="invalid_token"`), without contacting the issuer. Apps whose identity
+provider issues such access tokens need no changes.
 
 If your identity provider sets another `typ` header on its access tokens, list
 it in [`security.auth.token_types`](configuration/auth.md) (a generic type such

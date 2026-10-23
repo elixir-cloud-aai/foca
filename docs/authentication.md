@@ -2,7 +2,7 @@
 
 FOCA validates bearer tokens ([JSON Web Tokens](https://jwt.io/), JWTs) issued
 by trusted [OpenID Connect](https://openid.net/connect/) (OIDC) identity
-providers, such as [LS Login](https://lifescience-ri.eu/ls-login/).
+providers.
 
 ## Requiring tokens
 
@@ -35,7 +35,7 @@ api:
 security:
   auth:
     issuers:
-      - https://login.elixir-czech.org/oidc/
+      - https://login.example.org/oidc/
     audience:
       - my-app
 ```
@@ -123,7 +123,7 @@ validation is disabled, or expired tokens are accepted.
           - protes-client-id
     ```
 
-    Tokens whose `client_id` claim (RFC 9068; LS Login) or, if they have
+    Tokens whose `client_id` claim (RFC 9068) or, if they have
     none, `azp` claim (OpenID Connect; used by some identity providers
     instead) is not listed, and tokens with neither claim, are rejected with
     `401`. With `clients`, FOCA does not warn about disabled audience
@@ -135,13 +135,13 @@ validation is disabled, or expired tokens are accepted.
     Identity providers issue other JWTs than access tokens, e.g., ID tokens,
     which contain user information for the client and are not meant to be
     sent to resource servers. FOCA tells access tokens apart by their `typ`
-    header, as required by RFC 9068; LS Login, for example, sets it to
-    `at+jwt`. Only if your identity provider does not set the `typ` header of
-    its access tokens, set `verify_token_type: false`: then any JWT issued by
-    a trusted issuer is accepted, including ID tokens. If it sets another
-    value, list it in `token_types` instead; note that a generic type such as
-    `JWT` does not tell access tokens apart from ID tokens either, so that
-    the `audience` is then the only safeguard.
+    header, `at+jwt` or `application/at+jwt` as per RFC 9068 (both are
+    accepted by default). Only if your identity provider does not set the
+    `typ` header of its access tokens, set `verify_token_type: false`: then any JWT issued by a trusted issuer is
+    accepted, including ID tokens. If it sets another value, list it in
+    `token_types` instead; note that a generic type such as `JWT` does not
+    tell access tokens apart from ID tokens either, so that the `audience`
+    is then the only safeguard.
 
 ## Service tokens
 
@@ -180,9 +180,8 @@ are enforced on them with the subject `client:<client ID>`.
 !!! warning "Check the claims of client-credentials tokens"
     Identity providers differ in which subject they put into
     client-credentials tokens: often the client ID, sometimes another
-    identifier of the client. What LS Login puts into its client-credentials
-    tokens has not been verified for FOCA. Inspect a client-credentials token
-    of each service client and set its `subject` accordingly; otherwise, its
+    identifier of the client. Inspect a client-credentials token of each
+    service client and set its `subject` accordingly; otherwise, its
     tokens are treated as user tokens: access control then uses the
     client's subject as a user, and with `userinfo_claims` or
     `validate_userinfo`, user info is requested for its tokens, which
@@ -211,15 +210,15 @@ service clients do not apply either.
 security:
   auth:
     issuers:
-      - https://login.elixir-czech.org/oidc/
       - https://login.example.org/oidc/
+      - https://login.example.com/oidc/
     service_clients:
       - client_id: conquest-client-id
-        issuer: https://login.elixir-czech.org/oidc/
+        issuer: https://login.example.org/oidc/
 ```
 
 For example, with this configuration, a token issued by
-`https://login.example.org/oidc/` with the client ID and subject
+`https://login.example.com/oidc/` with the client ID and subject
 `conquest-client-id` is a user token.
 
 Service clients with `on_behalf_of: true` (e.g., a gateway forwarding user
@@ -255,8 +254,7 @@ service client (`service_client`).
 
 !!! tip "Claims from user info"
     Some identity providers include claims in their user info only, not in
-    access tokens. For example, [LS Login](https://lifescience-ri.eu/ls-login/)
-    provides group memberships (`eduperson_entitlement`) via user info. To
+    access tokens, e.g., group memberships (`eduperson_entitlement`). To
     use such claims, e.g., for [access control](access-control.md#identity-and-group-claims),
     list them in `userinfo_claims`:
 

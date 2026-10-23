@@ -46,7 +46,7 @@ and set an audience:
     security:
       auth:
         issuers:
-          - https://login.elixir-czech.org/oidc/
+          - https://login.example.org/oidc/
         audience:
           - my-app
         validate_userinfo: false
@@ -90,7 +90,7 @@ Access control is now opt-in and requires trusted token issuers:
     security:
       auth:
         issuers:
-          - https://login.elixir-czech.org/oidc/
+          - https://login.example.org/oidc/
         audience:
           - my-app
       access_control:
