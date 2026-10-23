@@ -559,11 +559,12 @@ them (e.g., its health check ranges).
     the user, and the old password stays valid. After changing the password
     in the Secret (in `password`, `broker-url` and, if it uses the broker,
     `result-backend`), change the user's, too, and roll the app's and the
-    worker's pods:
+    worker's pods (`rabbitmqctl` reads the password from standard input,
+    so that it does not show up in process listings and audit logs):
 
     ```bash
-    kubectl exec statefulset/my-app-broker -- \
-        rabbitmqctl change_password my-app "${password}"
+    printf '%s' "${password}" | kubectl exec -i statefulset/my-app-broker -- \
+        rabbitmqctl change_password my-app
     ```
 
     To change the user name, add the new user (here `my-app-2`) with access
@@ -572,8 +573,8 @@ them (e.g., its health check ranges).
     app's and the worker's pods, and then delete the old user:
 
     ```bash
-    kubectl exec statefulset/my-app-broker -- \
-        rabbitmqctl add_user my-app-2 "${password}"
+    printf '%s' "${password}" | kubectl exec -i statefulset/my-app-broker -- \
+        rabbitmqctl add_user my-app-2
     kubectl exec statefulset/my-app-broker -- \
         rabbitmqctl set_permissions -p / my-app-2 ".*" ".*" ".*"
     # change the Secret, roll the pods, then:
