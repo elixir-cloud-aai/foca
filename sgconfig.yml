@@ -1,0 +1,6 @@
+# ast-grep rules for project-specific anti-patterns; run with `ast-grep scan`
+# (and `ast-grep test` for the rule tests), or via pre-commit
+ruleDirs:
+  - .ast-grep/rules
+testConfigs:
+  - testDir: .ast-grep/rule-tests

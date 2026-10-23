@@ -38,20 +38,31 @@ jobs:
             pyproject.toml
             requirements/lint.txt
             requirements/release.txt
+            requirements/semgrep.txt
       - name: Install package and tools
         run: >-
           pip install -e .[dev,docs] -r requirements/lint.txt
           -r requirements/release.txt
-      - name: Check ruff version of pre-commit hook
-        # The pre-commit hook must lint as the lint job does
+      - name: Install semgrep
+        # In an environment of its own, as its dependencies conflict with
+        # FOCA's; not on the PATH, which would shadow the job's Python
         run: |
-          pinned="$(sed -n 's/^ruff==//p' requirements/lint.txt)"
-          hook="$(grep -A1 'astral-sh/ruff-pre-commit' .pre-commit-config.yaml \
-            | sed -n 's/^ *rev: v//p')"
-          if [ -z "${pinned}" ] || [ "${pinned}" != "${hook}" ]; then
-            echo "::error file=.pre-commit-config.yaml::ruff hook ${hook:-?} differs from requirements/lint.txt (${pinned:-?})"
-            exit 1
-          fi
+          python -m venv "${RUNNER_TEMP}/semgrep"
+          "${RUNNER_TEMP}/semgrep/bin/pip" install -r requirements/semgrep.txt
+      - name: Check versions of pre-commit hooks
+        # The pre-commit hooks must lint as the lint job does
+        run: |
+          check() {  # package, requirements file, hook repository
+            pinned="$(sed -n "s/^$1==//p" "$2")"
+            hook="$(grep -A1 "$3" .pre-commit-config.yaml \
+              | sed -n 's/^ *rev: v//p')"
+            if [ -z "${pinned}" ] || [ "${pinned}" != "${hook}" ]; then
+              echo "::error file=.pre-commit-config.yaml::$1 hook ${hook:-?} differs from $2 (${pinned:-?})"
+              return 1
+            fi
+          }
+          check ruff requirements/lint.txt astral-sh/ruff-pre-commit
+          check semgrep requirements/semgrep.txt semgrep/pre-commit
       - name: Lint with ruff
         run: ruff check --output-format=github
       - name: Check formatting with ruff
@@ -59,6 +70,22 @@ jobs:
       - name: Type-check with mypy
         # Checks the files configured in `pyproject.toml` (package and tests)
         run: mypy
+      - name: Check anti-patterns with ast-grep
+        # Rules in `.ast-grep/` (`sgconfig.yml`)
+        run: ast-grep scan --format github
+      - name: Test ast-grep rules
+        run: ast-grep test --skip-snapshot-tests
+      - name: Check security issues with semgrep
+        # Rules in `.semgrep/`; skips the files of `.semgrepignore`
+        run: >-
+          "${RUNNER_TEMP}/semgrep/bin/semgrep" scan --config .semgrep --error
+          --metrics=off --disable-version-check
+      - name: Test semgrep rules
+        # semgrep finds no tests in hidden directories passed as targets
+        working-directory: .semgrep
+        run: >-
+          "${RUNNER_TEMP}/semgrep/bin/semgrep" --test --metrics=off
+          --disable-version-check .
       - name: Build documentation
         run: mkdocs build --strict
       # In its own environment, as cffconvert pins an old jsonschema; its

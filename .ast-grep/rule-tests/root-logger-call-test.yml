@@ -1,0 +1,11 @@
+id: root-logger-call
+valid:
+  - logger.info("Started")
+  - logging.getLogger(__name__).warning("Retrying")
+  - logging.basicConfig(level=logging.INFO)
+invalid:
+  - logging.info("Started")
+  - logging.exception("Failed")
+  - logging.log(logging.WARNING, "Retrying %s", url)
+  - logging.getLogger().error("Failed")
+  - logging.getLogger(None).error("Failed")
