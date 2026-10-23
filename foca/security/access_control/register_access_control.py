@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 from connexion import App
+from pymongo.errors import PyMongoError
 
 from foca.api.register_openapi import _connexion_add_api_kwargs
 from foca.config.access import get_app_config
@@ -313,6 +314,11 @@ def register_casbin_enforcer(
 ) -> App:
     """Method to add casbin permission enforcer.
 
+    The stored configured policy rules are replaced with those of
+    `access_control.policies`. If it is not set, stored configured rules
+    (e.g., set via a config overlay that was removed since) are removed,
+    with a warning.
+
     Args:
         app: Connexion app.
         access_control_config:
@@ -349,9 +355,37 @@ def register_casbin_enforcer(
             policies=access_control_config.policies,
             names=None if named is None else list(named),
         )
+    else:
+        _remove_policies(adapter=adapter)
     logger.info("Casbin enforcer registered.")
 
     return app
+
+
+def _remove_policies(adapter: Adapter) -> None:
+    """Remove stored configured policy rules, if any.
+
+    If the database is not available, a warning is logged instead, so that
+    apps that do not configure policy rules start without it, as before.
+
+    Args:
+        adapter: Casbin adapter of the app.
+    """
+    try:
+        if adapter.has_configured_policies():
+            # E.g., set via a config overlay that was removed since
+            logger.warning(
+                "Removing stored configured policy rules, as "
+                "'security.access_control.policies' is not set."
+            )
+            adapter.set_configured_policies([])
+    except PyMongoError as exc:
+        logger.warning(
+            "Could not remove stored configured policy rules, as "
+            "'security.access_control.policies' is not set; configured rules "
+            "stored before stay in effect until the next startup: %s",
+            exc,
+        )
 
 
 def _add_policies(
@@ -359,7 +393,7 @@ def _add_policies(
     policies: list[list[str]],
     names: list[str] | None = None,
 ) -> None:
-    """Make the stored configured policy rules match the configured ones.
+    """Replace the stored configured policy rules with the configured ones.
 
     All rules are validated before any stored rule is changed, so that
     invalid configurations leave stored rules unchanged.

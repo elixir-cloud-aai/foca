@@ -1,0 +1,16 @@
+id: string-status-code
+language: python
+severity: error
+message: HTTP status code returned as a string
+note: |
+  Return status codes as integers, e.g. `return body, 201`; Connexion does
+  not convert strings. Only string literals in returned tuples are
+  detected, not variables holding strings.
+rule:
+  any:
+    - pattern: return $BODY, $CODE
+    - pattern: return $BODY, $CODE, $HEADERS
+constraints:
+  CODE:
+    kind: string
+    regex: ^["']\d{3}["']$

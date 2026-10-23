@@ -116,7 +116,7 @@ the checks that CI runs:
 ```bash
 pip install -e ".[dev]"  # the package, with the dev dependencies
 pre-commit install  # run the hooks on every commit
-pre-commit run --all-files  # ruff, and YAML, TOML and whitespace checks
+pre-commit run --all-files  # ruff, semgrep, ast-grep, YAML, TOML, whitespace
 mypy  # type checks of the package and the tests
 coverage run -m pytest
 coverage report -m
@@ -159,9 +159,16 @@ chart on a kind cluster and checks that changes of the library chart raise
 its version (see [Developing the library
 chart](helm-chart.md#developing-the-library-chart)).
 
+Run `pre-commit` in the environment with the dev dependencies: the ast-grep
+hooks use the installed package. The first run sets up the other hooks, which
+takes a few minutes.
+
 The lint job also builds the documentation (see [Documentation](#documentation))
-and the distributions, and checks that the ruff version of the pre-commit hook
-matches the one pinned in `requirements/lint.txt` (update both together).
+and the distributions, and checks that the ruff and semgrep versions of the
+pre-commit hooks match the ones pinned in `requirements/lint.txt` and
+`requirements/semgrep.txt` (update both together). semgrep is pinned in a
+file of its own, as its dependencies conflict with FOCA's: install it in a
+separate environment to run it outside pre-commit.
 
 ### Image scan
 
@@ -236,6 +243,16 @@ reviews.
   logging format and pydocstyle (`pyproject.toml`, where each ignored rule
   says why). Prefer explicit checks to suppressions (`# noqa`,
   `# type: ignore`); justify the rare exceptions in a comment on the line.
+- **Further checks:** [semgrep](https://semgrep.dev/) checks for security
+  issues that ruff doesn't cover (rules in `.semgrep/`, e.g., JWTs decoded
+  without verification) and [ast-grep](https://ast-grep.github.io/) for
+  anti-patterns (rules in `.ast-grep/`, e.g., the root logger or `print()` in
+  the package), each rule with tests (`.semgrep/foca.py` and
+  `.semgrep/foca.test.yaml`, `.ast-grep/rule-tests/`). Rules shared with FOCA
+  apps (e.g., Cloud Registry) are kept identical there, except for the files
+  they apply to. Suppress a false
+  positive with `# nosemgrep: <rule-id>` or `# ast-grep-ignore: <rule-id>` on
+  the line before, with the reason in a comment.
 - **Docstrings:** Google-style docstrings at all levels: packages, modules,
   classes, methods and functions, also private ones and tests, with a
   one-line summary and, where applicable, the sections `Args`, `Returns` (or

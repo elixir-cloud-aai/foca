@@ -1,0 +1,6 @@
+# Replaces semgrep's default ignore list, which skips `tests/` (pre-commit
+# passes those files to semgrep anyway); rules that don't apply to tests
+# exclude them in their `paths`
+:include .gitignore
+# The rule tests contain findings on purpose
+.semgrep/

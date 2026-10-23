@@ -1,0 +1,9 @@
+id: generic-exception-raised
+valid:
+  - raise ValueError("Invalid")
+  - raise
+  - raise exc
+invalid:
+  - raise Exception("Invalid")
+  - raise Exception
+  - raise BaseException("Invalid") from exc

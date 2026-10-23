@@ -800,7 +800,8 @@ class AccessControlConfig(FOCABaseConfig):
         self_service: Allow subjects to list and get the permissions that
             apply to them.
         policies: Policy rules the app relies on, managed on startup, as a
-            list (names of named rules are kept in `named_policies`).
+            list (names of named rules are kept in `named_policies`). If not
+            set, stored configured rules are removed on startup.
         log_traffic: Whether requests to the permissions API and their
             responses are logged.
 

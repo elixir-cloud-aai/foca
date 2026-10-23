@@ -1,0 +1,17 @@
+id: root-logger-call
+language: python
+severity: error
+message: Message logged with the root logger
+note: |
+  Log with the module's logger (`logger = logging.getLogger(__name__)`), so
+  that apps can configure FOCA's log messages by logger name.
+rule:
+  any:
+    - pattern: logging.$METHOD($$$ARGS)
+    - pattern: logging.getLogger().$METHOD($$$ARGS)
+    - pattern: logging.getLogger($NAME).$METHOD($$$ARGS)
+constraints:
+  NAME:
+    regex: ^(None|""|'')$
+  METHOD:
+    regex: ^(debug|info|warning|warn|error|exception|critical|fatal|log)$

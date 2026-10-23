@@ -1,0 +1,7 @@
+id: pydantic-v1-dict
+valid:
+  - config.model_dump(exclude_none=True)
+  - dict(a=1)
+invalid:
+  - config.dict()
+  - config.dict(exclude_none=True)

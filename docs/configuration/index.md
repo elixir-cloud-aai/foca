@@ -116,6 +116,12 @@ To keep mistakes from going unnoticed, FOCA refuses to start if a file
 - changes an API specification that is not set (an entry of `api.specs`
   without `path`).
 
+To remove an entry that an overlay added, remove it from the overlay rather
+than setting it to `null` in another one: `null` only removes entries that
+earlier files set. Policy rules are removed from the database on the next
+startup, also if no rules remain, i.e., if `policies` is no longer set (see
+[configuring policies](../access-control.md#configuring-policies)).
+
 Named entries also compose with other tools that merge mappings but replace
 lists, e.g., Helm when merging several values files (except for removals, see
 [the Helm chart](../helm-chart.md#values)). See [patching

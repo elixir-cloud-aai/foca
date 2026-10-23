@@ -16,6 +16,7 @@ from yaml import (
 
 from foca import Foca
 from foca.models.config import AccessControlConfig
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from tests.mock_data import MongoClients
 
 DIR = Path(__file__).parent / "test_files"
@@ -112,6 +113,7 @@ def test_foca_create_app_error_media_type(tmp_path: Path) -> None:
     assert response.json == {"title": "Not Found", "status": 404}
 
 
+@pytest.mark.usefixtures("mongo_clients")
 def test_foca_create_app_error_media_type_access_control(tmp_path: Path) -> None:
     """Ensure errors of the permissions API have the configured media type.
 
@@ -156,6 +158,7 @@ def test_foca_create_app_no_access_control() -> None:
     assert not any("permissions" in rule.rule for rule in app.app.url_map.iter_rules())
 
 
+@pytest.mark.usefixtures("mongo_clients")
 def test_foca_create_app_access_control() -> None:
     """Ensure access control is registered if enabled."""
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
@@ -168,6 +171,7 @@ def test_foca_create_app_access_control() -> None:
     )
 
 
+@pytest.mark.usefixtures("mongo_clients")
 def test_foca_create_app_access_control_defaults() -> None:
     """Ensure access control is registered with defaults if only enabled."""
     foca = Foca(config_file=ACCESS_CONTROL_ENABLED_CONF)
@@ -177,6 +181,7 @@ def test_foca_create_app_access_control_defaults() -> None:
     assert set(dbs["access_control_db"].collections) == {"policy_rules"}
 
 
+@pytest.mark.usefixtures("mongo_clients")
 def test_foca_create_app_config_unchanged() -> None:
     """Ensure creating apps does not change access control settings."""
     foca = Foca(config_file=ACCESS_CONTROL_ENABLED_CONF)
@@ -193,6 +198,7 @@ def test_access_control_removed_fields(field: str) -> None:
         AccessControlConfig(**{field: "x"})  # type: ignore[arg-type]  # invalid on purpose
 
 
+@pytest.mark.usefixtures("mongo_clients")
 def test_foca_create_app_twice() -> None:
     """Ensure an app can be created repeatedly from the same instance."""
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
@@ -268,8 +274,10 @@ def test_foca_enforce_access_control_without_enabled() -> None:
         Foca(config_file=ENFORCE_WITHOUT_ENABLED_CONF)
 
 
-def test_foca_valid_access_control() -> None:
+def test_foca_valid_access_control(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensures access control settings are set correctly."""
+    # without database server, as the clients are checked
+    monkeypatch.setattr(Adapter, "has_configured_policies", lambda self: False)
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
     app = foca.create_app()
     my_db = app.app.config.foca.db.dbs["test_db"]
@@ -312,6 +320,7 @@ def test_foca_one_mongo_client(
     assert adapter._collection.database.client is client
 
 
+@pytest.mark.usefixtures("mongo_clients")
 def test_foca_relative_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure relative paths are resolved against the config file directory.
 

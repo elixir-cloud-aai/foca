@@ -10,12 +10,14 @@ import pytest
 from connexion import App
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.errors import ServerSelectionTimeoutError
 
 from foca.database import register_mongodb
 from foca.models.config import AccessControlConfig, MongoConfig
 from foca.security.access_control import register_access_control as module
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    GENERATION_MARKER_ID,
     RESOURCE_ROLE_MODEL_FILE,
 )
 from tests.mock_data import MongoClients
@@ -23,6 +25,8 @@ from tests.mock_data import MongoClients
 RESOURCE_ROLE_MODEL = str(
     module.files(ACCESS_CONTROL_BASE_PATH).joinpath(RESOURCE_ROLE_MODEL_FILE)
 )
+# Stored rules, without the document naming the active generation
+RULES_FILTER = {"_id": {"$ne": GENERATION_MARKER_ID}}
 POLICIES = [
     ["p", "*", "/pets", "(GET)|(POST)"],
     ["p", "owner", "/pets/:id", "(GET)|(DELETE)"],
@@ -115,7 +119,7 @@ def _register_policies(
     return collection, [
         [rule["ptype"]]
         + [rule[f"v{i}"] for i in range(6) if rule.get(f"v{i}") is not None]
-        for rule in collection.find()
+        for rule in collection.find(RULES_FILTER)
     ]
 
 
@@ -140,18 +144,78 @@ class TestPolicies:
         """Configured rules are stored, with identifiers."""
         collection, rules = _register_policies(POLICIES)
         assert rules == POLICIES
-        assert all(rule["id"] for rule in collection.find())
+        assert all(rule["id"] for rule in collection.find(RULES_FILTER))
 
     def test_none(self, clients: MongoClient[dict[str, Any]]) -> None:
-        """No rules are stored by default."""
+        """No rules are stored by default, nor is anything else."""
+        collection, rules = _register_policies(None)
+        assert rules == []
+        assert collection.count_documents({}) == 0
+
+    def test_unset_removes(
+        self,
+        clients: MongoClient[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Stored configured rules are removed if policies are not set.
+
+        E.g., if set via an overlay that was removed. Other rules are kept.
+        """
+        collection, _ = _register_policies(POLICIES)
+        collection.insert_one(
+            {"id": "other1", "ptype": "p", "v0": "a", "v1": "/b", "v2": "GET"}
+        )
+        monkeypatch.setattr(module.logger, "disabled", False)
+        with caplog.at_level(logging.WARNING, logger=module.logger.name):
+            _, rules = _register_policies(None)
+        assert rules == [["p", "a", "/b", "GET"]]
+        assert "Removing stored configured policy rules" in caplog.text
+
+    def test_unset_removes_legacy(self, clients: MongoClient[dict[str, Any]]) -> None:
+        """Configured rules stored by FOCA 0.16 are removed if not set."""
+        collection = clients["access_control_db"]["policy_rules"]
+        collection.insert_one(
+            {"id": "legacy", "ptype": "g", "v0": "a", "v1": "b", "configured": True}
+        )
         _, rules = _register_policies(None)
         assert rules == []
 
-    def test_not_managed(self, clients: MongoClient[dict[str, Any]]) -> None:
-        """Stored rules are kept if policies are not set."""
-        _register_policies(POLICIES)
+    def test_unset_removes_inactive(self, clients: MongoClient[dict[str, Any]]) -> None:
+        """Without policies, rules of inactive generations are removed, too.
+
+        E.g., left by an instance that failed while storing them.
+        """
+        collection, _ = _register_policies([])
+        collection.insert_one(
+            {
+                "id": "pendng",
+                "ptype": "g",
+                "v0": "a",
+                "v1": "b",
+                "configured": True,
+                "generations": ["0" * 24],
+            }
+        )
         _, rules = _register_policies(None)
-        assert rules == POLICIES
+        assert rules == []
+
+    def test_unset_without_database(
+        self,
+        clients: MongoClient[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Without database, apps without policies start with a warning."""
+
+        def unavailable(self: Any) -> bool:
+            raise ServerSelectionTimeoutError("unavailable")
+
+        monkeypatch.setattr(module.Adapter, "has_configured_policies", unavailable)
+        monkeypatch.setattr(module.logger, "disabled", False)
+        with caplog.at_level(logging.WARNING, logger=module.logger.name):
+            _register_policies(None)
+        assert "Could not remove stored configured policy rules" in caplog.text
 
     def test_all_removed(self, clients: MongoClient[dict[str, Any]]) -> None:
         """With empty policies, all configured rules are removed."""
@@ -162,7 +226,7 @@ class TestPolicies:
     def test_marked(self, clients: MongoClient[dict[str, Any]]) -> None:
         """Configured rules are marked as such."""
         collection, _ = _register_policies(POLICIES)
-        assert all(rule["configured"] is True for rule in collection.find())
+        assert all(rule["configured"] is True for rule in collection.find(RULES_FILTER))
 
     def test_not_duplicated(self, clients: MongoClient[dict[str, Any]]) -> None:
         """Rules are only added if they are not stored yet.
@@ -200,11 +264,12 @@ class TestPolicies:
         _, rules = _register_policies(POLICIES[:1])
         assert rules == POLICIES[:1]
 
-    def test_adopted(self, clients: MongoClient[dict[str, Any]]) -> None:
-        """Stored rules with the values of configured rules are adopted.
+    def test_unmarked_copy_kept(self, clients: MongoClient[dict[str, Any]]) -> None:
+        """Stored rules with the values of configured rules are kept.
 
         Such rules (e.g., added via the permissions API, also with unset values
-        stored as null) become configured rules instead of being duplicated.
+        stored as null) stay rules that are not configured, so that they are
+        in effect throughout; a configured copy is added.
         """
         _, _ = _register_policies([])
         collection = clients["access_control_db"]["policy_rules"]
@@ -219,10 +284,11 @@ class TestPolicies:
             }
         )
         _, rules = _register_policies(POLICIES[:1])
-        assert rules == POLICIES[:1]
-        adopted = collection.find_one({"id": "other1"})
-        assert adopted is not None
-        assert adopted["configured"] is True
+        assert rules == POLICIES[:1] * 2
+        kept = collection.find_one({"id": "other1"})
+        assert kept is not None
+        assert "configured" not in kept
+        assert collection.count_documents({"configured": True}) == 1
 
     @pytest.mark.parametrize(
         "rule",
@@ -249,7 +315,7 @@ class TestPolicies:
         with pytest.raises(ValueError):
             _register_policies([["p", "*", "/pets"]])
         collection = clients["access_control_db"]["policy_rules"]
-        assert collection.count_documents({}) == len(POLICIES)
+        assert collection.count_documents(RULES_FILTER) == len(POLICIES)
 
     def test_named(
         self,
@@ -266,7 +332,7 @@ class TestPolicies:
         assert "Named policy rules applied: read-write, owner, bob" in caplog.messages
         # switching between named and listed rules keeps stored rules
         collection, _ = _register_policies(POLICIES)
-        assert collection.count_documents({}) == len(POLICIES)
+        assert collection.count_documents(RULES_FILTER) == len(POLICIES)
 
     def test_named_invalid(self, clients: MongoClient[dict[str, Any]]) -> None:
         """Invalid named rules prevent startup; errors name the rule."""

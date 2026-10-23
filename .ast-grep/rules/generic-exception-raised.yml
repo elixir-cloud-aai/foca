@@ -1,0 +1,17 @@
+id: generic-exception-raised
+language: python
+severity: error
+message: Generic `Exception` raised in the package
+note: |
+  Raise a specific exception (e.g., `ValueError`, or one of
+  `foca.errors.exceptions`), so that callers can catch it and FOCA's error
+  handlers can map it to an HTTP response.
+# Scoped to the package: tests may raise generic exceptions
+files:
+  - foca/**
+rule:
+  any:
+    - pattern: raise Exception
+    - pattern: raise Exception($$$ARGS)
+    - pattern: raise BaseException
+    - pattern: raise BaseException($$$ARGS)
