@@ -222,3 +222,5 @@ Raised lower bounds, for known vulnerabilities:
   and CVE-2026-96749);
 - `requests>=2.33.0` (fixes CVE-2026-25645);
 - `Werkzeug>=3.1.9` (fixes CVE-2026-27199 and CVE-2026-102598).
+
+Building FOCA from source requires `setuptools>=83` (fixes CVE-2026-59890).

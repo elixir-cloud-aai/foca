@@ -17,7 +17,7 @@ vulnerabilities:
   # which the Dockerfile upgrades to the latest release on all Python
   # versions, used only when pip runs (to install the app's dependencies at
   # build time), not by the app; the installed packages are separate (urllib3
-  # 2.8.0 on 2026-10-22). pip 26.2.2, the latest release on 2026-10-23, still
+  # 2.8.0 on 2026-10-23). pip 26.2.2, the latest release on 2026-10-23, still
   # vendors these versions. Trivy reports the vendored copies without a path,
   # so the entries can't be limited with `paths`; they would also hide these
   # versions if installed normally
@@ -35,7 +35,7 @@ vulnerabilities:
     expired_at: 2027-01-31
   - id: CVE-2026-97688
     purls: ["pkg:pypi/urllib3@2.7.0"]
-    statement: Vendored by pip, not used by the app (pip only runs at build time)
+    statement: Vendored by pip, not used by the app (infinite loop on malicious chunked deflate responses; pip only runs at build time, against the configured index, where at worst the build hangs)
     expired_at: 2027-01-31
   - id: CVE-2026-97689
     purls: ["pkg:pypi/urllib3@2.7.0"]
