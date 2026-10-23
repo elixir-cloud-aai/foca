@@ -128,7 +128,7 @@ and the settings (`settings`), one per file:
 | `foca-common.mongodbDeployment` | MongoDB's `Deployment`, unless `mongodb.enabled` is false |
 | `foca-common.mongodbInitScript` | `ConfigMap` with MongoDB's init script, if `mongodb.auth.enabled` |
 | `foca-common.mongodbNetworkPolicy` | MongoDB's `NetworkPolicy`, if `mongodb.networkPolicy.enabled` |
-| `foca-common.mongodbPersistentVolumeClaim` | MongoDB's data volume |
+| `foca-common.mongodbPersistentVolumeClaim` | MongoDB's data volume, unless `mongodb.enabled` or `mongodb.persistence.enabled` is false, without `mongodb.persistence.existingClaim` |
 | `foca-common.mongodbService` | MongoDB's `Service` (port 27017), the host of `db.host` in the overlay |
 | `foca-common.workerDeployment` | the Celery worker's `Deployment`, if `worker.enabled` |
 | `foca-common.brokerStatefulSet` | the broker's (RabbitMQ's) `StatefulSet`, if `broker.enabled` (`foca-common.brokerDeployment`, the name up to 0.1.0, is a deprecated alias) |
@@ -165,7 +165,7 @@ your app's `valuesKey`:
 | `hostName` | Public host name of the Ingress, HTTPRoute or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
 | `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `probePath`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
-| `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `volumeSize`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
+| `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `persistence` (`volumeSize`, its size up to 0.1.0, is a deprecated alias of `persistence.size`), `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
 | `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `persistence`, `dataSizeLimit`, `tmpSizeLimit` |
 
@@ -454,6 +454,20 @@ them (e.g., its health check ranges).
   as the root user, and roll the app's pods after changing the Secret. Authentication can be disabled with
   `mongodb.auth.enabled: false`, but then any pod that can reach MongoDB can
   read and modify its data.
+- **MongoDB data** is kept in a PersistentVolumeClaim named like the app
+  with the suffix `-mongodb` (`mongodb.persistence`: `size`, `accessModes`,
+  by default `ReadWriteOnce`, `storageClass`, the cluster's default class
+  if empty and `-` for no dynamic provisioning, or an `existingClaim`, e.g.,
+  restored from a backup), mounted at `/data/db`; MongoDB's Deployment
+  replaces its pod only once the old one is gone (`Recreate`). Persistence
+  is enabled also if `mongodb.persistence.enabled` is not set (as in values
+  written for foca-common 0.1.0). With `mongodb.persistence.enabled: false`
+  (e.g., for tests), the data is kept in an `emptyDir` limited to
+  `mongodb.persistence.size` and lost when the pod is replaced, and the init
+  script runs on every new pod. `mongodb.volumeSize`, the size up to
+  foca-common 0.1.0, is deprecated but still sets the size of the claim;
+  rendering fails if `mongodb.persistence.size` is set, too. The claim's
+  name has not changed, so upgrades keep the data.
 - **Access control:** FOCA keeps the rules of [access
   control](access-control.md) in a database of their own
   (`security.access_control.db_name`, by default `access_control_db`),
