@@ -49,12 +49,12 @@ to 0.17.0][docs-migration] (from 0.15 or earlier, first [Migrating to
 FOCA's package has about 9,300 lines of code, tested by about 12,600 lines of
 tests, and its Helm library chart about 1,750 lines. [Cloud
 Registry](https://github.com/elixir-cloud-aai/cloud-registry), for example,
-uses almost all of the package (all but the Celery factory and a few
-utilities) and has about 2,200 lines of code of its own, plus about 9,000
-lines of tests. Its own code is thus about a fifth (code only) to a third
-(code and tests) of what it would be without FOCA. Even if an app needed only
-half of FOCA's code, FOCA would still save it about 4,500 lines, plus their
-tests and the chart. (Lines of Python without blank lines and comments,
+uses almost all of the package (all but the Celery factory and a database
+helper) and has about 2,200 lines of code of its own, plus about 9,000
+lines of tests. Its own code is thus about a fifth of what it would be
+without FOCA, counting code only, and about a third, counting code and tests.
+Even if an app needed only half of FOCA's code, FOCA would still save it about
+4,500 lines, plus their tests and the chart. (Lines of Python without blank lines and comments,
 docstrings included; FOCA 0.17.0 and Cloud Registry in October 2026.)
 
 The savings add up with every app: if you maintain several OpenAPI-based
