@@ -126,6 +126,28 @@ class TestDeletePermission:
 class TestGetAllPermissions:
     """Tests for listing permissions."""
 
+    def test_inactive_configured(
+        self, app: Flask, collection: Collection[dict[str, Any]], stored: dict[str, Any]
+    ) -> None:
+        """Configured rules not in effect are neither listed nor returned.
+
+        E.g., rules of a generation of configured rules that is not active
+        yet; nor is the document naming the active generation.
+        """
+        app.config["casbin_adapter"].set_configured_policies([])
+        collection.insert_one(
+            {
+                **deepcopy(MOCK_RULE),
+                "id": "pendng",
+                "configured": True,
+                "generations": ["0" * 24],
+            }
+        )
+        with app.app_context():
+            assert unwrap(getAllPermissions)()["results"] == [stored]
+            with pytest.raises(NotFound):
+                unwrap(getPermission)(id="pendng")
+
     def test_list(self, app: Flask, stored: dict[str, Any]) -> None:
         """Stored permissions are listed, with pagination."""
         with app.app_context():
@@ -226,6 +248,33 @@ class TestPostPermission:
 
 class TestPutPermission:
     """Tests for updating permissions."""
+
+    def test_inactive_configured(
+        self, app: Flask, collection: Collection[dict[str, Any]]
+    ) -> None:
+        """Configured rules not in effect are neither replaced nor deleted.
+
+        E.g., rules of a generation that is not active yet.
+        """
+        adapter = app.config["casbin_adapter"]
+        adapter.set_configured_policies([])
+        adapter.save_policy_line("p", ["a", "/b", "GET"])
+        collection.insert_one(
+            {
+                **deepcopy(MOCK_RULE),
+                "id": MOCK_ID,
+                "configured": True,
+                "generations": ["0" * 24],
+            }
+        )
+        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
+            with pytest.raises(Conflict):
+                unwrap(putPermission)(id=MOCK_ID)
+            with pytest.raises(Conflict):
+                unwrap(deletePermission)(id=MOCK_ID)
+        document = collection.find_one({"id": MOCK_ID})
+        assert document is not None
+        assert document["configured"] is True
 
     def test_configured(
         self, app: Flask, collection: Collection[dict[str, Any]]

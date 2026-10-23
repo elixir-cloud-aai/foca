@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from bson import ObjectId, Timestamp
@@ -16,8 +17,14 @@ from foca.security.access_control.constants import (
     CONFIGURED_FIELD,
     DEFAULT_ID_CHARSET,
     DEFAULT_ID_LENGTH,
+    GENERATION_MARKER_ID,
     GRANTED_FIELD,
     ID_ATTEMPTS,
+    LEGACY_GENERATION,
+    LOAD_POLICY_ATTEMPTS,
+    MARKER_GENERATION_FIELD,
+    RULE_GENERATIONS_FIELD,
+    STALE_GENERATION_AGE,
 )
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
@@ -108,17 +115,38 @@ class Adapter(persist.Adapter):
     def load_policy(self, model: Model) -> None:
         """Implementing add Interface for casbin.
 
-        Load all policy rules from MongoDB. Rules are built from the fields
-        `ptype` and `v0` to `v5` of stored documents only. Invalid rules
-        (cf. :py:func:`validate_rule`) are skipped with a warning. Rules
-        stored more than once, or already in the model, are loaded once.
+        Load all policy rules from MongoDB: the rules that are not
+        configured, and the configured rules of the active generation (cf.
+        :py:meth:`set_configured_policies`). If the active generation
+        changes while rules are loaded, they are loaded again, so that the
+        configured rules are those of one complete generation. Rules are
+        built from the fields `ptype` and `v0` to `v5` of stored documents
+        only. Invalid rules (cf. :py:func:`validate_rule`) are skipped with a
+        warning. Rules stored more than once, or already in the model, are
+        loaded once.
 
         Args:
             model: Casbin model to load rules into.
+
+        Raises:
+            RuntimeError: The active generation changed during each of
+                `LOAD_POLICY_ATTEMPTS` attempts.
         """
+        for _ in range(LOAD_POLICY_ATTEMPTS):
+            generation = self._active_generation()
+            documents = list(self._collection.find(self._rules_query(generation)))
+            # Rules are only removed from generations that are no longer
+            # active, and generations never become active again
+            if self._active_generation() == generation:
+                break
+        else:
+            raise RuntimeError(
+                "Configured policy rules changed while loading rules, in "
+                f"each of {LOAD_POLICY_ATTEMPTS} attempts"
+            )
         # Not `policy_map`: `clear_policy()` does not clear it on reloads
         loaded: dict[str, set[tuple[str, ...]]] = {}
-        for document in self._collection.find():
+        for document in documents:
             ptype = document.get("ptype")
             values = _rule_values(document)
             try:
@@ -154,9 +182,13 @@ class Adapter(persist.Adapter):
             id: Identifier of the rule. If given, a stored rule with that
                 identifier is replaced. Otherwise, a unique identifier is
                 generated.
-            configured: Whether the rule is set via the app's configuration
-                (`access_control.policies`), so that it is managed on
-                startup and cannot be changed via the permissions API.
+            configured: Whether to store the rule as set via the app's
+                configuration (`access_control.policies`), in the active
+                generation (cf. :py:meth:`set_configured_policies`); it is
+                then removed when configured rules are next replaced. Not
+                safe while configured rules are replaced concurrently, as
+                the rule may then join a generation that is no longer
+                active.
 
         Returns:
             Identifier of the stored rule.
@@ -172,10 +204,30 @@ class Adapter(persist.Adapter):
         document = CasbinRule.from_values(ptype, rule).to_dict()
         if configured:
             document[CONFIGURED_FIELD] = True
+            document[RULE_GENERATIONS_FIELD] = [self._active_generation()]
         if id is not None:
             document["id"] = id
-            self._collection.replace_one({"id": id}, document, upsert=True)
+            # Configured rules are only replaced by configured rules
+            query: dict[str, Any] = {"id": id}
+            if not configured:
+                query[CONFIGURED_FIELD] = {"$ne": True}
+            self._collection.replace_one(query, document, upsert=True)
             return id
+        return self._insert(document)
+
+    def _insert(self, document: dict[str, Any]) -> str:
+        """Store a rule with a generated identifier.
+
+        Args:
+            document: Rule to store, without identifier.
+
+        Returns:
+            Identifier of the stored rule.
+
+        Raises:
+            pymongo.errors.DuplicateKeyError: No unique identifier could be
+                generated in `ID_ATTEMPTS` attempts.
+        """
         attempts_left = ID_ATTEMPTS
         while True:
             document["id"] = generate_id(charset=self.id_charset, length=self.id_length)
@@ -381,8 +433,8 @@ class Adapter(persist.Adapter):
             id: Identifier of the rule.
 
         Returns:
-            Whether a rule with identifier `id` is stored and marked as
-            configured.
+            Whether a rule with identifier `id` is stored as a configured rule
+            of the active generation (cf. :py:meth:`set_configured_policies`).
         """
         return self._has_configured({"id": id})
 
@@ -394,10 +446,22 @@ class Adapter(persist.Adapter):
             rule: Values of the rule.
 
         Returns:
-            Whether a rule with exactly these values is stored and marked as
-            set via the app's configuration (`access_control.policies`).
+            Whether a rule with exactly these values is stored as a
+            configured rule of the active generation (cf.
+            :py:meth:`set_configured_policies`).
         """
         return self._has_configured(_rule_query(ptype, rule))
+
+    def has_configured_policies(self) -> bool:
+        """Check whether configured rules are stored.
+
+        Returns:
+            Whether configured rules of any generation (cf.
+            :py:meth:`set_configured_policies`) are stored, e.g., also of
+            generations that never became active.
+        """
+        query = {CONFIGURED_FIELD: True}
+        return self._collection.count_documents(query, limit=1) > 0
 
     def get_filtered_rules(
         self,
@@ -413,15 +477,19 @@ class Adapter(persist.Adapter):
             field_index: Index of the value that `field_values` start at.
             field_values: Values the rules must have, starting at
                 `field_index`.
-            configured: Whether to get the rules marked as set via the app's
-                configuration (`access_control.policies`) or the others.
+            configured: Whether to get the configured rules of the active
+                generation (cf. :py:meth:`set_configured_policies`) or the
+                rules that are not configured.
 
         Returns:
             Values of the stored rules that match the filter and the mark,
             without duplicates.
         """
         query = _filter_query(ptype, field_index, field_values)
-        query[CONFIGURED_FIELD] = True if configured else {"$ne": True}
+        if configured:
+            query.update(self._configured_query(self._active_generation()))
+        else:
+            query[CONFIGURED_FIELD] = {"$ne": True}
         rules = dict.fromkeys(
             tuple(_rule_values(document)) for document in self._collection.find(query)
         )
@@ -434,44 +502,235 @@ class Adapter(persist.Adapter):
             query: Query for stored rules.
 
         Returns:
-            Whether a stored rule matches `query` and is marked as set via
-            the app's configuration.
+            Whether a stored rule matches `query` and is a configured rule of
+            the active generation.
         """
-        query = {**query, CONFIGURED_FIELD: True}
+        query = {**query, **self._configured_query(self._active_generation())}
         return self._collection.count_documents(query, limit=1) > 0
 
-    def set_configured_policies(self, rules: list[list[str]]) -> None:
-        """Make the stored configured rules match the given rules.
+    def _active_generation(self) -> str:
+        """Get the active generation of configured rules.
 
-        Stored rules marked as configured that are not given, and duplicates
-        of configured rules (e.g., added by app instances starting
-        concurrently), are removed. Given rules that are stored without the
-        mark (e.g., added via the permissions API) are marked; others are
-        added. Other stored rules are kept.
+        Returns:
+            Generation named by the marker document, or `LEGACY_GENERATION`
+            if there is none (i.e., configured rules were last set by FOCA
+            0.16 or earlier, if at all).
+        """
+        marker = self._collection.find_one(
+            {"_id": GENERATION_MARKER_ID}, projection=[MARKER_GENERATION_FIELD]
+        )
+        if marker is None:
+            return LEGACY_GENERATION
+        return str(marker.get(MARKER_GENERATION_FIELD))
+
+    @staticmethod
+    def _configured_query(generation: str) -> dict[str, Any]:
+        """Get query matching the configured rules of a generation.
+
+        Args:
+            generation: Generation of configured rules.
+
+        Returns:
+            Query matching configured rules of `generation`; for
+            `LEGACY_GENERATION`, also configured rules without generations.
+        """
+        if generation == LEGACY_GENERATION:
+            # Also matches rules without the field
+            return {
+                CONFIGURED_FIELD: True,
+                RULE_GENERATIONS_FIELD: {"$in": [generation, None]},
+            }
+        return {CONFIGURED_FIELD: True, RULE_GENERATIONS_FIELD: generation}
+
+    def _rules_query(self, generation: str) -> dict[str, Any]:
+        """Get query matching the rules in effect for a generation.
+
+        Args:
+            generation: Active generation of configured rules.
+
+        Returns:
+            Query matching the stored rules that are not configured and the
+            configured rules of `generation`, but not the marker document.
+        """
+        return {
+            "_id": {"$ne": GENERATION_MARKER_ID},
+            "$or": [
+                {CONFIGURED_FIELD: {"$ne": True}},
+                self._configured_query(generation),
+            ],
+        }
+
+    def rules_query(self) -> dict[str, Any]:
+        """Get query matching the stored rules in effect.
+
+        Returns:
+            Query matching the stored rules that are not configured and the
+            configured rules of the active generation (cf.
+            :py:meth:`set_configured_policies`), as loaded for enforcing
+            policies.
+        """
+        return self._rules_query(self._active_generation())
+
+    def set_configured_policies(self, rules: list[list[str]]) -> None:
+        """Replace the stored configured rules with the given rules.
+
+        Rules are replaced without transactions, but such that rules are
+        always loaded with one complete set of configured rules: the given
+        rules are stored as a new generation, which is then made the active
+        one, in a single write to the marker document; finally, the
+        configured rules of the previously active generation that are not
+        given are removed. Stored configured rules with the values of a
+        given rule are added to the new generation rather than stored again,
+        so that their identifiers are kept; duplicates (e.g., added by app
+        instances starting concurrently) are thus removed. Generations that
+        never became active (e.g., because the app instance storing them
+        failed) are removed once they are older than
+        `STALE_GENERATION_AGE`.
+
+        If app instances replace configured rules concurrently, the rules of
+        the last one to make its generation active are kept. Configured rules
+        stored by FOCA 0.16 and earlier, without generations, belong to
+        generation `LEGACY_GENERATION`, which is active until another one is.
+        Stored rules that are not configured (e.g., added via the
+        permissions API), are kept, also if they have the values of a given
+        rule.
 
         Args:
             rules: Configured rules, each given as its policy type followed
                 by its values; they need to be valid (cf.
                 :py:func:`validate_rule`).
         """
-        missing = {tuple(rule): rule for rule in rules}
-        for document in self._collection.find({CONFIGURED_FIELD: True}):
-            key = (document.get("ptype"), *_rule_values(document))
-            if missing.pop(key, None) is None:
-                self._collection.delete_one({"_id": document["_id"]})
-                logger.info("Removed configured policy rule '%s'", document.get("id"))
-        for ptype, *rule in missing.values():
-            if self._collection.update_many(
-                _rule_query(ptype, rule), {"$set": {CONFIGURED_FIELD: True}}
+        self._ensure_id_index()
+        generation = str(ObjectId())
+        self._store_generation(generation, rules)
+        previous = self._activate_generation(generation)
+        self._remove_generations([previous])
+        self._remove_stale_generations()
+
+    def _store_generation(self, generation: str, rules: list[list[str]]) -> None:
+        """Store configured rules as a generation that is not active yet.
+
+        Configured rules without generations (stored by FOCA 0.16 and
+        earlier) are first added to `LEGACY_GENERATION`. Each given rule is
+        then added to `generation`: a stored configured copy of the rule is
+        added to it, preferably the one of the active generation, so that
+        identifiers of rules in effect are kept; otherwise, the rule is
+        stored.
+
+        Args:
+            generation: New generation.
+            rules: Configured rules, each given as its policy type followed
+                by its values.
+        """
+        self._collection.update_many(
+            {CONFIGURED_FIELD: True, RULE_GENERATIONS_FIELD: {"$exists": False}},
+            {"$set": {RULE_GENERATIONS_FIELD: [LEGACY_GENERATION]}},
+        )
+        active = self._active_generation()
+        add = {"$addToSet": {RULE_GENERATIONS_FIELD: generation}}
+        for ptype, *rule in dict.fromkeys(tuple(rule) for rule in rules):
+            query = _rule_query(ptype, rule)
+            if self._collection.update_one(
+                {**query, **self._configured_query(active)}, add
             ).matched_count:
                 continue
-            id = self.save_policy_line(ptype, rule, configured=True)
-            logger.info("Added configured policy rule '%s'", id)
+            if self._collection.update_one(
+                {
+                    **query,
+                    CONFIGURED_FIELD: True,
+                    RULE_GENERATIONS_FIELD: {"$exists": True},
+                },
+                add,
+            ).matched_count:
+                continue
+            document = CasbinRule.from_values(ptype, rule).to_dict()
+            document[CONFIGURED_FIELD] = True
+            document[RULE_GENERATIONS_FIELD] = [generation]
+            id = self._insert(document)
+            logger.info(
+                "Stored configured policy rule '%s' (generation '%s')", id, generation
+            )
+
+    def _activate_generation(self, generation: str) -> str:
+        """Make a generation of configured rules the active one.
+
+        Args:
+            generation: Generation to activate.
+
+        Returns:
+            Previously active generation.
+        """
+        # One write, so that the rules of one generation are in effect;
+        # again if the marker was created concurrently, which then updates it
+        for attempt in range(2):
+            try:
+                previous = self._collection.find_one_and_update(
+                    {"_id": GENERATION_MARKER_ID},
+                    {"$set": {MARKER_GENERATION_FIELD: generation}},
+                    upsert=True,
+                    return_document=ReturnDocument.BEFORE,
+                )
+                break
+            except DuplicateKeyError:
+                if attempt:
+                    raise
+        logger.info("Configured policy rules replaced (generation '%s')", generation)
+        if previous is None:
+            return LEGACY_GENERATION
+        return str(previous.get(MARKER_GENERATION_FIELD))
+
+    def _remove_generations(self, generations: list[str]) -> None:
+        """Remove generations of configured rules.
+
+        Configured rules that are then in no generation are removed.
+
+        Args:
+            generations: Generations to remove; they must not be active.
+        """
+        self._collection.update_many(
+            {CONFIGURED_FIELD: True, RULE_GENERATIONS_FIELD: {"$in": generations}},
+            {"$pull": {RULE_GENERATIONS_FIELD: {"$in": generations}}},
+        )
+        unused = {CONFIGURED_FIELD: True, RULE_GENERATIONS_FIELD: {"$size": 0}}
+        for document in self._collection.find(unused, projection=["id"]):
+            # Unless added to a generation meanwhile
+            if self._collection.delete_one(
+                {**unused, "_id": document["_id"]}
+            ).deleted_count:
+                logger.info("Removed configured policy rule '%s'", document.get("id"))
+
+    def _remove_stale_generations(self) -> None:
+        """Remove generations of configured rules that never became active.
+
+        Generations other than the active one are removed if they are
+        `LEGACY_GENERATION`, older than `STALE_GENERATION_AGE`, or not
+        generations created by :py:meth:`set_configured_policies`. Newer
+        generations are kept, as their rules may still be being stored.
+        """
+        active = self._active_generation()
+        created_before = datetime.now(UTC) - STALE_GENERATION_AGE
+        stale = [
+            generation
+            for generation in self._collection.distinct(
+                RULE_GENERATIONS_FIELD, {CONFIGURED_FIELD: True}
+            )
+            if generation != active
+            and (
+                not isinstance(generation, str)
+                or not ObjectId.is_valid(generation)
+                or ObjectId(generation).generation_time < created_before
+            )
+        ]
+        if stale:
+            self._remove_generations(stale)
 
     def save_policy(self, model: Model) -> bool:
         """Method to save a casbin model.
 
-        Replaces all stored rules with the rules of the model.
+        Replaces all stored rules with the rules of the model, except for
+        configured rules (cf. :py:meth:`set_configured_policies`), which are
+        kept and not stored again, so that they stay managed via the
+        configuration.
 
         Args:
             model: Casbin Model which loads from .conf file. For model
@@ -481,11 +740,14 @@ class Adapter(persist.Adapter):
         Returns:
             True if successfully created.
         """
-        self._collection.delete_many({})
+        self._collection.delete_many(
+            {"_id": {"$ne": GENERATION_MARKER_ID}, CONFIGURED_FIELD: {"$ne": True}}
+        )
         for section_type in ["p", "g"]:
             for ptype, ast in model.model[section_type].items():
                 for rule in ast.policy:
-                    self.save_policy_line(ptype, rule)
+                    if not self.is_configured_rule(ptype, rule):
+                        self.save_policy_line(ptype, rule)
         return True
 
     def add_policy(self, sec: str, ptype: str, rule: list[str]) -> bool:
