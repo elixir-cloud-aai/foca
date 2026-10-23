@@ -8,6 +8,10 @@ repo_name: elixir-cloud-aai/foca
 edit_uri: edit/dev/docs/
 copyright: Copyright &copy; ELIXIR On-Cloud
 
+# Files included in pages (see `pymdownx.snippets`)
+watch:
+  - README.md
+
 theme:
   name: material
   logo: images/foca_logo_round.svg
@@ -43,6 +47,11 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
+  # Sections of `README.md` (between `--8<-- [start:<name>]` and
+  # `--8<-- [end:<name>]`), so that they are not written twice; fails if a
+  # file or section is missing
+  - pymdownx.snippets:
+      check_paths: true
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true

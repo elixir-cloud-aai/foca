@@ -1,51 +1,92 @@
-# ![FOCA_logo][foca-logo] &ensp;_Develop Flask microservices quickly!_
+[![ELIXIR On-Cloud][logo]][org]
+
+# FOCA
 
 [![License][badge-license]][badge-url-license]
 [![Build_status][badge-build-status]][badge-url-build-status]
 [![Docs][badge-docs]][badge-url-docs]
 [![Coverage][badge-coverage]][badge-url-coverage]
 [![GitHub_tag][badge-github-tag]][badge-url-github-tag]
+[![Docker_image][badge-docker]][badge-url-docker]
 [![PyPI_release][badge-pypi]][badge-url-pypi]
 
-**FOCA** (**F**lask-**O**penAPI-**C**onnexion-**A**rchetype) is an opinionated
-archetype that enables fast development of [OpenAPI][res-openapi]-based HTTP
-API microservices in [Flask][res-flask], leveraging the excellent
-[Connexion][res-connexion] framework.
+<!-- --8<-- [start:synopsis] -->
+An archetype for [OpenAPI](https://www.openapis.org/)-based web services in
+Python, brought to you by [ELIXIR On-Cloud](https://elixir-on.cloud/). FOCA
+(**F**lask-**O**penAPI-**C**onnexion-**A**rchetype) builds a
+[Connexion](https://github.com/spec-first/connexion) app on
+[Flask](https://flask.palletsprojects.com/) from your OpenAPI specifications
+and a single configuration file, so that you only write the controllers and
+the logic of your app. It provides:
 
-FOCA reduces the required boilerplate code to fire up your app to a bare
-minimum and allows you to _**focus on your application logic**_. It also avoids
-unnecessary code repetition and introduces cross-service consistency when
-developing multiple applications. Simply write a configuration file, pass
-it to FOCA and you're good to go!
+- OpenAPI 2.x/3.x specifications, validated and routed by Connexion and
+  modified on the fly;
+- a validated, typed configuration, with environment-specific overlays;
+- errors as [problem details](https://www.rfc-editor.org/rfc/rfc9457);
+- bearer token validation for the OpenID Connect providers that you trust;
+- access control with [Casbin](https://casbin.org/): policies on all
+  operations, roles of users and groups, resource ownership and a
+  permissions API;
+- [MongoDB](https://www.mongodb.com/) databases, collections and indexes;
+- background tasks with [Celery](https://docs.celeryq.dev/) and
+  [RabbitMQ](https://www.rabbitmq.com/);
+- CORS and a [GA4GH service
+  info](https://github.com/ga4gh-discovery/ga4gh-service-info) endpoint;
+- Docker base images and a Helm library chart for Kubernetes, signed and with
+  SBOM and provenance attestations.
+<!-- --8<-- [end:synopsis] -->
 
-Features:
+**Read the [documentation][docs]** for the configuration, authentication,
+access control, the deployment with Docker and Helm, the utilities, the API
+reference and development. Upgrading from an earlier version? See [Migrating
+to 0.17.0][docs-migration] (from 0.15 or earlier, first [Migrating to
+0.16.0][docs-migration-0.16], [Migrating to 0.15.0][docs-migration-0.15] and
+[Migrating to 0.14.0][docs-migration-0.14]).
 
-* Validated, typed app configuration, with environment-specific overlays
-* OpenAPI 2.x/3.x specifications, merged and modified on the fly
-* Errors as [problem details][res-rfc-9457], with configurable media type
-* Bearer token ([JWT][res-jwt]) validation for trusted OpenID Connect
-  issuers
-* Policy-based access control with [Casbin][res-casbin], including a
-  permissions API
-* [MongoDB][res-mongo-db] databases, collections and indexes
-* Background tasks with [RabbitMQ][res-rabbitmq] & [Celery][res-celery]
-* Configurable [CORS][res-cors]
-* [GA4GH service info][res-service-info] served from the configuration
+## Why FOCA
 
-**Read the [documentation][docs] for details.** Upgrading from an earlier
-version? See [Migrating to 0.17.0][docs-migration] (from 0.15 or earlier,
-first [Migrating to 0.16.0][docs-migration-0.16], [Migrating to
-0.15.0][docs-migration-0.15] and [Migrating to 0.14.0][docs-migration-0.14]).
+<!-- --8<-- [start:why] -->
+FOCA's package has about 9,300 lines of code, tested by about 12,600 lines of
+tests, and its Helm library chart about 1,750 lines. [Cloud
+Registry](https://github.com/elixir-cloud-aai/cloud-registry), for example,
+uses almost all of the package (all but the Celery factory and a few
+utilities) and has about 2,200 lines of code of its own, plus about 9,000
+lines of tests. Its own code is thus about a fifth (code only) to a third
+(code and tests) of what it would be without FOCA. Even if an app needed only
+half of FOCA's code, FOCA would still save it about 4,500 lines, plus their
+tests and the chart. (Lines of Python without blank lines and comments,
+docstrings included; FOCA 0.17.0 and Cloud Registry in October 2026.)
 
-## Usage
+The savings add up with every app: if you maintain several OpenAPI-based
+apps, they all share the same authentication, access control, configuration,
+errors, images and Helm chart, and security fixes and upgrades are made once,
+in FOCA, instead of in every app.
+<!-- --8<-- [end:why] -->
 
-(1) Install the [FOCA package][badge-url-pypi] with `pip`:
+## Apps built with FOCA
+
+<!-- --8<-- [start:apps] -->
+| App | Description |
+| --- | --- |
+| [Cloud Registry](https://github.com/elixir-cloud-aai/cloud-registry) | A registry of web services, implementing the GA4GH Service Registry API |
+| [proTES](https://github.com/elixir-cloud-aai/proTES) | A gateway for the GA4GH Task Execution Service (TES) API that federates TES instances |
+
+See also the [dependents of FOCA on
+GitHub](https://github.com/elixir-cloud-aai/foca/network/dependents). Built an
+app with FOCA? Open a pull request that adds it to the table in
+[`README.md`](https://github.com/elixir-cloud-aai/foca/blob/dev/README.md).
+<!-- --8<-- [end:apps] -->
+
+## Quick start
+
+Install the [FOCA package][badge-url-pypi] (Python 3.11 or later) with `pip`:
 
 ```bash
 pip install foca
 ```
 
-(2) Create a [configuration][docs-config] file, e.g.:
+Write a [configuration][docs-config] file that points to your OpenAPI
+specification and the module of its controllers, e.g., `config.yaml`:
 
 ```yaml
 api:
@@ -55,7 +96,7 @@ api:
         x-openapi-router-controller: my_app.controllers
 ```
 
-(3) Create and run your app:
+Then create and run your app:
 
 ```python
 from foca import Foca
@@ -66,163 +107,39 @@ if __name__ == "__main__":
     app.run()
 ```
 
-![Hint][img-hint] _**Check out the [Petstore example application][example]
-shipped with this repository to see FOCA in action!**_ See [Getting
-started][docs-getting-started] for a step-by-step guide.
-
-### Docker image
-
-FOCA images with all dependencies installed are published as
-[`elixircloud/foca`][res-foca-docker] (built from
-[`docker/Dockerfile`][foca-dockerfile]), for use as base images of apps:
-
-```dockerfile
-FROM elixircloud/foca:latest
-COPY ./ /app
-CMD ["python", "app.py"]
-```
-
-`python app.py` starts Flask's development server, which is meant for local
-development only. In production, run the app with a WSGI server such as
-Gunicorn (see [running in production][docs-production]).
-
-Images of releases are tagged with the FOCA and Python versions (e.g.,
-`0.14.0-py3.12`); the FOCA version alone (e.g., `0.14.0`) tags the Python
-3.13 image, and `latest` that of the highest stable release (not an alpha,
-beta or release candidate). Images built from the `dev` branch are tagged
-with their date and the Python version (e.g., `20261019-py3.13`). Images
-are signed and come with SBOM and provenance attestations, and CI scans them
-for vulnerabilities; see [verifying images and charts][docs-verifying].
-
-The image contains no build tools and runs as non-root user `foca` (UID
-`1000`, group `0`); `/app` and the home directory are writable by group `0`,
-so that the image also runs under arbitrary user IDs (e.g., on OpenShift).
-To install system or Python packages in derived images, switch to `root` and
-back:
-
-```dockerfile
-USER root
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
-USER 1000
-```
+See [Getting started][docs-getting-started] for a step-by-step guide and the
+Docker image, and the [Petstore example app][example] to see FOCA in action.
 
 ## Contributing
 
 Contributions are welcome! See [`CONTRIBUTING.md`][contributing] and
-[Contributing][docs-contributing] in the documentation (development setup,
-tests and guidelines), and mind our [code of conduct][code-of-conduct].
-
-## Versioning
-
-The project adopts [semantic versioning][res-semver]. Currently the service
-is in beta stage, so the API may change without further notice.
-
-The version is derived from git tags (via [setuptools-scm][res-setuptools-scm])
-and available as `foca.__version__`; builds between releases get
-development versions (e.g., `0.14.1.dev3+g1a2b3c4`).
-
-### Releasing
-
-Features and fixes are merged into `dev`. Branch `main` only ever moves
-forward to commits on `dev` that are released. First, shortly before the
-release, set its version and date in the citation metadata, which Zenodo
-archives with each release, and merge the change into `dev`; each version,
-also each pre-release (e.g., `X.Y.Zrc1`), needs its own such change:
-
-```bash
-python scripts/citation.py set X.Y.Z  # date: today (UTC), or --date YYYY-MM-DD
-```
-
-Then, to release version `X.Y.Z` from commit `<sha>` on `dev` (with that
-change), after CI passed for it:
-
-```bash
-git switch --detach <sha>
-python scripts/citation.py check X.Y.Z  # as the release workflow does
-git push origin <sha>:main  # fails unless it is a fast-forward
-git tag -s vX.Y.Z <sha> -m "vX.Y.Z"
-git push origin vX.Y.Z
-```
-
-Pushing the tag triggers the [release workflow][release-workflow], which
-checks that the tagged commit is on `main` and that its `CITATION.cff` has
-the release version and a date that is not in the future (UTC), publishes
-the distributions to PyPI (after approval in the `pypi` environment),
-pushes, attests and signs Docker images tagged `X.Y.Z` and `latest`, and
-creates a GitHub release with generated notes. Tags of alpha, beta and
-release candidate versions (e.g.,
-`vX.Y.Zrc1`) do not update `latest`. These and, until 1.0.0, all other
-releases are GitHub pre-releases (never marked as the latest release).
-
-A tag ruleset allows only admins to create `v*` and `chart-v*` tags and
-blocks updates and deletions of these tags for everyone, and GitHub
-releases are immutable. If a release fails, re-run its workflow for the
-same tag; if the tagged commit itself is wrong, release a new version.
-
-The Helm library chart `foca-common` (`charts/foca-common`) is versioned
-and released separately, from signed tags `chart-vX.Y.Z`; see [releases of
-the library chart][docs-helm-chart-releases].
-
-## License
-
-This project is covered by the [Apache License 2.0][license-apache] also
-[shipped with this repository][license].
-
-## Contact
-
-The project is a collaborative effort under the umbrella of [ELIXIR
-On-Cloud][org-elixir-cloud]. Follow the link to get in touch with us via chat or
-email. Please mention the name of this service for any inquiry, proposal,
-question etc.
-
-![Logo_banner][img-logo-banner]
+[Contributing][docs-contributing] in the documentation, and mind our [code of
+conduct][code-of-conduct].
 
 [badge-build-status]: <https://github.com/elixir-cloud-aai/foca/actions/workflows/checks.yml/badge.svg>
 [badge-coverage]: <https://codecov.io/gh/elixir-cloud-aai/foca/branch/dev/graph/badge.svg?branch=dev>
+[badge-docker]: <https://img.shields.io/docker/v/elixircloud/foca?sort=semver&label=image&color=C39BD3>
 [badge-docs]: <https://readthedocs.org/projects/foca/badge/>
 [badge-github-tag]: <https://img.shields.io/github/v/tag/elixir-cloud-aai/foca?color=C39BD3>
 [badge-license]: <https://img.shields.io/badge/license-Apache%202.0-blue.svg>
-[badge-pypi]: <https://img.shields.io/pypi/v/foca.svg?style=flat&color=C39BD3>
+[badge-pypi]: <https://img.shields.io/pypi/v/foca?color=C39BD3>
 [badge-url-build-status]: <https://github.com/elixir-cloud-aai/foca/actions/workflows/checks.yml>
 [badge-url-coverage]: <https://codecov.io/gh/elixir-cloud-aai/foca?branch=dev>
+[badge-url-docker]: <https://hub.docker.com/r/elixircloud/foca/tags>
 [badge-url-docs]: <https://foca.readthedocs.io/en/latest/>
 [badge-url-github-tag]: <https://github.com/elixir-cloud-aai/foca/releases>
-[badge-url-license]: <http://www.apache.org/licenses/LICENSE-2.0>
-[badge-url-pypi]: <https://pypi.python.org/pypi/foca>
-[code-of-conduct]: CODE_OF_CONDUCT.md
-[contributing]: CONTRIBUTING.md
+[badge-url-license]: <https://www.apache.org/licenses/LICENSE-2.0>
+[badge-url-pypi]: <https://pypi.org/project/foca/>
+[code-of-conduct]: <https://github.com/elixir-cloud-aai/foca/blob/dev/CODE_OF_CONDUCT.md>
+[contributing]: <https://github.com/elixir-cloud-aai/foca/blob/dev/CONTRIBUTING.md>
 [docs]: <https://foca.readthedocs.io/en/latest/>
 [docs-config]: <https://foca.readthedocs.io/en/latest/configuration/>
 [docs-contributing]: <https://foca.readthedocs.io/en/latest/contributing/>
 [docs-getting-started]: <https://foca.readthedocs.io/en/latest/getting-started/>
-[docs-helm-chart-releases]: <https://foca.readthedocs.io/en/latest/helm-chart/#releases>
 [docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.17/>
-[docs-migration-0.16]: <https://foca.readthedocs.io/en/latest/migration-0.16/>
-[docs-migration-0.15]: <https://foca.readthedocs.io/en/latest/migration-0.15/>
 [docs-migration-0.14]: <https://foca.readthedocs.io/en/latest/migration-0.14/>
-[docs-production]: <https://foca.readthedocs.io/en/latest/deployment/#running-in-production>
-[docs-verifying]: <https://foca.readthedocs.io/en/latest/deployment/#verifying-images-and-charts>
-[example]: examples/petstore/README.md
-[foca-dockerfile]: docker/Dockerfile
-[foca-logo]: images/foca_logo_192px.png
-[img-hint]: images/hint.svg
-[img-logo-banner]: images/logo-banner.svg
-[license]: LICENSE
-[license-apache]: <https://www.apache.org/licenses/LICENSE-2.0>
-[org-elixir-cloud]: <https://github.com/elixir-cloud-aai/elixir-cloud-aai>
-[release-workflow]: .github/workflows/release.yml
-[res-casbin]: <https://casbin.org/>
-[res-celery]: <https://docs.celeryq.dev/>
-[res-connexion]: <https://github.com/spec-first/connexion>
-[res-cors]: <https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS>
-[res-flask]: <https://flask.palletsprojects.com/>
-[res-foca-docker]: <https://hub.docker.com/r/elixircloud/foca>
-[res-jwt]: <https://jwt.io>
-[res-mongo-db]: <https://www.mongodb.com/>
-[res-openapi]: <https://www.openapis.org/>
-[res-rabbitmq]: <https://www.rabbitmq.com/>
-[res-rfc-9457]: <https://www.rfc-editor.org/rfc/rfc9457>
-[res-semver]: <https://semver.org/>
-[res-service-info]: <https://github.com/ga4gh-discovery/ga4gh-service-info>
-[res-setuptools-scm]: <https://setuptools-scm.readthedocs.io/>
+[docs-migration-0.15]: <https://foca.readthedocs.io/en/latest/migration-0.15/>
+[docs-migration-0.16]: <https://foca.readthedocs.io/en/latest/migration-0.16/>
+[example]: <https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore>
+[logo]: <https://raw.githubusercontent.com/elixir-cloud-aai/foca/dev/docs/images/logo_elixir_on_cloud.png>
+[org]: <https://elixir-on.cloud/>
