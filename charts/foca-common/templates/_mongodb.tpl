@@ -5,9 +5,11 @@ Call them with the context dict.
 */ -}}
 
 {{/*
-Deployment of MongoDB: one pod with the data volume (the PersistentVolumeClaim),
-credentials from the existing Secret and the init script that creates the app
-user if authentication is enabled.
+Deployment of MongoDB: one pod with the data volume (the PersistentVolumeClaim
+if `mongodb.persistence.enabled`, see `foca-common.mongodbClaimName`; otherwise
+an `emptyDir` limited to the size, whose data is lost when the pod is
+replaced), credentials from the existing Secret and the init script that
+creates the app user if authentication is enabled.
 */}}
 {{- define "foca-common.mongodbDeployment" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -15,6 +17,8 @@ user if authentication is enabled.
 {{- if include "foca-common.mongodbEnabled" $root -}}
 {{- $mongodb := $root.Values.mongodb -}}
 {{- $fullname := include "foca-common.mongodbFullname" $root -}}
+{{- $persistence := include "foca-common.mongodbPersistence" $root | fromJson -}}
+{{- $claimName := include "foca-common.claimName" $persistence -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -104,8 +108,12 @@ spec:
       terminationGracePeriodSeconds: 30
       volumes:
       - name: mongodb
+        {{- with $claimName }}
         persistentVolumeClaim:
-          claimName: {{ $fullname | quote }}
+          claimName: {{ . | quote }}
+        {{- else }}
+        {{- include "foca-common.emptyDir" ($persistence.size | default nil) | nindent 8 }}
+        {{- end }}
       - name: tmp
         {{- include "foca-common.emptyDir" $mongodb.tmpSizeLimit | nindent 8 }}
       - name: configdb
@@ -250,25 +258,48 @@ spec:
 {{- end -}}
 
 {{/*
-PersistentVolumeClaim of MongoDB's data volume (`mongodb.volumeSize`).
+Arguments of `foca-common.claimName` and `foca-common.persistentVolumeClaim`
+for MongoDB, as JSON: persistence is enabled if `mongodb.persistence.enabled`
+is not set (also without a `mongodb.persistence` map, as in values written
+for foca-common 0.1.0, where MongoDB always had its claim). The size is
+`mongodb.persistence.size` or the deprecated `mongodb.volumeSize` (of 0.1.0;
+numbers of bytes as integers); fails if both are set. Call with the root
+context.
+*/}}
+{{- define "foca-common.mongodbPersistence" -}}
+{{- $mongodb := .Values.mongodb | default dict -}}
+{{- $persistence := get $mongodb "persistence" | default dict -}}
+{{- $size := get $persistence "size" -}}
+{{- $volumeSize := get $mongodb "volumeSize" -}}
+{{- if and (not (kindIs "invalid" $volumeSize)) (ne (toString $volumeSize) "") -}}
+{{- if and (not (kindIs "invalid" $size)) (ne (toString $size) "") -}}
+{{- fail "mongodb.volumeSize is deprecated: set only mongodb.persistence.size" -}}
+{{- end -}}
+{{- $size = ternary $volumeSize (int64 $volumeSize | toString) (kindIs "string" $volumeSize) -}}
+{{- end -}}
+{{- dict "persistence" $persistence "name" (include "foca-common.mongodbFullname" .) "enabledByDefault" true "size" $size "sizeError" "mongodb.persistence.size must be set if mongodb.persistence.enabled" | toJson -}}
+{{- end -}}
+
+{{/*
+Name of the PersistentVolumeClaim with MongoDB's data if
+`mongodb.persistence.enabled` (true if not set): `existingClaim`, or
+MongoDB's own claim; empty otherwise. Call with the root context.
+*/}}
+{{- define "foca-common.mongodbClaimName" -}}
+{{- include "foca-common.claimName" (include "foca-common.mongodbPersistence" . | fromJson) -}}
+{{- end -}}
+
+{{/*
+PersistentVolumeClaim of MongoDB's data, if `mongodb.persistence.enabled`
+(true if not set) without `mongodb.persistence.existingClaim` (see
+`foca-common.persistentVolumeClaim`).
 */}}
 {{- define "foca-common.mongodbPersistentVolumeClaim" -}}
 {{- include "foca-common.checkSettings" . -}}
 {{- $root := .root -}}
 {{- if include "foca-common.mongodbEnabled" $root -}}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "foca-common.mongodbFullname" $root | quote }}
-  labels:
-    {{- include "foca-common.labels" (dict "root" $root "component" "mongodb") | nindent 4 }}
-spec:
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: {{ required "mongodb.volumeSize must be set" $root.Values.mongodb.volumeSize }}
-{{ end -}}
+{{- include "foca-common.persistentVolumeClaim" (merge (dict "root" $root "component" "mongodb") (include "foca-common.mongodbPersistence" $root | fromJson)) -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

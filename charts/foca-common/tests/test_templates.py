@@ -740,7 +740,7 @@ def test_mongodb_settings(render: Callable[..., Docs]) -> None:
     """MongoDB settings take effect."""
     docs = render(
         "--set",
-        "mongodb.volumeSize=5Gi",
+        "mongodb.persistence.size=5Gi",
         "--set",
         "mongodb.image=mongo:7.0.1",
         "--set",
@@ -757,6 +757,138 @@ def test_mongodb_settings(render: Callable[..., Docs]) -> None:
     assert default["imagePullPolicy"] == "IfNotPresent"
     docs = render("--set-json", "mongodb.imagePullPolicy=null")
     assert _container(docs, MONGODB)["imagePullPolicy"] == "Always"
+
+
+def _mongodb_volume(docs: Docs) -> dict[str, Any]:
+    """The data volume of MongoDB's pod (without its name)."""
+    (volume,) = [
+        volume
+        for volume in _pod_spec(docs, MONGODB)["volumes"]
+        if volume["name"] == "mongodb"
+    ]
+    return {key: value for key, value in volume.items() if key != "name"}
+
+
+def test_mongodb_persistence_default(render: Callable[..., Docs]) -> None:
+    """MongoDB keeps its data in its own claim, named as up to 0.1.0."""
+    docs = render()
+    claim = docs[("PersistentVolumeClaim", MONGODB)]
+    assert claim["metadata"]["labels"]["app.kubernetes.io/component"] == "mongodb"
+    assert claim["spec"] == {
+        "accessModes": ["ReadWriteOnce"],
+        "resources": {"requests": {"storage": "1Gi"}},
+    }
+    assert _mongodb_volume(docs) == {"persistentVolumeClaim": {"claimName": MONGODB}}
+
+
+def test_mongodb_persistence_settings(render: Callable[..., Docs]) -> None:
+    """The size, access modes and storage class of MongoDB's claim take effect."""
+    docs = render(
+        "--set",
+        "mongodb.persistence.size=5Gi",
+        "--set-json",
+        'mongodb.persistence.accessModes=["ReadWriteOncePod"]',
+        "--set",
+        "mongodb.persistence.storageClass=fast",
+    )
+    assert docs[("PersistentVolumeClaim", MONGODB)]["spec"] == {
+        "accessModes": ["ReadWriteOncePod"],
+        "resources": {"requests": {"storage": "5Gi"}},
+        "storageClassName": "fast",
+    }
+    docs = render("--set", "mongodb.persistence.storageClass=-")
+    spec = docs[("PersistentVolumeClaim", MONGODB)]["spec"]
+    assert spec["storageClassName"] == ""
+
+
+def test_mongodb_existing_claim(render: Callable[..., Docs]) -> None:
+    """An existing claim replaces MongoDB's own."""
+    docs = render("--set", "mongodb.persistence.existingClaim=restored")
+    assert ("PersistentVolumeClaim", MONGODB) not in docs
+    assert _mongodb_volume(docs) == {"persistentVolumeClaim": {"claimName": "restored"}}
+
+
+@pytest.mark.parametrize("existing_claim", ["", "restored"])
+def test_mongodb_without_persistence(
+    render: Callable[..., Docs], existing_claim: str
+) -> None:
+    """Without persistence, MongoDB keeps its data in an emptyDir of the size."""
+    docs = render(
+        "--set",
+        "mongodb.persistence.enabled=false",
+        "--set",
+        f"mongodb.persistence.existingClaim={existing_claim}",
+    )
+    assert ("PersistentVolumeClaim", MONGODB) not in docs
+    assert _mongodb_volume(docs) == {"emptyDir": {"sizeLimit": "1Gi"}}
+
+
+def _chart_without_schema(chart: Path, tmp_path: Path) -> Path:
+    """A copy of the chart without its schema (as with older app charts)."""
+    chart_copy = tmp_path / "chart"
+    shutil.copytree(chart, chart_copy)
+    (chart_copy / "values.schema.json").unlink()
+    return chart_copy
+
+
+@pytest.mark.parametrize(
+    ("volume_size", "storage"),
+    [("5Gi", "5Gi"), (5368709120, 5368709120)],
+)
+def test_mongodb_volume_size_alias(
+    chart: Path, tmp_path: Path, volume_size: str | int, storage: str | int
+) -> None:
+    """Values of 0.1.0 (`volumeSize`, no `persistence`) keep the same claim."""
+    chart_copy = _chart_without_schema(chart, tmp_path)
+    docs = index(
+        template(
+            chart_copy,
+            "--set-json",
+            "mongodb.persistence=null",
+            "--set-json",
+            f"mongodb.volumeSize={json.dumps(volume_size)}",
+        )
+    )
+    assert docs[("PersistentVolumeClaim", MONGODB)]["spec"] == {
+        "accessModes": ["ReadWriteOnce"],
+        "resources": {"requests": {"storage": storage}},
+    }
+    assert _mongodb_volume(docs) == {"persistentVolumeClaim": {"claimName": MONGODB}}
+
+
+def test_mongodb_volume_size_with_persistence(
+    render: Callable[..., Docs], render_error: Callable[..., str]
+) -> None:
+    """The deprecated `volumeSize` sets the size, but not with `persistence.size`."""
+    docs = render(
+        "--set-json", "mongodb.persistence.size=null", "--set", "mongodb.volumeSize=5Gi"
+    )
+    spec = docs[("PersistentVolumeClaim", MONGODB)]["spec"]
+    assert spec["resources"]["requests"]["storage"] == "5Gi"
+    error = render_error("--set", "mongodb.volumeSize=5Gi")
+    assert (
+        "mongodb.volumeSize is deprecated: set only mongodb.persistence.size" in error
+    )
+
+
+def test_mongodb_persistence_size_required(chart: Path, tmp_path: Path) -> None:
+    """MongoDB's claim needs a size."""
+    # Bypasses the schema, which rejects an empty size already
+    chart_copy = _chart_without_schema(chart, tmp_path)
+    error = template_error(chart_copy, "--set", "mongodb.persistence.size=")
+    assert "mongodb.persistence.size must be set" in error
+
+
+def test_schema_rejects_invalid_mongodb_persistence(
+    render_error: Callable[..., str],
+) -> None:
+    """The schema rejects invalid persistence values of MongoDB."""
+    assert "schema" in render_error("--set", "mongodb.persistence.size=0Gi")
+    assert "schema" in render_error("--set", "mongodb.persistence.size=1x")
+    assert "schema" in render_error(
+        "--set-json", 'mongodb.persistence.accessModes=["ReadOnlyMany"]'
+    )
+    assert "schema" in render_error("--set", "mongodb.persistence.unknown=true")
 
 
 def test_mongodb_values_required(
@@ -1666,9 +1798,7 @@ def test_broker_existing_claim(render: Callable[..., Docs]) -> None:
 def test_broker_persistence_size_required(chart: Path, tmp_path: Path) -> None:
     """The broker's claim needs a size."""
     # Bypasses the schema, which rejects an empty size already
-    chart_copy = tmp_path / "chart"
-    shutil.copytree(chart, chart_copy)
-    (chart_copy / "values.schema.json").unlink()
+    chart_copy = _chart_without_schema(chart, tmp_path)
     error = template_error(chart_copy, *CELERY, "--set", "broker.persistence.size=")
     assert "broker.persistence.size must be set" in error
 
@@ -1676,9 +1806,7 @@ def test_broker_persistence_size_required(chart: Path, tmp_path: Path) -> None:
 def test_broker_without_persistence_values(chart: Path, tmp_path: Path) -> None:
     """Values without `broker.persistence` (as for 0.1.0) keep the emptyDir."""
     # Bypasses the schema, which requires the map in the app chart's values
-    chart_copy = tmp_path / "chart"
-    shutil.copytree(chart, chart_copy)
-    (chart_copy / "values.schema.json").unlink()
+    chart_copy = _chart_without_schema(chart, tmp_path)
     docs = index(template(chart_copy, *CELERY, "--set-json", "broker.persistence=null"))
     _assert_broker_without_claim(docs)
 
