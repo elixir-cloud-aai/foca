@@ -149,7 +149,7 @@ exclude_also = ["if (typing\\.)?TYPE_CHECKING:"]
 fail_under = 100
 
 [tool.mypy]
-files = ["foca", "tests"]
+files = ["foca", "scripts", "tests"]
 python_version = "3.11"
 # Complete type hints: all functions annotated, generic types parametrized
 disallow_untyped_defs = true

@@ -752,7 +752,12 @@ service registry:
   owner yourself, as it is not checked against the caller.
 * `grant_role(resource, subject, role)` grants a user (or, with
   `subject_type`, a group or service client) a role, replacing the roles it
-  had on the resource, and returns the previous ones.
+  had on the resource, and returns the previous ones. The new role is stored
+  before the others are removed, so the subject keeps a role throughout
+  (e.g., a maintainer promoted to owner); concurrent grants for the same
+  subject and resource leave it with one role, that of the grant stored
+  last (ordered by a timestamp of the database server in the field
+  `granted` of stored rules; rules without it count as the oldest).
   `revoke_roles(resource, subject)` revokes them. Both raise `LastOwner`
   (`409 Conflict`) instead of removing or downgrading the last owner of a
   resource, so that every resource keeps an owner, which may be a group.

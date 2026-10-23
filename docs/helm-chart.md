@@ -605,9 +605,13 @@ git push origin chart-v0.1.0
 The [release workflow][release-chart] runs the chart checks and the kind
 installation of CI, checks that the tag is signed (with a signature that
 GitHub verifies), is on `dev` and matches the chart's version, and that the
-version has not been published yet; it then packages the chart and pushes it
-to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`. Published versions
-are never overwritten. Tags cannot be deleted or moved (see below): if a
+version has not been published yet; it then packages the chart, pushes it
+to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`, and attests and
+signs it (see [verifying images and
+charts](deployment.md#verifying-images-and-charts)). Published versions
+are never overwritten. If attesting or signing fails after the push, the
+version stays published without them (a re-run stops at the version check);
+release a new version. Tags cannot be deleted or moved (see below): if a
 release fails, re-run its workflow for the same tag, which passes the
 version check as long as the version has not been published; if the tagged
 commit itself is wrong, fix it, bump the chart's version and release a new

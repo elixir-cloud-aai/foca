@@ -170,6 +170,53 @@ pre-commit hooks match the ones pinned in `requirements/lint.txt` and
 file of its own, as its dependencies conflict with FOCA's: install it in a
 separate environment to run it outside pre-commit.
 
+### Image scan
+
+CI (`checks.yml`) builds the Docker images of all Python versions for every
+pull request and push and scans them with [Trivy](https://trivy.dev/)
+(`.github/actions/scan-image`); the release workflow builds and scans the
+release commit's images again before publishing anything (in a job without
+its credentials), and a weekly workflow (`scan.yml`) scans the images of the
+latest release. They fail on critical and high vulnerabilities that have a
+fix, and upload all findings to code scanning (Security tab; not for pull
+requests from forks, nor in the release workflow). If a scan fails:
+
+1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
+   in `pyproject.toml` or update the base image (Dependabot's PRs do both).
+2. Otherwise (e.g., no fixed version yet, or a vulnerability that does not
+   affect FOCA), accept it in `.trivyignore.yaml` with the affected package
+   versions (`purls`), the reason (`statement`) and an expiry date
+   (`expired_at`), after which the scans fail again, so that the decision is
+   reviewed. Trivy also scans for secrets (critical and high ones fail the
+   scans too); accept those under `secrets:` in the same file.
+3. For a released image, release a patch version once the fix is on `dev`.
+
+The weekly scan uses the `.trivyignore.yaml` of `dev`, so that accepting a
+finding on `dev` also applies to the released images. Dependabot updates the
+actions, but not the Trivy version (`version:` in
+`.github/actions/scan-image/action.yml`): bump it by hand. The setup is the
+same as in [cloud-registry](https://github.com/elixir-cloud-aai/cloud-registry).
+
+## Citation metadata
+
+FOCA is cited with the metadata in
+[`CITATION.cff`](https://github.com/elixir-cloud-aai/foca/blob/dev/CITATION.cff)
+([Citation File Format](https://citation-file-format.github.io/)), which
+GitHub ("Cite this repository") and Zenodo use. Its authors are the people
+who committed at least 100 lines (lines added) to `main`, the release
+branch, not counting bots, vendored or generated files and the reformatting
+commits in `.git-blame-ignore-revs`. They are ordered by lines, then by
+commits; equal contributors are listed alphabetically by family name and
+marked with an asterisk (*). Affiliations come from public ORCID records
+only. To add or correct your entry (e.g., your name, [ORCID
+iD](https://orcid.org/) or affiliation), open a pull request that changes
+only your entry; don't add e-mail addresses. CI validates the file
+(`cffconvert --validate`). Before each release, `python scripts/citation.py
+set X.Y.Z` sets its `version` and `date-released`, and the release workflow
+fails if they don't match the release (`python scripts/citation.py check
+X.Y.Z`; see [Releasing](https://github.com/elixir-cloud-aai/foca#releasing)
+in the README).
+
 ## Python guidelines
 
 Most of the following is checked by pre-commit and CI; the rest is checked in

@@ -229,3 +229,72 @@ services:
 
 This is the same mechanism as on Kubernetes, so overlays can be tested
 locally before they are deployed.
+
+## Verifying images and charts
+
+From FOCA 0.17.0 on, every published FOCA image (`elixircloud/foca` on Docker
+Hub, releases and `dev` builds) comes with:
+
+- an SBOM ([SPDX](https://spdx.dev/)) and a [SLSA](https://slsa.dev/)
+  provenance attestation, created by BuildKit and stored with the image;
+- a [GitHub artifact
+  attestation](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
+  of its build provenance, stored on GitHub and with the image;
+- a keyless [Sigstore](https://www.sigstore.dev/) signature, made with the
+  identity of the GitHub Actions workflow that built the image.
+
+The Helm library chart (`oci://ghcr.io/elixir-cloud-aai/charts/foca-common`)
+gets the same attestation and signature from version 0.2.0 on.
+
+To check that an image was built from this repository by its release
+workflow, use the [GitHub CLI](https://cli.github.com/) or
+[cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3 or
+later (which reads the signatures in the Sigstore bundle format), e.g., for
+release 0.17.0:
+
+```bash
+gh attestation verify oci://docker.io/elixircloud/foca:0.17.0 \
+    --repo elixir-cloud-aai/foca \
+    --signer-workflow elixir-cloud-aai/foca/.github/workflows/release.yml \
+    --source-ref refs/tags/v0.17.0
+cosign verify docker.io/elixircloud/foca:0.17.0 \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity https://github.com/elixir-cloud-aai/foca/.github/workflows/release.yml@refs/tags/v0.17.0
+```
+
+Both fail unless the image was signed by that workflow for that tag;
+replace `0.17.0` with the version to verify (and add the Python version, e.g.,
+`0.17.0-py3.12`, for other images than the default 3.13 one). Images
+built from `dev` are signed by `.github/workflows/checks.yml` with the ref
+`refs/heads/dev`; the chart by `.github/workflows/release-chart.yml` with the
+ref `refs/tags/chart-vX.Y.Z`, e.g.:
+
+```bash
+gh attestation verify oci://ghcr.io/elixir-cloud-aai/charts/foca-common:0.2.0 \
+    --repo elixir-cloud-aai/foca \
+    --signer-workflow elixir-cloud-aai/foca/.github/workflows/release-chart.yml \
+    --source-ref refs/tags/chart-v0.2.0
+cosign verify ghcr.io/elixir-cloud-aai/charts/foca-common:0.2.0 \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity https://github.com/elixir-cloud-aai/foca/.github/workflows/release-chart.yml@refs/tags/chart-v0.2.0
+```
+
+Tags can be moved to other images, so deploy the digest that you verified
+(e.g., `elixircloud/foca:0.17.0@sha256:...`; `cosign verify` prints it). To
+read an image's SBOM (the packages it contains) or its provenance (how it was
+built, from which commit), run:
+
+```bash
+docker buildx imagetools inspect elixircloud/foca:0.17.0 \
+    --format '{{ json .SBOM }}'
+docker buildx imagetools inspect elixircloud/foca:0.17.0 \
+    --format '{{ json .Provenance }}'
+```
+
+Images are scanned for known vulnerabilities with
+[Trivy](https://trivy.dev/) in CI and again before a release is published
+(both fail on fixable critical and high vulnerabilities), and the images of
+the latest release weekly (see [Image scan](contributing.md#image-scan)); the
+maintainers see the results in the repository's code scanning alerts.
+Images derived from FOCA's image (e.g., apps) need their own scans, as they
+add packages.
