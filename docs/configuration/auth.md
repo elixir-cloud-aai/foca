@@ -7,7 +7,7 @@ by [OpenID Connect](https://openid.net/connect/) identity providers.
 security:
   auth:
     issuers:
-      - https://login.elixir-czech.org/oidc/
+      - https://login.example.org/oidc/
     audience:
       - my-app
     verify_audience: true

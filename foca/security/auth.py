@@ -35,7 +35,7 @@ JWKS_REFETCH_COOLDOWN = 30
 USERINFO_CACHE_SIZE = 1000
 
 # Claims identifying the client a token was issued to, in order of
-# precedence: `client_id` of access tokens as per RFC 9068 (e.g., LS Login),
+# precedence: `client_id` of access tokens as per RFC 9068,
 # `azp` (authorized party) of identity providers using OpenID Connect's claim
 CLIENT_CLAIMS = ("client_id", "azp")
 
