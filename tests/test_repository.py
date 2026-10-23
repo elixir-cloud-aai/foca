@@ -6,15 +6,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# E-mail addresses, with a domain name of valid labels
-EMAIL = re.compile(
-    r"[\w.%+-]+@((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})",
-    re.IGNORECASE,
-)
+# E-mail addresses, with a domain name of valid (also internationalized) labels
+EMAIL = re.compile(r"[\w.%+-]+@((?:[^\W_](?:(?:[^\W_]|-)*[^\W_])?\.)+[^\W\d_]{2,})")
 # The service address, and the GA4GH address of the vendored specification
 ADDRESSES = {"cloud-service@elixir-europe.org", "ga4gh-discovery-networks@ga4gh.org"}
 # Domains reserved for examples, and an invalid domain of the URL tests
 DOMAINS = re.compile(r"(?:.+\.)?example\.(?:com|net|org)|xn--a\.org", re.IGNORECASE)
+
+
+def test_email_pattern() -> None:
+    """Addresses are found also with internationalized domain names."""
+    text = "a@x.example.org, b@bücher.example.org, c@-x.org, d@x-.org"
+    assert [m[0] for m in EMAIL.finditer(text)] == [
+        "a@x.example.org",
+        "b@bücher.example.org",
+    ]
 
 
 def test_no_personal_email_addresses() -> None:
