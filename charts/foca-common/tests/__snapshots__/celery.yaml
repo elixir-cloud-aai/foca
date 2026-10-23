@@ -160,6 +160,8 @@ metadata:
     app.kubernetes.io/component: "mongodb"
     app.kubernetes.io/version: "latest"
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
   - ReadWriteOnce

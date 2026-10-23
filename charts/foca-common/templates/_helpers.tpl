@@ -402,19 +402,27 @@ without `persistence.existingClaim` (see `foca-common.claimName`): of `size`
 (`persistence.size` if not given; fails if neither is set),
 with `persistence.accessModes` (by default `ReadWriteOnce`) and
 `persistence.storageClass` (the cluster's default class if empty; "-" for
-none, i.e., no dynamic provisioning). Call with a dict of the root context
-(`root`), the `component` (for the labels), the arguments of
-`foca-common.claimName` and `size`.
+none, i.e., no dynamic provisioning), annotated with
+`helm.sh/resource-policy: keep` if `persistence.resourcePolicy` is `keep`
+(`resourcePolicyByDefault` if that is not set), so that Helm keeps the claim
+when the release is uninstalled (or the claim is removed from it). Call with
+a dict of the root context (`root`), the `component` (for the labels), the
+arguments of `foca-common.claimName`, `size` and `resourcePolicyByDefault`.
 */}}
 {{- define "foca-common.persistentVolumeClaim" -}}
 {{- $persistence := .persistence | default dict -}}
 {{- if and (include "foca-common.claimName" .) (not $persistence.existingClaim) -}}
+{{- $resourcePolicy := ternary (get $persistence "resourcePolicy") .resourcePolicyByDefault (hasKey $persistence "resourcePolicy") -}}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ .name | quote }}
   labels:
     {{- include "foca-common.labels" (dict "root" .root "component" .component) | nindent 4 }}
+  {{- if eq (toString $resourcePolicy) "keep" }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
 spec:
   accessModes:
     {{- toYaml ($persistence.accessModes | default (list "ReadWriteOnce")) | nindent 2 }}

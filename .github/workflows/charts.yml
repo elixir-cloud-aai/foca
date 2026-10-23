@@ -5,10 +5,10 @@
 # cluster with chart-testing, also with the Celery worker and broker (and
 # check that queued tasks survive a restart of the broker), with access
 # control and with an HTTPRoute of the Gateway API (via Envoy Gateway), and
-# run its test (`helm test`); and check that changes of
-# the library chart since its latest release raise its version. Releases of
-# the library chart are published by `release-chart.yml`, which calls this
-# workflow first.
+# run its test (`helm test`); check that a reinstalled release finds
+# MongoDB's data; and check that changes of the library chart since its
+# latest release raise its version. Releases of the library chart are
+# published by `release-chart.yml`, which calls this workflow first.
 
 name: Charts
 
@@ -353,6 +353,50 @@ jobs:
           printf '%s\n' "${logs}"
           echo "::error::The worker did not receive the queued task"
           exit 1
+      # MongoDB's claim is kept when its release is uninstalled
+      # (`helm.sh/resource-policy: keep`), and a new release of the same name
+      # and namespace adopts it with its data (a document written before the
+      # uninstallation) and the app user (`helm test`), as the init script
+      # does not run again
+      - name: Check that MongoDB's data survives a reinstallation
+        env:
+          RELEASE: petstore-keep
+        run: |
+          # Failures of `kubectl exec` are not hidden by `tail`
+          set -o pipefail
+          install() {
+            helm install "${RELEASE}" examples/petstore/chart -n "${NAMESPACE}" \
+                -f examples/petstore/chart/ci/test-values.yaml --wait --timeout 600s
+          }
+          mongo_eval() {
+            kubectl exec -n "${NAMESPACE}" "deployment/${RELEASE}-mongodb" -- sh -c \
+                'mongosh --quiet -u "${MONGO_INITDB_ROOT_USERNAME}" -p "${MONGO_INITDB_ROOT_PASSWORD}" --eval "$1"' \
+                sh "$1" | tail -n 1
+          }
+          claim_uid() {
+            kubectl get pvc "${RELEASE}-mongodb" -n "${NAMESPACE}" \
+                -o jsonpath='{.metadata.uid}' --ignore-not-found
+          }
+          helm dependency build examples/petstore/chart
+          install
+          mongo_eval "db.getSiblingDB('ci').marker.insertOne({kept: true})" > /dev/null
+          before="$(claim_uid)"
+          helm uninstall "${RELEASE}" -n "${NAMESPACE}" --wait --timeout 300s
+          if [ -z "${before}" ] || [ "$(claim_uid)" != "${before}" ]; then
+            echo "::error::MongoDB's claim was not kept on uninstallation"
+            exit 1
+          fi
+          install
+          if [ "$(claim_uid)" != "${before}" ]; then
+            echo "::error::The new release did not adopt MongoDB's claim"
+            exit 1
+          fi
+          kept="$(mongo_eval "db.getSiblingDB('ci').marker.countDocuments({kept: true})")"
+          if [ "${kept}" != "1" ]; then
+            echo "::error::MongoDB's data did not survive the reinstallation (${kept})"
+            exit 1
+          fi
+          helm test "${RELEASE}" -n "${NAMESPACE}" --timeout 300s
       - name: Show cluster state
         if: failure()
         run: |
