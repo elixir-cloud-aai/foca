@@ -29,18 +29,28 @@ rules:
     message: >-
       Access tokens must be verified; use FOCA's `validate_token()` for
       tokens of callers
+    # `False` or `0`, which PyJWT treats alike
     patterns:
       - pattern-either:
           - pattern: '$JWT.$DECODE(..., options={..., "verify_signature": False, ...}, ...)'
+          - pattern: '$JWT.$DECODE(..., options={..., "verify_signature": 0, ...}, ...)'
           - pattern: "$JWT.$DECODE(..., options=dict(..., verify_signature=False, ...), ...)"
+          - pattern: "$JWT.$DECODE(..., options=dict(..., verify_signature=0, ...), ...)"
           - pattern: "$JWT.$DECODE(..., verify=False, ...)"
+          - pattern: "$JWT.$DECODE(..., verify=0, ...)"
           - patterns:
               - pattern-either:
                   - pattern-inside: |
                       $OPTIONS = {..., "verify_signature": False, ...}
                       ...
                   - pattern-inside: |
+                      $OPTIONS = {..., "verify_signature": 0, ...}
+                      ...
+                  - pattern-inside: |
                       $OPTIONS = dict(..., verify_signature=False, ...)
+                      ...
+                  - pattern-inside: |
+                      $OPTIONS = dict(..., verify_signature=0, ...)
                       ...
               - pattern: $JWT.$DECODE(..., options=$OPTIONS, ...)
       # `decode()` and `decode_complete()` of `jwt` and `jwt.PyJWT()` (also
@@ -104,4 +114,8 @@ rules:
     message: >-
       Certificate verification must not be disabled; configure a CA bundle
       instead (`verify` may name its path)
-    pattern: $SESSION.verify = False
+    # ruff flags `verify=False` in calls of requests, not `verify=0`
+    pattern-either:
+      - pattern: $SESSION.verify = False
+      - pattern: $SESSION.verify = 0
+      - pattern: requests.$METHOD(..., verify=0, ...)

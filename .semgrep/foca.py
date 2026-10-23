@@ -1,8 +1,12 @@
 """Test cases of the Python rules in `foca.yml` (`semgrep --test`)."""
 
 import jwt
+import jwt as pyjwt
 import requests
 import yaml
+from jwt import decode as jwt_decode
+from jwt import get_unverified_header
+from yaml import full_load as yaml_full_load
 
 TOKEN = "token"  # noqa: S105
 KEY = "key"
@@ -21,6 +25,22 @@ jwt.PyJWT().decode(TOKEN, options={"verify_signature": False})
 jwt.decode(TOKEN, options=dict(verify_signature=False))  # noqa: C408
 # ruleid: jwt-decode-without-verification
 jwt.decode(TOKEN, verify=False)
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, verify=0)
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options={"verify_signature": 0})
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options=dict(verify_signature=0))  # noqa: C408
+zero = {"verify_signature": 0}
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options=zero)
+zero_dict = dict(verify_signature=0)  # noqa: C408
+# ruleid: jwt-decode-without-verification
+jwt.decode(TOKEN, options=zero_dict)
+# ruleid: jwt-decode-without-verification
+jwt_decode(TOKEN, options={"verify_signature": False})
+# ruleid: jwt-decode-without-verification
+pyjwt.decode(TOKEN, options={"verify_signature": False})
 unverified = {"verify_signature": False}
 # ruleid: jwt-decode-without-verification
 jwt.decode(TOKEN, options=unverified)
@@ -49,6 +69,9 @@ header = jwt.get_unverified_header(TOKEN)
 jwt.decode(TOKEN, KEY, algorithms=[header["alg"]])
 # ruleid: jwt-decode-unsafe-algorithms
 jwt.decode(TOKEN, KEY, algorithms=header.get("alg"))
+imported_header = get_unverified_header(TOKEN)
+# ruleid: jwt-decode-unsafe-algorithms
+pyjwt.decode(TOKEN, KEY, algorithms=[imported_header["alg"]])
 # ok: jwt-decode-unsafe-algorithms
 jwt.decode(TOKEN, KEY, algorithms=["RS256", "ES256"])
 
@@ -58,6 +81,8 @@ jwt.decode(TOKEN, KEY, algorithms=["RS256", "ES256"])
 yaml.unsafe_load("a: 1")
 # ruleid: yaml-unsafe-load
 yaml.full_load("a: 1")
+# ruleid: yaml-unsafe-load
+yaml_full_load("a: 1")
 # ruleid: yaml-unsafe-load
 yaml.unsafe_load_all("a: 1")
 # ruleid: yaml-unsafe-load
@@ -84,5 +109,9 @@ yaml.load_all("a: 1", yaml.CSafeLoader)
 session = requests.Session()
 # ruleid: tls-verification-disabled
 session.verify = False
+# ruleid: tls-verification-disabled
+session.verify = 0
+# ruleid: tls-verification-disabled
+requests.get("https://example.org", verify=0, timeout=10)
 # ok: tls-verification-disabled
 session.verify = "/etc/ssl/certs/ca-certificates.crt"
