@@ -333,6 +333,7 @@ jobs:
           build-args: |
             PY_IMAGE=${{ matrix.python-version }}-slim-trixie
             FOCA_VERSION=${{ steps.version.outputs.version }}
+            FOCA_REVISION=${{ github.sha }}
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           sbom: true
           provenance: mode=max
