@@ -1,14 +1,15 @@
 ### BASE IMAGE ###
 FROM foca-petstore-root:latest
 
-# Metadata
-LABEL software="Petstore application"
-LABEL software.description="Example application for FOCA microservice archetype"
-LABEL software.website="https://github.com/elixir-cloud-aai/foca"
-LABEL software.documentation="https://github.com/elixir-cloud-aai/foca"
-LABEL software.license="https://spdx.org/licenses/Apache-2.0"
-LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
-LABEL maintainer.organisation="ELIXIR On-Cloud"
+# Metadata: OCI annotations, replacing those of the FOCA image
+LABEL org.opencontainers.image.title="Petstore application"
+LABEL org.opencontainers.image.description="Example application for FOCA microservice archetype"
+LABEL org.opencontainers.image.url="https://github.com/elixir-cloud-aai/foca"
+LABEL org.opencontainers.image.source="https://github.com/elixir-cloud-aai/foca"
+LABEL org.opencontainers.image.documentation="https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.authors="ELIXIR On-Cloud <cloud-service@elixir-europe.org>"
+LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 
 ## Install the WSGI server for deployments (e.g., with the Helm chart in
 ## `chart/`); Docker Compose runs the development server instead. Pinned,
