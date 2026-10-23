@@ -423,7 +423,6 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     kubernetes.io/tls-acme: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "1048576"
   name: "petstore"
   labels:
     helm.sh/chart: petstore-0.1.0

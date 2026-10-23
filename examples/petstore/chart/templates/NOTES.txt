@@ -24,9 +24,10 @@ check that the route is accepted with
 {{- if not $exposed }}
 
 Neither an Ingress (petstore.ingress.enabled is false), an HTTPRoute
-(petstore.httpRoute.enabled is false) nor an OpenShift Route (the cluster
-does not serve route.openshift.io/v1) was created, so the app is only
-reachable within the cluster. To access it from this machine, run:
+(petstore.httpRoute.enabled is false) nor an OpenShift Route
+(petstore.route.enabled is false, or the cluster does not serve
+route.openshift.io/v1) was created, so the app is only reachable within the
+cluster, unless it is exposed by resources outside the release. To access it from this machine, run:
 
   kubectl port-forward svc/{{ $fullname }} 8080:8080 -n {{ .Release.Namespace }}
 {{- end }}

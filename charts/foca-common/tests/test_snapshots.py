@@ -55,6 +55,9 @@ CASES: dict[str, tuple[str, ...]] = {
         '"sectionName": "http"}]',
         "--set",
         "petstore.networkPolicy.enabled=true",
+        "--set-json",
+        'petstore.networkPolicy.ingressFrom=[{"namespaceSelector": {"matchLabels": '
+        '{"kubernetes.io/metadata.name": "envoy-gateway-system"}}}]',
     ),
     "celery": (
         "--set",

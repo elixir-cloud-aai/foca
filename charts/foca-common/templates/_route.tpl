@@ -1,9 +1,9 @@
 {{/*
-OpenShift Route for `hostName`, without an Ingress or HTTPRoute, if the
-cluster serves Routes (see `foca-common.routeEnabled`); TLS is terminated at
-the router, which redirects HTTP to HTTPS. Annotations from
-`<valuesKey>.route.annotations` (e.g., the router's rate limits). Call with
-the context dict.
+OpenShift Route for `hostName` (all paths), unless `<valuesKey>.route.enabled`
+is false, without an Ingress or HTTPRoute, if the cluster serves Routes (see
+`foca-common.routeEnabled`); TLS is terminated at the router, which
+redirects HTTP to HTTPS. Annotations from `<valuesKey>.route.annotations`
+(e.g., the router's rate limits). Call with the context dict.
 */}}
 {{- define "foca-common.route" -}}
 {{- include "foca-common.checkSettings" . -}}
