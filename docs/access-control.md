@@ -378,7 +378,8 @@ True`).
     of operations that patches make public.
 
 Given an app whose specification (named `my-api` in its configuration, with
-base path `/api`) makes `GET /items` and `GET /items/{id}` public:
+base path `/api`) makes `GET /items` and `GET /items/{id}` public, and protects
+other operations, e.g., `GET /items/{id}/permissions` for owners only:
 
 ```yaml title="overlay.yaml"
 api:
@@ -398,19 +399,28 @@ api:
 security:
   access_control:
     policies:
-      # any authenticated user may read the app's API
-      read-api: [p, "*", "/api/*", GET]
+      # any authenticated user may read what was public
+      read-items: [p, "*", /api/items, GET]
+      read-item: [p, "*", "/api/items/:id", GET]
 ```
 
 The patch sets the security requirements of each public read operation (here
 with the app's security scheme `bearerAuth`); operations not listed, such as
 `GET /service-info`, stay public. As the operations now require
-authentication, policies are enforced on them, so the rule allows `GET` for
-any authenticated user (`*`), on the app's API only (`/api/*`). Without the
-rule, reads would be denied with `403` unless other rules allow them. The
-rule is added to the app's rules, which are kept. Use the app's actual
-specification name, base path and security scheme; for an app that lists its
-specifications or rules, the overlay has to restate them.
+authentication, policies are enforced on them, so the rules allow `GET` of
+these operations for any authenticated user (`*`); `:id` matches a single
+path segment, so `/api/items/:id` does not match `/api/items/1/permissions`.
+Without the rules, reads would be denied with `403` unless other rules allow
+them. The rules are added to the app's rules, which are kept. Use the app's
+actual specification name, base path and security scheme; for an app that
+lists its specifications or rules, the overlay has to restate them.
+
+!!! warning "Wildcard objects allow protected reads, too"
+    Rules only allow, so a rule with a wildcard object, e.g., `[p, "*",
+    "/api/*", GET]`, lets any authenticated user read _every_ path under
+    `/api`, including resources and permissions that the app's rules allow
+    for owners only. Give one rule per operation that the patch protects,
+    with the path as in the specification (`:id` for `{id}`).
 
 ### Identity and group claims
 

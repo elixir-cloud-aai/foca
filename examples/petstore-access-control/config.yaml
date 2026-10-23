@@ -45,13 +45,15 @@ security:
         # Policy rules the app relies on, managed on startup (they cannot be
         # changed via the permissions API); ownership rules are added by the
         # controllers; roles on a pet also apply to its sub-paths (e.g.,
-        # `/pets/0/permissions`, cf. `resource_roles_cover_subpaths`)
+        # `/pets/0/permissions`, cf. `resource_roles_cover_subpaths`); named,
+        # so that config overlays can add, change or remove rules by name
         policies:
-          - [p, "*", /pets, "(GET)|(POST)"]
-          - [p, owner, "/pets/:id", "(GET)|(DELETE)"]
-          - [p, owner, "/pets/:id/permissions", GET]
-          - [p, owner, "/pets/:id/permissions/users/:userId", "(PUT)|(DELETE)"]
-          - [p, maintainer, "/pets/:id", GET]
+            list-add-pets: [p, "*", /pets, "(GET)|(POST)"]
+            owners-read-delete: [p, owner, "/pets/:id", "(GET)|(DELETE)"]
+            owners-list-roles: [p, owner, "/pets/:id/permissions", GET]
+            owners-manage-roles:
+                [p, owner, "/pets/:id/permissions/users/:userId", "(PUT)|(DELETE)"]
+            maintainers-read: [p, maintainer, "/pets/:id", GET]
         # Serve Swagger UI and specification of the permissions API
         api_swagger_ui: True
         api_serve_spec: True
@@ -62,21 +64,24 @@ security:
         #     "urn:example:group:petstore-admins": admin
 
 api:
+    # Named specs, so that config overlays can change a spec by its name,
+    # e.g., add `patches`
     specs:
-        - path: petstore-access-control.yaml
-          append:
-            - security:
-              - bearerAuth: []
-          add_security_fields:
-              x-bearerInfoFunc: foca.security.auth.validate_token
-          add_operation_fields:
-              x-openapi-router-controller: controllers
-          connexion:
-              strict_validation: True
-              validate_responses: False
-              options:
-                  swagger_ui: True
-                  serve_spec: True
+        petstore:
+            path: petstore-access-control.yaml
+            append:
+              - security:
+                - bearerAuth: []
+            add_security_fields:
+                x-bearerInfoFunc: foca.security.auth.validate_token
+            add_operation_fields:
+                x-openapi-router-controller: controllers
+            connexion:
+                strict_validation: True
+                validate_responses: False
+                options:
+                    swagger_ui: True
+                    serve_spec: True
 
 db:
     host: mongodb

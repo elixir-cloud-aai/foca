@@ -440,7 +440,7 @@ def register_openapi(
                     "enforced on its operations ('access_control.enforce'): "
                     "they are public. Only disable authentication for local "
                     "development.",
-                    list_specs,
+                    label,
                 )
             # Open API 2
             spec_parsed.pop("securityDefinitions", None)

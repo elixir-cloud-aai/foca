@@ -49,15 +49,16 @@ action. Requests that no policy allows are denied with `403`.
 
 The [access control model][app-model] supports resource-scoped roles. The
 following policies are configured (`security.access_control.policies`) and
-added when the app starts:
+added when the app starts; they are named, so that config overlays can add,
+change or remove single rules by name:
 
-| Rule | Meaning |
-| --- | --- |
-| `p, *, /pets, (GET)\|(POST)` | Any authenticated user may list and add pets. |
-| `p, owner, /pets/:id, (GET)\|(DELETE)` | Owners may view and delete their pets. |
-| `p, owner, /pets/:id/permissions, GET` | Owners may list the roles on their pets. |
-| `p, owner, /pets/:id/permissions/users/:userId, (PUT)\|(DELETE)` | Owners may grant and revoke roles on their pets. |
-| `p, maintainer, /pets/:id, GET` | Maintainers may view pets. |
+| Name | Rule | Meaning |
+| --- | --- | --- |
+| `list-add-pets` | `p, *, /pets, (GET)\|(POST)` | Any authenticated user may list and add pets. |
+| `owners-read-delete` | `p, owner, /pets/:id, (GET)\|(DELETE)` | Owners may view and delete their pets. |
+| `owners-list-roles` | `p, owner, /pets/:id/permissions, GET` | Owners may list the roles on their pets. |
+| `owners-manage-roles` | `p, owner, /pets/:id/permissions/users/:userId, (PUT)\|(DELETE)` | Owners may grant and revoke roles on their pets. |
+| `maintainers-read` | `p, maintainer, /pets/:id, GET` | Maintainers may view pets. |
 
 The [controllers][app-controllers] only manage ownership, with FOCA's
 [resource ownership helpers][res-ownership]: `addPet` makes the creator of a

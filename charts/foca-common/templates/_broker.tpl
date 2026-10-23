@@ -188,7 +188,7 @@ without `broker.persistence.existingClaim` (see
 
 {{/*
 ConfigMap with RabbitMQ's config file for Celery (`90-foca.conf`), mounted by
-its Deployment, whose pod is restarted when it changes. Celery declares
+its StatefulSet, whose pod is restarted when it changes. Celery declares
 transient non-exclusive queues (e.g., for the `rpc://` result backend, FOCA's
 default, and for remote control of the workers), a feature that RabbitMQ
 deprecated and denies by default from 4.3 on, so it is permitted here.
