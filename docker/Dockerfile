@@ -2,7 +2,8 @@ ARG PY_IMAGE=3.13-slim-trixie
 FROM python:$PY_IMAGE AS base
 
 # Metadata: OCI annotations (the workflows add none; version and revision
-# at the end); images built from this one inherit them, so they set their own
+# come from build arguments, at the end); images built from this one inherit
+# them, so they set their own, including version and revision
 LABEL org.opencontainers.image.title="FOCA"
 LABEL org.opencontainers.image.description="Kickstart OpenAPI-based microservice development with Flask & Connexion"
 LABEL org.opencontainers.image.url="https://github.com/elixir-cloud-aai/foca"
@@ -61,7 +62,7 @@ USER 1000
 
 # Version and commit of FOCA, as OCI annotations; set by the workflows (e.g.,
 # `--build-arg FOCA_VERSION=1.2.3 --build-arg FOCA_REVISION=<commit>`); last,
-# so that other layers stay cached
+# so that other layers stay cached (declared again, as arguments are per stage)
 ARG FOCA_VERSION=0+unknown
 ARG FOCA_REVISION=unknown
 LABEL org.opencontainers.image.version="${FOCA_VERSION}"

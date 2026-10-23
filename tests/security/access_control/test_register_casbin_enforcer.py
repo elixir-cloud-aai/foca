@@ -234,7 +234,8 @@ class TestPolicies:
         default).
         """
         monkeypatch.setattr(module, "CONFIGURED_POLICIES_CHECK_TIMEOUT", 0.1)
-        # Nothing listens on port 1; the client connects only when used
+        # Nothing listens on port 1; the client connects only when used, and
+        # retries refused connections until server selection times out
         client: MongoClient[dict[str, Any]] = MongoClient(
             "mongodb://127.0.0.1:1", connect=False
         )

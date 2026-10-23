@@ -26,7 +26,9 @@ collection.
   effect. To remove a rule that an overlay added (e.g., a [named
   entry](configuration/index.md#named-entries)), remove it from the overlay.
   If removing them fails, the app refuses to start, as it does if storing
-  configured rules fails.
+  configured rules fails; if the database is not available within 5
+  seconds, the app starts with a warning, and the rules stay in effect until
+  the next startup. To revoke rules reliably, set `policies: []`.
 - Apps that share a policy collection must all configure the same rules.
   By default, all FOCA apps on the same MongoDB server share one
   (`access_control_db.policy_rules`): apps on a shared external MongoDB
@@ -63,7 +65,8 @@ The library chart `foca-common` is released separately (`chart-v0.2.0`).
 App charts written for 0.1.0 render with 0.2.0 as they are, with the broker
 as a StatefulSet (see [below](#broker-statefulset-and-persistence)) but
 without its persistence, with MongoDB unchanged except for the keep
-annotation on its claim (see [MongoDB persistence](#mongodb-persistence)), without the ingress-nginx annotation
+annotation on its claim (see [MongoDB persistence](#mongodb-persistence)),
+without the ingress-nginx annotation
 for body sizes (see [No ingress-nginx
 defaults](#no-ingress-nginx-defaults)), and without the new features. To
 upgrade an app chart:
@@ -172,7 +175,8 @@ The claim is part of the release:
 `existingClaim`. Persistence stays enabled by default (also without the
 map), and MongoDB's claim keeps its name (`<app name>-mongodb`), so upgrades
 keep the data; values written for 0.1.0 render MongoDB's resources
-unchanged, except for the keep annotation on the claim (see below). App charts replace `volumeSize` with the map in their
+unchanged, except for the keep annotation on the claim (see below). App
+charts replace `volumeSize` with the map in their
 `values.yaml` (see the petstore example); the template file with
 `foca-common.mongodbPersistentVolumeClaim` (`mongodb-pvc.yaml`) stays as it
 is:

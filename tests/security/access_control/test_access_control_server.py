@@ -135,6 +135,7 @@ class TestDeletePermission:
         collection.insert_one(
             {**deepcopy(MOCK_RULE), "id": MOCK_ID, "configured": True}
         )
+        # Not configured before deleting, configured once deleting failed
         checks = iter([False, True])
         monkeypatch.setattr(
             app.config["casbin_adapter"], "is_configured", lambda id: next(checks)

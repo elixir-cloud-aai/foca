@@ -8,7 +8,7 @@ from typing import Any
 import pymongo
 import yaml
 from connexion import App
-from pymongo.errors import ConnectionFailure, PyMongoError
+from pymongo.errors import ConnectionFailure
 
 from foca.api.register_openapi import _connexion_add_api_kwargs
 from foca.config.access import get_app_config
@@ -387,10 +387,8 @@ def _remove_policies(adapter: Adapter) -> None:
         # default), e.g., than the worker timeout of gunicorn
         with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
             configured = adapter.has_configured_policies()
-    except PyMongoError as exc:
-        # Also timeouts of the operation itself, as within the timeout
-        if not (isinstance(exc, ConnectionFailure) or exc.timeout):
-            raise
+    # E.g., server selection timed out
+    except ConnectionFailure as exc:
         logger.warning(
             "Could not check for stored configured policy rules, as "
             "'security.access_control.policies' is not set and the database "

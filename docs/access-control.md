@@ -228,16 +228,20 @@ replaces the stored configured rules with those of the configuration:
 configured rules that were removed from the configuration are removed,
 missing ones are added, and unchanged ones are kept, with their identifiers.
 The configuration is the only place to change configured rules: the
-permissions API responds with `409` to requests to change or delete them,
+permissions API responds with `409` to requests to change or delete them
+(configured rules not in effect yet, e.g., of an instance that is still
+starting, are not found, `404`, by requests to get or delete them),
 and the [resource role helpers](#resource-scoped-roles) keep them, with a
 warning. Other stored rules (e.g., added via the permissions API) are kept,
 also if they have the values of a configured rule. With `policies: []`, all
 configured rules are removed. Without `policies`, stored configured rules
 are removed, too, with a warning (e.g., if they were set via a config
-overlay that was removed since). Apps that never configured rules only check
-for them, and start without the database, with a warning, if it is not
-available within 5 seconds; if configured rules are stored, the app refuses
-to start if removing them fails, as it does if storing them fails.
+overlay that was removed since). If removing them fails, the app refuses to
+start, as it does if storing them fails. If the database is not available
+within 5 seconds, though, the app starts with a warning, so that apps that
+never configured rules start without it; stored configured rules then stay in
+effect until the next startup. To revoke configured rules reliably, set
+`policies: []`: then, the app does not start without the database.
 
 Configured rules are replaced atomically, so that requests are always
 checked against either the previous or the new configured rules, never a

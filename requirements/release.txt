@@ -1,6 +1,7 @@
 # Tools for building and checking release distributions, pinned so that
 # releases build with the same tools when run again from their tag (the
-# distributions are not byte-for-byte reproducible); updated by Dependabot. Also
+# distributions are not byte-for-byte reproducible); updated by Dependabot.
+# Also
 # used as constraints (`PIP_CONSTRAINT`) for the build requirements of
 # `pyproject.toml`, which `python -m build` installs in an isolated
 # environment. Used by `.github/workflows/release.yml` and `checks.yml`.
