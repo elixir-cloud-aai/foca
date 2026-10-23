@@ -3,6 +3,7 @@
 import datetime
 import importlib.util
 import re
+import stat
 from pathlib import Path
 from typing import Self
 
@@ -132,6 +133,13 @@ def test_check_release_fails(text: str, message: str) -> None:
         citation.check_release(text, "1.0.0", DATE)
 
 
+def test_check_release_invalid_version() -> None:
+    """Only release versions pass, also if the file has the same one."""
+    text = 'version: "v1.0.0"\ndate-released: "2026-01-02"\n'
+    with pytest.raises(ValueError, match="not a release version"):
+        citation.check_release(text, "v1.0.0", DATE)
+
+
 def test_main(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """`set` writes the file, which `check` then accepts."""
     path = tmp_path / "CITATION.cff"
@@ -180,6 +188,32 @@ def test_main_write_error(
     assert "No space left on device" in capsys.readouterr().err
     assert path.read_text(encoding="utf-8") == TEXT
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_main_keeps_links_and_mode(tmp_path: Path) -> None:
+    """`set` writes no existing file or link, and keeps the permissions."""
+    path = tmp_path / "CITATION.cff"
+    path.write_text(TEXT, encoding="utf-8")
+    path.chmod(0o640)
+    target = tmp_path / "target"
+    target.write_text("unchanged", encoding="utf-8")
+    planted = tmp_path / ".CITATION.cff.tmp"
+    planted.symlink_to(target)
+    assert citation.main(["set", "1.0.0"], path) == 0
+    assert target.read_text(encoding="utf-8") == "unchanged"
+    assert not path.is_symlink()
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+    assert 'version: "1.0.0"\n' in path.read_text(encoding="utf-8")
+    assert list(tmp_path.glob(".*.tmp")) == [planted]
+
+
+def test_main_future_date(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """`set` refuses dates after today (UTC), which `check` would reject."""
+    path = tmp_path / "CITATION.cff"
+    path.write_text(TEXT, encoding="utf-8")
+    assert citation.main(["set", "1.0.0", "--date", "2999-01-01"], path) == 1
+    assert "'2999-01-01' is in the future (UTC)" in capsys.readouterr().err
+    assert path.read_text(encoding="utf-8") == TEXT
 
 
 @pytest.mark.parametrize("date", ["soon", "20261023", "2026-02-30"])
