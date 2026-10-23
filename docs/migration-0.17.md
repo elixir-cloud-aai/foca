@@ -25,10 +25,12 @@ collection.
   removes them on startup, with a warning; before, they were left in
   effect. To remove a rule that an overlay added (e.g., a [named
   entry](configuration/index.md#named-entries)), remove it from the overlay.
-  If removing them fails, the app refuses to start, as it does if storing
-  configured rules fails; if the database is not available within 5
-  seconds, the app starts with a warning, and the rules stay in effect until
-  the next startup. To revoke rules reliably, set `policies: []`.
+  Unset `policies` thus requires MongoDB at startup, as set `policies`
+  does: if checking for stored configured rules (within 5 seconds) or
+  removing them fails, e.g., as MongoDB is not available yet, the app
+  refuses to start, with an error (before, apps without `policies` started
+  without MongoDB). Orchestrators such as Kubernetes restart it until
+  MongoDB is available; with Docker Compose, use a restart policy.
 - Apps that share a policy collection must all configure the same rules.
   By default, all FOCA apps on the same MongoDB server share one
   (`access_control_db.policy_rules`): apps on a shared external MongoDB

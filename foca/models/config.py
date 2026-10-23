@@ -765,9 +765,8 @@ class AccessControlConfig(FOCABaseConfig):
             configuration are removed. Configured rules cannot be changed or
             deleted via the permissions API. Other stored rules are kept. If
             not set, stored configured rules are removed on startup (with a
-            warning), unless the database is not available within 5 seconds
-            (then, they stay in effect until the next startup; set `[]` to
-            revoke them reliably). Given as a list, or as a mapping of names
+            warning); the app then refuses to start without the database, as
+            with policies set. Given as a list, or as a mapping of names
             to rules (named rules), so that config overlays can add, change
             or remove single rules (cf.
             :py:class:`foca.config.config_parser.ConfigParser`); `None`

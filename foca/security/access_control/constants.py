@@ -29,8 +29,7 @@ STALE_GENERATION_AGE = timedelta(hours=1)
 # Attempts to load all rules while the active generation does not change
 LOAD_POLICY_ATTEMPTS = 5
 # Timeout (in seconds) of the check for stored configured rules on startup
-# without `access_control.policies`, after which apps start without the
-# database
+# without `access_control.policies`, after which apps refuse to start
 CONFIGURED_POLICIES_CHECK_TIMEOUT = 5
 # Field ordering role rules stored by `Adapter.replace_role_rule()`
 GRANTED_FIELD = "granted"

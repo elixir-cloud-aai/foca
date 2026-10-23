@@ -212,26 +212,32 @@ class TestPolicies:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Without database, apps without policies start with a warning."""
+        """Without database, apps without policies refuse to start.
+
+        So that stored configured rules never stay in effect.
+        """
 
         def unavailable(self: Any) -> bool:
             raise ServerSelectionTimeoutError("unavailable")
 
         monkeypatch.setattr(module.Adapter, "has_configured_policies", unavailable)
         monkeypatch.setattr(module.logger, "disabled", False)
-        with caplog.at_level(logging.WARNING, logger=module.logger.name):
+        with (
+            caplog.at_level(logging.ERROR, logger=module.logger.name),
+            pytest.raises(ServerSelectionTimeoutError),
+        ):
             _register_policies(None)
-        assert "Could not check for stored configured policy rules" in caplog.text
+        assert "refusing to start" in caplog.text
 
     def test_unset_check_times_out(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """The check for configured rules gives up soon without database.
 
         Rather than after the client's server selection timeout (30 s by
-        default).
+        default), e.g., so that gunicorn workers fail to boot before their
+        timeout.
         """
         monkeypatch.setattr(module, "CONFIGURED_POLICIES_CHECK_TIMEOUT", 0.1)
         # Nothing listens on port 1; the client connects only when used, and
@@ -240,13 +246,11 @@ class TestPolicies:
             "mongodb://127.0.0.1:1", connect=False
         )
         adapter = module.Adapter(collection=client["db"]["rules"])
-        monkeypatch.setattr(module.logger, "disabled", False)
         start = time.monotonic()
-        with caplog.at_level(logging.WARNING, logger=module.logger.name):
+        with pytest.raises(ServerSelectionTimeoutError):
             module._remove_policies(adapter)
         client.close()
         assert time.monotonic() - start < 10
-        assert "Could not check for stored configured policy rules" in caplog.text
 
     def test_unset_check_error(
         self,

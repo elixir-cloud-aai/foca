@@ -8,7 +8,7 @@ from typing import Any
 import pymongo
 import yaml
 from connexion import App
-from pymongo.errors import ConnectionFailure
+from pymongo.errors import PyMongoError
 
 from foca.api.register_openapi import _connexion_add_api_kwargs
 from foca.config.access import get_app_config
@@ -367,38 +367,33 @@ def register_casbin_enforcer(
 def _remove_policies(adapter: Adapter) -> None:
     """Remove stored configured policy rules, if any.
 
-    If the database cannot be reached while checking for configured rules,
-    within `CONFIGURED_POLICIES_CHECK_TIMEOUT` seconds, a warning is logged
-    instead, so that apps that do not configure policy rules start without
-    it, as before. Other errors of the check, and all errors while removing
-    stored configured rules, are raised, so that apps do not start with
-    rules removed from their configuration, as with `policies` set.
+    Apps refuse to start if stored configured rules cannot be checked for or
+    removed, e.g., without the database, so that they never start with rules
+    removed from their configuration in effect, as with `policies` set. The
+    check gives up after `CONFIGURED_POLICIES_CHECK_TIMEOUT` seconds, so that
+    startup fails soon (e.g., before the worker timeout of gunicorn) and is
+    retried (e.g., by Kubernetes) until the database is available.
 
     Args:
         adapter: Casbin adapter of the app.
 
     Raises:
-        pymongo.errors.PyMongoError: Checking for stored configured rules
-            failed other than for lack of the database, or removing them
-            failed.
+        pymongo.errors.PyMongoError: Checking for or removing stored
+            configured rules failed, e.g., as the database is not available.
     """
     try:
         # Shorter than the client's server selection timeout (30 s by
-        # default), e.g., than the worker timeout of gunicorn
+        # default)
         with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
             configured = adapter.has_configured_policies()
-    # E.g., server selection timed out. If the timeout expires while the
-    # server answers slowly, pymongo raises either `NetworkTimeout` (a
-    # connection failure, tolerated) or `ExecutionTimeout` (raised)
-    except ConnectionFailure as exc:
-        logger.warning(
-            "Could not check for stored configured policy rules, as "
-            "'security.access_control.policies' is not set and the database "
-            "is not available; configured rules stored before stay in effect "
-            "until the next startup: %s",
+    except PyMongoError as exc:
+        logger.error(
+            "Could not check for stored configured policy rules, which are "
+            "removed on startup as 'security.access_control.policies' is not "
+            "set; refusing to start (is the database available?): %s",
             exc,
         )
-        return
+        raise
     if configured:
         # E.g., set via a config overlay that was removed since
         logger.warning(

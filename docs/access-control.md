@@ -236,12 +236,13 @@ warning. Other stored rules (e.g., added via the permissions API) are kept,
 also if they have the values of a configured rule. With `policies: []`, all
 configured rules are removed. Without `policies`, stored configured rules
 are removed, too, with a warning (e.g., if they were set via a config
-overlay that was removed since). If removing them fails, the app refuses to
-start, as it does if storing them fails. If the database is not available
-within 5 seconds, though, the app starts with a warning, so that apps that
-never configured rules start without it; stored configured rules then stay in
-effect until the next startup. To revoke configured rules reliably, set
-`policies: []`: then, the app does not start without the database.
+overlay that was removed since). Apps with access control thus need the
+database on startup also without `policies`, as with them: if checking for
+stored configured rules (within 5 seconds) or removing them fails, e.g., as
+the database is not available yet, the app refuses to start, with an error,
+so that it never starts with rules removed from its configuration in
+effect. Orchestrators such as Kubernetes restart it until the database is
+available.
 
 Configured rules are replaced atomically, so that requests are always
 checked against either the previous or the new configured rules, never a
