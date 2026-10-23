@@ -1,16 +1,18 @@
 # Scan the images of the latest release (`X.Y.Z-pyV` for every Python version)
 # weekly for known vulnerabilities with Trivy, as the `scan` job of
 # `checks.yml` scans the images of pull requests and pushes, so that
-# vulnerabilities found after a release are reported: all findings are
-# uploaded to code scanning, and the workflow fails on critical and high
-# vulnerabilities that have a fix (fixed by a new release). Accepted findings
-# are listed in `.trivyignore.yaml`; scheduled runs use the default branch
-# (`main`, the latest release), so the file is taken from `dev`, where
-# findings are accepted. The images are public, so no Docker Hub secrets are
-# needed; their organization is the repository variable `DOCKERHUB_ORG` (by
-# default `elixircloud`, as documented in the docs; forks set it to the
-# organization they publish to). Same as in cloud-registry, which has one
-# image.
+# vulnerabilities found after a release are reported: the findings that have
+# a fix are uploaded to code scanning, a full report (findings without a fix
+# included) is uploaded as the workflow artifact
+# `trivy-report-release-image-pyV` (JSON and table), and the workflow fails
+# on critical and high vulnerabilities that have a fix (fixed by a new
+# release). Accepted findings are listed in `.trivyignore.yaml`; scheduled
+# runs use the default branch (`main`, the latest release), so the file is
+# taken from `dev`, where findings are accepted. The images are public, so no
+# Docker Hub secrets are needed; their organization is the repository
+# variable `DOCKERHUB_ORG` (by default `elixircloud`, as documented in the
+# docs; forks set it to the organization they publish to). Same as in
+# cloud-registry, which has one image.
 
 name: Scan release image
 
@@ -70,3 +72,4 @@ jobs:
         with:
           image: ${{ steps.image.outputs.image }}
           category: release-image-py${{ matrix.python-version }}
+          report: "true"
