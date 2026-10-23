@@ -45,6 +45,8 @@ config:
     public_url: {{ printf "https://%s/" .Values.hostName | quote }}
 """
 AUDIENCE = ("--set-json", 'config.security.auth.audience=["petstore"]')
+# Annotations of claims that Helm keeps when the release is uninstalled
+KEEP = {"helm.sh/resource-policy": "keep"}
 
 pytestmark = pytest.mark.skipif(HELM is None, reason="helm not installed")
 
@@ -774,6 +776,8 @@ def test_mongodb_persistence_default(render: Callable[..., Docs]) -> None:
     docs = render()
     claim = docs[("PersistentVolumeClaim", MONGODB)]
     assert claim["metadata"]["labels"]["app.kubernetes.io/component"] == "mongodb"
+    # Kept by Helm when the release is uninstalled
+    assert claim["metadata"]["annotations"] == KEEP
     assert claim["spec"] == {
         "accessModes": ["ReadWriteOnce"],
         "resources": {"requests": {"storage": "1Gi"}},
@@ -799,6 +803,24 @@ def test_mongodb_persistence_settings(render: Callable[..., Docs]) -> None:
     docs = render("--set", "mongodb.persistence.storageClass=-")
     spec = docs[("PersistentVolumeClaim", MONGODB)]["spec"]
     assert spec["storageClassName"] == ""
+
+
+@pytest.mark.parametrize(
+    ("args", "annotations"),
+    [
+        (("--set", "mongodb.persistence.resourcePolicy="), None),
+        (("--set-json", "mongodb.persistence.resourcePolicy=null"), KEEP),
+    ],
+    ids=["empty", "not-set"],
+)
+def test_mongodb_resource_policy(
+    render: Callable[..., Docs],
+    args: tuple[str, ...],
+    annotations: dict[str, str] | None,
+) -> None:
+    """An empty resource policy lets Helm delete the claim; keep if not set."""
+    metadata = render(*args)[("PersistentVolumeClaim", MONGODB)]["metadata"]
+    assert metadata.get("annotations") == annotations
 
 
 def test_mongodb_existing_claim(render: Callable[..., Docs]) -> None:
@@ -849,7 +871,10 @@ def test_mongodb_volume_size_alias(
             f"mongodb.volumeSize={json.dumps(volume_size)}",
         )
     )
-    spec = docs[("PersistentVolumeClaim", MONGODB)]["spec"]
+    claim = docs[("PersistentVolumeClaim", MONGODB)]
+    # Kept on uninstall, as values of 0.1.0 have no resource policy
+    assert claim["metadata"]["annotations"] == KEEP
+    spec = claim["spec"]
     assert spec == {
         "accessModes": ["ReadWriteOnce"],
         "resources": {"requests": {"storage": storage}},
@@ -912,6 +937,7 @@ def test_schema_rejects_invalid_mongodb_persistence(
     )
     assert "schema" in render_error("--set", "mongodb.persistence.unknown=true")
     assert "schema" in render_error("--set", "mongodb.volumeSize=0Gi")
+    assert "schema" in render_error("--set", "mongodb.persistence.resourcePolicy=no")
     assert "schema" in render_error("--set", "mongodb.volumeSize=1x")
 
 
@@ -1624,6 +1650,8 @@ def test_broker(render: Callable[..., Docs]) -> None:
     ]
     claim = docs[("PersistentVolumeClaim", BROKER)]
     assert claim["metadata"]["labels"]["app.kubernetes.io/component"] == "broker"
+    # Deleted with the release, as queued tasks can be rebuilt
+    assert "annotations" not in claim["metadata"]
     assert claim["spec"] == {
         "accessModes": ["ReadWriteOnce"],
         "resources": {"requests": {"storage": "1Gi"}},
@@ -1811,6 +1839,14 @@ def test_broker_storage_class(
     assert spec["storageClassName"] == expected
 
 
+def test_broker_resource_policy(render: Callable[..., Docs]) -> None:
+    """The broker's claim is kept on uninstall only with `resourcePolicy: keep`."""
+    docs = render(*CELERY, "--set", "broker.persistence.resourcePolicy=keep")
+    assert docs[("PersistentVolumeClaim", BROKER)]["metadata"]["annotations"] == KEEP
+    docs = render(*CELERY, "--set-json", "broker.persistence.resourcePolicy=null")
+    assert "annotations" not in docs[("PersistentVolumeClaim", BROKER)]["metadata"]
+
+
 def test_broker_existing_claim(render: Callable[..., Docs]) -> None:
     """An existing claim replaces the broker's own."""
     docs = render(*CELERY, "--set", "broker.persistence.existingClaim=queues")
@@ -1898,3 +1934,4 @@ def test_schema_rejects_invalid_celery_values(
         "--set-json", 'broker.persistence.accessModes=["ReadOnlyMany"]'
     )
     assert "schema" in render_error("--set", "broker.persistence.unknown=true")
+    assert "schema" in render_error("--set", "broker.persistence.resourcePolicy=no")

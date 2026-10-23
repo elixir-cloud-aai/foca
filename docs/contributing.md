@@ -52,9 +52,8 @@ is in vain.
 
 The project follows a variant of the GitHub flow: all changes reach the
 development branch `dev` through pull requests, which are reviewed and
-tested; `main` only moves forward to released commits (see
-[Releasing](https://github.com/elixir-cloud-aai/foca#releasing) in the
-README).
+tested; `main` only moves forward to released commits (see [Versioning and
+releases](#versioning-and-releases)).
 
 1. Create a feature branch from an up-to-date `dev`, named after the type and
    topic of the change, e.g., `fix/<topic>` or `docs/<topic>`.
@@ -220,8 +219,59 @@ only your entry; don't add e-mail addresses. CI validates the file
 (`cffconvert --validate`). Before each release, `python scripts/citation.py
 set X.Y.Z` sets its `version` and `date-released`, and the release workflow
 fails if they don't match the release (`python scripts/citation.py check
-X.Y.Z`; see [Releasing](https://github.com/elixir-cloud-aai/foca#releasing)
-in the README).
+X.Y.Z`; see [Versioning and releases](#versioning-and-releases)).
+
+## Versioning and releases
+
+The project adopts [semantic versioning](https://semver.org/). While the
+major version is 0, minor releases may contain breaking changes. The version
+is derived from git tags (via
+[setuptools-scm](https://setuptools-scm.readthedocs.io/)) and available as
+`foca.__version__`; builds between releases get development versions (e.g.,
+`0.14.1.dev3+g1a2b3c4`).
+
+Features and fixes are merged into `dev`. Branch `main` only ever moves
+forward to commits on `dev` that are released. First, shortly before the
+release, set its version and date in the citation metadata, which Zenodo
+archives with each release, and merge the change into `dev`; each version,
+also each pre-release (e.g., `X.Y.Zrc1`), needs its own such change:
+
+```bash
+python scripts/citation.py set X.Y.Z  # date: today (UTC), or --date YYYY-MM-DD
+```
+
+Then, to release version `X.Y.Z` from commit `<sha>` on `dev` (with that
+change), after CI passed for it:
+
+```bash
+git switch --detach <sha>
+python scripts/citation.py check X.Y.Z  # as the release workflow does
+git push origin <sha>:main  # fails unless it is a fast-forward
+git tag -s vX.Y.Z <sha> -m "vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+Pushing the tag triggers the [release
+workflow](https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/release.yml),
+which checks that the tagged commit is on `main` and that its `CITATION.cff`
+has the release version and a date that is not in the future (UTC), pushes
+the Docker images by digest (untagged, before any approval) and scans them
+for vulnerabilities, publishes the distributions to PyPI (after approval in
+the `pypi` environment), attests and signs exactly the scanned images and
+tags them `X.Y.Z` and `latest`, and creates a GitHub release with generated
+notes (see [Image scan](#image-scan)). Tags of alpha,
+beta and release candidate versions (e.g., `vX.Y.Zrc1`) do not update
+`latest`. These and, until 1.0.0, all other releases are GitHub pre-releases
+(never marked as the latest release).
+
+A tag ruleset allows only admins to create `v*` and `chart-v*` tags and
+blocks updates and deletions of these tags for everyone, and GitHub releases
+are immutable. If a release fails, re-run its workflow for the same tag; if
+the tagged commit itself is wrong, release a new version.
+
+The Helm library chart `foca-common` (`charts/foca-common`) is versioned and
+released separately, from signed tags `chart-vX.Y.Z`; see [releases of the
+library chart](helm-chart.md#releases).
 
 ## Python guidelines
 

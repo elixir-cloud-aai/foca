@@ -147,12 +147,25 @@ would be ignored: rename it to `mongodb.persistence.size` in your values. If
 the app chart's own values still set `volumeSize`, unset it with `null`,
 e.g., `--set-json mongodb.volumeSize=null`.
 
-!!! warning "Keep the claim before switching to `existingClaim`"
-    Disabling persistence, or switching an existing release to an
-    `existingClaim`, deletes the chart's claim on upgrade, and, with the
-    usual reclaim policy `Delete`, its data. To keep it, annotate it first
-    (`kubectl annotate pvc <app name>-mongodb
-    helm.sh/resource-policy=keep`), then set it as `existingClaim`.
+MongoDB's claim is annotated with `helm.sh/resource-policy: keep`
+(`mongodb.persistence.resourcePolicy: keep`, also if not set; empty to turn
+it off): uninstalling the release keeps MongoDB's claim, and with it the
+database; delete it by hand to remove the data (`kubectl delete pvc <app
+name>-mongodb`). Reinstalling a release of the same name in the same
+namespace adopts the kept claim, with its data and the app user. A release
+of another name gets a new, empty claim, or fails on the kept one if its
+resource names are the same (e.g., with the same `fullnameOverride`); set
+the kept claim as its `existingClaim` to use the data. The broker's claim is still deleted with
+the release (`broker.persistence.resourcePolicy`).
+
+!!! warning "Upgrade first, then switch to `existingClaim`"
+    On upgrades, Helm checks the annotation on the claim in the cluster,
+    which releases installed with 0.1.0 do not have yet. Disabling
+    persistence, or switching to an `existingClaim`, in the same upgrade as
+    the one to 0.2.0 deletes the chart's claim, and, with the usual reclaim
+    policy `Delete`, its data. Upgrade to 0.2.0 first and change these
+    settings in a later upgrade, or annotate the claim first (`kubectl
+    annotate pvc <app name>-mongodb helm.sh/resource-policy=keep`).
 
 ## Resource ownership helpers
 

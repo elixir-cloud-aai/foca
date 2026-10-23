@@ -262,10 +262,12 @@ Arguments of `foca-common.claimName` and `foca-common.persistentVolumeClaim`
 for MongoDB, as JSON (templates return strings): persistence is enabled if
 `mongodb.persistence.enabled` is not set (also without a `mongodb.persistence`
 map, as in values written for foca-common 0.1.0, where MongoDB always had its
-claim). The size is `mongodb.persistence.size` or the deprecated
-`mongodb.volumeSize` (the setting up to 0.1.0; numbers of bytes are rendered
-as integers); fails if both are set, so that neither is ignored silently.
-Call with the root context.
+claim), and Helm keeps the claim when the release is uninstalled unless
+`mongodb.persistence.resourcePolicy` is empty. The size is
+`mongodb.persistence.size` or the deprecated `mongodb.volumeSize` (the
+setting up to 0.1.0; numbers of bytes are rendered as integers); fails if
+both are set, so that neither is ignored silently. Call with the root
+context.
 */}}
 {{- define "foca-common.mongodbPersistence" -}}
 {{- $mongodb := .Values.mongodb | default dict -}}
@@ -278,7 +280,7 @@ Call with the root context.
 {{- end -}}
 {{- $size = ternary $volumeSize (int64 $volumeSize | toString) (kindIs "string" $volumeSize) -}}
 {{- end -}}
-{{- dict "persistence" $persistence "name" (include "foca-common.mongodbFullname" .) "enabledByDefault" true "size" $size "key" "mongodb.persistence" | toJson -}}
+{{- dict "persistence" $persistence "name" (include "foca-common.mongodbFullname" .) "enabledByDefault" true "resourcePolicyByDefault" "keep" "size" $size "key" "mongodb.persistence" | toJson -}}
 {{- end -}}
 
 {{/*

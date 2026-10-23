@@ -4,7 +4,7 @@
 # scanned digests, and create the GitHub release. The version is derived
 # from the tag (via setuptools-scm). Uses PyPI trusted publishing (no API
 # token); the PyPI project trusts this workflow file in the `pypi`
-# environment. See "Releasing" in README.md.
+# environment. See "Versioning and releases" in docs/contributing.md.
 
 name: Release
 
@@ -80,8 +80,8 @@ jobs:
         with:
           python-version: "3.13"
       # Zenodo archives the release with the citation metadata of the tagged
-      # commit, so they must have the release version (see "Releasing" in
-      # README.md)
+      # commit, so they must have the release version (see "Versioning and
+      # releases" in docs/contributing.md)
       - name: Check citation metadata
         env:
           VERSION: ${{ steps.version.outputs.version }}

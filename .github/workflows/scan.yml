@@ -8,7 +8,7 @@
 # (`main`, the latest release), so the file is taken from `dev`, where
 # findings are accepted. The images are public, so no Docker Hub secrets are
 # needed; their organization is the repository variable `DOCKERHUB_ORG` (by
-# default `elixircloud`, as documented in the README; forks set it to the
+# default `elixircloud`, as documented in the docs; forks set it to the
 # organization they publish to). Same as in cloud-registry, which has one
 # image.
 
