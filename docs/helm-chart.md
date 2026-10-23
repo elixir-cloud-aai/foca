@@ -513,9 +513,13 @@ them (e.g., its health check ranges).
     empty `resourcePolicy`) is annotated only by the next upgrade: disable
     persistence or switch to an `existingClaim` in a later upgrade, or
     annotate the claim first (`kubectl annotate pvc my-app-mongodb
-    helm.sh/resource-policy=keep`). With an empty `resourcePolicy`, Helm
-    deletes the claim (and, with the usual reclaim policy `Delete`, the data)
-    with the release or when it is removed from it. The broker's claim is not
+    helm.sh/resource-policy=keep`). Likewise, an upgrade that empties
+    `resourcePolicy` removes the annotation, and Helm deletes the claim
+    (and, with the usual reclaim policy `Delete`, the data) with the release
+    or when a later upgrade removes it from the release (not in the same
+    upgrade). A rollback to a revision without the annotation (e.g., one of
+    foca-common 0.1.0) removes it from the claim, too; annotate the claim
+    again before uninstalling such a release. The broker's claim is not
     kept by default, as its queue can be rebuilt
     (`broker.persistence.resourcePolicy`).
 
