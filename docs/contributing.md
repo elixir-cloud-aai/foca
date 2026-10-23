@@ -173,15 +173,18 @@ separate environment to run it outside pre-commit.
 
 CI (`checks.yml`) builds the Docker images of all Python versions for every
 pull request and push and scans them with [Trivy](https://trivy.dev/)
-(`.github/actions/scan-image`); the release workflow builds and scans the
-release commit's images again before publishing anything (in a job without
-its credentials), and a weekly workflow (`scan.yml`) scans the images of the
-latest release. They fail on critical and high vulnerabilities that have a
-fix, and upload all findings to code scanning (Security tab; not for pull
-requests from forks, nor in the release workflow). The publishing workflows
-take the Docker Hub organization from the secret `DOCKERHUB_ORG`; the weekly
-scan, which needs no secrets, from the repository variable of that name (by
-default `elixircloud`), so forks set both. If a scan fails:
+(`.github/actions/scan-image`), and a weekly workflow (`scan.yml`) scans the
+images of the latest release. For pushes to `dev` and for releases
+(`release.yml`, before anything is published), the workflows push each image
+by digest, untagged, scan exactly that digest in a job without credentials
+or signing permissions, and only if the scan passes attest, sign and tag it,
+so that the published images are the scanned ones; a digest that fails the
+scan stays untagged and unsigned. The scans fail on critical and high
+vulnerabilities that have a fix, and upload all findings to code scanning
+(Security tab; not for pull requests from forks, nor in the release
+workflow). All workflows take the Docker Hub organization from the
+repository variable `DOCKERHUB_ORG` (by default `elixircloud`), which forks
+set to the organization they publish to. If a scan fails:
 
 1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
    in `pyproject.toml` or update the base image (Dependabot's PRs do both).
@@ -251,10 +254,12 @@ git push origin vX.Y.Z
 Pushing the tag triggers the [release
 workflow](https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/release.yml),
 which checks that the tagged commit is on `main` and that its `CITATION.cff`
-has the release version and a date that is not in the future (UTC),
-publishes the distributions to PyPI (after approval in the `pypi`
-environment), pushes, attests and signs Docker images tagged `X.Y.Z` and
-`latest`, and creates a GitHub release with generated notes. Tags of alpha,
+has the release version and a date that is not in the future (UTC), pushes
+the Docker images by digest (untagged, before any approval) and scans them
+for vulnerabilities, publishes the distributions to PyPI (after approval in
+the `pypi` environment), attests and signs exactly the scanned images and
+tags them `X.Y.Z` and `latest`, and creates a GitHub release with generated
+notes (see [Image scan](#image-scan)). Tags of alpha,
 beta and release candidate versions (e.g., `vX.Y.Zrc1`) do not update
 `latest`. These and, until 1.0.0, all other releases are GitHub pre-releases
 (never marked as the latest release).
