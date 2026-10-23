@@ -8,7 +8,7 @@ info:
     url: https://github.com/elixir-cloud-aai/foca/blob/dev/LICENSE
   contact:
     name: ELIXIR On-Cloud
-    email: alexander.kanitz@alumni.ethz.ch
+    email: cloud-service@elixir-europe.org
 paths:
   /permissions:
     post:
