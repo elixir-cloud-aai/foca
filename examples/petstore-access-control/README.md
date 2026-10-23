@@ -323,7 +323,7 @@ of the following:
 [app-model]: petstore_policies.conf
 [app-specs]: petstore-access-control.yaml
 [docs]: <https://foca.readthedocs.io/en/latest/>
-[docs-config-file]: ../../README.md#configuration-file
+[docs-config-file]: <https://foca.readthedocs.io/en/latest/configuration/>
 [img-hint]: ../../images/hint.svg
 [res-access-control]: <https://foca.readthedocs.io/en/latest/access-control/>
 [res-cors]: <https://flask-cors.readthedocs.io/en/latest/>
