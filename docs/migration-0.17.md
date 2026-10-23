@@ -38,13 +38,19 @@ collection.
   and all rules with `configured: true`; 0.16 stores its configured rules
   again on startup.
 
-## Images without setuptools and wheel
+## Images without setuptools and wheel, with the latest pip
 
 The FOCA images no longer contain setuptools and wheel. Only the Python 3.11
 base image shipped them (with known vulnerabilities); FOCA needs neither, as
 pip builds packages in isolated environments. Images derived from FOCA's that
 build packages without build isolation (`pip install --no-build-isolation`)
 or run `python setup.py` must install setuptools (and wheel) themselves.
+
+The images of Python 3.11 and 3.12 also have the latest pip (at least 26.2)
+instead of the old one of their base image (24.0 and 25.0.1, with known
+vulnerabilities), as those of Python 3.13 and 3.14 already did. Images
+derived from them that use pip features removed since must adapt (see
+[pip's changelog](https://pip.pypa.io/en/stable/news/)).
 
 ## Helm chart 0.2.0
 
