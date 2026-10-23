@@ -88,7 +88,7 @@ docs = [
 Repository = "https://github.com/elixir-cloud-aai/foca"
 Documentation = "https://foca.readthedocs.io"
 Tracker = "https://github.com/elixir-cloud-aai/foca/issues"
-"ELIXIR On-Cloud" = "https://elixir-europe.github.io/cloud/"
+"ELIXIR On-Cloud" = "https://elixir-on.cloud/"
 
 [tool.setuptools_scm]
 # Version from git tags (`vX.Y.Z`); see "Versioning and releases" in
