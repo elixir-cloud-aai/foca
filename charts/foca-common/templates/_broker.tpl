@@ -160,40 +160,29 @@ broker's own claim; empty otherwise, also without a `broker.persistence` map
 (values written for foca-common 0.1.0). Call with the root context.
 */}}
 {{- define "foca-common.brokerClaimName" -}}
-{{- $persistence := dig "persistence" dict (.Values.broker | default dict) | default dict -}}
-{{- if $persistence.enabled -}}
-{{- $persistence.existingClaim | default (include "foca-common.brokerFullname" .) -}}
+{{- include "foca-common.claimName" (include "foca-common.brokerPersistence" . | fromJson) -}}
 {{- end -}}
+
+{{/*
+Arguments of `foca-common.claimName` and `foca-common.persistentVolumeClaim`
+for the broker, as JSON (templates return strings): persistence is disabled
+if `broker.persistence.enabled` is not set. Call with the root context.
+*/}}
+{{- define "foca-common.brokerPersistence" -}}
+{{- $persistence := dig "persistence" dict (.Values.broker | default dict) | default dict -}}
+{{- dict "persistence" $persistence "name" (include "foca-common.brokerFullname" .) "enabledByDefault" false "key" "broker.persistence" | toJson -}}
 {{- end -}}
 
 {{/*
 PersistentVolumeClaim of the broker's data, if `broker.persistence.enabled`
-without `broker.persistence.existingClaim`: of `size`, with `accessModes`
-(by default `ReadWriteOnce`) and `storageClass` (the cluster's default
-class if empty; "-" for none, i.e., no dynamic provisioning).
+without `broker.persistence.existingClaim` (see
+`foca-common.persistentVolumeClaim`).
 */}}
 {{- define "foca-common.brokerPersistentVolumeClaim" -}}
 {{- include "foca-common.checkSettings" . -}}
 {{- $root := .root -}}
 {{- if include "foca-common.brokerEnabled" $root -}}
-{{- $persistence := $root.Values.broker.persistence | default dict -}}
-{{- if and (include "foca-common.brokerClaimName" $root) (not $persistence.existingClaim) -}}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "foca-common.brokerFullname" $root | quote }}
-  labels:
-    {{- include "foca-common.labels" (dict "root" $root "component" "broker") | nindent 4 }}
-spec:
-  accessModes:
-    {{- toYaml ($persistence.accessModes | default (list "ReadWriteOnce")) | nindent 2 }}
-  resources:
-    requests:
-      storage: {{ required "broker.persistence.size must be set if broker.persistence.enabled" $persistence.size }}
-  {{- with $persistence.storageClass }}
-  storageClassName: {{ ternary "" . (eq . "-") | quote }}
-  {{- end }}
-{{ end -}}
+{{- include "foca-common.persistentVolumeClaim" (merge (dict "root" $root "component" "broker") (include "foca-common.brokerPersistence" $root | fromJson)) -}}
 {{- end -}}
 {{- end -}}
 
