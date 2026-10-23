@@ -3,6 +3,11 @@
 # URL of the Secret `celery` (see `.github/workflows/charts.yml`)
 fullnameOverride: petstore-celery
 hostName: petstore-celery.example.org
+# Room for the CI step that sends a task from the app's pod
+petstore:
+  resources:
+    limits:
+      memory: 256Mi
 mongodb:
   auth:
     existingSecret: mongodb

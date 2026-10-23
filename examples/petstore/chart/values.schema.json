@@ -434,7 +434,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Deploy RabbitMQ as the Celery broker (queued tasks are lost when its pod is replaced); requires existingSecret"
+          "description": "Deploy RabbitMQ as the Celery broker (queued tasks are kept in a PersistentVolumeClaim, see persistence); requires existingSecret"
         },
         "existingSecret": {
           "type": "string",
@@ -474,13 +474,48 @@
           "type": "object",
           "description": "Resource requests and limits of the container"
         },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Keep the broker's data (queued tasks) in a PersistentVolumeClaim; otherwise in an emptyDir, so that queued tasks are lost when its pod is replaced"
+            },
+            "size": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([KMGTPE]i|[mkMGTPE]|[eE][+-]?[0-9]+)?$",
+              "not": {
+                "pattern": "^(0+(\\.0*)?|\\.0+)([KMGTPE]i|[mkMGTPE]|[eE][+-]?[0-9]+)?$",
+                "$comment": "Rejects all-zero quantities (Go regular expressions have no lookahead)"
+              },
+              "description": "Size of the PersistentVolumeClaim: a positive Kubernetes quantity (e.g., 1Gi)"
+            },
+            "accessModes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": ["ReadWriteOnce", "ReadWriteOncePod", "ReadWriteMany"]
+              },
+              "description": "Access modes of the PersistentVolumeClaim (writable modes only, since the broker writes its data there); ReadWriteOnce if not set"
+            },
+            "storageClass": {
+              "type": "string",
+              "description": "Storage class of the PersistentVolumeClaim; the cluster's default class if empty; - disables dynamic provisioning"
+            },
+            "existingClaim": {
+              "type": "string",
+              "description": "Existing PersistentVolumeClaim to use instead of the broker's own"
+            }
+          }
+        },
         "dataSizeLimit": {
           "allOf": [
             {
               "$ref": "#/$defs/tmpSizeLimit"
             }
           ],
-          "description": "Size limit of the emptyDir with the broker's data: a positive Kubernetes quantity (e.g., 1Gi) or number of bytes; none if null"
+          "description": "Size limit of the emptyDir with the broker's home and, without persistence, its data: a positive Kubernetes quantity (e.g., 1Gi) or number of bytes; none if null"
         },
         "tmpSizeLimit": {
           "$ref": "#/$defs/tmpSizeLimit"

@@ -258,9 +258,9 @@ worker:
 
 # Message broker of Celery
 broker:
-  # Deploy RabbitMQ as the broker. It keeps queued tasks in an `emptyDir`,
-  # so they are lost when its pod is replaced (e.g., on upgrades or node
-  # failures); use an external broker for durable queues
+  # Deploy RabbitMQ as the broker (one pod), which keeps queued tasks in a
+  # PersistentVolumeClaim (see `persistence`), so that they survive restarts
+  # of its pod (e.g., on upgrades or node failures)
   enabled: false
   # Name of an existing Secret with the key `broker-url`, the broker URL
   # (passed to the app and the worker as `CELERY_BROKER_URL`), optionally
@@ -306,8 +306,23 @@ broker:
     requests:
       cpu: 200m
       memory: 512Mi
-  # Size limits of the `emptyDir`s with the broker's data (queued tasks) and
-  # at `/tmp` (the pod is evicted if they are exceeded): quantities (e.g.,
-  # `1Gi`) or numbers of bytes; `null` for none
+  # Volume with the broker's data (queued tasks; Celery's queues are durable
+  # and its task messages persistent): a PersistentVolumeClaim
+  # (`<app name>-broker`) of `size`, with `accessModes` and `storageClass`
+  # (the cluster's default class if empty, `-` for no dynamic provisioning),
+  # or the existing claim `existingClaim`. RabbitMQ creates its user from
+  # `existingSecret` only when it starts with empty data: after changing the
+  # Secret's password, also change the user's (`rabbitmqctl change_password`
+  # in the broker's pod). If disabled, the data is kept in an `emptyDir`, and
+  # queued tasks are lost when the broker's pod is replaced
+  persistence:
+    enabled: true
+    size: 1Gi
+    accessModes: ["ReadWriteOnce"]
+    storageClass: ""
+    existingClaim: ""
+  # Size limits of the `emptyDir`s with the broker's home (and, without
+  # `persistence`, its data) and at `/tmp` (the pod is evicted if they are
+  # exceeded): quantities (e.g., `1Gi`) or numbers of bytes; `null` for none
   dataSizeLimit: 1Gi
   tmpSizeLimit: 64Mi
