@@ -387,7 +387,9 @@ def _remove_policies(adapter: Adapter) -> None:
         # default), e.g., than the worker timeout of gunicorn
         with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
             configured = adapter.has_configured_policies()
-    # E.g., server selection timed out
+    # E.g., server selection timed out. If the timeout expires while the
+    # server answers slowly, pymongo raises either `NetworkTimeout` (a
+    # connection failure, tolerated) or `ExecutionTimeout` (raised)
     except ConnectionFailure as exc:
         logger.warning(
             "Could not check for stored configured policy rules, as "
