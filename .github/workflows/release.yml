@@ -133,8 +133,10 @@ jobs:
   # Builds each image once and pushes it by digest only (untagged, with SBOM
   # and provenance attestations, `mode=max`), for `scan` to scan and `docker`
   # to sign and tag. The digest is passed on as an artifact (`digest-pyV`),
-  # as all jobs of a matrix share one set of outputs. Nothing refers to an
-  # untagged digest, so one that fails the scan is never published
+  # as all jobs of a matrix share one set of outputs. Runs before the approval
+  # in the `pypi` environment; digests of runs that fail (or fail the scan)
+  # are never signed or tagged, but stay on Docker Hub, untagged (pullable by
+  # digest only)
   push:
     name: Push image (Python ${{ matrix.python-version }})
     needs: build
@@ -143,6 +145,7 @@ jobs:
     permissions:
       contents: read
     strategy:
+      # Without all images, nothing is published
       fail-fast: true
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]

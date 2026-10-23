@@ -308,9 +308,10 @@ request and push, the release workflow the release images before anything is
 published (both fail on fixable critical and high vulnerabilities), and a
 weekly workflow the published images of the latest release (see [Image
 scan](contributing.md#image-scan)); the maintainers see the results in the
-repository's code scanning alerts. The published images (release and `dev`
-images) are the scanned ones: the workflows push each image by digest,
-untagged, scan exactly that digest, and only if the scan passes sign and
-tag it, so a signed or tagged image has always passed the scan. Images
+repository's code scanning alerts. From FOCA 0.17.0 on, the published images
+(release and `dev` images) are the scanned ones: the workflows push each
+image by digest, untagged, scan exactly that digest, and only if the scan
+passes (no fixable critical or high vulnerabilities, except accepted ones)
+sign and tag it. Images
 derived from FOCA's image (e.g., apps) need their own scans, as they add
 packages.

@@ -148,7 +148,8 @@ git push origin vX.Y.Z
 Pushing the tag triggers the [release workflow][release-workflow], which
 checks that the tagged commit is on `main` and that its `CITATION.cff` has
 the release version and a date that is not in the future (UTC), pushes the
-Docker images by digest (untagged) and scans them for vulnerabilities,
+Docker images by digest (untagged, before any approval) and scans them for
+vulnerabilities,
 publishes the distributions to PyPI (after approval in the `pypi`
 environment), attests and signs exactly the scanned images and tags them
 `X.Y.Z` and `latest`, and creates a GitHub release with generated notes.

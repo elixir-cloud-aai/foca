@@ -286,8 +286,9 @@ jobs:
   # with SBOM and provenance attestations, `mode=max`), for `scan` to scan and
   # `docker` to sign and tag, as in `release.yml`. The digest is passed on as
   # an artifact (`digest-pyV`), as all jobs of a matrix share one set of
-  # outputs. Nothing refers to an untagged digest, so one that fails the scan
-  # is never published
+  # outputs. Runs alongside the tests, so that the scan starts early; digests
+  # of runs that fail (or fail the scan) are never signed or tagged, but stay
+  # on Docker Hub, untagged (pullable by digest only)
   push:
     name: Push image (Python ${{ matrix.python-version }})
     if: github.event_name == 'push'
@@ -296,6 +297,7 @@ jobs:
     permissions:
       contents: read
     strategy:
+      # Without all images, nothing is published
       fail-fast: true
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
@@ -360,9 +362,9 @@ jobs:
   # scanned weekly (`scan.yml`)
   scan:
     name: Scan image (Python ${{ matrix.python-version }})
-    # `push` is skipped for pull requests
+    # For pull requests, `push` is skipped
     needs: push
-    if: ${{ !cancelled() && (needs.push.result == 'success' || needs.push.result == 'skipped') }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || needs.push.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -390,7 +392,9 @@ jobs:
           load: true
           # Single image, for the local Docker daemon (no attestations)
           provenance: false
-          tags: foca:scan
+          # Named as the pushed images, so that code scanning matches the
+          # findings of both
+          tags: ${{ env.IMAGE_NAME }}:scan
       - name: Download image digest
         if: github.event_name == 'push'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -403,7 +407,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [[ "${EVENT_NAME}" != "push" ]]; then
-            echo "image=foca:scan" >> "${GITHUB_OUTPUT}"
+            echo "image=${IMAGE_NAME}:scan" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
           digest="$(cat "${RUNNER_TEMP}/digest.txt")"
