@@ -246,6 +246,7 @@ def getAllPermissions(
     query = {
         **_PERMISSION_FILTER,
         **_get_visibility_filter(),
+        # Reads the active generation on each request, as rules are loaded
         **current_app.config["casbin_adapter"].rules_query(),
     }
     total = collection.count_documents(query)

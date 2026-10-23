@@ -14,9 +14,12 @@ from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure, DuplicateKeyError
 
 from foca.security.access_control.constants import (
+    CONFIGURED_FIELD,
     GENERATION_MARKER_ID,
     ID_ATTEMPTS,
-    LOAD_ATTEMPTS,
+    LOAD_POLICY_ATTEMPTS,
+    MARKER_GENERATION_FIELD,
+    RULE_GENERATIONS_FIELD,
 )
 from foca.security.access_control.foca_casbin_adapter import adapter as module
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
@@ -865,9 +868,17 @@ NEW = [["p", "alice", "data1", "read"], ["p", "bob", "data2", "write"]]
 OTHER = [["g", "carol", "admin"]]
 API_RULE = ["p", "dave", "data3", "read"]
 # Writes to replace OLD with NEW: tagging rules without generation, adding
-# NEW's rules to the new generation (one update each, one insert), making it
-# active, removing the previous generation, removing the unused rule
-REPLACE_WRITES = ("update_many", "update_one", "update_one", "insert_one")
+# NEW's rules to the new generation (an update of the active copy of the
+# kept rule; updates of an active and any other copy, then an insert, of the
+# new one), making it active, removing the previous generation, removing the
+# unused rule
+REPLACE_WRITES = (
+    "update_many",
+    "update_one",
+    "update_one",
+    "update_one",
+    "insert_one",
+)
 SWITCH_WRITES = (*REPLACE_WRITES, "find_one_and_update")
 ALL_WRITES = (*SWITCH_WRITES, "update_many", "delete_one")
 
@@ -948,9 +959,10 @@ def _check_clean(
     """Ensure that only the active generation's rules are stored, once."""
     marker = collection.find_one({"_id": GENERATION_MARKER_ID})
     assert marker is not None
-    configured = list(collection.find({"configured": True}))
+    configured = list(collection.find({CONFIGURED_FIELD: True}))
     assert all(
-        document["generations"] == [marker["generation"]] for document in configured
+        document[RULE_GENERATIONS_FIELD] == [marker[MARKER_GENERATION_FIELD]]
+        for document in configured
     )
     stored = [[doc["ptype"], *module._rule_values(doc)] for doc in configured]
     assert sorted(stored) == sorted(rules)
@@ -1045,6 +1057,18 @@ class TestConfiguredGenerations:
         assert _loaded(self.collection) == _expected(*NEW)
         _check_clean(self.collection, NEW)
 
+    def test_saved_configured(self) -> None:
+        """Rules saved as configured join the active generation.
+
+        They are removed on the next replacement.
+        """
+        adapter = Adapter(self.collection)
+        adapter.save_policy_line("g", ["erin", "admin"], configured=True)
+        assert adapter.is_configured_rule("g", ["erin", "admin"])
+        assert _loaded(self.collection) == _expected(*OLD, ["g", "erin", "admin"])
+        adapter.set_configured_policies(OLD)
+        _check_clean(self.collection, OLD)
+
     def test_pending_not_in_effect(self) -> None:
         """Rules of a generation that is not active yet are not in effect."""
 
@@ -1088,7 +1112,9 @@ class TestConfiguredGenerations:
         adapter = _hooked_adapter(self.collection, replace, names=("find",))
         model = Model()
         model.load_model(MODEL_CONF_FILE)
-        with pytest.raises(RuntimeError, match=f"each of {LOAD_ATTEMPTS} attempts"):
+        with pytest.raises(
+            RuntimeError, match=f"each of {LOAD_POLICY_ATTEMPTS} attempts"
+        ):
             adapter.load_policy(model)
 
     def test_unknown_generations_removed(self) -> None:
@@ -1100,21 +1126,29 @@ class TestConfiguredGenerations:
                     "ptype": "g",
                     "v0": "a",
                     "v1": "b",
-                    "configured": True,
-                    "generations": [1],
+                    CONFIGURED_FIELD: True,
+                    RULE_GENERATIONS_FIELD: [1],
                 },
                 {
                     "id": "unknw2",
                     "ptype": "g",
                     "v0": "c",
                     "v1": "d",
-                    "configured": True,
-                    "generations": ["other"],
+                    CONFIGURED_FIELD: True,
+                    RULE_GENERATIONS_FIELD: ["other"],
                 },
             ]
         )
         Adapter(self.collection).set_configured_policies(NEW)
         _check_clean(self.collection, NEW)
+
+
+def _store_legacy(
+    collection: Collection[dict[str, Any]], rule: list[str], id: str
+) -> None:
+    """Store a configured rule as FOCA 0.16 did, without generations."""
+    document = module.CasbinRule.from_values(rule[0], rule[1:]).to_dict()
+    collection.insert_one({**document, "id": id, CONFIGURED_FIELD: True})
 
 
 class TestLegacyConfiguredRules:
@@ -1124,10 +1158,9 @@ class TestLegacyConfiguredRules:
     def _legacy(self, policy_collection: Collection[dict[str, Any]]) -> None:
         """Store configured rules as FOCA 0.16 did."""
         self.collection = policy_collection
-        adapter = Adapter(policy_collection)
-        for ptype, *rule in OLD:
-            adapter.save_policy_line(ptype, rule, configured=True)
-        adapter.save_policy_line(API_RULE[0], API_RULE[1:])
+        for index, rule in enumerate(OLD):
+            _store_legacy(policy_collection, rule, f"legcy{index}")
+        Adapter(policy_collection).save_policy_line(API_RULE[0], API_RULE[1:])
 
     def test_in_effect(self) -> None:
         """Configured rules without generation are in effect."""
@@ -1158,7 +1191,7 @@ class TestLegacyConfiguredRules:
         """
         adapter = Adapter(self.collection)
         adapter.set_configured_policies(NEW)
-        adapter.save_policy_line("g", ["erin", "admin"], configured=True)
+        _store_legacy(self.collection, ["g", "erin", "admin"], "legcy9")
         assert _loaded(self.collection) == _expected(*NEW)
         assert not adapter.is_configured_rule("g", ["erin", "admin"])
         adapter.set_configured_policies(NEW)

@@ -15,11 +15,11 @@ ACCESS_CONTROL_BASE_PATH = "foca.security.access_control.api"
 CONFIGURED_FIELD = "configured"
 # Field listing the generations of configured rules (the sets of configured
 # rules stored on startup) that a configured rule belongs to
-GENERATIONS_FIELD = "generations"
+RULE_GENERATIONS_FIELD = "generations"
 # MongoDB identifier (`_id`) of the document in the policy collection that
-# names the active generation, in field `GENERATION_FIELD`
+# names the active generation, in field `MARKER_GENERATION_FIELD`
 GENERATION_MARKER_ID = "configured_policies"
-GENERATION_FIELD = "generation"
+MARKER_GENERATION_FIELD = "generation"
 # Generation of configured rules stored by FOCA 0.16 and earlier, i.e.,
 # without generations; active as long as no other generation is
 LEGACY_GENERATION = "legacy"
@@ -27,7 +27,7 @@ LEGACY_GENERATION = "legacy"
 # app instance storing them failed) are removed
 STALE_GENERATION_AGE = timedelta(hours=1)
 # Attempts to load all rules while the active generation does not change
-LOAD_ATTEMPTS = 5
+LOAD_POLICY_ATTEMPTS = 5
 # Field ordering role rules stored by `Adapter.replace_role_rule()`
 GRANTED_FIELD = "granted"
 

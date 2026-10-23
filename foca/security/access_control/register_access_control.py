@@ -376,7 +376,8 @@ def _remove_policies(adapter: Adapter) -> None:
     except PyMongoError as exc:
         logger.warning(
             "Could not check for stored configured policy rules to remove, "
-            "as 'security.access_control.policies' is not set: %s",
+            "as 'security.access_control.policies' is not set; configured "
+            "rules stored before stay in effect until the next startup: %s",
             exc,
         )
         return

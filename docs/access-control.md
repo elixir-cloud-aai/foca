@@ -251,8 +251,21 @@ protected from changes. If instances with different rules start
 concurrently, the rules of the instance that activates its generation last
 are kept. Rules of generations that never became active (e.g., because an
 instance failed while storing them) are removed on a later startup, once
-older than an hour. Configured rules stored by FOCA 0.16 and earlier are
-used until the first startup with a later version replaces them.
+older than an hour (by the clocks of the instances, which must be
+synchronized), as are rules of generations not created by FOCA. Configured
+rules stored by FOCA 0.16 and earlier are used until the first startup with
+a later version replaces them.
+
+!!! warning "Upgrading from FOCA 0.16 and downgrading"
+    Instances of FOCA 0.16 and earlier ignore generations: while they still
+    serve requests (e.g., during a rolling update to a later version), they
+    check requests against the configured rules of all generations, and if
+    they start, they replace the configured rules of the later version.
+    Upgrade all instances before changing configured rules, and do not start
+    older instances once a later version has started. To downgrade, delete
+    the document with identifier `configured_policies` and all configured
+    rules (`configured: true`) first; the older version stores its
+    configured rules again on startup.
 
 !!! warning "Apps sharing a policy collection"
     All apps using the same policy collection must configure the same rules:
