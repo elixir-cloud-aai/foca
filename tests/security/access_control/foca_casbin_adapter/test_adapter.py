@@ -966,6 +966,8 @@ def _check_clean(
     )
     stored = [[doc["ptype"], *module._rule_values(doc)] for doc in configured]
     assert sorted(stored) == sorted(rules)
+    # nor are rules left without the mark
+    assert _loaded(collection) == _expected(*rules)
 
 
 class TestConfiguredGenerations:
@@ -1068,6 +1070,62 @@ class TestConfiguredGenerations:
         assert _loaded(self.collection) == _expected(*OLD, ["g", "erin", "admin"])
         adapter.set_configured_policies(OLD)
         _check_clean(self.collection, OLD)
+
+    def test_marker_created_concurrently(self) -> None:
+        """Activating retries if another instance created the marker."""
+        self.collection.delete_one({"_id": GENERATION_MARKER_ID})
+        adapter = Adapter(self.collection)
+        update = self.collection.find_one_and_update
+        attempts: list[str] = []
+
+        def created(*args: Any, **kwargs: Any) -> Any:
+            attempts.append("activate")
+            if len(attempts) == 1:
+                raise DuplicateKeyError("marker exists")
+            return update(*args, **kwargs)
+
+        adapter._collection = cast(
+            Collection[dict[str, Any]],
+            _HookedCollection(self.collection, lambda name: None),
+        )
+        adapter._collection.find_one_and_update = created  # type: ignore[method-assign]
+        adapter.set_configured_policies(NEW)
+        assert len(attempts) == 2
+        assert _loaded(self.collection) == _expected(*NEW)
+
+    def test_marker_conflict(self) -> None:
+        """Activating fails if the marker cannot be created or updated."""
+
+        def conflict(*args: Any, **kwargs: Any) -> Any:
+            raise DuplicateKeyError("marker exists")
+
+        adapter = Adapter(self.collection)
+        adapter._collection = cast(
+            Collection[dict[str, Any]],
+            _HookedCollection(self.collection, lambda name: None),
+        )
+        adapter._collection.find_one_and_update = conflict  # type: ignore[method-assign]
+        with pytest.raises(DuplicateKeyError):
+            adapter.set_configured_policies(NEW)
+        assert _loaded(self.collection) == _expected(*OLD)
+
+    def test_save_policy_keeps_configured(self) -> None:
+        """Saving a model keeps configured rules, without unmarked copies."""
+        model = Model()
+        model.load_model(MODEL_CONF_FILE)
+        adapter = Adapter(self.collection)
+        adapter.load_policy(model)
+        model.add_policy("p", "p", ["erin", "data4", "read"])
+        model.remove_policy("p", "p", API_RULE[1:])
+        adapter.save_policy(model)
+        assert _loaded(self.collection) == {
+            *(tuple(rule) for rule in OLD),
+            ("p", "erin", "data4", "read"),
+        }
+        unmarked = {CONFIGURED_FIELD: {"$ne": True}, "ptype": {"$exists": True}}
+        assert self.collection.count_documents(unmarked) == 1
+        adapter.set_configured_policies([])
+        assert _loaded(self.collection) == {("p", "erin", "data4", "read")}
 
     def test_pending_not_in_effect(self) -> None:
         """Rules of a generation that is not active yet are not in effect."""

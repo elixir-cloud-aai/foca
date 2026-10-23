@@ -372,22 +372,20 @@ def _remove_policies(adapter: Adapter) -> None:
         adapter: Casbin adapter of the app.
     """
     try:
-        configured = adapter.has_configured_policies()
+        if adapter.has_configured_policies():
+            # E.g., set via a config overlay that was removed since
+            logger.warning(
+                "Removing stored configured policy rules, as "
+                "'security.access_control.policies' is not set."
+            )
+            adapter.set_configured_policies([])
     except PyMongoError as exc:
         logger.warning(
-            "Could not check for stored configured policy rules to remove, "
-            "as 'security.access_control.policies' is not set; configured "
-            "rules stored before stay in effect until the next startup: %s",
+            "Could not remove stored configured policy rules, as "
+            "'security.access_control.policies' is not set; configured rules "
+            "stored before stay in effect until the next startup: %s",
             exc,
         )
-        return
-    if configured:
-        # E.g., set via a config overlay that was removed since
-        logger.warning(
-            "Removing stored configured policy rules, as "
-            "'security.access_control.policies' is not set."
-        )
-        adapter.set_configured_policies([])
 
 
 def _add_policies(

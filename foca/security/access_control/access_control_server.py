@@ -6,15 +6,17 @@ Requests and responses are logged unless disabled via config option
 
 import logging
 from math import ceil
-from typing import Any
+from typing import Any, NoReturn
 
 from casbin.model import Model
 from flask import current_app, request
 from pymongo.collection import Collection
+from pymongo.errors import DuplicateKeyError
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from foca.config.access import get_collection, get_config
 from foca.security.access_control.constants import (
+    CONFIGURED_FIELD,
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
@@ -129,14 +131,25 @@ def _check_not_configured(id: str) -> None:
             the permissions API would be reverted on startup.
     """
     if current_app.config["casbin_adapter"].is_configured(id):
-        logger.error(
-            "Policy rule '%s' is set via the configuration", escape_log_value(id)
-        )
-        raise Conflict(
-            "Policy rule is set via the app's configuration "
-            "('access_control.policies') and cannot be changed or deleted "
-            "via the permissions API"
-        )
+        _raise_configured(id)
+
+
+def _raise_configured(id: str, cause: Exception | None = None) -> NoReturn:
+    """Reject changes to a rule set via the app's configuration.
+
+    Args:
+        id: Identifier of the rule.
+        cause: Error indicating that the rule is configured, if any.
+
+    Raises:
+        werkzeug.exceptions.Conflict: Always.
+    """
+    logger.error("Policy rule '%s' is set via the configuration", escape_log_value(id))
+    raise Conflict(
+        "Policy rule is set via the app's configuration "
+        "('access_control.policies') and cannot be changed or deleted "
+        "via the permissions API"
+    ) from cause
 
 
 def _to_permission(document: dict[str, Any]) -> dict[str, Any]:
@@ -205,11 +218,15 @@ def putPermission(
         raise BadRequest
     ptype, values = _get_rule()
     _check_not_configured(id)
-    current_app.config["casbin_adapter"].save_policy_line(
-        ptype=ptype,
-        rule=values,
-        id=id,
-    )
+    try:
+        current_app.config["casbin_adapter"].save_policy_line(
+            ptype=ptype,
+            rule=values,
+            id=id,
+        )
+    # A configured rule with the identifier (e.g., stored meanwhile)
+    except DuplicateKeyError as exc:
+        _raise_configured(id, exc)
     logger.info("Policy rule '%s' updated.", escape_log_value(id))
     return id
 
@@ -313,7 +330,13 @@ def deletePermission(
             configuration (`access_control.policies`).
     """
     _check_not_configured(id)
-    if not _get_permissions_collection().delete_one({"id": id}).deleted_count:
+    collection = _get_permissions_collection()
+    # Not configured rules, also if stored meanwhile
+    if not collection.delete_one(
+        {"id": id, CONFIGURED_FIELD: {"$ne": True}}
+    ).deleted_count:
+        if collection.count_documents({"id": id}, limit=1):
+            _raise_configured(id)
         raise NotFound
     logger.info("Policy rule '%s' deleted.", escape_log_value(id))
     return id

@@ -207,7 +207,11 @@ class Adapter(persist.Adapter):
             document[RULE_GENERATIONS_FIELD] = [self._active_generation()]
         if id is not None:
             document["id"] = id
-            self._collection.replace_one({"id": id}, document, upsert=True)
+            # Configured rules are only replaced by configured rules
+            query: dict[str, Any] = {"id": id}
+            if not configured:
+                query[CONFIGURED_FIELD] = {"$ne": True}
+            self._collection.replace_one(query, document, upsert=True)
             return id
         return self._insert(document)
 
@@ -452,10 +456,12 @@ class Adapter(persist.Adapter):
         """Check whether configured rules are stored.
 
         Returns:
-            Whether the active generation (cf.
-            :py:meth:`set_configured_policies`) has rules.
+            Whether configured rules of any generation (cf.
+            :py:meth:`set_configured_policies`) are stored, e.g., also of
+            generations that never became active.
         """
-        return self._has_configured({})
+        query = {CONFIGURED_FIELD: True}
+        return self._collection.count_documents(query, limit=1) > 0
 
     def get_filtered_rules(
         self,
@@ -654,13 +660,20 @@ class Adapter(persist.Adapter):
         Returns:
             Previously active generation.
         """
-        # One write, so that the rules of one generation are in effect
-        previous = self._collection.find_one_and_update(
-            {"_id": GENERATION_MARKER_ID},
-            {"$set": {MARKER_GENERATION_FIELD: generation}},
-            upsert=True,
-            return_document=ReturnDocument.BEFORE,
-        )
+        # One write, so that the rules of one generation are in effect;
+        # again if the marker was created concurrently, which then updates it
+        for attempt in range(2):
+            try:
+                previous = self._collection.find_one_and_update(
+                    {"_id": GENERATION_MARKER_ID},
+                    {"$set": {MARKER_GENERATION_FIELD: generation}},
+                    upsert=True,
+                    return_document=ReturnDocument.BEFORE,
+                )
+                break
+            except DuplicateKeyError:
+                if attempt:
+                    raise
         logger.info("Configured policy rules replaced (generation '%s')", generation)
         if previous is None:
             return LEGACY_GENERATION
@@ -714,7 +727,10 @@ class Adapter(persist.Adapter):
     def save_policy(self, model: Model) -> bool:
         """Method to save a casbin model.
 
-        Replaces all stored rules with the rules of the model.
+        Replaces all stored rules with the rules of the model, except for
+        configured rules (cf. :py:meth:`set_configured_policies`), which are
+        kept and not stored again, so that they stay managed via the
+        configuration.
 
         Args:
             model: Casbin Model which loads from .conf file. For model
@@ -724,11 +740,14 @@ class Adapter(persist.Adapter):
         Returns:
             True if successfully created.
         """
-        self._collection.delete_many({})
+        self._collection.delete_many(
+            {"_id": {"$ne": GENERATION_MARKER_ID}, CONFIGURED_FIELD: {"$ne": True}}
+        )
         for section_type in ["p", "g"]:
             for ptype, ast in model.model[section_type].items():
                 for rule in ast.policy:
-                    self.save_policy_line(ptype, rule)
+                    if not self.is_configured_rule(ptype, rule):
+                        self.save_policy_line(ptype, rule)
         return True
 
     def add_policy(self, sec: str, ptype: str, rule: list[str]) -> bool:

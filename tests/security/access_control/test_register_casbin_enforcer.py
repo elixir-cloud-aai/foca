@@ -181,6 +181,25 @@ class TestPolicies:
         _, rules = _register_policies(None)
         assert rules == []
 
+    def test_unset_removes_inactive(self, clients: MongoClient[dict[str, Any]]) -> None:
+        """Without policies, rules of inactive generations are removed, too.
+
+        E.g., left by an instance that failed while storing them.
+        """
+        collection, _ = _register_policies([])
+        collection.insert_one(
+            {
+                "id": "pendng",
+                "ptype": "g",
+                "v0": "a",
+                "v1": "b",
+                "configured": True,
+                "generations": ["0" * 24],
+            }
+        )
+        _, rules = _register_policies(None)
+        assert rules == []
+
     def test_unset_without_database(
         self,
         clients: MongoClient[dict[str, Any]],
@@ -196,7 +215,7 @@ class TestPolicies:
         monkeypatch.setattr(module.logger, "disabled", False)
         with caplog.at_level(logging.WARNING, logger=module.logger.name):
             _register_policies(None)
-        assert "Could not check for stored configured policy rules" in caplog.text
+        assert "Could not remove stored configured policy rules" in caplog.text
 
     def test_all_removed(self, clients: MongoClient[dict[str, Any]]) -> None:
         """With empty policies, all configured rules are removed."""

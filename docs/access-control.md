@@ -246,8 +246,8 @@ transactions are needed. FOCA stores the new rules as a new generation and
 then makes it the active one, in a single write to a document with
 identifier (`_id`) `configured_policies` in the policy collection; only
 then, rules of the previous generation are removed. Only the configured
-rules of the active generation are loaded, listed by the permissions API and
-protected from changes. If instances with different rules start
+rules of the active generation are loaded and listed by the permissions API,
+which changes no configured rules of any generation. If instances with different rules start
 concurrently, the rules of the instance that activates its generation last
 are kept. Rules of generations that never became active (e.g., because an
 instance failed while storing them) are removed on a later startup, once
