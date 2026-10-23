@@ -250,7 +250,7 @@ class TestPolicies:
         with pytest.raises(ServerSelectionTimeoutError):
             module._remove_policies(adapter)
         client.close()
-        assert time.monotonic() - start < 10
+        assert time.monotonic() - start < 3
 
     def test_unset_check_error(
         self,

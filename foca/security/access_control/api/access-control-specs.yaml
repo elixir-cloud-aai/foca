@@ -173,7 +173,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: The permission cannot be found.
+          description: The permission cannot be found, also if it is a configured rule that is not in effect yet.
           content:
             application/problem+json:
               schema:
