@@ -304,13 +304,13 @@ docker buildx imagetools inspect elixircloud/foca:0.17.0 \
 
 Images are scanned for known vulnerabilities with
 [Trivy](https://trivy.dev/): CI scans the images it builds for every pull
-request and push, the release workflow those it builds from the release
-commit before anything is published (both fail on fixable critical and high
-vulnerabilities), and a weekly workflow the published images of the latest
-release (see [Image scan](contributing.md#image-scan)); the maintainers see
-the results in the repository's code scanning alerts. The published images
-(release and `dev` images) are built again for publishing, so they are not
-the scanned builds themselves: if their base image or dependencies change in
-between, they may contain packages that only the weekly scan checks.
-Images derived from FOCA's image (e.g., apps) need their own scans, as they
-add packages.
+request and push, the release workflow the release images before anything is
+published (both fail on fixable critical and high vulnerabilities), and a
+weekly workflow the published images of the latest release (see [Image
+scan](contributing.md#image-scan)); the maintainers see the results in the
+repository's code scanning alerts. The published images (release and `dev`
+images) are the scanned ones: the workflows push each image by digest,
+untagged, scan exactly that digest, and only if the scan passes sign and
+tag it, so a signed or tagged image has always passed the scan. Images
+derived from FOCA's image (e.g., apps) need their own scans, as they add
+packages.
