@@ -12,10 +12,11 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
-    { name = "ELIXIR On-Cloud", email = "alexander.kanitz@alumni.ethz.ch" },
+    { name = "ELIXIR On-Cloud", email = "cloud-service@elixir-europe.org" },
+    { name = "Alexander Kanitz" },
 ]
 maintainers = [
-    { name = "Alexander Kanitz", email = "alexander.kanitz@alumni.ethz.ch" },
+    { name = "ELIXIR On-Cloud", email = "cloud-service@elixir-europe.org" },
 ]
 keywords = ["rest", "api", "app", "openapi", "python", "microservice"]
 classifiers = [

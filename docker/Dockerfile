@@ -1,13 +1,16 @@
 ARG PY_IMAGE=3.13-slim-trixie
 FROM python:$PY_IMAGE AS base
 
-# Metadata
-LABEL software="FOCA"
-LABEL software.description="Kickstart OpenAPI-based microservice development with Flask & Connexion"
-LABEL software.website="https://github.com/elixir-cloud-aai/foca"
-LABEL software.license="https://spdx.org/licenses/Apache-2.0"
-LABEL maintainer="alexander.kanitz@alumni.ethz.ch"
-LABEL maintainer.organisation="ELIXIR On-Cloud"
+# Metadata: OCI annotations (the workflows add none); images built from this
+# one inherit them, so they set their own
+LABEL org.opencontainers.image.title="FOCA"
+LABEL org.opencontainers.image.description="Kickstart OpenAPI-based microservice development with Flask & Connexion"
+LABEL org.opencontainers.image.url="https://github.com/elixir-cloud-aai/foca"
+LABEL org.opencontainers.image.source="https://github.com/elixir-cloud-aai/foca"
+LABEL org.opencontainers.image.documentation="https://foca.readthedocs.io/"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.authors="ELIXIR On-Cloud <cloud-service@elixir-europe.org>"
+LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 
 # Images of Python 3.11 ship setuptools and wheel (later ones do not), with
 # known vulnerabilities; FOCA needs neither, as pip builds packages in
