@@ -856,19 +856,38 @@ def test_mongodb_volume_size_alias(
     assert _mongodb_volume(docs) == {"persistentVolumeClaim": {"claimName": MONGODB}}
 
 
-def test_mongodb_volume_size_with_persistence(
-    render: Callable[..., Docs], render_error: Callable[..., str]
-) -> None:
-    """The deprecated `volumeSize` sets the size, but not with `persistence.size`."""
-    docs = render(
-        "--set-json", "mongodb.persistence.size=null", "--set", "mongodb.volumeSize=5Gi"
-    )
+def test_mongodb_volume_size_sets_size(render: Callable[..., Docs]) -> None:
+    """The deprecated `volumeSize` sets the size of the claim and the emptyDir."""
+    alias = ("--set-json", "mongodb.persistence.size=null")
+    docs = render(*alias, "--set", "mongodb.volumeSize=5Gi")
     spec = docs[("PersistentVolumeClaim", MONGODB)]["spec"]
     assert spec["resources"]["requests"]["storage"] == "5Gi"
-    error = render_error("--set", "mongodb.volumeSize=5Gi")
-    assert (
-        "mongodb.volumeSize is deprecated: set only mongodb.persistence.size" in error
+    docs = render(
+        *alias,
+        "--set",
+        "mongodb.volumeSize=5Gi",
+        "--set",
+        "mongodb.persistence.enabled=false",
     )
+    assert _mongodb_volume(docs) == {"emptyDir": {"sizeLimit": "5Gi"}}
+    # An empty `volumeSize` is not set; without a size, the emptyDir has no limit
+    docs = render(
+        *alias,
+        "--set",
+        "mongodb.volumeSize=",
+        "--set",
+        "mongodb.persistence.enabled=false",
+    )
+    assert _mongodb_volume(docs) == {"emptyDir": {}}
+
+
+def test_mongodb_volume_size_with_persistence_size_fails(
+    render_error: Callable[..., str],
+) -> None:
+    """The deprecated `volumeSize` fails with `persistence.size`."""
+    error = render_error("--set", "mongodb.volumeSize=5Gi")
+    assert "mongodb.persistence.size and the deprecated mongodb.volumeSize" in error
+    assert "--set-json mongodb.volumeSize=null" in error
 
 
 def test_mongodb_persistence_size_required(chart: Path, tmp_path: Path) -> None:

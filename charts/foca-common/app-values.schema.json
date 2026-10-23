@@ -421,7 +421,7 @@
             {
               "properties": {
                 "enabled": {
-                  "description": "Keep MongoDB's data in a PersistentVolumeClaim (also if not set); otherwise in an emptyDir limited to size, so that the data is lost when its pod is replaced"
+                  "description": "Keep MongoDB's data in a PersistentVolumeClaim (also if not set); otherwise in an emptyDir (limited to size, if set), so that the data is lost when its pod is replaced; disabling it for an existing release deletes the claim and its data"
                 }
               }
             }
@@ -430,7 +430,7 @@
         },
         "volumeSize": {
           "type": ["string", "integer"],
-          "description": "Deprecated (foca-common 0.1.0): use persistence.size, which it sets (a Kubernetes quantity, e.g., 1Gi, or a number of bytes); rendering fails if both are set"
+          "description": "Deprecated since foca-common 0.2.0 (the setting up to 0.1.0): use persistence.size, which it sets (a Kubernetes quantity, e.g., 1Gi, or a number of bytes); rendering fails if both are set"
         },
         "resources": {
           "type": "object",

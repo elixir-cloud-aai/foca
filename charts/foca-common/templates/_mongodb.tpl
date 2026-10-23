@@ -7,7 +7,7 @@ Call them with the context dict.
 {{/*
 Deployment of MongoDB: one pod with the data volume (the PersistentVolumeClaim
 if `mongodb.persistence.enabled`, see `foca-common.mongodbClaimName`; otherwise
-an `emptyDir` limited to the size, whose data is lost when the pod is
+an `emptyDir` limited to the size, if set, whose data is lost when the pod is
 replaced), credentials from the existing Secret and the init script that
 creates the app user if authentication is enabled.
 */}}
@@ -259,12 +259,13 @@ spec:
 
 {{/*
 Arguments of `foca-common.claimName` and `foca-common.persistentVolumeClaim`
-for MongoDB, as JSON: persistence is enabled if `mongodb.persistence.enabled`
-is not set (also without a `mongodb.persistence` map, as in values written
-for foca-common 0.1.0, where MongoDB always had its claim). The size is
-`mongodb.persistence.size` or the deprecated `mongodb.volumeSize` (of 0.1.0;
-numbers of bytes as integers); fails if both are set. Call with the root
-context.
+for MongoDB, as JSON (templates return strings): persistence is enabled if
+`mongodb.persistence.enabled` is not set (also without a `mongodb.persistence`
+map, as in values written for foca-common 0.1.0, where MongoDB always had its
+claim). The size is `mongodb.persistence.size` or the deprecated
+`mongodb.volumeSize` (the setting up to 0.1.0; numbers of bytes are rendered
+as integers); fails if both are set, so that neither is ignored silently.
+Call with the root context.
 */}}
 {{- define "foca-common.mongodbPersistence" -}}
 {{- $mongodb := .Values.mongodb | default dict -}}
@@ -273,11 +274,11 @@ context.
 {{- $volumeSize := get $mongodb "volumeSize" -}}
 {{- if and (not (kindIs "invalid" $volumeSize)) (ne (toString $volumeSize) "") -}}
 {{- if and (not (kindIs "invalid" $size)) (ne (toString $size) "") -}}
-{{- fail "mongodb.volumeSize is deprecated: set only mongodb.persistence.size" -}}
+{{- fail "mongodb.persistence.size and the deprecated mongodb.volumeSize are both set: set only mongodb.persistence.size (rename volumeSize in your values; if the app chart's values set volumeSize, unset it with null, e.g., --set-json mongodb.volumeSize=null)" -}}
 {{- end -}}
 {{- $size = ternary $volumeSize (int64 $volumeSize | toString) (kindIs "string" $volumeSize) -}}
 {{- end -}}
-{{- dict "persistence" $persistence "name" (include "foca-common.mongodbFullname" .) "enabledByDefault" true "size" $size "sizeError" "mongodb.persistence.size must be set if mongodb.persistence.enabled" | toJson -}}
+{{- dict "persistence" $persistence "name" (include "foca-common.mongodbFullname" .) "enabledByDefault" true "size" $size "key" "mongodb.persistence" | toJson -}}
 {{- end -}}
 
 {{/*

@@ -385,7 +385,9 @@ broker's) if its persistence is enabled (`persistence.enabled`, or
 `enabledByDefault` if that is not set, also without a `persistence` map):
 `persistence.existingClaim`, or the component's own claim (`name`); empty
 otherwise. Call with a dict of the component's `persistence` map, its claim's
-`name` and `enabledByDefault`.
+`name`, `enabledByDefault` and the values key of the map (`key`, e.g.,
+`mongodb.persistence`, for error messages of
+`foca-common.persistentVolumeClaim`).
 */}}
 {{- define "foca-common.claimName" -}}
 {{- $persistence := .persistence | default dict -}}
@@ -397,12 +399,12 @@ otherwise. Call with a dict of the component's `persistence` map, its claim's
 {{/*
 PersistentVolumeClaim with a component's data, if its persistence is enabled
 without `persistence.existingClaim` (see `foca-common.claimName`): of `size`
-(`persistence.size` if not given; fails with `sizeError` if neither is set),
+(`persistence.size` if not given; fails if neither is set),
 with `persistence.accessModes` (by default `ReadWriteOnce`) and
 `persistence.storageClass` (the cluster's default class if empty; "-" for
 none, i.e., no dynamic provisioning). Call with a dict of the root context
-(`root`), the `component` (for the labels) and the arguments of
-`foca-common.claimName`, `size` and `sizeError`.
+(`root`), the `component` (for the labels), the arguments of
+`foca-common.claimName` and `size`.
 */}}
 {{- define "foca-common.persistentVolumeClaim" -}}
 {{- $persistence := .persistence | default dict -}}
@@ -418,7 +420,7 @@ spec:
     {{- toYaml ($persistence.accessModes | default (list "ReadWriteOnce")) | nindent 2 }}
   resources:
     requests:
-      storage: {{ required .sizeError (.size | default $persistence.size) }}
+      storage: {{ required (printf "%s.size must be set if %s.enabled" .key .key) (.size | default $persistence.size) }}
   {{- with $persistence.storageClass }}
   storageClassName: {{ ternary "" . (eq . "-") | quote }}
   {{- end }}

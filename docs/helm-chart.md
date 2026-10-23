@@ -128,7 +128,7 @@ and the settings (`settings`), one per file:
 | `foca-common.mongodbDeployment` | MongoDB's `Deployment`, unless `mongodb.enabled` is false |
 | `foca-common.mongodbInitScript` | `ConfigMap` with MongoDB's init script, if `mongodb.auth.enabled` |
 | `foca-common.mongodbNetworkPolicy` | MongoDB's `NetworkPolicy`, if `mongodb.networkPolicy.enabled` |
-| `foca-common.mongodbPersistentVolumeClaim` | MongoDB's data volume, unless `mongodb.enabled` or `mongodb.persistence.enabled` is false, without `mongodb.persistence.existingClaim` |
+| `foca-common.mongodbPersistentVolumeClaim` | MongoDB's data volume, unless `mongodb.enabled` or `mongodb.persistence.enabled` is false (both true if not set), without `mongodb.persistence.existingClaim` |
 | `foca-common.mongodbService` | MongoDB's `Service` (port 27017), the host of `db.host` in the overlay |
 | `foca-common.workerDeployment` | the Celery worker's `Deployment`, if `worker.enabled` |
 | `foca-common.brokerStatefulSet` | the broker's (RabbitMQ's) `StatefulSet`, if `broker.enabled` (`foca-common.brokerDeployment`, the name up to 0.1.0, is a deprecated alias) |
@@ -455,19 +455,30 @@ them (e.g., its health check ranges).
   `mongodb.auth.enabled: false`, but then any pod that can reach MongoDB can
   read and modify its data.
 - **MongoDB data** is kept in a PersistentVolumeClaim named like the app
-  with the suffix `-mongodb` (`mongodb.persistence`: `size`, `accessModes`,
-  by default `ReadWriteOnce`, `storageClass`, the cluster's default class
-  if empty and `-` for no dynamic provisioning, or an `existingClaim`, e.g.,
-  restored from a backup), mounted at `/data/db`; MongoDB's Deployment
-  replaces its pod only once the old one is gone (`Recreate`). Persistence
-  is enabled also if `mongodb.persistence.enabled` is not set (as in values
-  written for foca-common 0.1.0). With `mongodb.persistence.enabled: false`
-  (e.g., for tests), the data is kept in an `emptyDir` limited to
-  `mongodb.persistence.size` and lost when the pod is replaced, and the init
-  script runs on every new pod. `mongodb.volumeSize`, the size up to
-  foca-common 0.1.0, is deprecated but still sets the size of the claim;
-  rendering fails if `mongodb.persistence.size` is set, too. The claim's
-  name has not changed, so upgrades keep the data.
+  with the suffix `-mongodb`, mounted at `/data/db` (`mongodb.persistence`:
+  `size`, `accessModes`, by default `ReadWriteOnce`, and `storageClass`,
+  the cluster's default class if empty and `-` for no dynamic
+  provisioning), or in an `existingClaim`, e.g., one restored from a
+  backup. MongoDB's Deployment starts a new pod only once the old one is
+  gone (`Recreate`). Persistence is enabled also if
+  `mongodb.persistence.enabled` is not set (as in values written for
+  foca-common 0.1.0). With `mongodb.persistence.enabled: false` (e.g., for
+  tests), the data is kept in an `emptyDir` (limited to
+  `mongodb.persistence.size`, if set) and lost when the pod is replaced, and
+  the init script runs on every new pod. Disabling persistence or switching
+  to an `existingClaim` for an existing release deletes the chart's claim
+  (and, with the usual reclaim policy `Delete`, its data) on upgrade. To
+  keep the claim, e.g., to manage it outside the release under its name,
+  annotate it first (`kubectl annotate pvc my-app-mongodb
+  helm.sh/resource-policy=keep`), then set it as `existingClaim`.
+
+    `mongodb.volumeSize`, the setting up to foca-common 0.1.0, is
+    deprecated since 0.2.0 but still sets the claim's size; the claim keeps
+    its name, so upgrades keep the data. Rendering fails if
+    `mongodb.persistence.size` is set, too, as one of them would be
+    ignored: move the size to `mongodb.persistence.size`, and if the app
+    chart's values still set `volumeSize`, unset it with `null` (e.g.,
+    `--set-json mongodb.volumeSize=null`).
 - **Access control:** FOCA keeps the rules of [access
   control](access-control.md) in a database of their own
   (`security.access_control.db_name`, by default `access_control_db`),

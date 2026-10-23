@@ -198,8 +198,11 @@ mongodb:
   # class if empty, `-` for no dynamic provisioning), or the existing claim
   # `existingClaim`. If disabled, the data is kept in an `emptyDir` (limited
   # to `size`) and lost when MongoDB's pod is replaced, e.g., for tests.
-  # Replaces `volumeSize` of foca-common 0.1.0 (deprecated; it sets `size`,
-  # but rendering fails if both are set)
+  # Disabling it (or switching to an existing claim) for an existing release
+  # deletes the chart's claim and its data, unless the claim is annotated
+  # with `helm.sh/resource-policy: keep` first (see the docs).
+  # Replaces `volumeSize`, the setting up to foca-common 0.1.0 (deprecated
+  # since 0.2.0; it still sets `size`, but rendering fails if both are set)
   persistence:
     enabled: true
     size: 1Gi
