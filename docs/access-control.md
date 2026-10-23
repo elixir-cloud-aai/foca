@@ -341,7 +341,7 @@ security:
     enforce: True
     claim_groups: eduperson_entitlement
     group_mapping:
-      "urn:geant:example.org:group:admins#example.org": admin
+      "urn:example:group:admins#login.example.org": admin
 ```
 
 With `enforce: True`, every operation that requires authentication (i.e.,
@@ -443,8 +443,8 @@ claim are denied with `401`.
 If `claim_groups` is set, the values of that claim (a list or a single
 string) are additionally checked as subjects, i.e., they act as roles. If
 the identity provider only provides the claim via user info, not in access
-tokens (e.g., `eduperson_entitlement` with LS Login), add it to
-[`security.auth.userinfo_claims`](configuration/auth.md). If
+tokens (e.g., `eduperson_entitlement` with some identity providers), add
+it to [`security.auth.userinfo_claims`](configuration/auth.md). If
 `group_mapping` is set, claim values are mapped to roles, and values without
 mapping are ignored, unless `keep_group_subjects` is set: then all claim
 values are _additionally_ used as group subjects (e.g., `group:vo-members`),
@@ -689,7 +689,7 @@ security:
   access_control:
     claim_groups: eduperson_entitlement
     group_mapping:
-      "urn:geant:example.org:group:admins#example.org": admin
+      "urn:example:group:admins#login.example.org": admin
     keep_group_subjects: True
 ```
 
@@ -868,7 +868,7 @@ security:
     enforce: True
     claim_groups: eduperson_entitlement
     group_mapping:
-      "urn:geant:example.org:group:admins#example.org": admin
+      "urn:example:group:admins#login.example.org": admin
     keep_group_subjects: True
     policies:
       - [p, "*", /api/tasks, "(GET)|(POST)"]

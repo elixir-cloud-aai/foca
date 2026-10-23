@@ -7,7 +7,7 @@ permissions API for managing policy rules.
 security:
   auth:
     issuers:
-      - https://login.elixir-czech.org/oidc/
+      - https://login.example.org/oidc/
     audience:
       - my-app
     service_clients:
@@ -20,7 +20,7 @@ security:
     model: policies.conf
     claim_groups: eduperson_entitlement
     group_mapping:
-      "urn:geant:elixir-europe.org:group:elixir:my-app:admins": admin
+      "urn:example:group:my-app-admins#login.example.org": admin
     client_mapping:
       conquest-client-id: submitter
     resource_roles: [owner, maintainer]
