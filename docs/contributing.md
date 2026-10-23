@@ -172,7 +172,10 @@ release commit's images again before publishing anything (in a job without
 its credentials), and a weekly workflow (`scan.yml`) scans the images of the
 latest release. They fail on critical and high vulnerabilities that have a
 fix, and upload all findings to code scanning (Security tab; not for pull
-requests from forks, nor in the release workflow). If a scan fails:
+requests from forks, nor in the release workflow). The publishing workflows
+take the Docker Hub organization from the secret `DOCKERHUB_ORG`; the weekly
+scan, which needs no secrets, from the repository variable of that name (by
+default `elixircloud`), so forks set both. If a scan fails:
 
 1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
    in `pyproject.toml` or update the base image (Dependabot's PRs do both).
