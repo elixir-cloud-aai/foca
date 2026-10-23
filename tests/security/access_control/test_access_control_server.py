@@ -126,6 +126,28 @@ class TestDeletePermission:
 class TestGetAllPermissions:
     """Tests for listing permissions."""
 
+    def test_inactive_configured(
+        self, app: Flask, collection: Collection[dict[str, Any]], stored: dict[str, Any]
+    ) -> None:
+        """Configured rules not in effect are neither listed nor returned.
+
+        E.g., rules of a generation of configured rules that is not active
+        yet; nor is the document naming the active generation.
+        """
+        app.config["casbin_adapter"].set_configured_policies([])
+        collection.insert_one(
+            {
+                **deepcopy(MOCK_RULE),
+                "id": "pendng",
+                "configured": True,
+                "generations": ["0" * 24],
+            }
+        )
+        with app.app_context():
+            assert unwrap(getAllPermissions)()["results"] == [stored]
+            with pytest.raises(NotFound):
+                unwrap(getPermission)(id="pendng")
+
     def test_list(self, app: Flask, stored: dict[str, Any]) -> None:
         """Stored permissions are listed, with pagination."""
         with app.app_context():

@@ -1,6 +1,7 @@
 """File to store permission based constants."""
 
 import string
+from datetime import timedelta
 
 DEFAULT_ACCESS_CONTROL_DB_NAME = "access_control_db"
 DEFAULT_ACCESS_CONTROL_COLLECTION_NAME = "policy_rules"
@@ -12,6 +13,21 @@ ACCESS_CONTROL_BASE_PATH = "foca.security.access_control.api"
 
 # Field marking stored policy rules set via `access_control.policies`
 CONFIGURED_FIELD = "configured"
+# Field listing the generations of configured rules (the sets of configured
+# rules stored on startup) that a configured rule belongs to
+GENERATIONS_FIELD = "generations"
+# MongoDB identifier (`_id`) of the document in the policy collection that
+# names the active generation, in field `GENERATION_FIELD`
+GENERATION_MARKER_ID = "configured_policies"
+GENERATION_FIELD = "generation"
+# Generation of configured rules stored by FOCA 0.16 and earlier, i.e.,
+# without generations; active as long as no other generation is
+LEGACY_GENERATION = "legacy"
+# Age after which generations that never became active (e.g., because the
+# app instance storing them failed) are removed
+STALE_GENERATION_AGE = timedelta(hours=1)
+# Attempts to load all rules while the active generation does not change
+LOAD_ATTEMPTS = 5
 # Field ordering role rules stored by `Adapter.replace_role_rule()`
 GRANTED_FIELD = "granted"
 

@@ -222,7 +222,9 @@ def getAllPermissions(
     """Method to fetch permissions page by page.
 
     Permissions are returned in the order they were stored, as recommended
-    by the GA4GH API pagination guide (page-based pagination).
+    by the GA4GH API pagination guide (page-based pagination). Only the
+    rules in effect are returned, i.e., configured rules only if they belong
+    to the active set of configured rules.
 
     Args:
         page_size: Maximum number of permissions per page (1 to
@@ -241,7 +243,11 @@ def getAllPermissions(
     if not 1 <= page_size <= MAX_PAGE_SIZE or page < 0:
         raise BadRequest
     collection = _get_permissions_collection()
-    query = {**_PERMISSION_FILTER, **_get_visibility_filter()}
+    query = {
+        **_PERMISSION_FILTER,
+        **_get_visibility_filter(),
+        **current_app.config["casbin_adapter"].rules_query(),
+    }
     total = collection.count_documents(query)
     total_pages = ceil(total / page_size)
     if page >= max(total_pages, 1):
@@ -277,7 +283,12 @@ def getPermission(
         Permission data for the given id.
     """
     permission = _get_permissions_collection().find_one(
-        filter={"id": id, **_PERMISSION_FILTER, **_get_visibility_filter()}
+        filter={
+            "id": id,
+            **_PERMISSION_FILTER,
+            **_get_visibility_filter(),
+            **current_app.config["casbin_adapter"].rules_query(),
+        }
     )
     if permission is None:
         raise NotFound

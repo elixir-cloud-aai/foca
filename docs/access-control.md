@@ -224,15 +224,40 @@ security:
 
 On startup, FOCA validates the rules against the model (cf. [rule
 values](#rule-values)), refusing to start if any rule is invalid. It then
-makes the stored configured rules match the configuration: missing rules are
-added (or, if stored already, e.g., via the permissions API, marked as
-configured), and configured rules that were removed from the configuration,
-as well as duplicates, are removed. The configuration is the only place to
-change configured rules: the permissions API responds with `409` to requests
-to change or delete them, and the [resource role
-helpers](#resource-scoped-roles) keep them, with a warning. Other stored
-rules are kept. Without `policies`, stored rules are not changed on startup;
-with `policies: []`, all configured rules are removed.
+replaces the stored configured rules with those of the configuration:
+configured rules that were removed from the configuration are removed,
+missing ones are added, and unchanged ones are kept, with their identifiers.
+The configuration is the only place to change configured rules: the
+permissions API responds with `409` to requests to change or delete them,
+and the [resource role helpers](#resource-scoped-roles) keep them, with a
+warning. Other stored rules (e.g., added via the permissions API) are kept,
+also if they have the values of a configured rule. With `policies: []`, all
+configured rules are removed. Without `policies`, stored configured rules
+are removed, too, with a warning (e.g., if they were set via a config
+overlay that was removed since); apps that never configured rules only check
+for them, and start without the database, with a warning, if it is not
+available.
+
+Configured rules are replaced atomically, so that requests are always
+checked against either the previous or the new configured rules, never a
+mix, also while app instances with different rules start concurrently (e.g.,
+during a rolling update) or if a startup fails midway; no MongoDB
+transactions are needed. FOCA stores the new rules as a new generation and
+then makes it the active one, in a single write to a document with
+identifier (`_id`) `configured_policies` in the policy collection; only
+then, rules of the previous generation are removed. Only the configured
+rules of the active generation are loaded, listed by the permissions API and
+protected from changes. If instances with different rules start
+concurrently, the rules of the instance that activates its generation last
+are kept. Rules of generations that never became active (e.g., because an
+instance failed while storing them) are removed on a later startup, once
+older than an hour. Configured rules stored by FOCA 0.16 and earlier are
+used until the first startup with a later version replaces them.
+
+!!! warning "Apps sharing a policy collection"
+    All apps using the same policy collection must configure the same rules:
+    each startup replaces the configured rules of the others, also if
+    `policies` is not set.
 
 Rules can also be given as a mapping of names to rules (named rules), so
 that config overlays can add, change or remove (`null`) single rules without
@@ -252,7 +277,10 @@ Named rules are stored like listed ones (names are not stored, so switching
 between both forms does not change stored rules); their names are logged on
 startup, and errors name the invalid rule. As with `policies: []`, removing all
 named rules removes all configured rules. Apps that expect operators to adapt
-their rules should use named rules.
+their rules should use named rules. To remove a rule that an overlay added
+(e.g., to an app without policies), remove it from the overlay; if no
+rules remain, the configured rules are removed on the next startup (see
+above).
 
 !!! danger "Review overlays like code"
     Rules in overlays grant rights: a broad rule (e.g., `[p, "*", "/*",

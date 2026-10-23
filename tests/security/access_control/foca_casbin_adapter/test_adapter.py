@@ -1,8 +1,9 @@
 """Tests for `adapter.py` module."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, ClassVar, NoReturn
+from typing import Any, ClassVar, NoReturn, cast
 
 import mongomock
 import pytest
@@ -12,7 +13,11 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure, DuplicateKeyError
 
-from foca.security.access_control.constants import ID_ATTEMPTS
+from foca.security.access_control.constants import (
+    GENERATION_MARKER_ID,
+    ID_ATTEMPTS,
+    LOAD_ATTEMPTS,
+)
 from foca.security.access_control.foca_casbin_adapter import adapter as module
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
@@ -851,3 +856,310 @@ class TestReplaceRoleRule:
             "g2", ["user:a", "auditor", "/x"], [*ROLES, "auditor"]
         )
         assert adapter._collection.count_documents({}) == 3
+
+
+# Configured rules before and after replacing them, and of a concurrent app
+# instance; and a rule that is not configured
+OLD = [["p", "alice", "data1", "read"], ["g", "alice", "admin"]]
+NEW = [["p", "alice", "data1", "read"], ["p", "bob", "data2", "write"]]
+OTHER = [["g", "carol", "admin"]]
+API_RULE = ["p", "dave", "data3", "read"]
+# Writes to replace OLD with NEW: tagging rules without generation, adding
+# NEW's rules to the new generation (one update each, one insert), making it
+# active, removing the previous generation, removing the unused rule
+REPLACE_WRITES = ("update_many", "update_one", "update_one", "insert_one")
+SWITCH_WRITES = (*REPLACE_WRITES, "find_one_and_update")
+ALL_WRITES = (*SWITCH_WRITES, "update_many", "delete_one")
+
+
+class _HookedCollection:
+    """Policy collection calling a hook before some of its methods.
+
+    Args:
+        collection: Collection to delegate to.
+        hook: Called with the name of the method before each call.
+        names: Names of the methods to call the hook for.
+    """
+
+    def __init__(
+        self,
+        collection: Collection[dict[str, Any]],
+        hook: Callable[[str], None],
+        names: tuple[str, ...] = (
+            "insert_one",
+            "update_one",
+            "update_many",
+            "find_one_and_update",
+            "delete_one",
+            "delete_many",
+        ),
+    ) -> None:
+        self._delegate = collection
+        self._hook = hook
+        self._names = names
+
+    def __getattr__(self, name: str) -> Any:
+        method = getattr(self._delegate, name)
+        if name not in self._names:
+            return method
+
+        def hooked(*args: Any, **kwargs: Any) -> Any:
+            self._hook(name)
+            return method(*args, **kwargs)
+
+        return hooked
+
+
+def _hooked_adapter(
+    collection: Collection[dict[str, Any]],
+    hook: Callable[[str], None],
+    names: tuple[str, ...] | None = None,
+) -> Adapter:
+    """Get adapter whose collection calls a hook before writes."""
+    hooked = (
+        _HookedCollection(collection, hook)
+        if names is None
+        else _HookedCollection(collection, hook, names)
+    )
+    return Adapter(cast(Collection[dict[str, Any]], hooked))
+
+
+def _loaded(collection: Collection[dict[str, Any]]) -> set[tuple[str, ...]]:
+    """Get the rules loaded for enforcing policies."""
+    model = Model()
+    model.load_model(MODEL_CONF_FILE)
+    Adapter(collection).load_policy(model)
+    return {
+        (ptype, *rule)
+        for sec in ("p", "g")
+        for ptype, assertion in model[sec].items()
+        for rule in assertion.policy
+    }
+
+
+def _expected(*rules: list[str]) -> set[tuple[str, ...]]:
+    """Get rules loaded for configured rules, with the API rule."""
+    return {tuple(rule) for rule in [*rules, API_RULE]}
+
+
+def _check_clean(
+    collection: Collection[dict[str, Any]], rules: list[list[str]]
+) -> None:
+    """Ensure that only the active generation's rules are stored, once."""
+    marker = collection.find_one({"_id": GENERATION_MARKER_ID})
+    assert marker is not None
+    configured = list(collection.find({"configured": True}))
+    assert all(
+        document["generations"] == [marker["generation"]] for document in configured
+    )
+    stored = [[doc["ptype"], *module._rule_values(doc)] for doc in configured]
+    assert sorted(stored) == sorted(rules)
+
+
+class TestConfiguredGenerations:
+    """Tests for replacing configured rules atomically."""
+
+    @pytest.fixture(autouse=True)
+    def _old(self, policy_collection: Collection[dict[str, Any]]) -> None:
+        """Store the old configured rules and a rule that is not configured."""
+        self.collection = policy_collection
+        Adapter(policy_collection).set_configured_policies(OLD)
+        Adapter(policy_collection).save_policy_line(API_RULE[0], API_RULE[1:])
+
+    def test_replaced(self) -> None:
+        """Rules are replaced; identifiers of kept rules are kept."""
+        kept = self.collection.find_one({"v0": "alice", "ptype": "p"})
+        assert kept is not None
+        Adapter(self.collection).set_configured_policies(NEW)
+        assert _loaded(self.collection) == _expected(*NEW)
+        assert self.collection.count_documents({"id": kept["id"]}) == 1
+        _check_clean(self.collection, NEW)
+
+    def test_never_mixed(self) -> None:
+        """Rules are loaded with the old or the new rules after each write."""
+        states: list[set[tuple[str, ...]]] = []
+        names: list[str] = []
+
+        def record(name: str) -> None:
+            names.append(name)
+            states.append(_loaded(self.collection))
+
+        _hooked_adapter(self.collection, record).set_configured_policies(NEW)
+        assert tuple(names) == ALL_WRITES
+        # before each write, and after the last
+        states.append(_loaded(self.collection))
+        switch = len(SWITCH_WRITES)
+        assert states == [_expected(*OLD)] * switch + [_expected(*NEW)] * (
+            len(states) - switch
+        )
+
+    @pytest.mark.parametrize("step", range(len(ALL_WRITES)))
+    def test_concurrent(self, step: int) -> None:
+        """Concurrent replacements leave the rules of the last one to switch.
+
+        The other replacement runs before each write of the first one.
+        """
+        writes: list[str] = []
+        other_switched_first: list[bool] = []
+
+        def other(name: str) -> None:
+            if len(writes) == step:
+                other_switched_first.append("find_one_and_update" not in writes)
+                Adapter(self.collection).set_configured_policies(OTHER)
+            writes.append(name)
+            assert _loaded(self.collection) in (
+                _expected(*OLD),
+                _expected(*NEW),
+                _expected(*OTHER),
+            )
+
+        _hooked_adapter(self.collection, other).set_configured_policies(NEW)
+        assert len(other_switched_first) == 1
+        last = NEW if other_switched_first[0] else OTHER
+        assert _loaded(self.collection) == _expected(*last)
+        _check_clean(self.collection, last)
+
+    @pytest.mark.parametrize("step", range(len(ALL_WRITES)))
+    def test_failed(self, step: int, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failed replacement leaves the old or the new rules in effect.
+
+        Replacing them again removes what the failed one left, once older
+        than `STALE_GENERATION_AGE`.
+        """
+        writes: list[str] = []
+
+        def fail(name: str) -> None:
+            if len(writes) == step:
+                raise ConnectionFailure("database not available")
+            writes.append(name)
+
+        with pytest.raises(ConnectionFailure):
+            _hooked_adapter(self.collection, fail).set_configured_policies(NEW)
+        switched = step >= len(SWITCH_WRITES)
+        assert _loaded(self.collection) == _expected(*(NEW if switched else OLD))
+        adapter = Adapter(self.collection)
+        assert adapter.is_configured_rule("g", ["alice", "admin"]) is not switched
+        assert adapter.is_configured_rule("p", ["bob", "data2", "write"]) is switched
+        monkeypatch.setattr(module, "STALE_GENERATION_AGE", timedelta(0))
+        adapter.set_configured_policies(NEW)
+        assert _loaded(self.collection) == _expected(*NEW)
+        _check_clean(self.collection, NEW)
+
+    def test_pending_not_in_effect(self) -> None:
+        """Rules of a generation that is not active yet are not in effect."""
+
+        def check(name: str) -> None:
+            if name == "find_one_and_update":
+                adapter = Adapter(self.collection)
+                assert not adapter.is_configured_rule("p", ["bob", "data2", "write"])
+                assert adapter.get_filtered_rules("p", 0, "bob", configured=True) == []
+                assert adapter.get_filtered_rules("p", 0, "bob", configured=False) == []
+                assert self.collection.count_documents(adapter.rules_query()) == 3
+
+        _hooked_adapter(self.collection, check).set_configured_policies(NEW)
+        assert Adapter(self.collection).is_configured_rule(
+            "p", ["bob", "data2", "write"]
+        )
+
+    def test_reloaded_if_switched(self) -> None:
+        """Rules are loaded again if replaced while loading them."""
+        finds: list[str] = []
+
+        def replace(name: str) -> None:
+            if not finds:
+                Adapter(self.collection).set_configured_policies(NEW)
+            finds.append(name)
+
+        model = Model()
+        model.load_model(MODEL_CONF_FILE)
+        _hooked_adapter(self.collection, replace, names=("find",)).load_policy(model)
+        assert len(finds) == 2
+        assert model["g"]["g"].policy == []
+        assert sorted(model["p"]["p"].policy) == sorted(
+            [rule[1:] for rule in [*NEW, API_RULE]]
+        )
+
+    def test_reloaded_too_often(self) -> None:
+        """Rules are not loaded if replaced during each attempt."""
+
+        def replace(name: str) -> None:
+            Adapter(self.collection).set_configured_policies(NEW)
+
+        adapter = _hooked_adapter(self.collection, replace, names=("find",))
+        model = Model()
+        model.load_model(MODEL_CONF_FILE)
+        with pytest.raises(RuntimeError, match=f"each of {LOAD_ATTEMPTS} attempts"):
+            adapter.load_policy(model)
+
+    def test_unknown_generations_removed(self) -> None:
+        """Generations not created by FOCA are removed."""
+        self.collection.insert_many(
+            [
+                {
+                    "id": "unknw1",
+                    "ptype": "g",
+                    "v0": "a",
+                    "v1": "b",
+                    "configured": True,
+                    "generations": [1],
+                },
+                {
+                    "id": "unknw2",
+                    "ptype": "g",
+                    "v0": "c",
+                    "v1": "d",
+                    "configured": True,
+                    "generations": ["other"],
+                },
+            ]
+        )
+        Adapter(self.collection).set_configured_policies(NEW)
+        _check_clean(self.collection, NEW)
+
+
+class TestLegacyConfiguredRules:
+    """Tests for configured rules stored by FOCA 0.16, without generations."""
+
+    @pytest.fixture(autouse=True)
+    def _legacy(self, policy_collection: Collection[dict[str, Any]]) -> None:
+        """Store configured rules as FOCA 0.16 did."""
+        self.collection = policy_collection
+        adapter = Adapter(policy_collection)
+        for ptype, *rule in OLD:
+            adapter.save_policy_line(ptype, rule, configured=True)
+        adapter.save_policy_line(API_RULE[0], API_RULE[1:])
+
+    def test_in_effect(self) -> None:
+        """Configured rules without generation are in effect."""
+        assert _loaded(self.collection) == _expected(*OLD)
+        assert Adapter(self.collection).is_configured_rule("g", ["alice", "admin"])
+
+    def test_migrated(self) -> None:
+        """Rules are replaced atomically, keeping identifiers of kept rules."""
+        kept = self.collection.find_one({"v0": "alice", "ptype": "p"})
+        assert kept is not None
+        states: list[set[tuple[str, ...]]] = []
+        _hooked_adapter(
+            self.collection, lambda name: states.append(_loaded(self.collection))
+        ).set_configured_policies(NEW)
+        assert len(states) == len(ALL_WRITES)
+        switch = len(SWITCH_WRITES)
+        assert states[:switch] == [_expected(*OLD)] * switch
+        assert states[switch:] == [_expected(*NEW)] * (len(states) - switch)
+        assert _loaded(self.collection) == _expected(*NEW)
+        assert self.collection.count_documents({"id": kept["id"]}) == 1
+        _check_clean(self.collection, NEW)
+
+    def test_added_later_ignored(self) -> None:
+        """Rules without generation stored after migration are not in effect.
+
+        E.g., by an app instance of FOCA 0.16; they are removed on the next
+        replacement.
+        """
+        adapter = Adapter(self.collection)
+        adapter.set_configured_policies(NEW)
+        adapter.save_policy_line("g", ["erin", "admin"], configured=True)
+        assert _loaded(self.collection) == _expected(*NEW)
+        assert not adapter.is_configured_rule("g", ["erin", "admin"])
+        adapter.set_configured_policies(NEW)
+        _check_clean(self.collection, NEW)
