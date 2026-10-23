@@ -279,10 +279,12 @@ def test_disable_auth_with_enforcement(
     with caplog.at_level(logging.WARNING, logger=module.logger.name):
         register_openapi(
             app=App(__name__),
-            specs=[SpecConfig(**spec_config)],
+            specs=[SpecConfig(**spec_config, name="my-api")],
             enforce_access_control=enforce,
         )
     assert ("'disable_auth'" in caplog.text) is warned
+    # The spec is named by its label, as in other logs
+    assert ("spec 'my-api'" in caplog.text) is warned
 
 
 class TestModifiedSpecs:
