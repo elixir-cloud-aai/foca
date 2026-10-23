@@ -7,8 +7,10 @@
 # are listed in `.trivyignore.yaml`; scheduled runs use the default branch
 # (`main`, the latest release), so the file is taken from `dev`, where
 # findings are accepted. The images are public, so no Docker Hub secrets are
-# needed; their name is the one documented in the README. Same as in
-# cloud-registry, which has one image.
+# needed; their organization is the repository variable `DOCKERHUB_ORG` (by
+# default `elixircloud`, as documented in the README; forks set it to the
+# organization they publish to). Same as in cloud-registry, which has one
+# image.
 
 name: Scan release image
 
@@ -47,6 +49,8 @@ jobs:
       - name: Determine image of the latest release
         id: image
         env:
+          DOCKERHUB_ORG: ${{ vars.DOCKERHUB_ORG || 'elixircloud' }}
+          REPO_NAME: ${{ github.event.repository.name }}
           PY_VERSION: ${{ matrix.python-version }}
         run: |
           # Highest final version on `main`, as for the `latest` tag in
@@ -57,7 +61,7 @@ jobs:
               echo "::error::No release tag found"
               exit 1
           fi
-          image="docker.io/elixircloud/foca:${tag#v}-py${PY_VERSION}"
+          image="docker.io/${DOCKERHUB_ORG}/${REPO_NAME}:${tag#v}-py${PY_VERSION}"
           echo "Scanning ${image}"
           echo "image=${image}" >> "${GITHUB_OUTPUT}"
       - name: Scan image
