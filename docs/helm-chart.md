@@ -244,7 +244,8 @@ setup below:
   There are no default peers (see [NetworkPolicy
   peers](#networkpolicy-peers)).
 - **Keep-alive:** Gunicorn closes idle connections after
-  `<valuesKey>.gunicorn.keepalive` seconds (75 by default). Keep this longer
+  `<valuesKey>.gunicorn.keepalive` seconds (100 in the petstore chart, as
+  in `foca.gunicorn_config`). Keep this longer
   than the proxy's idle timeout of connections to the app, as the proxy might
   otherwise send a request on a connection that Gunicorn closes at the same
   time, which fails with `502` or `503`.
@@ -428,8 +429,9 @@ the default class), and Traefik's annotations in
   `kube-system` on k3s (see [NetworkPolicy peers](#networkpolicy-peers)).
 - **Keep-alive:** Traefik closes idle connections to the app after 90
   seconds (`forwardingTimeouts.idleConnTimeout` of its servers transport),
-  later than Gunicorn by default: raise `<valuesKey>.gunicorn.keepalive`
-  (e.g., to 100), or lower Traefik's timeout.
+  earlier than Gunicorn with a `<valuesKey>.gunicorn.keepalive` of 100
+  seconds, as in the petstore chart; keep it above 90, or lower Traefik's
+  timeout.
 
 ### OpenShift
 

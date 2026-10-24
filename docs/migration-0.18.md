@@ -100,7 +100,10 @@ that pass their own Gunicorn options are not affected. FOCA does not depend
 on Gunicorn; apps still install it themselves. The petstore example's image
 uses the module: run on its own, it now has one worker with four threads
 and a keep-alive of 100 seconds; with the Helm chart, the chart's `gunicorn`
-values apply as before (via `GUNICORN_CMD_ARGS`).
+values apply as before (via `GUNICORN_CMD_ARGS`). The petstore chart's
+keep-alive (`petstore.gunicorn.keepalive`) is now 100 seconds too (before:
+75), longer than the idle timeouts of common proxies (e.g., 90 seconds for
+Traefik); app charts that copied its values can raise theirs likewise.
 
 ### Ownership by document field
 
