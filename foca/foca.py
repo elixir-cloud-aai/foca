@@ -128,7 +128,10 @@ class Foca:
                 configured.
             ValueError: Operations routed to the controllers of
                 :py:mod:`foca.security.access_control.ownership_server` do not
-                enforce access control policies.
+                enforce access control policies, group settings keep all
+                group mappings from applying, or no admin is configured and
+                `security.access_control.require_admin` is set (cf.
+                :py:func:`foca.security.access_control.register_access_control.register_access_control`).
         """
         cnx_app = self._create_base_app()
 

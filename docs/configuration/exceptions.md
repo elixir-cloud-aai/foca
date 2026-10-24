@@ -64,10 +64,9 @@ in your API specifications, as FOCA's permissions API and the examples do.
 ## Request-specific details
 
 Problem details mapped to an exception class are the same for all its
-exceptions. So by default, requests rejected by Connexion's validation (e.g.,
-for a missing parameter or a request body that does not match its schema)
-get the same response, whatever was wrong with them. To tell clients the
-reason, turn on `validation_details`:
+exceptions. So that clients learn why a request was rejected by Connexion's
+validation (e.g., for a missing parameter or a request body that does not
+match its schema), `validation_details` is on by default:
 
 ```yaml
 exceptions:
@@ -76,7 +75,7 @@ exceptions:
 ```
 
 Responses to Connexion's validation exceptions (`BadRequestProblem` and
-`ExtraParameterProblem`) then get the validator's reason as `detail` (for
+`ExtraParameterProblem`) get the validator's reason as `detail` (for
 form data, the reasons joined by `; `), with the title and status as mapped
 (and the mapped details if there is no reason), e.g.:
 
@@ -100,8 +99,11 @@ filtered out, for all apps of the process; its messages on invalid
 responses are kept.
 Exceptions that your app raises as `BadRequestProblem` (e.g., FOCA's
 [access control](../access-control.md) for an invalid user acted for) get
-their `detail` as well, so keep internals out of it. `validation_details` is
-off by default, so that responses and logs stay as they are.
+their `detail` as well, so keep internals out of it. Set
+`validation_details: false` to respond with the problem details mapped to
+the exception class instead, whatever was wrong with the request, and to
+log the exception (Connexion's validation logger then logs its messages
+too, unless another app of the process has validation details on).
 
 Details longer than `max_detail_length` (by default 500 characters, at least
 1) are shortened in the middle, keeping their start and end (e.g., the field

@@ -148,8 +148,9 @@ warnings, naming the setting to change, among others:
 
 - [access control](configuration/access-control.md#startup-checks), if
   enabled: no group, service client or configured rule granted the role
-  `admin` (an error with `require_admin: true`), `group_mapping` without
-  `claim_groups`, a group claim with surrounding whitespace,
+  `admin` (an error with `require_admin: true`), an empty `group_mapping`
+  without `claim_groups` (a non-empty one, and a group claim with
+  surrounding whitespace, are errors),
   `group_mapping` without `keep_group_subjects`, `keep_group_subjects`
   without `group_mapping`, several trusted issuers, and stored configured
   rules removed as `policies` is not set;
