@@ -51,8 +51,9 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from types import MappingProxyType
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -934,12 +935,31 @@ class PipelineRun:
         self.request_id = request_id
         self.task_id: str | None = None
         self.original = copy.deepcopy(inbound.payload)
+        self._inbound_via = inbound.headers.get("Via")
         self.executions: list[Execution] = []
         self.attempt_records: list[AttemptRecord] = []
         self.candidates_in: list[str] = []
         self.candidates_out: list[str] = []
         self._states: dict[str, dict[str, Any]] = {}
         self._deadline = time.monotonic() + host.conf.defaults.pipeline_timeout
+
+    def _set_via(self, outbound: OutboundRequest) -> None:
+        """Set the `Via` header of an outbound request (RFC 9110, 7.6.3).
+
+        The header is the inbound request's, with this gateway's entry
+        appended, whatever plugins or the app's builder set, so that loops
+        through several gateways are detected.
+
+        Args:
+            outbound: Outbound request.
+        """
+        entries = [self._inbound_via] if self._inbound_via else []
+        if self.host.gateway_id is not None:
+            entries.append(f"1.1 {self.host.gateway_id}")
+        if entries:
+            outbound.headers["Via"] = ", ".join(entries)
+        else:
+            outbound.headers.pop("Via", None)
 
     def implements(self, phase: str) -> bool:
         """Check whether a step of the pipeline implements a phase.
@@ -1079,10 +1099,7 @@ class PipelineRun:
                     )
                 )
                 continue
-            if self.host.gateway_id is not None:
-                via = outbound.headers.get("Via")
-                entry = f"1.1 {self.host.gateway_id}"
-                outbound.headers["Via"] = f"{via}, {entry}" if via else entry
+            self._set_via(outbound)
             attempt = Attempt(
                 self, number=number, outbound=outbound, budget_end=budget_end
             )
@@ -1251,8 +1268,11 @@ class PipelineRun:
         ctx = Context(
             api=self.host.api,
             plugin_id=alternative.plugin,
-            principal=self.principal,
-            params=alternative.params,
+            principal=replace(
+                self.principal,
+                claims=MappingProxyType(copy.deepcopy(dict(self.principal.claims))),
+            ),
+            params=alternative.params.model_copy(deep=True),
             original=self.original,
             deadline=call_deadline,
             state=state,
@@ -1303,7 +1323,9 @@ class PipelineRun:
         except _InvalidOutputError as exc:
             execution.outcome = "invalid_output"
             execution.error = str(exc)
-        except Exception as exc:
+        except (KeyboardInterrupt, GeneratorExit):
+            raise
+        except BaseException as exc:  # e.g., `SystemExit` of a hook
             execution.outcome = "error"
             execution.error = sanitize_error(exc)
             logger.warning(
