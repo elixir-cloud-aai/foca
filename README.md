@@ -55,7 +55,7 @@ lines of tests. Its own code is thus about a fifth of what it would be
 without FOCA, counting code only, and about a third, counting code and tests.
 Even if an app needed only half of FOCA's code, FOCA would still save it about
 4,500 lines, plus their tests and the chart. (Lines of Python without blank lines and comments,
-docstrings included; FOCA 0.17.0 and Cloud Registry in October 2026.)
+docstrings included; FOCA and Cloud Registry in October 2026.)
 
 The savings add up with every app: if you maintain several OpenAPI-based
 apps, they all share the same authentication, access control, configuration,

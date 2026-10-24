@@ -261,24 +261,25 @@ To check that an image was built from this repository by its release
 workflow, use the [GitHub CLI](https://cli.github.com/) or
 [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3 or
 later (which reads the signatures in the Sigstore bundle format), e.g., for
-release 0.17.0:
+release {{ version }}:
 
 ```bash
-gh attestation verify oci://docker.io/elixircloud/foca:0.17.0 \
+gh attestation verify oci://docker.io/elixircloud/foca:{{ version }} \
     --repo elixir-cloud-aai/foca \
     --signer-workflow elixir-cloud-aai/foca/.github/workflows/release.yml \
-    --source-ref refs/tags/v0.17.0
-cosign verify docker.io/elixircloud/foca:0.17.0 \
+    --source-ref refs/tags/v{{ version }}
+cosign verify docker.io/elixircloud/foca:{{ version }} \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --certificate-identity https://github.com/elixir-cloud-aai/foca/.github/workflows/release.yml@refs/tags/v0.17.0
+    --certificate-identity https://github.com/elixir-cloud-aai/foca/.github/workflows/release.yml@refs/tags/v{{ version }}
 ```
 
 Both fail unless the image was signed by that workflow for that tag;
-replace `0.17.0` with the version to verify (and add the Python version, e.g.,
-`0.17.0-py3.12`, for other images than the default 3.13 one). Images
-built from `dev` are signed by `.github/workflows/checks.yml` with the ref
-`refs/heads/dev`; the chart by `.github/workflows/release-chart.yml` with the
-ref `refs/tags/chart-vX.Y.Z`, e.g.:
+replace `{{ version }}` with the version to verify (and add the Python
+version, e.g., `{{ version }}-py3.12`, for other images than the default 3.13
+one). Images built from `dev` are signed by `.github/workflows/checks.yml`
+with the ref `refs/heads/dev`; the chart by
+`.github/workflows/release-chart.yml` with the ref `refs/tags/chart-vX.Y.Z`,
+e.g.:
 
 ```bash
 gh attestation verify oci://ghcr.io/elixir-cloud-aai/charts/foca-common:0.2.0 \
@@ -291,14 +292,14 @@ cosign verify ghcr.io/elixir-cloud-aai/charts/foca-common:0.2.0 \
 ```
 
 Tags can be moved to other images, so deploy the digest that you verified
-(e.g., `elixircloud/foca:0.17.0@sha256:...`; `cosign verify` prints it). To
-read an image's SBOM (the packages it contains) or its provenance (how it was
-built, from which commit), run:
+(e.g., `elixircloud/foca:{{ version }}@sha256:...`; `cosign verify` prints
+it). To read an image's SBOM (the packages it contains) or its provenance
+(how it was built, from which commit), run:
 
 ```bash
-docker buildx imagetools inspect elixircloud/foca:0.17.0 \
+docker buildx imagetools inspect elixircloud/foca:{{ version }} \
     --format '{{ json .SBOM }}'
-docker buildx imagetools inspect elixircloud/foca:0.17.0 \
+docker buildx imagetools inspect elixircloud/foca:{{ version }} \
     --format '{{ json .Provenance }}'
 ```
 
@@ -310,8 +311,8 @@ of the latest release (see [Image scan](contributing.md#image-scan)). The
 repository's code scanning alerts show the findings that have a fix, which the
 maintainers can act on; findings without a fix (often OS packages of the base
 image) appear there once a fix is released. The weekly workflow also keeps a
-full report, those findings included, as a workflow artifact of each run. From
-FOCA 0.17.0 on, the published images (release and `dev` images) are the
+full report, those findings included, as a workflow artifact of each run.
+From FOCA 0.17.0 on, the published images (release and `dev` images) are the
 scanned ones: the workflows push each image by digest, untagged, scan exactly
 that digest, and only if the scan passes (no fixable critical or high
 vulnerabilities, except accepted ones) sign and tag it. Images derived from

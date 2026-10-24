@@ -8,8 +8,17 @@ repo_name: elixir-cloud-aai/foca
 edit_uri: edit/dev/docs/
 copyright: Copyright &copy; ELIXIR On-Cloud
 
-# Files included in pages (see `pymdownx.snippets`)
+# Python hooks of the build (not part of the site, nor their bytecode)
+exclude_docs: |
+  hooks.py
+  __pycache__/
+hooks:
+  - docs/hooks.py
+
+# Files included in pages (see `pymdownx.snippets`), and the source of the
+# release version (see `docs/hooks.py`)
 watch:
+  - CITATION.cff
   - README.md
 
 theme:

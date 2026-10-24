@@ -102,11 +102,11 @@ Gunicorn (see [running in production](deployment.md#running-in-production)).
 
 Images are published for each supported Python version (3.11 to 3.15).
 Images of releases are tagged with the FOCA and Python versions (e.g.,
-`0.18.0-py3.15`); the FOCA version alone (e.g., `0.18.0`) tags the image of
-the default Python version, currently 3.13, and `latest` that of the highest
-stable release (not an alpha, beta or release candidate). Images built from
-the `dev` branch are tagged with their date and the Python version (e.g.,
-`20261019-py3.13`).
+`{{ version }}-py3.12`); the FOCA version alone (e.g., `{{ version }}`) tags
+the image of the default Python version, currently 3.13, and `latest` that
+of the highest stable release (not an alpha, beta or release candidate).
+Images built from the `dev` branch are tagged with their date and the
+Python version (e.g., `20261019-py3.13`).
 
 The default Python version is the newest one in its security-fix phase (cf.
 the [status of Python versions](https://devguide.python.org/versions/));
