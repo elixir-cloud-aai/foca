@@ -90,6 +90,18 @@ versions without Python 3.15 wheels.
   `remove_policy_by_id()`, which the permissions API now uses to delete
   rules, so that their removal is recorded.
 
+### Gunicorn settings
+
+FOCA now has default Gunicorn settings for apps in containers, in the
+module `foca.gunicorn_config` (e.g., `gunicorn --config
+python:foca.gunicorn_config "wsgi:create_app()"`; cf. [running in
+production](deployment.md#running-in-production)). They are opt-in: apps
+that pass their own Gunicorn options are not affected. FOCA does not depend
+on Gunicorn; apps still install it themselves. The petstore example's image
+uses the module, so it now runs one worker with four threads and a
+keep-alive of 100 seconds, unless `GUNICORN_CMD_ARGS` (e.g., from the Helm
+chart) sets other values.
+
 ### Ownership by document field
 
 Apps whose resources are never shared can now store the owner in each

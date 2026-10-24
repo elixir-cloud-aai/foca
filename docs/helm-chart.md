@@ -736,12 +736,16 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
   `security.openshift.io/v1`, the user and group IDs are omitted from the
   security contexts, as OpenShift assigns them.
 - **Gunicorn:** the `<valuesKey>.gunicorn` values are passed to the app's
-  image as `GUNICORN_CMD_ARGS` (see [Running in
-  production](deployment.md#running-in-production)); omit them if the image
-  does not run Gunicorn. Options that the chart or FOCA rely on (`--bind`,
+  image as `GUNICORN_CMD_ARGS`, which take precedence over the settings of
+  the image's command, e.g., FOCA's default settings
+  (`--config python:foca.gunicorn_config`; see [Running in
+  production](deployment.md#running-in-production) for the settings, why
+  they are set, and how to override them); omit them if the image does not
+  run Gunicorn. Options that the chart or FOCA rely on (`--bind`,
   `--preload`, `--graceful-timeout`) are rejected. As the root file system
-  is read-only, start Gunicorn with `--no-control-socket` in the image (as
-  the petstore example does) or via `extraArgs`; otherwise, Gunicorn 25.1
+  is read-only, start Gunicorn without a control socket: FOCA's settings
+  disable it (as in the petstore example); otherwise, pass
+  `--no-control-socket` in the image or via `extraArgs`, as Gunicorn 25.1
   or later logs a control server error at startup.
 
 ## Developing the library chart

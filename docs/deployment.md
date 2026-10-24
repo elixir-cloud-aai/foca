@@ -42,13 +42,20 @@ def create_app():
     return Foca(config_file=config_file).create_app()
 ```
 
+FOCA comes with default Gunicorn settings for containers, in the module
+`foca.gunicorn_config` (a [Gunicorn config
+file](https://gunicorn.org/reference/settings/#config) as a Python module).
+Pass it with `--config`:
+
 ```bash
-gunicorn --bind 0.0.0.0:8080 --workers 4 --no-control-socket "wsgi:create_app()"
+gunicorn --config python:foca.gunicorn_config "wsgi:create_app()"
 ```
 
-The [FOCA image](getting-started.md#docker) does not include a WSGI server;
-install one in your app's image, e.g., from a requirements file that pins
-its version (`gunicorn==X.Y.Z`). The image's working directory is `/app`:
+The [FOCA image](getting-started.md#docker) does not include a WSGI server,
+and FOCA does not depend on Gunicorn; install it in your app's image, e.g.,
+from a requirements file that pins its version (`gunicorn==X.Y.Z`; the
+settings are tested with Gunicorn 26). The image's working directory is
+`/app`:
 
 ```dockerfile title="Dockerfile"
 FROM elixircloud/foca:latest
@@ -57,21 +64,60 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 USER 1000
 COPY ./ /app
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "--no-control-socket", "wsgi:create_app()"]
+CMD ["gunicorn", "--config", "python:foca.gunicorn_config", "wsgi:create_app()"]
 ```
+
+The settings, and why they are set:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| `bind` | `["0.0.0.0:8080"]` | The port of the [Helm chart](helm-chart.md)'s Service and probes; `server.host` and `server.port` apply to the development server only |
+| `worker_class`, `workers`, `threads` | `"gthread"`, `1`, `4` | One process with a few threads, as each worker process loads the whole app (e.g., within the chart's memory limit of 128 MiB) |
+| `timeout` | `30` | Workers whose main loop is blocked for 30 seconds are restarted; requests run in threads, so slow requests do not count |
+| `graceful_timeout` | `20` | Seconds that workers get to finish requests on shutdown (e.g., on `SIGTERM` from Kubernetes); keep it below the pod's termination grace period (30 seconds by default), which the chart derives from it |
+| `keepalive` | `100` | Seconds after which idle keep-alive connections are closed; longer than the idle timeouts of proxies in front of the app (60 seconds for ingress-nginx, 90 seconds for Traefik), which would otherwise reuse connections just as Gunicorn closes them (failing requests with `502`) |
+| `limit_request_line`, `limit_request_fields`, `limit_request_field_size` | `4094`, `100`, `8190` | Size limits of the request line and headers (Gunicorn's defaults, set explicitly); the size of bodies is limited by FOCA (`server.max_content_length`, see below) |
+| `accesslog`, `errorlog` | `None`, `"-"` | No access log, as FOCA logs each request and response; errors go to stderr, like the app's logs |
+| `control_socket_disable` | `True` | No control socket (`gunicornc`, Gunicorn 25.1 or later), which would be created in `$XDG_RUNTIME_DIR` or `$HOME/.gunicorn`, i.e., on the possibly read-only root file system (as in the chart), and log an error at startup if that is not writable |
+| `worker_tmp_dir` | `/dev/shm` if it is a writable directory, else Gunicorn's default | Workers update their heartbeat files often, so they are kept in memory if possible; otherwise in the temporary directory (`TMPDIR` or `/tmp`) |
+
+Deliberately not set:
+
+- **`preload_app`:** do not preload the app (e.g., with Gunicorn's
+  `--preload`): MongoDB clients must not be shared across forked worker
+  processes, so each worker needs to create its own app. Each worker also
+  runs FOCA's startup checks; if they fail, the worker fails to boot and
+  Gunicorn exits.
+- **`forwarded_allow_ips`:** which proxies to trust with `X-Forwarded-*`
+  headers depends on the deployment, so Gunicorn's default applies.
+
+To change settings, either:
+
+- set `GUNICORN_CMD_ARGS` (e.g., `--workers 2 --threads 8`), which takes
+  precedence over the module. The [Helm chart](helm-chart.md#deployment-notes)
+  sets it from the app chart's `gunicorn` values (workers, threads, timeouts
+  and keep-alive), which then apply instead of the module's; or
+- for other defaults of your app, write a config module of your own that
+  imports FOCA's and overrides some names, and pass that one with
+  `--config`:
+
+    ```python title="myapp/gunicorn_config.py"
+    from foca.gunicorn_config import *  # noqa: F403
+
+    threads = 8
+    ```
+
+    ```bash
+    gunicorn --config python:myapp.gunicorn_config "wsgi:create_app()"
+    ```
+
+Apps that pass their own options instead of the module are not affected by
+it.
 
 Things to keep in mind:
 
-- **Do not preload the app** (e.g., Gunicorn's `--preload`): MongoDB
-  clients must not be shared across forked worker processes, so each worker
-  needs to create its own app.
-- **Disable Gunicorn's control socket** (`--no-control-socket`, Gunicorn
-  25.1 or later) unless you use `gunicornc`: Gunicorn creates it in
-  `$XDG_RUNTIME_DIR` or `$HOME/.gunicorn` and logs an error at startup if
-  that is not writable, e.g., on the read-only root file system of the
-  [Helm chart](helm-chart.md).
 - **Settings `server.host` and `server.port` do not apply** to the WSGI
-  server, which binds to the address and port it is given. Keep
+  server, which binds to the address and port it is given (`bind`). Keep
   `server.debug` off in production.
 - **Limit request body sizes**, either via
   [`server.max_content_length`](configuration/server.md) or in the reverse
