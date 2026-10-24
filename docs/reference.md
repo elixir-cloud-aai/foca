@@ -108,15 +108,29 @@ configuration models, see [Configuration](configuration/index.md).
         - PluginHost
         - PipelineRun
         - Attempt
+
+::: foca.plugins.outcomes
+    options:
+      members:
         - NotAccepted
         - OutcomeUnknown
-        - GatewayError
-        - PipelineRejected
-        - PipelineFailed
-        - NoBackendAvailable
-        - ForwardTimeout
-        - LoopDetected
+        - sanitize_error
+
+::: foca.plugins.records
+    options:
+      members:
+        - ResolvedPipeline
+        - ResolvedStep
+        - ResolvedAlternative
+        - Execution
+        - AttemptRecord
+
+::: foca.plugins.checks
+    options:
+      members:
         - default_outbound
+
+::: foca.plugins.errors
 
 ::: foca.plugins.loader
     options:

@@ -46,463 +46,63 @@ Semantics:
 
 import copy
 import logging
-import re
-import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from dataclasses import replace
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from foca.plugins.base import NotApplicable, Rejected
+from foca.plugins.checks import (
+    _check_forward,
+    _check_response,
+    _check_route,
+    _via_names,
+    default_outbound,
+)
 from foca.plugins.config import PluginsConfig, StepConfig
 from foca.plugins.context import Context
+from foca.plugins.errors import (
+    ForwardTimeout,
+    GatewayError,
+    LoopDetected,
+    NoBackendAvailable,
+    PipelineFailed,
+    PipelineRejected,
+)
+from foca.plugins.executor import _Executor
 from foca.plugins.loader import LoadedPlugin, check_legacy_keys, load_plugins
 from foca.plugins.model import (
     Backend,
     BackendResponse,
-    Headers,
     InboundRequest,
     OutboundRequest,
     Principal,
 )
+from foca.plugins.outcomes import (
+    _REASON,
+    NotAccepted,
+    OutcomeUnknown,
+    _AppError,
+    _DeadlineExceededError,
+    _InvalidOutputError,
+    _StepFailedError,
+    sanitize_error,
+)
+from foca.plugins.records import (
+    AttemptOutcome,
+    AttemptRecord,
+    Execution,
+    ResolvedAlternative,
+    ResolvedPipeline,
+    ResolvedStep,
+    _utc_now,
+)
 
 logger = logging.getLogger(__name__)
-
-Outcome = Literal[
-    "ok", "not_applicable", "error", "timeout", "invalid_output", "rejected", "skipped"
-]
-AttemptOutcome = Literal["accepted", "not_accepted", "unknown"]
-
-MAX_ERROR_LENGTH = 500
-"""Maximum length of error messages in records."""
-
-PROBLEM_TYPE_BASE = "https://foca.readthedocs.io/en/latest/plugins/#"
-"""Base of the problem types of gateway errors."""
-
-_REASON = re.compile(r"[a-z0-9_]{1,64}")
-# User info of URLs in error messages, which may hold credentials
-_USER_INFO = re.compile(r"(//)[^/@\s]*@")
-
-
-class NotAccepted(Exception):
-    """The backend certainly did not accept the request; for apps' clients.
-
-    Attributes:
-        reason: Reason code, e.g., `connect_error`, `tls_error`,
-            `not_public`, `no_credentials` or `http_<status>` (4xx, 3xx).
-    """
-
-    def __init__(self, reason: str, message: str = "") -> None:
-        """Create the outcome.
-
-        Args:
-            reason: Reason code (`[a-z0-9_]{1,64}`).
-            message: Description, for logs.
-
-        Raises:
-            ValueError: The reason code is invalid.
-        """
-        if not _REASON.fullmatch(reason):
-            raise ValueError("Reason codes match [a-z0-9_]{1,64}")
-        super().__init__(message or reason)
-        self.reason = reason
-
-
-class OutcomeUnknown(NotAccepted):
-    """The backend may have accepted the request; for apps' clients.
-
-    Raised, e.g., on read timeouts, lost connections after sending, and
-    `5xx` statuses (reasons `read_timeout`, `connection_lost`,
-    `http_<status>`); no other backend is then tried.
-    """
-
-
-class GatewayError(Exception):
-    """Error of a gateway request, with problem details for the client.
-
-    Attributes:
-        code: HTTP status of the response to the client.
-        title: Title of the problem.
-        detail: Description of the problem, for the client.
-        problem_type: URI of the problem type.
-        run: Run of the request, e.g., for provenance; `None` before it
-            started.
-    """
-
-    code = 500
-    title = "Internal Server Error"
-    slug = "gateway-error"
-
-    def __init__(self, detail: str, run: "PipelineRun | None" = None) -> None:
-        """Create the error.
-
-        Args:
-            detail: Description of the problem, for the client.
-            run: Run of the request, if started.
-        """
-        super().__init__(detail)
-        self.detail = detail
-        self.run = run
-        self.problem_type = f"{PROBLEM_TYPE_BASE}{self.slug}"
-
-
-class PipelineRejected(GatewayError):
-    """A plugin rejected the request (cf. :py:class:`foca.plugins.Rejected`)."""
-
-    slug = "rejected"
-
-    def __init__(
-        self, rejection: Rejected, step: str, run: "PipelineRun | None" = None
-    ) -> None:
-        """Create the error.
-
-        Args:
-            rejection: Rejection raised by the plugin.
-            step: Identifier of the step.
-            run: Run of the request.
-        """
-        super().__init__(rejection.detail, run=run)
-        self.code = rejection.status
-        self.title = rejection.title or _phrase(rejection.status)
-        self.step = step
-
-
-class PipelineFailed(GatewayError):
-    """All alternatives of a required step failed."""
-
-    title = "Internal Server Error"
-    slug = "plugin-step-failed"
-
-    def __init__(self, step: str, run: "PipelineRun | None" = None) -> None:
-        """Create the error.
-
-        Args:
-            step: Identifier of the step.
-            run: Run of the request.
-        """
-        super().__init__(f"Plugin step failed: {step}", run=run)
-        self.step = step
-
-
-class NoBackendAvailable(GatewayError):
-    """No backend accepted the request."""
-
-    code = 503
-    title = "Service Unavailable"
-    slug = "no-backend-available"
-
-
-class ForwardTimeout(GatewayError):
-    """The forwarding attempts of the request took too long."""
-
-    code = 503
-    title = "Service Unavailable"
-    slug = "forward-timeout"
-
-
-class LoopDetected(GatewayError):
-    """The request already passed this gateway (`Via` header)."""
-
-    code = 508
-    title = "Loop Detected"
-    slug = "loop-detected"
-
-
-def _phrase(status: int) -> str:
-    """Get the reason phrase of a rejection status.
-
-    Args:
-        status: HTTP status, one of :py:data:`foca.plugins.base.REJECTION_STATUSES`.
-
-    Returns:
-        Reason phrase as per RFC 9110.
-    """
-    return {
-        400: "Bad Request",
-        403: "Forbidden",
-        409: "Conflict",
-        413: "Content Too Large",
-        422: "Unprocessable Content",
-    }[status]
-
-
-def sanitize_error(exc: BaseException) -> str:
-    """Describe an exception for records, without credentials.
-
-    Args:
-        exc: Exception.
-
-    Returns:
-        Type and message, with user info removed from URLs, at most
-        `MAX_ERROR_LENGTH` characters.
-    """
-    message = _USER_INFO.sub(r"\1", f"{type(exc).__name__}: {exc}")
-    return message[:MAX_ERROR_LENGTH]
-
-
-def _utc_now() -> str:
-    """Get the current time for records.
-
-    Returns:
-        RFC 3339 UTC timestamp, with milliseconds.
-    """
-    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-@dataclass(frozen=True)
-class ResolvedAlternative:
-    """Alternative of a resolved pipeline step.
-
-    Attributes:
-        plugin: Identifier of the plugin.
-        params: Validated parameters.
-    """
-
-    plugin: str
-    params: BaseModel
-
-
-@dataclass(frozen=True)
-class ResolvedStep:
-    """Step of a resolved pipeline.
-
-    Attributes:
-        id: Identifier of the step.
-        alternatives: Alternatives with enabled plugins, in order.
-        timeout: Seconds per alternative and call.
-        on_failure: What happens when all alternatives failed.
-        origin: Where the step comes from (e.g., `pipeline`).
-    """
-
-    id: str
-    alternatives: tuple[ResolvedAlternative, ...]
-    timeout: float
-    on_failure: Literal["fail", "skip"]
-    origin: str = "pipeline"
-
-
-@dataclass(frozen=True)
-class ResolvedPipeline:
-    """Pipeline of a request, after resolution.
-
-    Attributes:
-        steps: Steps, in order.
-        source: `default`, `preset` or `client`.
-        preset: Name of the preset, if any.
-    """
-
-    steps: tuple[ResolvedStep, ...]
-    source: Literal["default", "preset", "client"] = "default"
-    preset: str | None = None
-
-    def describe(self) -> list[dict[str, Any]]:
-        """Describe the pipeline as JSON data, e.g., for provenance.
-
-        Returns:
-            Steps with identifiers, alternatives (plugins with all
-            parameters, including defaults), timeouts and failure modes.
-        """
-        return [
-            {
-                "id": step.id,
-                "origin": step.origin,
-                "alternatives": [
-                    {"plugin": alt.plugin, "params": alt.params.model_dump(mode="json")}
-                    for alt in step.alternatives
-                ],
-                "timeout": step.timeout,
-                "on_failure": step.on_failure,
-            }
-            for step in self.steps
-        ]
-
-
-@dataclass
-class Execution:
-    """Record of one call of a plugin hook (or of a skipped step).
-
-    Attributes:
-        step: Identifier of the step.
-        phase: Phase.
-        alternative: Index of the alternative in the step; `-1` for skipped
-            steps.
-        plugin: Identifier of the plugin; `None` for skipped steps.
-        outcome: Outcome of the call.
-        started_at: RFC 3339 UTC time of the call.
-        duration_ms: Duration in milliseconds.
-        attempt: Number of the forwarding attempt (from 1), for the
-            `forward` and `response` phases.
-        error: Sanitized error, if any (cf. :py:func:`sanitize_error`).
-        annotations: Annotations recorded by the plugin.
-        before: Input of the call, for provenance (not serialized).
-        after: Output of a successful call, for provenance (not serialized).
-    """
-
-    step: str
-    phase: str
-    alternative: int
-    plugin: str | None
-    outcome: Outcome
-    started_at: str
-    duration_ms: float
-    attempt: int | None = None
-    error: str | None = None
-    annotations: dict[str, Any] = field(default_factory=dict)
-    before: Any = field(default=None, repr=False)
-    after: Any = field(default=None, repr=False)
-
-
-@dataclass
-class AttemptRecord:
-    """Record of a forwarding attempt.
-
-    Attributes:
-        number: Number of the attempt, from 1.
-        backend: Identifier of the backend.
-        url: Base URL of the backend.
-        outcome: `accepted`, `not_accepted` or `unknown`.
-        reason: Reason code (e.g., `http_403`, `connect_error`), if any.
-        remote_id: Identifier of the resource at the backend, if accepted.
-        started_at: RFC 3339 UTC time of the attempt.
-        duration_ms: Duration in milliseconds.
-    """
-
-    number: int
-    backend: str
-    url: str
-    outcome: AttemptOutcome
-    reason: str | None
-    remote_id: str | None
-    started_at: str
-    duration_ms: float
-
-
-class _DeadlineExceededError(Exception):
-    """A hook did not return in time, or no worker was free."""
-
-
-class _AppError(Exception):
-    """The app's sanitation failed; its exception reaches the caller."""
-
-    def __init__(self, error: Exception) -> None:
-        """Wrap the app's exception.
-
-        Args:
-            error: Exception raised by the app.
-        """
-        super().__init__(str(error))
-        self.error = error
-
-
-class _InvalidOutputError(Exception):
-    """A hook produced invalid output."""
-
-
-class _StepFailedError(Exception):
-    """All alternatives of a step failed."""
-
-    def __init__(self, step: str) -> None:
-        """Create the error.
-
-        Args:
-            step: Identifier of the step.
-        """
-        super().__init__(step)
-        self.step = step
-
-
-class _Executor:
-    """Bounded thread pool for hook calls, abandoning calls at deadlines."""
-
-    def __init__(self, workers: int) -> None:
-        """Create the pool.
-
-        Args:
-            workers: Number of threads.
-        """
-        self._pool = ThreadPoolExecutor(
-            max_workers=workers, thread_name_prefix="foca-plugin"
-        )
-        self._slots = threading.BoundedSemaphore(workers)
-
-    def call(self, function: Callable[[], Any], timeout: float) -> Any:
-        """Call a function in the pool.
-
-        Args:
-            function: Function.
-            timeout: Seconds to wait for the result.
-
-        Returns:
-            Result of the function.
-
-        Raises:
-            _DeadlineExceededError: The timeout passed, or no thread is
-                free; the call is abandoned.
-        """
-        if timeout <= 0:
-            raise _DeadlineExceededError("deadline passed before the call")
-        if not self._slots.acquire(blocking=False):
-            raise _DeadlineExceededError("all plugin workers are busy")
-        try:
-            future = self._pool.submit(function)
-        except BaseException:
-            self._slots.release()
-            raise
-        future.add_done_callback(lambda _: self._slots.release())
-        try:
-            return future.result(timeout=timeout)
-        except TimeoutError:
-            if future.done():
-                raise
-            raise _DeadlineExceededError(f"no result after {timeout:.3f} s") from None
-
-    def shutdown(self) -> None:
-        """Stop the pool, without waiting for running calls."""
-        self._pool.shutdown(wait=False, cancel_futures=True)
-
-
-def _via_names(headers: Mapping[str, str]) -> list[str]:
-    """Get the names of the proxies in a `Via` header.
-
-    Args:
-        headers: Headers.
-
-    Returns:
-        `received-by` names, lowercase (RFC 9110, section 7.6.3).
-    """
-    names = []
-    for entry in headers.get("Via", "").split(","):
-        parts = entry.split()
-        if len(parts) >= 2:
-            names.append(parts[1].lower())
-    return names
-
-
-def default_outbound(backend: Backend, inbound: InboundRequest) -> OutboundRequest:
-    """Build the outbound request of an attempt from the inbound request.
-
-    Args:
-        backend: Backend of the attempt.
-        inbound: Inbound request, after the `request` phase.
-
-    Returns:
-        Request with the method, path, query and a copy of the payload of
-        the inbound request; no headers of the client are forwarded.
-    """
-    return OutboundRequest(
-        backend=backend,
-        method=inbound.method,
-        path=inbound.path,
-        query=copy.deepcopy(inbound.query),
-        headers=Headers(),
-        payload=copy.deepcopy(inbound.payload),
-    )
 
 
 class PluginHost:
@@ -1353,89 +953,6 @@ class PipelineRun:
         """
         execution.duration_ms = round((time.monotonic() - started) * 1000, 3)
         execution.annotations = dict(ctx.annotations)
-
-
-def _check_route(result: Any, candidates: list[Backend]) -> list[Backend]:
-    """Check the output of a `route` hook.
-
-    Args:
-        result: Return value of the hook.
-        candidates: Candidates given to the hook.
-
-    Returns:
-        The candidates returned, as the original objects.
-
-    Raises:
-        TypeError: The result is not a list of backends.
-        ValueError: The result has backends that are not candidates, or
-            duplicates.
-    """
-    if not isinstance(result, list) or not all(isinstance(b, Backend) for b in result):
-        raise TypeError("Route hooks return a list of backends")
-    by_id = {backend.id: backend for backend in candidates}
-    ids = [backend.id for backend in result]
-    if len(set(ids)) != len(ids):
-        raise ValueError("Route hooks must not return backends twice")
-    unknown = [backend_id for backend_id in ids if backend_id not in by_id]
-    if unknown or any(by_id[b.id] != b for b in result):
-        raise ValueError("Route hooks may only return given candidates, unchanged")
-    return [by_id[backend_id] for backend_id in ids]
-
-
-def _check_forward(
-    candidate: OutboundRequest, given: OutboundRequest
-) -> OutboundRequest:
-    """Check the output of a `forward` hook.
-
-    Args:
-        candidate: Outbound request after the hook.
-        given: Outbound request given to the hook.
-
-    Returns:
-        The outbound request.
-
-    Raises:
-        ValueError: The backend was changed, or the method or path is
-            invalid.
-        TypeError: The headers are not :py:class:`foca.plugins.model.Headers`.
-    """
-    if candidate.backend != given.backend:
-        raise ValueError("Forward hooks must not change the backend")
-    if not isinstance(candidate.headers, Headers):
-        raise TypeError("Forward hooks must keep Headers")
-    if not isinstance(candidate.method, str) or not candidate.method.isalpha():
-        raise ValueError("Invalid method")
-    candidate.method = candidate.method.upper()
-    path = candidate.path
-    if not isinstance(path, str) or not path.startswith("/") or path.startswith("//"):
-        raise ValueError("Paths start with a single '/'")
-    if any(char in path for char in "?#\\") or any(ord(char) < 33 for char in path):
-        raise ValueError("Paths must not contain queries, fragments or controls")
-    return candidate
-
-
-def _check_response(
-    candidate: BackendResponse, given: BackendResponse
-) -> BackendResponse:
-    """Check the output of a `response` hook.
-
-    Args:
-        candidate: Response after the hook.
-        given: Response given to the hook.
-
-    Returns:
-        The response.
-
-    Raises:
-        ValueError: The backend's status, headers or payload were changed.
-    """
-    if (
-        candidate.status != given.status
-        or candidate.headers != given.headers
-        or candidate.payload != given.payload
-    ):
-        raise ValueError("Response hooks may only change the client's response")
-    return candidate
 
 
 __all__ = [
