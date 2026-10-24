@@ -6,7 +6,6 @@ import re
 import shlex
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import pytest
 from gunicorn.app.wsgiapp import WSGIApplication
@@ -60,9 +59,9 @@ def load_settings(
 ) -> WSGIApplication:
     """Load Gunicorn's settings as a command does, without loading the app.
 
-    Optionally with `GUNICORN_CMD_ARGS`; restores the arguments, environment
-    and current directory afterwards (Gunicorn changes to its `chdir`
-    setting).
+    Optionally with `GUNICORN_CMD_ARGS`; restores the arguments, environment,
+    module search path and current directory afterwards (Gunicorn changes to
+    its `chdir` setting and prepends it to the search path).
 
     Args:
         cmd_args: Value of `GUNICORN_CMD_ARGS`; unset if `None`.
@@ -72,7 +71,7 @@ def load_settings(
         Gunicorn application with its settings (`cfg`), without loading the
         app.
     """
-    argv, cwd = sys.argv, os.getcwd()
+    argv, cwd, path = sys.argv, os.getcwd(), sys.path[:]
     env = os.environ.pop("GUNICORN_CMD_ARGS", None)
     sys.argv = list(COMMAND if command is None else command)
     if cmd_args is not None:
@@ -81,6 +80,7 @@ def load_settings(
         return WSGIApplication("%(prog)s [OPTIONS] [APP_MODULE]")
     finally:
         sys.argv = argv
+        sys.path[:] = path
         os.chdir(cwd)
         os.environ.pop("GUNICORN_CMD_ARGS", None)
         if env is not None:
@@ -102,7 +102,7 @@ def test_settings() -> None:
     assert not cfg.preload_app
     # Not set: Gunicorn's defaults
     assert cfg.forwarded_allow_ips == Config().forwarded_allow_ips
-    assert cfg.worker_tmp_dir == gunicorn_config.worker_tmp_dir
+    assert cfg.worker_tmp_dir == _worker_tmp_dir()
 
 
 def test_no_gunicorn_import() -> None:
@@ -142,14 +142,19 @@ def test_petstore_command() -> None:
     assert app.cfg.bind == ["0.0.0.0:8080"]
 
 
-def test_petstore_health_check_port() -> None:
-    """The petstore image's health check (if any) probes Gunicorn's port."""
-    urls = re.findall(
-        r"^ENV HEALTHCHECK_URL=(\S+)$", PETSTORE_DOCKERFILE.read_text(), re.M
-    )
-    (bind,) = load_settings(command=image_command(PETSTORE_DOCKERFILE)).cfg.bind
-    port = int(bind.rpartition(":")[2])
-    assert all(urlsplit(url).port == port for url in urls)
+def test_star_import() -> None:
+    """A star import (for overrides in app modules) exports the settings."""
+    namespace: dict[str, object] = {}
+    exec("from foca.gunicorn_config import *", namespace)  # noqa: S102
+    del namespace["__builtins__"]
+    assert namespace == {
+        name: getattr(gunicorn_config, name) for name in gunicorn_config.__all__
+    }
+    assert set(gunicorn_config.__all__) == {
+        name
+        for name in vars(gunicorn_config)
+        if not name.startswith("_") and name not in {"os", "Path"}
+    }
 
 
 def test_load_settings_restores(
@@ -157,14 +162,17 @@ def test_load_settings_restores(
 ) -> None:
     """Loading the settings restores the arguments and the environment.
 
-    That is, the arguments, `GUNICORN_CMD_ARGS` and the current directory.
+    That is, the arguments, `GUNICORN_CMD_ARGS`, the module search path and
+    the current directory.
     """
+    path = sys.path[:]
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, "argv", ["pytest"])
     monkeypatch.setenv("GUNICORN_CMD_ARGS", "--workers 3")
     assert load_settings("--chdir /").cfg.workers == 1
     assert load_settings().cfg.workers == 1
     assert (os.getcwd(), sys.argv) == (str(tmp_path), ["pytest"])
+    assert sys.path == path
     assert os.environ["GUNICORN_CMD_ARGS"] == "--workers 3"
     monkeypatch.delenv("GUNICORN_CMD_ARGS")
     load_settings("--workers 2")

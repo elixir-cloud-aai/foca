@@ -74,8 +74,9 @@ limit_request_line = 4094
 limit_request_fields = 100
 limit_request_field_size = 8190
 
-# Error log to stderr, as for the app's logs; no access log, as FOCA logs
-# each request and response (enable it with `--access-logfile -`)
+# Error log to stderr, as for the app's logs; no access log, as apps log
+# requests themselves if needed (e.g., FOCA logs those of the controllers
+# decorated with `log_traffic`); enable it with `--access-logfile -`
 accesslog = None
 errorlog = "-"
 

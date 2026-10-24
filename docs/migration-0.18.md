@@ -98,9 +98,9 @@ python:foca.gunicorn_config "wsgi:create_app()"`; cf. [running in
 production](deployment.md#running-in-production)). They are opt-in: apps
 that pass their own Gunicorn options are not affected. FOCA does not depend
 on Gunicorn; apps still install it themselves. The petstore example's image
-uses the module, so it now runs one worker with four threads and a
-keep-alive of 100 seconds, unless `GUNICORN_CMD_ARGS` (e.g., from the Helm
-chart) sets other values.
+uses the module: run on its own, it now has one worker with four threads
+and a keep-alive of 100 seconds; with the Helm chart, the chart's `gunicorn`
+values apply as before (via `GUNICORN_CMD_ARGS`).
 
 ### Ownership by document field
 

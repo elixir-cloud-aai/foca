@@ -77,7 +77,7 @@ The settings, and why they are set:
 | `graceful_timeout` | `20` | Seconds that workers get to finish requests on shutdown (e.g., on `SIGTERM` from Kubernetes); keep it below the pod's termination grace period (30 seconds by default), which the chart derives from it |
 | `keepalive` | `100` | Seconds after which idle keep-alive connections are closed; longer than the idle timeouts of proxies in front of the app (60 seconds for ingress-nginx, 90 seconds for Traefik), which would otherwise reuse connections just as Gunicorn closes them (failing requests with `502`) |
 | `limit_request_line`, `limit_request_fields`, `limit_request_field_size` | `4094`, `100`, `8190` | Size limits of the request line and headers (Gunicorn's defaults, set explicitly); the size of bodies is limited by FOCA (`server.max_content_length`, see below) |
-| `accesslog`, `errorlog` | `None`, `"-"` | No access log, as FOCA logs each request and response; errors go to stderr, like the app's logs |
+| `accesslog`, `errorlog` | `None`, `"-"` | No access log, as apps log requests themselves if needed (FOCA logs those of controllers decorated with [`log_traffic`](utilities.md#logging-requests-and-responses)); for a log of all requests, add `--access-logfile -`. Errors go to stderr, like the app's logs |
 | `control_socket_disable` | `True` | No control socket (`gunicornc`, Gunicorn 25.1 or later), which would be created in `$XDG_RUNTIME_DIR` or `$HOME/.gunicorn`, i.e., on the possibly read-only root file system (as in the chart), and log an error at startup if that is not writable |
 | `worker_tmp_dir` | `/dev/shm` if it is a writable directory, else Gunicorn's default | Workers update their heartbeat files often, so they are kept in memory if possible; otherwise in the temporary directory (`TMPDIR` or `/tmp`) |
 
@@ -96,7 +96,9 @@ To change settings, either:
 - set `GUNICORN_CMD_ARGS` (e.g., `--workers 2 --threads 8`), which takes
   precedence over the module. The [Helm chart](helm-chart.md#deployment-notes)
   sets it from the app chart's `gunicorn` values (workers, threads, timeouts
-  and keep-alive), which then apply instead of the module's; or
+  and keep-alive), which then apply instead of the module's; e.g., the
+  petstore chart's keep-alive is 75 seconds (raise it behind Traefik, see
+  [Traefik](helm-chart.md#traefik)); or
 - for other defaults of your app, write a config module of your own that
   imports FOCA's and overrides some names, and pass that one with
   `--config`:
