@@ -16,7 +16,6 @@ from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from foca.config.access import get_collection, get_config
 from foca.security.access_control.constants import (
-    CONFIGURED_FIELD,
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
@@ -333,12 +332,9 @@ def deletePermission(
             that is not active yet), as for getting it.
     """
     _check_not_configured(id)
-    # Not configured rules, also if stored meanwhile
-    if not (
-        _get_permissions_collection()
-        .delete_one({"id": id, CONFIGURED_FIELD: {"$ne": True}})
-        .deleted_count
-    ):
+    # Not configured rules, also if stored meanwhile; via the adapter, which
+    # records the change for the enforcers of all app instances
+    if not current_app.config["casbin_adapter"].remove_policy_by_id(id):
         # E.g., if its generation became active meanwhile
         _check_not_configured(id)
         raise NotFound

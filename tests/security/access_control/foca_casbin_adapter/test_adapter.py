@@ -11,18 +11,24 @@ from casbin import Enforcer, Model
 from casbin.model.policy import Policy
 from pymongo import MongoClient
 from pymongo.collection import Collection
-from pymongo.errors import ConnectionFailure, DuplicateKeyError
+from pymongo.errors import ConnectionFailure, DuplicateKeyError, OperationFailure
 
 from foca.security.access_control.constants import (
+    CHANGES_COLLECTION_SUFFIX,
+    CHANGES_MARKER_ID,
     CONFIGURED_FIELD,
     GENERATION_MARKER_ID,
     ID_ATTEMPTS,
     LOAD_POLICY_ATTEMPTS,
     MARKER_GENERATION_FIELD,
+    MAX_RECORDED_CHANGES,
     RULE_GENERATIONS_FIELD,
 )
 from foca.security.access_control.foca_casbin_adapter import adapter as module
-from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.foca_casbin_adapter.adapter import (
+    MALFORMED_VERSION,
+    Adapter,
+)
 
 # Constants
 DB_NAME = "casbin_test"
@@ -326,9 +332,11 @@ class TestAdapterIdentifiers:
         calls: list[tuple[Any, ...]] = []
 
         def failing_create_index(*args: Any, **kwargs: Any) -> str:
-            calls.append(args)
-            if len(calls) == 1:
-                raise ConnectionFailure("unavailable")
+            # Only the index on identifiers
+            if kwargs.get("unique"):
+                calls.append(args)
+                if len(calls) == 1:
+                    raise ConnectionFailure("unavailable")
             return create_index(*args, **kwargs)
 
         monkeypatch.setattr(
@@ -920,6 +928,12 @@ class _HookedCollection:
 
         return hooked
 
+    def with_options(self, **kwargs: Any) -> "_HookedCollection":
+        """Get the collection with other options, calling the hook, too."""
+        return _HookedCollection(
+            self._delegate.with_options(**kwargs), self._hook, self._names
+        )
+
 
 def _hooked_adapter(
     collection: Collection[dict[str, Any]],
@@ -1254,3 +1268,184 @@ class TestLegacyConfiguredRules:
         assert not adapter.is_configured_rule("g", ["erin", "admin"])
         adapter.set_configured_policies(NEW)
         _check_clean(self.collection, NEW)
+
+
+class TestPolicyChanges:
+    """Tests for the changes of stored rules recorded by the adapter."""
+
+    @pytest.fixture(autouse=True)
+    def _policy_collection(self, policy_collection: Collection[dict[str, Any]]) -> None:
+        self.collection = policy_collection
+        self.adapter = Adapter(collection=policy_collection, model=MODEL_CONF_FILE)
+
+    def test_none_recorded(self) -> None:
+        """Without changes, the version is 0."""
+        changes = self.adapter.get_changes()
+        assert (changes.epoch, changes.version, changes.changes) == (None, 0, ())
+
+    def test_changes_collection(self) -> None:
+        """Changes are recorded next to the policy collection by default."""
+        assert self.adapter.changes_collection.name == (
+            f"{self.collection.name}{CHANGES_COLLECTION_SUFFIX}"
+        )
+        other = self.collection.database["other"]
+        adapter = Adapter(collection=self.collection, changes_collection=other)
+        adapter.add_policy("g", "g", ["a", "b"])
+        assert adapter.changes_collection is other
+        assert other.count_documents({}) == 1
+        assert self.adapter.get_changes().version == 0
+
+    def test_writes_recorded(self) -> None:
+        """Each write records the rules it may have changed."""
+        id = self.adapter.save_policy_line("g", ["a", "b"])
+        self.adapter.save_policy_line("g", ["c", "d"], id=id)
+        self.adapter.remove_policy("g", "g", ["c", "d"])
+        self.adapter.remove_filtered_policy("p", "p", 1, "data1")
+        self.adapter.mark_changed()
+        changes = self.adapter.get_changes()
+        assert changes.epoch is not None
+        assert changes.version == 8
+        assert list(changes.changes) == [
+            {"ptype": "g", "index": 0, "values": ["a", "b"]},
+            # Replacing a rule is recorded before and after
+            {"ptype": "g", "index": 0, "values": ["a", "b"]},
+            {"ptype": "g", "index": 0, "values": ["c", "d"]},
+            {"ptype": "g", "index": 0, "values": ["a", "b"]},
+            {"ptype": "g", "index": 0, "values": ["c", "d"]},
+            {"ptype": "g", "index": 0, "values": ["c", "d"]},
+            {"ptype": "p", "index": 1, "values": ["data1"]},
+            {"ptype": None},
+        ]
+        assert self.adapter.get_changes(with_changes=False).changes == ()
+
+    def test_latest_recorded(self) -> None:
+        """Only the latest changes are kept."""
+        for index in range(MAX_RECORDED_CHANGES + 2):
+            self.adapter.remove_policy("g", "g", ["a", str(index)])
+        changes = self.adapter.get_changes()
+        assert changes.version == MAX_RECORDED_CHANGES + 2
+        assert len(changes.changes) == MAX_RECORDED_CHANGES
+        assert changes.changes[-1]["values"] == ["a", str(MAX_RECORDED_CHANGES + 1)]
+
+    def test_record_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Recording is retried once if the record was created concurrently."""
+        update_one = self.adapter.changes_collection.update_one
+        calls: list[None] = []
+
+        def conflicting_update_one(*args: Any, **kwargs: Any) -> Any:
+            calls.append(None)
+            if len(calls) in (1, 3, 4):
+                raise DuplicateKeyError("created concurrently")
+            return update_one(*args, **kwargs)
+
+        monkeypatch.setattr(
+            self.adapter.changes_collection, "update_one", conflicting_update_one
+        )
+        self.adapter.mark_changed()
+        assert self.adapter.get_changes().version == 1
+        with pytest.raises(DuplicateKeyError):
+            self.adapter.mark_changed()
+
+    def test_filter_indexes(self) -> None:
+        """Indexes for queries by values are created on first change."""
+        self.adapter.mark_changed()
+        keys = [
+            [name for name, _ in index["key"]]
+            for index in self.collection.index_information().values()
+        ]
+        assert ["ptype", "v0", "v1"] in keys
+        assert ["ptype", "v2"] in keys
+
+    def test_filter_index_conflict(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Rules are queried without indexes that cannot be created."""
+        calls: list[None] = []
+
+        def failing_create_index(*args: Any, **kwargs: Any) -> NoReturn:
+            calls.append(None)
+            raise OperationFailure("conflicting index")
+
+        monkeypatch.setattr(self.collection, "create_index", failing_create_index)
+        self.adapter.mark_changed()
+        self.adapter.mark_changed()
+        assert len(calls) == 2
+        assert "could not be created" in caplog.text
+
+    def test_remove_by_id(self) -> None:
+        """Rules are removed by identifier, except configured rules."""
+        id = self.adapter.save_policy_line("g", ["a", "b"])
+        configured = self.adapter.save_policy_line("g", ["c", "d"], configured=True)
+        version = self.adapter.get_changes().version
+        assert self.adapter.remove_policy_by_id(configured) is False
+        assert self.adapter.remove_policy_by_id("unknown") is False
+        assert self.adapter.get_changes().version == version
+        assert self.adapter.remove_policy_by_id(id) is True
+        changes = self.adapter.get_changes()
+        # Recorded before and after removing the rule
+        assert changes.version == version + 2
+        assert changes.changes[-1] == {"ptype": "g", "index": 0, "values": ["a", "b"]}
+        assert self.collection.count_documents({"id": id}) == 0
+
+    def test_malformed_version(self) -> None:
+        """Versions that are not integers are reported as malformed."""
+        self.adapter.mark_changed()
+        self.adapter.changes_collection.update_one(
+            {"_id": CHANGES_MARKER_ID}, {"$set": {"version": "1"}}
+        )
+        assert self.adapter.get_changes().version == MALFORMED_VERSION
+
+    @pytest.mark.parametrize(
+        "remove",
+        [
+            lambda adapter: adapter.remove_policy("g", "g", ["a", "b"]),
+            lambda adapter: adapter.remove_filtered_policy("g", "g", 0, "a"),
+        ],
+    )
+    def test_failed_removal_recorded(
+        self, monkeypatch: pytest.MonkeyPatch, remove: Callable[[Adapter], Any]
+    ) -> None:
+        """Removals are recorded also if they fail, e.g., after some deletes."""
+        version = self.adapter.get_changes().version
+
+        def fail(*args: Any, **kwargs: Any) -> NoReturn:
+            raise RuntimeError("failed")
+
+        monkeypatch.setattr(self.collection, "delete_many", fail)
+        with pytest.raises(RuntimeError, match="failed"):
+            remove(self.adapter)
+        assert self.adapter.get_changes().version == version + 1
+
+    def test_invalid_rule_not_recorded(self) -> None:
+        """Invalid stored rules, which are not loaded, are not recorded."""
+        self.collection.insert_many(
+            [{"id": "invld1", "ptype": 1, "v0": "a"}, {"id": "invld2", "v0": 2}]
+        )
+        assert self.adapter.remove_policy_by_id("invld1") is True
+        self.adapter.save_policy_line("g", ["a", "b"], id="invld2")
+        assert list(self.adapter.get_changes().changes) == [
+            {"ptype": "g", "index": 0, "values": ["a", "b"]}
+        ]
+
+    def test_load_filtered_rules(self) -> None:
+        """Rules in effect matching a filter are loaded."""
+        model = Enforcer(MODEL_CONF_FILE).get_model()
+        self.adapter.save_policy_line("g", ["a", "b"])
+        self.adapter.save_policy_line("g", ["a", "b"])
+        self.adapter.save_policy_line("g", ["a", "c"])
+        self.adapter.save_policy_line("g", ["d", "b"])
+        self.adapter.save_policy_line("p", ["a", "data1", "read"])
+        self.collection.insert_one({"ptype": "g", "v0": "a", "v1": ""})
+        self.adapter.set_configured_policies([["g", "a", "e"]])
+        self.collection.insert_one(
+            {"ptype": "g", "v0": "a", "v1": "f", CONFIGURED_FIELD: True}
+        )
+        assert self.adapter.load_filtered_rules(model, "g", 0, "a") == [
+            ["a", "b"],
+            ["a", "c"],
+            ["a", "e"],
+        ]
+        assert self.adapter.load_filtered_rules(model, "g", 1, "b") == [
+            ["a", "b"],
+            ["d", "b"],
+        ]

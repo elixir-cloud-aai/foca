@@ -33,6 +33,20 @@ LOAD_POLICY_ATTEMPTS = 5
 CONFIGURED_POLICIES_CHECK_TIMEOUT = 5
 # Field ordering role rules stored by `Adapter.replace_role_rule()`
 GRANTED_FIELD = "granted"
+# Suffix of the name of the collection recording changes of stored rules,
+# next to the policy collection (e.g., `policy_rules_changes`), and
+# MongoDB identifier (`_id`) of the document in it that records the
+# changes, so that cached enforcers of all app instances apply them: a
+# version counting the changes (field `CHANGES_VERSION_FIELD`), an
+# identifier of the document, which changes if it is re-created
+# (`CHANGES_EPOCH_FIELD`), and the latest changes (`CHANGES_FIELD`, at
+# most `MAX_RECORDED_CHANGES`)
+CHANGES_COLLECTION_SUFFIX = "_changes"
+CHANGES_MARKER_ID = "policy_changes"
+CHANGES_VERSION_FIELD = "version"
+CHANGES_EPOCH_FIELD = "epoch"
+CHANGES_FIELD = "changes"
+MAX_RECORDED_CHANGES = 100
 
 # Prefix of group claim values used as roles without `group_mapping`
 GROUP_PREFIX = "group:"

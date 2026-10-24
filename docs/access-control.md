@@ -170,6 +170,15 @@ collections are kept. In that case, `collection_name` must differ from the
 names of the app's collections in that database; otherwise, FOCA refuses to
 start.
 
+Next to the policy collection, FOCA keeps a collection
+`<collection_name>_changes` (e.g., `policy_rules_changes`) recording which
+rules changed, so that app instances notice changes without loading all
+rules again (cf. [scaling](#scaling)); it must not be an app collection
+either. Rules and their changes are always read from the primary of a
+replica set, also if the app's connection prefers secondaries
+(`readPreference` in `MONGO_URI`), so that app instances do not keep rules
+older than the changes they read.
+
 ### Configuring the API
 
 FOCA comes with a default API for configuring permission resources, served
@@ -981,9 +990,8 @@ Keep in mind that:
   client.
 * `resource_filter()` lists the identifiers of all resources the caller has
   roles on in the filter, so it suits apps where users have roles on up to a
-  few thousand resources. Like enforcement, each helper call loads all rules
-  (cf. [scaling](#scaling)); `grant_role()` and `revoke_roles()` do so
-  several times per call.
+  few thousand resources. Like enforcement, the helpers use the shared,
+  cached enforcer and indexed lookups (cf. [scaling](#scaling)).
 
 #### Endpoints for managing roles
 
@@ -1229,23 +1237,73 @@ policies are loaded.
 
 ## Scaling
 
-All stored rules are loaded on every enforced request (and for the
-permissions API and self-service), so that changes apply immediately and
-consistently across app instances and workers. Loading takes time linear in
-the number of stored rules, so the cost of each request grows linearly with
-it. As resource-scoped roles add rules per created resource (e.g., one `g2`
-rule for its owner), apps that let users create many resources should
-consider limiting this, e.g., via quotas or rate limits on the endpoints
-creating them.
+Each app instance (i.e., each worker process, e.g., of gunicorn) loads all
+stored rules once, on its first enforced request, and keeps them in one
+Casbin enforcer, which the threads of the instance share. Before each use of
+the enforcer (e.g., for each enforced request, the permissions API,
+self-service and the [resource ownership](#resource-ownership) helpers), the
+instance checks whether stored rules changed, with one small read of a
+document recording the changes, in collection `<collection_name>_changes`
+next to the policy collection (e.g., `policy_rules_changes`). If rules
+changed, only the changed ones are read again and applied. So requests cost
+about the same with many rules as with few. For example, with 100,000 `g2`
+rules (two per resource), an enforced request took about 1.3 ms instead of
+about 2.5 s with FOCA 0.17, and the first request of an instance about 2 s
+(cf. [#450](https://github.com/elixir-cloud-aai/foca/issues/450)).
 
-The [resource ownership](#resource-ownership) helpers load all rules on each
-call too, and those changing roles load them again after the change, to
-notice concurrent changes (e.g., owners removing each other, or the resource
-being deleted meanwhile). So each request to the [endpoints for managing
-roles](#endpoints-for-managing-roles) loads all rules several times,
-including the enforcement of the request (more often for `PUT` and `DELETE`
-than for `GET`), which matters more than for other operations once there are
-many rules.
+Every write of FOCA's Casbin adapter records which rules it may have changed:
+FOCA's [resource role helpers](#resource-scoped-roles), the [resource
+ownership](#resource-ownership) helpers, the permissions API, [configured
+policies](#configuring-policies) on startup, and rules changed via the
+enforcer (e.g., `add_policy()`). A rule granted or revoked this way applies
+from the next request of every app instance, whether it handles the
+request in the same worker or in another one, and in the same replica or in
+another one: the change is recorded before the write returns, and each
+instance reads the record before it next uses its enforcer. Revocations take
+effect as reliably as grants.
+
+The trade-offs:
+
+- **Rules changed in the database directly** (e.g., with `mongosh`) are not
+  noticed by running app instances until a change is recorded. After such
+  changes, call `mark_changed()` on the app's adapter
+  (`current_app.config["casbin_adapter"]`), or restart the app. All rules are
+  then loaded again on the next request of each instance.
+- **If recording a change fails** (e.g., as MongoDB became unavailable after
+  the rule was written), the write raises an error, and other app instances
+  do not notice the change until another change is recorded for the same
+  rules or all rules are loaded again. Retrying the write (e.g., revoking
+  the role again) records the change. Rules removed or replaced by
+  identifier (e.g., via the permissions API), which a retry would not find
+  anymore, are recorded both before and after the write; only instances
+  that check for changes during the write may then miss it. If in doubt,
+  call `mark_changed()` (see below).
+- **Some changes require all rules to be loaded again**: more than 100
+  changes since the instance last checked, replacing more than 100
+  configured rules, `save_policy()`, `mark_changed()`, the first change
+  recorded after an instance loaded its rules, removing rules by
+  filter with empty values (e.g., `remove_filtered_policy()`, as Casbin
+  matches them as wildcards in memory only), and models whose
+  rules Casbin sorts (with priorities or subject hierarchies) or with
+  conditional roles. Loading all rules takes time linear in their number
+  (about 2 s for 100,000 rules), during which requests of the instance wait.
+- **Requests of an instance share one enforcer**, which is used while
+  holding a lock, so that it is not updated while in use. Use
+  `locked_enforcer()` (in `foca.security.access_control.enforcement`) to
+  use the enforcer in your own code, e.g., to check roles; `get_enforcer()`
+  returns the same shared enforcer without the lock, which is only safe if
+  the app serves requests in a single thread. Do not change the enforcer's
+  rules other than via its methods that also store them (e.g.,
+  `add_policy()`), which record the changes. Updating rules (e.g., via
+  `update_policy()`) and removing several rules at once (e.g., via
+  `remove_policies()`) are not supported by FOCA's adapter and raise an
+  error; remove and add rules one by one instead.
+
+Each stored rule still takes memory in each app instance (e.g., about
+55 MB for 100,000 `g2` rules). As resource-scoped roles add rules per
+created resource (e.g., one `g2` rule for its owner), apps that let users
+create many resources should consider limiting this, e.g., via quotas or
+rate limits on the endpoints creating them.
 
 ## Exploring the API
 

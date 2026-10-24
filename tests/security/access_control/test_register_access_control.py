@@ -164,7 +164,12 @@ def test_check_collection_clash(
         monkeypatch.setenv("MONGO_DBNAME", dbname_env)
     mongo_config = MongoConfig(
         dbs={
-            "app_db": DBConfig(collections={"policy_rules": CollectionConfig()}),
+            "app_db": DBConfig(
+                collections={
+                    "policy_rules": CollectionConfig(),
+                    "audit_changes": CollectionConfig(),
+                }
+            ),
             "other_db": DBConfig(collections=None),
         }
     )
@@ -174,6 +179,12 @@ def test_check_collection_clash(
     else:
         _check_collection_clash(mongo_config, db_name, "policy_rules")
     _check_collection_clash(mongo_config, db_name, "other")
+    # Changes of rules are recorded in collection `<collection_name>_changes`
+    if clashes:
+        with pytest.raises(ValueError, match="audit_changes"):
+            _check_collection_clash(mongo_config, db_name, "audit")
+    else:
+        _check_collection_clash(mongo_config, db_name, "audit")
 
 
 class TestRegisterAccessControlSetup:
