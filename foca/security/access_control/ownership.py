@@ -939,7 +939,8 @@ def set_owner_field(
             :py:func:`add_owner`).
 
     Returns:
-        The owner, as set in the document: the issuer (`iss`) of the token
+        The owner, as set in the document (a copy): the issuer (`iss`) of the
+        token
         of the current request, and the type (`type`, `user` or `client`)
         and identifier (`sub`) of the subject the request is attributed to,
         as for :py:func:`add_owner`: the user that an allowed service client
@@ -960,7 +961,8 @@ def set_owner_field(
     owner = _get_owner(on_behalf_of)
     if owner is None:
         raise _unidentified()
-    document[field] = owner
+    # A copy, so that changing the returned owner does not change the document
+    document[field] = dict(owner)
     return owner
 
 
@@ -984,7 +986,8 @@ def owner_filter(
         :py:func:`is_admin`); for service clients, this is the client's own
         status, also when it acts for a user, whose admin rights do not
         apply. Otherwise, a filter for the documents whose owner is the
-        subject the request is attributed to (cf. :py:func:`set_owner_field`),
+        subject the request is attributed to (cf. :py:func:`set_owner_field`,
+        also on the issuer of users that service clients act for),
         or, if there is none (e.g., without token), for no documents (e.g.,
         `{"owner": {"$in": []}}`).
 
@@ -1002,4 +1005,8 @@ def owner_filter(
         return {}
     if owner is None:
         return {field: {"$in": []}}
-    return {f"{field}.{key}": value for key, value in owner.items()}
+    return {
+        f"{field}.iss": owner["iss"],
+        f"{field}.type": owner["type"],
+        f"{field}.sub": owner["sub"],
+    }

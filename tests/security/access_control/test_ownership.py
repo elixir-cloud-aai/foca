@@ -892,6 +892,8 @@ class TestOwnerField:
             assert set_owner_field(document, field="creator") == owner
         assert owner == {"iss": ISSUER, "type": "user", "sub": "alice"}
         assert document == {"id": "1", "owner": owner, "creator": owner}
+        owner["sub"] = "bob"
+        assert document["owner"]["sub"] == "alice"
 
     def test_no_policy_rules(self, app: Flask) -> None:
         """Owners by field get no roles."""
@@ -918,6 +920,18 @@ class TestOwnerField:
             assert set_owner_field({}, on_behalf_of="alice") == alice
         with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
             assert set_owner_field({}) == alice
+
+    def test_client_by_client_id(self) -> None:
+        """Service clients are identified by client ID, not by subject."""
+        app = _create_app()
+        app.config.foca.security.auth.service_clients[1].subject = "account-1"  # type: ignore[attr-defined]  # dynamic attribute
+        with as_caller(app, {**PROTES, "sub": "account-1"}):
+            assert set_owner_field({}) == {
+                "iss": ISSUER,
+                "type": "client",
+                "sub": "protes",
+            }
+            assert owner_filter()["owner.sub"] == "protes"
 
     @pytest.mark.parametrize("claims", [None, NO_SUBJECT, {"sub": "alice"}])
     def test_unidentified(self, app: Flask, claims: dict[str, Any] | None) -> None:
@@ -1032,7 +1046,11 @@ class TestOwnerField:
         with as_caller(app, DAVE):
             assert owner_filter() == {}
         with as_caller(app, CONQUEST, headers={HEADER: "dave"}):
-            assert owner_filter()["owner.sub"] == "dave"
+            assert owner_filter() == {
+                "owner.iss": ISSUER,
+                "owner.type": "user",
+                "owner.sub": "dave",
+            }
 
     def test_filter_not_allowed_on_behalf_of(self, app: Flask) -> None:
         """Other callers cannot name users to list documents for."""
