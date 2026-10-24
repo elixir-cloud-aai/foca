@@ -54,7 +54,7 @@ version: 0.1.0
 appVersion: "1.0.0"
 dependencies:
   - name: foca-common
-    version: 0.2.0
+    version: {{ chart_version }}
     repository: oci://ghcr.io/elixir-cloud-aai/charts
 ```
 

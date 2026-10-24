@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -133,3 +134,113 @@ def test_docs_use_placeholder() -> None:
     deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
     assert "elixircloud/foca:{{ version }}" in deployment
     assert f"elixircloud/foca:{_version()}" in _render(deployment)
+
+
+def _chart_version() -> str:
+    """Return the version of the library chart.
+
+    Returns:
+        The `version` of `charts/foca-common/Chart.yaml`.
+    """
+    chart = yaml.safe_load((ROOT / hooks.CHART).read_text(encoding="utf-8"))
+    version = chart["version"]
+    assert isinstance(version, str)
+    return version
+
+
+def test_on_page_markdown_chart_version() -> None:
+    """The chart placeholder is the chart's version, also in code blocks."""
+    version = _chart_version()
+    markdown = _render(
+        "Chart {{ chart_version }}.\n\n```yaml\nversion: {{ chart_version }}\n```\n"
+        "{{chart_version}} {{ .Chart.Version }}\n"
+    )
+    assert markdown == (
+        f"Chart {version}.\n\n```yaml\nversion: {version}\n```\n"
+        "{{chart_version}} {{ .Chart.Version }}\n"
+    )
+
+
+def test_on_page_markdown_both_versions(tmp_path: Path) -> None:
+    """Both placeholders are replaced, each from its own file.
+
+    Args:
+        tmp_path: Directory of the docs settings, the citation file and the
+            chart.
+    """
+    (tmp_path / "CITATION.cff").write_text('version: "1.2.3"\n', encoding="utf-8")
+    chart = tmp_path / hooks.CHART
+    chart.parent.mkdir(parents=True)
+    chart.write_text("name: foca-common\nversion: 0.4.5\n", encoding="utf-8")
+    assert _render("{{ version }} {{ chart_version }}", tmp_path) == "1.2.3 0.4.5"
+
+
+def test_on_page_markdown_chart_only(tmp_path: Path) -> None:
+    """Pages with the chart placeholder only need no citation file.
+
+    Args:
+        tmp_path: Directory of the docs settings and the chart, without a
+            citation file.
+    """
+    chart = tmp_path / hooks.CHART
+    chart.parent.mkdir(parents=True)
+    chart.write_text("version: 10.0.1\n", encoding="utf-8")
+    assert _render("foca-common:{{ chart_version }}", tmp_path) == (
+        "foca-common:10.0.1"
+    )
+
+
+@pytest.mark.parametrize(
+    "chart",
+    [
+        "version: 0.2.0\n",
+        'version: "1.0.0"\n',
+        "name: foca-common\nversion: 12.34.56\n",
+    ],
+)
+def test_chart_version(chart: str) -> None:
+    """The chart version is the final version of `Chart.yaml`.
+
+    Args:
+        chart: Content of `Chart.yaml`.
+    """
+    assert hooks.chart_version(chart) == yaml.safe_load(chart)["version"]
+
+
+@pytest.mark.parametrize(
+    "chart",
+    [
+        "name: foca-common\n",
+        "version: 1.0\n",
+        "version: 1.2.3-rc.1\n",
+        "version: 01.2.3\n",
+        "version: v1.2.3\n",
+        "- version: 1.2.3\n",
+        "",
+    ],
+)
+def test_chart_version_invalid(chart: str) -> None:
+    """Charts without a final version fail the build.
+
+    Args:
+        chart: Content of `Chart.yaml`.
+    """
+    with pytest.raises(ValueError, match="is not a final version"):
+        hooks.chart_version(chart)
+
+
+def test_substitute_chart_version() -> None:
+    """The chart placeholder is replaced with the chart version."""
+    assert hooks.substitute_chart_version(
+        "a {{ chart_version }} b {{ chart_version }} {{ version }}", "1.2.3"
+    ) == ("a 1.2.3 b 1.2.3 {{ version }}")
+
+
+def test_docs_use_chart_placeholder() -> None:
+    """The docs take the current chart version from the placeholder."""
+    helm_chart = (ROOT / "docs/helm-chart.md").read_text(encoding="utf-8")
+    assert "    version: {{ chart_version }}\n" in helm_chart
+    assert f"    version: {_chart_version()}\n" in _render(helm_chart)
+    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+    assert "charts/foca-common:{{ chart_version }}" in deployment
+    assert f"charts/foca-common:{_chart_version()}" in _render(deployment)

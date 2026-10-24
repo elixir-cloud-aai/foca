@@ -255,7 +255,18 @@ changelog, the migration guides (`docs/migration-*.md`), the tests of the
 release tooling, links to the notes and assets of a release, "Migrating to
 X" links and headings, and statements like "From FOCA X on", which are about
 that release itself; versions of tools (the `rev` of pre-commit hooks and
-the comments of pinned actions) are not checked.
+the comments of pinned actions) are not checked. The version of the [Helm
+library chart](helm-chart.md#releases), versioned independently of FOCA,
+has one source too, the `version` of `charts/foca-common/Chart.yaml`: the
+docs write it as `chart_version` in double curly braces with a space inside
+each pair (`CHART_VARIABLE` in `docs/hooks.py`), and the same test fails if
+it is mentioned as the chart's version (e.g., `foca-common:X.Y.Z`, the tag
+`chart-vX.Y.Z`, or a dependency's `version: X.Y.Z`) anywhere else than in
+`Chart.yaml`, the example app's chart (`examples/petstore/chart/`), the
+changelog, the migration guides and statements of what applies before,
+since or up to a chart release. On `dev`, the docs may thus show a chart
+version that is not released yet, once the chart changed since its latest
+release.
 
 Features and fixes are merged into `dev`. Branch `main` only ever moves
 forward to commits on `dev` that are released. First, shortly before the
