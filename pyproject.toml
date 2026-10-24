@@ -53,6 +53,7 @@ dependencies = [
     "Flask-Cors>=6.0.5,<7",
     "idna>=3.15,<4",  # foca/utils/urls.py; 3.15 fixes CVE-2026-45409
     "jsonschema>=4.17.3,<5",
+    "packaging>=23",  # foca/plugins: version pins of plugins
     "pycasbin>=2.8,<2.9",  # uses Casbin internals (_append_rule, _update_policy, DomainManager)
     "pydantic>=2.7,<3; python_version < '3.15'",
     # Older versions need pydantic-core versions without Python 3.15 wheels

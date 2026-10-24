@@ -82,6 +82,48 @@ configuration models, see [Configuration](configuration/index.md).
         - validate_rule
         - validate_rule_value
 
+## Gateway plugins
+
+::: foca.plugins.base
+    options:
+      members:
+        - Plugin
+        - NotApplicable
+        - Rejected
+        - PluginError
+        - API_VERSION
+        - PHASES
+
+::: foca.plugins.model
+
+::: foca.plugins.context
+    options:
+      members:
+        - Context
+
+::: foca.plugins.engine
+    options:
+      members:
+        - PluginHost
+        - PipelineRun
+        - Attempt
+        - GatewayError
+        - PipelineRejected
+        - PipelineFailed
+        - NoBackendAvailable
+        - ForwardTimeout
+        - LoopDetected
+        - default_outbound
+
+::: foca.plugins.loader
+    options:
+      members:
+        - load_plugins
+        - check_legacy_keys
+        - LoadedPlugin
+
+::: foca.plugins.adapter
+
 ## Errors
 
 ::: foca.errors.exceptions
