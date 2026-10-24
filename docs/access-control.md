@@ -1364,11 +1364,9 @@ The trade-offs:
 - **Requests of an instance share one enforcer**, which is used while
   holding a lock, so that it is not updated while in use. Use
   `locked_enforcer()` (in `foca.security.access_control.enforcement`) to
-  use the enforcer in your own code, e.g., to check roles; `get_enforcer()`
-  returns the same shared enforcer without the lock, which is only safe if
-  the app serves requests in a single thread. Do not change the enforcer's
-  rules other than via its methods that also store them (e.g.,
-  `add_policy()`), which record the changes. Updating rules (e.g., via
+  use the enforcer in your own code, e.g., to check roles. Do not change
+  the enforcer's rules other than via its methods that also store them
+  (e.g., `add_policy()`), which record the changes. Updating rules (e.g., via
   `update_policy()`) and removing several rules at once (e.g., via
   `remove_policies()`) are not supported by FOCA's adapter and raise an
   error; remove and add rules one by one instead.

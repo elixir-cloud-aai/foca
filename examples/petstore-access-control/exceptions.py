@@ -18,6 +18,9 @@ from werkzeug.exceptions import (
     NotFound,
 )
 
+# Problem details of bad requests; responses to requests rejected by
+# Connexion's validation get the reason as `detail` instead
+# (`exceptions.validation_details`, on by default)
 BAD_REQUEST = {
     "title": "Bad Request",
     "status": 400,

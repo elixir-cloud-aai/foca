@@ -39,7 +39,6 @@ configuration models, see [Configuration](configuration/index.md).
         - get_current_client
         - get_on_behalf_of_user
         - locked_enforcer
-        - get_enforcer
         - add_resource_role
         - remove_resource_role
         - list_resource_roles

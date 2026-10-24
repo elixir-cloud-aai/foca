@@ -400,29 +400,6 @@ def locked_enforcer() -> Iterator[Enforcer]:
         yield enforcer
 
 
-def get_enforcer() -> Enforcer:
-    """Get the Casbin enforcer of the app, with current policies.
-
-    The enforcer is shared by the threads of the app instance and updated
-    when stored rules change (cf. :py:func:`locked_enforcer`).
-
-    Warning:
-        The enforcer is returned without holding its lock, so another
-        thread may update it while it is used. Unless the app serves
-        requests in a single thread, use :py:func:`locked_enforcer`
-        instead (e.g., with gunicorn's `--threads`).
-
-    Returns:
-        Casbin enforcer for the app's model with the policies stored in the
-        app's access control database.
-
-    Raises:
-        pymongo.errors.PyMongoError: The stored rules could not be read.
-    """
-    with locked_enforcer() as enforcer:
-        return enforcer
-
-
 def enforce_access_control(fn: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator enforcing access control policies on a controller.
 

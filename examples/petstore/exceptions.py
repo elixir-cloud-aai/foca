@@ -12,6 +12,8 @@ exceptions = {
         "status": 500,
         "detail": "Oops, something unexpected happened.",
     },
+    # Responses to requests rejected by Connexion's validation get the reason
+    # as `detail` instead (`exceptions.validation_details`, on by default)
     BadRequestProblem: {
         "title": "Bad Request",
         "status": 400,

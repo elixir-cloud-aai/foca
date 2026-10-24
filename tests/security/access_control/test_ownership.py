@@ -42,7 +42,7 @@ from foca.security.access_control.constants import (
     DEFAULT_MODEL_FILE,
     RESOURCE_ROLE_MODEL_FILE,
 )
-from foca.security.access_control.enforcement import get_enforcer
+from foca.security.access_control.enforcement import locked_enforcer
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
 ISSUER = "https://login.example.org/oidc/"
@@ -221,8 +221,8 @@ class TestIsAdmin:
 
     def test_g_rule(self, app: Flask) -> None:
         """Users may be made admins via `g` rules."""
-        with app.app_context():
-            get_enforcer().add_grouping_policy("user:dave", "admin")
+        with app.app_context(), locked_enforcer() as enforcer:
+            enforcer.add_grouping_policy("user:dave", "admin")
         with as_caller(app, DAVE):
             assert is_admin()
 
@@ -234,9 +234,9 @@ class TestIsAdmin:
 
     def test_transitive(self, app: Flask) -> None:
         """Roles inheriting the admin role are admins."""
-        with app.app_context():
-            get_enforcer().add_grouping_policy("superusers", "admin")
-            get_enforcer().add_grouping_policy("group:devs", "superusers")
+        with app.app_context(), locked_enforcer() as enforcer:
+            enforcer.add_grouping_policy("superusers", "admin")
+            enforcer.add_grouping_policy("group:devs", "superusers")
         with as_caller(app, ALICE):
             assert is_admin()
 
@@ -368,7 +368,8 @@ class TestListRoles:
     def test_other_rules_ignored(self, app: Flask) -> None:
         """Rules of subjects of other types are not listed."""
         with as_caller(app, CAROL):
-            get_enforcer().add_named_grouping_policy("g2", "admin", "owner", TASK)
+            with locked_enforcer() as enforcer:
+                enforcer.add_named_grouping_policy("g2", "admin", "owner", TASK)
             assert list_roles(TASK) == []
 
 
@@ -852,8 +853,8 @@ class TestResourceFilter:
     def test_on_behalf_of_admin(self, app: Flask) -> None:
         """Users' admin rights do not apply to clients acting for them."""
         # Admin via a `g` rule, as service tokens carry no groups of users
-        with app.app_context():
-            get_enforcer().add_grouping_policy("user:dave", "admin")
+        with app.app_context(), locked_enforcer() as enforcer:
+            enforcer.add_grouping_policy("user:dave", "admin")
         with as_caller(app, DAVE):
             assert resource_filter("/tasks") == {}
         with as_caller(app, CONQUEST, headers={HEADER: "dave"}):
@@ -1041,8 +1042,8 @@ class TestOwnerField:
 
     def test_filter_on_behalf_of_admin(self, app: Flask) -> None:
         """Users' admin rights do not apply to clients acting for them."""
-        with app.app_context():
-            get_enforcer().add_grouping_policy("user:dave", "admin")
+        with app.app_context(), locked_enforcer() as enforcer:
+            enforcer.add_grouping_policy("user:dave", "admin")
         with as_caller(app, DAVE):
             assert owner_filter() == {}
         with as_caller(app, CONQUEST, headers={HEADER: "dave"}):

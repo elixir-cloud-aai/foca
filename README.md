@@ -9,6 +9,7 @@
 [![GitHub_tag][badge-github-tag]][badge-url-github-tag]
 [![Docker_image][badge-docker]][badge-url-docker]
 [![PyPI_release][badge-pypi]][badge-url-pypi]
+[![DOI][badge-doi]][badge-url-doi]
 
 <!-- --8<-- [start:synopsis] -->
 An archetype for [OpenAPI](https://www.openapis.org/)-based web services in
@@ -111,6 +112,18 @@ if __name__ == "__main__":
 See [Getting started][docs-getting-started] for a step-by-step guide and the
 Docker image, and the [Petstore example app][example] to see FOCA in action.
 
+## Citation
+
+<!-- --8<-- [start:citation] -->
+If you use FOCA, please cite it with its DOI
+[10.5281/zenodo.23603534](https://doi.org/10.5281/zenodo.23603534), which
+always resolves to the latest version on [Zenodo](https://zenodo.org/); the
+Zenodo record lists the DOI of each version, too. The citation metadata is in
+[`CITATION.cff`](https://github.com/elixir-cloud-aai/foca/blob/dev/CITATION.cff):
+on GitHub, "Cite this repository" in the sidebar of the repository formats it
+as APA or BibTeX.
+<!-- --8<-- [end:citation] -->
+
 ## Contributing
 
 Contributions are welcome! See [`CONTRIBUTING.md`][contributing] and
@@ -120,13 +133,15 @@ conduct][code-of-conduct].
 [badge-build-status]: <https://github.com/elixir-cloud-aai/foca/actions/workflows/checks.yml/badge.svg>
 [badge-coverage]: <https://codecov.io/gh/elixir-cloud-aai/foca/branch/dev/graph/badge.svg?branch=dev>
 [badge-docker]: <https://img.shields.io/docker/v/elixircloud/foca?sort=semver&label=image&color=C39BD3>
-[badge-docs]: <https://readthedocs.org/projects/foca/badge/>
+[badge-doi]: <https://zenodo.org/badge/DOI/10.5281/zenodo.23603534.svg>
+[badge-docs]: <https://app.readthedocs.org/projects/foca/badge/>
 [badge-github-tag]: <https://img.shields.io/github/v/tag/elixir-cloud-aai/foca?color=C39BD3>
 [badge-license]: <https://img.shields.io/badge/license-Apache%202.0-blue.svg>
 [badge-pypi]: <https://img.shields.io/pypi/v/foca?color=C39BD3>
 [badge-url-build-status]: <https://github.com/elixir-cloud-aai/foca/actions/workflows/checks.yml>
 [badge-url-coverage]: <https://codecov.io/gh/elixir-cloud-aai/foca?branch=dev>
 [badge-url-docker]: <https://hub.docker.com/r/elixircloud/foca/tags>
+[badge-url-doi]: <https://doi.org/10.5281/zenodo.23603534>
 [badge-url-docs]: <https://foca.readthedocs.io/en/latest/>
 [badge-url-github-tag]: <https://github.com/elixir-cloud-aai/foca/releases>
 [badge-url-license]: <https://www.apache.org/licenses/LICENSE-2.0>
