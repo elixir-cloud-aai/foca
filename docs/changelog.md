@@ -3,6 +3,7 @@
 Changes of each release are listed in the
 [release notes on GitHub](https://github.com/elixir-cloud-aai/foca/releases).
 Breaking changes and how to adapt apps to them are described in
+[Migrating to 0.18.0](migration-0.18.md),
 [Migrating to 0.17.0](migration-0.17.md),
 [Migrating to 0.16.0](migration-0.16.md),
 [Migrating to 0.15.0](migration-0.15.md) and
