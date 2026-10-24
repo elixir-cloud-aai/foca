@@ -125,10 +125,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         mongodb-version: ["7.0"]
+        # MongoDB 8.0 with the Python version of the default image and the
+        # newest supported one
         include:
           - python-version: "3.13"
+            mongodb-version: "8.0"
+          - python-version: "3.15"
             mongodb-version: "8.0"
     steps:
       # All following steps of this job, except the Codecov upload (MongoDB
@@ -229,12 +233,19 @@ jobs:
       - name: Run unit tests
         run: pytest
 
+  # The petstore app is built from the FOCA image of the Python version of
+  # the default image and of the newest supported one; the tests themselves
+  # run on the runner, with the Python version of the other jobs
   integration:
-    name: Integration tests (petstore)
+    name: Integration tests (petstore, Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.15"]
     env:
-      PETSTORE_PY_IMAGE: 3.13-slim-trixie
+      PETSTORE_PY_IMAGE: ${{ matrix.python-version }}-slim-trixie
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -300,7 +311,7 @@ jobs:
       # Without all images, nothing is published
       fail-fast: true
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -374,7 +385,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -437,6 +448,17 @@ jobs:
       - name: Check that all unit test jobs passed
         run: test "${{ needs.test.result }}" = "success"
 
+  integration-passed:
+    name: Integration tests (petstore)
+    if: always()
+    needs: [integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check that all integration test jobs passed
+        run: test "${{ needs.integration.result }}" = "success"
+
   scan-passed:
     name: Scan images
     if: always()
@@ -466,7 +488,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - name: Download image digest
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
