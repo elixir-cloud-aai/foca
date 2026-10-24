@@ -35,7 +35,6 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.enforcement import (
     _get_role_rules,
-    get_enforcer,
     locked_enforcer,
 )
 from foca.security.access_control.enforcer_cache import (
@@ -1016,14 +1015,12 @@ class TestAppEnforcer:
 
     def test_shared(self) -> None:
         """Requests of an app instance share its enforcer."""
-        with _as_caller(self.app, "alice"):
-            enforcer = get_enforcer()
-            with locked_enforcer() as locked:
-                assert locked is enforcer
-        with _as_caller(self.app, "bob"):
-            assert get_enforcer() is enforcer
-        with _as_caller(self.other_app, "alice"):
-            assert get_enforcer() is not enforcer
+        with _as_caller(self.app, "alice"), locked_enforcer() as enforcer:
+            assert enforcer.has_policy("owner", "/tasks/:id", "GET")
+        with _as_caller(self.app, "bob"), locked_enforcer() as shared:
+            assert shared is enforcer
+        with _as_caller(self.other_app, "alice"), locked_enforcer() as other:
+            assert other is not enforcer
 
     def test_locked(self) -> None:
         """Other threads wait while the enforcer is used."""
@@ -1042,9 +1039,11 @@ class TestAppEnforcer:
     ) -> None:
         """The enforcer is created again if the app's adapter changes."""
         with _as_caller(self.app, "alice"):
-            enforcer = get_enforcer()
+            with locked_enforcer() as enforcer:
+                assert enforcer.has_policy("owner", "/tasks/:id", "GET")
             self.app.config["casbin_adapter"] = Adapter(collection=collection)
-            assert get_enforcer() is not enforcer
+            with locked_enforcer() as recreated:
+                assert recreated is not enforcer
 
     def test_grants_and_revocations_across_instances(self) -> None:
         """Grants and revocations apply to the next request of any instance."""
