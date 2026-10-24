@@ -1294,9 +1294,12 @@ class TestPolicyChanges:
         self.adapter.mark_changed()
         changes = self.adapter.get_changes()
         assert changes.epoch is not None
-        assert changes.version == 6
+        assert changes.version == 8
         assert list(changes.changes) == [
             {"ptype": "g", "index": 0, "values": ["a", "b"]},
+            # Replacing a rule is recorded before and after
+            {"ptype": "g", "index": 0, "values": ["a", "b"]},
+            {"ptype": "g", "index": 0, "values": ["c", "d"]},
             {"ptype": "g", "index": 0, "values": ["a", "b"]},
             {"ptype": "g", "index": 0, "values": ["c", "d"]},
             {"ptype": "g", "index": 0, "values": ["c", "d"]},
@@ -1369,7 +1372,8 @@ class TestPolicyChanges:
         assert self.adapter.get_changes().version == version
         assert self.adapter.remove_policy_by_id(id) is True
         changes = self.adapter.get_changes()
-        assert changes.version == version + 1
+        # Recorded before and after removing the rule
+        assert changes.version == version + 2
         assert changes.changes[-1] == {"ptype": "g", "index": 0, "values": ["a", "b"]}
         assert self.collection.count_documents({"id": id}) == 0
 

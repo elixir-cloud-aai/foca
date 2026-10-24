@@ -49,6 +49,9 @@ _GRANTED_UPDATE = {"$currentDate": {GRANTED_FIELD: {"$type": "timestamp"}}}
 # Indexes for queries of rules by subject (and role) or by resource
 _FILTER_INDEXES = [[("ptype", 1), ("v0", 1), ("v1", 1)], [("ptype", 1), ("v2", 1)]]
 
+# Recorded change of all rules (cf. `PolicyChanges`)
+_ALL_CHANGED: dict[str, Any] = {"ptype": None}
+
 
 @dataclass(frozen=True)
 class PolicyChanges:
@@ -415,12 +418,17 @@ class Adapter(persist.Adapter):
             query: dict[str, Any] = {"id": id}
             if not configured:
                 query[CONFIGURED_FIELD] = {"$ne": True}
+            # Recorded before replacing, too, as a retry would not find the
+            # replaced rule anymore (cf. `remove_policy_by_id()`)
+            current_change = _document_change(self._collection.find_one(query))
+            if current_change is not None:
+                self._record_changes([current_change, *changes])
             replaced = self._collection.find_one_and_replace(
                 query, document, upsert=True
             )
-            replaced_change = _document_change(replaced)
-            if replaced_change is not None:
-                changes.insert(0, replaced_change)
+            for change in (_document_change(replaced), current_change):
+                if change is not None and change not in changes:
+                    changes.insert(0, change)
         else:
             id = self._insert(document)
         self._record_changes(changes)
@@ -666,17 +674,28 @@ class Adapter(persist.Adapter):
         Args:
             id: Identifier of the rule.
 
+        The removal is recorded before and after removing the rule: a retry
+        would not find the rule anymore to record its removal, e.g., after
+        recording failed or the app instance stopped meanwhile.
+
         Returns:
             Whether a rule was removed.
         """
-        removed = self._collection.find_one_and_delete(
-            {"id": id, CONFIGURED_FIELD: {"$ne": True}}
-        )
+        query = {"id": id, CONFIGURED_FIELD: {"$ne": True}}
+        current = self._collection.find_one(query)
+        if current is None:
+            return False
+        changes = [change for change in [_document_change(current)] if change]
+        if changes:
+            self._record_changes(changes)
+        removed = self._collection.find_one_and_delete(query)
         if removed is None:
             return False
-        change = _document_change(removed)
-        if change is not None:
-            self._record_changes([change])
+        removed_change = _document_change(removed)
+        if removed_change is not None and removed_change not in changes:
+            changes.append(removed_change)
+        if changes:
+            self._record_changes(changes)
         return True
 
     def is_configured(self, id: str) -> bool:
@@ -862,7 +881,12 @@ class Adapter(persist.Adapter):
         except BaseException:
             self._record_changes([_ALL_CHANGED])
             raise
-        self._record_configured_changes(previous, rules)
+        try:
+            self._record_configured_changes(previous, rules)
+        # Rules of the previous generation are no longer read afterwards
+        except BaseException:
+            self._record_changes([_ALL_CHANGED])
+            raise
         self._remove_generations([previous])
         self._remove_stale_generations()
 
@@ -1116,12 +1140,13 @@ class Adapter(persist.Adapter):
         if keep_configured:
             query[CONFIGURED_FIELD] = {"$ne": True}
         results = self._collection.delete_many(query)
-        self._record_changes([_change(ptype, field_index, field_values)])
+        # Enforcers remove rules matching empty values (as wildcards) in
+        # memory, unlike stored rules: they need to load all rules again
+        if "" in field_values:
+            self._record_changes([_ALL_CHANGED])
+        else:
+            self._record_changes([_change(ptype, field_index, field_values)])
         return results.deleted_count > 0
-
-
-# Recorded change of all rules (cf. `PolicyChanges`)
-_ALL_CHANGED: dict[str, Any] = {"ptype": None}
 
 
 def _change(ptype: str, field_index: int, values: Sequence[str]) -> dict[str, Any]:

@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 # Policy effect of models whose rules Casbin sorts by subject hierarchy
 _SUBJECT_PRIORITY_EFFECT = "subjectPriority(p_eft) || deny"
 
+_UPDATE_NOT_SUPPORTED = (
+    "Updating policy rules is not supported; remove and add rules instead"
+)
+
 
 def is_within_path(request_path: str, resource_path: str) -> bool:
     """Check whether a request path is a resource path or a sub-path.
@@ -73,6 +77,53 @@ def get_resource_role_ptypes(model: Model) -> list[str]:
     ]
 
 
+class SharedEnforcer(Enforcer):
+    """Casbin enforcer shared by the threads of an app instance.
+
+    Casbin updates rules (e.g., via `update_policy()`) in memory before
+    storing them, and FOCA's adapter does not support updating rules, so
+    that a shared enforcer would keep rules that are not stored. Updating
+    rules is therefore refused before changing the enforcer; remove and add
+    rules instead.
+    """
+
+    def _update_policy(self, *args: Any, **kwargs: Any) -> bool:
+        """Refuse to update a rule.
+
+        Args:
+            *args: Arguments of Casbin's method.
+            **kwargs: Keyword arguments of Casbin's method.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError(_UPDATE_NOT_SUPPORTED)
+
+    def _update_policies(self, *args: Any, **kwargs: Any) -> bool:
+        """Refuse to update rules.
+
+        Args:
+            *args: Arguments of Casbin's method.
+            **kwargs: Keyword arguments of Casbin's method.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError(_UPDATE_NOT_SUPPORTED)
+
+    def _update_filtered_policies(self, *args: Any, **kwargs: Any) -> bool:
+        """Refuse to update rules.
+
+        Args:
+            *args: Arguments of Casbin's method.
+            **kwargs: Keyword arguments of Casbin's method.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError(_UPDATE_NOT_SUPPORTED)
+
+
 class ResourceRoleManager(DomainManager):
     """Role manager of role definitions with domains, e.g., resource roles.
 
@@ -84,6 +135,10 @@ class ResourceRoleManager(DomainManager):
     than by checking every domain. Links are also indexed by subject, so
     that the rules of a subject or resource can be listed without checking
     every rule (cf. :py:meth:`get_rules`).
+
+    The class extends internals of Casbin's `DomainManager` (e.g., its
+    `add_link()` and its role manager map), which is why FOCA pins Casbin's
+    minor version; tests check that it links roles as `DomainManager` does.
 
     Args:
         max_hierarchy_level: Maximum depth of role inheritance.
@@ -338,7 +393,7 @@ class EnforcerCache:
         self._enforcer = None
         # Without adapter, Casbin neither loads rules nor logs them (it logs
         # all rules, including subjects, when loading them on creation)
-        enforcer = Enforcer(self.model)
+        enforcer = SharedEnforcer(self.model)
         for ptype, role_manager in list(enforcer.rm_map.items()):
             if type(role_manager) is DomainManager:
                 enforcer.set_named_role_manager(
@@ -401,6 +456,7 @@ class EnforcerCache:
             for update in updates:
                 _update_rules(enforcer, *update)
         except BaseException:
+            # Never use a half-updated enforcer: load all rules next time
             self._enforcer = None
             raise
         self._epoch, self._version = changes.epoch, changes.version

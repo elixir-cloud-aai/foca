@@ -58,7 +58,6 @@ from foca.security.access_control.enforcement import (
     SubjectType,
     get_enforcer,
 )
-from foca.security.access_control.enforcer_cache import is_within_path
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
     register_permission_specs,
@@ -1050,29 +1049,6 @@ class TestSelfService:
             response = getattr(client, method)("/items/5", headers=_headers("henry"))
             assert response.status_code == expected
         assert client.delete("/items/5", headers=_headers("henry")).status_code == 403
-
-
-@pytest.mark.parametrize(
-    "request_path,resource_path,expected",
-    [
-        ("/services/ABC", "/services/ABC", True),
-        ("/services/ABC/permissions", "/services/ABC", True),
-        ("/services/ABC/a/b", "/services/ABC", True),
-        ("/services/ABC/", "/services/ABC", True),
-        ("/services/ABC", "/services/ABC/", True),
-        ("/services/ABC/permissions", "/services/ABC/", True),
-        ("/services/ABCD", "/services/ABC", False),
-        ("/services/AB", "/services/ABC", False),
-        ("/services", "/services/ABC", False),
-        ("/services/XYZ/permissions", "/services/ABC", False),
-        # the root path only matches itself
-        ("/", "/", True),
-        ("/services/ABC", "/", False),
-    ],
-)
-def test_is_within_path(request_path: str, resource_path: str, expected: bool) -> None:
-    """Request paths are matched against resource paths and their sub-paths."""
-    assert is_within_path(request_path, resource_path) is expected
 
 
 @pytest.fixture

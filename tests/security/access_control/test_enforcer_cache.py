@@ -163,6 +163,29 @@ def _g2_rules(enforcer: Enforcer) -> list[list[str]]:
     return sorted(enforcer.get_named_grouping_policy("g2"))
 
 
+@pytest.mark.parametrize(
+    "request_path,resource_path,expected",
+    [
+        ("/services/ABC", "/services/ABC", True),
+        ("/services/ABC/permissions", "/services/ABC", True),
+        ("/services/ABC/a/b", "/services/ABC", True),
+        ("/services/ABC/", "/services/ABC", True),
+        ("/services/ABC", "/services/ABC/", True),
+        ("/services/ABC/permissions", "/services/ABC/", True),
+        ("/services/ABCD", "/services/ABC", False),
+        ("/services/AB", "/services/ABC", False),
+        ("/services", "/services/ABC", False),
+        ("/services/XYZ/permissions", "/services/ABC", False),
+        # the root path only matches itself
+        ("/", "/", True),
+        ("/services/ABC", "/", False),
+    ],
+)
+def test_is_within_path(request_path: str, resource_path: str, expected: bool) -> None:
+    """Request paths are matched against resource paths and their sub-paths."""
+    assert is_within_path(request_path, resource_path) is expected
+
+
 class TestResourceRoleManager:
     """Tests for the role manager of resource-scoped roles."""
 
@@ -385,6 +408,148 @@ class TestEnforcerCache:
         assert _g2_rules(cache.get_enforcer()) == [["user:b", "owner", TASK]]
         assert other_adapter.remove_policy_by_id(id) is True
         assert _g2_rules(cache.get_enforcer()) == []
+
+    @pytest.mark.parametrize(
+        "write",
+        [
+            pytest.param(
+                lambda adapter, id: adapter.remove_policy_by_id(id), id="removed"
+            ),
+            pytest.param(
+                lambda adapter, id: adapter.save_policy_line(
+                    "g2", ["user:b", "owner", TASK], id=id
+                ),
+                id="replaced",
+            ),
+        ],
+    )
+    def test_write_by_id_recorded_before(
+        self,
+        cache: EnforcerCache,
+        other_adapter: Adapter,
+        monkeypatch: pytest.MonkeyPatch,
+        write: Callable[[Adapter, str], Any],
+    ) -> None:
+        """Rules removed by identifier are removed if recording fails after."""
+        id = other_adapter.save_policy_line("g2", ["user:a", "owner", TASK])
+        cache.get_enforcer()
+        record = other_adapter._record_changes
+        calls: list[None] = []
+
+        def failing_after_write(changes: list[dict[str, Any]]) -> None:
+            calls.append(None)
+            if len(calls) > 1:
+                raise RuntimeError("unavailable")
+            record(changes)
+
+        monkeypatch.setattr(other_adapter, "_record_changes", failing_after_write)
+        with pytest.raises(RuntimeError, match="unavailable"):
+            write(other_adapter, id)
+        assert ["user:a", "owner", TASK] not in _g2_rules(cache.get_enforcer())
+
+    def test_removed_meanwhile(
+        self, other_adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A rule removed by another request meanwhile is not removed again."""
+        id = other_adapter.save_policy_line("g2", ["user:a", "owner", TASK])
+        collection = other_adapter._collection
+        find_one = collection.find_one
+
+        def find_and_remove(*args: Any, **kwargs: Any) -> Any:
+            found = find_one(*args, **kwargs)
+            collection.delete_many({"id": id})
+            return found
+
+        monkeypatch.setattr(collection, "find_one", find_and_remove)
+        assert other_adapter.remove_policy_by_id(id) is False
+
+    def test_replaced_meanwhile(
+        self,
+        cache: EnforcerCache,
+        other_adapter: Adapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A rule replaced meanwhile is removed, too."""
+        id = other_adapter.save_policy_line("g2", ["user:a", "owner", TASK])
+        cache.get_enforcer()
+        collection = other_adapter._collection
+        find_one = collection.find_one
+
+        def find_and_replace(*args: Any, **kwargs: Any) -> Any:
+            found = find_one(*args, **kwargs)
+            collection.update_one({"id": id}, {"$set": {"v0": "user:b"}})
+            return found
+
+        monkeypatch.setattr(collection, "find_one", find_and_replace)
+        cache.get_enforcer()
+        assert other_adapter.remove_policy_by_id(id) is True
+        monkeypatch.undo()
+        assert _g2_rules(cache.get_enforcer()) == []
+
+    def test_failed_configured_changes_reloaded(
+        self,
+        cache: EnforcerCache,
+        other_adapter: Adapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """All rules are loaded again if configured changes are not recorded."""
+        other_adapter.set_configured_policies([["g2", "user:a", "owner", TASK]])
+        cache.get_enforcer()
+        monkeypatch.setattr(
+            other_adapter,
+            "_record_configured_changes",
+            mock_failing(RuntimeError("unavailable")),
+        )
+        with pytest.raises(RuntimeError, match="unavailable"):
+            other_adapter.set_configured_policies([])
+        assert _g2_rules(cache.get_enforcer()) == []
+
+    def test_empty_filter_value_reloaded(
+        self,
+        cache: EnforcerCache,
+        adapter: Adapter,
+        other_adapter: Adapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Empty filter values, wildcards for Casbin, make enforcers reload."""
+        other_adapter.add_policy("g", "g2", ["user:a", "owner", TASK])
+        other_cache = EnforcerCache(RESOURCE_ROLE_MODEL, other_adapter, True)
+        other_cache.get_enforcer()
+        enforcer = cache.get_enforcer()
+        loads = _count_loads(monkeypatch, cache)
+        with cache.lock:
+            enforcer.remove_filtered_named_grouping_policy("g2", 0, "user:a", "")
+        # Stored rules match empty values literally: the rule is kept
+        assert _g2_rules(cache.get_enforcer()) == [["user:a", "owner", TASK]]
+        assert _g2_rules(other_cache.get_enforcer()) == [["user:a", "owner", TASK]]
+        assert len(loads) == 1
+
+    @pytest.mark.parametrize(
+        "update",
+        [
+            lambda enforcer: enforcer.update_policy(
+                ["owner", TASK, "GET"], ["owner", TASK, "DELETE"]
+            ),
+            lambda enforcer: enforcer.update_policies(
+                [["owner", TASK, "GET"]], [["owner", TASK, "DELETE"]]
+            ),
+            lambda enforcer: enforcer.update_filtered_policies(
+                [["owner", TASK, "DELETE"]], 0, "owner"
+            ),
+        ],
+    )
+    def test_updates_refused(
+        self,
+        cache: EnforcerCache,
+        adapter: Adapter,
+        update: Callable[[Enforcer], Any],
+    ) -> None:
+        """Rules are not updated, as the adapter cannot store updates."""
+        adapter.add_policy("p", "p", ["owner", TASK, "GET"])
+        enforcer = cache.get_enforcer()
+        with pytest.raises(NotImplementedError, match="not supported"):
+            update(enforcer)
+        assert enforcer.get_policy() == [["owner", TASK, "GET"]]
 
     def test_configured_rules_applied(
         self,

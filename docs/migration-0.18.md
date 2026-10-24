@@ -3,13 +3,13 @@
 FOCA 0.18.0 keeps one cached Casbin enforcer per app instance instead of
 loading all policy rules for each enforced request, so requests cost about
 the same with many rules as with few (cf. [scaling](access-control.md#scaling)).
-Most apps need no changes to run with FOCA 0.18.0; check the changes below
-if your app uses access control and uses the enforcer directly, changes
-rules in the database directly, or creates FOCA's Casbin adapter itself.
-Upgrading from 0.16 or earlier? Start with [Migrating to
-0.17.0](migration-0.17.md).
+Most apps need no changes to run with FOCA 0.18.0; check the breaking
+changes below if your app uses access control and uses the enforcer
+directly or changes rules in the database directly, and the other changes
+if your app creates FOCA's Casbin adapter itself. Upgrading from 0.16 or
+earlier? Start with [Migrating to 0.17.0](migration-0.17.md).
 
-## Access control
+## Breaking changes
 
 ### Shared enforcer
 
@@ -33,7 +33,11 @@ for each call.
   via its methods that also store them (e.g., `add_policy()`): changes made
   via the adapter are recorded and applied to the enforcers of all app
   instances, while, e.g., `enforcer.clear_policy()` would change the
-  shared enforcer of one instance only.
+  shared enforcer of one instance only. Updating rules (e.g., via
+  `update_policy()`), which FOCA's adapter does not support, now raises
+  `NotImplementedError` before changing the enforcer (before, it raised an
+  `AttributeError`, or changed only the enforcer of the call, without
+  storing the change).
 
 ### Rules changed in the database directly
 
@@ -51,6 +55,8 @@ changes, so instances of 0.18 may miss rules they change: upgrade all
 instances before granting or revoking roles, or call `mark_changed()` once
 the update is complete.
 
+## Other changes
+
 ### Indexes and adapter
 
 - FOCA's adapter creates two more indexes on the policy collection (on
@@ -60,7 +66,11 @@ the update is complete.
   without them.
 - `Adapter` takes a new optional argument `changes_collection` for the
   collection recording changes (default: the policy collection's name with
-  suffix `_changes`, in the same database).
+  suffix `_changes`, in the same database), and has new methods:
+  `mark_changed()`, `get_changes()` (the recorded changes),
+  `load_filtered_rules()` (stored rules matching a filter) and
+  `remove_policy_by_id()`, which the permissions API now uses to delete
+  rules, so that their removal is recorded.
 
 ### Logging
 

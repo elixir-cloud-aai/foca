@@ -1269,7 +1269,11 @@ The trade-offs:
   the rule was written), the write raises an error, and other app instances
   do not notice the change until another change is recorded for the same
   rules or all rules are loaded again. Retrying the write (e.g., revoking
-  the role again) records the change.
+  the role again) records the change. Rules removed or replaced by
+  identifier (e.g., via the permissions API), which a retry would not find
+  anymore, are recorded both before and after the write; only instances
+  that check for changes during the write may then miss it. If in doubt,
+  call `mark_changed()` (see below).
 - **Some changes require all rules to be loaded again**: more than 100
   changes since the instance last checked, replacing more than 100
   configured rules, `save_policy()`, `mark_changed()`, and models whose
@@ -1283,7 +1287,9 @@ The trade-offs:
   returns the same shared enforcer without the lock, which is only safe if
   the app serves requests in a single thread. Do not change the enforcer's
   rules other than via its methods that also store them (e.g.,
-  `add_policy()`), which record the changes.
+  `add_policy()`), which record the changes. Updating rules (e.g., via
+  `update_policy()`) is not supported by FOCA's adapter and raises an
+  error; remove and add rules instead.
 
 Each stored rule still takes memory in each app instance (e.g., about
 55 MB for 100,000 `g2` rules). As resource-scoped roles add rules per
