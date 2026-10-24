@@ -36,7 +36,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        # Python versions added after the latest release: the first FOCA
+        # release with their images; until it is released, their jobs scan
+        # nothing and pass with a notice (remove the entry once released)
+        include:
+          - python-version: "3.15"
+            first-release: "0.18.0"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,6 +59,7 @@ jobs:
         env:
           DOCKERHUB_ORG: ${{ vars.DOCKERHUB_ORG || 'elixircloud' }}
           PY_VERSION: ${{ matrix.python-version }}
+          FIRST_RELEASE: ${{ matrix.first-release }}
         run: |
           # Highest final version on `main`, as for the `latest` tag in
           # `release.yml`
@@ -62,12 +69,25 @@ jobs:
               echo "::error::No release tag found"
               exit 1
           fi
+          # True if version $1 >= version $2
+          version_ge() {
+              [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" = "$2" ]
+          }
+          if [ -n "${FIRST_RELEASE}" ] \
+              && ! version_ge "${tag#v}" "${FIRST_RELEASE}"; then
+              message="No image scanned: ${tag} has no Python ${PY_VERSION} image (first in ${FIRST_RELEASE})"
+              echo "::notice title=No Python ${PY_VERSION} image yet::${message}"
+              echo "${message}" >> "${GITHUB_STEP_SUMMARY}"
+              echo "skip=true" >> "${GITHUB_OUTPUT}"
+              exit 0
+          fi
           # Scheduled runs have no event payload, so the repository name is
           # taken from `GITHUB_REPOSITORY` (`<owner>/<name>`)
           image="docker.io/${DOCKERHUB_ORG}/${GITHUB_REPOSITORY#*/}:${tag#v}-py${PY_VERSION}"
           echo "Scanning ${image}"
           echo "image=${image}" >> "${GITHUB_OUTPUT}"
       - name: Scan image
+        if: steps.image.outputs.skip != 'true'
         uses: ./.github/actions/scan-image
         with:
           image: ${{ steps.image.outputs.image }}

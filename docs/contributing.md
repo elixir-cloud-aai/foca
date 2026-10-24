@@ -108,7 +108,8 @@ to review.
 
 ## Development
 
-FOCA supports Python 3.11 and later (`requires-python` in `pyproject.toml`).
+FOCA supports Python 3.11 (`requires-python` in `pyproject.toml`) to 3.15
+(the classifiers).
 To set up a development environment (e.g., in a virtual environment) and run
 the checks that CI runs:
 
@@ -133,13 +134,13 @@ To skip them instead, run `pytest -m "not mongodb"`; coverage is then below
 100%.
 
 CI (`.github/workflows/checks.yml`) runs the unit tests with Python 3.11,
-3.12, 3.13 and 3.14 against MongoDB 7.0, and with Python 3.13 against MongoDB
-8.0; once more with the lowest versions of the direct dependencies that
-`pyproject.toml` allows (Python 3.11), so that their lower bounds stay
-honest; and integration tests against the [petstore
+3.12, 3.13, 3.14 and 3.15 against MongoDB 7.0, and with Python 3.13 and 3.15
+against MongoDB 8.0; once more with the lowest versions of the direct
+dependencies that `pyproject.toml` allows (Python 3.11 and 3.15), so that
+their lower bounds stay honest; and integration tests against the [petstore
 example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore),
-built from the FOCA image of the repository. To run the integration tests
-locally:
+built from the FOCA images of the repository for Python 3.13 and 3.15. To
+run the integration tests locally:
 
 ```bash
 cd examples/petstore

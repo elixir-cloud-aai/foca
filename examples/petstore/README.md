@@ -70,14 +70,14 @@ Some notes:
 > * This will build the app based on the _current_ state of your FOCA clone.
 > That is, any changes that you may have introduced to FOCA will be reflected
 > in your build.
-> * By default, the app will be build based on the latest Python version that
-> FOCA supports. If you would like to build the FOCA image based on a different
-> version of Python, you can set the Python image to be used as FOCA's base
-> image by defining the environment variable `PETSTORE_PY_IMAGE` before
-> executing the build command. For example:
+> * By default, the app will be built based on the Python version of FOCA's
+> default image (Python 3.13). If you would like to build the FOCA image based
+> on a different supported version of Python (3.11 to 3.15), you can set the
+> Python image to be used as FOCA's base image by defining the environment
+> variable `PETSTORE_PY_IMAGE` before executing the build command. For example:
 >
 >    ```bash
->    export PETSTORE_PY_IMAGE=3.12-slim-bookworm
+>    export PETSTORE_PY_IMAGE=3.15-slim-trixie
 >    ```
 >
 > * In case Docker complains about port conflicts or if any of the used ports
