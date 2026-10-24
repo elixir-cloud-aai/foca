@@ -3,6 +3,7 @@
 import os
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 from celery import Celery
@@ -189,6 +190,50 @@ def test_foca_create_app_config_unchanged() -> None:
     foca.create_app()
     foca.create_app()
     assert foca.conf.security.model_dump() == before
+
+
+def _access_control_conf(tmp_path: Path, **access_control: Any) -> Path:
+    """Write a configuration with access control enabled."""
+    conf = safe_load(ACCESS_CONTROL_ENABLED_CONF.read_text(encoding="utf-8"))
+    conf["security"]["access_control"].update(access_control)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(safe_dump(conf), encoding="utf-8")
+    return config_file
+
+
+def test_foca_create_app_no_access_control_checks(
+    log: pytest.LogCaptureFixture,
+) -> None:
+    """Access control settings are not checked without access control."""
+    Foca(config_file=VALID_DB_CONF).create_app()
+    assert "access_control" not in log.text
+    assert "'admin'" not in log.text
+
+
+@pytest.mark.usefixtures("mongo_clients")
+def test_foca_create_app_access_control_checks(
+    tmp_path: Path, log: pytest.LogCaptureFixture
+) -> None:
+    """Access control settings are checked when creating apps."""
+    Foca(config_file=_access_control_conf(tmp_path)).create_app()
+    assert "No group is mapped to the role 'admin'" in log.text
+
+
+@pytest.mark.usefixtures("mongo_clients")
+def test_foca_create_app_require_admin(tmp_path: Path) -> None:
+    """Apps refuse to start without admins with `require_admin`."""
+    foca = Foca(config_file=_access_control_conf(tmp_path, require_admin=True))
+    with pytest.raises(ValueError, match="require_admin"):
+        foca.create_app()
+    config_file = _access_control_conf(
+        tmp_path,
+        require_admin=True,
+        claim_groups="groups",
+        group_mapping={"admins": "admin"},
+        keep_group_subjects=True,
+    )
+    app = Foca(config_file=config_file).create_app()
+    assert "casbin_adapter" in app.app.config
 
 
 @pytest.mark.parametrize("field", ["api_controllers", "api_route", "nonexistent"])

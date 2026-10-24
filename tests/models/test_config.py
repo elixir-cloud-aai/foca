@@ -541,6 +541,7 @@ ISSUERS = ["https://login.example.org/oidc/"]
         (ISSUERS, {"api_specs": "specs.yaml"}),
         (ISSUERS, {"self_service": True}),
         (ISSUERS, {"policies": [["p", "*", "/pets", "GET"]]}),
+        (ISSUERS, {"require_admin": True}),
         # access control without trusted issuers
         ([], {"enabled": True}),
         ([], {"enabled": True, "enforce": True}),

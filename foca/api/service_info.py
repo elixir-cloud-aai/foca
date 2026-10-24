@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from inspect import unwrap
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from flask import Flask
 from werkzeug.exceptions import InternalServerError
@@ -39,6 +40,19 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+# Reserved example domains (RFC 2606), as used by templates: second-level
+# domains, also as parents of hosts, and the top-level domain `example`
+EXAMPLE_DOMAINS = ("example.com", "example.net", "example.org", "example")
+# The same domains in reverse domain name notation, as used for service IDs
+# (e.g., `org.example.my-service`)
+_EXAMPLE_ID_DOMAINS = ("com.example", "net.example", "org.example")
+# Fields of the service info with URLs, and how they are named in warnings
+_URL_FIELDS = (
+    (("organization", "url"), "organization.url"),
+    (("contactUrl",), "contactUrl"),
+    (("documentationUrl",), "documentationUrl"),
+)
 
 
 def build_service_info(conf: ServiceInfoConfig) -> dict[str, Any]:
@@ -157,11 +171,82 @@ def _routes_to_controller(app: Flask) -> list[str]:
     )
 
 
+def _in_example_domain(domain: str) -> bool:
+    """Check whether a domain is a reserved example domain or a subdomain.
+
+    Args:
+        domain: Domain name, e.g., ``docs.example.org``.
+
+    Returns:
+        Whether `domain` is one of :py:data:`EXAMPLE_DOMAINS` or a subdomain
+        of one, ignoring case and a trailing dot.
+    """
+    domain = domain.lower().rstrip(".")
+    return any(
+        domain == example or domain.endswith(f".{example}")
+        for example in EXAMPLE_DOMAINS
+    )
+
+
+def _url_domain(url: str) -> str:
+    """Get the domain of a URL.
+
+    Args:
+        url: URL, e.g., ``https://docs.example.org/`` or
+            ``mailto:support@example.org``.
+
+    Returns:
+        Host of the URL, or, for `mailto:` URLs, the domain of the (first)
+        address; empty if there is none or the URL cannot be parsed.
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:  # e.g., invalid IPv6 addresses
+        return ""
+    if parts.scheme.lower() == "mailto":
+        address = parts.path.split(",")[0]
+        return address.rpartition("@")[2] if "@" in address else ""
+    return parts.hostname or ""
+
+
+def _placeholder_fields(info: dict[str, Any]) -> list[str]:
+    """List the fields of service info that are in reserved example domains.
+
+    Args:
+        info: Service info.
+
+    Returns:
+        Fields whose values are in a reserved example domain (RFC 2606),
+        as in templates: `id`, in reverse domain name notation (e.g.,
+        ``org.example.my-service`` or ``example.my-service``), and the URLs
+        `organization.url`, `contactUrl` and `documentationUrl`, by their
+        hosts (cf. :py:func:`_in_example_domain`).
+    """
+    fields = []
+    service_id = info.get("id")
+    if isinstance(service_id, str):
+        service_id = service_id.lower()
+        if service_id.startswith("example.") or any(
+            service_id == domain or service_id.startswith(f"{domain}.")
+            for domain in _EXAMPLE_ID_DOMAINS
+        ):
+            fields.append("id")
+    for path, name in _URL_FIELDS:
+        value: Any = info
+        for key in path:
+            value = value.get(key) if isinstance(value, dict) else None
+        if isinstance(value, str) and _in_example_domain(_url_domain(value)):
+            fields.append(name)
+    return fields
+
+
 def check_service_info(app: Flask) -> None:
     """Check the service info of an app.
 
     The function returning fields at runtime, if configured, is called in an
-    app context.
+    app context. A warning is logged if the service info still has values in
+    reserved example domains, e.g., from a template (cf.
+    :py:func:`_placeholder_fields`).
 
     Args:
         app: Flask app, with API specifications registered.
@@ -183,4 +268,12 @@ def check_service_info(app: Flask) -> None:
             logger.info("No service info configured.")
             return
         info = get_service_info()
+    fields = _placeholder_fields(info)
+    if fields:
+        logger.warning(
+            "The service info has values in reserved example domains "
+            "(RFC 2606), e.g., from a template: %s; set them to describe the "
+            "deployment ('service_info.service').",
+            ", ".join(f"'{field}'" for field in fields),
+        )
     logger.info("Serving service info '%s', version '%s'.", info["id"], info["version"])

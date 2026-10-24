@@ -750,6 +750,11 @@ class AccessControlConfig(FOCABaseConfig):
             mapped to (e.g., to grant resource-scoped roles to groups). Has
             no effect without `group_mapping`, as values are then always
             used as such.
+        require_admin: Refuse to start (`ValueError`) if no group is mapped
+            to the role `admin` (via `group_mapping`) and no rule of
+            `policies` grants it, instead of logging a warning. Roles
+            granted via stored policy rules (e.g., via the permissions API)
+            are not checked.
         client_mapping: Mapping of service clients (client IDs of
             `AuthConfig.service_clients`) to roles. Requests with service
             tokens are enforced with the subject `client:<client ID>` and
@@ -817,6 +822,8 @@ class AccessControlConfig(FOCABaseConfig):
         group_mapping: Mapping of values of `claim_groups` to roles.
         keep_group_subjects: Whether to also use values of `claim_groups`
             as subjects if `group_mapping` is set.
+        require_admin: Refuse to start if no group or configured policy
+            rule grants the role `admin`.
         client_mapping: Mapping of service clients to roles.
         resource_roles_cover_subpaths: Whether resource-scoped roles apply to
             sub-paths of the resource path they were granted on.
@@ -861,6 +868,7 @@ class AccessControlConfig(FOCABaseConfig):
     claim_groups: str | None = None
     group_mapping: dict[str, str] | None = None
     keep_group_subjects: bool = False
+    require_admin: bool = False
     client_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
     resource_roles: list[str] = Field(
@@ -1663,6 +1671,7 @@ class SecurityConfig(FOCABaseConfig):
                     ("self_service", access_control.self_service),
                     ("policies", access_control.policies),
                     ("client_mapping", access_control.client_mapping),
+                    ("require_admin", access_control.require_admin),
                 ]
                 if value
             ]

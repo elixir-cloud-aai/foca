@@ -253,6 +253,30 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
         )
 
 
+def require_no_service_clients() -> None:
+    """Refuse service clients, for apps whose endpoints don't support them.
+
+    With service clients (`security.auth.service_clients`), requests may be
+    made by clients instead of users, or by clients for users they name
+    (`security.auth.on_behalf_of_header`), e.g., FOCA's resource ownership
+    helpers attribute new resources to them. Apps whose endpoints take the
+    token's subject as the user call this check on startup, e.g., after
+    `Foca.create_app()`; FOCA doesn't call it.
+
+    Raises:
+        RuntimeError: Service clients or the header naming the users they
+            act for are configured for the current FOCA app (cf.
+            :py:func:`foca.config.access.get_config`).
+    """
+    auth = get_config().security.auth
+    if auth.service_clients or auth.on_behalf_of_header is not None:
+        raise RuntimeError(
+            "Service clients are not supported by this app: remove "
+            "`security.auth.service_clients` and "
+            "`security.auth.on_behalf_of_header`."
+        )
+
+
 def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
     """Validate JSON Web Token (JWT).
 

@@ -1,8 +1,6 @@
 """Tests for `service_info.py` module."""
 
 import logging
-import logging.config
-from collections.abc import Iterator
 from copy import deepcopy
 from datetime import date
 from pathlib import Path
@@ -17,11 +15,12 @@ from foca import Foca
 from foca.api.service_info import (
     GetServiceInfo,
     InvalidServiceInfo,
+    _placeholder_fields,
     check_service_info,
     get_service_info,
     getServiceInfo,
 )
-from foca.config import access, config_parser
+from foca.config import access
 from foca.config.access import set_app_config
 from foca.models.config import Config
 from foca.utils import service_info as utils
@@ -80,26 +79,6 @@ def _foca(
     config_file = tmp_path / "config.yaml"
     config_file.write_text(safe_dump(conf))
     return Foca(config_file=config_file)
-
-
-@pytest.fixture
-def log(
-    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[pytest.LogCaptureFixture]:
-    """Capture logs, also after `Foca()` configured logging.
-
-    FOCA's logging configuration replaces the handlers of the root logger,
-    dropping pytest's capturing handler, so it is attached again.
-    """
-
-    def dict_config(config: dict[str, Any]) -> None:
-        logging.config.dictConfig(config)
-        logging.getLogger().addHandler(caplog.handler)
-
-    monkeypatch.setattr(config_parser, "dictConfig", dict_config)
-    caplog.set_level(logging.INFO)
-    yield caplog
-    logging.getLogger().removeHandler(caplog.handler)
 
 
 def test_get_service_info() -> None:
@@ -325,6 +304,108 @@ def test_check_service_info(log: pytest.LogCaptureFixture) -> None:
     check_service_info(_app({"service": SERVICE}))
     message = "Serving service info 'org.example.my-service', version '1.2.3'"
     assert message in log.text
+
+
+# Domain of a deployment; addresses in it are built, so that the repository
+# has no addresses but example ones (cf. `tests/test_repository.py`)
+DOMAIN = "ga4gh.org"
+# Service info of a deployment, without values in reserved example domains
+DEPLOYED = service(
+    id="org.ga4gh.my-service",
+    organization={"name": "GA4GH", "url": "https://www.ga4gh.org"},
+    contactUrl=f"mailto:support@{DOMAIN}",
+    documentationUrl="https://docs.ga4gh.org/my-service",
+)
+PLACEHOLDERS = "values in reserved example domains"
+
+
+def test_check_service_info_placeholders(log: pytest.LogCaptureFixture) -> None:
+    """Values in reserved example domains are warned about, naming the fields."""
+    check_service_info(_app({"service": SERVICE}))
+    warnings = [r.getMessage() for r in log.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert PLACEHOLDERS in warnings[0]
+    for field in ("id", "organization.url", "contactUrl", "documentationUrl"):
+        assert f"'{field}'" in warnings[0]
+    assert "'service_info.service'" in warnings[0]
+
+
+def test_check_service_info_no_placeholders(log: pytest.LogCaptureFixture) -> None:
+    """Service info of deployments is not warned about."""
+    check_service_info(_app({"service": DEPLOYED}))
+    assert PLACEHOLDERS not in log.text
+
+
+@pytest.mark.parametrize(
+    "service_id,placeholder",
+    [
+        ("org.example.my-service", True),
+        ("com.example.my-service", True),
+        ("NET.Example.my-service", True),
+        ("org.example", True),
+        ("example.my-service", True),
+        ("example", False),
+        ("org.examples.my-service", False),
+        ("org.ga4gh.example", False),
+        ("io.example-labs.my-service", False),
+    ],
+)
+def test_check_service_info_placeholder_id(
+    log: pytest.LogCaptureFixture, service_id: str, placeholder: bool
+) -> None:
+    """Service IDs in reserved example domains are warned about."""
+    info = deepcopy(DEPLOYED)
+    info["id"] = service_id
+    check_service_info(_app({"service": info}))
+    assert (PLACEHOLDERS in log.text) is placeholder
+
+
+@pytest.mark.parametrize(
+    "url,placeholder",
+    [
+        ("https://example.org", True),
+        ("https://example.com/docs", True),
+        ("http://user@docs.EXAMPLE.net:8080/", True),
+        ("https://my-service.example", True),
+        ("https://example.org./", True),
+        ("mailto:support@example.org", True),
+        ("mailto:Support@Help.Example.COM?subject=help", True),
+        (f"mailto:a@{DOMAIN},b@example.org", False),
+        ("mailto:support", False),
+        ("https://example.org.ga4gh.org", False),
+        ("https://myexample.org", False),
+        ("https://[::1", False),
+        ("urn:example:org", False),
+    ],
+)
+def test_placeholder_fields_url(url: str, placeholder: bool) -> None:
+    """URLs with hosts in reserved example domains are found.
+
+    For `mailto:` URLs, the domain of the first address counts.
+    """
+    info = deepcopy(DEPLOYED)
+    info["documentationUrl"] = url
+    assert _placeholder_fields(info) == (["documentationUrl"] if placeholder else [])
+
+
+def test_placeholder_fields_organization_not_a_dict() -> None:
+    """Organizations that are not objects are not checked."""
+    info = deepcopy(DEPLOYED)
+    info["organization"] = "https://example.org"
+    assert _placeholder_fields(info) == []
+
+
+def test_check_service_info_placeholders_runtime(
+    log: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fields computed at runtime are checked, too."""
+    fields = {"contactUrl": "mailto:support@example.org"}
+    monkeypatch.setitem(service_info_fields.TOGGLE, "fields", fields)
+    configured = service(**{**DEPLOYED, "contactUrl": REMOVE})
+    check_service_info(_app({"service": configured, "runtime_fields": TOGGLED}))
+    assert f"{PLACEHOLDERS} (RFC 2606), e.g., from a template: 'contactUrl';" in (
+        log.text
+    )
 
 
 def test_check_service_info_not_configured(log: pytest.LogCaptureFixture) -> None:

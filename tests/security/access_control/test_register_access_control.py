@@ -29,7 +29,9 @@ from foca.security.access_control.constants import (
     DEFAULT_API_SPEC_PATH,
 )
 from foca.security.access_control.register_access_control import (
+    _check_admin_role,
     _check_collection_clash,
+    _check_group_config,
     _with_error_media_type,
     register_access_control,
     register_permission_specs,
@@ -185,6 +187,130 @@ def test_check_collection_clash(
             _check_collection_clash(mongo_config, db_name, "audit")
     else:
         _check_collection_clash(mongo_config, db_name, "audit")
+
+
+# Beginnings of the messages of the startup checks
+NO_ADMIN = "No group is mapped to the role 'admin'"
+WHITESPACE = "'security.access_control.claim_groups' has surrounding whitespace"
+NO_GROUP_CLAIM = "Groups are mapped to roles"
+NO_GROUP_SUBJECTS = "'security.access_control.group_mapping' is set, but"
+
+
+def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """Messages of the warnings logged."""
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+@pytest.mark.parametrize(
+    "conf,expected",
+    [
+        ({}, []),
+        ({"claim_groups": "groups"}, []),
+        ({"claim_groups": " groups"}, [WHITESPACE]),
+        ({"claim_groups": "groups\n"}, [WHITESPACE]),
+        (
+            {"claim_groups": "groups", "group_mapping": {"a": "admin"}},
+            [NO_GROUP_SUBJECTS],
+        ),
+        # also an empty mapping drops group claim values
+        ({"claim_groups": "groups", "group_mapping": {}}, [NO_GROUP_SUBJECTS]),
+        (
+            {
+                "claim_groups": "groups",
+                "group_mapping": {"a": "admin"},
+                "keep_group_subjects": True,
+            },
+            [],
+        ),
+        (
+            {"group_mapping": {"a": "admin"}, "keep_group_subjects": True},
+            [NO_GROUP_CLAIM],
+        ),
+        (
+            {"claim_groups": "", "group_mapping": {"a": "admin"}},
+            [NO_GROUP_CLAIM, NO_GROUP_SUBJECTS],
+        ),
+        # nothing is mapped, so no claim is needed
+        ({"group_mapping": {}, "keep_group_subjects": True}, []),
+    ],
+)
+def test_check_group_config(
+    caplog: pytest.LogCaptureFixture, conf: dict[str, Any], expected: list[str]
+) -> None:
+    """Group settings that keep groups or their roles from applying are warned about.
+
+    Messages name the setting to change, and no claim values.
+    """
+    with caplog.at_level(logging.WARNING):
+        _check_group_config(AccessControlConfig(**conf))
+    warnings = _warnings(caplog)
+    assert len(warnings) == len(expected)
+    for warning, start in zip(warnings, expected, strict=True):
+        assert warning.startswith(start)
+    if expected == [WHITESPACE]:
+        assert repr(conf["claim_groups"]) in warnings[0]
+    if NO_GROUP_CLAIM in expected:
+        assert "set 'security.access_control.claim_groups'" in warnings[0]
+    if NO_GROUP_SUBJECTS in expected:
+        assert "'security.access_control.keep_group_subjects'" in warnings[-1]
+
+
+def test_check_admin_role_groups(caplog: pytest.LogCaptureFixture) -> None:
+    """Groups mapped to the role `admin` are logged, sorted and escaped."""
+    conf = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping={"b-admins": "admin", "a\nadmins": "admin", "users": "user"},
+        require_admin=True,
+    )
+    with caplog.at_level(logging.INFO):
+        _check_admin_role(conf)
+    assert _warnings(caplog) == []
+    assert "Groups mapped to the role 'admin': a\\nadmins, b-admins." in caplog.text
+
+
+@pytest.mark.parametrize(
+    "policies,admin",
+    [
+        (None, False),
+        ([], False),
+        ([["g", "user:alice", "admin"]], True),
+        ([["g", "group:x", "superadmin"], ["g", "superadmin", "admin"]], True),
+        ([["g", "user:alice", "user"]], False),
+        ([["p", "admin", "/pets", "GET"]], False),
+        ([["g2", "user:alice", "admin", "/pets/1"]], False),
+    ],
+)
+def test_check_admin_role_policies(
+    caplog: pytest.LogCaptureFixture, policies: list[list[str]] | None, admin: bool
+) -> None:
+    """Configured global role rules granting the role `admin` count."""
+    conf = AccessControlConfig(policies=policies)
+    with caplog.at_level(logging.INFO):
+        _check_admin_role(conf)
+    assert (NO_ADMIN in caplog.text) is not admin
+    assert "Groups mapped to the role 'admin'" not in caplog.text
+
+
+def test_check_admin_role_missing(caplog: pytest.LogCaptureFixture) -> None:
+    """Missing admins are warned about; roles of stored rules still apply."""
+    conf = AccessControlConfig(claim_groups="groups", group_mapping={"a": "user"})
+    with caplog.at_level(logging.WARNING):
+        _check_admin_role(conf)
+    (warning,) = _warnings(caplog)
+    assert warning.startswith(NO_ADMIN)
+    assert "'security.access_control.group_mapping'" in warning
+    assert "'security.access_control.policies'" in warning
+    assert "granted via stored policy rules" in warning
+    assert "still apply" in warning
+
+
+def test_check_admin_role_required() -> None:
+    """Missing admins are an error with `require_admin`."""
+    conf = AccessControlConfig(require_admin=True)
+    with pytest.raises(ValueError, match=NO_ADMIN) as exc_info:
+        _check_admin_role(conf)
+    assert "unset 'require_admin'" in str(exc_info.value)
+    assert "stored policy rules then still apply" in str(exc_info.value)
 
 
 class TestRegisterAccessControlSetup:
@@ -418,6 +544,21 @@ class TestRegisterAccessControlSetup:
                 access_control_config=AccessControlConfig(),
             )
         assert ("trusted token issuers" in caplog.text) is warned
+
+    def test_require_admin(self) -> None:
+        """Apps refuse to start without admins before registering anything."""
+        mongo_config = self._app_db_config()
+        with pytest.raises(ValueError, match=NO_ADMIN):
+            self._register(mongo_config, require_admin=True)
+        assert set(_dbs(mongo_config)) == {"app_db"}
+
+    def test_startup_checks(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Group settings and admins are checked on registration."""
+        with caplog.at_level(logging.WARNING):
+            self._register(None, claim_groups="groups", group_mapping={"a": "user"})
+        warnings = _warnings(caplog)
+        assert any(warning.startswith(NO_ADMIN) for warning in warnings)
+        assert any(warning.startswith(NO_GROUP_SUBJECTS) for warning in warnings)
 
     def test_logs(self, caplog: pytest.LogCaptureFixture) -> None:
         """Successful registration steps are logged."""
