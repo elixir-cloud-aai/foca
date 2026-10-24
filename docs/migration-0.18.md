@@ -7,8 +7,9 @@ Most apps need no changes to run with FOCA 0.18.0; check the breaking
 changes below if your app uses access control and uses the enforcer
 directly, changes rules in the database directly or maps groups to roles,
 or if its clients or tests rely on the responses to invalid requests, and
-the other changes if your app creates FOCA's Casbin adapter itself. Upgrading from 0.16 or
-earlier? Start with [Migrating to 0.17.0](migration-0.17.md).
+the other changes if your app creates FOCA's Casbin adapter itself.
+Upgrading from 0.16 or earlier? Start with [Migrating to
+0.17.0](migration-0.17.md).
 
 ## Breaking changes
 
@@ -79,9 +80,14 @@ required property"`) instead of the `detail` mapped to the exception
 class, and the reason is logged at `INFO` instead of the exception, while
 Connexion's own, unescaped messages on rejected requests are filtered out
 (cf. [request-specific
-details](configuration/exceptions.md#request-specific-details)). Update
+details](configuration/exceptions.md#request-specific-details)). This
+applies to the app's own `BadRequestProblem` and `ExtraParameterProblem`
+exceptions (and their subclasses) too, e.g., FOCA's own for an invalid user
+acted for: they are sent with their own `detail` and logged at `INFO`
+instead of as exceptions, so keep internals out of their `detail`. Update
 clients and tests that expect the mapped `detail`, or set
-`exceptions.validation_details: false` to keep the previous responses.
+`exceptions.validation_details: false` to keep the previous responses and
+logs.
 
 ## Other changes
 
@@ -149,8 +155,9 @@ apply](#group-settings-that-cannot-apply)):
 - With access control enabled: no group or service client is mapped to the
   role `admin` and no rule of `policies` grants it (roles granted via
   stored rules still apply); `group_mapping` is set without
-  `keep_group_subjects`, or is empty without `claim_groups`. The groups and service clients mapped to `admin`
-  are logged (`INFO`). Set the new option
+  `keep_group_subjects`, or is empty without `claim_groups`. The groups
+  and service clients mapped to `admin` are logged (`INFO`). Set the new
+  option
   `security.access_control.require_admin: true` (default: `false`) to
   refuse to start without admins instead (cf. [startup
   checks](configuration/access-control.md#startup-checks)).

@@ -243,12 +243,13 @@ class ExceptionConfig(FOCABaseConfig):
             Connexion's validation (`BadRequestProblem` and
             `ExtraParameterProblem`) get the reason of the rejection (e.g.,
             the validator's message) as `detail`, instead of the problem
-            details mapped to the exception class. If true, the reason is
-            also logged (at `INFO`, shortened and escaped) instead of the
-            exception, and the request validation messages of Connexion's
-            validation logger (`connexion.decorators.validation`) are
-            filtered out, as they have the validator's message in full and
-            unescaped.
+            details mapped to the exception class. Defaults to true: the
+            reason is also logged (at `INFO`, shortened and escaped) instead
+            of the exception, and the request validation messages of
+            Connexion's validation logger (`connexion.decorators.validation`)
+            are filtered out, as they have the validator's message in full
+            and unescaped. If false, responses get the mapped problem
+            details, and the exception is logged.
         max_detail_length: Maximum length of request-specific details in
             responses (cf. `validation_details` and
             :py:func:`foca.errors.exceptions.problem_response`) and log

@@ -647,12 +647,25 @@ class TestRegisterAccessControlSetup:
     def test_group_config_errors(self, conf: dict[str, Any], match: str) -> None:
         """Apps refuse to start with group mappings that cannot apply.
 
-        Nothing is registered before.
+        No access control database is registered before.
         """
         mongo_config = self._app_db_config()
         with pytest.raises(ValueError, match=re.escape(match)):
             self._register(mongo_config, **conf)
         assert set(_dbs(mongo_config)) == {"app_db"}
+
+    def test_group_config_checked_first(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Groups mapped to `admin` without a group claim don't count as admins.
+
+        The group settings are checked before the admins, which count mapped
+        groups whatever the group claim.
+        """
+        with (
+            caplog.at_level(logging.INFO),
+            pytest.raises(ValueError, match=NO_GROUP_CLAIM),
+        ):
+            self._register(None, group_mapping={"admins": "admin"}, require_admin=True)
+        assert "Groups mapped to the role 'admin'" not in caplog.text
 
     def test_startup_checks(self, caplog: pytest.LogCaptureFixture) -> None:
         """Group settings and admins are checked on registration."""

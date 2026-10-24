@@ -832,9 +832,19 @@ class TestValidationDetails:
         assert infos == [f"Request rejected: {detail}"]
         assert logged == []
 
-    def test_default(self, conf: ExceptionConfig) -> None:
-        """Validation details are on by default."""
-        assert conf.validation_details
+    def test_default(self, infos: list[str]) -> None:
+        """Validation details are on by default, also without a config."""
+        assert ExceptionConfig().validation_details
+        app = App(__name__, skip_error_handlers=True)
+        register_exception_handler(app)
+        app.add_api(SPEC, strict_validation=True)
+        response = app.app.test_client().get("/validated")
+        assert json.loads(response.data) == {
+            "title": "Bad Request",
+            "status": 400,
+            "detail": "Missing query parameter 'limit'",
+        }
+        assert infos == ["Request rejected: Missing query parameter 'limit'"]
 
     def test_off(self, conf: ExceptionConfig, infos: list[str]) -> None:
         """Without validation details, responses are as mapped, not logged."""

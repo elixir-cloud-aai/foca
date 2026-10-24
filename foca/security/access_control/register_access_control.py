@@ -218,7 +218,8 @@ def _check_group_config(access_control_config: AccessControlConfig) -> None:
             "if the identity provider releases it via user info only), or "
             "unset 'security.access_control.group_mapping'."
         )
-    if conf.group_mapping is not None and not claim_groups:
+    # An empty mapping without a group claim is allowed
+    elif conf.group_mapping is not None and not claim_groups:
         logger.warning(
             "'security.access_control.group_mapping' is set (empty), but no "
             "group claim is set ('security.access_control.claim_groups'), so "
