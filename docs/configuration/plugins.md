@@ -61,6 +61,7 @@ plugins:
     max_items: 32
   tags:
     prefix: "gateway."       # reserved tag prefix
+    max_route_entries: 10    # attempts listed in the route tag
   provenance:
     detail: paths            # changes as hashes and JSON Pointers
     record_failed: false     # store records of failed runs (audit)

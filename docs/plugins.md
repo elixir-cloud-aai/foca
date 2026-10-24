@@ -401,6 +401,38 @@ except GatewayError as error:
 - The image digest of the app (env var `FOCA_IMAGE_DIGEST`, e.g., set by a
   Helm chart) is stored with the builds, if set.
 
+## Gateway tags
+
+Gateways record where a request went in the tags of the task or run (TES
+and WES string maps), under the reserved prefix (`plugins.tags.prefix`,
+default `gateway.`), so that clients and dashboards see it with
+`GET /tasks/{id}` (views `BASIC`, `FULL`) or `GET /runs/{id}`:
+
+| Key | Value | Written |
+|---|---|---|
+| `gateway.pipeline_hash` | `sha256:` of the resolved pipeline (RFC 8785) | at creation |
+| `gateway.pipeline_source` | `default`, `preset:<name>` or `client` | at creation |
+| `gateway.plugins` | comma-separated `id@version` of the plugins that ran | at creation |
+| `gateway.provenance` | path of the provenance endpoint, if the app serves one | at creation |
+| `gateway.backend` | base URL of the backend that accepted (or may have) | after forwarding |
+| `gateway.backend_task_id` | identifier at the backend, if it accepted | after forwarding |
+| `gateway.forwarded_at` | RFC 3339 UTC time of that attempt | after forwarding |
+| `gateway.attempts` | number of attempts, e.g., `3` | after forwarding |
+| `gateway.route` | compact JSON of the last `max_route_entries` attempts: `url`, `outcome`, `reason` | after forwarding |
+| `gateway.route_truncated` | `true` if `gateway.route` omits earlier attempts | after forwarding |
+
+Values are at most 1 KiB (`gateway.route`: 4 KiB, earliest attempts dropped
+first); URLs have no user info or query, and failures are reason codes,
+never messages. Apps write them with `foca.plugins.tags.creation_tags(run)`
+and `routing_tags(run)`, and relay requests without any key under the
+prefix (`strip_for_forwarding(tags, prefix)`), so nested gateways write
+their own.
+
+Clients may set only `gateway.pipeline` and `gateway.backends`; requests
+with other keys under the prefix are refused (`400`). Clients that submit
+a fetched task again (e.g., to re-run it) must drop the other `gateway.*`
+keys first.
+
 ## Problem types
 
 Gateway errors are problem details with the extension member

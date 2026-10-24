@@ -326,7 +326,7 @@ def fake_entry_points(
 
 
 def make_host(
-    pipeline: list[dict[str, Any]],
+    pipeline: list[dict[str, Any] | str],
     available: dict[str, dict[str, Any]] | None = None,
     **kwargs: Any,
 ) -> PluginHost:
