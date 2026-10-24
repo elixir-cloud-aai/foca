@@ -40,6 +40,7 @@ from foca.plugins.model import (
     OutboundRequest,
     Principal,
 )
+from foca.plugins.provenance import ProvenanceStore
 
 __all__ = [
     "API_VERSION",
@@ -67,5 +68,6 @@ __all__ = [
     "PluginError",
     "PluginHost",
     "Principal",
+    "ProvenanceStore",
     "Rejected",
 ]

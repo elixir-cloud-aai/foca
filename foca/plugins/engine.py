@@ -13,14 +13,15 @@ candidates = run.route(backends)              # phase `route`
 for attempt in run.attempts(candidates):      # phase `forward`, per backend
     try:
         result = send(attempt.outbound, timeout=attempt.remaining())
-    except NotAccepted:                       # the backend certainly did not
-        attempt.failed("connect_error")       # accept: next backend
-        continue
-    except OutcomeUnknown:                    # it may have accepted: stop
-        attempt.unknown("read_timeout")
+    except OutcomeUnknown as exc:             # it may have accepted: stop
+        attempt.report(exc)                   # (a subclass: catch it first)
         raise
-    response = attempt.succeeded(result)      # phase `response`
+    except NotAccepted as exc:                # it certainly did not accept:
+        attempt.report(exc)                   # next backend
+        continue
+    response = attempt.succeeded(result, remote_id=result.payload["id"])
     break
+record = run.provenance()                     # e.g., with ProvenanceStore
 ```
 
 Semantics:
@@ -45,6 +46,7 @@ Semantics:
 """
 
 import copy
+import functools
 import logging
 import re
 import threading
@@ -53,12 +55,13 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ValidationError
 
-from foca.plugins.base import NotApplicable, Rejected
+from foca.plugins.base import API_VERSION, NotApplicable, Rejected
 from foca.plugins.config import PluginsConfig, StepConfig, check_pipeline
 from foca.plugins.context import Context
 from foca.plugins.errors import (
@@ -80,6 +83,7 @@ from foca.plugins.model import (
     OutboundRequest,
     Principal,
 )
+from foca.plugins.provenance import build_key, changed_paths, content_hash
 from foca.plugins.selection import (
     PRESET_PATTERN,
     ClientSelection,
@@ -151,6 +155,19 @@ def sanitize_error(exc: BaseException) -> str:
     """
     message = _USER_INFO.sub(r"\1", f"{type(exc).__name__}: {exc}")
     return message[:MAX_ERROR_LENGTH]
+
+
+@functools.cache
+def _foca_version() -> str:
+    """Get the installed version of FOCA, without importing the app factory.
+
+    Returns:
+        Version, or `0+unknown` if FOCA is not installed.
+    """
+    try:
+        return version("foca")
+    except PackageNotFoundError:  # pragma: no cover (source checkouts)
+        return "0+unknown"
 
 
 def _utc_now() -> str:
@@ -247,8 +264,10 @@ class Execution:
             `forward` and `response` phases.
         error: Sanitized error, if any (cf. :py:func:`sanitize_error`).
         annotations: Annotations recorded by the plugin.
-        before: Input of the call, for provenance (not serialized).
-        after: Output of a successful call, for provenance (not serialized).
+        changes: Changes of a successful call (cf.
+            `plugins.provenance.detail`): `before` and `after` hashes of the
+            phase's data and the changed JSON Pointers (`paths`), without
+            values.
     """
 
     step: str
@@ -261,8 +280,34 @@ class Execution:
     attempt: int | None = None
     error: str | None = None
     annotations: dict[str, Any] = field(default_factory=dict)
-    before: Any = field(default=None, repr=False)
-    after: Any = field(default=None, repr=False)
+    changes: dict[str, Any] | None = None
+
+    def describe(self, builds: Mapping[str, str]) -> dict[str, Any]:
+        """Describe the call as JSON data, for provenance.
+
+        Args:
+            builds: Build keys by plugin identifier (cf.
+                :py:func:`foca.plugins.provenance.build_key`).
+
+        Returns:
+            Record with the plugin's build key as `plugin`, its identifier
+            as `plugin_id`, and without empty fields.
+        """
+        record = {
+            "step": self.step,
+            "phase": self.phase,
+            "alternative": self.alternative,
+            "plugin": builds.get(self.plugin) if self.plugin else None,
+            "plugin_id": self.plugin,
+            "outcome": self.outcome,
+            "started_at": self.started_at,
+            "duration_ms": self.duration_ms,
+            "attempt": self.attempt,
+            "error": self.error,
+            "annotations": self.annotations,
+            "changes": self.changes,
+        }
+        return {key: value for key, value in record.items() if value or value == 0}
 
 
 @dataclass
@@ -425,6 +470,7 @@ class PluginHost:
         plugins: Loaded plugins, by identifier.
         public_url: Public URL of the gateway, normalized, if known.
         gateway_id: Name of the gateway in `Via` headers, if known.
+        app_info: Name and version of the app, for provenance.
         default_pipeline: Resolved default pipeline.
         presets: Resolved presets, by name; presets that need a disabled
             plugin are left out.
@@ -440,6 +486,7 @@ class PluginHost:
         validate_outbound: Callable[[OutboundRequest], None] | None = None,
         public_url: str | None = None,
         plugins: Mapping[str, LoadedPlugin] | None = None,
+        app_info: Mapping[str, str] | None = None,
     ) -> None:
         """Load the plugins and resolve the default pipeline.
 
@@ -468,6 +515,8 @@ class PluginHost:
             plugins: Loaded plugins, e.g., for tests (cf.
                 :py:mod:`foca.plugins.testing`); by default, the plugins of
                 the allowlist are loaded from their entry points.
+            app_info: Name and version of the app, for provenance (e.g.,
+                `{"name": "proTES", "version": "0.4.0"}`).
 
         Raises:
             ValueError: Plugins cannot be loaded (cf.
@@ -480,6 +529,7 @@ class PluginHost:
         self._sanitize = sanitize
         self._validate_outbound = validate_outbound
         self.public_url = public_url.rstrip("/") if public_url else None
+        self.app_info: dict[str, str] = dict(app_info or {})
         self.gateway_id = conf.gateway_id or (
             urlsplit(public_url).netloc.lower() if public_url else None
         )
@@ -513,6 +563,7 @@ class PluginHost:
         validate: Callable[[Any], None] | None = None,
         sanitize: Callable[[Any], Any] | None = None,
         validate_outbound: Callable[[OutboundRequest], None] | None = None,
+        app_info: Mapping[str, str] | None = None,
     ) -> "PluginHost":
         """Create the host from the FOCA configuration.
 
@@ -522,6 +573,7 @@ class PluginHost:
             validate: Payload check (cf. :py:class:`PluginHost`).
             sanitize: Payload sanitation (cf. :py:class:`PluginHost`).
             validate_outbound: Outbound check (cf. :py:class:`PluginHost`).
+            app_info: Name and version of the app (cf. :py:class:`PluginHost`).
 
         Returns:
             Host with the plugins of `plugins` (none if not configured).
@@ -540,6 +592,7 @@ class PluginHost:
             sanitize=sanitize,
             validate_outbound=validate_outbound,
             public_url=config.server.public_url,
+            app_info=app_info,
         )
 
     def resolve_steps(
@@ -975,6 +1028,8 @@ class PipelineRun:
         selection: Client's choices, from the reserved tags.
         backends_discarded: Backends of the client's selection that were no
             candidates.
+        final_reason: Why forwarding ended without an accepting backend
+            (`forward_timeout` or `no_backend`), if it did.
     """
 
     def __init__(
@@ -1010,8 +1065,81 @@ class PipelineRun:
         self.candidates_out: list[str] = []
         self.selection = selection or ClientSelection()
         self.backends_discarded: list[str] = []
+        self.final_reason: str | None = None
         self._states: dict[str, dict[str, Any]] = {}
         self._deadline = time.monotonic() + host.conf.defaults.pipeline_timeout
+
+    def provenance(self) -> dict[str, Any]:
+        """Describe the run so far as JSON data, for storage with the task.
+
+        Holds no IP addresses, tokens, header values or claims; plugins are
+        referenced by build key (cf. :py:class:`foca.plugins.provenance.ProvenanceStore`
+        for storing builds and admin-defined pipelines once).
+
+        Returns:
+            Record with `engine` (FOCA, plugin API and app versions),
+            `request_id`, the prospective `pipeline` (`source`, `preset`,
+            `requested` as a reference to the client's tag, `resolved`,
+            `resolved_hash`), the `plugins` that ran (names by build key),
+            the `executions` of hooks, the `route` (candidates in and out),
+            the client's backend `selection`, the forwarding `attempts` and
+            the `final_reason`, if forwarding failed.
+        """
+        builds = {
+            plugin_id: build_key(loaded)
+            for plugin_id, loaded in self.host.plugins.items()
+        }
+        ran = {execution.plugin for execution in self.executions if execution.plugin}
+        resolved = self.pipeline.describe()
+        prefix = self.host.conf.tags.prefix
+        selection = self.selection.backends
+        return {
+            "engine": {
+                "foca": _foca_version(),
+                "plugin_api": API_VERSION,
+                "app": dict(self.host.app_info),
+            },
+            "request_id": self.request_id,
+            "pipeline": {
+                "source": self.pipeline.source,
+                "preset": self.pipeline.preset,
+                "requested": (
+                    f"tags[{prefix}pipeline]"
+                    if self.selection.pipeline is not None
+                    else None
+                ),
+                "resolved": resolved,
+                "resolved_hash": content_hash(resolved),
+            },
+            "plugins": {builds[plugin]: plugin for plugin in sorted(ran)},
+            "executions": [execution.describe(builds) for execution in self.executions],
+            "route": {
+                "candidates_in": self.candidates_in,
+                "candidates_out": self.candidates_out,
+            },
+            "selection": (
+                {
+                    "type": selection.type,
+                    "backends": list(selection.backends),
+                    "discarded": self.backends_discarded,
+                }
+                if selection is not None
+                else None
+            ),
+            "attempts": [
+                {
+                    "number": record.number,
+                    "backend": record.backend,
+                    "outcome": record.outcome,
+                    "reason": record.reason,
+                    "remote_id": record.remote_id,
+                    "started_at": record.started_at,
+                    "duration_ms": record.duration_ms,
+                }
+                for record in self.attempt_records
+            ],
+            "final_reason": self.final_reason,
+        }
 
     def implements(self, phase: str) -> bool:
         """Check whether a step of the pipeline implements a phase.
@@ -1117,6 +1245,7 @@ class PipelineRun:
                 continue
             if time.monotonic() >= budget_end:
                 timeout = self.host.conf.defaults.forward_timeout
+                self.final_reason = "forward_timeout"
                 raise ForwardTimeout(
                     f"No backend accepted within {timeout} s", run=self
                 )
@@ -1169,6 +1298,7 @@ class PipelineRun:
                 raise RuntimeError("Report the outcome of each attempt")
             if attempt.state != "not_accepted":
                 return
+        self.final_reason = "no_backend"
         raise NoBackendAvailable("No backend accepted the request", run=self)
 
     def respond(self, response: BackendResponse, attempt: int) -> BackendResponse:
@@ -1346,7 +1476,6 @@ class PipelineRun:
             started_at=_utc_now(),
             duration_ms=0.0,
             attempt=attempt,
-            before=value,
         )
         started = time.monotonic()
         output = None
@@ -1395,7 +1524,7 @@ class PipelineRun:
         if execution.outcome != "ok":
             return execution, None
         self._states[alternative.plugin] = state
-        execution.after = output
+        execution.changes = _changes(phase, value, output)
         return execution, output
 
     @staticmethod
@@ -1409,6 +1538,59 @@ class PipelineRun:
         """
         execution.duration_ms = round((time.monotonic() - started) * 1000, 3)
         execution.annotations = dict(ctx.annotations)
+
+
+def _snapshot(phase: str, value: Any) -> Any:
+    """Get the data of a phase that plugins may change, as JSON data.
+
+    Args:
+        phase: Phase.
+        value: Input or output of a hook of the phase.
+
+    Returns:
+        Data of the phase: method, path, query, headers and payload of
+        requests; the client's part of responses; candidate identifiers.
+    """
+    if phase == "route":
+        return [backend.id for backend in value]
+    if phase == "response":
+        return {
+            "client_payload": value.client_payload,
+            "client_headers": {k.lower(): v for k, v in value.client_headers.items()},
+        }
+    data = {
+        "method": value.method,
+        "path": value.path,
+        "query": value.query,
+        "headers": {name.lower(): text for name, text in value.headers.items()},
+        "payload": value.payload,
+    }
+    if phase == "forward":
+        data["auth"] = value.auth
+    return data
+
+
+def _changes(phase: str, before: Any, after: Any) -> dict[str, Any]:
+    """Describe the changes of a hook call, without values.
+
+    Args:
+        phase: Phase.
+        before: Input of the call.
+        after: Committed output of the call.
+
+    Returns:
+        Hashes before and after and the changed JSON Pointers; `error` if
+        the data is not JSON data.
+    """
+    old, new = _snapshot(phase, before), _snapshot(phase, after)
+    try:
+        return {
+            "before": content_hash(old),
+            "after": content_hash(new),
+            "paths": changed_paths(old, new),
+        }
+    except (TypeError, ValueError):
+        return {"error": "not_json"}
 
 
 def _check_route(result: Any, candidates: list[Backend]) -> list[Backend]:

@@ -52,6 +52,9 @@ plugins:
     max_items: 32
   tags:
     prefix: "gateway."       # reserved tag prefix
+  provenance:
+    detail: paths            # changes as hashes and JSON Pointers
+    record_failed: false     # store records of failed runs (audit)
   gateway_id: protes.example.org          # default: host of server.public_url
 ```
 
@@ -95,6 +98,15 @@ enabled by default, limited to the allowlist (`client_selectable`, `roles`)
 and to the candidates of each request. Presets and frames are checked on
 startup like the default pipeline; presets that need a disabled plugin are
 unavailable.
+
+## Provenance
+
+`provenance.detail` sets what is recorded of each plugin's changes: `paths`
+(hashes before and after, changed JSON Pointers, no values) is the only
+level for now. `provenance.record_failed` stores records of failed runs
+(e.g., rejected requests) for audits, in a collection of the app with a
+TTL index; it is off by default, so that no record of rejected input is
+kept (cf. [provenance](../plugins.md#provenance)).
 
 ## Migrating from middlewares
 

@@ -88,7 +88,9 @@ def test_request_phase_commits_successful_alternative() -> None:
     assert run.executions[0].error is not None
     assert "secret" not in run.executions[0].error
     assert run.executions[2].annotations == {"key": "tagged"}
-    assert run.executions[2].after.payload["tags"] == {"tagged": "v"}
+    changes = run.executions[2].changes
+    assert changes is not None
+    assert changes["paths"] == ["/payload/tags"]
     assert run.implements("request")
     assert not run.implements("route")
     host.close()

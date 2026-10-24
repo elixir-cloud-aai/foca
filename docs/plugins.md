@@ -256,6 +256,57 @@ roles), the request ID (`request_id()`: a safe `X-Request-ID` header of
 the client, or a new one), and problem responses for gateway errors
 (`problem()`).
 
+## Provenance
+
+Each run records what was requested and resolved (prospective) and what
+actually ran (retrospective). `run.provenance()` returns it as plain JSON
+data for the app to store with its resource (e.g., the task):
+
+- `engine`: versions of FOCA, the plugin API and the app (`GatewayApp(name=...,
+  version=...)`);
+- `pipeline`: `source` (`default`, `preset` or `client`), `preset`,
+  `requested` (a reference to the client's tag, e.g.,
+  `tags[gateway.pipeline]`, as the tag is stored with the task anyway),
+  `resolved` (steps with all parameters) and `resolved_hash`
+  (`sha256:` of its RFC 8785 canonical JSON);
+- `plugins`: the plugins that ran, by build key (a hash of identifier,
+  distribution, version, entry point and RECORD digest);
+- `executions`: per hook call, in order: step, phase, alternative, plugin,
+  outcome, start time, duration, attempt number, sanitized error,
+  annotations (`ctx.record()`) and the changes: hashes before and after
+  and the changed JSON Pointers, without values (`detail: paths`);
+- `route` (candidates in and out), the client's backend `selection` (with
+  `discarded` items), the forwarding `attempts` (backend, outcome, reason,
+  remote ID, timings) and the `final_reason` (`forward_timeout`,
+  `no_backend`) if forwarding failed.
+
+Records hold no IP addresses, tokens, header values or claims. Plugins must
+not `record()` personal data.
+
+`foca.plugins.ProvenanceStore` stores the shared parts once, in
+collections that the app owns and declares in its `db` config:
+
+```python
+store = ProvenanceStore(
+    db.plugin_builds, db.pipelines, db.failed_runs  # names of the app
+)
+task["provenance"] = store.save(run)  # default/preset pipelines by hash
+...
+except GatewayError as error:
+    store.save_failure(error.run, error)  # only if `record_failed` is on
+```
+
+- `plugin_builds` and `pipelines` are keyed by hash (`_id`) and need no
+  index; only default and preset pipelines (admin-defined) are stored
+  there, client pipelines stay inline and are deleted with the task.
+- Failed runs (e.g., rejected requests, which have no task) are stored
+  only with `plugins.provenance.record_failed: true`; give the collection
+  a TTL index (`foca.plugins.provenance.FAILURE_INDEXES`, 30 days by
+  default) for the retention you need. Failure records hold the same data
+  as other records, plus the time and the error type.
+- The image digest of the app (env var `FOCA_IMAGE_DIGEST`, e.g., set by a
+  Helm chart) is stored with the builds, if set.
+
 ## Problem types
 
 Gateway errors are problem details with the extension member

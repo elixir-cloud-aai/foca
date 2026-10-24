@@ -349,7 +349,13 @@ def make_host(
             "gateway_id": kwargs.pop("gateway_id", None),
             **{
                 key: kwargs.pop(key)
-                for key in ("presets", "client_pipelines", "client_backends", "tags")
+                for key in (
+                    "presets",
+                    "client_pipelines",
+                    "client_backends",
+                    "tags",
+                    "provenance",
+                )
                 if key in kwargs
             },
         }

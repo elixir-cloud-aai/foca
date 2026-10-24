@@ -353,6 +353,27 @@ class TagsConfig(_Model):
     prefix: str = Field(default="gateway.", pattern=r"^[a-z0-9][a-z0-9_.-]{0,31}\.$")
 
 
+class ProvenanceConfig(_Model):
+    """Provenance of gateway requests (`plugins.provenance`).
+
+    Args:
+        detail: What is recorded of the changes of each plugin call:
+            `paths`, the hashes before and after and the changed JSON
+            Pointers, without values (the only level for now).
+        record_failed: Whether records of failed pipeline runs (e.g.,
+            rejected requests, which have no task) are stored for audits,
+            in a collection of the app with a retention (TTL index); off by
+            default, so that no record of rejected input is kept.
+
+    Attributes:
+        detail: What is recorded of the changes of each plugin call.
+        record_failed: Whether records of failed pipeline runs are stored.
+    """
+
+    detail: Literal["paths"] = "paths"
+    record_failed: bool = False
+
+
 class PluginsConfig(_Model):
     """Gateway plugins: allowlist and pipelines (FOCA config section `plugins`).
 
@@ -366,6 +387,7 @@ class PluginsConfig(_Model):
         client_pipelines: Pipelines chosen by clients per request.
         client_backends: Backends chosen by clients per request.
         tags: Reserved tags of gateway requests.
+        provenance: Provenance of gateway requests.
         gateway_id: Name of this gateway in `Via` headers (RFC 9110,
             section 7.6.3), which detect routing loops; defaults to the host
             of `server.public_url`. Without either, loops are not detected.
@@ -378,6 +400,7 @@ class PluginsConfig(_Model):
         client_pipelines: Pipelines chosen by clients per request.
         client_backends: Backends chosen by clients per request.
         tags: Reserved tags of gateway requests.
+        provenance: Provenance of gateway requests.
         gateway_id: Name of this gateway in `Via` headers, if set.
 
     Examples:
@@ -396,6 +419,7 @@ class PluginsConfig(_Model):
     client_pipelines: ClientPipelinesConfig = ClientPipelinesConfig()
     client_backends: ClientBackendsConfig = ClientBackendsConfig()
     tags: TagsConfig = TagsConfig()
+    provenance: ProvenanceConfig = ProvenanceConfig()
     gateway_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._:-]{1,255}$")
 
     @field_validator("pipeline")
