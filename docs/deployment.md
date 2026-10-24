@@ -96,8 +96,9 @@ To change settings, either:
 - set `GUNICORN_CMD_ARGS` (e.g., `--workers 2 --threads 8`), which takes
   precedence over the module. The [Helm chart](helm-chart.md#deployment-notes)
   sets it from the app chart's `gunicorn` values (workers, threads, timeouts
-  and keep-alive), which then apply instead of the module's; e.g., the
-  petstore chart's keep-alive is 75 seconds (raise it behind Traefik, see
+  and keep-alive), which then apply instead of the module's. The petstore
+  chart's values match the module's (keep-alive: 100 seconds, longer than
+  Traefik's idle timeout of 90 seconds, see
   [Traefik](helm-chart.md#traefik)); or
 - for other defaults of your app, write a config module of your own that
   imports FOCA's and overrides some names, and pass that one with
