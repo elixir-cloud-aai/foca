@@ -61,6 +61,95 @@ Declare the media type of error responses (by default
 `application/problem+json`) and a problem details schema for error responses
 in your API specifications, as FOCA's permissions API and the examples do.
 
+## Request-specific details
+
+Problem details mapped to an exception class are the same for all its
+exceptions. So by default, requests rejected by Connexion's validation (e.g.,
+for a missing parameter or a request body that does not match its schema)
+get the same response, whatever was wrong with them. To tell clients the
+reason, turn on `validation_details`:
+
+```yaml
+exceptions:
+  validation_details: true
+  max_detail_length: 500
+```
+
+Responses to Connexion's validation exceptions (`BadRequestProblem` and
+`ExtraParameterProblem`) then get the validator's reason as `detail` (for
+form data, the reasons joined by `; `), with the title and status as mapped
+(and the mapped details if there is no reason), e.g.:
+
+```json
+{
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "'abcd' is too long - 'name'"
+}
+```
+
+Like all error responses, they have the configured media type and only the
+public members (without `detail` in `public_members`, the reason is not
+sent). The reason is logged at `INFO`, shortened and escaped (unless
+`logging` is `none`), instead of the exception. Connexion's validation logger
+(`connexion.decorators.validation`) is raised to `CRITICAL`, as it logs the
+validator's message in full and unescaped (validators quote rejected values,
+which can be as large as the request body); this also silences its messages
+on invalid responses, which FOCA's handler logs as exceptions anyway.
+Exceptions that your app raises as `BadRequestProblem` (e.g., FOCA's
+[access control](../access-control.md) for an invalid user acted for) get
+their `detail` as well, so keep internals out of it. `validation_details` is
+off by default, so that responses and logs stay as they are.
+
+Details longer than `max_detail_length` (by default 500 characters, at least
+1) are shortened in the middle, keeping their start and end (e.g., the field
+names at the end of a validator's message), joined by `…`.
+
+To respond with request-specific details from your controllers (e.g., which
+identifier conflicts), use `problem_response()`, with extension members as
+keyword arguments:
+
+```python
+from foca.errors.exceptions import problem_response
+from werkzeug.exceptions import Conflict
+
+
+def post_service(body):
+    service_id = body["id"]
+    if exists(service_id):
+        return problem_response(
+            Conflict(f"Service '{service_id}' exists."),
+            serviceId=service_id,
+        )
+    ...
+```
+
+```json
+{
+  "title": "Conflict",
+  "status": 409,
+  "detail": "Service 'x' exists.",
+  "serviceId": "x"
+}
+```
+
+The response has the problem details mapped to the class of the werkzeug
+exception, with its status code, its description as `detail` (shortened to
+`max_detail_length`) and the extension members, and, like all error
+responses, the configured media type, only the public members and the
+headers of the exception (e.g., `WWW-Authenticate`). Exceptions without an
+HTTP error status code or a description raise a `ValueError`, as do the
+extension members `title`, `status` and `detail`. To shorten request-specific
+values in your own log messages the same way, use `shorten_detail()`, and
+escape them with `foca.utils.logging.escape_log_value()`:
+
+```python
+from foca.errors.exceptions import shorten_detail
+from foca.utils.logging import escape_log_value
+
+logger.info("Rejected: %s", escape_log_value(shorten_detail(reason)))
+```
+
 ## Media type
 
 All error responses have the media type (`Content-Type`) set in
