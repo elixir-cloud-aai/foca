@@ -276,10 +276,10 @@ cosign verify docker.io/elixircloud/foca:{{ version }} \
 Both fail unless the image was signed by that workflow for that tag;
 replace `{{ version }}` with the version to verify (and add the Python
 version, e.g., `{{ version }}-py3.12`, for other images than the default 3.13
-one). Images
-built from `dev` are signed by `.github/workflows/checks.yml` with the ref
-`refs/heads/dev`; the chart by `.github/workflows/release-chart.yml` with the
-ref `refs/tags/chart-vX.Y.Z`, e.g.:
+one). Images built from `dev` are signed by `.github/workflows/checks.yml`
+with the ref `refs/heads/dev`; the chart by
+`.github/workflows/release-chart.yml` with the ref `refs/tags/chart-vX.Y.Z`,
+e.g.:
 
 ```bash
 gh attestation verify oci://ghcr.io/elixir-cloud-aai/charts/foca-common:0.2.0 \
@@ -292,9 +292,9 @@ cosign verify ghcr.io/elixir-cloud-aai/charts/foca-common:0.2.0 \
 ```
 
 Tags can be moved to other images, so deploy the digest that you verified
-(e.g., `elixircloud/foca:{{ version }}@sha256:...`; `cosign verify` prints it). To
-read an image's SBOM (the packages it contains) or its provenance (how it was
-built, from which commit), run:
+(e.g., `elixircloud/foca:{{ version }}@sha256:...`; `cosign verify` prints
+it). To read an image's SBOM (the packages it contains) or its provenance
+(how it was built, from which commit), run:
 
 ```bash
 docker buildx imagetools inspect elixircloud/foca:{{ version }} \

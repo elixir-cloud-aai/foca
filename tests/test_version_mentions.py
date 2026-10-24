@@ -25,11 +25,13 @@ assert _spec and _spec.loader
 citation = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(citation)
 
-# Files that may name the release version: its source, the changelog, and
-# the tests of the release tooling, whose versions are test data (if one is
-# the release version, it means no other)
+# Files that may name the release version: its source, the changelog, the
+# pins of the pre-commit hooks, and the tests of the release tooling, whose
+# versions are test data (if one is the release version, it means no other)
 ALLOWED_FILES = (
     "CITATION.cff",
+    # Versions of the hooks' tools (e.g., `rev: v1.2.3`), never FOCA's
+    ".pre-commit-config.yaml",
     "docs/changelog.md",
     "tests/test_citation.py",
     "tests/test_docs_hooks.py",
@@ -45,9 +47,14 @@ ALLOWED_PREFIXES = ("docs/migration-",)
 # number, e.g., the version of the library chart or of a dependency, are not
 # about FOCA's release
 MENTIONS = (
-    r"(?:^|[\s`(\"']|refs/tags/|/en/|releases/(?:tag|download)/|\.\.\."
-    r"|(?i:foca)/(?:blob|tree|compare|commits)/)v{version}{end}",
-    r"(?i:\bfoca)(?:[:\- @]|==)v?{version}{end}",
+    r"(?:^|[\s`(\"'\[]|refs/tags/|releases/(?:tag|download)/|\.\.\."
+    r"|(?i:foca)/(?:blob|tree|compare|commits)/|(?i:foca)/\S*@)v{version}{end}",
+    # Read the Docs versions (`/en/1.2.3/`, `/en/v1.2.3/`)
+    r"/en/v?{version}{end}",
+    # The image, the package (also with extras and any version specifier,
+    # and on PyPI, `project/foca/1.2.3/`) and FOCA in prose
+    r"(?i:\bfoca)(?:\[[^\]]*\])?(?:[:\-@/]|\s+\(?|[<>=~!]=?=?)v?{version}{end}",
+    r"(?<![0-9.]){version}{end} releases?\b",
     r"(?i:\b(?:release|version)s?)\s+v?{version}{end}",
     r"`v?{version}`",
     # Tags of the images of other Python versions than the default one
@@ -66,6 +73,9 @@ ALLOWED_LINES = (
     r"Migrating to \[?{version}{end}\]?",
     r"\[{version}\]\(migration-[0-9.]+\.md[^)]*\)",
     r"\bFrom FOCA {version} on\b",
+    # Comments of actions pinned to commits (`uses: x/y@<sha> # v1.2.3`),
+    # which name the versions of the actions
+    r"@[0-9a-f]{{40}} # v{version}\S*",
 )
 
 
@@ -106,6 +116,18 @@ def mentions(text: str, version: str) -> list[tuple[int, str]]:
         ("FOCA 1.2.3", [(1, "FOCA 1.2.3")]),
         ("foca-1.2.3.tar.gz", [(1, "foca-1.2.3.tar.gz")]),
         ("foca==1.2.3 foca@1.2.3", [(1, "foca==1.2.3 foca@1.2.3")]),
+        ("foca>=1.2.3", [(1, "foca>=1.2.3")]),
+        ("foca~=1.2.3", [(1, "foca~=1.2.3")]),
+        ("foca[docs]==1.2.3", [(1, "foca[docs]==1.2.3")]),
+        ("pypi.org/project/foca/1.2.3/", [(1, "pypi.org/project/foca/1.2.3/")]),
+        ("foca.readthedocs.io/en/1.2.3/", [(1, "foca.readthedocs.io/en/1.2.3/")]),
+        ("FOCA (1.2.3)", [(1, "FOCA (1.2.3)")]),
+        ("[v1.2.3](x)", [(1, "[v1.2.3](x)")]),
+        (
+            "foca/.github/workflows/x.yml@v1.2.3",
+            [(1, "foca/.github/workflows/x.yml@v1.2.3")],
+        ),
+        ("the 1.2.3 release", [(1, "the 1.2.3 release")]),
         ("(e.g., `1.2.3`)", [(1, "(e.g., `1.2.3`)")]),
         ("e.g., `1.2.3-py3.12`", [(1, "e.g., `1.2.3-py3.12`")]),
         ("from 1.2.3 on", [(1, "from 1.2.3 on")]),
@@ -132,6 +154,7 @@ def mentions(text: str, version: str) -> list[tuple[int, str]]:
         ("See [Migrating to 1.2.3](migration-1.2.md).", []),
         ("- Migrating to [1.2.3](migration-1.2.md), [1.2.2](migration-1.1.md)", []),
         ("From FOCA 1.2.3 on, images are signed", []),
+        (f"uses: x/y@{'0' * 40} # v1.2.3", []),
         # Only the allowed part of a line is skipped
         (
             "From FOCA 1.2.3 on, release 1.2.3 is",

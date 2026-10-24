@@ -15,8 +15,10 @@ exclude_docs: |
 hooks:
   - docs/hooks.py
 
-# Files included in pages (see `pymdownx.snippets`)
+# Files included in pages (see `pymdownx.snippets`), and the source of the
+# release version (see `docs/hooks.py`)
 watch:
+  - CITATION.cff
   - README.md
 
 theme:
