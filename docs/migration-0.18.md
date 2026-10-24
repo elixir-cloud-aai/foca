@@ -65,7 +65,9 @@ too (`0.18.0-py3.15`); the unsuffixed tags (`0.18.0`, `latest`) stay on
 Python 3.13, the newest version in its security-fix phase (cf.
 [Docker](getting-started.md#docker)). PyYAML publishes no wheels for Python
 3.15 yet: pip builds it from source, without its optional C extension
-unless libyaml is installed, which FOCA does not need.
+unless libyaml is installed, which FOCA does not need. On Python 3.15, FOCA
+requires pydantic 2.14 or later, as older versions need pydantic-core
+versions without Python 3.15 wheels.
 
 ### Indexes and adapter
 
