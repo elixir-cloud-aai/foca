@@ -271,7 +271,14 @@ beta and release candidate versions (e.g., `vX.Y.Zrc1`) do not update
 
 A tag ruleset allows only admins to create `v*` and `chart-v*` tags and
 blocks updates and deletions of these tags for everyone, and GitHub releases
-are immutable. If a release fails, re-run only its failed jobs ("Re-run
+are immutable: once published, their assets can't be added, replaced or
+deleted. The release workflow therefore creates the GitHub release as a
+draft, uploads the distributions and publishes it last; a re-run finishes a
+draft left by an earlier attempt. If the release is already published (e.g.,
+by hand), a re-run uploads nothing and fails unless the release has all
+distributions, the same files as the run built (`scripts/release_assets.py`,
+tested in `tests/test_release_assets.py`); the error says what to do. If a
+release fails, re-run only its failed jobs ("Re-run
 failed jobs"), never all of them ("Re-run all jobs"). Builds are not
 reproducible, so the build jobs would build new distributions and images:
 the assets of the GitHub release would then differ from the files on PyPI,
