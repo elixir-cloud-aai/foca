@@ -79,6 +79,15 @@ the update is complete.
   `remove_policy_by_id()`, which the permissions API now uses to delete
   rules, so that their removal is recorded.
 
+### Ownership by document field
+
+Apps whose resources are never shared can now store the owner in each
+resource's document (`set_owner_field()`) and filter by it
+(`owner_filter()`), instead of storing a policy rule per resource (cf.
+[ownership by document field](access-control.md#ownership-by-document-field)).
+Resource ownership via policy rules (`add_owner()` etc.) is unchanged and
+stays the default of FOCA's helpers.
+
 ### Logging
 
 Casbin no longer logs all stored rules (including user identifiers of

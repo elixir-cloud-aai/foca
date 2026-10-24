@@ -54,6 +54,8 @@ configuration models, see [Configuration](configuration/index.md).
         - list_subject_roles
         - resource_filter
         - is_admin
+        - set_owner_field
+        - owner_filter
         - LastOwner
         - ResourceRole
         - SubjectResourceRole
