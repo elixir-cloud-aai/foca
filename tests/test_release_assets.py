@@ -146,16 +146,21 @@ def test_state_published_without_digests(files: list[Path]) -> None:
 
 
 def test_state_published_unexpected(files: list[Path]) -> None:
-    """Assets that the run did not build are an error."""
+    """Assets that the run did not build are an error, even unfinished ones."""
     extra = files[0].with_name("extra.txt")
     extra.write_text("extra")
-    assets = [_asset(path) for path in [*files, extra]]
+    unfinished = files[0].with_name("unfinished.txt")
+    unfinished.write_text("unfinished")
+    assets = [
+        *(_asset(path) for path in [*files, extra]),
+        _asset(unfinished, state="starter"),
+    ]
     state, errors, warnings = release_assets.release_state(
         TAG, [_release(assets=assets)], files
     )
     assert state is None
     assert len(errors) == 1
-    assert "assets that this run did not build (extra.txt)" in errors[0]
+    assert "did not build (extra.txt, unfinished.txt)" in errors[0]
     assert warnings == []
 
 

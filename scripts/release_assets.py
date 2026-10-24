@@ -107,7 +107,12 @@ def check_published(
             signature = path.name.endswith(SIGNATURE_SUFFIX)
             (resigned if signature else changed).append(path.name)
     names = {path.name for path in paths}
-    unexpected = sorted(str(name) for name in uploaded if name not in names)
+    # Of all assets, whatever their state (an unfinished upload is visible too)
+    unexpected = sorted(
+        str(asset.get("name"))
+        for asset in release.get("assets") or []
+        if asset.get("name") not in names
+    )
     if release.get("immutable"):
         remedy = (
             "assets of a published immutable release can't be added or"
