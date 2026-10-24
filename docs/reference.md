@@ -132,6 +132,20 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.plugins.provenance
 
+::: foca.plugins.backends
+    options:
+      members:
+        - BackendList
+        - BackendListConfig
+        - ServiceEntry
+        - RegistryEntry
+        - BasicCredentialsConfig
+        - LocationConfig
+        - RegistryCache
+        - select_services
+        - clear_caches
+        - API_TYPES
+
 ::: foca.plugins.runtime
     options:
       members:

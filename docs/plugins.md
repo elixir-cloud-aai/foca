@@ -127,6 +127,64 @@ never candidates. Credentials of backends are added by the app after the
 `forward` phase, so plugins never see them; the client's own credentials
 are never forwarded by the engine.
 
+## Backend lists
+
+Gateway apps configure their backends as one ordered list of typed
+entries, under a key of their own (e.g., proTES: `custom.tes.backends`),
+validated by `foca.plugins.backends.BackendListConfig`:
+
+```yaml
+backends:
+  - type: ga4gh-tes
+    url: https://tes-a.example.org
+    url_schemes: [https]           # default; dev/test setups may add http
+    auth: client_credentials       # client_credentials | basic | none
+    labels: {region: eu-north}
+    location: {latitude: 60.17, longitude: 24.94}
+  - type: ga4gh-service-registry
+    id: cloud-registry
+    url: https://registry.example.org/ga4gh/registry/v1   # https only
+    refresh_interval: 300
+    timeout: 10
+    versions: ["1.1"]              # API versions, as prefixes
+    environments: [prod]           # any if empty
+    auth: client_credentials       # for discovered backends: or none
+    allow_private_addresses: false
+  - type: ga4gh-tes
+    url: https://tes-fallback.example.org
+    auth: basic
+    basic: {username_env: TES_FALLBACK_USER, password_env: TES_FALLBACK_PASSWORD}
+```
+
+Entry `id`s default to the normalized URL and must be unique; URLs must not
+have user info. `BackendList(entries, api="tes", public_url=...)` turns the
+entries into the candidates of a request, in order:
+
+- `expand()`: configured backends and the backends discovered in each
+  registry, in the registry's order. Backends with the same URL are listed
+  once, at the first position, with the settings of a configured entry if
+  there is one; backends at or below the gateway's public URL are left out.
+  `Backend.auth` names the credentials (registry entries pass theirs to
+  their backends).
+- `entry_for(backend)`: the entry behind a candidate, e.g., for the `basic`
+  environment variables, when the app adds credentials after the `forward`
+  phase.
+- `find(url)`: a backend by URL, re-reading the registries (at most every
+  10 s) if no candidate has it, e.g., for status polling and cancellation in
+  other processes.
+- `snapshots()`: the time of the registry reads that the candidates come
+  from, for provenance.
+
+Registries are the trust anchor: only services that the registry lists as
+verified (`GET /verifications`, an extension of the ELIXIR Cloud Registry)
+with their current URL and API type are used, if their version and
+environment are accepted, their URLs are `https` and their hosts have public
+addresses only (unless `allow_private_addresses`). Registries are read
+without access token and without following redirects. Each process caches
+the backends of each registry for `refresh_interval` seconds and keeps the
+last good list while a registry is unreachable (retrying after 30 s at
+most); before the first good read, a registry yields no candidates.
+
 ## Writing plugins
 
 ```python
