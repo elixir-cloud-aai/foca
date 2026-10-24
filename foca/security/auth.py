@@ -265,8 +265,9 @@ def require_no_service_clients() -> None:
 
     Raises:
         RuntimeError: Service clients or the header naming the users they
-            act for are configured for the current FOCA app (cf.
-            :py:func:`foca.config.access.get_config`).
+            act for are configured for the current FOCA app: the app of the
+            current app context, if any, otherwise the most recently
+            created one (cf. :py:func:`foca.config.access.get_config`).
     """
     auth = get_config().security.auth
     if auth.service_clients or auth.on_behalf_of_header is not None:

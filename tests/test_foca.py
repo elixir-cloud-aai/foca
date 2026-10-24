@@ -206,8 +206,11 @@ def test_foca_create_app_no_access_control_checks(
 ) -> None:
     """Access control settings are not checked without access control."""
     Foca(config_file=VALID_DB_CONF).create_app()
-    assert "access_control" not in log.text
-    assert "'admin'" not in log.text
+    assert not [
+        record
+        for record in log.records
+        if record.name.startswith("foca.security.access_control")
+    ]
 
 
 @pytest.mark.usefixtures("mongo_clients")
@@ -216,7 +219,7 @@ def test_foca_create_app_access_control_checks(
 ) -> None:
     """Access control settings are checked when creating apps."""
     Foca(config_file=_access_control_conf(tmp_path)).create_app()
-    assert "No group is mapped to the role 'admin'" in log.text
+    assert "No group or service client is mapped to the role 'admin'" in log.text
 
 
 @pytest.mark.usefixtures("mongo_clients")

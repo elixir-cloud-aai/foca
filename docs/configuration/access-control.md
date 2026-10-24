@@ -52,10 +52,13 @@ work.
 Some settings leave an app running, but not as intended. When access control
 is enabled, `Foca.create_app()` checks them and logs what to change:
 
-- **Admins:** the groups mapped to the role `admin` (via `group_mapping`)
-  are logged (`INFO`). If no group is mapped to it and no rule of
-  `policies` grants it (e.g., `[g, "user:alice", admin]`), a warning is
-  logged, as nobody is then an admin via groups or configured rules. Roles
+- **Admins:** the groups (via `group_mapping`) and service clients (via
+  `client_mapping`) mapped to the role `admin` are logged (`INFO`). If none
+  is mapped to it and no rule of `policies` grants it (e.g., `[g,
+  "user:alice", admin]`), a warning is logged, as nobody is then an admin
+  via mappings or configured rules. Mapped groups count only if
+  `claim_groups` is set, and rules for groups (`group:<value>`) only if
+  group claim values are used as group subjects (see below). Roles
   granted via stored policy rules (e.g., via the permissions API) are not
   checked, and still apply. With `require_admin: true`, the app refuses to
   start (`ValueError`) instead, before anything is stored; set it if the
@@ -72,7 +75,9 @@ is enabled, `Foca.create_app()` checks them and logs what to change:
   `keep_group_subjects: true` if the app grants roles to groups.
 - `keep_group_subjects` without `group_mapping` (no effect) and several
   trusted `issuers` (subjects are not scoped by issuer) are warned about,
-  too.
+  too, and so is the removal of stored configured rules if `policies` is
+  not set (see [configuring
+  policies](../access-control.md#configuring-policies)).
 
 Messages name the settings to change, and contain no claim values other
 than configured group names. Without access control, none of these checks

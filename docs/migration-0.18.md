@@ -117,11 +117,12 @@ stays the default of FOCA's helpers.
 but likely not as intended (cf. [startup
 checks](deployment.md#startup-checks)); apps behave as before:
 
-- With access control enabled: no group is mapped to the role `admin` and
-  no rule of `policies` grants it (roles granted via stored rules still
-  apply); `group_mapping` is set without `claim_groups`, or without
-  `keep_group_subjects`; `claim_groups` has surrounding whitespace. The
-  groups mapped to `admin` are logged (`INFO`). Set the new option
+- With access control enabled: no group or service client is mapped to the
+  role `admin` and no rule of `policies` grants it (roles granted via
+  stored rules still apply); `group_mapping` is set without
+  `claim_groups`, or without `keep_group_subjects`; `claim_groups` has
+  surrounding whitespace. The groups and service clients mapped to `admin`
+  are logged (`INFO`). Set the new option
   `security.access_control.require_admin: true` (default: `false`) to
   refuse to start without admins instead (cf. [startup
   checks](configuration/access-control.md#startup-checks)).

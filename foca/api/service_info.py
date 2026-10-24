@@ -43,16 +43,12 @@ logger = logging.getLogger(__name__)
 
 # Reserved example domains (RFC 2606), as used by templates: second-level
 # domains, also as parents of hosts, and the top-level domain `example`
-EXAMPLE_DOMAINS = ("example.com", "example.net", "example.org", "example")
+_EXAMPLE_DOMAINS = ("example.com", "example.net", "example.org", "example")
 # The same domains in reverse domain name notation, as used for service IDs
 # (e.g., `org.example.my-service`)
 _EXAMPLE_ID_DOMAINS = ("com.example", "net.example", "org.example")
-# Fields of the service info with URLs, and how they are named in warnings
-_URL_FIELDS = (
-    (("organization", "url"), "organization.url"),
-    (("contactUrl",), "contactUrl"),
-    (("documentationUrl",), "documentationUrl"),
-)
+# Fields of the service info with URLs, but `organization.url`
+_URL_FIELDS = ("contactUrl", "documentationUrl")
 
 
 def build_service_info(conf: ServiceInfoConfig) -> dict[str, Any]:
@@ -178,13 +174,13 @@ def _in_example_domain(domain: str) -> bool:
         domain: Domain name, e.g., ``docs.example.org``.
 
     Returns:
-        Whether `domain` is one of :py:data:`EXAMPLE_DOMAINS` or a subdomain
+        Whether `domain` is one of the reserved example domains or a subdomain
         of one, ignoring case and a trailing dot.
     """
     domain = domain.lower().rstrip(".")
     return any(
         domain == example or domain.endswith(f".{example}")
-        for example in EXAMPLE_DOMAINS
+        for example in _EXAMPLE_DOMAINS
     )
 
 
@@ -231,11 +227,15 @@ def _placeholder_fields(info: dict[str, Any]) -> list[str]:
             for domain in _EXAMPLE_ID_DOMAINS
         ):
             fields.append("id")
-    for path, name in _URL_FIELDS:
-        value: Any = info
-        for key in path:
-            value = value.get(key) if isinstance(value, dict) else None
-        if isinstance(value, str) and _in_example_domain(_url_domain(value)):
+    organization = info.get("organization")
+    urls = {
+        "organization.url": (
+            organization.get("url") if isinstance(organization, dict) else None
+        ),
+        **{field: info.get(field) for field in _URL_FIELDS},
+    }
+    for name, url in urls.items():
+        if isinstance(url, str) and _in_example_domain(_url_domain(url)):
             fields.append(name)
     return fields
 

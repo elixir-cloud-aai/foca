@@ -466,7 +466,8 @@ roles of `resource_roles` (by default, `owner` and `maintainer`) are
 rejected on startup, as a mapped role is a subject of its own, which matches
 the rules of that role on _every_ resource (e.g., all members of the group
 would own all tasks). FOCA logs the groups mapped to `admin` on startup, and
-warns if no group or configured rule grants it, or if group settings keep
+warns if no group, service client or configured rule is granted it, or if
+group settings keep
 groups from applying (see [startup
 checks](configuration/access-control.md#startup-checks)).
 

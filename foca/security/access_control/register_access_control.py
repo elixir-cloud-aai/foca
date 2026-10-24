@@ -32,6 +32,7 @@ from foca.security.access_control.constants import (
     CHANGES_COLLECTION_SUFFIX,
     CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
+    GROUP_PREFIX,
 )
 from foca.security.access_control.enforcement import AccessControlResolver
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
@@ -220,41 +221,62 @@ def _check_group_config(access_control_config: AccessControlConfig) -> None:
 
 
 def _check_admin_role(access_control_config: AccessControlConfig) -> None:
-    """Check that groups or configured policy rules grant the role `admin`.
+    """Check that groups, service clients or configured rules grant `admin`.
 
-    The groups mapped to the role are logged. Roles granted via stored
-    policy rules (e.g., via the permissions API) are not checked, as the
-    database may not be available yet, and still apply.
+    The groups and service clients mapped to the role are logged. Groups
+    count only if a group claim is set (`claim_groups`), and configured
+    rules for groups (`group:<value>`) only if group claim values are also
+    used as group subjects, as they don't apply otherwise. Roles granted via
+    stored policy rules (e.g., via the permissions API) are not checked, as
+    the database may not be available yet, and still apply.
 
     Args:
         access_control_config: Access control configuration.
 
     Raises:
-        ValueError: No group is mapped to the role (`group_mapping`), no
-            rule of `policies` grants it (e.g., `["g", "user:alice",
-            "admin"]`), and `require_admin` is set.
+        ValueError: No group (`group_mapping`) or service client
+            (`client_mapping`) is mapped to the role, no rule of `policies`
+            grants it (e.g., `["g", "user:alice", "admin"]`), and
+            `require_admin` is set.
     """
     conf = access_control_config
-    mapping = conf.group_mapping or {}
-    groups = sorted(group for group, role in mapping.items() if role == ADMIN_ROLE)
-    if groups:
-        logger.info(
-            "Groups mapped to the role '%s': %s.",
-            ADMIN_ROLE,
-            ", ".join(escape_log_value(group) for group in groups),
+    has_groups = bool(conf.claim_groups)
+    keeps_group_subjects = has_groups and (
+        conf.group_mapping is None or conf.keep_group_subjects
+    )
+    found = False
+    for name, mapping, applies in (
+        ("Groups", conf.group_mapping, has_groups),
+        ("Service clients", conf.client_mapping, True),
+    ):
+        mapped = sorted(
+            key for key, role in (mapping or {}).items() if role == ADMIN_ROLE
         )
-        return
+        if mapped and applies:
+            found = True
+            logger.info(
+                "%s mapped to the role '%s': %s.",
+                name,
+                ADMIN_ROLE,
+                ", ".join(escape_log_value(key) for key in mapped),
+            )
     # Global role rules (`g, <subject>, admin`), also of roles granted the
     # role in turn
-    if any(
-        len(rule) == 3 and rule[0] == "g" and rule[2] == ADMIN_ROLE
+    found = found or any(
+        len(rule) == 3
+        and rule[0] == "g"
+        and rule[2] == ADMIN_ROLE
+        and (keeps_group_subjects or not rule[1].startswith(GROUP_PREFIX))
         for rule in conf.policies or []
-    ):
+    )
+    if found:
         return
     missing = (
-        f"No group is mapped to the role '{ADMIN_ROLE}' "
-        "('security.access_control.group_mapping') and no configured policy "
-        "rule grants it ('security.access_control.policies')"
+        f"No group or service client is mapped to the role '{ADMIN_ROLE}' "
+        "('security.access_control.group_mapping', with "
+        "'security.access_control.claim_groups' set, or "
+        "'security.access_control.client_mapping') and no configured policy "
+        "rule that applies grants it ('security.access_control.policies')"
     )
     if conf.require_admin:
         raise ValueError(
@@ -264,7 +286,7 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
             "granted via stored policy rules then still apply)."
         )
     logger.warning(
-        "%s, so nobody is an admin via groups or configured rules; roles "
+        "%s, so nobody is an admin via mappings or configured rules; roles "
         "granted via stored policy rules (e.g., via the permissions API) "
         "still apply.",
         missing,
