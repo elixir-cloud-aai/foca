@@ -34,10 +34,11 @@ for each call.
   via the adapter are recorded and applied to the enforcers of all app
   instances, while, e.g., `enforcer.clear_policy()` would change the
   shared enforcer of one instance only. Updating rules (e.g., via
-  `update_policy()`), which FOCA's adapter does not support, now raises
-  `NotImplementedError` before changing the enforcer (before, it raised an
-  `AttributeError`, or changed only the enforcer of the call, without
-  storing the change).
+  `update_policy()`) and removing several rules at once (e.g., via
+  `remove_policies()`), which FOCA's adapter does not support, now raise
+  `NotImplementedError` before changing the enforcer (before, they raised
+  an `AttributeError` or returned `False`, or changed only the enforcer of
+  the call, without storing the change).
 
 ### Rules changed in the database directly
 

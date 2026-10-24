@@ -1290,8 +1290,9 @@ The trade-offs:
   the app serves requests in a single thread. Do not change the enforcer's
   rules other than via its methods that also store them (e.g.,
   `add_policy()`), which record the changes. Updating rules (e.g., via
-  `update_policy()`) is not supported by FOCA's adapter and raises an
-  error; remove and add rules instead.
+  `update_policy()`) and removing several rules at once (e.g., via
+  `remove_policies()`) are not supported by FOCA's adapter and raise an
+  error; remove and add rules one by one instead.
 
 Each stored rule still takes memory in each app instance (e.g., about
 55 MB for 100,000 `g2` rules). As resource-scoped roles add rules per

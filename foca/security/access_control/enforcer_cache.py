@@ -13,7 +13,7 @@ changes were made since the last check than are recorded.
 
 import logging
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from casbin import Enforcer
@@ -93,14 +93,88 @@ def _refuse_update(*args: Any, **kwargs: Any) -> bool:
 class SharedEnforcer(Enforcer):
     """Casbin enforcer shared by the threads of an app instance.
 
-    Casbin updates rules (e.g., via `update_policy()`) in memory before
-    storing them, and FOCA's adapter does not support updating rules, so
-    that a shared enforcer would keep rules that are not stored. Updating
-    rules is therefore refused before changing the enforcer; remove and add
-    rules instead.
+    Casbin removes and updates rules in memory before storing the change,
+    so that a shared enforcer would keep rules that are not stored if
+    storing fails:
+
+    - Updating rules (e.g., via `update_policy()`) and removing several
+      rules at once (e.g., via `remove_policies()`), which FOCA's adapter
+      does not support, are refused before changing the enforcer; remove
+      and add rules one by one instead.
+    - If removing rules fails (e.g., as the database is not available), the
+      enforcer is discarded (cf. `on_failure`), so that all rules are
+      loaded again on its next use.
+
+    Attributes:
+        on_failure: Function called if a change of rules failed.
     """
 
+    on_failure: Callable[[], None] = staticmethod(lambda: None)
+
     _update_policy = _update_policies = _update_filtered_policies = _refuse_update
+    _remove_policies = _refuse_update
+
+    def _remove_policy(self, *args: Any, **kwargs: Any) -> Any:
+        """Remove a rule (cf. Casbin's method).
+
+        Args:
+            *args: Arguments of Casbin's method.
+            **kwargs: Keyword arguments of Casbin's method.
+
+        Returns:
+            Result of Casbin's method.
+        """
+        return self._discarding_on_failure(super()._remove_policy, args, kwargs)
+
+    def _remove_filtered_policy(self, *args: Any, **kwargs: Any) -> Any:
+        """Remove rules matching a filter (cf. Casbin's method).
+
+        Args:
+            *args: Arguments of Casbin's method.
+            **kwargs: Keyword arguments of Casbin's method.
+
+        Returns:
+            Result of Casbin's method.
+        """
+        return self._discarding_on_failure(
+            super()._remove_filtered_policy, args, kwargs
+        )
+
+    def _remove_filtered_policy_returns_effects(self, *args: Any, **kwargs: Any) -> Any:
+        """Remove rules matching a filter (cf. Casbin's method).
+
+        Args:
+            *args: Arguments of Casbin's method.
+            **kwargs: Keyword arguments of Casbin's method.
+
+        Returns:
+            Result of Casbin's method.
+        """
+        return self._discarding_on_failure(
+            super()._remove_filtered_policy_returns_effects, args, kwargs
+        )
+
+    def _discarding_on_failure(
+        self,
+        method: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Any:
+        """Call a method changing rules, calling `on_failure` if it fails.
+
+        Args:
+            method: Method changing rules.
+            args: Arguments of the method.
+            kwargs: Keyword arguments of the method.
+
+        Returns:
+            Result of the method.
+        """
+        try:
+            return method(*args, **kwargs)
+        except BaseException:
+            self.on_failure()
+            raise
 
 
 class ResourceRoleManager(DomainManager):
@@ -383,6 +457,14 @@ class EnforcerCache:
                 enforcer.add_named_domain_matching_func(ptype, is_within_path)
         enforcer.set_adapter(self.adapter)
         enforcer.load_policy()
+
+        def discard() -> None:
+            """Load all rules on next use, unless done already."""
+            with self.lock:
+                if self._enforcer is enforcer:
+                    self._enforcer = None
+
+        enforcer.on_failure = discard
         self._enforcer, self._epoch, self._version = (
             enforcer,
             state.epoch,

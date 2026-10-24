@@ -538,6 +538,7 @@ class TestEnforcerCache:
             lambda enforcer: enforcer.update_filtered_policies(
                 [["owner", TASK, "DELETE"]], 0, "owner"
             ),
+            lambda enforcer: enforcer.remove_policies([["owner", TASK, "GET"]]),
         ],
     )
     def test_updates_refused(
@@ -546,12 +547,70 @@ class TestEnforcerCache:
         adapter: Adapter,
         update: Callable[[Enforcer], Any],
     ) -> None:
-        """Rules are not updated, as the adapter cannot store updates."""
+        """Changes the adapter cannot store are refused."""
         adapter.add_policy("p", "p", ["owner", TASK, "GET"])
         enforcer = cache.get_enforcer()
         with pytest.raises(NotImplementedError, match="not supported"):
             update(enforcer)
         assert enforcer.get_policy() == [["owner", TASK, "GET"]]
+
+    @pytest.mark.parametrize(
+        "remove",
+        [
+            lambda enforcer: enforcer.remove_named_grouping_policy(
+                "g2", "user:a", "owner", TASK
+            ),
+            lambda enforcer: enforcer.remove_filtered_named_grouping_policy(
+                "g2", 0, "user:a"
+            ),
+            lambda enforcer: enforcer.delete_roles_for_user("user:a"),
+            lambda enforcer: enforcer.remove_filtered_policy(0, "owner"),
+        ],
+    )
+    def test_failed_removal_reloaded(
+        self,
+        cache: EnforcerCache,
+        adapter: Adapter,
+        monkeypatch: pytest.MonkeyPatch,
+        remove: Callable[[Enforcer], Any],
+    ) -> None:
+        """Rules removed in memory but not stored are loaded again."""
+        adapter.add_policy("g", "g2", ["user:a", "owner", TASK])
+        adapter.add_policy("g", "g", ["user:a", "admin"])
+        adapter.add_policy("p", "p", ["owner", TASK, "GET"])
+        enforcer = cache.get_enforcer()
+        monkeypatch.setattr(
+            adapter._collection,
+            "delete_many",
+            mock_failing(RuntimeError("unavailable")),
+        )
+        with cache.lock, pytest.raises(RuntimeError, match="unavailable"):
+            remove(enforcer)
+        monkeypatch.undo()
+        assert cache.get_enforcer() is not enforcer
+        assert _g2_rules(cache.get_enforcer()) == [["user:a", "owner", TASK]]
+        assert cache.get_enforcer().get_policy() == [["owner", TASK, "GET"]]
+        assert cache.get_enforcer().get_grouping_policy() == [["user:a", "admin"]]
+
+    def test_failed_removal_of_replaced_enforcer(
+        self,
+        cache: EnforcerCache,
+        adapter: Adapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failed removal via an old enforcer keeps the current one."""
+        adapter.add_policy("g", "g2", ["user:a", "owner", TASK])
+        enforcer = cache.get_enforcer()
+        adapter.mark_changed()
+        current = cache.get_enforcer()
+        monkeypatch.setattr(
+            adapter._collection,
+            "delete_many",
+            mock_failing(RuntimeError("unavailable")),
+        )
+        with pytest.raises(RuntimeError, match="unavailable"):
+            enforcer.remove_named_grouping_policy("g2", "user:a", "owner", TASK)
+        assert cache.get_enforcer() is current
 
     def test_configured_rules_applied(
         self,
