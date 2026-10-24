@@ -15,6 +15,10 @@ or tasks in a task execution service:
   unless it is an admin (:py:func:`resource_filter`,
   :py:func:`list_subject_roles`, :py:func:`is_admin`).
 
+Alternatively, apps whose resources are never shared can store the owner in
+a field of each resource document (:py:func:`set_owner_field`) and filter by
+it (:py:func:`owner_filter`), without policy rules per resource.
+
 Resources are identified by their full request paths (e.g., `/tasks/123`), as
 roles are enforced on request paths. Role changes are logged for auditing
 (who changed which role of whom on which resource). Which subjects may call
@@ -22,9 +26,9 @@ the operations using the helpers is decided by the app's policies.
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from contextlib import suppress
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from casbin import Enforcer
 from werkzeug.exceptions import Conflict, NotFound
@@ -33,11 +37,13 @@ from foca.config.access import get_config
 from foca.security.access_control.constants import (
     ADMIN_ROLE,
     GROUP_PREFIX,
+    OWNER_FIELD,
     OWNER_ROLE,
 )
 from foca.security.access_control.enforcement import (
     RESOURCE_ROLE_PTYPE,
     SubjectType,
+    _get_claims,
     _get_current_policy_subjects,
     _get_role_rules,
     _get_subject_prefix,
@@ -854,3 +860,133 @@ def resource_filter(
         return {}
     ids = [role.id for role in _list_roles_of(subjects, prefix, ptype)]
     return {field: {"$in": list(dict.fromkeys(ids))}}
+
+
+def _check_owner_field(field: str) -> None:
+    """Ensure that a field may hold owners of documents.
+
+    Args:
+        field: Name of the field.
+
+    Raises:
+        ValueError: The field is empty, names a nested field (with `.`),
+            or starts with `$`, which MongoDB reserves for operators.
+    """
+    if not field or "." in field or field.startswith("$"):
+        raise ValueError(
+            f"Invalid owner field '{field}': expected a top-level field name "
+            "without '.' and not starting with '$'"
+        )
+
+
+def _get_owner(on_behalf_of: str | None = None) -> dict[str, str] | None:
+    """Get the owner of resources created by the current request.
+
+    Args:
+        on_behalf_of: User named by the caller to act for (cf.
+            :py:func:`foca.security.access_control.get_on_behalf_of_user`).
+
+    Returns:
+        Issuer (`iss`) and subject (`sub`): the issuer of the validated
+        token of the current request, and the user that an allowed service
+        client acts for, otherwise the identity of the token (cf.
+        :py:func:`foca.security.access_control.get_current_subject`), also
+        for service tokens. `None` if the token has no issuer or identity.
+
+    Raises:
+        connexion.exceptions.BadRequestProblem: The named user is invalid.
+        connexion.exceptions.Forbidden: The caller names a user, but is not a
+            service client allowed to act for users.
+    """
+    subject = get_on_behalf_of_user(on_behalf_of)
+    if subject is None:
+        subject = get_current_subject()
+    issuer = _get_claims().get("iss")
+    if subject is None or not isinstance(issuer, str):
+        return None
+    return {"iss": issuer, "sub": subject}
+
+
+def set_owner_field(
+    document: MutableMapping[str, Any],
+    field: str = OWNER_FIELD,
+    on_behalf_of: str | None = None,
+) -> dict[str, str]:
+    """Make the creator of a resource its owner, in a field of its document.
+
+    Call this on the document of a resource before storing it, so that the
+    owner is stored together with the resource, in the same write. Unlike
+    :py:func:`add_owner`, no policy rule is stored: filter documents by
+    owner (cf. :py:func:`owner_filter`) to restrict access to the owner.
+
+    Args:
+        document: Document of the resource, which the owner is set in.
+        field: Top-level field of the document holding the owner.
+        on_behalf_of: User that the caller names to act for (cf.
+            :py:func:`add_owner`).
+
+    Returns:
+        The owner, as set in the document: the issuer (`iss`) of the token
+        of the current request, and the subject (`sub`) the request is
+        attributed to: the user that an allowed service client acts for,
+        otherwise the identity of the token (cf.
+        :py:func:`foca.security.access_control.get_current_subject`), also
+        for service tokens.
+
+    Raises:
+        connexion.exceptions.BadRequestProblem: The user named by a service
+            client is invalid.
+        connexion.exceptions.Forbidden: The caller names a user to act for,
+            but is not a service client allowed to.
+        connexion.exceptions.Unauthorized: The token of the current request
+            has no issuer or identity.
+        ValueError: The field is not a valid top-level field name.
+    """
+    _check_owner_field(field)
+    owner = _get_owner(on_behalf_of)
+    if owner is None:
+        from foca.security.auth import _unauthorized  # noqa: PLC0415 (import cycle)
+
+        raise _unauthorized("Subject could not be identified", invalid_token=False)
+    document[field] = owner
+    return dict(owner)
+
+
+def owner_filter(
+    field: str = OWNER_FIELD, on_behalf_of: str | None = None
+) -> dict[str, Any]:
+    """Get a MongoDB filter for the documents the current subject owns.
+
+    Use this for resources whose owner is stored in their documents (cf.
+    :py:func:`set_owner_field`), e.g., to list them
+    (`collection.find(owner_filter())`) or to access one
+    (`collection.find_one({"id": id, **owner_filter()})`).
+
+    Args:
+        field: Top-level field of the documents holding the owner.
+        on_behalf_of: User that the caller names to act for (cf.
+            :py:func:`resource_filter`).
+
+    Returns:
+        An empty filter (all documents) if the caller is an admin (cf.
+        :py:func:`is_admin`); for service clients, this is the client's own
+        status, also when it acts for a user, whose admin rights do not
+        apply. Otherwise, a filter for the documents whose owner is the
+        caller (cf. :py:func:`set_owner_field`), or for no documents if the
+        caller cannot own any (e.g., without token).
+
+    Raises:
+        connexion.exceptions.BadRequestProblem: The user named by a service
+            client is invalid.
+        connexion.exceptions.Forbidden: The caller names a user to act for,
+            but is not a service client allowed to.
+        ValueError: The field is not a valid top-level field name.
+    """
+    _check_owner_field(field)
+    # Named users are checked also for admins, so that callers notice
+    owner = _get_owner(on_behalf_of)
+    if is_admin():
+        return {}
+    if owner is None:
+        return {field: {"$in": []}}
+    return {f"{field}.iss": owner["iss"], f"{field}.sub": owner["sub"]}

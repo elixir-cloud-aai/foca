@@ -63,6 +63,8 @@ MAINTAINER_ROLE = "maintainer"
 # Role of subjects that may do everything, as in the reference model
 # (`resource_role_model.conf`)
 ADMIN_ROLE = "admin"
+# Default document field holding the owner of resources owned by field
+OWNER_FIELD = "owner"
 
 # Identifiers of policy rules: characters, length and attempts to generate a
 # unique identifier

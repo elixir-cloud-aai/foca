@@ -29,10 +29,12 @@ from foca.security.access_control import (
     list_resource_roles,
     list_roles,
     list_subject_roles,
+    owner_filter,
     ownership,
     remove_resource_role,
     resource_filter,
     revoke_roles,
+    set_owner_field,
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
@@ -871,6 +873,145 @@ class TestResourceFilter:
             resource_filter("/tasks")
         with as_caller(app, CAROL), pytest.raises(Forbidden):
             resource_filter("/tasks", on_behalf_of="alice")
+
+
+class TestOwnerField:
+    """Tests for field-based ownership (`set_owner_field()`, `owner_filter()`)."""
+
+    @staticmethod
+    def _tasks() -> Any:
+        """Get an empty in-memory task collection."""
+        return mongomock.MongoClient()["db"]["tasks"]
+
+    def test_set_owner_field(self, app: Flask) -> None:
+        """The creator is stored in the document, with the token's issuer."""
+        document: dict[str, Any] = {"id": "1"}
+        with as_caller(app, ALICE):
+            owner = set_owner_field(document)
+            assert set_owner_field(document, field="creator") == owner
+        assert owner == {"iss": ISSUER, "sub": "alice"}
+        assert document == {"id": "1", "owner": owner, "creator": owner}
+        owner["sub"] = "bob"
+        assert document["owner"]["sub"] == "alice"
+
+    def test_no_policy_rules(self, app: Flask) -> None:
+        """Owners by field get no roles."""
+        with as_caller(app, ALICE):
+            set_owner_field({"id": "1"})
+            assert list_subject_roles("/tasks") == []
+
+    def test_identity_claim(self) -> None:
+        """The owner's subject is the configured identity claim."""
+        app = _create_app(claim_identity="email")
+        with as_caller(app, {**ALICE, "email": "alice@example.org"}):
+            owner = set_owner_field({})
+        assert owner == {"iss": ISSUER, "sub": "alice@example.org"}
+
+    def test_service_client(self, app: Flask) -> None:
+        """Service clients own what they create, unless acting for users."""
+        with as_caller(app, CONQUEST):
+            assert set_owner_field({}) == {"iss": ISSUER, "sub": "conquest"}
+            assert set_owner_field({}, on_behalf_of="alice") == {
+                "iss": ISSUER,
+                "sub": "alice",
+            }
+        with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
+            assert set_owner_field({}) == {"iss": ISSUER, "sub": "alice"}
+
+    @pytest.mark.parametrize("claims", [None, NO_SUBJECT, {"sub": "alice"}])
+    def test_unidentified(self, app: Flask, claims: dict[str, Any] | None) -> None:
+        """Owners must be identified by issuer and subject."""
+        document: dict[str, Any] = {}
+        with as_caller(app, claims), pytest.raises(Unauthorized):
+            set_owner_field(document)
+        assert document == {}
+
+    def test_not_allowed_on_behalf_of(self, app: Flask) -> None:
+        """Other callers cannot name users to create resources for."""
+        with as_caller(app, PROTES), pytest.raises(Forbidden):
+            set_owner_field({}, on_behalf_of="alice")
+        with as_caller(app, CONQUEST), pytest.raises(BadRequestProblem):
+            set_owner_field({}, on_behalf_of=" alice")
+
+    def test_filter(self, app: Flask) -> None:
+        """Users see the documents they own."""
+        tasks = self._tasks()
+        for claims, task_id in [(ALICE, "1"), (BOB, "2"), (ALICE, "3")]:
+            with as_caller(app, claims):
+                document = {"id": task_id}
+                set_owner_field(document)
+                tasks.insert_one(document)
+        tasks.insert_one({"id": "4"})
+        tasks.insert_one({"id": "5", "owner": {"iss": "other", "sub": "alice"}})
+        with as_caller(app, ALICE):
+            assert owner_filter() == {"owner.iss": ISSUER, "owner.sub": "alice"}
+            assert [t["id"] for t in tasks.find(owner_filter())] == ["1", "3"]
+            assert tasks.find_one({"id": "2", **owner_filter()}) is None
+        with as_caller(app, CAROL):
+            assert owner_filter() == {}
+            assert tasks.count_documents(owner_filter()) == 5
+
+    def test_filter_field(self, app: Flask) -> None:
+        """Owners may be stored in other fields."""
+        with as_caller(app, ALICE):
+            assert owner_filter(field="creator") == {
+                "creator.iss": ISSUER,
+                "creator.sub": "alice",
+            }
+
+    @pytest.mark.parametrize("field", ["", "meta.owner", "$owner"])
+    def test_invalid_field(self, app: Flask, field: str) -> None:
+        """Owners are stored in top-level fields."""
+        with as_caller(app, ALICE):
+            with pytest.raises(ValueError, match="field"):
+                set_owner_field({}, field=field)
+            with pytest.raises(ValueError, match="field"):
+                owner_filter(field=field)
+
+    @pytest.mark.parametrize("claims", [None, NO_SUBJECT])
+    def test_filter_unidentified(
+        self, app: Flask, claims: dict[str, Any] | None
+    ) -> None:
+        """Callers that cannot own documents see none."""
+        tasks = self._tasks()
+        tasks.insert_one({"id": "1", "owner": {"iss": ISSUER, "sub": "alice"}})
+        with as_caller(app, claims):
+            assert tasks.count_documents(owner_filter()) == 0
+
+    def test_filter_on_behalf_of_user(self, app: Flask) -> None:
+        """Service clients acting for users see the documents of the users."""
+        alice = {"owner.iss": ISSUER, "owner.sub": "alice"}
+        with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
+            assert owner_filter() == alice
+        with as_caller(app, CONQUEST):
+            assert owner_filter(on_behalf_of="alice") == alice
+            assert owner_filter() == {"owner.iss": ISSUER, "owner.sub": "conquest"}
+
+    def test_filter_admin_client(self) -> None:
+        """Admin clients see everything, also when acting for users."""
+        app = _create_app(client_mapping={"conquest": "admin"})
+        with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
+            assert owner_filter() == {}
+        # Named users are checked also for admins
+        with as_caller(app, CONQUEST), pytest.raises(BadRequestProblem):
+            owner_filter(on_behalf_of=" alice")
+
+    def test_filter_on_behalf_of_admin(self, app: Flask) -> None:
+        """Users' admin rights do not apply to clients acting for them."""
+        with app.app_context():
+            get_enforcer().add_grouping_policy("user:dave", "admin")
+        with as_caller(app, DAVE):
+            assert owner_filter() == {}
+        with as_caller(app, CONQUEST, headers={HEADER: "dave"}):
+            assert owner_filter() == {"owner.iss": ISSUER, "owner.sub": "dave"}
+
+    def test_filter_not_allowed_on_behalf_of(self, app: Flask) -> None:
+        """Other callers cannot name users to list documents for."""
+        with (
+            as_caller(app, PROTES, headers={HEADER: "alice"}),
+            pytest.raises(Forbidden),
+        ):
+            owner_filter()
 
 
 def test_default_model() -> None:

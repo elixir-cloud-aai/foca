@@ -23,6 +23,8 @@ from foca.security.access_control.ownership import (  # noqa: F401 (re-export)
     is_admin,
     list_roles,
     list_subject_roles,
+    owner_filter,
     resource_filter,
     revoke_roles,
+    set_owner_field,
 )
