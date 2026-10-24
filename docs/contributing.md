@@ -266,9 +266,10 @@ version (e.g., `foca-common:X.Y.Z`, `--version X.Y.Z`, the tag
 `chart-vX.Y.Z`, or the `version` of a dependency on the chart) anywhere
 else than in `Chart.yaml`, the example app's chart
 (`examples/petstore/chart/`), the changelog, the migration guides and
-statements of what applies before, since or up to a chart release. As the
-chart's version is raised with its first change after a release, the docs
-of `dev` may show a chart version that is not released yet.
+statements of what applies before, since, from or up to (until) a chart
+release. As the chart's version is raised with its first change after a
+release, the docs of `dev` may show a chart version that is not released
+yet.
 
 Features and fixes are merged into `dev`. Branch `main` only ever moves
 forward to commits on `dev` that are released. First, shortly before the

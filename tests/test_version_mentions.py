@@ -102,11 +102,15 @@ CHART_ALLOWED_FILES = (
 CHART_MENTIONS = (
     r"(?i:\bfoca-common)(?:[:@\-]|\s+v?)v?{version}{end}",
     r"\bchart-v{version}{end}",
-    # Helm commands (`helm show chart <ref>/foca-common --version X`)
-    r"(?i:\bfoca-common)\S*\s+--version[=\s]+[\"']?{version}{end}",
-    # The `version` of a dependency, on the line after its `name` (patterns
-    # with a newline are matched against the previous and the current line)
-    r"\bname:\s*[\"']?foca-common[\"']?\s*\n\s*version:\s*[\"']?{version}{end}",
+    # Helm commands (`helm show chart <ref>/foca-common --version X`, also
+    # with other options between, or `--version` first)
+    r"(?i:\bfoca-common)\S*(?:\s+\S+)*?\s+--version[=\s]+[\"']?{version}{end}",
+    r"--version[=\s]+[\"']?{version}{end}\S*(?:\s+\S+)*?\s+\S*(?i:foca-common)",
+    # Patterns with a newline are matched against the previous and the
+    # current line: Helm commands continued on the next line, and the
+    # `version` of a dependency on the line after its `name`
+    r"(?i:\bfoca-common)\S*(?:\s+\S+)*?\s*\\\n\s*--version[=\s]+[\"']?{version}{end}",
+    r"\bname:\s*[\"']?foca-common[\"']?\s*(?:#.*)?\n\s*version:\s*[\"']?{version}{end}",
 )
 # Parts of lines that may name it: statements of what applies before, since
 # or up to that chart release, which are about that release itself
@@ -349,13 +353,31 @@ def test_release_version_not_hard_coded() -> None:
             "helm pull foca-common --version=1.2.3",
             [(1, "helm pull foca-common --version=1.2.3")],
         ),
+        (
+            "helm pull oci://x/foca-common --untar --version 1.2.3",
+            [(1, "helm pull oci://x/foca-common --untar --version 1.2.3")],
+        ),
+        (
+            "helm pull --version 1.2.3 oci://x/foca-common",
+            [(1, "helm pull --version 1.2.3 oci://x/foca-common")],
+        ),
+        (
+            "helm pull oci://x/foca-common \\\n    --version 1.2.3",
+            [(2, "    --version 1.2.3")],
+        ),
+        (
+            "  - name: foca-common  # library\n    version: 1.2.3",
+            [(2, "    version: 1.2.3")],
+        ),
+        ("helm pull oci://x/other \\\n    --version 1.2.3", []),
         # Other versions, and the number not as the chart's
         ("foca-common:11.2.3 foca-common:1.2.30 chart-v1.2.3.4", []),
         ("elixircloud/foca:1.2.3 appVersion: 1.2.3 FOCA 1.2.3", []),
         ("- name: foca-common\n  version: 1.2.30", []),
         # Versions of other things (e.g., OpenAPI's `info.version`)
         ("info:\n  version: 1.2.3", []),
-        ("- name: foca-common\n  repository: x\nversion: 1.2.3", []),
+        # Not found: keys between `name` and `version` (as in no example)
+        ("- name: foca-common\n  repository: x\n  version: 1.2.3", []),
         ("{{ chart_version }}", []),
         # Allowed lines
         ("Before foca-common 1.2.3, the chart set", []),
@@ -385,6 +407,7 @@ def test_chart_version_not_hard_coded() -> None:
         (ROOT / "charts/foca-common/Chart.yaml").read_text(encoding="utf-8")
     )
     version = chart["version"]
+    assert isinstance(version, str), "Chart.yaml: version must be a string"
     found = _hard_coded(
         version, CHART_ALLOWED_FILES, CHART_MENTIONS, CHART_ALLOWED_LINES
     )
