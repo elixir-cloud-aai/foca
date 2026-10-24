@@ -5,15 +5,18 @@ from typing import Any
 from unittest import mock
 
 import pytest
+from flask import Flask
 
 from foca.errors.exceptions import build_problem
-from foca.models.config import ExceptionConfig
+from foca.factories.connexion_app import create_connexion_app
+from foca.models.config import Config, ExceptionConfig, ServerConfig
 from foca.utils.urls import (
     HTTP_SCHEMES,
     SUPPORTED_SCHEMES,
     InvalidURL,
     check_url,
     check_url_fields,
+    get_public_url,
     normalize_url,
 )
 from foca.utils.urls import _normalize_host as normalize_host
@@ -506,3 +509,176 @@ def test_check_url_fields_unsupported_schemes() -> None:
     """Unsupported schemes are rejected, also if the field is missing."""
     with pytest.raises(ValueError, match="schemes"):
         check_url_fields({}, fields={"url": ["ftp"]})
+
+
+def _app(public_url: str | None) -> Flask:
+    """Create an app with a public URL.
+
+    Args:
+        public_url: Public URL of the app, as configured.
+
+    Returns:
+        Flask app.
+    """
+    config = Config(server=ServerConfig(public_url=public_url))
+    return create_connexion_app(config).app
+
+
+@pytest.mark.parametrize(
+    ("public_url", "root", "path", "url"),
+    [
+        ("http://1.2.3.4", "", "/services", "http://1.2.3.4/services"),
+        (
+            "http://1.2.3.4/registry",
+            "",
+            "/services",
+            "http://1.2.3.4/registry/services",
+        ),
+        (
+            "http://1.2.3.4/registry/",
+            "/app",
+            "/services/",
+            "http://1.2.3.4/registry/app/services",
+        ),
+        ("http://1.2.3.4/registry", "", "services", "http://1.2.3.4/registry/services"),
+        (
+            "http://1.2.3.4/registry",
+            "",
+            "/services/a b",
+            "http://1.2.3.4/registry/services/a%20b",
+        ),
+        (
+            "http://1.2.3.4/registry",
+            "",
+            "/services/a%2Fb?c#d",
+            "http://1.2.3.4/registry/services/a%252Fb%3Fc%23d",
+        ),
+        (
+            "http://1.2.3.4/registry",
+            "",
+            "/services/caf\u00e9",
+            "http://1.2.3.4/registry/services/caf%C3%A9",
+        ),
+        (
+            "http://1.2.3.4/a%20b",
+            "",
+            "/services",
+            "http://1.2.3.4/a%20b/services",
+        ),
+        ("http://1.2.3.4", "", "", "http://1.2.3.4/"),
+        ("http://1.2.3.4", "", "/", "http://1.2.3.4/"),
+        ("http://1.2.3.4/registry", "", "", "http://1.2.3.4/registry"),
+        ("http://1.2.3.4", "/app", "", "http://1.2.3.4/app"),
+        ("https://1.2.3.4:8443/x", "", "/services", "https://1.2.3.4:8443/x/services"),
+    ],
+)
+def test_get_public_url(public_url: str, root: str, path: str, url: str) -> None:
+    """Public URLs have the path prefix of the public URL in front of the path.
+
+    The prefix is followed by the root path of the app and the path,
+    percent-encoded, with no trailing slash, except for the root of the host.
+    """
+    app = _app(public_url)
+    with app.test_request_context(base_url=f"http://localhost{root}"):
+        assert get_public_url(path) == url
+
+
+@pytest.mark.parametrize(
+    ("public_url", "url"),
+    [
+        ("http://[::1]/registry", "http://[::1]/registry/services"),
+        ("http://[0::1]:8080", "http://[::1]:8080/services"),
+        (
+            "http://[fe80::1%25eth0]/registry",
+            "http://[fe80::1%25eth0]/registry/services",
+        ),
+        ("http://Example.org./registry", "http://example.org/registry/services"),
+        ("http://b\u00fccher.example", "http://xn--bcher-kva.example/services"),
+    ],
+)
+def test_get_public_url_host(public_url: str, url: str) -> None:
+    """Hosts are normalized, IPv6 addresses bracketed, with encoded zone IDs."""
+    with _app(public_url).test_request_context():
+        assert get_public_url("/services") == url
+
+
+def test_get_public_url_default_path() -> None:
+    """Without a path, the public URL of the root path of the app is returned."""
+    with _app("https://api.example.org/my-app/").test_request_context():
+        assert get_public_url() == "https://api.example.org/my-app"
+
+
+def test_get_public_url_not_from_request() -> None:
+    """Public URLs are not built from the request or its headers."""
+    app = _app("https://api.example.org")
+    with app.test_request_context(
+        base_url="http://evil.example.org:8080",
+        headers={"X-Forwarded-Host": "evil.example.org", "X-Forwarded-Proto": "http"},
+    ):
+        assert get_public_url("/services") == "https://api.example.org/services"
+
+
+def test_get_public_url_unset() -> None:
+    """Without a public URL, an error is raised."""
+    with (
+        _app(None).test_request_context(),
+        pytest.raises(RuntimeError, match=r"server\.public_url"),
+    ):
+        get_public_url("/services")
+
+
+def test_get_public_url_no_request_context() -> None:
+    """Outside of a request context, an error is raised."""
+    with _app("https://api.example.org").app_context(), pytest.raises(RuntimeError):
+        get_public_url("/services")
+
+
+@pytest.mark.parametrize(
+    ("root", "path"),
+    [
+        ("", "/services/.."),
+        ("", "/services/../admin"),
+        ("", "./services"),
+        ("", ".."),
+        ("/app/..", "/services"),
+    ],
+)
+def test_get_public_url_dot_segments(root: str, path: str) -> None:
+    """Paths with dot segments are rejected."""
+    app = _app("https://api.example.org/my-app")
+    with (
+        app.test_request_context(base_url=f"http://localhost{root}"),
+        pytest.raises(InvalidURL, match="dot segments"),
+    ):
+        get_public_url(path)
+
+
+@pytest.mark.parametrize(
+    "path", ["/services/a.b", "/services/...", "/.well-known", "/a//b"]
+)
+def test_get_public_url_kept(path: str) -> None:
+    """Segments with dots that are not dot segments, and empty ones, are kept."""
+    with _app("https://api.example.org").test_request_context():
+        assert get_public_url(path) == f"https://api.example.org{path}"
+
+
+@pytest.mark.parametrize(
+    ("path", "url"),
+    [
+        ("/%2e%2e/x", "https://api.example.org/%252e%252e/x"),
+        ("//", "https://api.example.org/"),
+    ],
+)
+def test_get_public_url_literal(path: str, url: str) -> None:
+    """Percent-encodings in paths are kept literally; slashes only are removed."""
+    with _app("https://api.example.org").test_request_context():
+        assert get_public_url(path) == url
+
+
+def test_get_public_url_surrogates() -> None:
+    """Paths with characters that cannot be encoded are rejected."""
+    with (
+        _app("https://api.example.org").test_request_context(),
+        pytest.raises(InvalidURL, match="surrogates"),
+    ):
+        get_public_url("/services/\ud800")
