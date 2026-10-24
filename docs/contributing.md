@@ -259,6 +259,20 @@ X" links and headings, and statements like "From FOCA X on", which are about
 that release itself; versions of tools (the `rev` of pre-commit hooks and
 the comments of pinned actions) are not checked.
 
+The version of the [Helm library chart](helm-chart.md#releases) is
+independent of FOCA's and has one source too: the `version` of
+`charts/foca-common/Chart.yaml`. The docs write it like the release version,
+but with `chart_version` inside the braces (`CHART_VARIABLE` in
+`docs/hooks.py`). The same test fails if it is mentioned as the chart's
+version (e.g., `foca-common:X.Y.Z`, `--version X.Y.Z`, the tag
+`chart-vX.Y.Z`, or the `version` of a dependency on the chart) anywhere
+else than in `Chart.yaml`, the example app's chart
+(`examples/petstore/chart/`), the changelog, the migration guides and
+statements of what applies before, since, from or up to (until) a chart
+release. As the chart's version is raised with its first change after a
+release, the docs of `dev` may show a chart version that is not released
+yet.
+
 Features and fixes are merged into `dev`. Branch `main` only ever moves
 forward to commits on `dev` that are released. First, shortly before the
 release, set its version and date in the citation metadata, which Zenodo
