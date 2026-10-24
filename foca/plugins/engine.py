@@ -628,7 +628,8 @@ class PluginHost:
                     continue
                 try:
                     params = loaded.cls.Params.model_validate(alternative.params)
-                except ValidationError as exc:
+                    loaded.instance.check_params(params)
+                except (ValidationError, ValueError) as exc:
                     raise ValueError(
                         f"Invalid params of plugin {alternative.plugin!r} in step"
                         f" {step.id!r}: {exc}"
@@ -1026,6 +1027,8 @@ class PipelineRun:
             phase.
         candidates_out: Identifiers of the candidates after it and the
             client's backend selection.
+        snapshots: Times of the registry reads of the candidates, by
+            registry entry.
         selection: Client's choices, from the reserved tags.
         backends_discarded: Backends of the client's selection that were no
             candidates.
@@ -1064,6 +1067,7 @@ class PipelineRun:
         self.attempt_records: list[AttemptRecord] = []
         self.candidates_in: list[str] = []
         self.candidates_out: list[str] = []
+        self.snapshots: dict[str, str | None] = {}
         self.selection = selection or ClientSelection()
         self.backends_discarded: list[str] = []
         self.final_reason: str | None = None
@@ -1117,6 +1121,7 @@ class PipelineRun:
             "route": {
                 "candidates_in": self.candidates_in,
                 "candidates_out": self.candidates_out,
+                "snapshots": self.snapshots,
             },
             "selection": (
                 {
@@ -1178,7 +1183,11 @@ class PipelineRun:
         )
         return self.inbound
 
-    def route(self, candidates: Sequence[Backend]) -> list[Backend]:
+    def route(
+        self,
+        candidates: Sequence[Backend],
+        snapshots: Mapping[str, str | None] | None = None,
+    ) -> list[Backend]:
         """Run the `route` phase.
 
         Backends at or below the gateway's public URL are removed first;
@@ -1187,6 +1196,9 @@ class PipelineRun:
 
         Args:
             candidates: Candidate backends, in the server's order.
+            snapshots: Times of the registry reads that the candidates come
+                from, by registry entry, for provenance (cf.
+                :py:meth:`foca.plugins.backends.BackendList.snapshots`).
 
         Returns:
             Candidates after the phase, in order.
@@ -1201,6 +1213,7 @@ class PipelineRun:
         if own:
             logger.warning("Backends at the gateway's own URL removed: %s", own)
         self.candidates_in = [backend.id for backend in candidates]
+        self.snapshots = dict(snapshots or {})
         routed: list[Backend] = self._run_phase(
             "route",
             [backend for backend in candidates if backend.id not in own],

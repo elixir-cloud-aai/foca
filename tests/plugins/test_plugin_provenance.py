@@ -192,6 +192,7 @@ def test_run_provenance() -> None:
     assert record["route"] == {
         "candidates_in": ["a", "b", "c"],
         "candidates_out": ["c", "b", "a"],
+        "snapshots": {},
     }
     assert record["selection"] == {
         "type": "forbid",

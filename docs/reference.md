@@ -146,6 +146,13 @@ configuration models, see [Configuration](configuration/index.md).
         - clear_caches
         - API_TYPES
 
+::: foca.plugins.routing
+    options:
+      members:
+        - OrderedRouter
+        - RouterConfig
+        - RouterParams
+
 ::: foca.plugins.runtime
     options:
       members:

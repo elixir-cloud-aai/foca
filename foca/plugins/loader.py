@@ -7,6 +7,7 @@ startup; any problem stops the app with an error (fail fast).
 """
 
 import hashlib
+import importlib
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -18,7 +19,11 @@ from packaging.utils import canonicalize_name
 from pydantic import ValidationError
 
 from foca.plugins.base import Plugin, check_plugin_class
-from foca.plugins.config import AvailablePluginConfig, PluginsConfig
+from foca.plugins.config import (
+    BUILTIN_PLUGINS,
+    AvailablePluginConfig,
+    PluginsConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +146,60 @@ def _find(plugin_id: str, candidates: Iterable[EntryPoint]) -> EntryPoint:
     return next(iter(found.values()))
 
 
+@dataclass(frozen=True)
+class _BuiltinEntryPoint:
+    """Entry point of a built-in plugin when FOCA's metadata lacks it.
+
+    E.g., in source checkouts that are not installed.
+
+    Attributes:
+        name: Plugin identifier.
+        value: Object reference (`module:attribute`).
+    """
+
+    name: str
+    value: str
+    dist: None = None
+
+    def load(self) -> Any:
+        """Import the plugin class.
+
+        Returns:
+            The class.
+        """
+        module, _, attribute = self.value.partition(":")
+        return getattr(importlib.import_module(module), attribute)
+
+
+def _find_builtin(plugin_id: str, candidates: Iterable[EntryPoint]) -> Any:
+    """Find the entry point of a built-in plugin.
+
+    Args:
+        plugin_id: Identifier of the plugin.
+        candidates: Entry points of the group.
+
+    Returns:
+        FOCA's entry point of the plugin, or one built from its object
+        reference if FOCA's metadata lacks it.
+
+    Raises:
+        ValueError: Another distribution provides an entry point with the
+            identifier.
+    """
+    value = BUILTIN_PLUGINS[plugin_id]
+    for entry_point in candidates:
+        if entry_point.name != plugin_id:
+            continue
+        name = getattr(getattr(entry_point, "dist", None), "name", None)
+        if entry_point.value != value or canonicalize_name(name or "") != "foca":
+            raise ValueError(
+                f"Plugin {plugin_id!r} is built into FOCA; distribution {name!r}"
+                " must not provide it"
+            )
+        return entry_point
+    return _BuiltinEntryPoint(plugin_id, value)
+
+
 def _check_pins(
     plugin_id: str, entry_point: EntryPoint, available: AvailablePluginConfig
 ) -> tuple[str | None, str | None]:
@@ -214,7 +273,11 @@ def load_plugins(
         if not available.enabled:
             logger.info("Plugin %s is disabled", plugin_id)
             continue
-        entry_point = _find(plugin_id, candidates)
+        entry_point = (
+            _find_builtin(plugin_id, candidates)
+            if plugin_id in BUILTIN_PLUGINS
+            else _find(plugin_id, candidates)
+        )
         distribution, version = _check_pins(plugin_id, entry_point, available)
         cls = check_plugin_class(entry_point.load(), plugin_id=plugin_id, api=api)
         try:

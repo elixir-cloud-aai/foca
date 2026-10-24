@@ -172,6 +172,19 @@ class Plugin(Generic[ConfigT, ParamsT]):
     def close(self) -> None:
         """Release resources at shutdown; override as needed."""
 
+    def check_params(self, params: ParamsT) -> None:
+        """Check parameters against the admin settings; override as needed.
+
+        Called when pipelines are resolved (at startup, and per request for
+        clients' pipelines), after `Params` validated them.
+
+        Args:
+            params: Validated parameters of a pipeline step.
+
+        Raises:
+            ValueError: The parameters are not allowed.
+        """
+
     @classmethod
     def phases(cls) -> tuple[str, ...]:
         """Get the phases that the plugin implements hooks for.

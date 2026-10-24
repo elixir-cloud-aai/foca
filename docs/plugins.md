@@ -185,6 +185,35 @@ the backends of each registry for `refresh_interval` seconds and keeps the
 last good list while a registry is unreachable (retrying after 30 s at
 most); before the first good read, a registry yields no candidates.
 
+## Default routing
+
+FOCA's built-in route step `foca.routing.ordered` (ordered failover) is
+the default pipeline, and `client_pipelines.append` adds it to clients'
+pipelines without a route step (as a step that may be skipped). It keeps
+the order of the backend list and shuffles the backends of each service
+registry among themselves (`random.SystemRandom`), so that the registry's
+own order does not decide the load; there is no round-robin state. Its
+parameters:
+
+- `labels`: labels that candidates must have (e.g.,
+  `{"region": "eu-north"}`), the simplest pinning;
+- `seed`: a seed for reproducible orders, for tests only: refused unless
+  the plugin's admin setting `allow_seed` is on.
+
+The candidates are then tried in that order: the next one only if a backend
+certainly did not accept the request, none after an unknown outcome (e.g.,
+a `5xx` or read timeout), until the list or `forward_timeout` ends (`503`).
+Provenance records the candidates before and after routing, the registry
+read times (`run.route(candidates, snapshots=backend_list.snapshots())`)
+and each attempt.
+
+Built-in plugins (identifiers starting with `foca.`, which are reserved)
+need no entry in `plugins.available`; an entry sets only `enabled`,
+`roles`, `client_selectable` and `config` (no pins). With `enabled: false`,
+a default pipeline that still lists the router stops the app at startup.
+Other route plugins (e.g., distance routing) replace it in `pipeline` or
+presets.
+
 ## Writing plugins
 
 ```python
@@ -240,6 +269,8 @@ Rules:
   uses `https`, follows no redirects and limits response sizes (cf.
   `plugins.defaults.http`). Raise or let its errors propagate: the
   alternative then fails.
+- `check_params(params)` may refuse parameters that the admin settings
+  don't allow (raise `ValueError`); it runs when pipelines are resolved.
 - One instance serves all requests of a process, from several threads:
   keep per-request data in `ctx.state`, not on `self`.
 - Identifiers of plugins outside FOCA's own repositories start with a

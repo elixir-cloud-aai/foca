@@ -495,9 +495,11 @@ def test_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
         }
     )
     host = PluginHost.from_config(config, api="tes")
-    assert list(host.plugins) == ["test.tag"]
+    assert list(host.plugins) == ["test.tag", "foca.routing.ordered"]
     assert host.public_url == "https://gw.example.org"
-    assert PluginHost.from_config(Config(), api="tes").plugins == {}
+    assert list(PluginHost.from_config(Config(), api="tes").plugins) == [
+        "foca.routing.ordered"
+    ]
     with pytest.raises(ValueError, match="middlewares"):
         PluginHost.from_config(
             Config.model_validate({"custom": {"middlewares": [["x"]]}}), api="tes"
@@ -525,7 +527,7 @@ def test_sanitize_error() -> None:
 
 def test_config_default_host() -> None:
     """Hosts work without plugins."""
-    host = PluginHost(PluginsConfig(), api="tes", plugins={})
+    host = PluginHost(PluginsConfig(), api="tes")
     run = host.start(inbound(), PRINCIPAL)
     assert run.request().payload == {"name": "task"}
     assert run.route(BACKENDS) == BACKENDS

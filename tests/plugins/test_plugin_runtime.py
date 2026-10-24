@@ -55,7 +55,7 @@ def test_gateway_app(tmp_path: Path, fake_plugins: None) -> None:
     foca.create_app()
     host = runtime.get_host()
     assert runtime.get_host() is host
-    assert list(host.plugins) == ["test.tag"]
+    assert list(host.plugins) == ["test.tag", "foca.routing.ordered"]
     runtime._runtime.forget()
     assert runtime.get_host() is not host
     runtime.configure(GatewayApp(api="tes"))

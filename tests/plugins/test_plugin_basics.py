@@ -190,10 +190,22 @@ def test_plugins_config() -> None:
     assert conf.pipelines() == {
         "pipeline": conf.pipeline,
         "prepend": [],
-        "append": [],
+        "append": conf.client_pipelines.append,
     }
+    assert list(conf.available) == ["a.b", "foca.routing.ordered"]
+    assert conf.client_pipelines.append[0].if_missing_phase == "route"
+    assert PluginsConfig().pipeline[0].id == "foca.routing.ordered"
+    listed = PluginsConfig.model_validate(
+        {"available": {"foca.routing.ordered": {"enabled": False}}}
+    )
+    assert not listed.available["foca.routing.ordered"].enabled
     for data, message in [
         ({"available": {"Bad": {}}}, "plugin identifier"),
+        ({"available": {"foca.other": {}}}, "reserved"),
+        (
+            {"available": {"foca.routing.ordered": {"version": ">=1"}}},
+            "cannot be pinned",
+        ),
         ({"available": {"a": {"version": "one"}}}, "version specifier"),
         ({"pipeline": [{"plugin": "a"}]}, "not in 'plugins.available'"),
         (
