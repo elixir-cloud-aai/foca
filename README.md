@@ -134,7 +134,7 @@ conduct][code-of-conduct].
 [badge-coverage]: <https://codecov.io/gh/elixir-cloud-aai/foca/branch/dev/graph/badge.svg?branch=dev>
 [badge-docker]: <https://img.shields.io/docker/v/elixircloud/foca?sort=semver&label=image&color=C39BD3>
 [badge-doi]: <https://zenodo.org/badge/DOI/10.5281/zenodo.23603534.svg>
-[badge-docs]: <https://readthedocs.org/projects/foca/badge/>
+[badge-docs]: <https://app.readthedocs.org/projects/foca/badge/>
 [badge-github-tag]: <https://img.shields.io/github/v/tag/elixir-cloud-aai/foca?color=C39BD3>
 [badge-license]: <https://img.shields.io/badge/license-Apache%202.0-blue.svg>
 [badge-pypi]: <https://img.shields.io/pypi/v/foca?color=C39BD3>
