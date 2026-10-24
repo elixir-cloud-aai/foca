@@ -999,17 +999,21 @@ Apps whose resources only ever belong to their creator can store the owner
 in the resource's document instead, without policy rules per resource:
 
 * `set_owner_field(document)` sets the field `owner` (or `field`) of a
-  document to be stored to the creator, as `{"iss": ..., "sub": ...}`: the
-  issuer of the request's token and the subject the request is attributed
-  to, as for `add_owner()` (the user that an allowed service client [acts
-  for](#service-clients), otherwise the token's identity, i.e.,
-  `claim_identity`, also for service clients). Store the document
+  document to be stored to the creator, as `{"iss": ..., "type": ...,
+  "sub": ...}`: the issuer of the request's token, and the type (`user` or
+  `client`) and identifier of the subject the request is attributed to, as
+  for `add_owner()`: the user that an allowed service client [acts
+  for](#service-clients), otherwise the calling service client (by client
+  ID), otherwise the calling user (by `claim_identity`). Store the document
   afterwards, so that the owner is written together with the resource.
+  Users that service clients act for are assumed to be of the issuer of the
+  client's token, as their issuer is not known.
 * `owner_filter()` returns a MongoDB filter for the documents the caller
-  owns (e.g., `{"owner.iss": "https://login.example.org/", "owner.sub":
-  "alice"}`), or `{}` for admins, as `resource_filter()` does (see the
-  notes above on admins and clients acting for users). Callers that cannot
-  own documents (e.g., without token) get a filter matching none.
+  owns (e.g., `{"owner.iss": "https://login.example.org/", "owner.type":
+  "user", "owner.sub": "alice"}`), or `{}` for admins, as
+  `resource_filter()` does (see the notes above on admins and clients
+  acting for users). Callers that cannot own documents (e.g., without
+  token) get a filter matching none (`{"owner": {"$in": []}}`).
 
 Policies then let callers use the operations, and the controllers restrict
 them to the caller's documents, e.g.:
@@ -1045,8 +1049,8 @@ def GetTask(id, **kwargs):
     return task
 ```
 
-Index the owner fields for listings (e.g., `{"owner.sub": 1, "owner.iss":
-1}`, cf. [`db.dbs`](configuration/db.md)).
+Index the owner fields for listings (e.g., `{"owner.sub": 1, "owner.type":
+1, "owner.iss": 1}`, cf. [`db.dbs`](configuration/db.md)).
 
 Choose ownership by document field over [resource
 ownership](#resource-ownership) if resources are never shared and users may

@@ -31,7 +31,7 @@ from contextlib import suppress
 from typing import Any, NamedTuple
 
 from casbin import Enforcer
-from werkzeug.exceptions import Conflict, NotFound
+from werkzeug.exceptions import Conflict, NotFound, Unauthorized
 
 from foca.config.access import get_config
 from foca.security.access_control.constants import (
@@ -258,10 +258,19 @@ def _get_creator(on_behalf_of: str | None = None) -> tuple[SubjectType, str]:
         return "client", client
     subject = get_current_subject()
     if subject is None:
-        from foca.security.auth import _unauthorized  # noqa: PLC0415 (import cycle)
-
-        raise _unauthorized("Subject could not be identified", invalid_token=False)
+        raise _unidentified()
     return "user", subject
+
+
+def _unidentified() -> Unauthorized:
+    """Get the error for requests whose subject could not be identified.
+
+    Returns:
+        `401 Unauthorized` error, with a Bearer challenge.
+    """
+    from foca.security.auth import _unauthorized  # noqa: PLC0415 (import cycle)
+
+    return _unauthorized("Subject could not be identified", invalid_token=False)
 
 
 def add_owner(
@@ -887,24 +896,25 @@ def _get_owner(on_behalf_of: str | None = None) -> dict[str, str] | None:
             :py:func:`foca.security.access_control.get_on_behalf_of_user`).
 
     Returns:
-        Issuer (`iss`) and subject (`sub`): the issuer of the validated
-        token of the current request, and the user that an allowed service
-        client acts for, otherwise the identity of the token (cf.
-        :py:func:`foca.security.access_control.get_current_subject`), also
-        for service tokens. `None` if the token has no issuer or identity.
+        Issuer (`iss`) of the validated token of the current request, and
+        type (`type`) and identifier (`sub`) of the subject the request is
+        attributed to, as for :py:func:`add_owner`: the user that an allowed
+        service client acts for, otherwise the service client (by client
+        ID), otherwise the user. `None` if the token has no issuer or the
+        request has neither a user nor a service client.
 
     Raises:
         connexion.exceptions.BadRequestProblem: The named user is invalid.
         connexion.exceptions.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
-    subject = get_on_behalf_of_user(on_behalf_of)
-    if subject is None:
-        subject = get_current_subject()
+    # The subject the request is attributed to comes first, before groups
+    subjects = _get_listing_subjects(on_behalf_of)
     issuer = _get_claims().get("iss")
-    if subject is None or not isinstance(issuer, str):
+    if not subjects or not isinstance(issuer, str):
         return None
-    return {"iss": issuer, "sub": subject}
+    subject_type, subject = subjects[0]
+    return {"iss": issuer, "type": subject_type, "sub": subject}
 
 
 def set_owner_field(
@@ -919,6 +929,9 @@ def set_owner_field(
     :py:func:`add_owner`, no policy rule is stored: filter documents by
     owner (cf. :py:func:`owner_filter`) to restrict access to the owner.
 
+    Users that service clients act for are assumed to be of the issuer of
+    the service client's token, as their issuer is not known.
+
     Args:
         document: Document of the resource, which the owner is set in.
         field: Top-level field of the document holding the owner.
@@ -927,11 +940,11 @@ def set_owner_field(
 
     Returns:
         The owner, as set in the document: the issuer (`iss`) of the token
-        of the current request, and the subject (`sub`) the request is
-        attributed to: the user that an allowed service client acts for,
-        otherwise the identity of the token (cf.
-        :py:func:`foca.security.access_control.get_current_subject`), also
-        for service tokens.
+        of the current request, and the type (`type`, `user` or `client`)
+        and identifier (`sub`) of the subject the request is attributed to,
+        as for :py:func:`add_owner`: the user that an allowed service client
+        acts for, otherwise the service client (by client ID), otherwise the
+        user (by `access_control.claim_identity`).
 
     Raises:
         connexion.exceptions.BadRequestProblem: The user named by a service
@@ -939,17 +952,16 @@ def set_owner_field(
         connexion.exceptions.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
         connexion.exceptions.Unauthorized: The token of the current request
-            has no issuer or identity.
+            has no issuer, or the request has neither a user nor a service
+            client.
         ValueError: The field is not a valid top-level field name.
     """
     _check_owner_field(field)
     owner = _get_owner(on_behalf_of)
     if owner is None:
-        from foca.security.auth import _unauthorized  # noqa: PLC0415 (import cycle)
-
-        raise _unauthorized("Subject could not be identified", invalid_token=False)
+        raise _unidentified()
     document[field] = owner
-    return dict(owner)
+    return owner
 
 
 def owner_filter(
@@ -972,8 +984,9 @@ def owner_filter(
         :py:func:`is_admin`); for service clients, this is the client's own
         status, also when it acts for a user, whose admin rights do not
         apply. Otherwise, a filter for the documents whose owner is the
-        caller (cf. :py:func:`set_owner_field`), or for no documents if the
-        caller cannot own any (e.g., without token).
+        subject the request is attributed to (cf. :py:func:`set_owner_field`),
+        or, if there is none (e.g., without token), for no documents (e.g.,
+        `{"owner": {"$in": []}}`).
 
     Raises:
         connexion.exceptions.BadRequestProblem: The user named by a service
@@ -989,4 +1002,4 @@ def owner_filter(
         return {}
     if owner is None:
         return {field: {"$in": []}}
-    return {f"{field}.iss": owner["iss"], f"{field}.sub": owner["sub"]}
+    return {f"{field}.{key}": value for key, value in owner.items()}
