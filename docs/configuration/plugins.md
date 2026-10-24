@@ -31,6 +31,27 @@ plugins:
           params: {volume: /vol/crypt}
       timeout: 5
       on_failure: skip     # fail (default) | skip
+  # Named pipelines that clients may choose (tag `gateway.pipeline`)
+  presets:
+    encrypted-inputs:
+      - org.example.tes.data.decrypt
+  # Pipelines chosen by clients per request
+  client_pipelines:
+    enabled: true
+    allowed: [presets, inline]
+    max_steps: 8
+    max_alternatives: 3
+    max_size: 8192           # bytes of the tag's value
+    roles: []                # who may choose; any authenticated caller if empty
+    prepend:                 # admin frame: always first
+      - org.example.tes.policy.images
+    append: []               # always last (or only if a phase is missing)
+  # Backends chosen by clients per request (tag `gateway.backends`)
+  client_backends:
+    enabled: true
+    max_items: 32
+  tags:
+    prefix: "gateway."       # reserved tag prefix
   gateway_id: protes.example.org          # default: host of server.public_url
 ```
 
@@ -65,6 +86,16 @@ identifier; steps with the same plugin need explicit, unique `id`s.
 - The keys `when` and `needs` are reserved for conditions and dependencies
   of later versions; they and all unknown keys are errors.
 
+## Per-request choices
+
+Clients choose presets or their own pipelines (`client_pipelines`) and
+backends (`client_backends`) in reserved tags (cf. [per-request pipelines
+and backends](../plugins.md#per-request-pipelines-and-backends)); both are
+enabled by default, limited to the allowlist (`client_selectable`, `roles`)
+and to the candidates of each request. Presets and frames are checked on
+startup like the default pipeline; presets that need a disabled plugin are
+unavailable.
+
 ## Migrating from middlewares
 
 Apps that had gateway middlewares (e.g., proTES's `custom.middlewares`)
@@ -72,6 +103,18 @@ refuse to start with that key, naming the new sections: list the plugins
 in `available` and the steps in `pipeline`.
 
 ::: foca.plugins.config.PluginsConfig
+    options:
+      members: false
+
+::: foca.plugins.config.ClientPipelinesConfig
+    options:
+      members: false
+
+::: foca.plugins.config.ClientBackendsConfig
+    options:
+      members: false
+
+::: foca.plugins.config.TagsConfig
     options:
       members: false
 

@@ -59,8 +59,18 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ValidationError
 
 from foca.plugins.base import NotApplicable, Rejected
-from foca.plugins.config import PluginsConfig, StepConfig
+from foca.plugins.config import PluginsConfig, StepConfig, check_pipeline
 from foca.plugins.context import Context
+from foca.plugins.errors import (
+    PROBLEM_TYPE_BASE,
+    ForwardTimeout,
+    GatewayError,
+    InvalidSelection,
+    LoopDetected,
+    NoBackendAvailable,
+    PipelineFailed,
+    PipelineRejected,
+)
 from foca.plugins.loader import LoadedPlugin, check_legacy_keys, load_plugins
 from foca.plugins.model import (
     Backend,
@@ -70,8 +80,18 @@ from foca.plugins.model import (
     OutboundRequest,
     Principal,
 )
+from foca.plugins.selection import (
+    PRESET_PATTERN,
+    ClientSelection,
+    apply_backend_selection,
+    parse_client_pipeline,
+    parse_client_tags,
+)
 
 logger = logging.getLogger(__name__)
+
+# Default of `PluginHost.start(tags=...)`: the tags of the payload
+_FROM_PAYLOAD = object()
 
 Outcome = Literal[
     "ok", "not_applicable", "error", "timeout", "invalid_output", "rejected", "skipped"
@@ -80,9 +100,6 @@ AttemptOutcome = Literal["accepted", "not_accepted", "unknown"]
 
 MAX_ERROR_LENGTH = 500
 """Maximum length of error messages in records."""
-
-PROBLEM_TYPE_BASE = "https://foca.readthedocs.io/en/latest/plugins/#"
-"""Base of the problem types of gateway errors."""
 
 _REASON = re.compile(r"[a-z0-9_]{1,64}")
 # User info of URLs in error messages, which may hold credentials
@@ -120,115 +137,6 @@ class OutcomeUnknown(NotAccepted):
     `5xx` statuses (reasons `read_timeout`, `connection_lost`,
     `http_<status>`); no other backend is then tried.
     """
-
-
-class GatewayError(Exception):
-    """Error of a gateway request, with problem details for the client.
-
-    Attributes:
-        code: HTTP status of the response to the client.
-        title: Title of the problem.
-        detail: Description of the problem, for the client.
-        problem_type: URI of the problem type.
-        run: Run of the request, e.g., for provenance; `None` before it
-            started.
-    """
-
-    code = 500
-    title = "Internal Server Error"
-    slug = "gateway-error"
-
-    def __init__(self, detail: str, run: "PipelineRun | None" = None) -> None:
-        """Create the error.
-
-        Args:
-            detail: Description of the problem, for the client.
-            run: Run of the request, if started.
-        """
-        super().__init__(detail)
-        self.detail = detail
-        self.run = run
-        self.problem_type = f"{PROBLEM_TYPE_BASE}{self.slug}"
-
-
-class PipelineRejected(GatewayError):
-    """A plugin rejected the request (cf. :py:class:`foca.plugins.Rejected`)."""
-
-    slug = "rejected"
-
-    def __init__(
-        self, rejection: Rejected, step: str, run: "PipelineRun | None" = None
-    ) -> None:
-        """Create the error.
-
-        Args:
-            rejection: Rejection raised by the plugin.
-            step: Identifier of the step.
-            run: Run of the request.
-        """
-        super().__init__(rejection.detail, run=run)
-        self.code = rejection.status
-        self.title = rejection.title or _phrase(rejection.status)
-        self.step = step
-
-
-class PipelineFailed(GatewayError):
-    """All alternatives of a required step failed."""
-
-    title = "Internal Server Error"
-    slug = "plugin-step-failed"
-
-    def __init__(self, step: str, run: "PipelineRun | None" = None) -> None:
-        """Create the error.
-
-        Args:
-            step: Identifier of the step.
-            run: Run of the request.
-        """
-        super().__init__(f"Plugin step failed: {step}", run=run)
-        self.step = step
-
-
-class NoBackendAvailable(GatewayError):
-    """No backend accepted the request."""
-
-    code = 503
-    title = "Service Unavailable"
-    slug = "no-backend-available"
-
-
-class ForwardTimeout(GatewayError):
-    """The forwarding attempts of the request took too long."""
-
-    code = 503
-    title = "Service Unavailable"
-    slug = "forward-timeout"
-
-
-class LoopDetected(GatewayError):
-    """The request already passed this gateway (`Via` header)."""
-
-    code = 508
-    title = "Loop Detected"
-    slug = "loop-detected"
-
-
-def _phrase(status: int) -> str:
-    """Get the reason phrase of a rejection status.
-
-    Args:
-        status: HTTP status, one of :py:data:`foca.plugins.base.REJECTION_STATUSES`.
-
-    Returns:
-        Reason phrase as per RFC 9110.
-    """
-    return {
-        400: "Bad Request",
-        403: "Forbidden",
-        409: "Conflict",
-        413: "Content Too Large",
-        422: "Unprocessable Content",
-    }[status]
 
 
 def sanitize_error(exc: BaseException) -> str:
@@ -399,6 +307,10 @@ class _AppError(Exception):
         self.error = error
 
 
+class _NoEnabledPluginError(ValueError):
+    """A step that may not be skipped has no enabled plugin."""
+
+
 class _InvalidOutputError(Exception):
     """A hook produced invalid output."""
 
@@ -514,6 +426,8 @@ class PluginHost:
         public_url: Public URL of the gateway, normalized, if known.
         gateway_id: Name of the gateway in `Via` headers, if known.
         default_pipeline: Resolved default pipeline.
+        presets: Resolved presets, by name; presets that need a disabled
+            plugin are left out.
     """
 
     def __init__(
@@ -576,6 +490,19 @@ class PluginHost:
         self.default_pipeline = ResolvedPipeline(
             steps=self.resolve_steps(conf.pipeline, origin="pipeline")
         )
+        frame = conf.client_pipelines
+        self._prepend = self.resolve_steps(frame.prepend, origin="prepend")
+        self._append = [
+            (step.if_missing_phase, resolved)
+            for step in frame.append
+            for resolved in self.resolve_steps([step], origin="append")
+        ]
+        self.presets: dict[str, tuple[ResolvedStep, ...]] = {}
+        for name, steps in conf.presets.items():
+            try:
+                self.presets[name] = self.resolve_steps(steps, origin="preset")
+            except _NoEnabledPluginError as exc:
+                logger.warning("Preset %s is unavailable: %s", name, exc)
 
     @classmethod
     def from_config(
@@ -659,7 +586,7 @@ class PluginHost:
                 if step.on_failure == "skip":
                     logger.warning("Step %s has no enabled plugin; dropped", step.id)
                     continue
-                raise ValueError(f"Step {step.id!r} has no enabled plugin")
+                raise _NoEnabledPluginError(f"Step {step.id!r} has no enabled plugin")
             resolved.append(
                 ResolvedStep(
                     id=step.id or "",
@@ -677,33 +604,170 @@ class PluginHost:
         principal: Principal,
         *,
         request_id: str | None = None,
-        pipeline: ResolvedPipeline | None = None,
+        tags: object = _FROM_PAYLOAD,
     ) -> "PipelineRun":
         """Start the pipeline run of a request.
+
+        The client's choices of pipeline and backends are read from the
+        reserved tags (cf. :py:mod:`foca.plugins.selection`) and checked
+        before any plugin runs.
 
         Args:
             inbound: Inbound request, after the app's checks and sanitation.
             principal: Authenticated caller.
             request_id: Identifier of the request, for logs.
-            pipeline: Pipeline to run; defaults to the default pipeline.
+            tags: Tags of the request (a string map), e.g., the parsed
+                `tags` form field of WES; by default, the `tags` of the
+                payload, if it is a mapping (e.g., a TES task).
 
         Returns:
             Run of the request.
 
         Raises:
             LoopDetected: The request already passed this gateway.
+            foca.plugins.selection.InvalidSelection: The client's choices are
+                invalid or not allowed (`400`).
         """
         if self.gateway_id is not None and self.gateway_id.lower() in _via_names(
             inbound.headers
         ):
             raise LoopDetected(f"Request already passed gateway {self.gateway_id}")
+        if tags is _FROM_PAYLOAD:
+            payload = inbound.payload
+            tags = payload.get("tags") if isinstance(payload, Mapping) else None
+        conf = self.conf
+        selection = parse_client_tags(
+            tags,
+            prefix=conf.tags.prefix,
+            max_pipeline_size=conf.client_pipelines.max_size,
+            max_backends=conf.client_backends.max_items,
+        )
+        if selection.backends is not None and not conf.client_backends.enabled:
+            raise InvalidSelection(
+                "Choosing backends per request is disabled", slug="invalid-backends"
+            )
         return PipelineRun(
             self,
-            pipeline=pipeline or self.default_pipeline,
+            pipeline=self.resolve(selection.pipeline, principal),
             inbound=inbound,
             principal=principal,
             request_id=request_id,
+            selection=selection,
         )
+
+    def resolve(self, value: str | None, principal: Principal) -> ResolvedPipeline:
+        """Resolve the pipeline of a request from the client's choice.
+
+        Args:
+            value: Value of the pipeline tag, if any.
+            principal: Authenticated caller.
+
+        Returns:
+            Default pipeline without a choice; otherwise the preset or the
+            client's pipeline, framed by `client_pipelines.prepend` and
+            `append`.
+
+        Raises:
+            foca.plugins.selection.InvalidSelection: The choice is invalid
+                or not allowed. Plugins that are unknown, not installed,
+                disabled, not selectable or not allowed for the caller get
+                the same message, so that clients cannot probe the setup.
+        """
+        if value is None:
+            return self.default_pipeline
+        conf = self.conf.client_pipelines
+        if not conf.enabled:
+            raise InvalidSelection("Choosing pipelines per request is disabled")
+        if conf.roles and not set(conf.roles) & set(principal.groups):
+            raise InvalidSelection("Choosing pipelines is not allowed")
+        preset: str | None = None
+        if PRESET_PATTERN.fullmatch(value) and "presets" in conf.allowed:
+            if value not in self.presets:
+                raise InvalidSelection(f"Unknown preset: {value}")
+            preset = value
+            resolved = self.presets[value]
+        elif "inline" in conf.allowed:
+            steps = parse_client_pipeline(value)
+            self._check_client_steps(steps, principal)
+            try:
+                check_pipeline(steps)
+                resolved = self.resolve_steps(steps, origin="client")
+            except ValueError as exc:
+                raise InvalidSelection(str(exc)) from exc
+        else:
+            raise InvalidSelection("Pipelines are chosen by preset name only")
+        return ResolvedPipeline(
+            steps=self._frame(resolved),
+            source="preset" if preset is not None else "client",
+            preset=preset,
+        )
+
+    def _check_client_steps(
+        self, steps: Sequence[StepConfig], principal: Principal
+    ) -> None:
+        """Check the limits and plugins of a client's pipeline.
+
+        Args:
+            steps: Steps.
+            principal: Authenticated caller.
+
+        Raises:
+            foca.plugins.selection.InvalidSelection: The pipeline exceeds the
+                limits, or uses a plugin that the caller may not choose.
+        """
+        conf = self.conf.client_pipelines
+        if len(steps) > conf.max_steps:
+            raise InvalidSelection(f"At most {conf.max_steps} steps are allowed")
+        for step in steps:
+            if len(step.alternatives) > conf.max_alternatives:
+                raise InvalidSelection(
+                    f"At most {conf.max_alternatives} alternatives are allowed"
+                )
+            for alternative in step.alternatives:
+                available = self.conf.available.get(alternative.plugin)
+                if (
+                    available is None
+                    or alternative.plugin not in self.plugins
+                    or not available.client_selectable
+                    or (
+                        available.roles
+                        and not set(available.roles) & set(principal.groups)
+                    )
+                ):
+                    raise InvalidSelection(
+                        f"Plugin not available: {alternative.plugin}"
+                    )
+
+    def _frame(self, steps: tuple[ResolvedStep, ...]) -> tuple[ResolvedStep, ...]:
+        """Frame the steps of a client's choice with the admin's steps.
+
+        Args:
+            steps: Resolved steps of the preset or client pipeline.
+
+        Returns:
+            `client_pipelines.prepend`, the steps and `client_pipelines.append`;
+            appended steps with `if_missing_phase` only if no other step
+            implements the phase.
+
+        Raises:
+            foca.plugins.selection.InvalidSelection: A step of the client
+                has the identifier of a framing step (which are reserved).
+        """
+        conf = self.conf.client_pipelines
+        reserved = {step.id for step in (*conf.prepend, *conf.append)}
+        clashes = sorted(step.id for step in steps if step.id in reserved)
+        if clashes:
+            raise InvalidSelection(f"Step identifiers are reserved: {clashes[0]}")
+        framed = [*self._prepend, *steps]
+        for phase, step in self._append:
+            if phase is not None and any(
+                phase in self.plugins[alt.plugin].cls.phases()
+                for existing in framed
+                for alt in existing.alternatives
+            ):
+                continue
+            framed.append(step)
+        return tuple(framed)
 
     def is_own_url(self, url: str) -> bool:
         """Check whether a URL is at or below the gateway's public URL.
@@ -906,7 +970,11 @@ class PipelineRun:
         attempt_records: Records of the forwarding attempts, in order.
         candidates_in: Identifiers of the candidates before the `route`
             phase.
-        candidates_out: Identifiers of the candidates after it.
+        candidates_out: Identifiers of the candidates after it and the
+            client's backend selection.
+        selection: Client's choices, from the reserved tags.
+        backends_discarded: Backends of the client's selection that were no
+            candidates.
     """
 
     def __init__(
@@ -917,6 +985,7 @@ class PipelineRun:
         inbound: InboundRequest,
         principal: Principal,
         request_id: str | None,
+        selection: ClientSelection | None = None,
     ) -> None:
         """Create the run.
 
@@ -926,6 +995,7 @@ class PipelineRun:
             inbound: Inbound request.
             principal: Authenticated caller.
             request_id: Identifier of the request.
+            selection: Client's choices, from the reserved tags.
         """
         self.host = host
         self.pipeline = pipeline
@@ -938,6 +1008,8 @@ class PipelineRun:
         self.attempt_records: list[AttemptRecord] = []
         self.candidates_in: list[str] = []
         self.candidates_out: list[str] = []
+        self.selection = selection or ClientSelection()
+        self.backends_discarded: list[str] = []
         self._states: dict[str, dict[str, Any]] = {}
         self._deadline = time.monotonic() + host.conf.defaults.pipeline_timeout
 
@@ -980,7 +1052,9 @@ class PipelineRun:
     def route(self, candidates: Sequence[Backend]) -> list[Backend]:
         """Run the `route` phase.
 
-        Backends at or below the gateway's public URL are removed first.
+        Backends at or below the gateway's public URL are removed first;
+        the client's backend selection, if any, applies to the result (cf.
+        :py:func:`foca.plugins.selection.apply_backend_selection`).
 
         Args:
             candidates: Candidate backends, in the server's order.
@@ -1004,6 +1078,10 @@ class PipelineRun:
             check=_check_route,
             deadline=self._deadline,
         )
+        if self.selection.backends is not None:
+            routed, self.backends_discarded = apply_backend_selection(
+                routed, self.selection.backends
+            )
         self.candidates_out = [backend.id for backend in routed]
         return routed
 
@@ -1417,11 +1495,13 @@ def _check_response(
 
 
 __all__ = [
+    "PROBLEM_TYPE_BASE",
     "Attempt",
     "AttemptRecord",
     "Execution",
     "ForwardTimeout",
     "GatewayError",
+    "InvalidSelection",
     "LoopDetected",
     "NoBackendAvailable",
     "NotAccepted",

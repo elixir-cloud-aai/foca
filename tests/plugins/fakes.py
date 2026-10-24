@@ -347,6 +347,11 @@ def make_host(
             "pipeline": pipeline,
             "defaults": kwargs.pop("defaults", {}),
             "gateway_id": kwargs.pop("gateway_id", None),
+            **{
+                key: kwargs.pop(key)
+                for key in ("presets", "client_pipelines", "client_backends", "tags")
+                if key in kwargs
+            },
         }
     )
     plugins: dict[str, LoadedPlugin] = load_plugins(
