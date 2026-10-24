@@ -142,28 +142,72 @@ Rules:
 
 ## Using the engine in apps
 
+Gateway apps declare themselves when creating the FOCA app, with their API
+and their payload checks:
+
 ```python
-from foca.plugins import PluginHost
-from foca.plugins.adapter import (
-    current_principal,
-    inbound_from_request,
-    problem,
-    register_plugin_host,
-)
+from foca import Foca
+from foca.plugins.runtime import GatewayApp
 
-# at startup
-host = register_plugin_host(
-    cnx_app, PluginHost.from_config(foca.conf, api="tes", validate=check_task)
+foca = Foca(
+    config_file="config.yaml",
+    custom_config_model="my_gateway.config.CustomConfig",
+    gateway=GatewayApp(
+        api="tes",
+        validate=check_task,  # raises if a task is invalid
+        sanitize=sanitize_task,  # returns the sanitized task
+        validate_outbound=check_relay,  # optional, per attempt
+    ),
 )
+app = foca.create_app()  # loads the plugins once, to fail fast
+```
 
-# in the controller of POST /tasks, after the app's checks
-run = host.start(inbound_from_request(body), current_principal())
+- `validate` runs after each successful `request` hook: if it raises, the
+  hook's output counts as invalid, and the next alternative is tried.
+- `sanitize` runs before `validate`: its exceptions (e.g., `413` for too
+  much inline content) stop the request and reach the app unchanged.
+- `validate_outbound` checks each attempt's outbound request after the
+  `forward` phase (e.g., that the app can serialize it): if it raises, the
+  attempt counts as not accepted (`invalid_outbound`).
+- Configurations with keys of earlier middleware stacks (`middlewares`,
+  `custom.middlewares`) are refused with a migration hint, before the app's
+  custom model is validated.
+
+Controllers and Celery tasks get the host of their process with
+`foca.plugins.runtime.get_host()`; each process creates its own host (and
+thread pool) on first use, after Gunicorn or Celery forked it. In the
+controller, after the app's own checks:
+
+```python
+from foca.plugins import BackendResponse, NotAccepted
+from foca.plugins.adapter import current_principal, inbound_from_request, request_id
+from foca.plugins.runtime import get_host
+
+run = get_host().start(
+    inbound_from_request(body), current_principal(), request_id=request_id()
+)
 run.request()
 candidates = run.route(backends)
 for attempt in run.attempts(candidates):
-    ...  # send attempt.outbound; report failed(), unknown() or succeeded()
+    try:
+        remote_id = send(attempt.outbound, timeout=attempt.remaining())
+    except NotAccepted as outcome:  # also OutcomeUnknown, its subclass
+        attempt.report(outcome)
+        continue
+    attempt.succeeded(BackendResponse(status=200), remote_id=remote_id)
+    break
 ```
 
-`foca.plugins.adapter` is the only module that uses Connexion and Flask; it
-builds the plain request model and turns gateway errors (`GatewayError`)
-into problem responses (`problem()`).
+The app's client raises `NotAccepted(reason)` when a backend certainly did
+not accept the request (e.g., `connect_error`, `tls_error`, `not_public`,
+`no_credentials`, `http_403`), and `OutcomeUnknown(reason)` when it may have
+(e.g., `read_timeout`, `connection_lost`, `http_502`); the loop then stops
+after `OutcomeUnknown`.
+
+`foca.plugins.adapter` is the only module that uses Connexion and Flask: it
+builds the plain request model (`inbound_from_request()`), the caller
+(`current_principal()`, with the claims and mapped roles that access
+control uses, so `roles` in the plugin configuration are access control
+roles), the request ID (`request_id()`: a safe `X-Request-ID` header of
+the client, or a new one), and problem responses for gateway errors
+(`problem()`).

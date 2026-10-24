@@ -509,8 +509,8 @@ def test_close_logs_errors(caplog: pytest.LogCaptureFixture) -> None:
 
 def test_sanitize_error() -> None:
     """Errors are sanitized and truncated."""
-    message = sanitize_error(ValueError("see http://u:p@x.org/" + "a" * 600))
-    assert message.startswith("ValueError: see http://x.org/")
+    message = sanitize_error(ValueError("see http://u:p@example.org/" + "a" * 600))
+    assert message.startswith("ValueError: see http://example.org/")
     assert len(message) == 500
 
 

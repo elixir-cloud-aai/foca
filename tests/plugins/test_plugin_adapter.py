@@ -8,19 +8,17 @@ from flask import Flask
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
 from foca.plugins import adapter
-from foca.plugins.config import PluginsConfig
-from foca.plugins.engine import LoopDetected, PluginHost
+from foca.plugins.engine import LoopDetected
 
 
-def test_plugin_host_registry() -> None:
-    """Hosts are kept per app."""
-    cnx_app = create_connexion_app(Config())
-    host = PluginHost(PluginsConfig(), api="tes", plugins={})
-    with cnx_app.app.app_context():
-        with pytest.raises(RuntimeError, match="No plugin host"):
-            adapter.get_plugin_host()
-        assert adapter.register_plugin_host(cnx_app, host) is host
-        assert adapter.get_plugin_host() is host
+def test_request_id() -> None:
+    """Request IDs come from safe client headers or are generated."""
+    app = Flask(__name__)
+    assert len(adapter.request_id()) == 32
+    with app.test_request_context(headers={"X-Request-ID": "abc-1"}):
+        assert adapter.request_id() == "abc-1"
+    with app.test_request_context(headers={"X-Request-ID": "a b"}):
+        assert len(adapter.request_id()) == 32
 
 
 def test_inbound_from_request() -> None:

@@ -84,8 +84,8 @@ class AlternativeConfig(_Model):
 class StepConfig(_Model):
     """Step of a pipeline: ordered alternatives (the first that succeeds wins).
 
-    The short form `{plugin: <id>, params: {...}}` is a step with one
-    alternative, whose identifier defaults to the plugin identifier. The
+    The short forms `<id>` and `{plugin: <id>, params: {...}}` are steps
+    with one alternative, whose identifier defaults to the plugin identifier. The
     keys `when` and `needs` are reserved for later versions.
 
     Args:
@@ -128,6 +128,8 @@ class StepConfig(_Model):
         Raises:
             ValueError: The step uses a reserved key, or both forms.
         """
+        if isinstance(data, str):
+            data = {"plugin": data}
         if not isinstance(data, dict):
             return data
         reserved = [key for key in _RESERVED_STEP_KEYS if key in data]

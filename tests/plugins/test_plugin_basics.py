@@ -177,8 +177,9 @@ def test_step_config() -> None:
     ]:
         with pytest.raises(ValidationError, match=message):
             StepConfig.model_validate(data)
+    assert StepConfig.model_validate("a.b").id == "a.b"
     with pytest.raises(ValidationError):
-        StepConfig.model_validate("a")
+        StepConfig.model_validate(1)
 
 
 def test_plugins_config() -> None:

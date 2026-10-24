@@ -2,19 +2,22 @@
 
 The only module of :py:mod:`foca.plugins` that uses the web framework: it
 builds the framework-neutral request model (cf. :py:mod:`foca.plugins.model`)
-from the current request, keeps the app's :py:class:`PluginHost` and turns
-gateway errors into problem responses. FOCA 1.0 (Connexion 3, without
+from the current request and turns gateway errors into problem responses.
+The plugin host itself is reached without the framework (cf.
+:py:mod:`foca.plugins.runtime`). FOCA 1.0 (Connexion 3, without
 Flask) replaces this module and keeps its function names and signatures.
 """
 
+import re
+import uuid
 from typing import Any
 
-from flask import current_app, has_request_context, request
+from flask import has_request_context, request
 from flask.wrappers import Response
 from werkzeug.exceptions import HTTPException
 
 from foca.errors.exceptions import problem_response
-from foca.plugins.engine import GatewayError, PluginHost
+from foca.plugins.engine import GatewayError
 from foca.plugins.model import CREDENTIAL_HEADERS, Headers, InboundRequest, Principal
 from foca.security.access_control.enforcement import (
     _get_claims,
@@ -22,47 +25,31 @@ from foca.security.access_control.enforcement import (
     get_current_subject,
 )
 
-# Key of the plugin host in the Flask app's config
-_HOST_KEY = "foca_plugin_host"
+# Request IDs taken from clients (`X-Request-ID`)
+_REQUEST_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 
 
-def register_plugin_host(app: Any, host: PluginHost) -> PluginHost:
-    """Keep the plugin host of an app, e.g., for :py:func:`get_plugin_host`.
-
-    Args:
-        app: Connexion app (e.g., from `Foca.create_app()`) or Flask app.
-        host: Plugin host.
+def request_id() -> str:
+    """Get the identifier of the current request, for logs.
 
     Returns:
-        The host.
+        The client's `X-Request-ID` header if it is a safe identifier (at
+        most 128 letters, digits and `._:-`), otherwise a new random one.
     """
-    flask_app = getattr(app, "app", app)
-    flask_app.config[_HOST_KEY] = host
-    return host
-
-
-def get_plugin_host() -> PluginHost:
-    """Get the plugin host of the current app.
-
-    Returns:
-        The host registered with :py:func:`register_plugin_host`.
-
-    Raises:
-        RuntimeError: No host is registered, or there is no app context.
-    """
-    host = current_app.config.get(_HOST_KEY)
-    if not isinstance(host, PluginHost):
-        raise RuntimeError("No plugin host registered: call register_plugin_host()")
-    return host
+    value = request.headers.get("X-Request-ID", "") if has_request_context() else ""
+    return value if _REQUEST_ID.fullmatch(value) else uuid.uuid4().hex
 
 
 def current_principal() -> Principal:
     """Get the authenticated caller of the current request.
 
     Returns:
-        Subject, issuer and claims of the validated token, roles from group
-        claims and the bearer token; empty outside requests or without a
-        validated token.
+        Subject, issuer and claims of the validated token (as used by
+        access control), roles from group claims (the mapped roles of
+        access control, cf.
+        :py:func:`foca.security.access_control.enforcement.get_current_groups`)
+        and the bearer token; empty outside requests or without a validated
+        token.
     """
     if not has_request_context():
         return Principal()

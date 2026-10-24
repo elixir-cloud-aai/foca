@@ -89,6 +89,39 @@ _REASON = re.compile(r"[a-z0-9_]{1,64}")
 _USER_INFO = re.compile(r"(//)[^/@\s]*@")
 
 
+class NotAccepted(Exception):
+    """The backend certainly did not accept the request; for apps' clients.
+
+    Attributes:
+        reason: Reason code, e.g., `connect_error`, `tls_error`,
+            `not_public`, `no_credentials` or `http_<status>` (4xx, 3xx).
+    """
+
+    def __init__(self, reason: str, message: str = "") -> None:
+        """Create the outcome.
+
+        Args:
+            reason: Reason code (`[a-z0-9_]{1,64}`).
+            message: Description, for logs.
+
+        Raises:
+            ValueError: The reason code is invalid.
+        """
+        if not _REASON.fullmatch(reason):
+            raise ValueError("Reason codes match [a-z0-9_]{1,64}")
+        super().__init__(message or reason)
+        self.reason = reason
+
+
+class OutcomeUnknown(NotAccepted):
+    """The backend may have accepted the request; for apps' clients.
+
+    Raised, e.g., on read timeouts, lost connections after sending, and
+    `5xx` statuses (reasons `read_timeout`, `connection_lost`,
+    `http_<status>`); no other backend is then tried.
+    """
+
+
 class GatewayError(Exception):
     """Error of a gateway request, with problem details for the client.
 
@@ -353,6 +386,19 @@ class _DeadlineExceededError(Exception):
     """A hook did not return in time, or no worker was free."""
 
 
+class _AppError(Exception):
+    """The app's sanitation failed; its exception reaches the caller."""
+
+    def __init__(self, error: Exception) -> None:
+        """Wrap the app's exception.
+
+        Args:
+            error: Exception raised by the app.
+        """
+        super().__init__(str(error))
+        self.error = error
+
+
 class _InvalidOutputError(Exception):
     """A hook produced invalid output."""
 
@@ -477,6 +523,7 @@ class PluginHost:
         api: str,
         validate: Callable[[Any], None] | None = None,
         sanitize: Callable[[Any], Any] | None = None,
+        validate_outbound: Callable[[OutboundRequest], None] | None = None,
         public_url: str | None = None,
         plugins: Mapping[str, LoadedPlugin] | None = None,
     ) -> None:
@@ -488,11 +535,20 @@ class PluginHost:
                 support.
             validate: Function that checks the payload of an inbound request
                 (e.g., against the app's model), raising an exception if it
-                is invalid; called after each successful `request` hook.
+                is invalid; called after each successful `request` hook. If
+                it raises, the hook's output counts as invalid, and the next
+                alternative is tried.
             sanitize: Function that returns the payload of an inbound
                 request after the app's sanitation (e.g., removing
                 credentials from URLs); called after each successful
-                `request` hook, before `validate`.
+                `request` hook, before `validate`. Its exceptions (e.g., a
+                `413` for too much inline content) stop the request and
+                reach the caller unchanged.
+            validate_outbound: Function that checks the outbound request of
+                an attempt after the `forward` phase (e.g., that the app can
+                serialize its payload), raising an exception if it is
+                invalid; the attempt then counts as not accepted (reason
+                `invalid_outbound`), and the next backend is tried.
             public_url: Public URL of the gateway, normalized (e.g.,
                 `server.public_url`).
             plugins: Loaded plugins, e.g., for tests (cf.
@@ -508,6 +564,7 @@ class PluginHost:
         self.api = api
         self._validate = validate
         self._sanitize = sanitize
+        self._validate_outbound = validate_outbound
         self.public_url = public_url.rstrip("/") if public_url else None
         self.gateway_id = conf.gateway_id or (
             urlsplit(public_url).netloc.lower() if public_url else None
@@ -528,6 +585,7 @@ class PluginHost:
         api: str,
         validate: Callable[[Any], None] | None = None,
         sanitize: Callable[[Any], Any] | None = None,
+        validate_outbound: Callable[[OutboundRequest], None] | None = None,
     ) -> "PluginHost":
         """Create the host from the FOCA configuration.
 
@@ -536,6 +594,7 @@ class PluginHost:
             api: API of the app.
             validate: Payload check (cf. :py:class:`PluginHost`).
             sanitize: Payload sanitation (cf. :py:class:`PluginHost`).
+            validate_outbound: Outbound check (cf. :py:class:`PluginHost`).
 
         Returns:
             Host with the plugins of `plugins` (none if not configured).
@@ -552,6 +611,7 @@ class PluginHost:
             api=api,
             validate=validate,
             sanitize=sanitize,
+            validate_outbound=validate_outbound,
             public_url=config.server.public_url,
         )
 
@@ -667,9 +727,16 @@ class PluginHost:
 
         Returns:
             Sanitized payload.
+
+        Raises:
+            _AppError: Sanitation failed (wrapping the app's exception, which
+                the engine raises to the caller).
         """
         if self._sanitize is not None:
-            payload = self._sanitize(payload)
+            try:
+                payload = self._sanitize(payload)
+            except Exception as exc:
+                raise _AppError(exc) from exc
         if self._validate is not None:
             self._validate(payload)
         return payload
@@ -793,6 +860,18 @@ class Attempt:
         """
         self._report("unknown", reason, None)
 
+    def report(self, outcome: NotAccepted) -> None:
+        """Report the outcome of the attempt from an exception of the app.
+
+        Args:
+            outcome: :py:class:`OutcomeUnknown` (the backend may have
+                accepted) or :py:class:`NotAccepted`.
+        """
+        if isinstance(outcome, OutcomeUnknown):
+            self.unknown(outcome.reason)
+        else:
+            self.failed(outcome.reason)
+
     def succeeded(
         self, response: BackendResponse, remote_id: str | None = None
     ) -> BackendResponse:
@@ -886,6 +965,7 @@ class PipelineRun:
         Raises:
             PipelineRejected: A plugin rejected the request.
             PipelineFailed: All alternatives of a required step failed.
+            Exception: The app's `sanitize` failed (its exception).
         """
 
         def check(candidate: InboundRequest, _: InboundRequest) -> InboundRequest:
@@ -942,8 +1022,9 @@ class PipelineRun:
         Yields:
             Attempts, after the `forward` phase; report the outcome of each
             (`failed()`, `unknown()` or `succeeded()`). Attempts whose
-            `forward` step failed are skipped (recorded as not accepted,
-            reason `forward_plugin_failed`).
+            `forward` step failed, or whose outbound request the app's
+            `validate_outbound` rejects, are skipped (recorded as not
+            accepted, reason `forward_plugin_failed` or `invalid_outbound`).
 
         Raises:
             ForwardTimeout: `plugins.defaults.forward_timeout` passed before
@@ -963,6 +1044,7 @@ class PipelineRun:
                 )
             number = len(self.attempt_records) + 1
             started, started_at = time.monotonic(), _utc_now()
+            reason = None
             try:
                 outbound = self._run_phase(
                     "forward",
@@ -971,14 +1053,26 @@ class PipelineRun:
                     deadline=budget_end,
                     attempt=number,
                 )
+                if self.host._validate_outbound is not None:
+                    try:
+                        self.host._validate_outbound(outbound)
+                    except Exception as exc:
+                        logger.warning(
+                            "Outbound request to %s invalid: %s",
+                            backend.id,
+                            sanitize_error(exc),
+                        )
+                        reason = "invalid_outbound"
             except _StepFailedError:
+                reason = "forward_plugin_failed"
+            if reason is not None:
                 self.attempt_records.append(
                     AttemptRecord(
                         number=number,
                         backend=backend.id,
                         url=backend.url,
                         outcome="not_accepted",
-                        reason="forward_plugin_failed",
+                        reason=reason,
                         remote_id=None,
                         started_at=started_at,
                         duration_ms=round((time.monotonic() - started) * 1000, 3),
@@ -1184,8 +1278,16 @@ class PipelineRun:
             )
             try:
                 output = check(result if phase == "route" else candidate, value)
+            except _AppError:
+                raise
             except Exception as exc:
                 raise _InvalidOutputError(sanitize_error(exc)) from exc
+        except _AppError as exc:
+            execution.outcome = "error"
+            execution.error = sanitize_error(exc.error)
+            self._finish(execution, started, ctx)
+            self.executions.append(execution)
+            raise exc.error from None
         except Rejected as exc:
             execution.outcome = "rejected"
             execution.error = sanitize_error(exc)
@@ -1322,6 +1424,8 @@ __all__ = [
     "GatewayError",
     "LoopDetected",
     "NoBackendAvailable",
+    "NotAccepted",
+    "OutcomeUnknown",
     "PipelineFailed",
     "PipelineRejected",
     "PipelineRun",

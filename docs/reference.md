@@ -107,6 +107,8 @@ configuration models, see [Configuration](configuration/index.md).
         - PluginHost
         - PipelineRun
         - Attempt
+        - NotAccepted
+        - OutcomeUnknown
         - GatewayError
         - PipelineRejected
         - PipelineFailed
@@ -121,6 +123,14 @@ configuration models, see [Configuration](configuration/index.md).
         - load_plugins
         - check_legacy_keys
         - LoadedPlugin
+
+::: foca.plugins.runtime
+    options:
+      members:
+        - GatewayApp
+        - get_host
+        - create_host
+        - configure
 
 ::: foca.plugins.adapter
 

@@ -156,6 +156,9 @@ class ConfigParser:
             config parameters, so as to make it easier for others to
             write/modify their app configuration.
         format_logs: Whether log formatting should be configured.
+        gateway: Whether the app is a gateway; if so, configurations with
+            keys of earlier middleware stacks are refused with a migration
+            hint (cf. :py:func:`foca.plugins.loader.check_legacy_keys`).
 
     Attributes:
         config_files: Paths to config files merged into the configuration,
@@ -180,6 +183,7 @@ class ConfigParser:
         config_file: Path | str | Sequence[Path | str] | None = None,
         custom_config_model: str | None = None,
         format_logs: bool = True,
+        gateway: bool = False,
     ) -> None:
         """Constructor method."""
         config_files = _as_paths(config_file)
@@ -199,6 +203,12 @@ class ConfigParser:
             except ValueError as exc:
                 raise ValueError(f"file '{path}': {exc}") from exc
             data = deep_merge(data, content)
+        if gateway:
+            # Before validating `custom`, so that apps' strict custom models
+            # don't reject the keys first, without the hint
+            from foca.plugins.loader import check_legacy_keys  # noqa: PLC0415
+
+            check_legacy_keys(data)
         self.config = Config.model_validate(data, context={"base_dir": self.config_dir})
         if custom_config_model is not None:
             setattr(
