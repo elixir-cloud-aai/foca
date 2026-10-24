@@ -6,4 +6,4 @@
 # version: when semgrep is updated here (Dependabot opens separate pull
 # requests for it), update the `rev` of `semgrep/pre-commit` in the same pull
 # request.
-semgrep==1.181.0
+semgrep==1.182.0
