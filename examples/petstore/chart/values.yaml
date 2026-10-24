@@ -159,7 +159,7 @@ petstore:
     # keep-alive); keep it longer than the idle timeout of the proxy's
     # connections to the app (see the chart docs), which would otherwise
     # reuse connections as they are closed (failing requests with `502`)
-    keepalive: 75
+    keepalive: 100
     # Further Gunicorn options, e.g., `["--access-logfile", "-"]` for an
     # access log; rendering fails for `--bind`/`-b` (the chart's ports are
     # 8080), `--preload` (MongoDB clients must be created after forking) and

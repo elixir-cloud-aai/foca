@@ -497,7 +497,7 @@ def test_container(render: Callable[..., Docs]) -> None:
     env = _env(container)
     assert env["FOCA_CONFIG_OVERLAY"] == "/etc/petstore/overlay.yaml"
     assert env["GUNICORN_CMD_ARGS"] == (
-        "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 --keep-alive 75"
+        "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 --keep-alive 100"
     )
     for var, key in [
         ("MONGO_USERNAME", "username"),
@@ -573,7 +573,7 @@ def test_gunicorn_extra_args_quoted(render: Callable[..., Docs]) -> None:
     docs = render("--set-json", 'petstore.gunicorn.extraArgs=["--access-logfile", "-"]')
     assert _env(_container(docs))["GUNICORN_CMD_ARGS"] == (
         "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 "
-        "--keep-alive 75 '--access-logfile' '-'"
+        "--keep-alive 100 '--access-logfile' '-'"
     )
 
 

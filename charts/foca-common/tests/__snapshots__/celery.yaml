@@ -297,7 +297,7 @@ spec:
         # defaults; options are split like shell words, so `extraArgs` are
         # quoted
         - name: GUNICORN_CMD_ARGS
-          value: "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 --keep-alive 75"
+          value: "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 --keep-alive 100"
         - name: MONGO_PASSWORD
           valueFrom:
             secretKeyRef:

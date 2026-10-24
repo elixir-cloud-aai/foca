@@ -29,7 +29,7 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.enforcement import (
     _get_current_policy_subjects,
-    get_enforcer,
+    locked_enforcer,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
@@ -75,8 +75,7 @@ def app() -> Flask:
     app.config["casbin_adapter"] = Adapter(
         collection=mongomock.MongoClient()["access_control_db"]["policy_rules"]
     )
-    with app.app_context():
-        enforcer = get_enforcer()
+    with app.app_context(), locked_enforcer() as enforcer:
         enforcer.add_policy("submitter", "/tasks", "POST")
         enforcer.add_policy("client:protes", "/tasks", "GET")
         enforcer.add_policy("owner", "/tasks/:id", "GET")

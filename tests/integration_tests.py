@@ -56,7 +56,11 @@ def test_add_pet_extra_parameter_200() -> None:
 
 
 def test_add_pet_required_arguments_missing_400() -> None:
-    """Test `POST /pets` with required arguments missing."""
+    """Test `POST /pets` with required arguments missing.
+
+    The response has the reason as `detail` (`exceptions.validation_details`
+    is on by default).
+    """
     response = requests.post(
         url=f"{PETSTORE_URL}/pets",
         json={},
@@ -66,9 +70,7 @@ def test_add_pet_required_arguments_missing_400() -> None:
     print(response.json())
     response_data = Error(**response.json())
     assert response_data.status == 400
-    assert response_data.detail == (
-        "We don't quite understand what it is you are looking for."
-    )
+    assert response_data.detail == "'name' is a required property"
 
 
 def test_get_all_pets_200() -> None:
