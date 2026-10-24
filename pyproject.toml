@@ -175,7 +175,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 pythonpath = ["."]
 # Tests of the package; those of the Helm charts (`charts/*/tests`) need
-# Helm and run separately (see `.github/workflows/charts.yml`)
+# Helm and run separately (see `.github/actions/test-chart`)
 testpaths = ["tests"]
 markers = [
     "mongodb: needs a MongoDB server on localhost:12345 (deselect with '-m \"not mongodb\"')",

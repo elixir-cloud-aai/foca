@@ -1,6 +1,6 @@
 # Installation with the Celery worker and the bundled broker (RabbitMQ), in
 # CI; the fixed name gives the broker's Service a known host for the broker
-# URL of the Secret `celery` (see `.github/workflows/charts.yml`)
+# URL of the Secret `celery` (see `.github/actions/install-chart`)
 fullnameOverride: petstore-celery
 hostName: petstore-celery.example.org
 # Room for the CI step that sends a task from the app's pod

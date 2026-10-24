@@ -133,7 +133,7 @@ docker stop mongodb-test
 To skip them instead, run `pytest -m "not mongodb"`; coverage is then below
 100%.
 
-CI (`.github/workflows/checks.yml`) runs the unit tests with Python 3.11,
+CI (`.github/workflows/ci.yml`) runs the unit tests with Python 3.11,
 3.12, 3.13, 3.14 and 3.15 against MongoDB 7.0, and with Python 3.13 and 3.15
 against MongoDB 8.0; once more with the lowest versions of the direct
 dependencies that `pyproject.toml` allows (Python 3.11 and 3.15), so that
@@ -153,10 +153,10 @@ pytest tests/integration_tests.py
 ```
 
 The tests of the Helm library chart need [Helm](https://helm.sh/) and run
-separately (`pytest charts/foca-common/tests`); CI
-(`.github/workflows/charts.yml`) also installs the petstore example with its
-chart on a kind cluster and checks that changes of the library chart raise
-its version (see [Developing the library
+separately (`pytest charts/foca-common/tests`); CI (the `chart` and
+`chart-install` jobs of `.github/workflows/ci.yml`) also installs the
+petstore example with its chart on a kind cluster and checks that changes of
+the library chart raise its version (see [Developing the library
 chart](helm-chart.md#developing-the-library-chart)).
 
 Run `pre-commit` in the environment with the dev dependencies: the ast-grep
@@ -172,7 +172,7 @@ separate environment to run it outside pre-commit.
 
 ### Image scan
 
-CI (`checks.yml`) builds the Docker images of all Python versions for every
+CI (`ci.yml`) builds the Docker images of all Python versions for every
 pull request and push and scans them with [Trivy](https://trivy.dev/)
 (`.github/actions/scan-image`), and a weekly workflow (`scan.yml`) scans the
 images of the latest release. For pushes to `dev` and for releases
@@ -187,7 +187,7 @@ nor in the release workflow); findings without a fix appear there once a fix
 is released. The weekly scan also uploads a full report, findings without a
 fix included, as the workflow artifact `trivy-report-release-image-pyV` of
 each run (`trivy-report.json` and `trivy-report.txt`, a table; Actions tab,
-"Scan release image"); it is not uploaded to code scanning. Accepted findings
+"Scan"); it is not uploaded to code scanning. Accepted findings
 are left out of all results. All workflows take the Docker Hub organization
 from the repository variable `DOCKERHUB_ORG` (by default `elixircloud`), which
 forks set to the organization they publish to. If a scan fails:

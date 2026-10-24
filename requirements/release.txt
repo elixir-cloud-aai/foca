@@ -3,7 +3,7 @@
 # distributions are not byte-for-byte reproducible); updated by Dependabot.
 # Also used as constraints (`PIP_CONSTRAINT`) for the build requirements of
 # `pyproject.toml`, which `python -m build` installs in an isolated
-# environment. Used by `.github/workflows/release.yml` and `checks.yml`.
+# environment. Used by `.github/workflows/release.yml` and `ci.yml`.
 build==1.6.1
 setuptools==84.2.1
 setuptools-scm==10.3.4

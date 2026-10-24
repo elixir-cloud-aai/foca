@@ -84,7 +84,8 @@ def test_snapshot(chart: Path, name: str) -> None:
     assert snapshot.exists(), f"no snapshot {snapshot.name}"
     assert rendered == snapshot.read_text(), (
         f"output differs from {snapshot.name}; if intended, update the "
-        "snapshots (with the Helm version of CI, see charts.yml)"
+        "snapshots (with the Helm version of CI, see "
+        ".github/actions/test-chart)"
     )
 
 

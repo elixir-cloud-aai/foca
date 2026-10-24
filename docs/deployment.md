@@ -357,8 +357,9 @@ cosign verify docker.io/elixircloud/foca:{{ version }} \
 Both fail unless the image was signed by that workflow for that tag;
 replace `{{ version }}` with the version to verify (and add the Python
 version, e.g., `{{ version }}-py3.12`, for other images than the default 3.13
-one). Images built from `dev` are signed by `.github/workflows/checks.yml`
-with the ref `refs/heads/dev`; the chart by
+one). Images built from `dev` are signed by `.github/workflows/ci.yml`
+(older ones by `.github/workflows/checks.yml`) with the ref
+`refs/heads/dev`; the chart by
 `.github/workflows/release-chart.yml` with the ref `refs/tags/chart-vX.Y.Z`,
 e.g.:
 
