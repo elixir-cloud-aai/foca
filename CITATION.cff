@@ -34,6 +34,13 @@ authors:
     orcid: "https://orcid.org/0000-0002-6985-3517"
   - given-names: Aditya
     family-names: Arora
+doi: 10.5281/zenodo.23603534
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23603534
+    description: >-
+      Concept DOI of all versions on Zenodo; it always resolves to the latest
+      version
 repository-code: "https://github.com/elixir-cloud-aai/foca"
 url: "https://foca.readthedocs.io/"
 keywords:

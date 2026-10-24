@@ -39,6 +39,10 @@ The project adopts [semantic versioning](https://semver.org/); while the major
 version is 0, minor releases may contain breaking changes, which are listed in
 the [changelog](changelog.md) and the migration notes.
 
+## Citation
+
+--8<-- "README.md:citation"
+
 ## License
 
 This project is covered by the [Apache License
