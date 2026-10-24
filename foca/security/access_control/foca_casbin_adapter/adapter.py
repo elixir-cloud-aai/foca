@@ -10,7 +10,7 @@ from bson import ObjectId, Timestamp
 from casbin import persist
 from casbin.model import Assertion, Model
 from casbin.model.policy import DEFAULT_SEP
-from pymongo import ReturnDocument
+from pymongo import ReadPreference, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
@@ -53,6 +53,10 @@ _FILTER_INDEXES = [[("ptype", 1), ("v0", 1), ("v1", 1)], [("ptype", 1), ("v2", 1
 _ALL_CHANGED: dict[str, Any] = {"ptype": None}
 
 
+# Version of recorded changes whose stored version is not an integer
+MALFORMED_VERSION = -1
+
+
 @dataclass(frozen=True)
 class PolicyChanges:
     """Changes of stored policy rules, as recorded by the adapter.
@@ -68,7 +72,9 @@ class PolicyChanges:
             if the document was re-created (e.g., after the collection was
             dropped), so that versions are not compared across documents.
             `None` if no changes were recorded.
-        version: Number of changes recorded since the document was created.
+        version: Number of changes recorded since the document was created;
+            `MALFORMED_VERSION` if the stored version is not an integer
+            (e.g., edited in the database).
         changes: The latest changes, up to `MAX_RECORDED_CHANGES`, oldest
             first, the last one being change `version`; empty if only the
             version was read. Each change names the policy type
@@ -281,7 +287,9 @@ class Adapter(persist.Adapter):
         for _ in range(LOAD_POLICY_ATTEMPTS):
             generation = self._active_generation()
             documents = list(
-                self._collection.find({**query, **self._rules_query(generation)})
+                _primary(self._collection).find(
+                    {**query, **self._rules_query(generation)}
+                )
             )
             # Rules are only removed from generations that are no longer
             # active, and generations never become active again
@@ -320,15 +328,20 @@ class Adapter(persist.Adapter):
         projection = [CHANGES_EPOCH_FIELD, CHANGES_VERSION_FIELD]
         if with_changes:
             projection.append(CHANGES_FIELD)
-        document = self.changes_collection.find_one(
+        document = _primary(self.changes_collection).find_one(
             {"_id": CHANGES_MARKER_ID}, projection=projection
         )
         if document is None:
             return PolicyChanges(epoch=None, version=0)
         changes = document.get(CHANGES_FIELD, [])
+        version = document.get(CHANGES_VERSION_FIELD, 0)
+        # Malformed versions (e.g., edited in the database) are not counted
+        # from (cf. `PolicyChanges`)
+        if not isinstance(version, int) or isinstance(version, bool):
+            version = MALFORMED_VERSION
         return PolicyChanges(
             epoch=str(document.get(CHANGES_EPOCH_FIELD)),
-            version=document.get(CHANGES_VERSION_FIELD, 0),
+            version=version,
             changes=tuple(changes) if isinstance(changes, list) else (),
         )
 
@@ -658,9 +671,11 @@ class Adapter(persist.Adapter):
         if not rule:
             return 0
         query = {**_rule_query(ptype, rule), CONFIGURED_FIELD: {"$ne": True}}
-        deleted = self._collection.delete_many(query).deleted_count
-        self._record_changes([_change(ptype, 0, rule)])
-        return deleted
+        # Recorded also if deleting fails, as some rules may be deleted
+        try:
+            return self._collection.delete_many(query).deleted_count
+        finally:
+            self._record_changes([_change(ptype, 0, rule)])
 
     def remove_policy_by_id(self, id: str) -> bool:
         """Remove a stored rule by its identifier.
@@ -784,7 +799,7 @@ class Adapter(persist.Adapter):
             if there is none (i.e., configured rules were last set by FOCA
             0.16 or earlier, if at all).
         """
-        marker = self._collection.find_one(
+        marker = _primary(self._collection).find_one(
             {"_id": GENERATION_MARKER_ID}, projection=[MARKER_GENERATION_FIELD]
         )
         if marker is None:
@@ -1135,14 +1150,17 @@ class Adapter(persist.Adapter):
         query = _filter_query(ptype, field_index, field_values)
         if keep_configured:
             query[CONFIGURED_FIELD] = {"$ne": True}
-        results = self._collection.delete_many(query)
         # Enforcers remove rules matching empty values (as wildcards) in
         # memory, unlike stored rules: they need to load all rules again
         if "" in field_values:
-            self._record_changes([_ALL_CHANGED])
+            change = _ALL_CHANGED
         else:
-            self._record_changes([_change(ptype, field_index, field_values)])
-        return results.deleted_count > 0
+            change = _change(ptype, field_index, field_values)
+        # Recorded also if deleting fails, as some rules may be deleted
+        try:
+            return self._collection.delete_many(query).deleted_count > 0
+        finally:
+            self._record_changes([change])
 
 
 def _change(ptype: str, field_index: int, values: Sequence[str]) -> dict[str, Any]:
@@ -1157,6 +1175,23 @@ def _change(ptype: str, field_index: int, values: Sequence[str]) -> dict[str, An
         Change, as recorded (cf. :py:class:`PolicyChanges`).
     """
     return {"ptype": ptype, "index": field_index, "values": list(values)}
+
+
+def _primary(collection: Collection[dict[str, Any]]) -> Collection[dict[str, Any]]:
+    """Get a collection reading from the primary of a replica set.
+
+    Rules and recorded changes are read from the primary, also if the app's
+    MongoDB connection prefers secondaries, so that reads are not behind
+    the writes they follow (e.g., rules behind the version of their
+    recorded changes, which cached enforcers would then keep).
+
+    Args:
+        collection: Collection.
+
+    Returns:
+        The collection, with primary read preference.
+    """
+    return collection.with_options(read_preference=ReadPreference.PRIMARY)
 
 
 def _distinct_changes(*changes: dict[str, Any] | None) -> list[dict[str, Any]]:

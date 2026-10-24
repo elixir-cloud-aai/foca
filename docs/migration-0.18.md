@@ -60,6 +60,12 @@ the update is complete.
 
 ### Indexes and adapter
 
+- Policy collections may no longer be named such that
+  `<collection_name>_changes` is the name of an app collection in the same
+  database: FOCA refuses to start then, as for the policy collection
+  itself.
+- Rules and recorded changes are read from the primary of a replica set,
+  also if the app's connection prefers secondaries.
 - FOCA's adapter creates two more indexes on the policy collection (on
   `ptype`, `v0` and `v1`, and on `ptype` and `v2`), on its first write, to
   read changed rules quickly. If creating them fails (e.g., as the database

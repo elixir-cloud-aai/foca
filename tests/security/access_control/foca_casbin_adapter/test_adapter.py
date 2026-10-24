@@ -15,6 +15,7 @@ from pymongo.errors import ConnectionFailure, DuplicateKeyError, OperationFailur
 
 from foca.security.access_control.constants import (
     CHANGES_COLLECTION_SUFFIX,
+    CHANGES_MARKER_ID,
     CONFIGURED_FIELD,
     GENERATION_MARKER_ID,
     ID_ATTEMPTS,
@@ -24,7 +25,10 @@ from foca.security.access_control.constants import (
     RULE_GENERATIONS_FIELD,
 )
 from foca.security.access_control.foca_casbin_adapter import adapter as module
-from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.foca_casbin_adapter.adapter import (
+    MALFORMED_VERSION,
+    Adapter,
+)
 
 # Constants
 DB_NAME = "casbin_test"
@@ -924,6 +928,12 @@ class _HookedCollection:
 
         return hooked
 
+    def with_options(self, **kwargs: Any) -> "_HookedCollection":
+        """Get the collection with other options, calling the hook, too."""
+        return _HookedCollection(
+            self._delegate.with_options(**kwargs), self._hook, self._names
+        )
+
 
 def _hooked_adapter(
     collection: Collection[dict[str, Any]],
@@ -1376,6 +1386,35 @@ class TestPolicyChanges:
         assert changes.version == version + 2
         assert changes.changes[-1] == {"ptype": "g", "index": 0, "values": ["a", "b"]}
         assert self.collection.count_documents({"id": id}) == 0
+
+    def test_malformed_version(self) -> None:
+        """Versions that are not integers are reported as malformed."""
+        self.adapter.mark_changed()
+        self.adapter.changes_collection.update_one(
+            {"_id": CHANGES_MARKER_ID}, {"$set": {"version": "1"}}
+        )
+        assert self.adapter.get_changes().version == MALFORMED_VERSION
+
+    @pytest.mark.parametrize(
+        "remove",
+        [
+            lambda adapter: adapter.remove_policy("g", "g", ["a", "b"]),
+            lambda adapter: adapter.remove_filtered_policy("g", "g", 0, "a"),
+        ],
+    )
+    def test_failed_removal_recorded(
+        self, monkeypatch: pytest.MonkeyPatch, remove: Callable[[Adapter], Any]
+    ) -> None:
+        """Removals are recorded also if they fail, e.g., after some deletes."""
+        version = self.adapter.get_changes().version
+
+        def fail(*args: Any, **kwargs: Any) -> NoReturn:
+            raise RuntimeError("failed")
+
+        monkeypatch.setattr(self.collection, "delete_many", fail)
+        with pytest.raises(RuntimeError, match="failed"):
+            remove(self.adapter)
+        assert self.adapter.get_changes().version == version + 1
 
     def test_invalid_rule_not_recorded(self) -> None:
         """Invalid stored rules, which are not loaded, are not recorded."""

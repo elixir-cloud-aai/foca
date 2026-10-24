@@ -28,6 +28,7 @@ from foca.models.config import (
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    CHANGES_COLLECTION_SUFFIX,
     CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
 )
@@ -198,19 +199,25 @@ def _check_collection_clash(
 
     Raises:
         ValueError: An app database with the same effective name as the
-            policy collection's database has a collection of the same name.
+            policy collection's database has a collection of the same name,
+            or of the name of the collection recording changes of rules
+            (`<collection_name>_changes`).
     """
     effective_db_name = get_mongo_db_name(db_name)
     for app_db_name, app_db_conf in (mongo_config.dbs or {}).items():
         same_db = get_mongo_db_name(app_db_name) == effective_db_name
-        if same_db and collection_name in (app_db_conf.collections or {}):
-            raise ValueError(
-                f"Access control collection '{collection_name}' clashes "
-                "with app collection of the same name in database "
-                f"'{effective_db_name}'. Set a different "
-                "'security.access_control.collection_name' or "
-                "'security.access_control.db_name'."
-            )
+        if not same_db:
+            continue
+        # The adapter records changes of rules in a collection next to them
+        for name in (collection_name, f"{collection_name}{CHANGES_COLLECTION_SUFFIX}"):
+            if name in (app_db_conf.collections or {}):
+                raise ValueError(
+                    f"Access control collection '{name}' clashes with app "
+                    "collection of the same name in database "
+                    f"'{effective_db_name}'. Set a different "
+                    "'security.access_control.collection_name' or "
+                    "'security.access_control.db_name'."
+                )
 
 
 def register_permission_specs(

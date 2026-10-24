@@ -27,8 +27,12 @@ from casbin.rbac.default_role_manager.role_manager import (
 )
 
 from foca.security.access_control.foca_casbin_adapter.adapter import (
+    MALFORMED_VERSION,
     Adapter,
     PolicyChanges,
+)
+from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
+    MAX_RULE_VALUES,
 )
 from foca.utils.logging import escape_log_value
 
@@ -488,10 +492,15 @@ class EnforcerCache:
             to be loaded again.
         """
         # If no changes were recorded when rules were loaded, the document
-        # recording changes was created since, starting from version 0
-        same_record = changes.epoch == self._epoch or self._epoch is None
+        # recording changes may have been created and re-created since, so
+        # that changes of an earlier document would be missed
+        if changes.epoch != self._epoch or MALFORMED_VERSION in (
+            changes.version,
+            self._version,
+        ):
+            return False
         count = changes.version - self._version
-        if not same_record or not 0 < count <= len(changes.changes):
+        if not 0 < count <= len(changes.changes):
             return False
         filters = _get_filters(changes.changes[len(changes.changes) - count :])
         model = enforcer.get_model()
@@ -563,8 +572,10 @@ def _get_filters(
             not isinstance(ptype, str)
             or not ptype
             or not isinstance(field_index, int)
+            or isinstance(field_index, bool)
             or not isinstance(values, list)
             or not all(isinstance(value, str) for value in values)
+            or not 0 <= field_index < field_index + len(values) <= MAX_RULE_VALUES
         ):
             return None
         filters[(ptype, field_index, tuple(values))] = None

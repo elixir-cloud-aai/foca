@@ -173,7 +173,11 @@ start.
 Next to the policy collection, FOCA keeps a collection
 `<collection_name>_changes` (e.g., `policy_rules_changes`) recording which
 rules changed, so that app instances notice changes without loading all
-rules again (cf. [scaling](#scaling)).
+rules again (cf. [scaling](#scaling)); it must not be an app collection
+either. Rules and their changes are always read from the primary of a
+replica set, also if the app's connection prefers secondaries
+(`readPreference` in `MONGO_URI`), so that app instances do not keep rules
+older than the changes they read.
 
 ### Configuring the API
 
@@ -1276,7 +1280,8 @@ The trade-offs:
   call `mark_changed()` (see below).
 - **Some changes require all rules to be loaded again**: more than 100
   changes since the instance last checked, replacing more than 100
-  configured rules, `save_policy()`, `mark_changed()`, removing rules by
+  configured rules, `save_policy()`, `mark_changed()`, the first change
+  recorded after an instance loaded its rules, removing rules by
   filter with empty values (e.g., `remove_filtered_policy()`, as Casbin
   matches them as wildcards in memory only), and models whose
   rules Casbin sorts (with priorities or subject hierarchies) or with

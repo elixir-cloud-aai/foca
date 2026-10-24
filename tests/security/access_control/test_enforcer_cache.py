@@ -134,7 +134,12 @@ def other_adapter(collection: Collection[dict[str, Any]]) -> Adapter:
 
 @pytest.fixture
 def cache(adapter: Adapter) -> EnforcerCache:
-    """Enforcer cache of the reference model for resource-scoped roles."""
+    """Enforcer cache of the reference model for resource-scoped roles.
+
+    Changes are recorded before the cache is used, as enforcers loaded
+    before the first change was recorded load all rules again once.
+    """
+    adapter.mark_changed()
     return EnforcerCache(RESOURCE_ROLE_MODEL, adapter, True)
 
 
@@ -792,6 +797,47 @@ class TestEnforcerCache:
         monkeypatch.undo()
         assert cache.get_enforcer() is not None
 
+    def test_first_record_reloaded(
+        self, adapter: Adapter, other_adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Enforcers loaded before changes were recorded load all rules again.
+
+        The document recording changes may have been created and re-created
+        since, so that changes recorded in the first one would be missed.
+        """
+        cache = EnforcerCache(RESOURCE_ROLE_MODEL, adapter, True)
+        enforcer = cache.get_enforcer()
+        other_adapter.add_policy("g", "g2", ["user:a", "owner", TASK])
+        other_adapter.changes_collection.drop()
+        other_adapter.add_policy("g", "g2", ["user:b", "owner", TASK])
+        assert cache.get_enforcer() is not enforcer
+        assert len(_g2_rules(cache.get_enforcer())) == 2
+        loads = _count_loads(monkeypatch, cache)
+        other_adapter.add_policy("g", "g2", ["user:c", "owner", TASK])
+        assert len(_g2_rules(cache.get_enforcer())) == 3
+        assert loads == []
+
+    def test_malformed_version_reloaded(
+        self,
+        cache: EnforcerCache,
+        other_adapter: Adapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Malformed versions make enforcers load all rules again, once."""
+        enforcer = cache.get_enforcer()
+        other_adapter.changes_collection.update_one(
+            {"_id": CHANGES_MARKER_ID}, {"$set": {"version": "edited"}}
+        )
+        assert cache.get_enforcer() is not enforcer
+        loads = _count_loads(monkeypatch, cache)
+        cache.get_enforcer()
+        assert loads == []
+        other_adapter.changes_collection.update_one(
+            {"_id": CHANGES_MARKER_ID}, {"$set": {"version": 5}}
+        )
+        cache.get_enforcer()
+        assert len(loads) == 1
+
     def test_failed_update_reloaded(
         self, cache: EnforcerCache, adapter: Adapter, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -902,6 +948,16 @@ def mock_failing(exc: BaseException) -> Callable[..., Any]:
 def test_get_filters_reload(changes: list[Any]) -> None:
     """Changes of all rules and malformed changes need all rules loaded."""
     assert _get_filters(changes) is None
+
+
+@pytest.mark.parametrize(
+    ("field_index", "values"),
+    [(-1, ["a"]), (6, ["a"]), (5, ["a", "b"]), (1, []), (True, ["a"])],
+)
+def test_get_filters_out_of_range(field_index: Any, values: list[str]) -> None:
+    """Filters beyond the values of rules make enforcers load all rules."""
+    change = {"ptype": "g2", "index": field_index, "values": values}
+    assert _get_filters([change]) is None
 
 
 def test_get_filters() -> None:
