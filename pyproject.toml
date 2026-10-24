@@ -72,6 +72,9 @@ dev = [
     # The ast-grep hook of `.pre-commit-config.yaml` uses this one
     "ast-grep-cli>=0.51",
     "coverage>=7.6",
+    # Tests of `foca.gunicorn_config`, which does not import it (apps that
+    # serve FOCA with Gunicorn install it themselves)
+    "gunicorn>=26.2,<27",
     "mongomock>=4.3",
     "mypy>=1.13",
     "pre-commit>=4",
