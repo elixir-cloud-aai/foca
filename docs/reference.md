@@ -88,6 +88,8 @@ configuration models, see [Configuration](configuration/index.md).
     options:
       members:
         - build_problem
+        - problem_response
+        - shorten_detail
         - register_exception_handler
 
 ## Service info

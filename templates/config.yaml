@@ -30,6 +30,10 @@ exceptions:
   logging: oneline
   # `application/json` if your specs declare it for errors (cf. docs)
   media_type: application/problem+json
+  # Serve the reasons of request validation errors as `detail` (cf. docs)
+  validation_details: False
+  # Maximum length of request-specific details (longer ones are shortened)
+  max_detail_length: 500
 
 # SECURITY CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/auth/
