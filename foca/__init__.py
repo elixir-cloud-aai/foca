@@ -5,6 +5,7 @@ from importlib.metadata import PackageNotFoundError, version
 from foca.config.access import (  # noqa: F401 (re-export)
     get_collection,
     get_config,
+    get_custom_config,
 )
 from foca.foca import Foca  # noqa: F401 (re-export)
 

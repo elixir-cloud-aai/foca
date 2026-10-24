@@ -1,5 +1,8 @@
 """Check and normalize URLs, e.g., of resources stored by an app.
 
+Also builds public URLs of the app (cf. :py:func:`get_public_url`), e.g., for
+`Location` headers.
+
 Apps decide which of their fields hold URLs, and which schemes each field
 allows (cf. :py:func:`check_url_fields`): FOCA does not know their data.
 Supported schemes are `http` and `https`, with a host, and `mailto`, with
@@ -16,6 +19,7 @@ from typing import Any, Literal, get_args
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 import idna
+from flask import request
 
 URLScheme = Literal["http", "https", "mailto"]
 """Supported URL schemes, e.g., for app configuration models."""
@@ -230,6 +234,68 @@ def check_url_fields(
             value = value[key]
         else:
             check_url(value, schemes=allowed, name=f"URLs in '{field}'")
+
+
+def get_public_url(path: str = "") -> str:
+    """Get the public URL of a path of the current app.
+
+    Must be called in a request context. The URL is built from the public URL
+    of the app (`server.public_url`, as configured, including any path prefix
+    of a reverse proxy), followed by the root path of the app
+    (`request.script_root`, e.g., set via `SCRIPT_NAME`) and `path`, both
+    percent-encoded (UTF-8; all characters but unreserved ones and `/`, also
+    `%`, so that percent-encodings in `path` are kept literally, e.g.,
+    `%2e%2e` as `%252e%252e`). Slashes separate segments, also repeated ones
+    (e.g., `a//b`), which are kept, except leading and trailing ones; a slash
+    within a segment (e.g., of an identifier) cannot be expressed, so do not
+    allow slashes in identifiers that are part of public URLs.
+
+    The URL is not built from the request (e.g., its `Host` or
+    `X-Forwarded-*` headers), as clients control these, unless a proxy sets
+    them.
+
+    Args:
+        path: Path below the root path of the app (e.g., `request.path`),
+            not percent-encoded; empty for the root path of the app. A
+            leading slash is optional.
+
+    Returns:
+        Public URL, without trailing slash, unless it is the URL of the
+        host's root (e.g., for an empty path, without path prefix and root
+        path).
+
+    Raises:
+        RuntimeError: The app has no public URL (`server.public_url`), or
+            there is no request context.
+        InvalidURL: The root path of the app or `path` has dot segments
+            (`.` or `..`), which clients would resolve, e.g., to URLs outside
+            of the app. As `path` may come from clients (e.g., identifiers in
+            the request path), FOCA's problem handler responds with `400 Bad
+            Request` unless the app handles the exception. Also raised for
+            paths with characters that cannot be encoded (unpaired
+            surrogates).
+    """
+    from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
+
+    public_url = get_config().server.public_url
+    if public_url is None:
+        raise RuntimeError(
+            "No public URL of the app configured: set `server.public_url`"
+        )
+    root = request.script_root
+    if any(segment in (".", "..") for segment in f"{root}/{path}".split("/")):
+        raise InvalidURL("Paths of public URLs must not have dot segments.")
+    parts = urlsplit(public_url)
+    # The path prefix of `public_url` is normalized, i.e., encoded as it
+    # appears in URLs, and is therefore not encoded again
+    try:
+        segments = (parts.path, quote(root), quote(path))
+    except UnicodeEncodeError as exc:
+        raise InvalidURL(
+            "Paths of public URLs must not contain unpaired surrogates."
+        ) from exc
+    url_path = "/".join(filter(None, (segment.strip("/") for segment in segments)))
+    return urlunsplit((parts.scheme, parts.netloc, f"/{url_path}", "", ""))
 
 
 def _check_schemes(

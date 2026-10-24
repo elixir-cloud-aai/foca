@@ -43,6 +43,7 @@ from foca.utils.service_info import (
     merge_service_info,
     validate_service_info,
 )
+from foca.utils.urls import HTTP_SCHEMES, normalize_url
 
 # Default media type of error responses
 DEFAULT_ERROR_MEDIA_TYPE = "application/problem+json"
@@ -140,6 +141,16 @@ class ServerConfig(FOCABaseConfig):
             more than the limit). If ``None``, bodies are not limited by the
             app. As bodies may be read before requests are authenticated,
             limit them here or in a reverse proxy or ingress.
+        public_url: Absolute `http` or `https` URL of the app as clients see
+            it, including any path prefix of a reverse proxy or ingress
+            (e.g., ``https://api.example.org/my-app/``), but not the root
+            path of the app (`SCRIPT_NAME`), which
+            :py:func:`foca.utils.urls.get_public_url` appends. Checked
+            like by :py:func:`foca.utils.urls.check_url` (no user info) and
+            normalized (cf. :py:func:`foca.utils.urls.normalize_url`; e.g.,
+            no trailing slash); must not have a query or fragment. If
+            ``None``, the app has no public URL, and
+            :py:func:`foca.utils.urls.get_public_url` raises an error.
 
     Attributes:
         host: Host at which the application is exposed.
@@ -148,6 +159,7 @@ class ServerConfig(FOCABaseConfig):
         testing: Enable/disable testing mode. If ``True``, exceptions are
             propagated rather than handled by the app's error handlers.
         max_content_length: Maximum size of request bodies in bytes.
+        public_url: Public URL of the app, normalized.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -166,6 +178,33 @@ class ServerConfig(FOCABaseConfig):
     debug: bool = False
     testing: bool = False
     max_content_length: PositiveInt | None = None
+    public_url: str | None = None
+
+    @field_validator("public_url")
+    @classmethod
+    def _normalize_public_url(cls, url: str | None) -> str | None:
+        """Check and normalize the public URL of the app.
+
+        Args:
+            url: Public URL, or ``None``.
+
+        Returns:
+            Normalized public URL, or ``None``.
+
+        Raises:
+            ValueError: The URL is invalid (cf.
+                :py:func:`foca.utils.urls.check_url`), not an `http` or
+                `https` URL, or has a query or fragment (also an empty one).
+        """
+        if url is None:
+            return None
+        name = "'server.public_url'"
+        # Checked before the query and fragment, which are split off at the
+        # first `?` and `#` only once the URL is known to be valid
+        normalized = normalize_url(url, schemes=HTTP_SCHEMES, name=name)
+        if "?" in url or "#" in url:
+            raise ValueError(f"{name} must not have a query or fragment.")
+        return normalized
 
 
 class ExceptionConfig(FOCABaseConfig):

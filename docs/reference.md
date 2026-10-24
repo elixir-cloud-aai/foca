@@ -13,6 +13,7 @@ configuration models, see [Configuration](configuration/index.md).
     options:
       members:
         - get_config
+        - get_custom_config
         - get_collection
 
 ## Authentication
@@ -135,6 +136,7 @@ configuration models, see [Configuration](configuration/index.md).
         - check_url
         - check_url_fields
         - normalize_url
+        - get_public_url
         - InvalidURL
         - URLScheme
         - HTTP_SCHEMES
