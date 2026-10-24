@@ -1,5 +1,6 @@
 """Tests for FOCA's default Gunicorn settings (`foca.gunicorn_config`)."""
 
+import inspect
 import json
 import os
 import re
@@ -182,6 +183,12 @@ def test_load_settings_restores(
 def test_worker_tmp_dir_shm(tmp_path: Path) -> None:
     """A writable memory-backed directory is used for heartbeat files."""
     assert _worker_tmp_dir(tmp_path) == str(tmp_path)
+
+
+def test_worker_tmp_dir_default_shm() -> None:
+    """The memory-backed directory is `/dev/shm` by default."""
+    shm = inspect.signature(_worker_tmp_dir).parameters["shm"].default
+    assert shm == Path("/dev/shm")  # noqa: S108
 
 
 @pytest.mark.parametrize("mode", [0o500, None])

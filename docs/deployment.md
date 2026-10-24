@@ -126,6 +126,11 @@ Things to keep in mind:
   proxy or ingress in front of the app (e.g., `client_max_body_size` in
   NGINX): FOCA does not limit them by default, and bodies may be read before
   requests are authenticated.
+- **Serve the app behind a reverse proxy** that buffers requests and times
+  out slow clients (e.g., ingress-nginx, which buffers request bodies by
+  default): with FOCA's Gunicorn settings, each worker serves only a few
+  requests at once (`threads`), and slow uploads would keep its threads
+  busy, as the worker `timeout` does not apply to requests.
 - **Do not expose MongoDB publicly.** Only make it reachable by the app
   (e.g., within the Compose or cluster network), and enable authentication
   (cf. [environment variables](configuration/index.md#environment-variables)).
