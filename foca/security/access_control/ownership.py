@@ -39,16 +39,17 @@ from foca.security.access_control.enforcement import (
     RESOURCE_ROLE_PTYPE,
     SubjectType,
     _get_current_policy_subjects,
-    _get_resource_role_enforcer,
+    _get_role_rules,
     _get_subject_prefix,
     _prefix_subject,
     _replace_resource_role,
+    _resource_role_enforcer,
     add_resource_role,
     get_current_client,
     get_current_groups,
     get_current_subject,
-    get_enforcer,
     get_on_behalf_of_user,
+    locked_enforcer,
     remove_resource_role,
 )
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
@@ -213,11 +214,11 @@ def is_admin() -> bool:
     subjects = _get_current_policy_subjects()
     if ADMIN_ROLE in subjects:
         return True
-    enforcer = get_enforcer()
-    if not _has_global_roles(enforcer):
-        return False
-    role_manager = enforcer.get_role_manager()
-    return any(role_manager.has_link(subject, ADMIN_ROLE) for subject in subjects)
+    with locked_enforcer() as enforcer:
+        if not _has_global_roles(enforcer):
+            return False
+        role_manager = enforcer.get_role_manager()
+        return any(role_manager.has_link(subject, ADMIN_ROLE) for subject in subjects)
 
 
 def _get_creator(on_behalf_of: str | None = None) -> tuple[SubjectType, str]:
@@ -349,10 +350,9 @@ def list_roles(
     Raises:
         ValueError: The model does not define resource-scoped roles.
     """
-    # Policies are loaded once; prefixes of subject types do not overlap
-    rules = _get_resource_role_enforcer(ptype).get_filtered_named_grouping_policy(
-        ptype, 2, resource
-    )
+    # Rules are read once; prefixes of subject types do not overlap
+    with _resource_role_enforcer(ptype) as enforcer:
+        rules = _get_role_rules(enforcer, ptype, 2, resource)
     roles: list[ResourceRole] = []
     for subject_type in SUBJECT_TYPES:
         prefix = _get_subject_prefix(subject_type)
@@ -784,18 +784,20 @@ def _list_roles_of(
 
     Cf. :py:func:`list_subject_roles`.
     """
-    enforcer = _get_resource_role_enforcer(ptype)
     base = f"{prefix.rstrip('/')}/"
+    with _resource_role_enforcer(ptype) as enforcer:
+        rules = [
+            (subject_type, subject, rule)
+            for subject_type, subject in subjects
+            for rule in _get_role_rules(
+                enforcer, ptype, 0, _prefix_subject(subject, subject_type)
+            )
+        ]
     roles: list[SubjectResourceRole] = []
-    for subject_type, subject in subjects:
-        for _, role, resource in enforcer.get_filtered_named_grouping_policy(
-            ptype, 0, _prefix_subject(subject, subject_type)
-        ):
-            resource_id = resource.removeprefix(base)
-            if resource.startswith(base) and resource_id and "/" not in resource_id:
-                roles.append(
-                    SubjectResourceRole(resource_id, role, subject_type, subject)
-                )
+    for subject_type, subject, (_, role, resource) in rules:
+        resource_id = resource.removeprefix(base)
+        if resource.startswith(base) and resource_id and "/" not in resource_id:
+            roles.append(SubjectResourceRole(resource_id, role, subject_type, subject))
     return sorted(
         dict.fromkeys(roles),
         key=lambda role: (

@@ -56,9 +56,9 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.enforcement import (
     SubjectType,
-    _is_within_path,
     get_enforcer,
 )
+from foca.security.access_control.enforcer_cache import is_within_path
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
     register_permission_specs,
@@ -1072,7 +1072,7 @@ class TestSelfService:
 )
 def test_is_within_path(request_path: str, resource_path: str, expected: bool) -> None:
     """Request paths are matched against resource paths and their sub-paths."""
-    assert _is_within_path(request_path, resource_path) is expected
+    assert is_within_path(request_path, resource_path) is expected
 
 
 @pytest.fixture

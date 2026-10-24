@@ -3,7 +3,8 @@
 import inspect
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -20,6 +21,11 @@ from foca.security.access_control.constants import (
     CLIENT_PREFIX,
     GROUP_PREFIX,
     SUBJECT_TYPE_PREFIXES,
+)
+from foca.security.access_control.enforcer_cache import (
+    EnforcerCache,
+    ResourceRoleManager,
+    get_resource_role_ptypes,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
@@ -40,6 +46,10 @@ RESOURCE_ROLE_PTYPE = "g2"
 # checked for roles that are subjects
 _SUBJECT_ROLES_CHECKED_KEY = "FOCA_ACCESS_CONTROL_SUBJECT_ROLES_CHECKED"
 _subject_roles_check_lock = threading.Lock()
+
+# Key of the app's extensions holding the app's enforcer cache
+_ENFORCER_CACHE_KEY = "foca_enforcer_cache"
+_enforcer_cache_lock = threading.Lock()
 
 # Attribute marking the wrappers of `enforce_access_control()`
 _ENFORCING_ATTRIBUTE = "_foca_enforces_access_control"
@@ -288,41 +298,6 @@ def get_current_groups() -> list[str]:
     return list(dict.fromkeys(groups))
 
 
-def _is_within_path(request_path: str, resource_path: str) -> bool:
-    """Check whether a request path is a resource path or a sub-path.
-
-    Args:
-        request_path: Request path.
-        resource_path: Resource path a role was granted on. Trailing
-            slashes are ignored. The root path `/` only matches itself.
-
-    Returns:
-        `True` if `request_path` equals `resource_path` or starts with
-        `resource_path` followed by `/`.
-    """
-    resource_path = resource_path.rstrip("/")
-    if not resource_path:
-        return request_path == "/"
-    return request_path == resource_path or request_path.startswith(f"{resource_path}/")
-
-
-def _get_resource_role_ptypes(model: Model) -> list[str]:
-    """Get policy types of resource-scoped role definitions of a model.
-
-    Args:
-        model: Casbin model.
-
-    Returns:
-        Policy types of role definitions with three fields (subject, role,
-        resource), e.g., `g2` for `g2 = _, _, _`.
-    """
-    return [
-        ptype
-        for ptype, assertion in model.model.get("g", {}).items()
-        if assertion.value.count("_") == 3
-    ]
-
-
 def _warn_subject_like_roles(enforcer: Enforcer) -> None:
     """Warn about loaded resource-scoped roles that are subjects.
 
@@ -345,7 +320,7 @@ def _warn_subject_like_roles(enforcer: Enforcer) -> None:
     if checked:
         return
     prefixes = (_get_subject_prefix("user"), *SUBJECT_TYPE_PREFIXES.values())
-    for ptype in _get_resource_role_ptypes(enforcer.get_model()):
+    for ptype in get_resource_role_ptypes(enforcer.get_model()):
         for subject, role, resource in enforcer.get_named_grouping_policy(ptype):
             if role.startswith(prefixes):
                 # Values are quoted, so that they cannot forge log lines
@@ -364,8 +339,45 @@ def _warn_subject_like_roles(enforcer: Enforcer) -> None:
                 )
 
 
-def get_enforcer() -> Enforcer:
-    """Get Casbin enforcer with current policies of the app.
+def _get_enforcer_cache() -> EnforcerCache:
+    """Get the enforcer cache of the current app instance.
+
+    Returns:
+        Cache of the app's enforcer; created on first use, and again if the
+        app's model, adapter or `access_control.resource_roles_cover_subpaths`
+        changed since.
+    """
+    model = current_app.config["CASBIN_MODEL"]
+    adapter = _get_adapter()
+    cover_subpaths = _get_access_control_config().resource_roles_cover_subpaths
+    with _enforcer_cache_lock:
+        cache = current_app.extensions.get(_ENFORCER_CACHE_KEY)
+        if not isinstance(cache, EnforcerCache) or not cache.is_for(
+            model, adapter, cover_subpaths
+        ):
+            cache = EnforcerCache(model, adapter, cover_subpaths)
+            current_app.extensions[_ENFORCER_CACHE_KEY] = cache
+    return cache
+
+
+@contextmanager
+def locked_enforcer() -> Iterator[Enforcer]:
+    """Use the Casbin enforcer of the app, with current policies.
+
+    The enforcer is shared by the threads of the app instance (e.g., of a
+    gunicorn worker) and updated when stored policy rules change, so it is
+    used while holding a lock: other threads wait for the lock to use the
+    enforcer meanwhile. Use it briefly, e.g., without waiting for other
+    services. Do not store it for later use, and do not change it
+    directly; change policy rules via the adapter (e.g., via FOCA's
+    helpers), which records the changes for all app instances.
+
+    Before the enforcer is used, the changes of stored rules made since the
+    last use (e.g., via FOCA's helpers, the permissions API, or another app
+    instance) are applied, so that a rule granted or revoked applies from
+    the next use in any app instance. Rules changed in the database
+    directly are only noticed after
+    :py:meth:`foca.security.access_control.foca_casbin_adapter.adapter.Adapter.mark_changed`.
 
     If `access_control.resource_roles_cover_subpaths` is set, roles of
     resource-scoped role definitions (with three fields, e.g.,
@@ -374,19 +386,38 @@ def get_enforcer() -> Enforcer:
     each stored resource-scoped role that is a subject (cf.
     :py:func:`add_resource_role`).
 
-    Returns:
-        Casbin enforcer for the app's model with policies loaded from the
+    Yields:
+        Casbin enforcer for the app's model with the policies stored in the
         app's access control database.
+
+    Raises:
+        pymongo.errors.PyMongoError: The stored rules could not be read.
     """
-    enforcer = Enforcer(
-        current_app.config["CASBIN_MODEL"],
-        current_app.config["casbin_adapter"],
-    )
-    if _get_access_control_config().resource_roles_cover_subpaths:
-        for ptype in _get_resource_role_ptypes(enforcer.get_model()):
-            enforcer.add_named_domain_matching_func(ptype, _is_within_path)
-    _warn_subject_like_roles(enforcer)
-    return enforcer
+    cache = _get_enforcer_cache()
+    with cache.lock:
+        enforcer = cache.get_enforcer()
+        _warn_subject_like_roles(enforcer)
+        yield enforcer
+
+
+def get_enforcer() -> Enforcer:
+    """Get the Casbin enforcer of the app, with current policies.
+
+    The enforcer is shared by the threads of the app instance and updated
+    when stored rules change (cf. :py:func:`locked_enforcer`); if the app
+    serves requests in several threads (e.g., gunicorn's `--threads`), use
+    :py:func:`locked_enforcer` instead, so that it is not updated while
+    being used.
+
+    Returns:
+        Casbin enforcer for the app's model with the policies stored in the
+        app's access control database.
+
+    Raises:
+        pymongo.errors.PyMongoError: The stored rules could not be read.
+    """
+    with locked_enforcer() as enforcer:
+        return enforcer
 
 
 def enforce_access_control(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -476,18 +507,25 @@ def is_permitted() -> bool:
     except ValueError as exc:
         logger.info("Access denied: invalid subject: %s", exc)
         return False
-    enforcer = get_enforcer()
+    with locked_enforcer() as enforcer:
+        granted = next(
+            (
+                _subject
+                for _subject in subjects
+                if enforcer.enforce(_subject, request.path, request.method)
+            ),
+            None,
+        )
     # Escaped, so that request paths and claims cannot forge log lines
     _request = escape_log_value(f"{request.method} {request.path}")
-    for _subject in subjects:
-        if enforcer.enforce(_subject, request.path, request.method):
-            logger.debug(
-                "Access granted: %s to '%s' as '%s'",
-                _request,
-                escape_log_value(subject),
-                escape_log_value(_subject),
-            )
-            return True
+    if granted is not None:
+        logger.debug(
+            "Access granted: %s to '%s' as '%s'",
+            _request,
+            escape_log_value(subject),
+            escape_log_value(granted),
+        )
+        return True
     logger.info("Access denied: %s to '%s'", _request, escape_log_value(subject))
     return False
 
@@ -599,22 +637,50 @@ class AccessControlResolver(Resolver):
         )
 
 
-def _get_resource_role_enforcer(ptype: str) -> Enforcer:
-    """Get Casbin enforcer and check model for resource-scoped roles.
+@contextmanager
+def _resource_role_enforcer(ptype: str) -> Iterator[Enforcer]:
+    """Use Casbin enforcer and check model for resource-scoped roles.
 
     Args:
         ptype: Policy type of resource-scoped role rules.
 
-    Returns:
-        Casbin enforcer.
+    Yields:
+        Casbin enforcer (cf. :py:func:`locked_enforcer`).
 
     Raises:
         ValueError: The model does not define `ptype` as a role definition
             with three fields (subject, role, resource).
     """
-    enforcer = get_enforcer()
-    _check_resource_role_model(ptype, enforcer.get_model())
-    return enforcer
+    with locked_enforcer() as enforcer:
+        _check_resource_role_model(ptype, enforcer.get_model())
+        yield enforcer
+
+
+def _get_role_rules(
+    enforcer: Enforcer, ptype: str, field_index: int, *field_values: str
+) -> list[list[str]]:
+    """Get the role rules of an enforcer that match a filter.
+
+    Args:
+        enforcer: Casbin enforcer (cf. :py:func:`locked_enforcer`).
+        ptype: Policy type of role rules.
+        field_index: Index of the value that `field_values` start at.
+        field_values: Values the rules have, starting at `field_index`.
+
+    Returns:
+        Values of the matching rules, as returned by Casbin's
+        `get_filtered_named_grouping_policy()`, but looked up via the index
+        of the role manager, if it has one for the filter (cf.
+        :py:meth:`foca.security.access_control.enforcer_cache.ResourceRoleManager.get_rules`).
+    """
+    role_manager = enforcer.rm_map.get(ptype)
+    if isinstance(role_manager, ResourceRoleManager):
+        rules = role_manager.get_rules(field_index, *field_values)
+        if rules is not None:
+            return rules
+    return enforcer.get_filtered_named_grouping_policy(
+        ptype, field_index, *field_values
+    )
 
 
 def _check_resource_role_model(ptype: str, model: Model) -> None:
@@ -628,7 +694,7 @@ def _check_resource_role_model(ptype: str, model: Model) -> None:
         ValueError: The model does not define `ptype` as a role definition
             with three fields (subject, role, resource).
     """
-    if ptype not in _get_resource_role_ptypes(model):
+    if ptype not in get_resource_role_ptypes(model):
         raise ValueError(
             f"Access control model does not define resource-scoped roles: "
             f"expected role definition '{ptype} = _, _, _'"
@@ -734,11 +800,11 @@ def add_resource_role(
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).
     """
-    enforcer = _get_resource_role_enforcer(ptype)
-    rule = _validate_grantable_rule(
-        subject, role, resource, ptype, subject_type, enforcer
-    )
-    return enforcer.add_named_grouping_policy(ptype, *rule)
+    with _resource_role_enforcer(ptype) as enforcer:
+        rule = _validate_grantable_rule(
+            subject, role, resource, ptype, subject_type, enforcer
+        )
+        return enforcer.add_named_grouping_policy(ptype, *rule)
 
 
 def _replace_resource_role(
@@ -772,9 +838,10 @@ def _replace_resource_role(
     Raises:
         ValueError: As for :py:func:`add_resource_role`.
     """
-    rule = _validate_grantable_rule(
-        subject, role, resource, ptype, subject_type, _get_resource_role_enforcer(ptype)
-    )
+    with _resource_role_enforcer(ptype) as enforcer:
+        rule = _validate_grantable_rule(
+            subject, role, resource, ptype, subject_type, enforcer
+        )
     adapter = _get_adapter()
     others = set(roles) - {role}
     for configured in adapter.get_filtered_rules(ptype, 2, resource, configured=True):
@@ -874,14 +941,18 @@ def remove_resource_role(
             rejected) can be revoked.
     """
     # Subject and role checks of `add_resource_role()` do not apply here
-    enforcer = _get_resource_role_enforcer(ptype)
-    rule = _get_resource_role_rule(
-        subject, role, resource, ptype, subject_type, enforcer
-    )
-    # Removes unmarked copies only; the adapter keeps configured rules,
-    # also if they were marked after the policies were loaded
-    removed = enforcer.remove_named_grouping_policy(ptype, *rule)
-    if _get_adapter().is_configured_rule(ptype, rule):
+    with _resource_role_enforcer(ptype) as enforcer:
+        rule = _get_resource_role_rule(
+            subject, role, resource, ptype, subject_type, enforcer
+        )
+    # Via the adapter, which records the change for the enforcers of all app
+    # instances, also if the rule is not loaded yet (e.g., if stored
+    # concurrently). Removes unmarked copies only; the adapter keeps
+    # configured rules, also if they were marked after the policies were
+    # loaded; the section (first argument) is not used by the adapter.
+    adapter = _get_adapter()
+    removed = adapter.remove_policy(ptype[0], ptype, rule)
+    if adapter.is_configured_rule(ptype, rule):
         _warn_configured_rule(ptype, rule)
         return False
     return removed
@@ -913,8 +984,8 @@ def list_resource_roles(
         ValueError: The model does not define resource-scoped roles, or the
             subject type is not supported.
     """
-    enforcer = _get_resource_role_enforcer(ptype)
-    rules = enforcer.get_filtered_named_grouping_policy(ptype, 2, resource)
+    with _resource_role_enforcer(ptype) as enforcer:
+        rules = _get_role_rules(enforcer, ptype, 2, resource)
     if subject_type is None:
         prefix = _get_subject_prefix("user")
     else:
@@ -955,8 +1026,8 @@ def remove_resource(
     Raises:
         ValueError: The model does not define resource-scoped roles.
     """
-    # Policies are loaded anew for each enforcer, so rules can be removed
-    # via the adapter, without loading them
+    # Rules are removed via the adapter, without loading them; the adapter
+    # records the changes for the enforcers of all app instances
     model = Model()
     model.load_model(current_app.config["CASBIN_MODEL"])
     _check_resource_role_model(ptype, model)
