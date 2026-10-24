@@ -134,13 +134,29 @@ def test_state_published_complete(files: list[Path]) -> None:
 
 
 def test_state_published_without_digests(files: list[Path]) -> None:
-    """Assets without a digest (older uploads) count by name."""
-    assets = [
-        {"name": path.name, "digest": None, "state": "uploaded"} for path in files
-    ]
-    assert release_assets.release_state(TAG, [_release(assets=assets)], files)[0] == (
-        "published"
+    """Assets without a digest (older uploads) count as changed."""
+    assets = [_asset(path) | {"digest": None} for path in files]
+    state, errors, warnings = release_assets.release_state(
+        TAG, [_release(assets=assets)], files
     )
+    assert state is None
+    assert len(errors) == 1
+    assert f"other versions of {files[0].name} than" in errors[0]
+    assert len(warnings) == 1 and files[1].name in warnings[0]
+
+
+def test_state_published_unexpected(files: list[Path]) -> None:
+    """Assets that the run did not build are an error."""
+    extra = files[0].with_name("extra.txt")
+    extra.write_text("extra")
+    assets = [_asset(path) for path in [*files, extra]]
+    state, errors, warnings = release_assets.release_state(
+        TAG, [_release(assets=assets)], files
+    )
+    assert state is None
+    assert len(errors) == 1
+    assert "assets that this run did not build (extra.txt)" in errors[0]
+    assert warnings == []
 
 
 def test_state_published_resigned(files: list[Path]) -> None:

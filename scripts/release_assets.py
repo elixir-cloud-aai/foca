@@ -14,8 +14,9 @@ Command:
         drafts included): `none` (no release yet: create a draft), `draft`
         (a draft of an earlier attempt: upload the assets and publish it) or
         `published` (upload nothing). A published release must have all
-        `<asset>` files already, with the same digest (SHA-256), or the
-        command fails, explaining what to do; only Sigstore bundles
+        `<asset>` files already, with the same digest (SHA-256), and no
+        others, or the command fails, explaining what to do; only Sigstore
+        bundles
         (`*.sigstore.json`), which every attempt makes anew, may differ
         (with a warning). Drafts are an error if there are several, as it is
         unclear which one to publish, or if the tag has a published release
@@ -85,10 +86,10 @@ def check_published(
         assets: Local files that the release must have, by name.
 
     Returns:
-        Errors (assets that are missing or have another digest than the
-        local file, with what to do) and warnings (Sigstore bundles with
-        another digest); both empty if the release has all assets, with the
-        same digests. Assets without a digest (older uploads) count by name.
+        Errors (assets that are missing, have another or no digest than
+        the local file, or are unexpected, with what to do) and warnings
+        (Sigstore bundles with another digest); both empty if the release
+        has exactly the assets, with the same digests.
     """
     uploaded = {
         asset.get("name"): asset.get("digest")
@@ -98,12 +99,15 @@ def check_published(
     missing: list[str] = []
     changed: list[str] = []
     resigned: list[str] = []
-    for path in assets:
+    paths = list(assets)
+    for path in paths:
         if path.name not in uploaded:
             missing.append(path.name)
-        elif (digest := uploaded[path.name]) and digest != sha256(path):
+        elif uploaded[path.name] != sha256(path):
             signature = path.name.endswith(SIGNATURE_SUFFIX)
             (resigned if signature else changed).append(path.name)
+    names = {path.name for path in paths}
+    unexpected = sorted(str(name) for name in uploaded if name not in names)
     if release.get("immutable"):
         remedy = (
             "assets of a published immutable release can't be added or"
@@ -125,6 +129,11 @@ def check_published(
             f"Release {tag} is published with other versions of"
             f" {', '.join(changed)} than this run built (of an earlier attempt"
             f" or uploaded by hand): {remedy}"
+        )
+    if unexpected:
+        errors.append(
+            f"Release {tag} is published with assets that this run did not"
+            f" build ({', '.join(unexpected)}): {remedy}"
         )
     warnings = []
     if resigned:
