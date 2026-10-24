@@ -648,13 +648,28 @@ def test_get_public_url_dot_segments(root: str, path: str) -> None:
     app = _app("https://api.example.org/my-app")
     with (
         app.test_request_context(base_url=f"http://localhost{root}"),
-        pytest.raises(ValueError, match="dot segments"),
+        pytest.raises(InvalidURL, match="dot segments"),
     ):
         get_public_url(path)
 
 
-@pytest.mark.parametrize("path", ["/services/a.b", "/services/...", "/.well-known"])
-def test_get_public_url_dots(path: str) -> None:
-    """Segments with dots that are not dot segments are kept."""
+@pytest.mark.parametrize(
+    "path", ["/services/a.b", "/services/...", "/.well-known", "/a//b"]
+)
+def test_get_public_url_kept(path: str) -> None:
+    """Segments with dots that are not dot segments, and empty ones, are kept."""
     with _app("https://api.example.org").test_request_context():
         assert get_public_url(path) == f"https://api.example.org{path}"
+
+
+@pytest.mark.parametrize(
+    ("path", "url"),
+    [
+        ("/%2e%2e/x", "https://api.example.org/%252e%252e/x"),
+        ("//", "https://api.example.org/"),
+    ],
+)
+def test_get_public_url_literal(path: str, url: str) -> None:
+    """Percent-encodings in paths are kept literally; slashes only are removed."""
+    with _app("https://api.example.org").test_request_context():
+        assert get_public_url(path) == url

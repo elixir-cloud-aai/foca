@@ -19,9 +19,6 @@ from typing import Any, Literal, get_args
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 import idna
-from flask import request
-
-from foca.config.access import get_config
 
 URLScheme = Literal["http", "https", "mailto"]
 """Supported URL schemes, e.g., for app configuration models."""
@@ -245,7 +242,12 @@ def get_public_url(path: str = "") -> str:
     of the app (`server.public_url`, as configured, including any path prefix
     of a reverse proxy), followed by the root path of the app
     (`request.script_root`, e.g., set via `SCRIPT_NAME`) and `path`, both
-    percent-encoded (UTF-8; all characters but unreserved ones and `/`).
+    percent-encoded (UTF-8; all characters but unreserved ones and `/`, also
+    `%`, so that percent-encodings in `path` are kept literally, e.g.,
+    `%2e%2e` as `%252e%252e`). Slashes separate segments, also repeated ones
+    (e.g., `a//b`), which are kept, except leading and trailing ones; a slash
+    within a segment (e.g., of an identifier) cannot be expressed, so do not
+    allow slashes in identifiers that are part of public URLs.
 
     The URL is not built from the request (e.g., its `Host` or
     `X-Forwarded-*` headers), as clients control these, unless a proxy sets
@@ -264,10 +266,18 @@ def get_public_url(path: str = "") -> str:
     Raises:
         RuntimeError: The app has no public URL (`server.public_url`), or
             there is no request context.
-        ValueError: The root path of the app or `path` has dot segments
+        InvalidURL: The root path of the app or `path` has dot segments
             (`.` or `..`), which clients would resolve, e.g., to URLs outside
-            of the app, also if percent-encoded.
+            of the app. As `path` may come from clients (e.g., identifiers in
+            the request path), FOCA's problem handler responds with `400 Bad
+            Request` unless the app handles the exception.
     """
+    # Imported here, so that the URL checks (e.g., of config models, which
+    # this module is imported by) do not depend on Flask and the config
+    from flask import request  # noqa: PLC0415 (see above)
+
+    from foca.config.access import get_config  # noqa: PLC0415 (see above)
+
     public_url = get_config().server.public_url
     if public_url is None:
         raise RuntimeError(
@@ -275,9 +285,7 @@ def get_public_url(path: str = "") -> str:
         )
     root = request.script_root
     if any(segment in (".", "..") for segment in f"{root}/{path}".split("/")):
-        raise ValueError(
-            f"Paths of public URLs must not have dot segments: {root!r}, {path!r}"
-        )
+        raise InvalidURL("Paths of public URLs must not have dot segments.")
     parts = urlsplit(public_url)
     # The path prefix of `public_url` is normalized, i.e., encoded as it
     # appears in URLs, and is therefore not encoded again

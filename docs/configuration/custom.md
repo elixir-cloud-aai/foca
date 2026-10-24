@@ -58,10 +58,11 @@ def get_storage_config() -> StorageConfig:
 ```
 
 `get_custom_config()` raises a `RuntimeError` if the custom configuration is
-missing or not an instance of the model, e.g., as `custom_config_model` is
-not set. Set it to the full module path of the model (here,
-`my_app.config.CustomConfig`) that your code imports: a model imported under
-another module path is another class.
+not an instance of the model. This is the case if `custom_config_model` is
+not set (the section is then a dictionary, if present), or if it is set to
+another module path than the one your code imports the model from (here,
+`my_app.config.CustomConfig`): a model imported under another module path
+is another class.
 
 Without `custom_config_model`, the section (like any other unknown top-level
 section) is passed through as is, as a dictionary.

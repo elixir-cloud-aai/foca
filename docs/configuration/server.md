@@ -9,10 +9,12 @@ server:
   debug: true
   testing: false
   max_content_length: 10485760
+  public_url: https://api.example.org/my-app/
 ```
 
 This config would create an application server at `127.0.0.1:8080` with
-Flask's debug mode switched on, rejecting request bodies larger than 10 MiB.
+Flask's debug mode switched on, rejecting request bodies larger than 10 MiB,
+and with the [public URL](#public-url) `https://api.example.org/my-app`.
 
 `host` and `port` only apply to Flask's development server, started with
 `app.run()`. In production, run the app with a WSGI server instead (see

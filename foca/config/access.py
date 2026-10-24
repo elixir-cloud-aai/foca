@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 # Configuration of the most recently created FOCA app (key `latest`)
 _configs: dict[str, Config] = {}
 
-T = TypeVar("T", bound=BaseModel)
+_T = TypeVar("_T", bound=BaseModel)
 
 
 def set_app_config(app: Flask, config: Config) -> None:
@@ -77,7 +77,7 @@ def get_config() -> Config:
     return _configs["latest"]
 
 
-def get_custom_config(model: type[T]) -> T:
+def get_custom_config(model: type[_T]) -> _T:
     """Get the custom configuration of the current FOCA app, typed.
 
     The custom configuration (section `custom`) is an instance of the model

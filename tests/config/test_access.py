@@ -19,6 +19,16 @@ from foca.models.config import (
 )
 
 
+class CustomConfig(BaseModel):
+    """Custom configuration of an app."""
+
+    name: str = "app"
+
+
+class OtherConfig(BaseModel):
+    """Another model of custom configurations."""
+
+
 @pytest.fixture
 def no_apps(monkeypatch: pytest.MonkeyPatch) -> None:
     """Forget configurations of previously created apps."""
@@ -115,16 +125,6 @@ def test_get_collection_no_db(no_apps: None) -> None:
     create_connexion_app(Config())
     with pytest.raises(KeyError):
         get_collection("db", "items")
-
-
-class CustomConfig(BaseModel):
-    """Custom configuration of an app."""
-
-    name: str = "app"
-
-
-class OtherConfig(BaseModel):
-    """Another model of custom configurations."""
 
 
 def _app_with_custom(custom: object) -> Flask:

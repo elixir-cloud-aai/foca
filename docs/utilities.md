@@ -111,10 +111,12 @@ With `public_url: https://api.example.org/my-app/`, this returns
 URL and the root path of the app (`request.script_root`), both
 percent-encoded (e.g., `/pets/a b` becomes `/pets/a%20b`). URLs have no
 trailing slash, unless they are the root of the host (e.g.,
-`https://api.example.org/`). Call `get_public_url()` in a request context;
-it raises a `RuntimeError` if `public_url` is not set, and a `ValueError`
-for paths with dot segments (`.` or `..`), which clients would resolve,
-e.g., to URLs outside of the app.
+`https://api.example.org/`). Slashes in the path separate segments, so do not
+allow them in identifiers that are part of public URLs. Call
+`get_public_url()` in a request context; it raises a `RuntimeError` if
+`public_url` is not set, and an `InvalidURL` (`400 Bad Request`, unless
+handled) for paths with dot segments (`.` or `..`, e.g., identifiers from
+clients), which clients would resolve, e.g., to URLs outside of the app.
 
 ## Logging requests and responses
 
