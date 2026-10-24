@@ -104,15 +104,18 @@ Images are published for each supported Python version (3.11 to 3.15).
 Images of releases are tagged with the FOCA and Python versions (e.g.,
 `0.18.0-py3.15`); the FOCA version alone (e.g., `0.18.0`) tags the image of
 the default Python version, currently 3.13, and `latest` that of the highest
-stable release (not an alpha, beta or release candidate). The default Python
-version is the newest one in its security-fix phase (cf. the [status of
-Python versions](https://devguide.python.org/versions/)): newer versions,
-still in their bugfix phase, get suffixed tags only. Once a year, when a new
-Python version is released, the default moves on (e.g., to 3.14 in about
-October 2027), so pin a suffixed tag to keep the Python version. Images built from the `dev` branch are tagged
-with their date and the Python version (e.g., `20261019-py3.13`). Images are
-signed and come with SBOM and provenance attestations, and CI scans them for
-vulnerabilities; see [verifying images and
+stable release (not an alpha, beta or release candidate). Images built from
+the `dev` branch are tagged with their date and the Python version (e.g.,
+`20261019-py3.13`).
+
+The default Python version is the newest one in its security-fix phase (cf.
+the [status of Python versions](https://devguide.python.org/versions/));
+newer versions, still in their bugfix phase, get suffixed tags only. The
+default moves on about once a year, after a new Python version is released,
+so pin a suffixed tag to keep the Python version.
+
+Images are signed and come with SBOM and provenance attestations, and CI
+scans them for vulnerabilities; see [verifying images and
 charts](deployment.md#verifying-images-and-charts).
 
 The image contains no build tools and runs as non-root user `foca` (UID

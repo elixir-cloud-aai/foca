@@ -233,9 +233,9 @@ jobs:
       - name: Run unit tests
         run: pytest
 
-  # The petstore app is built from the FOCA image of the Python version of
-  # the default image and of the newest supported one; the tests themselves
-  # run on the runner, with the Python version of the other jobs
+  # The petstore app is built from the FOCA image of each Python version in
+  # the matrix (that of the default image and the newest supported one); the
+  # tests themselves run on the runner, always with Python 3.13
   integration:
     name: Integration tests (petstore, Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
