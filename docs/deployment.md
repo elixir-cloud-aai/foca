@@ -361,16 +361,16 @@ version, e.g., `{{ version }}-py3.12`, for other images than the default 3.13
 one). Images built from `dev` are signed by `.github/workflows/checks.yml`
 with the ref `refs/heads/dev`; the chart by
 `.github/workflows/release-chart.yml` with the ref `refs/tags/chart-vX.Y.Z`,
-e.g.:
+e.g., for version {{ chart_version }}:
 
 ```bash
-gh attestation verify oci://ghcr.io/elixir-cloud-aai/charts/foca-common:0.2.0 \
+gh attestation verify oci://ghcr.io/elixir-cloud-aai/charts/foca-common:{{ chart_version }} \
     --repo elixir-cloud-aai/foca \
     --signer-workflow elixir-cloud-aai/foca/.github/workflows/release-chart.yml \
-    --source-ref refs/tags/chart-v0.2.0
-cosign verify ghcr.io/elixir-cloud-aai/charts/foca-common:0.2.0 \
+    --source-ref refs/tags/chart-v{{ chart_version }}
+cosign verify ghcr.io/elixir-cloud-aai/charts/foca-common:{{ chart_version }} \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --certificate-identity https://github.com/elixir-cloud-aai/foca/.github/workflows/release-chart.yml@refs/tags/chart-v0.2.0
+    --certificate-identity https://github.com/elixir-cloud-aai/foca/.github/workflows/release-chart.yml@refs/tags/chart-v{{ chart_version }}
 ```
 
 Tags can be moved to other images, so deploy the digest that you verified

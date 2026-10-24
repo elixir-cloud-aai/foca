@@ -54,7 +54,7 @@ version: 0.1.0
 appVersion: "1.0.0"
 dependencies:
   - name: foca-common
-    version: 0.2.0
+    version: {{ chart_version }}
     repository: oci://ghcr.io/elixir-cloud-aai/charts
 ```
 
@@ -837,7 +837,7 @@ release, so a tag ruleset of the repository restricts who may create
 these tags for everyone. To inspect a release, run:
 
 ```bash
-helm show chart oci://ghcr.io/elixir-cloud-aai/charts/foca-common --version 0.1.0
+helm show chart oci://ghcr.io/elixir-cloud-aai/charts/foca-common --version {{ chart_version }}
 ```
 
 [helm-install]: https://helm.sh/docs/intro/install/
