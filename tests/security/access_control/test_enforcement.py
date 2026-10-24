@@ -1593,12 +1593,12 @@ class TestResourceRoles:
     def test_remove_resource_does_not_load_policies(
         self, helper_app: Flask, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Rules are removed without loading all policies."""
+        """Rules are removed without using (or loading) the enforcer."""
         with helper_app.app_context():
             add_resource_role("alice", "owner", "/items/1")
             monkeypatch.setattr(
                 enforcement,
-                "locked_enforcer",
+                "_get_enforcer_cache",
                 mock.Mock(side_effect=AssertionError),
             )
             assert remove_resource("/items/1") is True

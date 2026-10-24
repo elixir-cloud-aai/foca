@@ -1016,7 +1016,7 @@ class TestAppEnforcer:
     def test_shared(self) -> None:
         """Requests of an app instance share its enforcer."""
         with _as_caller(self.app, "alice"), locked_enforcer() as enforcer:
-            assert enforcer is self.app.extensions["foca_enforcer_cache"].get_enforcer()
+            assert enforcer.has_policy("owner", "/tasks/:id", "GET")
         with _as_caller(self.app, "bob"), locked_enforcer() as shared:
             assert shared is enforcer
         with _as_caller(self.other_app, "alice"), locked_enforcer() as other:

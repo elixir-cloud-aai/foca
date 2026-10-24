@@ -27,8 +27,7 @@ with locked_enforcer() as enforcer:
     allowed = enforcer.enforce(subject, path, method)
 ```
 
-Use it briefly (other requests of the instance wait meanwhile), and:
-
+- Use it briefly, as other requests of the instance wait meanwhile.
 - Do not store the enforcer for later use or change its rules other than
   via its methods that also store them (e.g., `add_policy()`): changes made
   via the adapter are recorded and applied to the enforcers of all app
