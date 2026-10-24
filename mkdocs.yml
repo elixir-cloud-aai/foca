@@ -16,10 +16,11 @@ hooks:
   - docs/hooks.py
 
 # Files included in pages (see `pymdownx.snippets`), and the source of the
-# release version (see `docs/hooks.py`)
+# release and chart versions (see `docs/hooks.py`)
 watch:
   - CITATION.cff
   - README.md
+  - charts/foca-common/Chart.yaml
 
 theme:
   name: material

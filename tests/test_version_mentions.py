@@ -100,7 +100,7 @@ CHART_ALLOWED_FILES = (
 # Mentions of the chart version: the chart (an OCI reference, its package,
 # or in prose), its release tag, and the `version` of a dependency on it
 CHART_MENTIONS = (
-    r"(?i:\bfoca-common)(?:[:@\-]|\s+v?)v?{version}{end}",
+    r"(?i:\bfoca-common)(?:[:@\-]|\s+(?:version\s+)?v?)v?{version}{end}",
     r"\bchart-v{version}{end}",
     # Helm commands (`helm show chart <ref>/foca-common --version X`, also
     # with other options between, or `--version` first)
@@ -336,6 +336,7 @@ def test_release_version_not_hard_coded() -> None:
         ("foca-common-1.2.3.tgz", [(1, "foca-common-1.2.3.tgz")]),
         ("foca-common 1.2.3 renders", [(1, "foca-common 1.2.3 renders")]),
         ("Foca-Common v1.2.3", [(1, "Foca-Common v1.2.3")]),
+        ("foca-common version 1.2.3", [(1, "foca-common version 1.2.3")]),
         (
             "--source-ref refs/tags/chart-v1.2.3",
             [(1, "--source-ref refs/tags/chart-v1.2.3")],
