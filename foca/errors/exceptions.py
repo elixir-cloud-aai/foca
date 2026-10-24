@@ -73,6 +73,25 @@ _VALIDATION_LOGGER = "connexion.decorators.validation"
 _RESERVED_MEMBERS = ("title", "status", "detail")
 
 
+def _keep_response_validation_records(record: logging.LogRecord) -> bool:
+    """Filter out log records of Connexion's request validation.
+
+    Added to Connexion's validation logger with
+    `exceptions.validation_details` (cf. :py:func:`register_exception_handler`),
+    as it logs the reasons of rejected requests in full and unescaped (e.g.,
+    with the rejected values); the handler logs them shortened and escaped
+    instead. Records of response validation (`validator` attribute
+    `response`) are kept, as they log why a response is invalid.
+
+    Args:
+        record: Log record of Connexion's validation logger.
+
+    Returns:
+        Whether the record is of response validation.
+    """
+    return getattr(record, "validator", None) == "response"
+
+
 def register_exception_handler(
     app: App,
     conf: ExceptionConfig | None = None,
@@ -82,8 +101,9 @@ def register_exception_handler(
     With `conf.validation_details`, also registers a handler for Connexion's
     request validation exceptions (`BadRequestProblem` and
     `ExtraParameterProblem`; cf. :py:func:`_validation_handler_json`) and
-    raises Connexion's validation logger (`connexion.decorators.validation`)
-    to `CRITICAL`.
+    filters out the request validation messages of Connexion's validation
+    logger (`connexion.decorators.validation`; for all apps of the process,
+    cf. :py:func:`_keep_response_validation_records`).
 
     Args:
         app: Connexion application instance.
@@ -108,8 +128,11 @@ def register_exception_handler(
 
         for exception in _VALIDATION_EXCEPTIONS:
             app.add_error_handler(exception, _validation_handler)
-        # The handler logs the reason shortened and escaped instead
-        logging.getLogger(_VALIDATION_LOGGER).setLevel(logging.CRITICAL)
+        # The handler logs the reason shortened and escaped instead; added
+        # once per process (`addFilter()` skips filters already added)
+        logging.getLogger(_VALIDATION_LOGGER).addFilter(
+            _keep_response_validation_records
+        )
         logger.debug("Registered validation problem handler with Connexion app.")
     return app
 
@@ -289,7 +312,8 @@ def problem_response(exc: HTTPException, **extensions: Any) -> Response:
         exc: werkzeug HTTP exception with an HTTP error status code (400 to
             599) and a request-specific description.
         extensions: Extension members of the problem details (e.g.,
-            ``serviceId="..."``); values must be JSON-serializable.
+            ``serviceId="..."``); values must be JSON-serializable. With
+            `exceptions.public_members`, only listed members are sent.
 
     Returns:
         Error response with the problem details mapped to the class of the
@@ -299,11 +323,12 @@ def problem_response(exc: HTTPException, **extensions: Any) -> Response:
 
     Raises:
         RuntimeError: No FOCA app has been created.
-        ValueError: The exception has no HTTP error status code or no
-            description (e.g., a plain `HTTPException`), or the extension
+        ValueError: The exception is not a werkzeug HTTP exception (e.g., a
+            Connexion `ProblemException`), has no HTTP error status code or
+            no description (e.g., a plain `HTTPException`), or the extension
             members include `title`, `status` or `detail`.
     """
-    status = _get_status(exc)
+    status = _get_status(exc) if isinstance(exc, HTTPException) else None
     if status is None or exc.description is None:
         raise ValueError(
             "Problem details need an exception with an HTTP error status code "

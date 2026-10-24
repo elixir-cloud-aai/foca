@@ -707,9 +707,14 @@ class TestProblemResponse:
 
     @pytest.mark.parametrize(
         "exc",
-        [HTTPException("x"), UndescribedException(), RequestRedirect("/x")],
+        [
+            HTTPException("x"),
+            UndescribedException(),
+            RequestRedirect("/x"),
+            BadRequestProblem(detail="x"),
+        ],
     )
-    def test_invalid_exception(self, exc: HTTPException) -> None:
+    def test_invalid_exception(self, exc: Any) -> None:
         """Exceptions need an HTTP error status code and a description."""
         with pytest.raises(ValueError, match="error status code"):
             problem_response(exc)
@@ -743,11 +748,11 @@ class TestValidationDetails:
 
     @pytest.fixture(autouse=True)
     def validation_logger(self) -> Iterator[logging.Logger]:
-        """Connexion's validation logger, with its level restored after."""
+        """Connexion's validation logger, with its filters restored after."""
         validation_logger = logging.getLogger(exceptions_module._VALIDATION_LOGGER)
-        level = validation_logger.level
+        filters = list(validation_logger.filters)
         yield validation_logger
-        validation_logger.setLevel(level)
+        validation_logger.filters[:] = filters
 
     @pytest.fixture
     def infos(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -821,16 +826,55 @@ class TestValidationDetails:
         response = self._client(conf).get("/validated")
         assert json.loads(response.data) == {"title": "Bad Request", "status": 400}
         assert infos == []
-        assert logging.getLogger(exceptions_module._VALIDATION_LOGGER).level < (
-            logging.CRITICAL
+        validation_logger = logging.getLogger(exceptions_module._VALIDATION_LOGGER)
+        assert (
+            exceptions_module._keep_response_validation_records
+            not in validation_logger.filters
         )
 
-    def test_logger_silenced(
+    @pytest.mark.parametrize("validation_details", [False, True])
+    def test_connexion_messages(
+        self,
+        conf: ExceptionConfig,
+        caplog: pytest.LogCaptureFixture,
+        validation_logger: logging.Logger,
+        monkeypatch: pytest.MonkeyPatch,
+        validation_details: bool,
+    ) -> None:
+        """Connexion's request validation messages are only logged by default."""
+        # other tests may (re)configure logging
+        monkeypatch.setattr(validation_logger, "disabled", False)
+        monkeypatch.setattr(validation_logger, "propagate", True)
+        conf.validation_details = validation_details
+        client = self._client(conf)
+        with caplog.at_level(logging.INFO, logger=validation_logger.name):
+            client.post("/validated-body", json={"name": "abcd"})
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == validation_logger.name
+        ]
+        assert bool(messages) is not validation_details
+        assert all("is too long" in message for message in messages)
+
+    def test_logger_filtered(
         self, conf_details: ExceptionConfig, validation_logger: logging.Logger
     ) -> None:
-        """Connexion's validation logger is raised to `CRITICAL`."""
+        """Connexion's request validation messages are filtered out, once."""
         self._client(conf_details)
-        assert validation_logger.level == logging.CRITICAL
+        self._client(conf_details)
+        keep = exceptions_module._keep_response_validation_records
+        assert validation_logger.filters.count(keep) == 1
+
+        def record(**extra: Any) -> logging.LogRecord:
+            """Log record of Connexion's validation logger."""
+            return validation_logger.makeRecord(
+                validation_logger.name, logging.ERROR, "", 0, "x", (), None, extra=extra
+            )
+
+        assert not validation_logger.filter(record(validator="body"))
+        assert not validation_logger.filter(record())
+        assert validation_logger.filter(record(validator="response"))
 
     def test_long_detail(self, conf_details: ExceptionConfig, infos: list[str]) -> None:
         """Long reasons are shortened and escaped in logs."""

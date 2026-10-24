@@ -206,9 +206,10 @@ class ExceptionConfig(FOCABaseConfig):
             the validator's message) as `detail`, instead of the problem
             details mapped to the exception class. If true, the reason is
             also logged (at `INFO`, shortened and escaped) instead of the
-            exception, and Connexion's validation logger
-            (`connexion.decorators.validation`) is raised to `CRITICAL`, as
-            it logs the validator's message in full and unescaped.
+            exception, and the request validation messages of Connexion's
+            validation logger (`connexion.decorators.validation`) are
+            filtered out, as they have the validator's message in full and
+            unescaped.
         max_detail_length: Maximum length of request-specific details in
             responses (cf. `validation_details` and
             :py:func:`foca.errors.exceptions.problem_response`) and log

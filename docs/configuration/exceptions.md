@@ -91,11 +91,13 @@ form data, the reasons joined by `; `), with the title and status as mapped
 Like all error responses, they have the configured media type and only the
 public members (without `detail` in `public_members`, the reason is not
 sent). The reason is logged at `INFO`, shortened and escaped (unless
-`logging` is `none`), instead of the exception. Connexion's validation logger
-(`connexion.decorators.validation`) is raised to `CRITICAL`, as it logs the
-validator's message in full and unescaped (validators quote rejected values,
-which can be as large as the request body); this also silences its messages
-on invalid responses, which FOCA's handler logs as exceptions anyway.
+`logging` is `none`), instead of the exception; as validators quote rejected
+values, these may appear in the logs (shortened), e.g., of query parameters
+and headers. Connexion's validation logger (`connexion.decorators.validation`)
+logs the validator's message in full and unescaped (and rejected values can
+be as large as the request body), so its messages on rejected requests are
+filtered out, for all apps of the process; its messages on invalid
+responses are kept.
 Exceptions that your app raises as `BadRequestProblem` (e.g., FOCA's
 [access control](../access-control.md) for an invalid user acted for) get
 their `detail` as well, so keep internals out of it. `validation_details` is
@@ -137,9 +139,11 @@ The response has the problem details mapped to the class of the werkzeug
 exception, with its status code, its description as `detail` (shortened to
 `max_detail_length`) and the extension members, and, like all error
 responses, the configured media type, only the public members and the
-headers of the exception (e.g., `WWW-Authenticate`). Exceptions without an
-HTTP error status code or a description raise a `ValueError`, as do the
-extension members `title`, `status` and `detail`. To shorten request-specific
+headers of the exception (e.g., `WWW-Authenticate`); with `public_members`,
+list the extension members there, too. Exceptions that are not werkzeug
+HTTP exceptions (e.g., Connexion's) or have no HTTP error status code or
+description raise a `ValueError`, as do the extension members `title`,
+`status` and `detail`. To shorten request-specific
 values in your own log messages the same way, use `shorten_detail()`, and
 escape them with `foca.utils.logging.escape_log_value()`:
 
