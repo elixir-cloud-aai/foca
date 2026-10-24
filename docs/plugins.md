@@ -17,7 +17,17 @@ Terms:
   fallbacks.
 
 Operators configure plugins and pipelines in the [`plugins`
-section](configuration/plugins.md) only; there is no runtime API.
+section](configuration/plugins.md) only: there is no API to change them at
+runtime (change the configuration and restart instead).
+
+For gateway app authors, in short (cf. [using the engine in
+apps](#using-the-engine-in-apps)): pass `Foca(..., gateway=GatewayApp(api=...,
+validate=..., sanitize=...))`, so that `create_app()` checks the plugins on
+startup; get the host of the process with `foca.plugins.runtime.get_host()`
+in controllers and Celery tasks; and remove keys of earlier middleware
+stacks (`middlewares`, `custom.middlewares`), which are refused with a
+migration hint. Apps that are no gateways ignore the `plugins` section (with
+a warning).
 
 ## Phases
 

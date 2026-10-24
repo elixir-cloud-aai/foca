@@ -42,6 +42,7 @@ from foca.security.access_control import (
     add_resource_role,
     enforce_access_control,
     enforcement,
+    get_current_claims,
     get_current_group_values,
     get_current_groups,
     get_current_subject,
@@ -1216,6 +1217,18 @@ class TestCurrentSubject:
             assert get_current_subject() == "carol"
         finally:
             ctx.pop()
+
+    def test_current_claims(self, helper_app: Flask) -> None:
+        """Claims are returned as a copy."""
+        ctx = self._context(helper_app, TOKENS["carol"])
+        try:
+            claims = get_current_claims()
+            assert claims["sub"] == "carol"
+            claims["sub"] = "mallory"
+            assert get_current_claims()["sub"] == "carol"
+        finally:
+            ctx.pop()
+        assert get_current_claims() == {}
 
     def test_string_group_claim(self, helper_app: Flask) -> None:
         """Group claims may be single strings."""
