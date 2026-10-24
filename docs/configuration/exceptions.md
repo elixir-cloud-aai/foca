@@ -143,7 +143,8 @@ headers of the exception (e.g., `WWW-Authenticate`); with `public_members`,
 list the extension members there, too. Exceptions that are not werkzeug
 HTTP exceptions (e.g., Connexion's) or have no HTTP error status code or
 description raise a `ValueError`, as do the extension members `title`,
-`status` and `detail`. To shorten request-specific
+`status`, `detail` and `type` (map problem types to exception classes
+instead). To shorten request-specific
 values in your own log messages the same way, use `shorten_detail()`, and
 escape them with `foca.utils.logging.escape_log_value()`:
 

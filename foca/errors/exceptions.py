@@ -69,8 +69,9 @@ _VALIDATION_EXCEPTIONS = (BadRequestProblem, ExtraParameterProblem)
 # whole request body)
 _VALIDATION_LOGGER = "connexion.decorators.validation"
 
-# Members of problem details set by `problem_response()` itself
-_RESERVED_MEMBERS = ("title", "status", "detail")
+# Members of problem details set by `problem_response()` itself or mapped
+# to the exception class (`type`)
+_RESERVED_MEMBERS = ("title", "status", "detail", "type")
 
 
 def _keep_response_validation_records(record: logging.LogRecord) -> bool:
@@ -326,7 +327,7 @@ def problem_response(exc: HTTPException, **extensions: Any) -> Response:
         ValueError: The exception is not a werkzeug HTTP exception (e.g., a
             Connexion `ProblemException`), has no HTTP error status code or
             no description (e.g., a plain `HTTPException`), or the extension
-            members include `title`, `status` or `detail`.
+            members include `title`, `status`, `detail` or `type`.
     """
     status = _get_status(exc) if isinstance(exc, HTTPException) else None
     if status is None or exc.description is None:
@@ -338,7 +339,7 @@ def problem_response(exc: HTTPException, **extensions: Any) -> Response:
     if reserved:
         raise ValueError(
             f"Extension members must not set {', '.join(reserved)}: "
-            "they are set from the exception"
+            "they are set from the exception or its mapping"
         )
     conf = get_config().exceptions
     problem = _resolve_problem(exc=exc, conf=conf)
@@ -394,9 +395,15 @@ def _validation_handler_json(
     if reason is not None:
         problem["detail"] = _shorten(reason, conf.max_detail_length)
     if conf.logging is not ExceptionLoggingEnum.none:
+        # Escaped before shortening, so that the logged reason stays within
+        # the maximum length
+        logged = reason if reason is not None else problem.get("detail")
         logger.info(
             "Request rejected: %s",
-            escape_log_value(problem.get("detail", problem["title"])),
+            _shorten(
+                escape_log_value(problem["title"] if logged is None else logged),
+                conf.max_detail_length,
+            ),
         )
     return _response(exc=exception, problem=problem, conf=conf)
 

@@ -719,7 +719,7 @@ class TestProblemResponse:
         with pytest.raises(ValueError, match="error status code"):
             problem_response(exc)
 
-    @pytest.mark.parametrize("member", ["title", "status", "detail"])
+    @pytest.mark.parametrize("member", ["title", "status", "detail", "type"])
     def test_reserved_members(self, member: str) -> None:
         """Extension members cannot override those set from the exception."""
         with pytest.raises(ValueError, match=member):
@@ -885,7 +885,11 @@ class TestValidationDetails:
         detail = json.loads(response.data)["detail"]
         assert len(detail) == 20
         assert detail.endswith("- 'name'")
-        assert infos == [f"Request rejected: {detail}".replace("\n", "\\n")]
+        assert len(infos) == 1
+        logged = infos[0].removeprefix("Request rejected: ")
+        assert len(logged) == 20
+        assert logged.startswith("'a\\na\\n")
+        assert logged.endswith("- 'name'")
         assert "\n" not in infos[0]
 
     def test_mapped(
