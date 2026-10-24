@@ -30,6 +30,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Static analysis, also of the docs (`mkdocs build --strict`, no job of its
+  # own) and of the distributions
   lint:
     name: Lint
     runs-on: ubuntu-latest
