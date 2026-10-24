@@ -170,6 +170,46 @@ and
 To log other values that may be controlled by clients, escape them with
 `escape_log_value()`.
 
+## Sending requests to untrusted URLs
+
+URLs that come from users or service registries are server-side request
+forgery (SSRF) vectors: a request may reach internal hosts, follow a
+redirect to them, hang, or read without bounds. `GuardedClient` of
+`foca.utils.http` guards against that:
+
+```python
+from foca.utils.http import GuardedClient, RequestMaybeSent, RequestNotSent
+
+client = GuardedClient(timeout=10)  # or deadline=<time.monotonic() value>
+try:
+    response = client.post(f"{url}/tasks", json=task)
+except RequestNotSent as exc:  # certainly not received: try elsewhere
+    ...
+except RequestMaybeSent as exc:  # may have been received: don't retry
+    ...
+```
+
+- Each connection's peer address must be public (`is_public_address()`:
+  globally reachable, not multicast, embedded IPv4 addresses checked). The
+  check runs after connecting and before sending, so DNS rebinding cannot
+  redirect a request to an internal host; `allow_private_addresses=True`
+  turns it off (e.g., for private deployments and tests).
+- Redirects are returned, never followed; proxies and `.netrc` files of the
+  environment are ignored; only `https` is allowed (unless
+  `allow_http=True`), and TLS certificates are always verified.
+- Each request ends by the deadline (connections within 10 s at most), and
+  bodies are limited to `max_response_size` bytes (16 MiB by default).
+- Errors carry a reason code (`reason`, e.g., `connect_error`,
+  `tls_error`, `not_public`, `read_timeout`, `connection_lost`), and tell
+  requests that certainly did not reach the server (`RequestNotSent`) from
+  those that may have (`RequestMaybeSent`).
+
+`check_public_host(url)` resolves a host and checks all its addresses, e.g.,
+before a discovered URL is stored; `fetch_json(url, timeout)` reads a JSON
+document (e.g., of a service registry) with status `200` only. Plugins get a
+client bound to their deadline as `ctx.http` (cf. [Gateway
+plugins](plugins.md#writing-plugins)).
+
 ## Accessing the newest database document
 
 `find_one_latest()` and `find_id_latest()` return the most recently inserted

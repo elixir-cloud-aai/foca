@@ -238,6 +238,27 @@ class AvailablePluginConfig(_Model):
         return version
 
 
+class HttpConfig(_Model):
+    """Outbound HTTP of plugins (`plugins.defaults.http`, cf. `ctx.http`).
+
+    Args:
+        allow_private_addresses: Whether plugins may connect to addresses
+            that are not public (e.g., internal services of a private
+            deployment); off by default against SSRF.
+        allow_http: Whether plugins may use `http` URLs.
+        max_response_size: Maximum size of response bodies, in bytes.
+
+    Attributes:
+        allow_private_addresses: Whether private addresses are allowed.
+        allow_http: Whether `http` URLs are allowed.
+        max_response_size: Maximum size of response bodies, in bytes.
+    """
+
+    allow_private_addresses: bool = False
+    allow_http: bool = False
+    max_response_size: PositiveInt = 16 * 1024 * 1024
+
+
 class PluginDefaultsConfig(_Model):
     """Limits of plugin calls and forwarding (`plugins.defaults`).
 
@@ -249,18 +270,21 @@ class PluginDefaultsConfig(_Model):
             together; when exceeded, no further backend is tried (`503`).
         workers: Threads that run hooks (per process); calls beyond fail
             at once, as timed out.
+        http: Outbound HTTP of plugins (`ctx.http`).
 
     Attributes:
         timeout: Seconds per alternative and call.
         pipeline_timeout: Seconds for the `request` and `route` phases.
         forward_timeout: Seconds for all forwarding attempts.
         workers: Threads that run hooks.
+        http: Outbound HTTP of plugins.
     """
 
     timeout: PositiveFloat = 10
     pipeline_timeout: PositiveFloat = 30
     forward_timeout: PositiveFloat = 60
     workers: PositiveInt = 8
+    http: HttpConfig = HttpConfig()
 
 
 class ClientPipelinesConfig(_Model):

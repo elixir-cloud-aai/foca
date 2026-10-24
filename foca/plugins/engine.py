@@ -91,6 +91,7 @@ from foca.plugins.selection import (
     parse_client_pipeline,
     parse_client_tags,
 )
+from foca.utils.http import GuardedClient
 
 logger = logging.getLogger(__name__)
 
@@ -1466,6 +1467,11 @@ class PipelineRun:
             state=state,
             request_id=self.request_id,
             task_id=self.task_id,
+            http=GuardedClient(
+                deadline=call_deadline,
+                timeout=step.timeout,
+                **self.host.conf.defaults.http.model_dump(),
+            ),
         )
         execution = Execution(
             step=step.id,

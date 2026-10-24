@@ -190,6 +190,8 @@ configuration models, see [Configuration](configuration/index.md).
 ::: foca.utils.misc
 
 ::: foca.utils.urls
+
+::: foca.utils.http
     options:
       members:
         - check_url

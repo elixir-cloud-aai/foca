@@ -29,7 +29,14 @@ from foca.plugins.engine import (
     sanitize_error,
 )
 from foca.plugins.model import OutboundRequest
-from tests.plugins.fakes import SlowPlugin, fake_entry_points, make_host, wait_for
+from foca.utils.http import GuardedClient
+from tests.plugins.fakes import (
+    SlowPlugin,
+    TagPlugin,
+    fake_entry_points,
+    make_host,
+    wait_for,
+)
 
 BACKENDS = [
     Backend(id="a", url="https://a.example.org"),
@@ -522,3 +529,25 @@ def test_config_default_host() -> None:
     run = host.start(inbound(), PRINCIPAL)
     assert run.request().payload == {"name": "task"}
     assert run.route(BACKENDS) == BACKENDS
+
+
+def test_context_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hooks get a guarded HTTP client bounded by their deadline."""
+    clients: list[Any] = []
+
+    def on_request(self: Any, request: InboundRequest, ctx: Any) -> None:
+        clients.append(ctx.http)
+
+    monkeypatch.setattr(TagPlugin, "on_request", on_request)
+    host = make_host(
+        [{"plugin": "test.tag", "timeout": 3}],
+        defaults={"http": {"allow_http": True}},
+    )
+    host.start(inbound(), PRINCIPAL).request()
+    client = clients[0]
+    assert isinstance(client, GuardedClient)
+    assert client.allow_http
+    assert not client.allow_private_addresses
+    assert client.timeout == 3
+    assert 0 < client.remaining() <= 3
+    host.close()

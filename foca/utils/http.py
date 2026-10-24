@@ -1,0 +1,607 @@
+"""Guarded outbound HTTP: public addresses only, no redirects, bounded.
+
+Plugins, service discovery and gateways send requests to URLs that come
+from users or registries. Unguarded, such requests are server-side request
+forgery (SSRF) vectors and can hang or read without bounds. The
+:py:class:`GuardedClient` therefore:
+
+- connects to public addresses only (cf. :py:func:`is_public_address`): the
+  address of each new connection is checked after it is established and
+  before any data is sent, so that DNS rebinding cannot direct it to an
+  internal host;
+- never follows redirects (they are returned as responses);
+- ignores proxy settings and `.netrc` files of the environment;
+- uses `https` only, with TLS verification always on, unless `http` is
+  allowed explicitly;
+- bounds each request by a deadline (connect timeout capped) and the size
+  of each response;
+- tells errors before sending (:py:class:`RequestNotSent`) from errors
+  after (:py:class:`RequestMaybeSent`), so that gateways know whether a
+  backend may have received a request.
+
+Built on requests and urllib3; independent of the web framework.
+"""
+
+import ipaddress
+import json
+import socket
+import time
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
+from typing import Any
+from urllib.parse import urlsplit
+
+import requests
+import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPConnection, HTTPSConnection
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+
+MAX_RESPONSE_SIZE = 16 * 1024 * 1024
+"""Default maximum size of response bodies, in bytes."""
+
+MAX_CONNECT_TIMEOUT = 10.0
+"""Maximum seconds to establish a connection."""
+
+_CHUNK_SIZE = 65536
+
+# Prefixes of IPv6 addresses that embed IPv4 addresses in their last 32
+# bits: IPv4/IPv6 translation (RFC 6052) and IPv4-compatible addresses
+# (deprecated, RFC 4291)
+_EMBEDDING_PREFIXES = (
+    ipaddress.IPv6Network("64:ff9b::/96"),
+    ipaddress.IPv6Network("::/96"),
+)
+
+
+class HttpError(Exception):
+    """Outbound request failed.
+
+    Attributes:
+        reason: Reason code, e.g., `connect_error` (`[a-z0-9_]`).
+    """
+
+    reason = "http_error"
+
+    def __init__(self, message: str, reason: str | None = None) -> None:
+        """Create the error.
+
+        Args:
+            message: Description, without credentials.
+            reason: Reason code; defaults to that of the class.
+        """
+        super().__init__(message)
+        if reason is not None:
+            self.reason = reason
+
+
+class RequestNotSent(HttpError):
+    """The request certainly did not reach the server."""
+
+    reason = "connect_error"
+
+
+class RequestMaybeSent(HttpError):
+    """The server may have received, and processed, the request."""
+
+    reason = "connection_lost"
+
+
+class InvalidRequestURL(RequestNotSent):
+    """The URL is invalid or its scheme is not allowed."""
+
+    reason = "invalid_url"
+
+
+class HostNotResolved(RequestNotSent):
+    """The host has no address."""
+
+    reason = "connect_error"
+
+
+class AddressNotAllowed(RequestNotSent):
+    """The host has an address that is not public, or a zone identifier."""
+
+    reason = "not_public"
+
+
+class DeadlineExceeded(RequestNotSent):
+    """The deadline passed before the request was sent."""
+
+    reason = "deadline_exceeded"
+
+
+class ResponseTooLarge(RequestMaybeSent):
+    """The response body exceeds the size limit."""
+
+    reason = "response_too_large"
+
+
+def is_public_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check whether an IP address is public.
+
+    Args:
+        address: IP address.
+
+    Returns:
+        Whether the address is globally reachable (as per the IANA
+        special-purpose address registries) and not a multicast address;
+        IPv4 addresses embedded in IPv6 addresses (IPv4-mapped, NAT64 and
+        IPv4-compatible ones) are checked themselves.
+
+    Examples:
+        >>> is_public_address(ipaddress.ip_address("192.0.2.1"))
+        False
+        >>> is_public_address(ipaddress.ip_address("::ffff:8.8.8.8"))
+        True
+    """
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            address = address.ipv4_mapped
+        elif any(address in prefix for prefix in _EMBEDDING_PREFIXES):
+            address = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    return address.is_global and not address.is_multicast
+
+
+def _check_address(address: str, url: str) -> None:
+    """Check that an address is public.
+
+    Args:
+        address: IP address, as text.
+        url: URL or host, for the message.
+
+    Raises:
+        AddressNotAllowed: The address is not public or not an IP address.
+    """
+    try:
+        public = is_public_address(ipaddress.ip_address(address))
+    except ValueError:
+        public = False
+    if not public:
+        raise AddressNotAllowed(
+            f"Host of {url} has an address that is not public: {address}"
+        )
+
+
+def check_public_host(url: str) -> None:
+    """Check that the host of a URL has public addresses only.
+
+    Host names are resolved; all their addresses must be public (cf.
+    :py:func:`is_public_address`). Resolution is bounded by the system's
+    resolver. Use it to check URLs before they are stored (e.g., discovered
+    backends); requests of the :py:class:`GuardedClient` check the address
+    of each connection themselves.
+
+    Args:
+        url: URL.
+
+    Raises:
+        HostNotResolved: The host cannot be resolved, or has no address.
+        AddressNotAllowed: The host has an address that is not public, or a
+            zone identifier.
+    """
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if "%" in host:
+        raise AddressNotAllowed(f"Host of {url} has a zone identifier")
+    try:
+        addresses: Iterable[str] = [str(ipaddress.ip_address(host))]
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(host, parts.port or 443, type=socket.SOCK_STREAM)
+        except (OSError, UnicodeError) as exc:
+            raise HostNotResolved(
+                f"Host of {url} not resolved: {type(exc).__name__}"
+            ) from exc
+        addresses = {str(info[4][0]) for info in infos}
+    if not addresses:
+        raise HostNotResolved(f"Host of {url} has no address")
+    for address in addresses:
+        _check_address(address, url)
+
+
+class _PublicPeerMixin:
+    """Refuse connections to addresses that are not public."""
+
+    def _new_conn(self) -> socket.socket:
+        """Connect, and check the address of the peer.
+
+        Returns:
+            Socket.
+
+        Raises:
+            AddressNotAllowed: The peer's address is not public.
+        """
+        sock: socket.socket = super()._new_conn()  # type: ignore[misc]
+        try:
+            _check_address(str(sock.getpeername()[0]), getattr(self, "host", ""))
+        except AddressNotAllowed:
+            sock.close()
+            raise
+        return sock
+
+
+class _PublicHTTPConnection(_PublicPeerMixin, HTTPConnection):
+    """HTTP connection to public addresses only."""
+
+
+class _PublicHTTPSConnection(_PublicPeerMixin, HTTPSConnection):
+    """HTTPS connection to public addresses only."""
+
+
+class _PublicHTTPConnectionPool(HTTPConnectionPool):
+    """Pool of HTTP connections to public addresses only."""
+
+    ConnectionCls = _PublicHTTPConnection
+
+
+class _PublicHTTPSConnectionPool(HTTPSConnectionPool):
+    """Pool of HTTPS connections to public addresses only."""
+
+    ConnectionCls = _PublicHTTPSConnection
+
+
+class _PublicAdapter(HTTPAdapter):
+    """Transport adapter that connects to public addresses only."""
+
+    def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+        """Create the pool manager, with guarded connection pools.
+
+        Args:
+            args: Positional arguments of `HTTPAdapter.init_poolmanager()`.
+            kwargs: Keyword arguments of it.
+        """
+        super().init_poolmanager(*args, **kwargs)
+        self.poolmanager.pool_classes_by_scheme = {
+            "http": _PublicHTTPConnectionPool,
+            "https": _PublicHTTPSConnectionPool,
+        }
+
+
+@dataclass
+class HttpResponse:
+    """Response to a guarded request.
+
+    Attributes:
+        status: HTTP status.
+        headers: Headers, with lowercase names.
+        content: Body.
+        url: URL of the request.
+    """
+
+    status: int
+    headers: dict[str, str] = field(default_factory=dict)
+    content: bytes = b""
+    url: str = ""
+
+    def json(self) -> Any:
+        """Parse the body as JSON.
+
+        Returns:
+            Parsed body.
+
+        Raises:
+            ValueError: The body is not valid JSON (or nested too deeply).
+        """
+        try:
+            return json.loads(self.content)
+        except RecursionError as exc:
+            raise ValueError("JSON nested too deeply") from exc
+
+
+def _caused_by(exc: BaseException, types: tuple[type[BaseException], ...]) -> bool:
+    """Check whether an exception or one of its causes has one of the types.
+
+    Args:
+        exc: Exception, e.g., of `requests`.
+        types: Exception types.
+
+    Returns:
+        Whether the exception, an exception it was raised from or during, or
+        one it wraps (e.g., the `reason` of urllib3 errors) has a type.
+    """
+    seen: list[BaseException] = []
+    pending: list[Any] = [exc]
+    while pending:
+        current = pending.pop()
+        if not isinstance(current, BaseException) or any(
+            current is other for other in seen
+        ):
+            continue
+        if isinstance(current, types):
+            return True
+        seen.append(current)
+        pending.extend(
+            [
+                current.__cause__,
+                current.__context__,
+                getattr(current, "reason", None),
+                *current.args,
+            ]
+        )
+    return False
+
+
+def _classify(exc: requests.RequestException, url: str) -> HttpError:
+    """Map an error of requests onto a guarded error.
+
+    Args:
+        exc: Error.
+        url: URL of the request.
+
+    Returns:
+        :py:class:`RequestNotSent` for errors before the request was sent
+        (connection refused or timed out, host not resolved, certificate not
+        accepted, request not prepared), :py:class:`RequestMaybeSent`
+        otherwise.
+    """
+    name = type(exc).__name__
+    if _caused_by(exc, (urllib3.exceptions.NameResolutionError,)):
+        return HostNotResolved(f"Host of {url} not resolved")
+    if isinstance(exc, requests.exceptions.SSLError) or _caused_by(
+        exc, (urllib3.exceptions.SSLError,)
+    ):
+        return RequestNotSent(f"TLS error for {url}: {name}", reason="tls_error")
+    if isinstance(
+        exc, requests.exceptions.ConnectTimeout | requests.exceptions.InvalidHeader
+    ) or _caused_by(exc, (urllib3.exceptions.ConnectTimeoutError,)):
+        # `NewConnectionError` (e.g., connection refused) is a subclass
+        return RequestNotSent(f"{url} not reached: {name}")
+    if isinstance(exc, requests.exceptions.ReadTimeout):
+        return RequestMaybeSent(f"{url} timed out: {name}", reason="read_timeout")
+    return RequestMaybeSent(f"{url} failed: {name}")
+
+
+class GuardedClient:
+    """HTTP client for untrusted URLs (cf. :py:mod:`foca.utils.http`).
+
+    Attributes:
+        deadline: `time.monotonic()` value by which requests must end, if
+            any.
+        timeout: Seconds per request, if no earlier deadline applies.
+        allow_private_addresses: Whether addresses that are not public are
+            allowed (e.g., for tests and private deployments).
+        allow_http: Whether `http` URLs are allowed.
+        max_response_size: Maximum size of response bodies, in bytes.
+
+    Examples:
+        >>> client = GuardedClient(timeout=5)
+        >>> client.get("ftp://example.org/")
+        Traceback (most recent call last):
+        ...
+        foca.utils.http.InvalidRequestURL: Scheme not allowed: ftp
+    """
+
+    def __init__(
+        self,
+        *,
+        deadline: float | None = None,
+        timeout: float = 30.0,
+        allow_private_addresses: bool = False,
+        allow_http: bool = False,
+        max_response_size: int = MAX_RESPONSE_SIZE,
+    ) -> None:
+        """Create the client.
+
+        Args:
+            deadline: `time.monotonic()` value by which requests must end.
+            timeout: Seconds per request, if no earlier deadline applies.
+            allow_private_addresses: Whether addresses that are not public
+                are allowed.
+            allow_http: Whether `http` URLs are allowed.
+            max_response_size: Maximum size of response bodies, in bytes.
+        """
+        self.deadline = deadline
+        self.timeout = timeout
+        self.allow_private_addresses = allow_private_addresses
+        self.allow_http = allow_http
+        self.max_response_size = max_response_size
+        self._session: requests.Session | None = None
+
+    @property
+    def session(self) -> requests.Session:
+        """Get the session of the client, created on first use.
+
+        Returns:
+            Session without environment settings (proxies, `.netrc`).
+        """
+        if self._session is None:
+            session = requests.Session()
+            session.trust_env = False
+            if not self.allow_private_addresses:
+                adapter = _PublicAdapter()
+                session.mount("https://", adapter)
+                session.mount("http://", adapter)
+            self._session = session
+        return self._session
+
+    def remaining(self) -> float:
+        """Get the seconds left for a request.
+
+        Returns:
+            Seconds until the deadline or the per-request timeout, whichever
+            is earlier.
+        """
+        if self.deadline is None:
+            return self.timeout
+        return min(self.timeout, self.deadline - time.monotonic())
+
+    def get(self, url: str, **kwargs: Any) -> HttpResponse:
+        """Send a `GET` request.
+
+        Args:
+            url: URL.
+            kwargs: Other arguments of :py:meth:`request`.
+
+        Returns:
+            Response.
+        """
+        return self.request("GET", url, **kwargs)
+
+    def post(self, url: str, **kwargs: Any) -> HttpResponse:
+        """Send a `POST` request.
+
+        Args:
+            url: URL.
+            kwargs: Other arguments of :py:meth:`request`.
+
+        Returns:
+            Response.
+        """
+        return self.request("POST", url, **kwargs)
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+        json: Any = None,
+        data: bytes | str | None = None,
+        auth: Any = None,
+    ) -> HttpResponse:
+        """Send a request; redirects are returned, not followed.
+
+        Args:
+            method: HTTP method.
+            url: URL.
+            params: Query parameters.
+            headers: Headers.
+            json: Body to send as JSON.
+            data: Body to send as is.
+            auth: Authentication of requests (e.g., a `(user, password)`
+                tuple).
+
+        Returns:
+            Response, with the whole body.
+
+        Raises:
+            InvalidRequestURL: The URL is invalid or its scheme not allowed.
+            DeadlineExceeded: The deadline passed before sending.
+            RequestNotSent: The request certainly did not reach the server
+                (e.g., :py:class:`AddressNotAllowed`).
+            RequestMaybeSent: The server may have received the request
+                (e.g., read timeout, :py:class:`ResponseTooLarge`, deadline
+                passed while reading).
+        """
+        scheme = urlsplit(url).scheme.lower()
+        allowed = ("https", "http") if self.allow_http else ("https",)
+        if scheme not in allowed:
+            raise InvalidRequestURL(f"Scheme not allowed: {scheme or '(none)'}")
+        remaining = self.remaining()
+        if remaining <= 0:
+            raise DeadlineExceeded(f"No time left for {url}")
+        try:
+            response = self.session.request(
+                method,
+                url,
+                params=params,
+                headers=headers,
+                json=json,
+                data=data,
+                auth=auth,
+                timeout=(min(remaining, MAX_CONNECT_TIMEOUT), remaining),
+                allow_redirects=False,
+                stream=True,
+                verify=True,
+            )
+        except AddressNotAllowed:
+            raise
+        except requests.exceptions.InvalidURL as exc:
+            raise InvalidRequestURL(f"Invalid URL: {type(exc).__name__}") from exc
+        except requests.RequestException as exc:
+            raise _classify(exc, url) from exc
+        try:
+            content = self._read(response, url)
+        finally:
+            response.close()
+        return HttpResponse(
+            status=response.status_code,
+            headers={name.lower(): value for name, value in response.headers.items()},
+            content=content,
+            url=url,
+        )
+
+    def _read(self, response: requests.Response, url: str) -> bytes:
+        """Read a response body within the size limit and the deadline.
+
+        Args:
+            response: Streamed response.
+            url: URL of the request.
+
+        Returns:
+            Body.
+
+        Raises:
+            ResponseTooLarge: The body exceeds the size limit.
+            RequestMaybeSent: Reading failed, or the deadline passed.
+        """
+        content = bytearray()
+        try:
+            for chunk in response.iter_content(chunk_size=_CHUNK_SIZE):
+                content.extend(chunk)
+                if len(content) > self.max_response_size:
+                    raise ResponseTooLarge(
+                        f"{url}: response larger than {self.max_response_size} bytes"
+                    )
+                if self.deadline is not None and time.monotonic() > self.deadline:
+                    raise RequestMaybeSent(
+                        f"{url}: deadline passed while reading", reason="read_timeout"
+                    )
+        except requests.RequestException as exc:
+            raise _classify(exc, url) from exc
+        return bytes(content)
+
+    def close(self) -> None:
+        """Close the connections of the client."""
+        if self._session is not None:
+            self._session.close()
+            self._session = None
+
+
+def fetch_json(
+    url: str,
+    timeout: float,
+    *,
+    allow_private_addresses: bool = False,
+    allow_http: bool = False,
+    max_response_size: int = MAX_RESPONSE_SIZE,
+) -> Any:
+    """Fetch a JSON document (e.g., of a service registry), without token.
+
+    Args:
+        url: URL of the document (`https`).
+        timeout: Seconds for the request.
+        allow_private_addresses: Whether addresses that are not public are
+            allowed.
+        allow_http: Whether `http` URLs are allowed (e.g., for tests).
+        max_response_size: Maximum size of the document, in bytes.
+
+    Returns:
+        The document.
+
+    Raises:
+        HttpError: The request failed, the status is not `200` (also for
+            redirects, which are not followed; reason `http_<status>`), or
+            the body is not JSON (reason `invalid_json`).
+    """
+    client = GuardedClient(
+        timeout=timeout,
+        allow_private_addresses=allow_private_addresses,
+        allow_http=allow_http,
+        max_response_size=max_response_size,
+    )
+    try:
+        response = client.get(url, headers={"Accept": "application/json"})
+    finally:
+        client.close()
+    if response.status != 200:
+        raise HttpError(
+            f"{url} unavailable: status {response.status}",
+            reason=f"http_{response.status}",
+        )
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise HttpError(f"{url}: invalid JSON", reason="invalid_json") from exc
