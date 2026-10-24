@@ -1,0 +1,17 @@
+# Sourcery configuration; see
+# https://docs.sourcery.ai/Coding-Assistant/Reference/Configuration/sourcery-yaml/
+ignore:
+  # Sourcery's defaults (setting `ignore` replaces them)
+  - .git
+  - venv
+  - .venv
+  - env
+  - .env
+  - .tox
+  - node_modules
+  - vendor
+  # The semgrep and ast-grep rule tests contain findings on purpose; the
+  # rules themselves stay reviewed
+  - .semgrep/*.py
+  - .semgrep/*.test.yaml
+  - .ast-grep/rule-tests/
