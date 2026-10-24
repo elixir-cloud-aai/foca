@@ -49,17 +49,17 @@ work.
 
 ## Startup checks
 
-Some settings leave an app running, but not as intended. When access control
-is enabled, `Foca.create_app()` checks them and logs what to change:
+Some settings keep the app from working as intended. When access control
+is enabled, `Foca.create_app()` checks them, and refuses to start
+(`ValueError`) or logs a warning, naming what to change:
 
 - **Admins:** the groups (via `group_mapping`) and service clients (via
   `client_mapping`) mapped to the role `admin` are logged (`INFO`). If none
   is mapped to it and no rule of `policies` grants it (e.g., `[g,
   "user:alice", admin]`), a warning is logged, as nobody is then an admin
-  via mappings or configured rules. Mapped groups count only if
-  `claim_groups` is set (without surrounding whitespace; they are logged
-  either way), and rules for groups (`group:<value>`) only if group claim
-  values are used as group subjects (see below). Only direct
+  via mappings or configured rules. Rules for groups (`group:<value>`)
+  count only if `claim_groups` is set and group claim values are used as
+  group subjects (see below). Only direct
   grants are checked: a rule granting `admin` to a role (e.g., `[g, ops,
   admin]`) or to a service client (`client:<client ID>`) counts, whether
   or not any subject can get that role or is that client. Roles
@@ -68,10 +68,11 @@ is enabled, `Foca.create_app()` checks them and logs what to change:
   start (`ValueError`) instead, before anything is stored; set it if the
   app needs admins, e.g., to manage resources of others. It defaults to
   `false` and requires `enabled: true`.
-- **Group claim:** a warning is logged if `group_mapping` is set (also if
-  empty), but `claim_groups` is not, as no mapping then applies, and if
-  `claim_groups` has surrounding whitespace, as the claim is looked up as
-  written.
+- **Group claim:** the app refuses to start (`ValueError`) if
+  `group_mapping` maps groups, but `claim_groups` is not set, as no mapping
+  would then apply, and if `claim_groups` has surrounding whitespace, as the
+  claim is looked up as written. An empty `group_mapping` without
+  `claim_groups` is allowed, with a warning, as users then have no groups.
 - **Group subjects:** a warning is logged if `group_mapping` is set, but
   `keep_group_subjects` is not, as group claim values are then not used as
   group subjects (`group:<value>`): rules and [roles granted to

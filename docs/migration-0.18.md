@@ -5,9 +5,11 @@ loading all policy rules for each enforced request, so requests cost about
 the same with many rules as with few (cf. [scaling](access-control.md#scaling)).
 Most apps need no changes to run with FOCA 0.18.0; check the breaking
 changes below if your app uses access control and uses the enforcer
-directly or changes rules in the database directly, and the other changes
-if your app creates FOCA's Casbin adapter itself. Upgrading from 0.16 or
-earlier? Start with [Migrating to 0.17.0](migration-0.17.md).
+directly, changes rules in the database directly or maps groups to roles,
+or if its clients or tests rely on the responses to invalid requests, and
+the other changes if your app creates FOCA's Casbin adapter itself.
+Upgrading from 0.16 or earlier? Start with [Migrating to
+0.17.0](migration-0.17.md).
 
 ## Breaking changes
 
@@ -55,6 +57,39 @@ During a rolling update from 0.17, instances of 0.17 do not record their
 changes, so instances of 0.18 may miss rules they change: upgrade all
 instances before granting or revoking roles, or call `mark_changed()` once
 the update is complete.
+
+### Group settings that cannot apply
+
+With access control enabled, `Foca.create_app()` now refuses to start
+(`ValueError`, naming the setting to change) if
+`security.access_control.group_mapping` maps groups, but `claim_groups` is
+not set, as no mapping can then apply, or if `claim_groups` has surrounding
+whitespace, as the claim is looked up as written (cf. [startup
+checks](configuration/access-control.md#startup-checks)). Before, such apps
+started, but no user got the roles of their groups. Set `claim_groups` to
+the claim with the groups of users, without whitespace, or unset
+`group_mapping`. An empty `group_mapping` without `claim_groups` is still
+allowed.
+
+### Validation details by default
+
+`exceptions.validation_details` now defaults to `true`: responses to
+requests rejected by Connexion's validation (`BadRequestProblem` and
+`ExtraParameterProblem`) get the reason as `detail` (e.g., `"'name' is a
+required property"`) instead of the `detail` mapped to the exception
+class, and the reason is logged at `INFO` instead of the exception, while
+Connexion's own, unescaped messages on rejected requests are filtered out
+(cf. [request-specific
+details](configuration/exceptions.md#request-specific-details)). This
+applies to the app's own `BadRequestProblem` and `ExtraParameterProblem`
+exceptions (and their subclasses) too, e.g., FOCA's own for an invalid user
+acted for: they are sent with their own `detail` and logged at `INFO`
+instead of as exceptions, so keep internals out of their `detail`. Update
+clients and tests that expect the mapped `detail`, or set
+`exceptions.validation_details: false` to keep the previous responses and
+logs (Connexion's validation logger is filtered for the whole process, so
+its messages on rejected requests are only logged again if no app of the
+process has validation details on).
 
 ## Other changes
 
@@ -115,14 +150,16 @@ stays the default of FOCA's helpers.
 
 `Foca.create_app()` logs new warnings about settings that let the app run,
 but likely not as intended (cf. [startup
-checks](deployment.md#startup-checks)); apps behave as before:
+checks](deployment.md#startup-checks)); apps behave as before (except for
+the errors about [group settings that cannot
+apply](#group-settings-that-cannot-apply)):
 
 - With access control enabled: no group or service client is mapped to the
   role `admin` and no rule of `policies` grants it (roles granted via
   stored rules still apply); `group_mapping` is set without
-  `claim_groups`, or without `keep_group_subjects`; `claim_groups` has
-  surrounding whitespace. The groups and service clients mapped to `admin`
-  are logged (`INFO`). Set the new option
+  `keep_group_subjects`, or is empty without `claim_groups`. The groups
+  and service clients mapped to `admin` are logged (`INFO`). Set the new
+  option
   `security.access_control.require_admin: true` (default: `false`) to
   refuse to start without admins instead (cf. [startup
   checks](configuration/access-control.md#startup-checks)).

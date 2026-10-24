@@ -495,12 +495,17 @@ class TestHandler:
                 {},
                 {"title": "Method Not Allowed", "status": 405},
             ),
-            # Connexion request validation exception, by status code
+            # Connexion request validation exception, by status code, with
+            # the reason (`validation_details` is on by default)
             (
                 "get",
                 "/validated",
                 {},
-                {"title": "Bad Request", "status": 400},
+                {
+                    "title": "Bad Request",
+                    "status": 400,
+                    "detail": "Missing query parameter 'limit'",
+                },
             ),
             # Connexion security exceptions, by status code
             ("get", "/secured", {}, {"title": "Unauthorized", "status": 401}),
@@ -748,9 +753,16 @@ class TestValidationDetails:
 
     @pytest.fixture(autouse=True)
     def validation_logger(self) -> Iterator[logging.Logger]:
-        """Connexion's validation logger, with its filters restored after."""
+        """Connexion's validation logger, with its filters restored after.
+
+        FOCA's filter, added for the whole process by apps of other tests
+        (validation details are on by default), is removed for the test.
+        """
         validation_logger = logging.getLogger(exceptions_module._VALIDATION_LOGGER)
         filters = list(validation_logger.filters)
+        validation_logger.removeFilter(
+            exceptions_module._keep_response_validation_records
+        )
         yield validation_logger
         validation_logger.filters[:] = filters
 
@@ -820,9 +832,23 @@ class TestValidationDetails:
         assert infos == [f"Request rejected: {detail}"]
         assert logged == []
 
-    def test_default(self, conf: ExceptionConfig, infos: list[str]) -> None:
-        """By default, responses and logs are unchanged."""
-        assert not conf.validation_details
+    def test_default(self, infos: list[str]) -> None:
+        """Validation details are on by default, also without a config."""
+        assert ExceptionConfig().validation_details
+        app = App(__name__, skip_error_handlers=True)
+        register_exception_handler(app)
+        app.add_api(SPEC, strict_validation=True)
+        response = app.app.test_client().get("/validated")
+        assert json.loads(response.data) == {
+            "title": "Bad Request",
+            "status": 400,
+            "detail": "Missing query parameter 'limit'",
+        }
+        assert infos == ["Request rejected: Missing query parameter 'limit'"]
+
+    def test_off(self, conf: ExceptionConfig, infos: list[str]) -> None:
+        """Without validation details, responses are as mapped, not logged."""
+        conf.validation_details = False
         response = self._client(conf).get("/validated")
         assert json.loads(response.data) == {"title": "Bad Request", "status": 400}
         assert infos == []
@@ -841,7 +867,7 @@ class TestValidationDetails:
         monkeypatch: pytest.MonkeyPatch,
         validation_details: bool,
     ) -> None:
-        """Connexion's request validation messages are only logged by default."""
+        """Connexion's request validation messages are only logged without details."""
         # other tests may (re)configure logging
         monkeypatch.setattr(validation_logger, "disabled", False)
         monkeypatch.setattr(validation_logger, "propagate", True)
