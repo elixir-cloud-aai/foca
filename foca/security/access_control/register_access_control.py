@@ -70,8 +70,7 @@ def register_access_control(
             :py:mod:`foca.security.access_control.ownership_server` do not
             enforce access control policies, group settings keep all group
             mappings from applying (cf. :py:func:`_check_group_config`), or
-            no group or configured
-            policy rule grants the role `admin` and
+            no group or configured policy rule grants the role `admin` and
             `access_control.require_admin` is set (cf.
             :py:func:`_check_admin_role`).
     """
