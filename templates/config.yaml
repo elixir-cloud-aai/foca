@@ -75,9 +75,10 @@ security:
     # Requires trusted `issuers`; all other access control options require
     # `enabled: True`
     enabled: False
-    # Refuse to start if no group (`group_mapping`) or service client
-    # (`client_mapping`) is mapped to the role `admin` and no rule of
-    # `policies` grants it, instead of logging a warning
+    # Refuse to start if no group (`group_mapping`, with `claim_groups`
+    # set) or service client (`client_mapping`) is mapped to the role
+    # `admin` and no rule of `policies` grants it, instead of logging a
+    # warning
     require_admin: False
 
 # API CONFIGURATION

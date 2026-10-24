@@ -58,7 +58,10 @@ is enabled, `Foca.create_app()` checks them and logs what to change:
   "user:alice", admin]`), a warning is logged, as nobody is then an admin
   via mappings or configured rules. Mapped groups count only if
   `claim_groups` is set, and rules for groups (`group:<value>`) only if
-  group claim values are used as group subjects (see below). Roles
+  group claim values are used as group subjects (see below). Only direct
+  grants are checked: a rule granting `admin` to a role (e.g., `[g, ops,
+  admin]`) or to a service client (`client:<client ID>`) counts, whether
+  or not any subject can get that role or is that client. Roles
   granted via stored policy rules (e.g., via the permissions API) are not
   checked, and still apply. With `require_admin: true`, the app refuses to
   start (`ValueError`) instead, before anything is stored; set it if the

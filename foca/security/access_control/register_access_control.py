@@ -226,7 +226,9 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
     The groups and service clients mapped to the role are logged. Groups
     count only if a group claim is set (`claim_groups`), and configured
     rules for groups (`group:<value>`) only if group claim values are also
-    used as group subjects, as they don't apply otherwise. Roles granted via
+    used as group subjects, as they don't apply otherwise. Only direct grants
+    are checked: rules granting the role to roles or service clients count,
+    whether or not any request can have them. Roles granted via
     stored policy rules (e.g., via the permissions API) are not checked, as
     the database may not be available yet, and still apply.
 
@@ -260,8 +262,8 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
                 ADMIN_ROLE,
                 ", ".join(escape_log_value(key) for key in mapped),
             )
-    # Global role rules (`g, <subject>, admin`), also of roles granted the
-    # role in turn
+    # Direct global role rules (`g, <subject>, admin`), also for roles,
+    # without checking that any request can have the subject
     found = found or any(
         len(rule) == 3
         and rule[0] == "g"
