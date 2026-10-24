@@ -1,5 +1,6 @@
 """Enforcement of access control policies and helpers for managing them."""
 
+import copy
 import inspect
 import logging
 import threading
@@ -85,6 +86,17 @@ def _get_claims() -> dict[str, Any]:
     # FOCA's `validate_token()` returns claims under key `claims`
     claims = token_info.get("claims", token_info)
     return claims if isinstance(claims, dict) else {}
+
+
+def get_current_claims() -> dict[str, Any]:
+    """Get the claims of the current request.
+
+    Returns:
+        Copy of the claims of the token validated for the current request
+        (including claims added from the user info, if configured), or an
+        empty dictionary if there is none.
+    """
+    return copy.deepcopy(_get_claims())
 
 
 def get_current_subject() -> str | None:
