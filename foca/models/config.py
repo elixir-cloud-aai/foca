@@ -200,6 +200,20 @@ class ExceptionConfig(FOCABaseConfig):
             ``application/json`` for APIs whose specifications declare it for
             error responses (as many GA4GH API specifications do). The body
             is the same for all media types.
+        validation_details: Whether responses to requests rejected by
+            Connexion's validation (`BadRequestProblem` and
+            `ExtraParameterProblem`) get the reason of the rejection (e.g.,
+            the validator's message) as `detail`, instead of the problem
+            details mapped to the exception class. If true, the reason is
+            also logged (at `INFO`, shortened and escaped) instead of the
+            exception, and Connexion's validation logger
+            (`connexion.decorators.validation`) is raised to `CRITICAL`, as
+            it logs the validator's message in full and unescaped.
+        max_detail_length: Maximum length of request-specific details in
+            responses (cf. `validation_details` and
+            :py:func:`foca.errors.exceptions.problem_response`) and log
+            messages (cf. :py:func:`foca.errors.exceptions.shorten_detail`);
+            longer details are shortened in the middle.
 
     Attributes:
         mapping: Path to a dictionary mapping exception classes to problem
@@ -209,6 +223,10 @@ class ExceptionConfig(FOCABaseConfig):
         logging: Specifies if and how exceptions and their problem details
             are logged.
         media_type: Media type of all error responses, in lower case.
+        validation_details: Whether responses to requests rejected by
+            Connexion's validation get the reason as `detail`.
+        max_detail_length: Maximum length of request-specific details in
+            responses and log messages.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -223,12 +241,18 @@ class ExceptionConfig(FOCABaseConfig):
         <ExceptionLoggingEnum.oneline: 'oneline'>
         >>> exceptions.media_type
         'application/problem+json'
+        >>> exceptions.validation_details
+        False
+        >>> exceptions.max_detail_length
+        500
     """
 
     mapping: str | None = None
     public_members: list[str] | None = None
     logging: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline
     media_type: str = DEFAULT_ERROR_MEDIA_TYPE
+    validation_details: bool = False
+    max_detail_length: PositiveInt = 500
     # Problem details by exception class, imported from `mapping`
     _problems: dict[type[BaseException], dict[str, Any]] = PrivateAttr(
         default_factory=dict
