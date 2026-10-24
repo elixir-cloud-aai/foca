@@ -163,6 +163,30 @@ def set_release(text: str, version: str, date: datetime.date) -> str:
     return text
 
 
+def release_version(text: str) -> str | None:
+    """Return the version of the citation file, the current release version.
+
+    It is the single source of the release version on `dev`: `set` sets it
+    shortly before the release is tagged, and the docs (`docs/hooks.py`) and
+    the test of hard-coded versions (`tests/test_version_mentions.py`) read
+    it.
+
+    Args:
+        text: Content of the citation file.
+
+    Returns:
+        The value of `version`, or `None` if the key is missing.
+
+    Raises:
+        ValueError: If `version` occurs more than once, or has an unsupported
+            format, or is not a release version.
+    """
+    version = _value(text, "version")
+    if version is not None:
+        _check_version(version)
+    return version
+
+
 def check_release(text: str, version: str, today: datetime.date) -> None:
     """Check that the citation file has the version of a release.
 

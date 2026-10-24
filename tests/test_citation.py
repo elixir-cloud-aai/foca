@@ -35,6 +35,44 @@ def test_repository_file() -> None:
     assert released.count("\nversion:") == 1
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (TEXT, "0.1.0"),
+        ("version: 1.2.3rc1  # comment\n", "1.2.3rc1"),
+        ("cff-version: 1.2.0\n", None),
+        # Nested keys are not the release version
+        ("references:\n  - version: 1.0.0\n", None),
+    ],
+)
+def test_release_version(text: str, expected: str | None) -> None:
+    """The release version is the top-level `version`, if there is one.
+
+    Args:
+        text: Content of the citation file.
+        expected: Expected release version.
+    """
+    assert citation.release_version(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ('version: "1.0"\n', "is not a release version"),
+        ("version: 1.0.0\nversion: 1.0.1\n", "occurs more than once"),
+    ],
+)
+def test_release_version_invalid(text: str, message: str) -> None:
+    """Invalid or duplicate versions are errors.
+
+    Args:
+        text: Content of the citation file.
+        message: Part of the expected error message.
+    """
+    with pytest.raises(ValueError, match=message):
+        citation.release_version(text)
+
+
 def test_set_release_replaces_keys() -> None:
     """Existing keys get the new values, the rest is kept."""
     text = citation.set_release(TEXT, "1.2.3rc1", DATE)
