@@ -106,7 +106,7 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  publish:
+  pypi:
     name: Publish to PyPI
     # Only once the images passed the scan, as PyPI files are immutable
     needs: [build, scan]
@@ -131,14 +131,14 @@ jobs:
           skip-existing: true
 
   # Builds each image once and pushes it by digest only (untagged, with SBOM
-  # and provenance attestations, `mode=max`), for `scan` to scan and `docker`
-  # to sign and tag. The digest is passed on as an artifact (`digest-pyV`),
-  # as all jobs of a matrix share one set of outputs. Runs before the approval
-  # in the `pypi` environment; digests of runs that fail (or fail the scan)
-  # are never signed or tagged, but stay on Docker Hub, untagged (pullable by
-  # digest only)
+  # and provenance attestations, `mode=max`), for `scan` to scan and
+  # `publish-image` to sign and tag. The digest is passed on as an artifact
+  # (`digest-pyV`), as all jobs of a matrix share one set of outputs. Runs
+  # before the approval in the `pypi` environment; digests of runs that fail
+  # (or fail the scan) are never signed or tagged, but stay on Docker Hub,
+  # untagged (pullable by digest only)
   push:
-    name: Push image (Python ${{ matrix.python-version }})
+    name: Push release image (Python ${{ matrix.python-version }})
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -203,10 +203,10 @@ jobs:
   # vulnerabilities) before anything is published, in a job without
   # credentials or signing permissions, as the Trivy action resolves the
   # Trivy binary from a mutable tag; the images are public, so pulling them
-  # needs no login. See the `scan` job of `checks.yml`. No upload to code
+  # needs no login. See the `scan` job of `ci.yml`. No upload to code
   # scanning
   scan:
-    name: Scan image (Python ${{ matrix.python-version }})
+    name: Scan release image (Python ${{ matrix.python-version }})
     needs: push
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -247,9 +247,9 @@ jobs:
   # signing, via the workflow's OIDC token) and only then tags exactly that
   # digest, so that the published images are the scanned ones; see
   # "Verifying images and charts" in docs/deployment.md
-  docker:
-    name: Publish image (Python ${{ matrix.python-version }})
-    needs: [build, scan, publish]
+  publish-image:
+    name: Publish release image (Python ${{ matrix.python-version }})
+    needs: [build, scan, pypi]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -343,9 +343,9 @@ jobs:
               fi
           done
 
-  github-release:
-    name: Create GitHub release
-    needs: [build, publish, docker]
+  publish:
+    name: Publish release
+    needs: [build, pypi, publish-image]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
