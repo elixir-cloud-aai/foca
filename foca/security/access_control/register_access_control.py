@@ -68,7 +68,9 @@ def register_access_control(
         ValueError: Operations of the permissions API routed to the
             controllers of
             :py:mod:`foca.security.access_control.ownership_server` do not
-            enforce access control policies, or no group or configured
+            enforce access control policies, group settings keep all group
+            mappings from applying (cf. :py:func:`_check_group_config`), or
+            no group or configured
             policy rule grants the role `admin` and
             `access_control.require_admin` is set (cf.
             :py:func:`_check_admin_role`).
@@ -178,10 +180,18 @@ def register_access_control(
 
 
 def _check_group_config(access_control_config: AccessControlConfig) -> None:
-    """Warn about group settings that keep groups or their roles from applying.
+    """Check that groups and their roles can apply.
+
+    Settings that keep all group mappings from applying make the app refuse
+    to start; settings that keep groups or their roles from applying in
+    other ways are warned about.
 
     Args:
         access_control_config: Access control configuration.
+
+    Raises:
+        ValueError: `claim_groups` has surrounding whitespace, or
+            `group_mapping` maps groups, but `claim_groups` is not set.
     """
     conf = access_control_config
     if conf.keep_group_subjects and conf.group_mapping is None:
@@ -193,20 +203,26 @@ def _check_group_config(access_control_config: AccessControlConfig) -> None:
     claim_groups = conf.claim_groups
     # FOCA looks the claim up as written
     if claim_groups is not None and claim_groups != claim_groups.strip():
-        logger.warning(
+        raise ValueError(
             "'security.access_control.claim_groups' has surrounding "
-            "whitespace (%r), but is looked up as written, so users likely "
-            "have no groups: remove the whitespace.",
-            claim_groups,
+            f"whitespace ({claim_groups!r}), but is looked up as written, so "
+            "users would have no groups: remove the whitespace."
+        )
+    if conf.group_mapping and not claim_groups:
+        raise ValueError(
+            "Groups are mapped to roles "
+            "('security.access_control.group_mapping'), but no group claim "
+            "is set, so no mapping would apply: set "
+            "'security.access_control.claim_groups' to the claim with the "
+            "groups of users (and add it to 'security.auth.userinfo_claims' "
+            "if the identity provider releases it via user info only), or "
+            "unset 'security.access_control.group_mapping'."
         )
     if conf.group_mapping is not None and not claim_groups:
         logger.warning(
-            "Groups are mapped to roles "
-            "('security.access_control.group_mapping'), but no group claim "
-            "is set, so no mapping applies: set "
-            "'security.access_control.claim_groups' to the claim with the "
-            "groups of users (and add it to 'security.auth.userinfo_claims' "
-            "if the identity provider releases it via user info only)."
+            "'security.access_control.group_mapping' is set (empty), but no "
+            "group claim is set ('security.access_control.claim_groups'), so "
+            "users have no groups."
         )
     # Unmapped group claim values are dropped once a mapping is set, also an
     # empty one
@@ -223,11 +239,12 @@ def _check_group_config(access_control_config: AccessControlConfig) -> None:
 def _check_admin_role(access_control_config: AccessControlConfig) -> None:
     """Check that groups, service clients or configured rules grant `admin`.
 
-    The groups and service clients mapped to the role are logged. Groups
-    count only if a group claim is set (`claim_groups`, without surrounding
-    whitespace), and configured
-    rules for groups (`group:<value>`) only if group claim values are also
-    used as group subjects, as they don't apply otherwise. Only direct grants
+    The groups and service clients mapped to the role are logged. Expects
+    group settings that keep all group mappings from applying to be rejected
+    already (cf. :py:func:`_check_group_config`). Configured rules for groups
+    (`group:<value>`) count only if a group claim is set (`claim_groups`) and
+    its values are also used as group subjects, as they don't apply
+    otherwise. Only direct grants
     are checked: rules granting the role to roles or service clients count,
     whether or not any request can have them. Roles granted via
     stored policy rules (e.g., via the permissions API) are not checked, as
@@ -243,31 +260,24 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
             `require_admin` is set.
     """
     conf = access_control_config
-    # A claim with surrounding whitespace is likely not found (cf.
-    # `_check_group_config()`)
-    has_groups = (
-        bool(conf.claim_groups)
-        and conf.claim_groups == (conf.claim_groups or "").strip()
-    )
-    keeps_group_subjects = has_groups and (
+    keeps_group_subjects = bool(conf.claim_groups) and (
         conf.group_mapping is None or conf.keep_group_subjects
     )
     found = False
-    for name, mapping, applies in (
-        ("Groups", conf.group_mapping, has_groups),
-        ("Service clients", conf.client_mapping, True),
+    for name, mapping in (
+        ("Groups", conf.group_mapping),
+        ("Service clients", conf.client_mapping),
     ):
         mapped = sorted(
             key for key, role in (mapping or {}).items() if role == ADMIN_ROLE
         )
         if mapped:
-            found = found or applies
+            found = True
             logger.info(
-                "%s mapped to the role '%s': %s%s.",
+                "%s mapped to the role '%s': %s.",
                 name,
                 ADMIN_ROLE,
                 ", ".join(escape_log_value(key) for key in mapped),
-                "" if applies else " (not applied, see the group claim warning)",
             )
     # Direct global role rules (`g, <subject>, admin`), also for roles,
     # without checking that any request can have the subject

@@ -282,7 +282,7 @@ class ExceptionConfig(FOCABaseConfig):
         >>> exceptions.media_type
         'application/problem+json'
         >>> exceptions.validation_details
-        False
+        True
         >>> exceptions.max_detail_length
         500
     """
@@ -291,7 +291,7 @@ class ExceptionConfig(FOCABaseConfig):
     public_members: list[str] | None = None
     logging: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline
     media_type: str = DEFAULT_ERROR_MEDIA_TYPE
-    validation_details: bool = False
+    validation_details: bool = True
     max_detail_length: PositiveInt = 500
     # Problem details by exception class, imported from `mapping`
     _problems: dict[type[BaseException], dict[str, Any]] = PrivateAttr(
@@ -777,10 +777,14 @@ class AccessControlConfig(FOCABaseConfig):
             entitlements of the subject (e.g., `eduperson_entitlement`). If
             set, its values are used as additional subjects (roles) when
             enforcing policies, prefixed with `group:` unless
-            `group_mapping` is set.
+            `group_mapping` is set. Must not have surrounding whitespace, as
+            the claim is looked up as written (the app refuses to start,
+            `ValueError`).
         group_mapping: Mapping of values of `claim_groups` to roles. If set,
             only mapped values are used as roles, unless
-            `keep_group_subjects` is set. Roles must not be roles of
+            `keep_group_subjects` is set. If it maps any value,
+            `claim_groups` must be set (the app refuses to start,
+            `ValueError`). Roles must not be roles of
             `resource_roles` (mapped roles apply to every resource) and must
             not start with `subject_prefix`, `group:` or `client:`.
         keep_group_subjects: Whether to also use all values of
