@@ -87,7 +87,9 @@ acted for: they are sent with their own `detail` and logged at `INFO`
 instead of as exceptions, so keep internals out of their `detail`. Update
 clients and tests that expect the mapped `detail`, or set
 `exceptions.validation_details: false` to keep the previous responses and
-logs.
+logs (Connexion's validation logger is filtered for the whole process, so
+its messages on rejected requests are only logged again if no app of the
+process has validation details on).
 
 ## Other changes
 
