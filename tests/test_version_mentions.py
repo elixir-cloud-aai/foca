@@ -25,22 +25,20 @@ assert _spec and _spec.loader
 citation = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(citation)
 
-# Files that may name the release version: its source, the changelog, the
-# pins of the pre-commit hooks, and the tests of the release tooling, whose
-# versions are test data (if one is the release version, it means no other)
+# Files that may name the release version: its source, the changelog, and
+# the tests of the release tooling, whose versions are test data (if one is
+# the release version, it means no other)
 ALLOWED_FILES = (
     "CITATION.cff",
-    # Versions of the hooks' tools (e.g., `rev: v1.2.3`), never FOCA's
-    ".pre-commit-config.yaml",
     "docs/changelog.md",
     "tests/test_citation.py",
     "tests/test_docs_hooks.py",
     "tests/test_release_assets.py",
     "tests/test_version_mentions.py",
 )
-# Prefixes of files that may name it: the migration guides, which are about
-# their release (`docs/migration-X.Y.md`)
-ALLOWED_PREFIXES = ("docs/migration-",)
+# Files that may name it by their path: the migration guides, which are
+# about their release (`docs/migration-X.Y.md`)
+ALLOWED_PATHS = re.compile(r"docs/migration-[0-9]+\.[0-9]+\.md")
 # Mentions of the version that refer to a release of FOCA (`{version}` is the
 # escaped version, `{end}` the end of a version): the tag, the image and
 # package, the version in prose or in inline code. Other mentions of the same
@@ -53,7 +51,8 @@ MENTIONS = (
     r"/en/v?{version}{end}",
     # The image, the package (also with extras and any version specifier,
     # and on PyPI, `project/foca/1.2.3/`) and FOCA in prose
-    r"(?i:\bfoca)(?:\[[^\]]*\])?(?:[:\-@/]|\s+\(?|[<>=~!]=?=?)v?{version}{end}",
+    r"(?i:\bfoca)(?:\[[^\]]*\])?\s*(?:\(?\s*[<>=~!]=?=?|[:\-@/(])?\s*"
+    r"v?{version}{end}",
     r"(?<![0-9.]){version}{end} releases?\b",
     r"(?i:\b(?:release|version)s?)\s+v?{version}{end}",
     r"`v?{version}`",
@@ -76,6 +75,8 @@ ALLOWED_LINES = (
     # Comments of actions pinned to commits (`uses: x/y@<sha> # v1.2.3`),
     # which name the versions of the actions
     r"@[0-9a-f]{{40}} # v{version}\S*",
+    # Revisions of the pre-commit hooks (`rev: v1.2.3`), never FOCA's
+    r"^\s*rev: v?{version}\S*$",
 )
 
 
@@ -118,6 +119,8 @@ def mentions(text: str, version: str) -> list[tuple[int, str]]:
         ("foca==1.2.3 foca@1.2.3", [(1, "foca==1.2.3 foca@1.2.3")]),
         ("foca>=1.2.3", [(1, "foca>=1.2.3")]),
         ("foca~=1.2.3", [(1, "foca~=1.2.3")]),
+        ("foca >= 1.2.3", [(1, "foca >= 1.2.3")]),
+        ("foca[docs] (>=1.2.3)", [(1, "foca[docs] (>=1.2.3)")]),
         ("foca[docs]==1.2.3", [(1, "foca[docs]==1.2.3")]),
         ("pypi.org/project/foca/1.2.3/", [(1, "pypi.org/project/foca/1.2.3/")]),
         ("foca.readthedocs.io/en/1.2.3/", [(1, "foca.readthedocs.io/en/1.2.3/")]),
@@ -155,6 +158,7 @@ def mentions(text: str, version: str) -> list[tuple[int, str]]:
         ("- Migrating to [1.2.3](migration-1.2.md), [1.2.2](migration-1.1.md)", []),
         ("From FOCA 1.2.3 on, images are signed", []),
         (f"uses: x/y@{'0' * 40} # v1.2.3", []),
+        ("    rev: v1.2.3", []),
         # Only the allowed part of a line is skipped
         (
             "From FOCA 1.2.3 on, release 1.2.3 is",
@@ -176,6 +180,25 @@ def test_mentions_pre_release() -> None:
     """Pre-releases are found, but not as part of other pre-releases."""
     text = "foca:1.2.3rc1\nTag v1.2.3rc1\nfoca:1.2.3rc10"
     assert mentions(text, "1.2.3rc1") == [(1, "foca:1.2.3rc1"), (2, "Tag v1.2.3rc1")]
+
+
+@pytest.mark.parametrize(
+    ("name", "allowed"),
+    [
+        ("docs/migration-1.2.md", True),
+        ("docs/migration-1.2.md.bak", False),
+        ("docs/migration-notes.md", False),
+        ("docs/sub/docs/migration-1.2.md", False),
+    ],
+)
+def test_allowed_paths(name: str, allowed: bool) -> None:
+    """Only the migration guides themselves are allowed by their path.
+
+    Args:
+        name: Path of a file, relative to the repository root.
+        allowed: Whether the file may name the release version.
+    """
+    assert (ALLOWED_PATHS.fullmatch(name) is not None) == allowed
 
 
 def _tracked_files() -> list[str]:
@@ -202,7 +225,7 @@ def test_release_version_not_hard_coded() -> None:
         pytest.skip("CITATION.cff has no version (no release yet)")
     found = []
     for name in _tracked_files():
-        if name in ALLOWED_FILES or name.startswith(ALLOWED_PREFIXES):
+        if name in ALLOWED_FILES or ALLOWED_PATHS.fullmatch(name):
             continue
         path = ROOT / name
         if not path.is_file():

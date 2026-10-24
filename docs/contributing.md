@@ -254,7 +254,7 @@ as the version of a dependency) anywhere else than in `CITATION.cff`, the
 changelog, the migration guides (`docs/migration-*.md`), the tests of the
 release tooling, links to the notes and assets of a release, "Migrating to
 X" links and headings, and statements like "From FOCA X on", which are about
-that release itself; versions of tools (in `.pre-commit-config.yaml` and in
+that release itself; versions of tools (the `rev` of pre-commit hooks and
 the comments of pinned actions) are not checked.
 
 Features and fixes are merged into `dev`. Branch `main` only ever moves
