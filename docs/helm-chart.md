@@ -244,11 +244,11 @@ setup below:
   There are no default peers (see [NetworkPolicy
   peers](#networkpolicy-peers)).
 - **Keep-alive:** Gunicorn closes idle connections after
-  `<valuesKey>.gunicorn.keepalive` seconds (100 in the petstore chart, as
-  in `foca.gunicorn_config`). Keep this longer
-  than the proxy's idle timeout of connections to the app, as the proxy might
-  otherwise send a request on a connection that Gunicorn closes at the same
-  time, which fails with `502` or `503`.
+  `<valuesKey>.gunicorn.keepalive` seconds, as set in the app chart (100 in
+  the petstore example chart, matching `foca.gunicorn_config`). Keep this
+  longer than the proxy's idle timeout of connections to the app, as the
+  proxy might otherwise send a request on a connection that Gunicorn closes
+  at the same time, which fails with `502` or `503`.
 
 ### Gateway API
 
