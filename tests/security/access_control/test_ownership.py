@@ -948,7 +948,7 @@ class TestOwnerField:
         with as_caller(app, CONQUEST), pytest.raises(BadRequestProblem):
             set_owner_field({}, on_behalf_of=" alice")
 
-    @pytest.mark.parametrize("field", ["", "meta.owner", "$owner"])
+    @pytest.mark.parametrize("field", ["", "meta.owner", "$owner", "own\0er", "_id"])
     def test_invalid_field(self, app: Flask, field: str) -> None:
         """Owners are stored in top-level fields."""
         with as_caller(app, ALICE):

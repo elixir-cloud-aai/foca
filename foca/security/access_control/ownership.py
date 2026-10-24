@@ -879,12 +879,20 @@ def _check_owner_field(field: str) -> None:
 
     Raises:
         ValueError: The field is empty, names a nested field (with `.`),
-            or starts with `$`, which MongoDB reserves for operators.
+            starts with `$`, which MongoDB reserves for operators, contains
+            a NUL character, which BSON does not allow, or is `_id`, the
+            document's primary key.
     """
-    if not field or "." in field or field.startswith("$"):
+    if (
+        not field
+        or "." in field
+        or "\0" in field
+        or field.startswith("$")
+        or field == "_id"
+    ):
         raise ValueError(
-            f"Invalid owner field '{field}': expected a top-level field name "
-            "without '.' and not starting with '$'"
+            f"Invalid owner field {field!r}: expected a top-level field name "
+            "other than '_id', without '.' or NUL, and not starting with '$'"
         )
 
 
