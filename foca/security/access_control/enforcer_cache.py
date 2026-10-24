@@ -77,6 +77,19 @@ def get_resource_role_ptypes(model: Model) -> list[str]:
     ]
 
 
+def _refuse_update(*args: Any, **kwargs: Any) -> bool:
+    """Refuse to update policy rules (cf. :py:class:`SharedEnforcer`).
+
+    Args:
+        *args: Arguments of Casbin's method.
+        **kwargs: Keyword arguments of Casbin's method.
+
+    Raises:
+        NotImplementedError: Always.
+    """
+    raise NotImplementedError(_UPDATE_NOT_SUPPORTED)
+
+
 class SharedEnforcer(Enforcer):
     """Casbin enforcer shared by the threads of an app instance.
 
@@ -87,41 +100,7 @@ class SharedEnforcer(Enforcer):
     rules instead.
     """
 
-    def _update_policy(self, *args: Any, **kwargs: Any) -> bool:
-        """Refuse to update a rule.
-
-        Args:
-            *args: Arguments of Casbin's method.
-            **kwargs: Keyword arguments of Casbin's method.
-
-        Raises:
-            NotImplementedError: Always.
-        """
-        raise NotImplementedError(_UPDATE_NOT_SUPPORTED)
-
-    def _update_policies(self, *args: Any, **kwargs: Any) -> bool:
-        """Refuse to update rules.
-
-        Args:
-            *args: Arguments of Casbin's method.
-            **kwargs: Keyword arguments of Casbin's method.
-
-        Raises:
-            NotImplementedError: Always.
-        """
-        raise NotImplementedError(_UPDATE_NOT_SUPPORTED)
-
-    def _update_filtered_policies(self, *args: Any, **kwargs: Any) -> bool:
-        """Refuse to update rules.
-
-        Args:
-            *args: Arguments of Casbin's method.
-            **kwargs: Keyword arguments of Casbin's method.
-
-        Raises:
-            NotImplementedError: Always.
-        """
-        raise NotImplementedError(_UPDATE_NOT_SUPPORTED)
+    _update_policy = _update_policies = _update_filtered_policies = _refuse_update
 
 
 class ResourceRoleManager(DomainManager):

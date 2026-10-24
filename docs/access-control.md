@@ -1276,7 +1276,9 @@ The trade-offs:
   call `mark_changed()` (see below).
 - **Some changes require all rules to be loaded again**: more than 100
   changes since the instance last checked, replacing more than 100
-  configured rules, `save_policy()`, `mark_changed()`, and models whose
+  configured rules, `save_policy()`, `mark_changed()`, removing rules by
+  filter with empty values (e.g., `remove_filtered_policy()`, as Casbin
+  matches them as wildcards in memory only), and models whose
   rules Casbin sorts (with priorities or subject hierarchies) or with
   conditional roles. Loading all rules takes time linear in their number
   (about 2 s for 100,000 rules), during which requests of the instance wait.

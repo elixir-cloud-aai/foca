@@ -420,15 +420,13 @@ class Adapter(persist.Adapter):
                 query[CONFIGURED_FIELD] = {"$ne": True}
             # Recorded before replacing, too, as a retry would not find the
             # replaced rule anymore (cf. `remove_policy_by_id()`)
-            current_change = _document_change(self._collection.find_one(query))
-            if current_change is not None:
-                self._record_changes([current_change, *changes])
+            current = _document_change(self._collection.find_one(query))
+            if current is not None:
+                self._record_changes(_distinct_changes(current, *changes))
             replaced = self._collection.find_one_and_replace(
                 query, document, upsert=True
             )
-            for change in (_document_change(replaced), current_change):
-                if change is not None and change not in changes:
-                    changes.insert(0, change)
+            changes = _distinct_changes(current, _document_change(replaced), *changes)
         else:
             id = self._insert(document)
         self._record_changes(changes)
@@ -671,12 +669,13 @@ class Adapter(persist.Adapter):
         (`access_control.policies`) are not removed (cf.
         :py:meth:`_delete_policy_lines`).
 
+        The removal is recorded before removing the rule, as a retry would
+        not find the rule anymore to record its removal (e.g., after
+        recording failed or the app instance stopped meanwhile), and after,
+        for app instances that checked for changes meanwhile.
+
         Args:
             id: Identifier of the rule.
-
-        The removal is recorded before and after removing the rule: a retry
-        would not find the rule anymore to record its removal, e.g., after
-        recording failed or the app instance stopped meanwhile.
 
         Returns:
             Whether a rule was removed.
@@ -685,16 +684,13 @@ class Adapter(persist.Adapter):
         current = self._collection.find_one(query)
         if current is None:
             return False
-        changes = [change for change in [_document_change(current)] if change]
-        if changes:
+        if changes := _distinct_changes(_document_change(current)):
             self._record_changes(changes)
         removed = self._collection.find_one_and_delete(query)
         if removed is None:
             return False
-        removed_change = _document_change(removed)
-        if removed_change is not None and removed_change not in changes:
-            changes.append(removed_change)
-        if changes:
+        # The rule may have been replaced meanwhile
+        if changes := _distinct_changes(*changes, _document_change(removed)):
             self._record_changes(changes)
         return True
 
@@ -1161,6 +1157,22 @@ def _change(ptype: str, field_index: int, values: Sequence[str]) -> dict[str, An
         Change, as recorded (cf. :py:class:`PolicyChanges`).
     """
     return {"ptype": ptype, "index": field_index, "values": list(values)}
+
+
+def _distinct_changes(*changes: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Get the distinct recorded changes, in order.
+
+    Args:
+        *changes: Changes, or `None` for rules without changes to record.
+
+    Returns:
+        Changes other than `None`, without duplicates.
+    """
+    distinct: list[dict[str, Any]] = []
+    for change in changes:
+        if change is not None and change not in distinct:
+            distinct.append(change)
+    return distinct
 
 
 def _rule_change(ptype: Any, values: Sequence[Any]) -> dict[str, Any] | None:

@@ -461,7 +461,10 @@ class TestEnforcerCache:
             return found
 
         monkeypatch.setattr(collection, "find_one", find_and_remove)
+        version = other_adapter.get_changes().version
         assert other_adapter.remove_policy_by_id(id) is False
+        # Only recorded before removing
+        assert other_adapter.get_changes().version == version + 1
 
     def test_replaced_meanwhile(
         self,
@@ -481,7 +484,6 @@ class TestEnforcerCache:
             return found
 
         monkeypatch.setattr(collection, "find_one", find_and_replace)
-        cache.get_enforcer()
         assert other_adapter.remove_policy_by_id(id) is True
         monkeypatch.undo()
         assert _g2_rules(cache.get_enforcer()) == []
