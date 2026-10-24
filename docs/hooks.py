@@ -1,21 +1,24 @@
 """MkDocs hooks: the release version and the chart version in the docs.
 
-Pages write the current release version as `{{ version }}` (`VARIABLE`),
-e.g., in commands such as `docker pull elixircloud/foca:{{ version }}`, and
-the version of the Helm library chart `foca-common` (versioned independently
-of FOCA) as `{{ chart_version }}` (`CHART_VARIABLE`), e.g., in the
-dependency of an app chart, so that they are not hard-coded in many places
-(see "Versioning and releases" in `docs/contributing.md`). The hook replaces
-`VARIABLE` with the `version` of `CITATION.cff`, the latest release (or the
-upcoming one, once its citation metadata is set; without one, the docs show
-`X.Y.Z` (`UNRELEASED`)), and `CHART_VARIABLE` with the `version` of
-`charts/foca-common/Chart.yaml` (`CHART`), the latest chart release (or the
-upcoming one, once the chart changed since), both also in code blocks. Only
-these exact forms are replaced; other `{{ ... }}`, e.g., of Helm templates
-in `docs/helm-chart.md` or of `docker buildx imagetools inspect --format`,
-are left as they are (which is why the docs don't use mkdocs-macros, whose
-Jinja would process them). Snippets (`--8<--` sections of `README.md`) are
-included after the hook ran, so they can't use them.
+Versions are not hard-coded in many places of the docs, but written as
+placeholders (see "Versioning and releases" in `docs/contributing.md`),
+which the hook replaces, also in code blocks:
+
+- `{{ version }}` (`VARIABLE`), e.g., in commands such as
+  `docker pull elixircloud/foca:{{ version }}`: the current release version,
+  the `version` of `CITATION.cff` (the latest release, or the upcoming one,
+  once its citation metadata is set; `UNRELEASED` without one).
+- `{{ chart_version }}` (`CHART_VARIABLE`), e.g., in the dependency of an
+  app chart: the version of the Helm library chart `foca-common`, which is
+  versioned independently of FOCA, the `version` of
+  `charts/foca-common/Chart.yaml` (`CHART`; the latest chart release, or the
+  upcoming one, once the chart changed since).
+
+Only these exact forms are replaced; other `{{ ... }}`, e.g., of Helm
+templates in `docs/helm-chart.md` or of `docker buildx imagetools inspect
+--format`, are left as they are (which is why the docs don't use
+mkdocs-macros, whose Jinja would process them). Snippets (`--8<--` sections
+of `README.md`) are included after the hook ran, so they can't use them.
 """
 
 import importlib.util

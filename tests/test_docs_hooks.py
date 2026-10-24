@@ -190,6 +190,19 @@ def test_on_page_markdown_chart_only(tmp_path: Path) -> None:
     )
 
 
+def test_on_page_markdown_invalid_chart(tmp_path: Path) -> None:
+    """An invalid chart version fails the build.
+
+    Args:
+        tmp_path: Directory of the docs settings and the chart.
+    """
+    chart = tmp_path / hooks.CHART
+    chart.parent.mkdir(parents=True)
+    chart.write_text("version: 1.2.3-rc.1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="is not a final version"):
+        _render("{{ chart_version }}", tmp_path)
+
+
 @pytest.mark.parametrize(
     "chart",
     [
@@ -231,9 +244,12 @@ def test_chart_version_invalid(chart: str) -> None:
 
 def test_substitute_chart_version() -> None:
     """The chart placeholder is replaced with the chart version."""
-    assert hooks.substitute_chart_version(
-        "a {{ chart_version }} b {{ chart_version }} {{ version }}", "1.2.3"
-    ) == ("a 1.2.3 b 1.2.3 {{ version }}")
+    assert (
+        hooks.substitute_chart_version(
+            "a {{ chart_version }} b {{ chart_version }} {{ version }}", "1.2.3"
+        )
+        == "a 1.2.3 b 1.2.3 {{ version }}"
+    )
 
 
 def test_docs_use_chart_placeholder() -> None:

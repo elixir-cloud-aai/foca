@@ -102,7 +102,11 @@ CHART_ALLOWED_FILES = (
 CHART_MENTIONS = (
     r"(?i:\bfoca-common)(?:[:@\-]|\s+v?)v?{version}{end}",
     r"\bchart-v{version}{end}",
-    r"^\s*version:\s*[\"']?{version}{end}",
+    # Helm commands (`helm show chart <ref>/foca-common --version X`)
+    r"(?i:\bfoca-common)\S*\s+--version[=\s]+[\"']?{version}{end}",
+    # The `version` of a dependency, on the line after its `name` (patterns
+    # with a newline are matched against the previous and the current line)
+    r"\bname:\s*[\"']?foca-common[\"']?\s*\n\s*version:\s*[\"']?{version}{end}",
 )
 # Parts of lines that may name it: statements of what applies before, since
 # or up to that chart release, which are about that release itself
@@ -133,18 +137,27 @@ def mentions(
         Number (from 1) and text of each line that mentions the version as a
         release (`patterns`; not as part of another version, e.g., `11.2.3`,
         `1.2.30` or `1.2.3rc1`), outside the parts that `allowed_lines`
-        allow.
+        allow. Patterns with a newline escape are matched against the
+        previous and the current line, e.g., for the `version` of a
+        dependency after its `name`.
     """
     fields = {"version": re.escape(version), "end": r"(?!\.?[0-9]|(?:a|b|rc)[0-9])"}
     found = [re.compile(pattern.format(**fields)) for pattern in patterns]
     allowed = [re.compile(pattern.format(**fields)) for pattern in allowed_lines]
     result = []
+    previous = ""
     for number, line in enumerate(text.splitlines(), start=1):
         checked = line
         for pattern in allowed:
             checked = pattern.sub(" ", checked)
-        if any(pattern.search(checked) for pattern in found):
+        if any(
+            pattern.search(
+                f"{previous}\n{checked}" if r"\n" in pattern.pattern else checked
+            )
+            for pattern in found
+        ):
             result.append((number, line))
+        previous = line
     return result
 
 
@@ -323,12 +336,26 @@ def test_release_version_not_hard_coded() -> None:
             "--source-ref refs/tags/chart-v1.2.3",
             [(1, "--source-ref refs/tags/chart-v1.2.3")],
         ),
-        ("    version: 1.2.3", [(1, "    version: 1.2.3")]),
-        ('version: "1.2.3"', [(1, 'version: "1.2.3"')]),
+        (
+            "dependencies:\n  - name: foca-common\n    version: 1.2.3",
+            [(3, "    version: 1.2.3")],
+        ),
+        ('- name: "foca-common"\n  version: "1.2.3"', [(2, '  version: "1.2.3"')]),
+        (
+            "helm show chart oci://x/foca-common --version 1.2.3",
+            [(1, "helm show chart oci://x/foca-common --version 1.2.3")],
+        ),
+        (
+            "helm pull foca-common --version=1.2.3",
+            [(1, "helm pull foca-common --version=1.2.3")],
+        ),
         # Other versions, and the number not as the chart's
         ("foca-common:11.2.3 foca-common:1.2.30 chart-v1.2.3.4", []),
         ("elixircloud/foca:1.2.3 appVersion: 1.2.3 FOCA 1.2.3", []),
-        ("  - version: 1.2.30", []),
+        ("- name: foca-common\n  version: 1.2.30", []),
+        # Versions of other things (e.g., OpenAPI's `info.version`)
+        ("info:\n  version: 1.2.3", []),
+        ("- name: foca-common\n  repository: x\nversion: 1.2.3", []),
         ("{{ chart_version }}", []),
         # Allowed lines
         ("Before foca-common 1.2.3, the chart set", []),
