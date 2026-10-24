@@ -111,6 +111,16 @@ resource's document (`set_owner_field()`) and filter by it
 Resource ownership via policy rules (`add_owner()` etc.) is unchanged and
 stays the default of FOCA's helpers.
 
+### Public URLs and typed custom configuration
+
+Apps can now set their public URL, as clients see it behind a reverse proxy
+or ingress, in [`server.public_url`](configuration/server.md#public-url),
+and build URLs of their paths with
+[`get_public_url()`](utilities.md#building-public-urls) (in
+`foca.utils.urls`), e.g., for `Location` headers. `get_custom_config()` (in
+`foca`) returns the [custom configuration](configuration/custom.md) of the
+app, typed. Both are opt-in: apps that don't use them need no changes.
+
 ### Logging
 
 Casbin no longer logs all stored rules (including user identifiers of

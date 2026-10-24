@@ -45,6 +45,24 @@ from foca import get_config
 max_size = get_config().custom.storage.max_size
 ```
 
+FOCA keeps the section as an untyped extra field of its configuration, so
+type checkers do not know the model. Use `get_custom_config()` to get it
+typed, e.g., in a helper of your app:
+
+```python title="my_app/config.py"
+from foca import get_custom_config
+
+
+def get_storage_config() -> StorageConfig:
+    return get_custom_config(CustomConfig).storage
+```
+
+`get_custom_config()` raises a `RuntimeError` if the custom configuration is
+missing or not an instance of the model, e.g., as `custom_config_model` is
+not set. Set it to the full module path of the model (here,
+`my_app.config.CustomConfig`) that your code imports: a model imported under
+another module path is another class.
+
 Without `custom_config_model`, the section (like any other unknown top-level
 section) is passed through as is, as a dictionary.
 

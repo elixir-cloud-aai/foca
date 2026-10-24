@@ -18,6 +18,9 @@ server:
   # Maximum size of request bodies in bytes (e.g., 10485760 for 10 MiB);
   # unlimited if null; bodies may be read before authentication
   max_content_length: null
+  # URL of the app as clients see it, with any path prefix of a reverse
+  # proxy (e.g., https://api.example.org/my-app/); none if null
+  public_url: null
 
 # EXCEPTION CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/exceptions/

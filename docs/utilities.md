@@ -90,6 +90,32 @@ as they are an error of the app, not of the client. For configuration fields
 that may also allow `mailto`, use `URLScheme` (`Literal["http", "https",
 "mailto"]`) from `foca.utils.urls`.
 
+## Building public URLs
+
+`get_public_url()` builds the URL of a path of the app as clients see it,
+e.g., for the `Location` header of a created resource, from the
+[public URL](configuration/server.md#public-url) of the app
+(`server.public_url`):
+
+```python
+from foca.utils.urls import get_public_url
+
+
+def post_pet(body: dict) -> tuple[dict, int, dict[str, str]]:
+    pet_id = ...
+    return {"id": pet_id}, 201, {"Location": get_public_url(f"/pets/{pet_id}")}
+```
+
+With `public_url: https://api.example.org/my-app/`, this returns
+`https://api.example.org/my-app/pets/<pet_id>`. The path follows the public
+URL and the root path of the app (`request.script_root`), both
+percent-encoded (e.g., `/pets/a b` becomes `/pets/a%20b`). URLs have no
+trailing slash, unless they are the root of the host (e.g.,
+`https://api.example.org/`). Call `get_public_url()` in a request context;
+it raises a `RuntimeError` if `public_url` is not set, and a `ValueError`
+for paths with dot segments (`.` or `..`), which clients would resolve,
+e.g., to URLs outside of the app.
+
 ## Logging requests and responses
 
 Decorate controllers with `log_traffic` to log requests and responses:
