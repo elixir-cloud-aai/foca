@@ -87,6 +87,8 @@ def test_server_config_public_url_unset() -> None:
         ("https://api.example.org/a%20b", "https://api.example.org/a%20b"),
         ("https://api.example.org/caf\u00e9", "https://api.example.org/caf%C3%A9"),
         ("http://[FE80::1%25eth0]:8080/x/", "http://[fe80::1%25eth0]:8080/x"),
+        ("https://api.example.org/x/../y", "https://api.example.org/y"),
+        ("https://api.example.org//x//y", "https://api.example.org/x/y"),
     ],
 )
 def test_server_config_public_url(url: str, normalized: str) -> None:

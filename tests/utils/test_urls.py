@@ -673,3 +673,12 @@ def test_get_public_url_literal(path: str, url: str) -> None:
     """Percent-encodings in paths are kept literally; slashes only are removed."""
     with _app("https://api.example.org").test_request_context():
         assert get_public_url(path) == url
+
+
+def test_get_public_url_surrogates() -> None:
+    """Paths with characters that cannot be encoded are rejected."""
+    with (
+        _app("https://api.example.org").test_request_context(),
+        pytest.raises(InvalidURL, match="surrogates"),
+    ):
+        get_public_url("/services/\ud800")

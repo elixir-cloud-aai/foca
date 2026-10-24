@@ -19,6 +19,7 @@ from typing import Any, Literal, get_args
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 import idna
+from flask import request
 
 URLScheme = Literal["http", "https", "mailto"]
 """Supported URL schemes, e.g., for app configuration models."""
@@ -270,13 +271,11 @@ def get_public_url(path: str = "") -> str:
             (`.` or `..`), which clients would resolve, e.g., to URLs outside
             of the app. As `path` may come from clients (e.g., identifiers in
             the request path), FOCA's problem handler responds with `400 Bad
-            Request` unless the app handles the exception.
+            Request` unless the app handles the exception. Also raised for
+            paths with characters that cannot be encoded (unpaired
+            surrogates).
     """
-    # Imported here, so that the URL checks (e.g., of config models, which
-    # this module is imported by) do not depend on Flask and the config
-    from flask import request  # noqa: PLC0415 (see above)
-
-    from foca.config.access import get_config  # noqa: PLC0415 (see above)
+    from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
 
     public_url = get_config().server.public_url
     if public_url is None:
@@ -289,7 +288,12 @@ def get_public_url(path: str = "") -> str:
     parts = urlsplit(public_url)
     # The path prefix of `public_url` is normalized, i.e., encoded as it
     # appears in URLs, and is therefore not encoded again
-    segments = (parts.path, quote(root), quote(path))
+    try:
+        segments = (parts.path, quote(root), quote(path))
+    except UnicodeEncodeError as exc:
+        raise InvalidURL(
+            "Paths of public URLs must not contain unpaired surrogates."
+        ) from exc
     url_path = "/".join(filter(None, (segment.strip("/") for segment in segments)))
     return urlunsplit((parts.scheme, parts.netloc, f"/{url_path}", "", ""))
 

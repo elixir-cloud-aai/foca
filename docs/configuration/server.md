@@ -58,7 +58,8 @@ server:
 
 The URL must be an absolute `http` or `https` URL, without user info, query
 or fragment, and is normalized (e.g., to
-`https://api.example.org/my-app`; cf.
+`https://api.example.org/my-app`; dot segments and repeated slashes are
+resolved; cf.
 [checking and normalizing URLs](../utilities.md#checking-and-normalizing-urls)).
 Include the path prefix of the proxy (here, `/my-app`) only if the proxy
 removes it from the requests it forwards; if the app gets it as its root
