@@ -993,6 +993,73 @@ Keep in mind that:
   few thousand resources. Like enforcement, the helpers use the shared,
   cached enforcer and indexed lookups (cf. [scaling](#scaling)).
 
+#### Ownership by document field
+
+Apps whose resources only ever belong to their creator can store the owner
+in the resource's document instead, without policy rules per resource:
+
+* `set_owner_field(document)` sets the field `owner` (or `field`) of a
+  document to be stored to the creator, as `{"iss": ..., "sub": ...}`: the
+  issuer of the request's token and the subject the request is attributed
+  to, as for `add_owner()` (the user that an allowed service client [acts
+  for](#service-clients), otherwise the token's identity, i.e.,
+  `claim_identity`, also for service clients). Store the document
+  afterwards, so that the owner is written together with the resource.
+* `owner_filter()` returns a MongoDB filter for the documents the caller
+  owns (e.g., `{"owner.iss": "https://login.example.org/", "owner.sub":
+  "alice"}`), or `{}` for admins, as `resource_filter()` does (see the
+  notes above on admins and clients acting for users). Callers that cannot
+  own documents (e.g., without token) get a filter matching none.
+
+Policies then let callers use the operations, and the controllers restrict
+them to the caller's documents, e.g.:
+
+```yaml
+security:
+  access_control:
+    policies:
+      - [p, "*", /api/tasks, "(GET)|(POST)"]
+      - [p, "*", "/api/tasks/:id", "(GET)|(DELETE)"]
+```
+
+```python
+from werkzeug.exceptions import NotFound
+
+from foca import get_collection
+from foca.security.access_control import owner_filter, set_owner_field
+
+
+def CreateTask(body, **kwargs):
+    task = {"id": ..., **body}  # create task
+    set_owner_field(task)
+    get_collection(db="myDb", collection="tasks").insert_one(task)
+    return {"id": task["id"]}
+
+
+def GetTask(id, **kwargs):
+    tasks = get_collection(db="myDb", collection="tasks")
+    task = tasks.find_one({"id": id, **owner_filter()}, projection={"_id": False})
+    if task is None:
+        # also for tasks of others, so that their existence is not revealed
+        raise NotFound()
+    return task
+```
+
+Index the owner fields for listings (e.g., `{"owner.sub": 1, "owner.iss":
+1}`, cf. [`db.dbs`](configuration/db.md)).
+
+Choose ownership by document field over [resource
+ownership](#resource-ownership) if resources are never shared and users may
+create many of them: it needs no policy rules (and thus no memory in each
+app instance, cf. [scaling](#scaling)) and no separate write, and listings
+filter by owner rather than by the identifiers of all resources of the
+caller. It does not support sharing (other roles, groups or service clients
+acting on resources they do not own), unless the app adds it, and FOCA's
+[endpoints for managing roles](#endpoints-for-managing-roles), the
+`list_roles()` and `list_subject_roles()` helpers and the
+[self-service](#self-service) endpoints do not cover such resources. The two
+approaches can be combined for different kinds of resources of an app.
+
 #### Endpoints for managing roles
 
 Instead of writing controllers like `PutTaskUserRole()` above, apps can route
