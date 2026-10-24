@@ -15,22 +15,21 @@ Upgrading from 0.16 or earlier? Start with [Migrating to
 
 ### Shared enforcer
 
-`get_enforcer()` (in `foca.security.access_control.enforcement`) now
-returns the enforcer shared by the threads of the app instance, kept up to
-date with the stored rules, instead of a new enforcer with all rules loaded
-for each call.
+`get_enforcer()` (in `foca.security.access_control.enforcement`), which
+returned a new enforcer with all rules loaded for each call, is removed.
+The enforcer is now shared by the threads of the app instance and kept up
+to date with the stored rules; use it via the new context manager
+`locked_enforcer()`, which holds its lock, so that it is not updated while
+in use (e.g., by another thread with gunicorn's `--threads`):
 
-- If the app serves requests in several threads (e.g., gunicorn's
-  `--threads`), use the new context manager `locked_enforcer()` instead, so
-  that the enforcer is not updated while in use:
+```python
+from foca.security.access_control.enforcement import locked_enforcer
 
-    ```python
-    from foca.security.access_control.enforcement import locked_enforcer
+with locked_enforcer() as enforcer:
+    allowed = enforcer.enforce(subject, path, method)
+```
 
-    with locked_enforcer() as enforcer:
-        allowed = enforcer.enforce(subject, path, method)
-    ```
-
+- Use it briefly, as other requests of the instance wait meanwhile.
 - Do not store the enforcer for later use or change its rules other than
   via its methods that also store them (e.g., `add_policy()`): changes made
   via the adapter are recorded and applied to the enforcers of all app
