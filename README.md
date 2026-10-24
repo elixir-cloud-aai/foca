@@ -79,7 +79,7 @@ app with FOCA? Open a pull request that adds it to the table in
 
 ## Quick start
 
-Install the [FOCA package][badge-url-pypi] (Python 3.11 or later) with `pip`:
+Install the [FOCA package][badge-url-pypi] (Python 3.11 to 3.15) with `pip`:
 
 ```bash
 pip install foca
