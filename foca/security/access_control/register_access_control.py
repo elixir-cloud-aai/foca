@@ -199,7 +199,7 @@ def _check_group_config(access_control_config: AccessControlConfig) -> None:
             "have no groups: remove the whitespace.",
             claim_groups,
         )
-    if conf.group_mapping and not claim_groups:
+    if conf.group_mapping is not None and not claim_groups:
         logger.warning(
             "Groups are mapped to roles "
             "('security.access_control.group_mapping'), but no group claim "
@@ -224,7 +224,8 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
     """Check that groups, service clients or configured rules grant `admin`.
 
     The groups and service clients mapped to the role are logged. Groups
-    count only if a group claim is set (`claim_groups`), and configured
+    count only if a group claim is set (`claim_groups`, without surrounding
+    whitespace), and configured
     rules for groups (`group:<value>`) only if group claim values are also
     used as group subjects, as they don't apply otherwise. Only direct grants
     are checked: rules granting the role to roles or service clients count,
@@ -242,7 +243,12 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
             `require_admin` is set.
     """
     conf = access_control_config
-    has_groups = bool(conf.claim_groups)
+    # A claim with surrounding whitespace is likely not found (cf.
+    # `_check_group_config()`)
+    has_groups = (
+        bool(conf.claim_groups)
+        and conf.claim_groups == (conf.claim_groups or "").strip()
+    )
     keeps_group_subjects = has_groups and (
         conf.group_mapping is None or conf.keep_group_subjects
     )
@@ -254,13 +260,14 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
         mapped = sorted(
             key for key, role in (mapping or {}).items() if role == ADMIN_ROLE
         )
-        if mapped and applies:
-            found = True
+        if mapped:
+            found = found or applies
             logger.info(
-                "%s mapped to the role '%s': %s.",
+                "%s mapped to the role '%s': %s%s.",
                 name,
                 ADMIN_ROLE,
                 ", ".join(escape_log_value(key) for key in mapped),
+                "" if applies else " (not applied, see the group claim warning)",
             )
     # Direct global role rules (`g, <subject>, admin`), also for roles,
     # without checking that any request can have the subject

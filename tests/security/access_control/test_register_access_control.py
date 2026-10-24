@@ -236,8 +236,11 @@ KEEP = "'security.access_control.keep_group_subjects' is not"
             {"claim_groups": "", "group_mapping": {"a": "admin"}},
             [(NO_GROUP_CLAIM, SET_CLAIM), (NO_GROUP_SUBJECTS, KEEP)],
         ),
-        # nothing is mapped, so no claim is needed
-        ({"group_mapping": {}, "keep_group_subjects": True}, []),
+        # group subjects need a claim, also with an empty mapping
+        (
+            {"group_mapping": {}, "keep_group_subjects": True},
+            [(NO_GROUP_CLAIM, SET_CLAIM)],
+        ),
         (
             {"claim_groups": "groups", "keep_group_subjects": True},
             [(NO_EFFECT, "without 'security.access_control.group_mapping'")],
@@ -327,11 +330,22 @@ def test_check_admin_role_group_rules(
     assert (NO_ADMIN in caplog.text) is not admin
 
 
-def test_check_admin_role_groups_without_claim() -> None:
-    """Groups mapped to `admin` don't count without a group claim."""
-    conf = AccessControlConfig(group_mapping={"admins": "admin"}, require_admin=True)
-    with pytest.raises(ValueError, match=NO_ADMIN):
+@pytest.mark.parametrize("claim_groups", [None, "", " groups"])
+def test_check_admin_role_groups_without_claim(
+    caplog: pytest.LogCaptureFixture, claim_groups: str | None
+) -> None:
+    """Groups mapped to `admin` don't count without a group claim, but are logged.
+
+    Claims with surrounding whitespace are likely not found.
+    """
+    conf = AccessControlConfig(
+        claim_groups=claim_groups,
+        group_mapping={"admins": "admin"},
+        require_admin=True,
+    )
+    with caplog.at_level(logging.INFO), pytest.raises(ValueError, match=NO_ADMIN):
         _check_admin_role(conf)
+    assert "Groups mapped to the role 'admin': admins (not applied" in caplog.text
 
 
 def test_check_admin_role_clients(caplog: pytest.LogCaptureFixture) -> None:

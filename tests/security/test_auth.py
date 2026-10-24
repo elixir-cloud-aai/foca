@@ -15,6 +15,7 @@ from flask import Flask
 from flask import request as auth_request
 from pydantic import ValidationError
 
+from foca.config import access
 from foca.config.access import get_app_config, set_app_config
 from foca.models.config import AuthConfig, Config, ServiceClientConfig
 from foca.security import auth
@@ -964,19 +965,30 @@ class TestLogAuthConfigWarnings:
         ({"on_behalf_of_header": "X-On-Behalf-Of"}, True),
     ],
 )
-def test_require_no_service_clients(auth_conf: dict[str, Any], refused: bool) -> None:
+def test_require_no_service_clients(
+    monkeypatch: pytest.MonkeyPatch, auth_conf: dict[str, Any], refused: bool
+) -> None:
     """Apps may refuse service clients and the header naming their users."""
+    monkeypatch.setattr(access, "_configs", {})
     conf = AuthConfig.model_validate(
         {"issuers": [ISSUER], "audience": [AUDIENCE], **auth_conf}
     )
     app = Flask(__name__)
     set_app_config(app, Config.model_validate({"security": {"auth": conf}}))
+    # another app, created later, with the default configuration
+    set_app_config(Flask(__name__), Config())
     with app.app_context():
         if refused:
             with pytest.raises(RuntimeError, match=r"security\.auth\.service_clients"):
                 require_no_service_clients()
         else:
             require_no_service_clients()
+    # the app given, outside its context
+    if refused:
+        with pytest.raises(RuntimeError, match=r"security\.auth\.service_clients"):
+            require_no_service_clients(app)
+    else:
+        require_no_service_clients(app)
 
 
 class TestServiceClients:

@@ -57,8 +57,9 @@ is enabled, `Foca.create_app()` checks them and logs what to change:
   is mapped to it and no rule of `policies` grants it (e.g., `[g,
   "user:alice", admin]`), a warning is logged, as nobody is then an admin
   via mappings or configured rules. Mapped groups count only if
-  `claim_groups` is set, and rules for groups (`group:<value>`) only if
-  group claim values are used as group subjects (see below). Only direct
+  `claim_groups` is set (without surrounding whitespace; they are logged
+  either way), and rules for groups (`group:<value>`) only if group claim
+  values are used as group subjects (see below). Only direct
   grants are checked: a rule granting `admin` to a role (e.g., `[g, ops,
   admin]`) or to a service client (`client:<client ID>`) counts, whether
   or not any subject can get that role or is that client. Roles
@@ -67,9 +68,10 @@ is enabled, `Foca.create_app()` checks them and logs what to change:
   start (`ValueError`) instead, before anything is stored; set it if the
   app needs admins, e.g., to manage resources of others. It defaults to
   `false` and requires `enabled: true`.
-- **Group claim:** a warning is logged if `group_mapping` is set, but
-  `claim_groups` is not, as no mapping then applies, and if `claim_groups`
-  has surrounding whitespace, as the claim is looked up as written.
+- **Group claim:** a warning is logged if `group_mapping` is set (also if
+  empty), but `claim_groups` is not, as no mapping then applies, and if
+  `claim_groups` has surrounding whitespace, as the claim is looked up as
+  written.
 - **Group subjects:** a warning is logged if `group_mapping` is set, but
   `keep_group_subjects` is not, as group claim values are then not used as
   group subjects (`group:<value>`): rules and [roles granted to
