@@ -236,6 +236,26 @@ is derived from git tags (via
 `foca.__version__`; builds between releases get development versions (e.g.,
 `0.14.1.dev3+g1a2b3c4`).
 
+The current release version is taken from one source, so that a release
+doesn't need to bump it in many places: the release tag and, on `dev`, the
+`version` in `CITATION.cff` (set before tagging, see below; from then on, the
+latest docs show the upcoming version). The docs write it as a placeholder,
+`version` in double curly braces with a space inside each pair (`VARIABLE`
+in `docs/hooks.py`; this page can't show it, as it would be replaced), also
+in commands and links. The docs hooks (`docs/hooks.py`) replace it with the
+version of `CITATION.cff`; other double curly braces (e.g., of Helm
+templates) are left as they are. Files read on GitHub (e.g., `README.md`)
+can't use it, nor can sections of `README.md` included as snippets.
+Comments, templates and tests use placeholders (e.g., `1.2.3` or "this
+release") and refer to sections by anchor. `tests/test_version_mentions.py`
+fails if the current release version is mentioned as a release of FOCA (as
+a tag, image or package, or as "release" or "version" in prose; not, e.g.,
+as the version of a dependency) anywhere else than in `CITATION.cff`, the
+changelog, the migration guides (`docs/migration-*.md`), the tests of the
+release tooling, links to the notes and assets of a release, "Migrating to
+X" links and headings, and statements like "From FOCA X on", which are about
+that release itself.
+
 Features and fixes are merged into `dev`. Branch `main` only ever moves
 forward to commits on `dev` that are released. First, shortly before the
 release, set its version and date in the citation metadata, which Zenodo
