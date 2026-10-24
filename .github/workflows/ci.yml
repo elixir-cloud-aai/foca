@@ -1,9 +1,11 @@
 # Lint, type-check and test the package and build the docs and distributions;
 # run the unit tests again with the lowest direct dependency versions; run
-# integration tests on the petstore example; scan the Docker images for known
-# vulnerabilities; on pushes to `dev`, push the Docker images by digest, scan
-# exactly those digests, then attest, sign and tag them with dated tags
-# (release images are built by `release.yml`).
+# integration tests on the petstore example; lint and test the Helm charts
+# and install the petstore example's chart on a kind cluster; scan the Docker
+# images for known vulnerabilities; on pushes to `dev`, push the Docker
+# images by digest, scan exactly those digests, then attest, sign and tag
+# them with dated tags (release images are built by `release.yml`). The gate
+# job `passed` ("CI passed") is the only required check of this workflow.
 
 name: CI
 
@@ -28,8 +30,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Static analysis, also of the docs (`mkdocs build --strict`, no job of its
+  # own) and of the distributions
   lint:
-    name: Lint, type-check and build
+    name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -110,7 +114,7 @@ jobs:
         run: twine check --strict dist/*
 
   test:
-    name: Unit tests (Python ${{ matrix.python-version }}, MongoDB ${{ matrix.mongodb-version }})
+    name: Test (Python ${{ matrix.python-version }}, MongoDB ${{ matrix.mongodb-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # MongoDB 8.0 refuses to start on Linux kernels 6.19 to 7.0.13, which
@@ -203,9 +207,10 @@ jobs:
   # to their newest versions. Uses uv, as pip has no lowest-direct
   # resolution. No coverage upload, as the `test` job covers it. On the
   # oldest and the newest supported Python version, as some lower bounds
-  # depend on it (environment markers in pyproject.toml)
+  # depend on it (environment markers in pyproject.toml). A job of its own,
+  # not an entry of the `test` matrix, as it installs and runs differently
   test-lowest:
-    name: Unit tests (Python ${{ matrix.python-version }}, lowest direct dependencies)
+    name: Test (Python ${{ matrix.python-version }}, lowest dependencies)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -243,7 +248,7 @@ jobs:
   # the matrix (that of the default image and the newest supported one); the
   # tests themselves run on the runner, always with Python 3.13
   integration:
-    name: Integration tests (petstore, Python ${{ matrix.python-version }})
+    name: Integration test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -299,9 +304,39 @@ jobs:
         working-directory: examples/petstore
         run: docker compose logs
 
+  # Lints and tests the Helm charts and checks the library chart's version
+  # (`.github/actions/test-chart`, also run by `release-chart.yml`)
+  chart:
+    name: Chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history with tags, for the version check
+          fetch-depth: 0
+      - name: Test chart
+        uses: ./.github/actions/test-chart
+
+  # Installs the petstore example's chart on a kind cluster and checks it
+  # (`.github/actions/install-chart`, also run by `release-chart.yml`)
+  chart-install:
+    name: Chart install
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install chart
+        uses: ./.github/actions/install-chart
+
   # On pushes, builds each image once and pushes it by digest only (untagged,
   # with SBOM and provenance attestations, `mode=max`), for `scan` to scan and
-  # `docker` to sign and tag, as in `release.yml`. The digest is passed on as
+  # `publish` to sign and tag, as in `release.yml`. The digest is passed on as
   # an artifact (`digest-pyV`), as all jobs of a matrix share one set of
   # outputs. Runs alongside the tests, so that the scan starts early; digests
   # of runs that fail (or fail the scan) are never signed or tagged, but stay
@@ -441,42 +476,7 @@ jobs:
           category: image-py${{ matrix.python-version }}
           upload: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
 
-  # Stable check names for branch protection, independent of the matrices
-  # (supported Python and MongoDB versions)
-  test-passed:
-    name: Unit tests
-    if: always()
-    needs: [test]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - name: Check that all unit test jobs passed
-        run: test "${{ needs.test.result }}" = "success"
-
-  integration-passed:
-    name: Integration tests (petstore)
-    if: always()
-    needs: [integration]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - name: Check that all integration test jobs passed
-        run: test "${{ needs.integration.result }}" = "success"
-
-  scan-passed:
-    name: Scan images
-    if: always()
-    needs: [scan]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - name: Check that all image scans passed
-        run: test "${{ needs.scan.result }}" = "success"
-
-  docker:
+  publish:
     name: Publish image (Python ${{ matrix.python-version }})
     if: github.event_name == 'push'
     needs: [lint, test, test-lowest, integration, scan]
@@ -549,3 +549,55 @@ jobs:
             echo "::error::${tag} points to ${actual}, expected ${DIGEST}"
             exit 1
           fi
+
+  # The gate: the only required check of this workflow (ruleset), a stable
+  # name independent of the jobs and their matrices. Runs always and needs
+  # every other job; passes only if all of them passed. A failed or cancelled
+  # job (or matrix entry) fails it, and so does a skipped job, except those
+  # skipped on purpose: `push` and `publish` on pull requests (they run on
+  # pushes only). Add new jobs to `needs`
+  passed:
+    name: CI passed
+    if: always()
+    needs:
+      - lint
+      - test
+      - test-lowest
+      - integration
+      - chart
+      - chart-install
+      - push
+      - scan
+      - publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check results of all jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # Jobs that are skipped on purpose for this event
+          skippable=()
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            skippable=(push publish)
+          fi
+          # Fails the step if jq fails; no results at all fail the check
+          results="$(jq -r 'to_entries[] | [.key, .value.result] | @tsv' <<< "${NEEDS}")"
+          if [[ -z "${results}" ]]; then
+            echo "::error::No job results"
+            exit 1
+          fi
+          failed=0
+          while IFS=$'\t' read -r job result; do
+            if [[ "${result}" == "success" ]]; then
+              echo "${job}: ${result}"
+            elif [[ "${result}" == "skipped" && " ${skippable[*]} " == *" ${job} "* ]]; then
+              echo "${job}: skipped (runs on pushes only)"
+            else
+              echo "::error::Job ${job}: ${result}"
+              failed=1
+            fi
+          done <<< "${results}"
+          exit "${failed}"

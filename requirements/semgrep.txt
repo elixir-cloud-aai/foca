@@ -1,7 +1,7 @@
 # Security linter of the lint job, pinned so that lint results can be
 # reproduced from a tag; updated by Dependabot. In a file of its own, as
 # semgrep pins dependencies that conflict with FOCA's (e.g., wcmatch): install
-# it in a separate environment. Used by `.github/workflows/checks.yml`, which
+# it in a separate environment. Used by `.github/workflows/ci.yml`, which
 # also checks that the semgrep hook of `.pre-commit-config.yaml` has the same
 # version: when semgrep is updated here (Dependabot opens separate pull
 # requests for it), update the `rev` of `semgrep/pre-commit` in the same pull

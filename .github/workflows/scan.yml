@@ -1,6 +1,6 @@
 # Scan the images of the latest release (`X.Y.Z-pyV` for every Python version)
 # weekly for known vulnerabilities with Trivy, as the `scan` job of
-# `checks.yml` scans the images of pull requests and pushes, so that
+# `ci.yml` scans the images of pull requests and pushes, so that
 # vulnerabilities found after a release are reported: the findings that have
 # a fix are uploaded to code scanning, a full report (findings without a fix
 # included) is uploaded as the workflow artifact
@@ -14,7 +14,7 @@
 # docs; forks set it to the organization they publish to). Same as in
 # cloud-registry, which has one image.
 
-name: Scan release image
+name: Scan
 
 on:
   schedule:
@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   scan:
-    name: Scan release image (Python ${{ matrix.python-version }})
+    name: Scheduled scan (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

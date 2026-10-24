@@ -1,0 +1,336 @@
+# Install the petstore example on a kind cluster with chart-testing, also
+# with the Celery worker and broker (and check that queued tasks survive a
+# restart of the broker), with access control and with an HTTPRoute of the
+# Gateway API (via Envoy Gateway), and run its test (`helm test`); check that
+# a reinstalled release finds MongoDB's data. Used by the `chart-install` job
+# of `ci.yml` and by `release-chart.yml`. Needs a checkout of the repository.
+
+name: Install chart
+description: Install the petstore example's chart on a kind cluster and check it
+
+inputs:
+  namespace:
+    description: Namespace of the petstore releases
+    default: petstore
+
+runs:
+  using: composite
+  steps:
+    # Same Helm version as in `.github/actions/test-chart`
+    - name: Set up Helm
+      uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      with:
+        version: v3.22.1
+    - name: Set up chart-testing
+      uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510 # v2.9.0
+      with:
+        version: 3.15.0
+        uv_version: 0.13.4  # not bumped by Dependabot; update manually
+    - name: Create kind cluster
+      uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      with:
+        version: v0.33.0
+        cluster_name: chart-testing
+    # Envoy Gateway, which installs the Gateway API CRDs, and the Gateway
+    # `eg` of `.github/kind/gateway.yaml` with a self-signed certificate,
+    # for the HTTPRoute of `ci/gateway-values.yaml`. Not bumped by
+    # Dependabot; update the version manually
+    - name: Install Envoy Gateway
+      env:
+        ENVOY_GATEWAY_VERSION: v1.9.2
+        HOST: petstore-gateway.example.org
+      shell: bash
+      run: |
+        helm install eg oci://docker.io/envoyproxy/gateway-helm \
+            --version "${ENVOY_GATEWAY_VERSION}" \
+            --namespace envoy-gateway-system --create-namespace \
+            --wait --timeout 300s
+        kubectl create namespace gateway
+        openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj "/CN=${HOST}" -addext "subjectAltName=DNS:${HOST}" \
+            -keyout "${RUNNER_TEMP}/tls.key" -out "${RUNNER_TEMP}/tls.crt"
+        kubectl create secret tls gateway-tls -n gateway \
+            --cert "${RUNNER_TEMP}/tls.crt" --key "${RUNNER_TEMP}/tls.key"
+        kubectl apply -f .github/kind/gateway.yaml
+        kubectl wait gateway/eg -n gateway --for=condition=Programmed \
+            --timeout=300s
+    # The FOCA image from the repository (tagged as in the `FROM` line of
+    # `examples/petstore/Dockerfile`), and the petstore image on it, which
+    # serves the app with Gunicorn
+    - name: Build and load images
+      shell: bash
+      run: |
+        docker build -t foca-petstore-root:latest -f docker/Dockerfile .
+        docker build -t foca-petstore:latest examples/petstore
+        kind load docker-image foca-petstore:latest --name chart-testing
+    # The Secrets with the MongoDB credentials and the broker settings
+    # (`ci/*-values.yaml`), with random passwords; the broker URL has the
+    # host of the broker's Service of `ci/celery-values.yaml`
+    - name: Create namespace and Secrets
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+      shell: bash
+      run: |
+        kubectl create namespace "${NAMESPACE}"
+        kubectl create secret generic mongodb -n "${NAMESPACE}" \
+            --from-literal=root-username=root \
+            --from-literal=root-password="$(openssl rand -hex 16)" \
+            --from-literal=username=petstore \
+            --from-literal=password="$(openssl rand -hex 16)"
+        password="$(openssl rand -hex 16)"
+        kubectl create secret generic celery -n "${NAMESPACE}" \
+            --from-literal=username=petstore \
+            --from-literal=password="${password}" \
+            --from-literal=broker-url="pyamqp://petstore:${password}@petstore-celery-broker:5672//"
+    # Installs the chart with each `ci/*-values.yaml`, waits until it is
+    # ready and runs `helm test` (`templates/tests/`); keeps the releases
+    # for the next step (the cluster is discarded with the runner)
+    - name: Install chart and run its test
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+      shell: bash
+      run: |
+        ct install --charts examples/petstore/chart --skip-clean-up \
+            --namespace "${NAMESPACE}" --helm-extra-args "--timeout 600s"
+    # The release of `ci/gateway-values.yaml` via the Gateway (port
+    # forwarding to the Envoy proxy's Service): HTTP is redirected to HTTPS,
+    # and HTTPS reaches the app through its NetworkPolicy, which blocks
+    # pods outside its peers (checked from the namespace `default`)
+    - name: Check app via the Gateway
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        HOST: petstore-gateway.example.org
+        SERVICE: petstore-gateway
+      shell: bash
+      run: |
+        proxy="$(kubectl get service -n envoy-gateway-system -o name \
+            -l gateway.envoyproxy.io/owning-gateway-namespace=gateway,gateway.envoyproxy.io/owning-gateway-name=eg)"
+        kubectl port-forward -n envoy-gateway-system "${proxy}" \
+            8080:80 8443:443 > "${RUNNER_TEMP}/port-forward.log" 2>&1 &
+        forward=$!
+        trap 'kill "${forward}" || true' EXIT
+        # The URLs' host and default ports, via the forwarded ports; retried
+        # until the ports are forwarded and Envoy Gateway has programmed
+        # the redirect
+        for _ in $(seq 1 60); do
+          redirect="$(curl -sS -o /dev/null \
+              -w '%{http_code} %{redirect_url}' \
+              --connect-to "${HOST}:80:127.0.0.1:8080" \
+              "http://${HOST}/pets")" || true
+          if [ "${redirect%% *}" = "301" ]; then
+            break
+          fi
+          sleep 2
+        done
+        echo "HTTP: ${redirect}"
+        if [ "${redirect}" != "301 https://${HOST}/pets" ]; then
+          echo "::error::HTTP is not redirected to HTTPS"
+          exit 1
+        fi
+        # The app's route is a separate HTTPRoute, so it is retried, too
+        for _ in $(seq 1 30); do
+          status="$(curl -sS -o /dev/null -w '%{http_code}' \
+              --cacert "${RUNNER_TEMP}/tls.crt" \
+              --connect-to "${HOST}:443:127.0.0.1:8443" \
+              "https://${HOST}/openapi.json")" || true
+          if [ "${status}" = "200" ]; then
+            break
+          fi
+          sleep 2
+        done
+        echo "HTTPS: ${status}"
+        if [ "${status}" != "200" ]; then
+          echo "::error::The app is not reachable via HTTPS"
+          exit 1
+        fi
+        result="$(kubectl run network-policy-check -n default \
+            --image foca-petstore:latest --image-pull-policy Never \
+            --restart Never --rm -i --quiet --command -- python -c "
+        import socket
+        address = socket.getaddrinfo('${SERVICE}.${NAMESPACE}', 8080)[0][4]
+        try:
+            socket.create_connection(address, timeout=10)
+            print('admitted')
+        except OSError:
+            print('blocked')
+        ")" || true
+        echo "Pod outside the peers: ${result}"
+        if ! grep -qx blocked <<< "${result}"; then
+          echo "::error::The app's NetworkPolicy does not block pods outside its peers"
+          exit 1
+        fi
+    # Errors that don't fail the install, e.g., of Gunicorn at startup on
+    # the read-only root file system, in Gunicorn's (`[ERROR]`) and FOCA's
+    # (`: ERROR   ]`) log formats
+    - name: Check app logs for errors
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+      shell: bash
+      run: |
+        logs="$(kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
+            -l app.kubernetes.io/component=app --tail=-1)"
+        printf '%s\n' "${logs}"
+        if grep -E '\[ERROR\]|: ERROR +\]' <<< "${logs}"; then
+          echo "::error::The app logged errors"
+          exit 1
+        fi
+    # The worker logs that it is ready once it has created the app and
+    # connected to the broker; it has no probes, so the step polls its
+    # logs. Errors as above, and in Celery's log format
+    # (`ERROR/MainProcess]`), except the connection retries while the
+    # broker starts (`consumer: Cannot connect to`)
+    - name: Check worker logs
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+      shell: bash
+      run: |
+        for _ in $(seq 1 30); do
+          logs="$(kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
+              -l app.kubernetes.io/component=worker --tail=-1 2>&1)" || true
+          if grep -q ' ready\.$' <<< "${logs}"; then
+            break
+          fi
+          sleep 5
+        done
+        printf '%s\n' "${logs}"
+        if grep -v 'consumer: Cannot connect to' <<< "${logs}" \
+            | grep -E '\[ERROR\]|: ERROR +\]|ERROR/'; then
+          echo "::error::The worker logged errors"
+          exit 1
+        fi
+        if ! grep -q ' ready\.$' <<< "${logs}"; then
+          echo "::error::The worker is not ready"
+          exit 1
+        fi
+    # A task queued while no worker runs survives a restart of the bundled
+    # broker (PersistentVolumeClaim, durable queue, persistent message) and
+    # is delivered to the worker afterwards. The task is sent from the
+    # app's pod with a bare Celery app (to the default queue, as FOCA's
+    # apps do; loading the whole app would need more memory); the example
+    # has no tasks, so the worker logs the task as unregistered, which
+    # shows that it received it
+    - name: Check that queued tasks survive a broker restart
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        APP: petstore-celery
+      shell: bash
+      run: |
+        pods() {
+          kubectl get pods -n "${NAMESPACE}" -o name \
+              -l "app.kubernetes.io/component=$1"
+        }
+        queued() {
+          kubectl exec -n "${NAMESPACE}" "statefulset/${APP}-broker" -- \
+              rabbitmqctl --quiet list_queues --no-table-headers name messages \
+              | awk '$1 == "celery" {print $2}'
+        }
+        kubectl scale deployment "${APP}-worker" -n "${NAMESPACE}" --replicas 0
+        for _ in $(seq 1 60); do
+          if [ -z "$(pods worker)" ]; then
+            break
+          fi
+          sleep 2
+        done
+        if [ -n "$(pods worker)" ]; then
+          echo "::error::The worker did not stop"
+          exit 1
+        fi
+        kubectl exec -n "${NAMESPACE}" "deployment/${APP}" -- python -c \
+            "import os; from celery import Celery; Celery(broker=os.environ['CELERY_BROKER_URL']).send_task('ci.persistence_check')"
+        before=""
+        for _ in $(seq 1 10); do
+          before="$(queued)" || true
+          if [ "${before}" = "1" ]; then
+            break
+          fi
+          sleep 3
+        done
+        echo "Queued before the restart: ${before}"
+        kubectl delete pod -n "${NAMESPACE}" -l app.kubernetes.io/component=broker \
+            --wait
+        kubectl wait statefulset "${APP}-broker" -n "${NAMESPACE}" \
+            --for=jsonpath='{.status.readyReplicas}'=1 --timeout=300s
+        after=""
+        for _ in $(seq 1 10); do
+          after="$(queued)" || true
+          if [ -n "${after}" ]; then
+            break
+          fi
+          sleep 3
+        done
+        echo "Queued after the restart: ${after}"
+        if [ "${before}" != "1" ] || [ "${after}" != "1" ]; then
+          echo "::error::The queued task did not survive the broker's restart"
+          exit 1
+        fi
+        kubectl scale deployment "${APP}-worker" -n "${NAMESPACE}" --replicas 1
+        for _ in $(seq 1 30); do
+          logs="$(kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
+              -l app.kubernetes.io/component=worker --tail=-1 2>&1)" || true
+          if grep -q "unregistered task of type 'ci.persistence_check'" <<< "${logs}"; then
+            echo "The worker received the queued task"
+            exit 0
+          fi
+          sleep 5
+        done
+        printf '%s\n' "${logs}"
+        echo "::error::The worker did not receive the queued task"
+        exit 1
+    # MongoDB's claim is kept when its release is uninstalled
+    # (`helm.sh/resource-policy: keep`), and a new release of the same name
+    # and namespace adopts it with its data (a document written before the
+    # uninstallation) and the app user (`helm test`), as the init script
+    # does not run again
+    - name: Check that MongoDB's data survives a reinstallation
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        RELEASE: petstore-keep
+      shell: bash
+      run: |
+        # Failures of `kubectl exec` are not hidden by `tail`
+        set -o pipefail
+        install() {
+          helm install "${RELEASE}" examples/petstore/chart -n "${NAMESPACE}" \
+              -f examples/petstore/chart/ci/test-values.yaml --wait --timeout 600s
+        }
+        mongo_eval() {
+          kubectl exec -n "${NAMESPACE}" "deployment/${RELEASE}-mongodb" -- sh -c \
+              'mongosh --quiet -u "${MONGO_INITDB_ROOT_USERNAME}" -p "${MONGO_INITDB_ROOT_PASSWORD}" --eval "$1"' \
+              sh "$1" | tail -n 1
+        }
+        claim_uid() {
+          kubectl get pvc "${RELEASE}-mongodb" -n "${NAMESPACE}" \
+              -o jsonpath='{.metadata.uid}' --ignore-not-found
+        }
+        helm dependency build examples/petstore/chart
+        install
+        mongo_eval "db.getSiblingDB('ci').marker.insertOne({kept: true})" > /dev/null
+        before="$(claim_uid)"
+        helm uninstall "${RELEASE}" -n "${NAMESPACE}" --wait --timeout 300s
+        if [ -z "${before}" ] || [ "$(claim_uid)" != "${before}" ]; then
+          echo "::error::MongoDB's claim was not kept on uninstallation"
+          exit 1
+        fi
+        install
+        if [ "$(claim_uid)" != "${before}" ]; then
+          echo "::error::The new release did not adopt MongoDB's claim"
+          exit 1
+        fi
+        kept="$(mongo_eval "db.getSiblingDB('ci').marker.countDocuments({kept: true})")"
+        if [ "${kept}" != "1" ]; then
+          echo "::error::MongoDB's data did not survive the reinstallation (${kept})"
+          exit 1
+        fi
+        helm test "${RELEASE}" -n "${NAMESPACE}" --timeout 300s
+    - name: Show cluster state
+      if: failure()
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+      shell: bash
+      run: |
+        kubectl get all,networkpolicies,pvc -n "${NAMESPACE}"
+        kubectl get gateways,httproutes -A -o yaml
+        kubectl logs -n envoy-gateway-system deployment/envoy-gateway --tail=100
+        kubectl describe pods -n "${NAMESPACE}"
+        kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
+            -l app.kubernetes.io/instance --tail=100

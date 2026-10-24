@@ -1,7 +1,7 @@
 # Linters, type checker and type stubs of the lint job, pinned so that lint
 # results can be reproduced from a tag; updated by Dependabot
 # (`pyproject.toml` only sets lower bounds). Used by
-# `.github/workflows/checks.yml`, which also checks that the ruff hook of
+# `.github/workflows/ci.yml`, which also checks that the ruff hook of
 # `.pre-commit-config.yaml` has the same version: when ruff is updated here
 # (Dependabot opens separate pull requests for it), update the `rev` of
 # `ruff-pre-commit` in the same pull request. The ast-grep hook uses the

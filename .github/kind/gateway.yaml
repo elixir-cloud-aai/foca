@@ -1,5 +1,5 @@
 # Gateway of Envoy Gateway for the kind installation in CI (see
-# `.github/workflows/charts.yml` and `examples/petstore/chart/ci/
+# `.github/actions/install-chart` and `examples/petstore/chart/ci/
 # gateway-values.yaml`): a shared Gateway `eg` in the namespace `gateway`
 # with an HTTP and an HTTPS listener (with the self-signed certificate of the
 # Secret `gateway-tls`) for routes from all namespaces. The Envoy proxy's

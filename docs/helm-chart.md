@@ -754,7 +754,7 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
 
 The tests of the library chart are in `charts/foca-common/tests`; they render
 the petstore chart with `helm template` and need [Helm][helm-install], the
-version used in CI (see `.github/workflows/charts.yml`) for the snapshot
+version used in CI (see `.github/actions/test-chart`) for the snapshot
 tests, as other versions may render whitespace or comments differently:
 
 ```bash

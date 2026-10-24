@@ -1,6 +1,7 @@
 # Release the library chart foca-common when a chart tag (`chart-vX.Y.Z`) is
-# pushed: lint, test and install the charts (`charts.yml`), check that the
-# tag is signed, on `dev` and matches the chart's `version`, and that the
+# pushed: lint, test and install the charts as CI does (`chart` and
+# `chart-install` jobs of `ci.yml`, with the same local actions), check that
+# the tag is signed, on `dev` and matches the chart's `version`, and that the
 # version was not published yet, then package the chart, push it as an OCI
 # artifact to `oci://ghcr.io/elixir-cloud-aai/charts`, and attest and sign
 # it (GitHub artifact attestation, Sigstore signature). Only final
@@ -31,13 +32,27 @@ env:
   CHART: charts/foca-common
 
 jobs:
-  charts:
-    name: Test charts
-    uses: ./.github/workflows/charts.yml
+  # The checks of the `chart` and `chart-install` jobs of `ci.yml`, in one
+  # job
+  test:
+    name: Test chart release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history with tags, for the version check
+          fetch-depth: 0
+      - name: Test chart
+        uses: ./.github/actions/test-chart
+      - name: Install chart
+        uses: ./.github/actions/install-chart
 
-  release:
-    name: Publish foca-common
-    needs: charts
+  publish:
+    name: Publish chart
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -52,7 +67,7 @@ jobs:
           persist-credentials: false
           # Full history, to check that the release commit is on `dev`
           fetch-depth: 0
-      # Same Helm version as in `charts.yml`
+      # Same Helm version as in `.github/actions/test-chart`
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:

@@ -3,7 +3,7 @@
 # `.github/kind/gateway.yaml`), with a redirect on its HTTP listener, and
 # with the app's NetworkPolicy, which admits the Gateway's Envoy proxies and
 # the chart's test pod only; the fixed name and host are checked via the
-# Gateway (see `.github/workflows/charts.yml`)
+# Gateway (see `.github/actions/install-chart`)
 fullnameOverride: petstore-gateway
 hostName: petstore-gateway.example.org
 mongodb:

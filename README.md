@@ -130,7 +130,7 @@ Contributions are welcome! See [`CONTRIBUTING.md`][contributing] and
 [Contributing][docs-contributing] in the documentation, and mind our [code of
 conduct][code-of-conduct].
 
-[badge-build-status]: <https://github.com/elixir-cloud-aai/foca/actions/workflows/checks.yml/badge.svg>
+[badge-build-status]: <https://github.com/elixir-cloud-aai/foca/actions/workflows/ci.yml/badge.svg>
 [badge-coverage]: <https://codecov.io/gh/elixir-cloud-aai/foca/branch/dev/graph/badge.svg?branch=dev>
 [badge-docker]: <https://img.shields.io/docker/v/elixircloud/foca?sort=semver&label=image&color=C39BD3>
 [badge-doi]: <https://zenodo.org/badge/DOI/10.5281/zenodo.23603534.svg>
@@ -138,7 +138,7 @@ conduct][code-of-conduct].
 [badge-github-tag]: <https://img.shields.io/github/v/tag/elixir-cloud-aai/foca?color=C39BD3>
 [badge-license]: <https://img.shields.io/badge/license-Apache%202.0-blue.svg>
 [badge-pypi]: <https://img.shields.io/pypi/v/foca?color=C39BD3>
-[badge-url-build-status]: <https://github.com/elixir-cloud-aai/foca/actions/workflows/checks.yml>
+[badge-url-build-status]: <https://github.com/elixir-cloud-aai/foca/actions/workflows/ci.yml>
 [badge-url-coverage]: <https://codecov.io/gh/elixir-cloud-aai/foca?branch=dev>
 [badge-url-docker]: <https://hub.docker.com/r/elixircloud/foca/tags>
 [badge-url-doi]: <https://doi.org/10.5281/zenodo.23603534>
