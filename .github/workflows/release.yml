@@ -351,11 +351,26 @@ jobs:
     permissions:
       contents: write
     steps:
+      # For `scripts/release_assets.py` (standard library only)
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
       - name: Download distributions
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist/
+      # Assets of a published immutable release can't be added, replaced or
+      # deleted, so the release is created as a draft, gets the
+      # distributions, and is published last. Re-runs finish a draft of an
+      # earlier attempt; a release that is already published (e.g., by hand)
+      # gets no uploads, but must have all distributions by name, or the step
+      # fails, saying what to do (see `scripts/release_assets.py`)
       - name: Create release with generated notes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -363,18 +378,27 @@ jobs:
           TAG: ${{ github.ref_name }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          # On reruns, complete an existing release instead of failing
-          if gh release view "${TAG}" > /dev/null 2>&1; then
-              gh release upload "${TAG}" dist/* --clobber
+          # All releases of the repository, drafts included, to find those of
+          # the tag
+          releases="$(mktemp)"
+          gh api --paginate --slurp "repos/${GH_REPO}/releases?per_page=100" \
+              > "${releases}"
+          state="$(python scripts/release_assets.py state "${TAG}" \
+              --releases "${releases}" dist/*)"
+          state="${state#state=}"
+          if [[ "${state}" == "published" ]]; then
               exit 0
           fi
-          # GitHub never marks pre-releases as the latest release
-          args=()
-          if [[ "${PRERELEASE}" == "true" ]]; then
-              args+=(--prerelease)
+          if [[ "${state}" == "none" ]]; then
+              gh release create "${TAG}" \
+                  --draft \
+                  --verify-tag \
+                  --title "${TAG}" \
+                  --generate-notes \
+                  --prerelease="${PRERELEASE}"
           fi
-          gh release create "${TAG}" dist/* \
-              --verify-tag \
-              --title "${TAG}" \
-              --generate-notes \
-              "${args[@]}"
+          # Uploads to drafts may replace the assets of an earlier attempt
+          gh release upload "${TAG}" dist/* --clobber
+          # Publishes the draft; GitHub never marks pre-releases as the
+          # latest release
+          gh release edit "${TAG}" --prerelease="${PRERELEASE}" --draft=false
