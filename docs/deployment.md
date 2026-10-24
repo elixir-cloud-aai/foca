@@ -137,6 +137,33 @@ Things to keep in mind:
   The example apps' Compose files publish MongoDB on `127.0.0.1` only, for
   local development.
 
+## Startup checks
+
+FOCA checks the configuration when the app is created (`Foca.create_app()`),
+so that deployers learn about mistakes from the startup logs. Invalid
+configurations make the app refuse to start (e.g., failing validation of
+the configuration or of the [service info](configuration/service-info.md#validation)).
+Settings that let the app run, but likely not as intended, are logged as
+warnings, naming the setting to change, among others:
+
+- [access control](configuration/access-control.md#startup-checks), if
+  enabled: no group, service client or configured rule granted the role
+  `admin` (an error with `require_admin: true`), `group_mapping` without
+  `claim_groups`, a group claim with surrounding whitespace,
+  `group_mapping` without `keep_group_subjects`, `keep_group_subjects`
+  without `group_mapping`, several trusted issuers, and stored configured
+  rules removed as `policies` is not set;
+- [service info](configuration/service-info.md#placeholders): values in
+  reserved example domains, as in templates;
+- [authentication](configuration/auth.md), on the first token validation
+  rather than on startup: no trusted `issuers`, disabled audience or token
+  type validation, accepted expired tokens, and an `on_behalf_of_header`
+  without service clients acting for users.
+
+Apps add checks of their own after creating the app, e.g.,
+[`require_no_service_clients()`](authentication.md#service-tokens) for apps
+that don't support service clients.
+
 ## Kubernetes and Helm
 
 FOCA's [Helm library chart](helm-chart.md) implements the setup described

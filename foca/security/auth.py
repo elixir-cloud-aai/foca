@@ -11,11 +11,12 @@ import jwt
 import requests
 from connexion.exceptions import Unauthorized
 from cryptography.hazmat.primitives import serialization
+from flask import Flask
 from jwt.types import Options
 from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.http import quote_header_value
 
-from foca.config.access import get_config
+from foca.config.access import get_app_config, get_config
 from foca.models.config import AuthConfig, ServiceClientConfig
 from foca.utils.logging import escape_log_value
 
@@ -250,6 +251,36 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
             "(`security.auth.on_behalf_of_header`), but no service client may "
             "act for users (`on_behalf_of`): requests naming users in the "
             "header are rejected."
+        )
+
+
+def require_no_service_clients(app: Flask | None = None) -> None:
+    """Refuse service clients, for apps whose endpoints don't support them.
+
+    With service clients (`security.auth.service_clients`), requests may be
+    made by clients instead of users, or by clients for users they name
+    (`security.auth.on_behalf_of_header`), e.g., FOCA's resource ownership
+    helpers attribute new resources to them. Apps whose endpoints take the
+    token's subject as the user call this check on startup, e.g., after
+    `Foca.create_app()`; FOCA doesn't call it.
+
+    Args:
+        app: Flask app to check (e.g., `Foca.create_app().app`). If not
+            given, the current FOCA app is checked: the app of the current
+            app context, if any, otherwise the most recently created one
+            (cf. :py:func:`foca.config.access.get_config`).
+
+    Raises:
+        RuntimeError: Service clients or the header naming the users they
+            act for are configured for the app.
+    """
+    config = get_config() if app is None else get_app_config(app)
+    auth = config.security.auth
+    if auth.service_clients or auth.on_behalf_of_header is not None:
+        raise RuntimeError(
+            "Service clients are not supported by this app: remove "
+            "`security.auth.service_clients` and "
+            "`security.auth.on_behalf_of_header`."
         )
 
 

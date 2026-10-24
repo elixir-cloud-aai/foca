@@ -28,9 +28,11 @@ from foca.models.config import (
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    ADMIN_ROLE,
     CHANGES_COLLECTION_SUFFIX,
     CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
+    GROUP_PREFIX,
 )
 from foca.security.access_control.enforcement import AccessControlResolver
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
@@ -38,6 +40,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
 )
 from foca.security.access_control.ownership_server import _check_routes_enforced
+from foca.utils.logging import escape_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -65,17 +68,13 @@ def register_access_control(
         ValueError: Operations of the permissions API routed to the
             controllers of
             :py:mod:`foca.security.access_control.ownership_server` do not
-            enforce access control policies.
+            enforce access control policies, or no group or configured
+            policy rule grants the role `admin` and
+            `access_control.require_admin` is set (cf.
+            :py:func:`_check_admin_role`).
     """
-    if (
-        access_control_config.keep_group_subjects
-        and access_control_config.group_mapping is None
-    ):
-        logger.warning(
-            "'security.access_control.keep_group_subjects' has no effect "
-            "without 'security.access_control.group_mapping', as group claim "
-            "values are then always used as group subjects."
-        )
+    _check_group_config(access_control_config)
+    _check_admin_role(access_control_config)
 
     if len(set(get_app_config(cnx_app.app).security.auth.issuers)) > 1:
         logger.warning(
@@ -176,6 +175,131 @@ def register_access_control(
     )
 
     return cnx_app
+
+
+def _check_group_config(access_control_config: AccessControlConfig) -> None:
+    """Warn about group settings that keep groups or their roles from applying.
+
+    Args:
+        access_control_config: Access control configuration.
+    """
+    conf = access_control_config
+    if conf.keep_group_subjects and conf.group_mapping is None:
+        logger.warning(
+            "'security.access_control.keep_group_subjects' has no effect "
+            "without 'security.access_control.group_mapping', as group claim "
+            "values are then always used as group subjects."
+        )
+    claim_groups = conf.claim_groups
+    # FOCA looks the claim up as written
+    if claim_groups is not None and claim_groups != claim_groups.strip():
+        logger.warning(
+            "'security.access_control.claim_groups' has surrounding "
+            "whitespace (%r), but is looked up as written, so users likely "
+            "have no groups: remove the whitespace.",
+            claim_groups,
+        )
+    if conf.group_mapping is not None and not claim_groups:
+        logger.warning(
+            "Groups are mapped to roles "
+            "('security.access_control.group_mapping'), but no group claim "
+            "is set, so no mapping applies: set "
+            "'security.access_control.claim_groups' to the claim with the "
+            "groups of users (and add it to 'security.auth.userinfo_claims' "
+            "if the identity provider releases it via user info only)."
+        )
+    # Unmapped group claim values are dropped once a mapping is set, also an
+    # empty one
+    if conf.group_mapping is not None and not conf.keep_group_subjects:
+        logger.warning(
+            "'security.access_control.group_mapping' is set, but "
+            "'security.access_control.keep_group_subjects' is not, so group "
+            "claim values are not used as group subjects: policy rules and "
+            "roles on resources granted to groups ('group:<value>') don't "
+            "apply, and the resource ownership helpers refuse to grant them."
+        )
+
+
+def _check_admin_role(access_control_config: AccessControlConfig) -> None:
+    """Check that groups, service clients or configured rules grant `admin`.
+
+    The groups and service clients mapped to the role are logged. Groups
+    count only if a group claim is set (`claim_groups`, without surrounding
+    whitespace), and configured
+    rules for groups (`group:<value>`) only if group claim values are also
+    used as group subjects, as they don't apply otherwise. Only direct grants
+    are checked: rules granting the role to roles or service clients count,
+    whether or not any request can have them. Roles granted via
+    stored policy rules (e.g., via the permissions API) are not checked, as
+    the database may not be available yet, and still apply.
+
+    Args:
+        access_control_config: Access control configuration.
+
+    Raises:
+        ValueError: No group (`group_mapping`) or service client
+            (`client_mapping`) is mapped to the role, no rule of `policies`
+            grants it (e.g., `["g", "user:alice", "admin"]`), and
+            `require_admin` is set.
+    """
+    conf = access_control_config
+    # A claim with surrounding whitespace is likely not found (cf.
+    # `_check_group_config()`)
+    has_groups = (
+        bool(conf.claim_groups)
+        and conf.claim_groups == (conf.claim_groups or "").strip()
+    )
+    keeps_group_subjects = has_groups and (
+        conf.group_mapping is None or conf.keep_group_subjects
+    )
+    found = False
+    for name, mapping, applies in (
+        ("Groups", conf.group_mapping, has_groups),
+        ("Service clients", conf.client_mapping, True),
+    ):
+        mapped = sorted(
+            key for key, role in (mapping or {}).items() if role == ADMIN_ROLE
+        )
+        if mapped:
+            found = found or applies
+            logger.info(
+                "%s mapped to the role '%s': %s%s.",
+                name,
+                ADMIN_ROLE,
+                ", ".join(escape_log_value(key) for key in mapped),
+                "" if applies else " (not applied, see the group claim warning)",
+            )
+    # Direct global role rules (`g, <subject>, admin`), also for roles,
+    # without checking that any request can have the subject
+    found = found or any(
+        len(rule) == 3
+        and rule[0] == "g"
+        and rule[2] == ADMIN_ROLE
+        and (keeps_group_subjects or not rule[1].startswith(GROUP_PREFIX))
+        for rule in conf.policies or []
+    )
+    if found:
+        return
+    missing = (
+        f"No group or service client is mapped to the role '{ADMIN_ROLE}' "
+        "('security.access_control.group_mapping', with "
+        "'security.access_control.claim_groups' set, or "
+        "'security.access_control.client_mapping') and no configured policy "
+        "rule that applies grants it ('security.access_control.policies')"
+    )
+    if conf.require_admin:
+        raise ValueError(
+            f"{missing}, but 'security.access_control.require_admin' is set: "
+            f"map an admin group of the identity provider to '{ADMIN_ROLE}', "
+            "add a policy rule granting it, or unset 'require_admin' (roles "
+            "granted via stored policy rules then still apply)."
+        )
+    logger.warning(
+        "%s, so nobody is an admin via mappings or configured rules; roles "
+        "granted via stored policy rules (e.g., via the permissions API) "
+        "still apply.",
+        missing,
+    )
 
 
 def _check_collection_clash(

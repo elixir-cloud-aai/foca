@@ -111,6 +111,30 @@ resource's document (`set_owner_field()`) and filter by it
 Resource ownership via policy rules (`add_owner()` etc.) is unchanged and
 stays the default of FOCA's helpers.
 
+### Startup checks
+
+`Foca.create_app()` logs new warnings about settings that let the app run,
+but likely not as intended (cf. [startup
+checks](deployment.md#startup-checks)); apps behave as before:
+
+- With access control enabled: no group or service client is mapped to the
+  role `admin` and no rule of `policies` grants it (roles granted via
+  stored rules still apply); `group_mapping` is set without
+  `claim_groups`, or without `keep_group_subjects`; `claim_groups` has
+  surrounding whitespace. The groups and service clients mapped to `admin`
+  are logged (`INFO`). Set the new option
+  `security.access_control.require_admin: true` (default: `false`) to
+  refuse to start without admins instead (cf. [startup
+  checks](configuration/access-control.md#startup-checks)).
+- The service info has values in reserved example domains, e.g., `id:
+  org.example.my-service` or `https://example.org`, as in templates (cf.
+  [placeholders](configuration/service-info.md#placeholders)).
+
+Apps that checked these settings themselves can drop their checks. Apps
+that don't support service clients can call the new
+`foca.security.auth.require_no_service_clients()` on startup (cf. [service
+tokens](authentication.md#service-tokens)).
+
 ### Public URLs and typed custom configuration
 
 Apps can now set their public URL, as clients see it behind a reverse proxy
