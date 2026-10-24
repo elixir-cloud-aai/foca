@@ -9,6 +9,7 @@ import pytest
 from yaml import safe_dump
 
 from foca import Foca
+from foca import foca as foca_module
 from foca.plugins import (
     BackendResponse,
     NotAccepted,
@@ -68,6 +69,20 @@ def test_gateway_app_invalid_plugins(tmp_path: Path, fake_plugins: None) -> None
     foca = Foca(config_file=config, gateway=GatewayApp(api="tes"))
     with pytest.raises(ValueError, match="not installed"):
         foca.create_app()
+
+
+def test_plugins_without_gateway(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Apps that are no gateways warn about a plugins section."""
+    config = write_config(tmp_path, {"plugins": {}})
+    runtime.configure(None)
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        foca_module.logger, "warning", lambda message, *args: warnings.append(message)
+    )
+    Foca(config_file=config).create_app()
+    assert any("no gateway" in message for message in warnings)
 
 
 def test_legacy_keys_before_custom_model(tmp_path: Path) -> None:

@@ -20,7 +20,7 @@ from foca.errors.exceptions import problem_response
 from foca.plugins.engine import GatewayError
 from foca.plugins.model import CREDENTIAL_HEADERS, Headers, InboundRequest, Principal
 from foca.security.access_control.enforcement import (
-    _get_claims,
+    get_current_claims,
     get_current_groups,
     get_current_subject,
 )
@@ -53,7 +53,7 @@ def current_principal() -> Principal:
     """
     if not has_request_context():
         return Principal()
-    claims = _get_claims()
+    claims = get_current_claims()
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     issuer = claims.get("iss")
     return Principal(

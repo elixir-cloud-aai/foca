@@ -502,7 +502,8 @@ identifiers do not match.
 In your controllers, use `get_current_subject()` and `get_current_groups()`
 to get the subject (without prefix) and roles of the current request, and
 `get_current_group_values()` to get the values of its group claim as is
-(neither mapped nor prefixed):
+(neither mapped nor prefixed); `get_current_claims()` returns a copy of all
+claims of its token:
 
 ```python
 from foca.security.access_control import (
