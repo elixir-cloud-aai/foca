@@ -69,7 +69,7 @@ def test_current_principal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Principals have the token's claims, roles and the bearer token."""
     app = Flask(__name__)
     assert adapter.current_principal() == adapter.Principal()
-    monkeypatch.setattr(adapter, "_get_claims", lambda: {"sub": "a", "iss": "i"})
+    monkeypatch.setattr(adapter, "get_current_claims", lambda: {"sub": "a", "iss": "i"})
     monkeypatch.setattr(adapter, "get_current_subject", lambda: "a")
     monkeypatch.setattr(adapter, "get_current_groups", lambda: ["admin"])
     with app.test_request_context(headers={"Authorization": "Bearer tok"}):
@@ -79,7 +79,7 @@ def test_current_principal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert principal.groups == ("admin",)
     assert principal.claims == {"sub": "a", "iss": "i"}
     assert principal.token == "tok"  # noqa: S105
-    monkeypatch.setattr(adapter, "_get_claims", lambda: {"iss": 1})
+    monkeypatch.setattr(adapter, "get_current_claims", lambda: {"iss": 1})
     with app.test_request_context(headers={"Authorization": "Basic x"}):
         principal = adapter.current_principal()
     assert principal.token is None

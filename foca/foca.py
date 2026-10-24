@@ -180,10 +180,16 @@ class Foca:
         check_service_info(cnx_app.app)
 
         # Load the plugins once, so that problems stop the app on startup;
-        # each process creates its own host on first use (after forks)
+        # each process creates its own host on first use (after forks), so
+        # plugins are instantiated (`setup()`) once more there
         if self.gateway is not None:
             runtime.create_host().close()
             logger.info("Gateway plugins checked.")
+        elif self.conf.plugins is not None:
+            logger.warning(
+                "Section 'plugins' is configured, but the app is no gateway"
+                " (cf. 'Foca(gateway=...)'); plugins are not loaded."
+            )
 
         return cnx_app
 
