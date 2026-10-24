@@ -25,6 +25,7 @@ from foca.models.config import (
     IndexConfig,
     MongoConfig,
     SecurityConfig,
+    ServerConfig,
     ServiceInfoConfig,
     SpecConfig,
 )
@@ -70,6 +71,55 @@ def test_config_empty() -> None:
     """Test basic creation of the main config model."""
     res = Config()
     assert isinstance(res, Config)
+
+
+def test_server_config_public_url_unset() -> None:
+    """Apps have no public URL by default."""
+    assert ServerConfig().public_url is None
+
+
+@pytest.mark.parametrize(
+    ("url", "normalized"),
+    [
+        ("https://api.example.org/my-app/", "https://api.example.org/my-app"),
+        ("HTTP://API.Example.org:80/", "http://api.example.org"),
+        ("https://api.example.org:8443", "https://api.example.org:8443"),
+        ("https://api.example.org/a%20b", "https://api.example.org/a%20b"),
+        ("https://api.example.org/caf\u00e9", "https://api.example.org/caf%C3%A9"),
+        ("http://[FE80::1%25eth0]:8080/x/", "http://[fe80::1%25eth0]:8080/x"),
+    ],
+)
+def test_server_config_public_url(url: str, normalized: str) -> None:
+    """Public URLs are normalized."""
+    assert ServerConfig(public_url=url).public_url == normalized
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://api.example.org/my-app?x=1",
+        "https://api.example.org/my-app?",
+        "https://api.example.org/my-app#top",
+        "https://api.example.org/my-app#",
+        "https://user:secret@api.example.org/",
+        "ftp://api.example.org/",
+        "mailto:admin@example.org",
+        "/my-app",
+        "api.example.org",
+        "https://api.example.org/a b",
+        "",
+    ],
+)
+def test_server_config_invalid_public_url(url: str) -> None:
+    """Invalid public URLs, and URLs with a query or fragment, are rejected."""
+    with pytest.raises(ValidationError, match=r"server\.public_url"):
+        ServerConfig(public_url=url)
+
+
+def test_server_config_public_url_not_string() -> None:
+    """Public URLs must be strings."""
+    with pytest.raises(ValidationError):
+        ServerConfig(public_url=1)  # type: ignore[arg-type]  # invalid on purpose
 
 
 class PetNotFound(NotFound):

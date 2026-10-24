@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from flask import Flask, current_app, has_app_context
+from pydantic import BaseModel
 from pymongo.collection import Collection
 
 # Imported lazily at runtime: the config models import modules that use this
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
 
 # Configuration of the most recently created FOCA app (key `latest`)
 _configs: dict[str, Config] = {}
+
+T = TypeVar("T", bound=BaseModel)
 
 
 def set_app_config(app: Flask, config: Config) -> None:
@@ -72,6 +75,40 @@ def get_config() -> Config:
             "No FOCA configuration available: no FOCA app has been created"
         )
     return _configs["latest"]
+
+
+def get_custom_config(model: type[T]) -> T:
+    """Get the custom configuration of the current FOCA app, typed.
+
+    The custom configuration (section `custom`) is an instance of the model
+    passed as `custom_config_model` when the app was created (cf.
+    :py:class:`foca.Foca`), but FOCA keeps it as an untyped extra field of
+    its configuration.
+
+    Args:
+        model: Model of the custom configuration (or a base class of it).
+
+    Returns:
+        Custom configuration of the app of the current app context, if any,
+        otherwise of the most recently created FOCA app (cf.
+        :py:func:`get_config`).
+
+    Raises:
+        RuntimeError: No FOCA app has been created, or its custom
+            configuration is missing or not an instance of `model`, e.g., as
+            `custom_config_model` is not set, or not the full module path of
+            `model` (a model imported under another module path is another
+            class).
+    """
+    custom = (get_config().model_extra or {}).get("custom")
+    if not isinstance(custom, model):
+        name = f"{model.__module__}.{model.__qualname__}"
+        raise RuntimeError(
+            f"No custom configuration of type '{name}' (found "
+            f"'{type(custom).__name__}'); check that `custom_config_model` is "
+            "the full module path of the model"
+        )
+    return custom
 
 
 def get_collection(db: str, collection: str) -> Collection[dict[str, Any]]:

@@ -5,9 +5,10 @@ from typing import Any
 import mongomock
 import pytest
 from flask import Flask
+from pydantic import BaseModel
 from pymongo.collection import Collection
 
-from foca import get_collection, get_config
+from foca import get_collection, get_config, get_custom_config
 from foca.config import access
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -114,3 +115,83 @@ def test_get_collection_no_db(no_apps: None) -> None:
     create_connexion_app(Config())
     with pytest.raises(KeyError):
         get_collection("db", "items")
+
+
+class CustomConfig(BaseModel):
+    """Custom configuration of an app."""
+
+    name: str = "app"
+
+
+class OtherConfig(BaseModel):
+    """Another model of custom configurations."""
+
+
+def _app_with_custom(custom: object) -> Flask:
+    """Create an app with a custom configuration.
+
+    Args:
+        custom: Custom configuration, set as extra field `custom`.
+
+    Returns:
+        Flask app.
+    """
+    config = Config()
+    setattr(config, "custom", custom)
+    return create_connexion_app(config).app
+
+
+def test_get_custom_config(no_apps: None) -> None:
+    """The custom configuration of the current app is returned, typed."""
+    custom = CustomConfig()
+    app = _app_with_custom(custom)
+    _app_with_custom(CustomConfig())
+    with app.app_context():
+        config = get_custom_config(CustomConfig)
+    assert config is custom
+    assert config.name == "app"
+
+
+def test_get_custom_config_base_class(no_apps: None) -> None:
+    """Custom configurations are returned for base classes of their model."""
+    custom = CustomConfig()
+    _app_with_custom(custom)
+    assert get_custom_config(BaseModel) is custom
+
+
+def test_get_custom_config_outside_app_context(no_apps: None) -> None:
+    """The custom configuration of the most recently created app is returned."""
+    _app_with_custom(CustomConfig())
+    custom = CustomConfig()
+    _app_with_custom(custom)
+    assert get_custom_config(CustomConfig) is custom
+
+
+@pytest.mark.parametrize(
+    ("custom", "found"),
+    [(OtherConfig(), "OtherConfig"), ({"name": "app"}, "dict"), (None, "NoneType")],
+)
+def test_get_custom_config_other_model(
+    no_apps: None, custom: object, found: str
+) -> None:
+    """Custom configurations of another model raise errors, naming the model."""
+    _app_with_custom(custom)
+    with pytest.raises(RuntimeError) as exc_info:
+        get_custom_config(CustomConfig)
+    message = str(exc_info.value)
+    assert f"'{__name__}.CustomConfig'" in message
+    assert f"'{found}'" in message
+    assert "custom_config_model" in message
+
+
+def test_get_custom_config_missing(no_apps: None) -> None:
+    """Missing custom configurations raise errors."""
+    create_connexion_app(Config())
+    with pytest.raises(RuntimeError, match="custom_config_model"):
+        get_custom_config(CustomConfig)
+
+
+def test_get_custom_config_no_app(no_apps: None) -> None:
+    """Errors are raised if no app has been created."""
+    with pytest.raises(RuntimeError, match="no FOCA app"):
+        get_custom_config(CustomConfig)
