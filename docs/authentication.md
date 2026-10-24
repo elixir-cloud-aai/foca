@@ -237,6 +237,23 @@ handle. They can also list the resources of any user they name (cf.
 [resource ownership](access-control.md#resource-ownership)), so only allow
 fully trusted clients to act for users.
 
+Apps whose endpoints don't support service clients (e.g., as they take the
+token's subject as the user) can refuse them on startup: call
+`foca.security.auth.require_no_service_clients()` after creating the app.
+It raises a `RuntimeError` if `service_clients` or `on_behalf_of_header`
+is set. FOCA doesn't call it itself.
+
+```python
+from foca import Foca
+from foca.security.auth import require_no_service_clients
+
+
+def create_app():
+    app = Foca(config_file="config.yaml").create_app()
+    require_no_service_clients()
+    return app
+```
+
 ## Using token claims
 
 Connexion passes the result of the validation to controllers that accept

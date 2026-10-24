@@ -23,6 +23,7 @@ configuration models, see [Configuration](configuration/index.md).
         - validate_token
         - get_token_client
         - get_service_client
+        - require_no_service_clients
 
 ## Access control
 

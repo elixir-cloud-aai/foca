@@ -70,6 +70,15 @@ security:
     # Request header in which service clients with `on_behalf_of: True`
     # name the user they act for
     on_behalf_of_header: null
+  # Cf. https://foca.readthedocs.io/en/latest/configuration/access-control/
+  access_control:
+    # Requires trusted `issuers`; the other access control options require
+    # it (cf. docs)
+    enabled: False
+    # Refuse to start if no group is mapped to the role `admin`
+    # (`group_mapping`) and no rule of `policies` grants it, instead of
+    # logging a warning
+    require_admin: False
 
 # API CONFIGURATION
 # Cf. https://foca.readthedocs.io/en/latest/configuration/api/

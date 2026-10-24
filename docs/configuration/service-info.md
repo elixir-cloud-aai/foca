@@ -150,6 +150,26 @@ function).
 Use `foca.api.service_info.get_service_info()` to get the service info of the
 current app in your own code.
 
+## Placeholders
+
+Templates (such as FOCA's `templates/config.yaml`) describe services with
+reserved example domains ([RFC 2606](https://www.rfc-editor.org/rfc/rfc2606)),
+which deployments replace. When the app is created, FOCA logs a warning
+naming the fields of the service info (including fields computed at
+runtime) that still have such values:
+
+- `id`, if it is in such a domain in reverse domain name notation, i.e.,
+  starts with `com.example`, `net.example`, `org.example` or `example.`
+  (e.g., `org.example.my-service`);
+- `organization.url`, `contactUrl` and `documentationUrl`, if their host
+  (for `mailto:` URLs, the domain of the address) is `example.com`,
+  `example.net`, `example.org` or a subdomain of one, or in the top-level
+  domain `example` (e.g., `https://docs.example.org`,
+  `mailto:support@example.org`).
+
+The app still starts. Set these fields to describe the deployment, e.g., in
+a [config overlay](index.md#environment-specific-configuration).
+
 ## Migrating an app
 
 Upgrading an app that used `service_info` as a section of its own? See

@@ -21,6 +21,8 @@ security:
     claim_groups: eduperson_entitlement
     group_mapping:
       "urn:example:group:my-app-admins#login.example.org": admin
+    keep_group_subjects: true
+    require_admin: true
     client_mapping:
       conquest-client-id: submitter
     resource_roles: [owner, maintainer]
@@ -44,6 +46,38 @@ config overlays can change single rules (see [configuring
 policies](../access-control.md#configuring-policies)). See [Access
 control](../access-control.md) for how policies, roles and the permissions API
 work.
+
+## Startup checks
+
+Some settings leave an app running, but not as intended. When access control
+is enabled, `Foca.create_app()` checks them and logs what to change:
+
+- **Admins:** the groups mapped to the role `admin` (via `group_mapping`)
+  are logged (`INFO`). If no group is mapped to it and no rule of
+  `policies` grants it (e.g., `[g, "user:alice", admin]`), a warning is
+  logged, as nobody is then an admin via groups or configured rules. Roles
+  granted via stored policy rules (e.g., via the permissions API) are not
+  checked, and still apply. With `require_admin: true`, the app refuses to
+  start (`ValueError`) instead, before anything is stored; set it if the
+  app needs admins, e.g., to manage resources of others. It defaults to
+  `false` and requires `enabled: true`.
+- **Group claim:** a warning is logged if `group_mapping` is set, but
+  `claim_groups` is not, as no mapping then applies, and if `claim_groups`
+  has surrounding whitespace, as the claim is looked up as written.
+- **Group subjects:** a warning is logged if `group_mapping` is set, but
+  `keep_group_subjects` is not, as group claim values are then not used as
+  group subjects (`group:<value>`): rules and [roles granted to
+  groups](../access-control.md#granting-roles-to-groups) don't apply, and
+  the resource ownership helpers refuse to grant them. Set
+  `keep_group_subjects: true` if the app grants roles to groups.
+- `keep_group_subjects` without `group_mapping` (no effect) and several
+  trusted `issuers` (subjects are not scoped by issuer) are warned about,
+  too.
+
+Messages name the settings to change, and contain no claim values other
+than configured group names. Without access control, none of these checks
+run. See [startup checks](../deployment.md#startup-checks) for all of
+FOCA's checks.
 
 ::: foca.models.config.AccessControlConfig
     options:
