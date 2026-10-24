@@ -8,11 +8,17 @@ from traceback import format_exception
 from typing import Any
 
 from connexion import App
-from connexion.exceptions import OAuthProblem, ProblemException
+from connexion.exceptions import (
+    BadRequestProblem,
+    ExtraParameterProblem,
+    OAuthProblem,
+    ProblemException,
+)
 from flask import Response
 from werkzeug.datastructures import Headers
 from werkzeug.exceptions import HTTPException
 
+from foca.config.access import get_config
 from foca.models.config import ExceptionConfig, ExceptionLoggingEnum
 from foca.utils.logging import escape_log_value
 
@@ -54,12 +60,51 @@ _BODY_HEADERS = (
     "Transfer-Encoding",
 )
 
+# Exceptions of Connexion's request validation, whose reasons are served as
+# `detail` with `exceptions.validation_details`
+_VALIDATION_EXCEPTIONS = (BadRequestProblem, ExtraParameterProblem)
+
+# Logger of Connexion's request validation, which logs the validator's
+# message in full and unescaped (validators quote rejected values, e.g., a
+# whole request body)
+_VALIDATION_LOGGER = "connexion.decorators.validation"
+
+# Members of problem details set by `problem_response()` itself or mapped
+# to the exception class (`type`)
+_RESERVED_MEMBERS = ("title", "status", "detail", "type")
+
+
+def _keep_response_validation_records(record: logging.LogRecord) -> bool:
+    """Filter out log records of Connexion's request validation.
+
+    Added to Connexion's validation logger with
+    `exceptions.validation_details` (cf. :py:func:`register_exception_handler`),
+    as it logs the reasons of rejected requests in full and unescaped (e.g.,
+    with the rejected values); the handler logs them shortened and escaped
+    instead. Records of response validation (`validator` attribute
+    `response`) are kept, as they log why a response is invalid.
+
+    Args:
+        record: Log record of Connexion's validation logger.
+
+    Returns:
+        Whether the record is of response validation.
+    """
+    return getattr(record, "validator", None) == "response"
+
 
 def register_exception_handler(
     app: App,
     conf: ExceptionConfig | None = None,
 ) -> App:
     """Register generic JSON problem handler with Connexion app.
+
+    With `conf.validation_details`, also registers a handler for Connexion's
+    request validation exceptions (`BadRequestProblem` and
+    `ExtraParameterProblem`; cf. :py:func:`_validation_handler_json`) and
+    filters out the request validation messages of Connexion's validation
+    logger (`connexion.decorators.validation`; for all apps of the process,
+    cf. :py:func:`_keep_response_validation_records`).
 
     Args:
         app: Connexion application instance.
@@ -77,6 +122,19 @@ def register_exception_handler(
 
     app.add_error_handler(Exception, _handler)
     logger.debug("Registered generic JSON problem handler with Connexion app.")
+    if _conf.validation_details:
+
+        def _validation_handler(exception: ProblemException) -> Response:
+            return _validation_handler_json(exception=exception, conf=_conf)
+
+        for exception in _VALIDATION_EXCEPTIONS:
+            app.add_error_handler(exception, _validation_handler)
+        # The handler logs the reason shortened and escaped instead; added
+        # once per process (`addFilter()` skips filters already added)
+        logging.getLogger(_VALIDATION_LOGGER).addFilter(
+            _keep_response_validation_records
+        )
+        logger.debug("Registered validation problem handler with Connexion app.")
     return app
 
 
@@ -170,12 +228,211 @@ def build_problem(
         status code.
     """
     problem = _resolve_problem(exc=exc, conf=conf)
+    return _filter_problem(problem=problem, conf=conf), problem["status"]
+
+
+def _filter_problem(problem: dict[str, Any], conf: ExceptionConfig) -> dict[str, Any]:
+    """Filter problem details by their public members.
+
+    Args:
+        problem: Problem details.
+        conf: Exception handling settings.
+
+    Returns:
+        Problem details with the members of `conf.public_members` only, if
+        set, otherwise all.
+    """
+    if conf.public_members is None:
+        return problem
+    return {key: value for key, value in problem.items() if key in conf.public_members}
+
+
+def _shorten(detail: str, max_length: int) -> str:
+    """Shorten a detail in the middle, keeping its start and end.
+
+    Args:
+        detail: Description of a problem.
+        max_length: Maximum length (at least 1).
+
+    Returns:
+        The detail, if it is not longer than `max_length`, otherwise its
+        first and last characters, joined by "…", with `max_length`
+        characters in total (the start gets the extra character, if any).
+    """
+    if len(detail) <= max_length:
+        return detail
+    kept = max_length - 1
+    tail = kept // 2
+    head = kept - tail
+    return f"{detail[:head]}…{detail[len(detail) - tail :]}"
+
+
+def shorten_detail(detail: str) -> str:
+    """Shorten a detail to the configured maximum length.
+
+    Use it for request-specific details in log messages (e.g., quoting
+    values of the request), as responses of FOCA (cf.
+    :py:func:`problem_response`) do. Shortened details keep their start and
+    end (e.g., the names of fields at the end of a validator's message).
+
+    Args:
+        detail: Description of a problem.
+
+    Returns:
+        The detail, if it is not longer than `exceptions.max_detail_length`
+        of the current FOCA app's config, otherwise its first and last
+        characters, joined by "…", with `exceptions.max_detail_length`
+        characters in total.
+
+    Raises:
+        RuntimeError: No FOCA app has been created.
+    """
+    return _shorten(detail, get_config().exceptions.max_detail_length)
+
+
+def problem_response(exc: HTTPException, **extensions: Any) -> Response:
+    """Build an error response with the description of an exception.
+
+    The problem details mapped to an exception class are the same for all
+    its exceptions, so controllers can use this function to respond with
+    details specific to a request instead, e.g., which identifier conflicts:
+
+    ```python
+    return problem_response(Conflict(f"Exists: {service_id}"), serviceId=service_id)
+    ```
+
+    Must be called after a FOCA app has been created (cf.
+    :py:func:`foca.config.access.get_config`). Like all error responses, the
+    response has the configured media type (`exceptions.media_type`), only
+    the public members (`exceptions.public_members`; without `detail`, the
+    description is not sent) and the headers of the exception (cf.
+    :py:func:`_build_headers`, e.g., `WWW-Authenticate`). The exception is
+    not logged.
+
+    Args:
+        exc: werkzeug HTTP exception with an HTTP error status code (400 to
+            599) and a request-specific description.
+        extensions: Extension members of the problem details (e.g.,
+            ``serviceId="..."``); values must be JSON-serializable. With
+            `exceptions.public_members`, only listed members are sent.
+
+    Returns:
+        Error response with the problem details mapped to the class of the
+        exception (cf. :py:func:`build_problem`), with its status code as
+        `status`, its description as `detail` (shortened, cf.
+        :py:func:`shorten_detail`) and the extension members.
+
+    Raises:
+        RuntimeError: No FOCA app has been created.
+        ValueError: The exception is not a werkzeug HTTP exception (e.g., a
+            Connexion `ProblemException`), has no HTTP error status code or
+            no description (e.g., a plain `HTTPException`), or the extension
+            members include `title`, `status`, `detail` or `type`.
+    """
+    status = _get_status(exc) if isinstance(exc, HTTPException) else None
+    if status is None or exc.description is None:
+        raise ValueError(
+            "Problem details need an exception with an HTTP error status code "
+            f"and a description: {type(exc).__name__}"
+        )
+    reserved = sorted(set(_RESERVED_MEMBERS) & extensions.keys())
+    if reserved:
+        raise ValueError(
+            f"Extension members must not set {', '.join(reserved)}: "
+            "they are set from the exception or its mapping"
+        )
+    conf = get_config().exceptions
+    problem = _resolve_problem(exc=exc, conf=conf)
+    problem.update(
+        status=status,
+        detail=_shorten(exc.description, conf.max_detail_length),
+        **extensions,
+    )
+    return _response(exc=exc, problem=problem, conf=conf)
+
+
+def _validation_reason(exc: ProblemException) -> str | None:
+    """Get the reason of a validation exception.
+
+    Args:
+        exc: Exception of Connexion's request validation.
+
+    Returns:
+        The `detail` of the exception (items of a list, e.g., for form data,
+        joined by "; "), or `None` if it is empty or not a string or list.
+    """
+    detail = exc.detail
+    if isinstance(detail, list):
+        detail = "; ".join(str(item) for item in detail)
+    if isinstance(detail, str) and detail:
+        return detail
+    return None
+
+
+def _validation_handler_json(
+    exception: ProblemException,
+    conf: ExceptionConfig,
+) -> Response:
+    """JSON problem handler for Connexion's request validation exceptions.
+
+    Registered with `conf.validation_details` (cf.
+    :py:func:`register_exception_handler`). Logs the reason at `INFO`,
+    shortened and escaped (unless disabled via `conf.logging`), instead of
+    the exception, and responds like :py:func:`_problem_handler_json`, with
+    the reason as `detail`.
+
+    Args:
+        exception: Exception of Connexion's request validation.
+        conf: Exception handling settings.
+
+    Returns:
+        JSON-formatted error response, with the problem details mapped to
+        the exception (cf. :py:func:`build_problem`) and the reason as
+        `detail` (shortened to `conf.max_detail_length`), if any.
+    """
+    problem = _resolve_problem(exc=exception, conf=conf)
+    reason = _validation_reason(exception)
+    if reason is not None:
+        problem["detail"] = _shorten(reason, conf.max_detail_length)
+    if conf.logging is not ExceptionLoggingEnum.none:
+        # Escaped before shortening, so that the logged reason stays within
+        # the maximum length
+        logged = reason if reason is not None else problem.get("detail")
+        logger.info(
+            "Request rejected: %s",
+            _shorten(
+                escape_log_value(problem["title"] if logged is None else logged),
+                conf.max_detail_length,
+            ),
+        )
+    return _response(exc=exception, problem=problem, conf=conf)
+
+
+def _response(
+    exc: BaseException,
+    problem: dict[str, Any],
+    conf: ExceptionConfig,
+) -> Response:
+    """Build the error response for an exception.
+
+    Args:
+        exc: Exception.
+        problem: Problem details, unfiltered.
+        conf: Exception handling settings.
+
+    Returns:
+        JSON-formatted error response, with the problem details filtered by
+        `conf.public_members`, the headers of the exception (cf.
+        :py:func:`_build_headers`) and media type `conf.media_type`.
+    """
     status = problem["status"]
-    if conf.public_members is not None:
-        problem = {
-            key: value for key, value in problem.items() if key in conf.public_members
-        }
-    return problem, status
+    return Response(
+        response=dumps(_filter_problem(problem=problem, conf=conf)),
+        status=status,
+        headers=_build_headers(exc=exc, status=status),
+        # exactly as configured (`mimetype` adds a charset to `text/*`)
+        content_type=conf.media_type,
+    )
 
 
 def _build_headers(exc: BaseException, status: int) -> Headers:
@@ -287,16 +544,6 @@ def _problem_handler_json(
     Returns:
         JSON-formatted error response, with media type `conf.media_type`.
     """
-    _log_exception(
-        exc=exception,
-        format=conf.logging,
-        problem=_resolve_problem(exc=exception, conf=conf),
-    )
-    problem, status = build_problem(exc=exception, conf=conf)
-    return Response(
-        response=dumps(problem),
-        status=status,
-        headers=_build_headers(exc=exception, status=status),
-        # exactly as configured (`mimetype` adds a charset to `text/*`)
-        content_type=conf.media_type,
-    )
+    problem = _resolve_problem(exc=exception, conf=conf)
+    _log_exception(exc=exception, format=conf.logging, problem=problem)
+    return _response(exc=exception, problem=problem, conf=conf)
