@@ -56,7 +56,7 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.enforcement import (
     SubjectType,
-    get_enforcer,
+    locked_enforcer,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
@@ -1401,8 +1401,8 @@ class TestEnforceAccessControlDecorator:
 
     def test_allowed(self, helper_app: Flask) -> None:
         """Allowed requests are passed to the controller."""
-        with helper_app.app_context():
-            get_enforcer().add_policy("user:alice", "/items", "GET")
+        with helper_app.app_context(), locked_enforcer() as enforcer:
+            enforcer.add_policy("user:alice", "/items", "GET")
         token_info = mock_token_info("alice")
         assert self._call(helper_app, "GET", "/items", token_info) == "ok"
 
@@ -1427,8 +1427,8 @@ class TestEnforceAccessControlDecorator:
     @pytest.mark.parametrize("subject", ["alice,/items,GET", "alice\n", "a" * 1024])
     def test_invalid_subject(self, helper_app: Flask, subject: str) -> None:
         """Requests with invalid subjects are forbidden."""
-        with helper_app.app_context():
-            get_enforcer().add_policy("*", "/items", "GET")
+        with helper_app.app_context(), locked_enforcer() as enforcer:
+            enforcer.add_policy("*", "/items", "GET")
         with pytest.raises(Forbidden):
             self._call(helper_app, "GET", "/items", {"sub": subject})
 
@@ -1456,8 +1456,7 @@ class TestActionMatching:
         self, helper_app: Flask, pattern: str, method: str, expected: bool
     ) -> None:
         """Action patterns match whole HTTP methods."""
-        with helper_app.app_context():
-            enforcer = get_enforcer()
+        with helper_app.app_context(), locked_enforcer() as enforcer:
             enforcer.add_policy("*", "/x", pattern)
             assert enforcer.enforce("user:alice", "/x", method) is expected
 
@@ -1480,8 +1479,8 @@ class TestLoadPolicy:
                 "v": "x",
             }
         )
-        with helper_app.app_context():
-            assert get_enforcer().get_policy() == [["user:alice", "/items", "GET"]]
+        with helper_app.app_context(), locked_enforcer() as enforcer:
+            assert enforcer.get_policy() == [["user:alice", "/items", "GET"]]
 
     @pytest.mark.parametrize(
         "document",
@@ -1511,20 +1510,19 @@ class TestLoadPolicy:
         collection.insert_one(
             {"id": "2", "ptype": "p", "v0": "*", "v1": "/x", "v2": "GET"}
         )
-        with helper_app.app_context():
-            enforcer = get_enforcer()
+        with helper_app.app_context(), locked_enforcer() as enforcer:
             assert enforcer.get_policy() == [["*", "/x", "GET"]]
             assert enforcer.get_named_grouping_policy("g2") == []
             assert enforcer.enforce("user:a", "/x", "GET")
         assert "Skipping invalid policy rule 'invalid'" in caplog.text
 
-    def test_get_enforcer_loads_duplicates_once(self, helper_app: Flask) -> None:
+    def test_enforcer_loads_duplicates_once(self, helper_app: Flask) -> None:
         """Rules stored twice via the app's adapter are enforced once."""
         adapter = helper_app.config["casbin_adapter"]
         for _ in range(2):
             adapter.save_policy_line("g", ["user:alice", "admin"])
-        with helper_app.app_context():
-            assert get_enforcer().get_grouping_policy() == [["user:alice", "admin"]]
+        with helper_app.app_context(), locked_enforcer() as enforcer:
+            assert enforcer.get_grouping_policy() == [["user:alice", "admin"]]
 
 
 class TestResourceRoles:
@@ -1600,7 +1598,7 @@ class TestResourceRoles:
             add_resource_role("alice", "owner", "/items/1")
             monkeypatch.setattr(
                 enforcement,
-                "get_enforcer",
+                "locked_enforcer",
                 mock.Mock(side_effect=AssertionError),
             )
             assert remove_resource("/items/1") is True
@@ -1644,16 +1642,18 @@ class TestResourceRoles:
             assert not add_resource_role(
                 GROUP, "owner", "/items/1", subject_type="group"
             )
-            assert get_enforcer().get_named_grouping_policy("g2") == [
-                [f"group:{GROUP}", "owner", "/items/1"]
-            ]
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == [
+                    [f"group:{GROUP}", "owner", "/items/1"]
+                ]
             assert remove_resource_role(
                 GROUP, "owner", "/items/1", subject_type="group"
             )
             assert not remove_resource_role(
                 GROUP, "owner", "/items/1", subject_type="group"
             )
-            assert get_enforcer().get_named_grouping_policy("g2") == []
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == []
 
     def test_list_group_roles(self, helper_app: Flask) -> None:
         """Resource roles are listed by subject type."""
@@ -1679,10 +1679,11 @@ class TestResourceRoles:
         with helper_app.app_context():
             assert add_resource_role(GROUP, "owner", "/items/1", subject_type="group")
             assert add_resource_role(GROUP, "maintainer", "/items/1")
-            assert get_enforcer().get_named_grouping_policy("g2") == [
-                [f"group:{GROUP}", "owner", "/items/1"],
-                [f"user:{GROUP}", "maintainer", "/items/1"],
-            ]
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == [
+                    [f"group:{GROUP}", "owner", "/items/1"],
+                    [f"user:{GROUP}", "maintainer", "/items/1"],
+                ]
             assert list_resource_roles("/items/1", subject_type="group") == [
                 (GROUP, "owner")
             ]
@@ -1709,14 +1710,16 @@ class TestResourceRoles:
         with helper_app.app_context():
             with pytest.raises(ValueError, match="must not start with"):
                 add_resource_role("grace", role, "/items/5", subject_type=subject_type)
-            assert get_enforcer().get_named_grouping_policy("g2") == []
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == []
             helper_app.config["casbin_adapter"].save_policy_line(
                 "g2", [f"{prefix}grace", role, "/items/5"]
             )
             assert remove_resource_role(
                 "grace", role, "/items/5", subject_type=subject_type
             )
-            assert get_enforcer().get_named_grouping_policy("g2") == []
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == []
 
     def test_subject_like_roles_custom_prefix(self, helper_app: Flask) -> None:
         """Roles starting with a custom subject prefix are rejected, too."""
@@ -1730,9 +1733,10 @@ class TestResourceRoles:
                 )
                 assert remove_resource_role("grace", role, "/items/5")
             assert add_resource_role("grace", "user:alice", "/items/5")
-            assert get_enforcer().get_named_grouping_policy("g2") == [
-                ["u/grace", "user:alice", "/items/5"]
-            ]
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == [
+                    ["u/grace", "user:alice", "/items/5"]
+                ]
 
     @pytest.mark.parametrize(
         "group_mapping,keep_group_subjects,warned",
@@ -1762,11 +1766,12 @@ class TestResourceRoles:
     def test_subject_like_roles_not_chained(self, helper_app: Flask) -> None:
         """Users cannot get the rights of groups via resource roles."""
         with helper_app.app_context():
-            enforcer = get_enforcer()
-            enforcer.add_policy("group:auditors", "/items/:id", "GET")
+            with locked_enforcer() as enforcer:
+                enforcer.add_policy("group:auditors", "/items/:id", "GET")
             with pytest.raises(ValueError):
                 add_resource_role("grace", "group:auditors", "/items/5")
-            assert not get_enforcer().enforce("user:grace", "/items/5", "GET")
+            with locked_enforcer() as enforcer:
+                assert not enforcer.enforce("user:grace", "/items/5", "GET")
 
     def test_list_by_subject_type_skips_other_subjects(self, helper_app: Flask) -> None:
         """Listing by subject type skips subjects of other types."""
@@ -1803,7 +1808,8 @@ class TestResourceRoles:
                         "/items/1",
                         subject_type=subject_type,  # type: ignore[arg-type]  # invalid on purpose
                     )
-            assert get_enforcer().get_named_grouping_policy("g2") == []
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == []
 
     @pytest.mark.parametrize(
         "subject_type,prefix", [("user", "user:"), ("group", "group:")]
@@ -1815,14 +1821,16 @@ class TestResourceRoles:
         with helper_app.app_context():
             with pytest.raises(ValueError, match="must not be empty"):
                 add_resource_role("", "owner", "/items/1", subject_type=subject_type)
-            assert get_enforcer().get_named_grouping_policy("g2") == []
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == []
             helper_app.config["casbin_adapter"].save_policy_line(
                 "g2", [prefix, "owner", "/items/1"]
             )
             assert remove_resource_role(
                 "", "owner", "/items/1", subject_type=subject_type
             )
-            assert get_enforcer().get_named_grouping_policy("g2") == []
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == []
 
     def test_duplicate_rules(self, helper_app: Flask) -> None:
         """Rules stored more than once are listed once and revoked completely.
@@ -1841,9 +1849,10 @@ class TestResourceRoles:
                 ) == [("alice", "owner"), ("bob", "owner")]
             assert remove_resource_role("alice", "owner", "/items/1")
             # policies are loaded anew, so a remaining copy would be listed
-            assert get_enforcer().get_named_grouping_policy("g2") == [
-                ["user:bob", "owner", "/items/1"]
-            ]
+            with locked_enforcer() as enforcer:
+                assert enforcer.get_named_grouping_policy("g2") == [
+                    ["user:bob", "owner", "/items/1"]
+                ]
 
     def test_list_invalid_subject_type(self, helper_app: Flask) -> None:
         """Invalid subject types are rejected for listing."""
