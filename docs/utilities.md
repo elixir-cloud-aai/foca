@@ -198,7 +198,8 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
   deployments and tests).
 - Redirects are returned, never followed; proxies and `.netrc` files of the
   environment are ignored; only `https` is allowed (unless
-  `allow_http=True`), and TLS certificates are always verified.
+  `allow_http=True`), and TLS certificates are always verified. Cookies
+  are not kept, so requests do not share state.
 - Each request ends by the deadline as a whole (resolving, connecting,
   sending and reading, also from servers that send slowly; connections
   within 10 s at most), and bodies are limited to `max_response_size`
@@ -206,8 +207,14 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
 - Errors carry a reason code (`reason`, e.g., `dns_error`,
   `connect_error`, `tls_error`, `not_public`, `invalid_request` (a body
   that is no JSON), `invalid_header`, `read_timeout`,
-  `connection_lost`), and tell requests that certainly did not reach the server (`RequestNotSent`) from
-  those that may have (`RequestMaybeSent`).
+  `connection_lost`), and tell requests that certainly did not reach the
+  server (`RequestNotSent`) from those that may have
+  (`RequestMaybeSent`). Their messages name URLs without user info, query
+  and fragment, with control characters escaped.
+- Network-specific NAT64 prefixes (RFC 6052) cannot be told from other
+  IPv6 addresses: only the well-known prefix `64:ff9b::/96` is checked for
+  embedded IPv4 addresses, so deployments with their own NAT64 prefix
+  must block private destinations at the translator.
 
 `check_public_host(url)` resolves a host and checks all its addresses, e.g.,
 before a discovered URL is stored; `fetch_json(url, timeout)` reads a JSON

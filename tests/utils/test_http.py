@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -59,6 +60,19 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(b"x" * 10)
                 self.wfile.flush()
                 time.sleep(0.02)
+            return
+        if self.path == "/cookie":
+            self.send_response(200)
+            self.send_header("Set-Cookie", "session=secret; Path=/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path == "/echo-cookie":
+            body = (self.headers.get("Cookie") or "").encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         body = b"[1, 2]" if self.path != "/large" else b"x" * 2048
         if self.path == "/text":
@@ -626,6 +640,94 @@ def test_reused_connections_bounded(keep_alive: str) -> None:
     client.close()
 
 
+def test_no_cookies(server: str) -> None:
+    """Clients keep no cookies between requests."""
+    client = GuardedClient(allow_private_addresses=True, allow_http=True)
+    assert client.get(f"{server}/cookie").status == 200
+    assert client.get(f"{server}/echo-cookie").content == b""
+    client.close()
+
+
+def test_session_once() -> None:
+    """Concurrent first requests share one session."""
+    client = GuardedClient()
+    barrier = threading.Barrier(8)
+    sessions: list[Any] = []
+
+    def first() -> None:
+        barrier.wait()
+        sessions.append(client.session)
+
+    threads = [threading.Thread(target=first) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len({id(session) for session in sessions}) == 1
+    client.close()
+
+
+def test_redacted_messages() -> None:
+    """Messages of errors give URLs without secrets and control characters."""
+    client = GuardedClient(timeout=0)
+    with pytest.raises(DeadlineExceeded) as info:
+        client.get("https://user:pw@example.org/a\nb?token=s#frag")
+    message = str(info.value)
+    assert "example.org" in message
+    for secret in ("user", "pw", "token", "frag", "\n"):
+        assert secret not in message
+    assert http._redact("https://[::1]:8443/p?q") == "https://[::1]:8443/p"
+    assert http._redact("https://example.org:99999/") == "(invalid URL)"
+    assert http._redact("example.org") == "example.org"
+
+
+def test_guard_owns_connections() -> None:
+    """Timers stop only the connections that their request still owns."""
+    lock = threading.Lock()
+    old = http._Guard(allow_private_addresses=True, lock=lock)
+    new = http._Guard(allow_private_addresses=True, lock=lock)
+    first, second = socket.socketpair()
+    with first, second:
+        conn = SimpleNamespace(sock=first, close=lambda: None)
+        old.track(conn, first)
+        new.track(conn)  # reused by another request
+        old._stop()  # the old request's timer fires late
+        first.setblocking(False)
+        with pytest.raises(BlockingIOError):
+            first.recv(1)  # still open
+        new._stop()
+        assert first.recv(1) == b""
+
+
+def test_guard_stops_wrapped_sockets() -> None:
+    """Timers stop the current socket of a connection (e.g., TLS)."""
+    guard = http._Guard(allow_private_addresses=True)
+    raw, peer = socket.socketpair()
+    wrapped, other = socket.socketpair()
+    with raw, peer, wrapped, other:
+        conn = SimpleNamespace(sock=None, close=lambda: None)
+        guard.track(conn, raw)
+        conn.sock = wrapped  # e.g., urllib3 wraps the socket for TLS
+        guard._stop()
+        assert wrapped.recv(1) == b""
+        assert raw.recv(1) == b""
+
+
+def test_reuse_after_stop() -> None:
+    """Connections stopped by an old timer are closed before reuse."""
+    lock = threading.Lock()
+    old = http._Guard(allow_private_addresses=True, lock=lock)
+    new = http._Guard(allow_private_addresses=True, lock=lock)
+    closed: list[bool] = []
+    first, second = socket.socketpair()
+    with first, second:
+        conn = SimpleNamespace(sock=first, close=lambda: closed.append(True))
+        old.track(conn, first)
+        old._stop()
+        new.track(conn)  # e.g., taken from the pool after the old timer
+        assert closed == [True]
+
+
 def test_guard() -> None:
     """Sockets of expired requests are shut down, also when added late."""
     guard = http._Guard(allow_private_addresses=True)
@@ -634,9 +736,9 @@ def test_guard() -> None:
     assert guard.expired
     first, second = socket.socketpair()
     with first, second:
-        guard.track(first)
+        guard.track(SimpleNamespace(sock=None), first)
         assert first.recv(1) == b""
-    guard.track(first)  # closed: shutting it down fails silently
+    guard.track(SimpleNamespace(sock=first))  # closed: fails silently
     guard.finish()
     guard.finish()
     assert guard.left() < 0
