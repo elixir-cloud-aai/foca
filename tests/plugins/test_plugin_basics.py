@@ -7,11 +7,19 @@ from typing import Any, ClassVar
 import pytest
 from pydantic import BaseModel, ValidationError
 
+import foca.plugins
 from foca.plugins import Headers, Plugin, Principal, Rejected
 from foca.plugins.base import EmptyModel, check_plugin_class
 from foca.plugins.config import PluginsConfig, StepConfig, check_plugin_id
 from foca.plugins.context import Context
 from tests.plugins.fakes import FailingPlugin, TagPlugin
+
+
+def test_public_names() -> None:
+    """Every name that `foca.plugins` exports resolves."""
+    missing = [name for name in foca.plugins.__all__ if not hasattr(foca.plugins, name)]
+    assert missing == []
+    assert len(set(foca.plugins.__all__)) == len(foca.plugins.__all__)
 
 
 def test_headers() -> None:
@@ -157,6 +165,8 @@ def test_context() -> None:
         ("k", list(range(17))),
         ("k", [{"a": 1}]),
         ("k", "x" * 2100),
+        ("k", float("nan")),
+        ("k", [1.0, float("inf")]),
     ]:
         with pytest.raises(ValueError):
             ctx.record(key, value)

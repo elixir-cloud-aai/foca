@@ -26,6 +26,7 @@ from foca.plugins.errors import (
     ForwardTimeout,
     GatewayError,
     InvalidSelection,
+    InvalidVia,
     LoopDetected,
     NoBackendAvailable,
     PipelineFailed,

@@ -28,7 +28,7 @@ def fake_plugins(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Use the fake plugins as installed entry points; reset the runtime."""
     monkeypatch.setattr(loader, "entry_points", lambda group: fake_entry_points()())
     yield
-    runtime.configure(None)
+    runtime.reset()
 
 
 def write_config(tmp_path: Path, data: dict[str, Any]) -> Path:
@@ -58,9 +58,19 @@ def test_gateway_app(tmp_path: Path, fake_plugins: None) -> None:
     assert runtime.get_host() is host
     assert list(host.plugins) == ["test.tag", "foca.routing.ordered"]
     runtime._runtime.forget()
-    assert runtime.get_host() is not host
+    current = runtime.get_host()
+    assert current is not host
+    host.close()
     runtime.configure(GatewayApp(api="tes"))
+    assert runtime.get_host() is current
+    with pytest.raises(RuntimeError, match="one gateway app"):
+        runtime.configure(GatewayApp(api="wes"))
+    with pytest.raises(RuntimeError, match="one gateway app"):
+        Foca(config_file=config)
+    runtime._close_at_exit()
     assert runtime._runtime.host is None
+    runtime._close_at_exit()
+    runtime.configure(GatewayApp(api="wes"))
 
 
 def test_gateway_app_invalid_plugins(tmp_path: Path, fake_plugins: None) -> None:
@@ -76,7 +86,7 @@ def test_plugins_without_gateway(
 ) -> None:
     """Apps that are no gateways warn about a plugins section."""
     config = write_config(tmp_path, {"plugins": {}})
-    runtime.configure(None)
+    runtime.reset()
     warnings: list[str] = []
     monkeypatch.setattr(
         foca_module.logger, "warning", lambda message, *args: warnings.append(message)
@@ -94,13 +104,13 @@ def test_legacy_keys_before_custom_model(tmp_path: Path) -> None:
             custom_config_model="tests.test_files.model_valid.CustomConfig",
             gateway=GatewayApp(api="tes"),
         )
-    runtime.configure(None)
+    runtime.reset()
     assert Foca(config_file=config).gateway is None
 
 
 def test_no_gateway() -> None:
     """Hosts need a gateway app."""
-    runtime.configure(None)
+    runtime.reset()
     with pytest.raises(RuntimeError, match="No gateway app"):
         runtime.get_host()
 
@@ -167,3 +177,31 @@ def test_outcome_exceptions() -> None:
     ]
     with pytest.raises(ValueError, match="Reason"):
         NotAccepted("HTTP 403")
+
+
+def test_backend_list(tmp_path: Path, fake_plugins: None) -> None:
+    """Gateway apps get their backend list from the configuration."""
+    config = write_config(
+        tmp_path,
+        {
+            "server": {"public_url": "https://gw.example.org/ga4gh/tes/v1"},
+            "custom": {
+                "backends": [
+                    {"type": "ga4gh-tes", "url": "https://tes.example.org"},
+                    {"type": "ga4gh-tes", "url": "https://gw.example.org/ga4gh/tes/v1"},
+                ]
+            },
+        },
+    )
+    gateway = GatewayApp(api="tes", backends=lambda conf: conf.custom["backends"])
+    Foca(config_file=config, gateway=gateway).create_app()
+    backends = runtime.get_backend_list()
+    assert [backend.url for backend in backends.expand()] == ["https://tes.example.org"]
+    runtime.reset()
+    Foca(config_file=config, gateway=GatewayApp(api="tes")).create_app()
+    with pytest.raises(RuntimeError, match="No backend list"):
+        runtime.get_backend_list()
+    runtime.reset()
+    invalid = GatewayApp(api="tes", backends=lambda conf: [{"type": "x"}])
+    with pytest.raises(ValueError):
+        Foca(config_file=config, gateway=invalid).create_app()

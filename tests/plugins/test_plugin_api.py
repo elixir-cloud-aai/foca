@@ -185,4 +185,4 @@ def test_spec_merged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = foca.create_app().app.test_client()
     response = client.get("/v2/plugins")
     assert response.status_code == 401
-    runtime.configure(None)
+    runtime.reset()
