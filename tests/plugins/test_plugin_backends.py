@@ -3,6 +3,7 @@
 import json
 import logging
 import threading
+import time
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -273,6 +274,106 @@ def test_own_url_any_scheme() -> None:
     assert not blist.has_registries()
 
 
+def test_own_url_ports() -> None:
+    """Default ports of both schemes count as the gateway's, others don't."""
+    blist = make_list(
+        [
+            {"type": "ga4gh-tes", "url": url, "url_schemes": ["http", "https"]}
+            for url in (
+                "http://gw.example.org:443/tes",
+                "http://gw.example.org:8080/tes",
+                "https://gw.example.org:80/tes",
+            )
+        ],
+        public_url="https://gw.example.org/tes",
+    )
+    assert [b.url for b in blist.expand()] == [
+        "http://gw.example.org:8080/tes",
+        "https://gw.example.org:80/tes",
+    ]
+
+
+def test_verified_version(registry: Registry) -> None:
+    """Services whose verified API version differs are not used."""
+    registry.services = [service("s1", "https://tes-a.example.org")]
+    registry.verifications = [
+        {
+            "service_id": "s1",
+            "url": "https://tes-a.example.org",
+            "type": {**TES, "version": "1.0.0"},
+        }
+    ]
+    blist = make_list([{"type": "ga4gh-service-registry", "url": REGISTRY}])
+    assert blist.expand() == []
+
+
+def test_slow_read_times(registry: Registry, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Next reads and staleness count from the end of a read."""
+    registry.services = [service("s1", "https://tes-a.example.org")]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    cache = backends.get_cache(entry, "tes")
+    ends: list[float] = []
+    fetch = registry.fetch
+
+    def slow(url: str, timeout: float, **options: Any) -> Any:
+        time.sleep(0.02)
+        ends.append(time.monotonic())
+        return fetch(url, timeout, **options)
+
+    monkeypatch.setattr(discovery, "fetch_json", slow)
+    assert cache.urls() == ["https://tes-a.example.org"]
+    assert cache._next_read >= ends[-1] + entry.refresh_interval
+    assert cache._read_good >= ends[-1]
+    registry.error = HttpError("down")
+    cache._next_read = 0
+    cache.urls()
+    assert cache._next_read >= ends[-1] + backends.RETRY_INTERVAL
+
+
+def test_cache_waits_if_expired_meanwhile(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Threads wait for a running read if the cache expires meanwhile."""
+    registry.services = [service("s1", "https://tes-a.example.org")]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    cache = backends.get_cache(entry, "tes")
+    assert cache.urls() == ["https://tes-a.example.org"]
+    cache._next_read = 0
+    states = iter([True, False])
+    monkeypatch.setattr(cache, "_usable", lambda: next(states))
+    cache._lock.acquire()  # another thread reads
+    threading.Timer(0.1, cache._lock.release).start()
+    assert cache.urls() == ["https://tes-a.example.org"]
+    assert registry.reads == 2
+
+
+def test_expand_snapshots(registry: Registry) -> None:
+    """Expanding records the reads it used."""
+    registry.services = [service("s1", "https://tes-a.example.org")]
+    blist = make_list(
+        [
+            {"type": "ga4gh-service-registry", "url": REGISTRY, "id": "reg"},
+            {"type": "ga4gh-tes", "url": "https://tes-b.example.org"},
+        ]
+    )
+    snapshots: dict[str, str | None] = {}
+    assert len(blist.expand(snapshots=snapshots)) == 2
+    assert snapshots == {"reg": blist.snapshots()["reg"]}
+    assert snapshots["reg"] is not None
+
+
+def test_finite_timeouts() -> None:
+    """Registry timeouts are finite."""
+    with pytest.raises(ValidationError):
+        RegistryEntry(type="ga4gh-service-registry", url=REGISTRY, timeout=float("inf"))
+
+
+def test_ordered_entries() -> None:
+    """Unordered entries are refused."""
+    with pytest.raises(TypeError, match="ordered"):
+        BackendList(frozenset(), api="tes")  # type: ignore[arg-type]
+
+
 def test_several_registries(registry: Registry) -> None:
     """Several registries yield their backends in order."""
     registry.services = [service("s1", "https://tes-a.example.org")]
@@ -483,7 +584,7 @@ def test_cache(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING):
         assert cache.urls() == ["https://tes-a.example.org"]
     assert "keeping 1 backends" in caplog.text
-    assert cache._next_read - cache._last_read == backends.RETRY_INTERVAL
+    assert cache._next_read - cache._last_read == pytest.approx(backends.RETRY_INTERVAL)
     # bugs are logged with the trace
     registry.error = RuntimeError("bug")
     cache._next_read = 0

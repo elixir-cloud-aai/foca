@@ -196,7 +196,8 @@ entries into the candidates of a request, in order:
   registry, in the registry's order. Backends with the same URL are listed
   once, at the first position, with the settings of a configured entry if
   there is one; backends at or below the gateway's public URL (same host,
-  port and path, any scheme) are left out. `Backend.auth` names the credentials (registry entries pass theirs to
+  port and path, any scheme; default ports count as the same) are left
+  out. `Backend.auth` names the credentials (registry entries pass theirs to
   their backends).
 - `entry_for(backend)`: the entry behind a candidate, e.g., for the `basic`
   environment variables, when the app adds credentials after the `forward`
@@ -204,8 +205,9 @@ entries into the candidates of a request, in order:
 - `find(url)`: a backend by URL, re-reading the registries (at most every
   10 s) if no candidate has it, e.g., for status polling and cancellation in
   other processes.
-- `snapshots()`: the time of the registry reads that the candidates come
-  from, for provenance.
+- `snapshots()`: the time of the last good registry reads; for the reads
+  that candidates come from, e.g., for provenance, pass a mapping:
+  `expand(snapshots=reads)`.
 - `describe()`: identifier, URL, source, group and labels of each
   candidate, without credentials, e.g., for the service info.
 

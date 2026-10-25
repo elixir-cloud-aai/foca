@@ -380,15 +380,21 @@ class PluginHost:
                 loaded = self.plugins.get(alternative.plugin)
                 if loaded is None:
                     continue
+                invalid = (
+                    f"Invalid params of plugin {alternative.plugin!r} in step"
+                    f" {step.id!r}"
+                )
                 try:
                     params = loaded.cls.Params.model_validate(alternative.params)
+                except ValidationError as exc:
+                    raise ValueError(f"{invalid}: {exc}") from exc
+                try:
                     loaded.instance.check_params(params)
-                except (ValidationError, InvalidParams) as exc:
-                    raise ValueError(
-                        f"Invalid params of plugin {alternative.plugin!r} in step"
-                        f" {step.id!r}: {exc}"
-                    ) from exc
-                except Exception as exc:
+                except InvalidParams as exc:
+                    raise ValueError(f"{invalid}: {exc}") from exc
+                except (KeyboardInterrupt, GeneratorExit):
+                    raise
+                except BaseException as exc:  # e.g., `SystemExit`, bugs
                     logger.exception(
                         "Plugin %s failed to check params", alternative.plugin
                     )
@@ -1059,8 +1065,8 @@ class PipelineRun:
         Args:
             candidates: Candidate backends, in the server's order.
             snapshots: Times of the registry reads that the candidates come
-                from, by registry entry, for provenance (cf.
-                :py:meth:`foca.plugins.backends.BackendList.snapshots`).
+                from, by registry entry, for provenance (cf. `snapshots` of
+                :py:meth:`foca.plugins.backends.BackendList.expand`).
 
         Returns:
             Candidates after the phase, in order.
