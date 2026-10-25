@@ -323,6 +323,73 @@ Rules:
 - Hooks are plain functions (`def`); FOCA 1.0 will also accept `async def`
   with the same arguments.
 
+### Testing plugins
+
+`foca.plugins.testing` runs plugins through the real engine, without app,
+database or network:
+
+```python
+from foca.plugins.testing import (
+    FakeHttp,
+    PluginHarness,
+    check_plugin_contract,
+    make_inbound,
+)
+
+
+def test_images():
+    harness = PluginHarness(
+        AllowedImages, config={"registries": ["quay.io"]}, params={}
+    )
+    task = {"executors": [{"image": "quay.io/x"}]}
+    assert harness.run_request(make_inbound(task)).payload == task
+    assert harness.executions[0].outcome == "ok"
+
+
+def test_contract():
+    check_plugin_contract(AllowedImages, config={"registries": ["quay.io"]})
+```
+
+- `PluginHarness(PluginClass, config=..., params=..., api="tes")` builds a
+  pipeline with one step of the plugin; `run_request()`, `run_route()`,
+  `run_forward()` and `run_response()` run the earlier phases first and
+  return the output of theirs; `executions` holds the hook calls
+  (outcome, error type, annotations, changes) and `run` the whole run
+  (e.g., `run.provenance()`). Other arguments of `PluginHost` pass through
+  (e.g., the app's `validate`).
+- Builders give valid inputs: `make_principal()`, `make_inbound()`,
+  `make_backend()`, `make_outbound()` and `make_response()`.
+- `ctx.http` is a `FakeHttp`: add responses (`http.add("GET", url,
+  json=...)`, or `error=` one of `foca.utils.http`'s errors), pass it as
+  `http=`, and check `http.calls`; requests without a response fail, and
+  the deadline applies as with the real client.
+- `check_plugin_contract(PluginClass, ...)` raises a `ContractViolation`
+  that lists every problem: invalid class or metadata (cf. `apis`,
+  `maturity`, `capabilities`), no title, `Config` or `Params` without a
+  JSON Schema, imports of web frameworks in the plugin's module, and hook
+  calls that fail (`error`, `invalid_output`, `timeout`) on the sample
+  inputs (`inbound=`, `candidates=`, `response=`, `http=`), once and from
+  20 threads with one instance. Rejecting and `NotApplicable` are fine.
+  The engine itself makes sure that hooks can't change `ctx.original`
+  and that failed calls change nothing.
+- Apps test the real allowlist path with the fixture
+  `fake_plugin_entry_points` (enable it with `pytest_plugins =
+  ["foca.plugins.pytest_plugin"]` in `conftest.py`): it registers plugin
+  classes as installed entry points of `foca.plugins` for one test, so
+  `plugins.available` loads them as in production.
+
+### Releasing plugins
+
+- Publish the distribution (e.g., on PyPI) with its entry points; admins
+  pin it in `plugins.available.<id>` (`distribution`, `version`), and
+  provenance records the version, the `RECORD` digest and the image
+  digest.
+- Raise `api_version` only for a new major version of the plugin API;
+  set `maturity = "deprecated"` (and say what replaces the plugin in its
+  description) one release before removing a plugin.
+- Run the contract check in the plugin's CI, against the oldest and the
+  newest FOCA version it supports.
+
 ## Using the engine in apps
 
 Gateway apps declare themselves when creating the FOCA app, with their API

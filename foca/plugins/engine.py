@@ -227,6 +227,7 @@ class PluginHost:
         public_url: str | None = None,
         plugins: Mapping[str, LoadedPlugin] | None = None,
         app_info: Mapping[str, str] | None = None,
+        http_client: Callable[..., GuardedClient] = GuardedClient,
     ) -> None:
         """Load the plugins and resolve the default pipeline.
 
@@ -261,6 +262,10 @@ class PluginHost:
                 the allowlist are loaded from their entry points.
             app_info: Name and version of the app, for provenance (e.g.,
                 `{"name": "proTES", "version": "0.4.0"}`).
+            http_client: Factory of the `ctx.http` clients of calls, called
+                with the keyword arguments of
+                :py:class:`foca.utils.http.GuardedClient` (e.g., a fake for
+                tests, cf. :py:class:`foca.plugins.testing.FakeHttp`).
 
         Raises:
             ValueError: Plugins cannot be loaded (cf.
@@ -274,6 +279,7 @@ class PluginHost:
         self._validate_outbound = validate_outbound
         self.public_url = public_url.rstrip("/") if public_url else None
         self.app_info: dict[str, str] = dict(app_info or {})
+        self._http_client = http_client
         self.gateway_id = conf.gateway_id or _default_gateway_id(public_url)
         self.plugins: dict[str, LoadedPlugin] = (
             dict(plugins) if plugins is not None else load_plugins(conf, api=api)
@@ -1354,7 +1360,7 @@ class PipelineRun:
                 state=state,
                 request_id=self.request_id,
                 task_id=self.task_id,
-                http=GuardedClient(
+                http=self.host._http_client(
                     deadline=call_deadline,
                     timeout=step.timeout,
                     **self.host.conf.defaults.http.model_dump(),
