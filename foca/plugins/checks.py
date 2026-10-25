@@ -39,7 +39,10 @@ def default_outbound(backend: Backend, inbound: InboundRequest) -> OutboundReque
 
     Returns:
         Request with the method, path, query and a copy of the payload of
-        the inbound request; no headers of the client are forwarded.
+        the inbound request; no headers of the client are forwarded, except
+        that the engine sets `Via` to the inbound `Via` header, passed
+        through verbatim, plus this gateway's entry (after the `forward`
+        phase, before the app's outbound check).
     """
     return OutboundRequest(
         backend=backend,

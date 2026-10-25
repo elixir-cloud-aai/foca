@@ -14,6 +14,7 @@ A gateway request has three legs and one decision (cf. the phases of
 4. the response of the backend per attempt (:py:class:`BackendResponse`).
 """
 
+import copy
 from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -135,6 +136,79 @@ class Headers(MutableMapping[str, str]):
             Independent copy.
         """
         return Headers(self)
+
+
+class FrozenMapping(Mapping[str, Any]):
+    """Read-only mapping that can be copied, deep-copied and pickled.
+
+    Unlike :py:class:`types.MappingProxyType`, plugins may store it (e.g.,
+    the claims of :py:class:`Principal`) in their state, which the engine
+    deep-copies per call.
+    """
+
+    __slots__ = ("_data",)
+
+    def __init__(self, data: Mapping[str, Any] | None = None) -> None:
+        """Wrap a copy of a mapping.
+
+        Args:
+            data: Items; none if not given.
+        """
+        self._data: dict[str, Any] = dict(data or {})
+
+    def __getitem__(self, key: str) -> Any:
+        """Get the value of a key.
+
+        Args:
+            key: Key.
+
+        Returns:
+            Value.
+        """
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over the keys.
+
+        Returns:
+            Iterator of the keys.
+        """
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        """Count the keys.
+
+        Returns:
+            Number of keys.
+        """
+        return len(self._data)
+
+    def __repr__(self) -> str:
+        """Represent the mapping.
+
+        Returns:
+            Representation.
+        """
+        return f"FrozenMapping({self._data!r})"
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "FrozenMapping":
+        """Deep-copy the mapping.
+
+        Args:
+            memo: Objects copied so far.
+
+        Returns:
+            Independent read-only copy.
+        """
+        return FrozenMapping(copy.deepcopy(self._data, memo))
+
+    def __reduce__(self) -> tuple[type["FrozenMapping"], tuple[dict[str, Any]]]:
+        """Support pickling (and `copy.copy`).
+
+        Returns:
+            Class and arguments to recreate the mapping.
+        """
+        return FrozenMapping, (self._data,)
 
 
 @dataclass(frozen=True)

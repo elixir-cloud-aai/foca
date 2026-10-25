@@ -163,7 +163,11 @@ class Plugin(Generic[ConfigT, ParamsT]):
         self.setup(config)
 
     def setup(self, config: ConfigT) -> None:
-        """Set up the plugin, once per process; override as needed.
+        """Set up the plugin; override as needed.
+
+        It may run more than once per process (e.g., FOCA loads the
+        plugins once on startup, then again in each worker process), so it
+        must be idempotent.
 
         Args:
             config: Validated admin settings.
