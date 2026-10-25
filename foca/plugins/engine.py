@@ -284,8 +284,8 @@ class PluginHost:
                 if clashes:
                     raise ValueError(
                         f"Step {clashes[0]!r} of presets.{name} has the identifier"
-                        " of a step of 'client_pipelines.append'; set an explicit"
-                        " `id`"
+                        " of a step of 'client_pipelines.prepend' or 'append';"
+                        " set an explicit `id`"
                     )
         except BaseException:
             self.close()
