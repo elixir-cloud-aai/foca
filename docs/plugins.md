@@ -222,6 +222,8 @@ foca = Foca(
     custom_config_model="my_gateway.config.CustomConfig",
     gateway=GatewayApp(
         api="tes",
+        name="my-gateway",  # name and version of the app, for provenance
+        version="1.2.0",
         validate=check_task,  # raises if a task is invalid
         sanitize=sanitize_task,  # returns the sanitized task
         validate_outbound=check_relay,  # optional, per attempt
@@ -296,26 +298,60 @@ Each run records what was requested and resolved (prospective) and what
 actually ran (retrospective). `run.provenance()` returns it as plain JSON
 data for the app to store with its resource (e.g., the task):
 
-- `engine`: versions of FOCA, the plugin API and the app (`GatewayApp(name=...,
-  version=...)`);
+- `engine`: versions of FOCA, the plugin API and the app (`app`: name and
+  version from `GatewayApp(name=..., version=...)`, the host's `app_info`);
 - `pipeline`: `source` (`default`, `preset` or `client`), `preset`,
   `requested` (a reference to the client's tag, e.g.,
   `tags[gateway.pipeline]`, as the tag is stored with the task anyway),
   `resolved` (steps with all parameters) and `resolved_hash`
   (`sha256:` of its RFC 8785 canonical JSON);
 - `plugins`: the plugins that ran, by build key (a hash of identifier,
-  distribution, version, entry point and RECORD digest);
+  distribution, version, entry point, RECORD digest and image digest);
 - `executions`: per hook call, in order: step, phase, alternative, plugin,
   outcome, start time, duration, attempt number, sanitized error,
   annotations (`ctx.record()`) and the changes: hashes before and after
-  and the changed JSON Pointers, without values (`detail: paths`);
+  and the changed JSON Pointers, without values (at most 256, then
+  `truncated: true`; arrays whose length changed as a whole); fields that
+  do not apply are left out;
 - `route` (candidates in and out), the client's backend `selection` (with
   `discarded` items), the forwarding `attempts` (backend, outcome, reason,
   remote ID, timings) and the `final_reason` (`forward_timeout`,
-  `no_backend`) if forwarding failed.
+  `no_backend`, `outcome_unknown`) if forwarding failed.
 
-Records hold no IP addresses, tokens, header values or claims. Plugins must
-not `record()` personal data.
+Records hold no IP addresses, tokens, header values or claims, and hashes
+leave out credentials and `plugins.provenance.secret_headers`. Plugins must
+not `record()` personal data. Data that is no I-JSON (e.g., integers beyond
+2^53 - 1) is recorded as `error: not_json` instead of hashes; building and
+storing records never fails the request. A record, shortened:
+
+```json
+{
+  "engine": {"foca": "0.18.0", "plugin_api": 1,
+             "app": {"name": "my-gateway", "version": "1.2.0"}},
+  "request_id": "4f3c...",
+  "pipeline": {"source": "preset", "preset": "encrypted-inputs",
+               "requested": "tags[gateway.pipeline]",
+               "resolved_hash": "sha256:9a1e..."},
+  "plugins": {"sha256:77b0...": "org.example.tes.data.decrypt"},
+  "executions": [
+    {"step": "org.example.tes.data.decrypt", "phase": "request",
+     "alternative": 0, "plugin": "sha256:77b0...",
+     "plugin_id": "org.example.tes.data.decrypt", "outcome": "ok",
+     "started_at": "2026-10-25T09:00:00.000Z", "duration_ms": 12.5,
+     "annotations": {"volumes": 1},
+     "changes": {"before": "sha256:01aa...", "after": "sha256:c4d2...",
+                 "paths": ["/payload/volumes"]}}
+  ],
+  "route": {"candidates_in": ["tes-a", "tes-b"],
+            "candidates_out": ["tes-b", "tes-a"]},
+  "selection": null,
+  "attempts": [{"number": 1, "backend": "tes-b", "outcome": "accepted",
+                "reason": null, "remote_id": "task-1",
+                "started_at": "2026-10-25T09:00:00.020Z",
+                "duration_ms": 80.1}],
+  "final_reason": null
+}
+```
 
 `foca.plugins.ProvenanceStore` stores the shared parts once, in
 collections that the app owns and declares in its `db` config:
