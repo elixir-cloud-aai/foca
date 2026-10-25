@@ -24,6 +24,10 @@ plugins:
     pipeline_timeout: 30   # seconds for the request and route phases
     forward_timeout: 60    # seconds for all forwarding attempts
     workers: 8             # threads running hooks, per process
+    http:                  # ctx.http of plugins
+      allow_private_addresses: false
+      allow_http: false
+      max_response_size: 16777216  # bytes
   # Default pipeline: steps, each with ordered alternatives (fallbacks)
   pipeline:
     - org.example.tes.policy.images        # short form, see below

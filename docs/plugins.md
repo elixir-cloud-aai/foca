@@ -201,6 +201,12 @@ Rules:
   records (`ctx.record()`, no personal data). Don't import the web framework
   (Flask, Werkzeug, Connexion, Starlette): plugins then run unchanged on
   FOCA 1.0.
+- Send HTTP requests with `ctx.http` (a `foca.utils.http.GuardedClient`
+  bound to the call's deadline): it connects to public addresses only,
+  uses `https`, follows no redirects and limits response sizes (cf.
+  `plugins.defaults.http`). Its errors are `foca.utils.http.HttpError`s
+  (with a `reason`); raise or let them propagate: the alternative then
+  fails.
 - One instance serves all requests of a process, from several threads:
   keep per-request data in `ctx.state`, not on `self`.
 - `setup()` may run more than once per process, so it must be idempotent.

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from foca.plugins.model import Principal
 from foca.plugins.selection import check_i_json
+from foca.utils.http import GuardedClient
 
 MAX_ANNOTATIONS_SIZE = 2048
 """Maximum size of the annotations of one call, as compact JSON, in bytes."""
@@ -54,8 +55,11 @@ class Context:
         state: Data private to this plugin for this request, kept across
             phases (e.g., from `request` to `forward`) if the call succeeds.
         log: Logger of the plugin, with the plugin and request identifiers.
-        http: Outbound HTTP client bounded by the deadline, if the app
-            provides one (cf. :py:mod:`foca.utils.http`).
+        http: Outbound HTTP client bounded by the deadline: public
+            addresses and `https` only, no redirects, limited response size
+            (cf. :py:class:`foca.utils.http.GuardedClient` and
+            `plugins.defaults.http`); `None` only in contexts built by
+            hand.
         annotations: Annotations recorded by the call (cf. `record()`).
     """
 
@@ -71,7 +75,7 @@ class Context:
         state: dict[str, Any],
         request_id: str | None = None,
         task_id: str | None = None,
-        http: Any = None,
+        http: GuardedClient | None = None,
     ) -> None:
         """Create the context of a call.
 

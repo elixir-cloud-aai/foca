@@ -135,6 +135,7 @@ from foca.plugins.selection import (
     parse_client_pipeline,
     parse_client_tags,
 )
+from foca.utils.http import GuardedClient
 
 logger = logging.getLogger(__name__)
 
@@ -1326,6 +1327,11 @@ class PipelineRun:
                 state=state,
                 request_id=self.request_id,
                 task_id=self.task_id,
+                http=GuardedClient(
+                    deadline=call_deadline,
+                    timeout=step.timeout,
+                    **self.host.conf.defaults.http.model_dump(),
+                ),
             )
         except Exception as exc:
             execution.outcome = "error"
@@ -1430,13 +1436,15 @@ class PipelineRun:
 
     @staticmethod
     def _finish(execution: Execution, started: float, ctx: Context) -> None:
-        """Complete the record of a call.
+        """Complete the record of a call and close its HTTP client.
 
         Args:
             execution: Record.
             started: `time.monotonic()` value at the start of the call.
             ctx: Context of the call.
         """
+        if ctx.http is not None:  # always set by the engine
+            ctx.http.close()
         execution.duration_ms = round((time.monotonic() - started) * 1000, 3)
         execution.annotations = dict(ctx.annotations)
 

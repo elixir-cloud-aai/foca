@@ -220,6 +220,8 @@ configuration models, see [Configuration](configuration/index.md).
         - HTTP_SCHEMES
         - SUPPORTED_SCHEMES
 
+::: foca.utils.http
+
 ::: foca.utils.logging
     options:
       members:

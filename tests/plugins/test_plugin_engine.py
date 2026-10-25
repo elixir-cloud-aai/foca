@@ -32,6 +32,7 @@ from foca.plugins.errors import GatewayError
 from foca.plugins.executor import _Executor
 from foca.plugins.model import OutboundRequest
 from foca.plugins.outcomes import describe_error, sanitize_error
+from foca.utils.http import GuardedClient
 from tests.plugins.fakes import (
     SlowPlugin,
     TagPlugin,
@@ -567,6 +568,34 @@ def test_config_default_host() -> None:
     run = host.start(inbound(), PRINCIPAL)
     assert run.request().payload == {"name": "task"}
     assert run.route(BACKENDS) == BACKENDS
+
+
+def test_context_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hooks get a guarded HTTP client bounded by their deadline."""
+    clients: list[Any] = []
+
+    def on_request(self: Any, request: InboundRequest, ctx: Any) -> None:
+        clients.append(ctx.http)
+        assert ctx.http.session is not None
+        assert 0 < ctx.http.remaining() <= 3
+        assert abs(ctx.http.deadline - ctx.deadline) < 1e-6
+
+    monkeypatch.setattr(TagPlugin, "on_request", on_request)
+    host = make_host(
+        [{"plugin": "test.tag", "timeout": 3}],
+        defaults={"http": {"allow_http": True, "max_response_size": 1024}},
+    )
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    assert run.executions[0].outcome == "ok"
+    client = clients[0]
+    assert isinstance(client, GuardedClient)
+    assert client.allow_http
+    assert not client.allow_private_addresses
+    assert client.max_response_size == 1024
+    assert client.timeout == 3
+    assert client._session is None  # closed after the call
+    host.close()
 
 
 @pytest.mark.parametrize(
