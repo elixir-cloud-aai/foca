@@ -9,7 +9,7 @@ import mongomock
 import pytest
 from pydantic import BaseModel, SecretStr
 
-from foca.plugins import Backend, BackendResponse, ProvenanceStore, engine
+from foca.plugins import Backend, BackendResponse, ProvenanceStore, engine, provenance
 from foca.plugins.engine import ForwardTimeout, NoBackendAvailable
 from foca.plugins.model import Headers, InboundRequest, OutboundRequest
 from foca.plugins.provenance import (
@@ -19,11 +19,15 @@ from foca.plugins.provenance import (
     build_document,
     build_key,
     canonical_json,
+    change_hash,
     changed_paths,
+    clean_url,
     content_hash,
     describe_changes,
+    limit_record,
 )
 from foca.plugins.records import ResolvedAlternative, ResolvedPipeline, ResolvedStep
+from foca.plugins.selection import BackendSelection, ClientSelection
 from tests.plugins.fakes import HeaderPlugin, TagPlugin, make_host
 from tests.plugins.test_plugin_engine import BACKENDS, PRINCIPAL, inbound
 
@@ -183,10 +187,12 @@ def test_resolved_not_json(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ResolvedPipeline, "describe", lambda self: [{"x": 2**60}])
     pipeline = run.provenance()["pipeline"]
     assert pipeline["resolved_hash"] is None
+    assert pipeline["resolved"] is None
     assert pipeline["error"] == "not_json"
     store, db = stores()
     record = store.save(run)
-    assert "resolved" in record["pipeline"]
+    assert record["pipeline"]["resolved"] is None
+    assert "stored" not in record
     assert db.pipelines.count_documents({}) == 0
 
 
@@ -293,6 +299,14 @@ def test_final_reason() -> None:
             attempt.failed("connect_error")
             time.sleep(0.01)
     assert run.provenance()["final_reason"] == "forward_timeout"
+    # the budget ran out during the last attempt
+    host = make_host([], defaults={"forward_timeout": 0.001})
+    run = host.start(inbound(), PRINCIPAL)
+    with pytest.raises(ForwardTimeout):
+        for attempt in run.attempts(BACKENDS[:1]):
+            time.sleep(0.01)
+            attempt.failed("connect_error")
+    assert run.provenance()["final_reason"] == "forward_timeout"
 
 
 def test_client_pipeline_requested() -> None:
@@ -383,6 +397,18 @@ class Broken:
         """
         raise ConnectionError("down")
 
+    def replace_one(self, *args: Any, **kwargs: Any) -> None:
+        """Fail.
+
+        Args:
+            args: Ignored.
+            kwargs: Ignored.
+
+        Raises:
+            ConnectionError: Always.
+        """
+        raise ConnectionError("down")
+
 
 def test_store_errors() -> None:
     """Errors of the collections are logged, never raised."""
@@ -391,7 +417,11 @@ def test_store_errors() -> None:
     run = host.start(inbound(), PRINCIPAL)
     with pytest.raises(Exception) as info:
         run.request()
-    assert store.save(run)["stored"] is False
+    record = store.save(run)
+    assert record["stored"] is False
+    # the builds stay inline
+    assert list(record["builds"]) == list(record["plugins"])
+    assert next(iter(record["builds"].values()))["id"] == "test.reject"
     assert store.save_failure(run, info.value) is False
 
 
@@ -424,7 +454,10 @@ def test_save_failure(record_failed: bool, collection: bool, stored: bool) -> No
         run.request()
     assert store.save_failure(run, info.value) is stored
     if stored:
+        assert store.save_failure(run, info.value)
+        assert db.failures.count_documents({}) == 1
         failure = db.failures.find_one()
+        assert failure["_id"] == f"run-{run.run_id}"
         assert failure["error"]["type"] == "PipelineRejected"
         assert failure["error"]["slug"] == "rejected"
         assert failure["error"]["status"] == 403
@@ -458,7 +491,7 @@ def test_response_headers_kept(headers: Any, monkeypatch: pytest.MonkeyPatch) ->
     assert isinstance(response.client_headers, Headers)
     execution = next(e for e in run.executions if e.phase == "response")
     assert execution.outcome == "invalid_output"
-    assert execution.error == "TypeError: Response hooks must keep Headers"
+    assert execution.error == "TypeError"
     json.dumps(run.provenance())
 
 
@@ -568,3 +601,117 @@ def test_save_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(run, "provenance", fail)
     assert store.save(run) == {"request_id": "r1", "error": "internal", "stored": False}
+
+
+def test_save_failure_by_request_id() -> None:
+    """Failure records are keyed by the request identifier."""
+    store, db = stores(record_failed=True)
+    host = make_host([{"plugin": "test.reject"}], provenance={"record_failed": True})
+    run = host.start(inbound(), PRINCIPAL, request_id="r1")
+    with pytest.raises(Exception) as info:
+        run.request()
+    assert store.save_failure(run, info.value)
+    assert store.save_failure(run, info.value)
+    assert [doc["_id"] for doc in db.failures.find()] == ["r1"]
+
+
+def test_set_cookie_not_hashed() -> None:
+    """Cookies set by backends are left out of the hashes."""
+    before = BackendResponse(status=200, client_headers=Headers({"Set-Cookie": "a"}))
+    after = BackendResponse(status=200, client_headers=Headers({"Set-Cookie": "b"}))
+    changes = describe_changes("response", before, after)
+    assert changes["paths"] == []
+    assert changes["before"] == changes["after"]
+
+
+def test_change_hashes_keyed() -> None:
+    """Hashes of changes are keyed per process, unlike content hashes."""
+    before = InboundRequest(method="POST", path="/", payload={"a": 1})
+    after = InboundRequest(method="POST", path="/", payload={"a": 2})
+    changes = describe_changes("request", before, after)
+    assert changes["before"].startswith("hmac-sha256:")
+    assert changes["before"] != changes["after"]
+    plain = content_hash({"a": 1}).removeprefix("sha256:")
+    assert change_hash({"a": 1}) != f"hmac-sha256:{plain}"
+    assert change_hash({"a": 1}) == change_hash({"a": 1.0})
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://u:p@a.example.org:8443/x?token=t#f", "https://a.example.org:8443/x"),
+        ("https://10.0.0.1/", "https://10.0.0.1/"),
+        ("https://[::1]:80/?q", "https://[::1]:80/"),
+        ("https://a.example.org:bad/", "https://"),
+        ("backend-a", "backend-a"),
+    ],
+)
+def test_clean_url(value: str, expected: str) -> None:
+    """URLs lose user info, query and fragment; identifiers are kept."""
+    assert clean_url(value) == expected
+
+
+def test_provenance_urls_clean() -> None:
+    """Provenance records hold no user info or queries of backend URLs."""
+    url = "https://u:p@x.example.org/?token=t"
+    host = make_host([])
+    run = host.start(inbound(), PRINCIPAL)
+    run.candidates_in = run.candidates_out = [url]
+    run.backends_discarded = [url]
+    run.selection = ClientSelection(
+        backends=BackendSelection.model_construct(type="allow", backends=[url])
+    )
+    attempt = next(run.attempts([Backend(id=url, url=url)]))
+    attempt.succeeded(BackendResponse(status=200), remote_id="t1")
+    text = json.dumps(run.provenance())
+    assert "token" not in text
+    assert "u:p@" not in text
+    assert "https://x.example.org/" in text
+
+
+def test_array_pointers_bounded() -> None:
+    """Long pointers to array items are recorded as their parent."""
+    key = "k" * 510  # pointers of the items are too long
+    assert changed_paths({key: [1]}, {key: [2]}) == [f"/{key}"]
+    assert changed_paths({key: [1]}, {key: [1]}) == []
+
+
+def test_record_size_limited(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Records are cut to their maximum size, in a fixed order."""
+
+    def record() -> dict[str, Any]:
+        return {
+            "executions": [
+                {"changes": {"paths": ["/" + "p" * 200]}, "annotations": {"k": "v"}},
+                {"annotations": {"k": "v"}},
+            ],
+            "pipeline": {"resolved": [{"plugin": "x"}], "resolved_hash": "h"},
+        }
+
+    size = len(json.dumps(record()))
+    assert limit_record(record()) == record()
+    monkeypatch.setattr(provenance, "MAX_RECORD_SIZE", size - 100)
+    cut = limit_record(record())
+    assert cut["truncated"] is True
+    assert cut["executions"][0]["changes"] == {"paths": [], "truncated": True}
+    assert cut["executions"][0]["annotations"] == {"k": "v"}
+    assert cut["pipeline"]["resolved"] == [{"plugin": "x"}]
+    monkeypatch.setattr(provenance, "MAX_RECORD_SIZE", size - 220)
+    cut = limit_record(record())
+    assert "annotations" not in cut["executions"][1]
+    assert cut["pipeline"]["resolved"] == [{"plugin": "x"}]
+    monkeypatch.setattr(provenance, "MAX_RECORD_SIZE", 10)
+    cut = limit_record(record())
+    assert cut["pipeline"] == {"resolved": None, "resolved_hash": "h"}
+
+
+def test_huge_configuration_cut(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs with huge pipelines give records within the maximum size."""
+    host = make_host([{"plugin": "test.tag", "params": {"value": "v" * 2_000_000}}])
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    record = run.provenance()
+    assert record["truncated"] is True
+    assert record["pipeline"]["resolved"] is None
+    assert record["pipeline"]["resolved_hash"].startswith("sha256:")
+    assert len(json.dumps(record).encode()) <= provenance.MAX_RECORD_SIZE
