@@ -322,6 +322,7 @@ def test_forward_failures_and_via() -> None:
     attempt.unknown("read_timeout")
     with pytest.raises(StopIteration):
         next(attempts)
+    assert run.final_reason == "outcome_unknown"
     assert run.attempt_records[0].outcome == "unknown"
 
 
