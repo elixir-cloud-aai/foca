@@ -225,6 +225,42 @@ answers invalidly (retrying after 30 s at most), for `max_stale` seconds at
 most, so that revoked backends are not used for long; before the first good
 read, and after `max_stale`, a registry yields no candidates.
 
+## Default routing
+
+FOCA's built-in route step `foca.routing.ordered` (ordered failover) is
+the default pipeline, and `client_pipelines.append` adds it to clients'
+pipelines without a route step (as a step that may be skipped). It keeps
+the order of the backend list and shuffles the backends of each service
+registry among themselves (`random.SystemRandom`), so that the registry's
+own order does not decide the load; there is no round-robin state. Its
+parameters:
+
+- `labels`: labels that candidates must have (e.g.,
+  `{"region": "eu-north"}`). Labels in `plugins.pipeline` don't bind
+  client pipelines and presets, which replace it, and
+  `client_pipelines.prepend` frames only those, not `plugins.pipeline`
+  (which runs for requests without a pipeline tag): pinning that must
+  always hold belongs in both (e.g., a step that rejects or filters).
+  `if_missing_phase` of appended steps looks at the client's or preset's
+  own steps only, so a route step in `prepend` keeps the appended
+  router;
+- `seed`: a seed for reproducible orders, for tests only: refused unless
+  the plugin's admin setting `allow_seed` is on.
+
+The candidates are then tried in that order: the next one only if a backend
+certainly did not accept the request, none after an unknown outcome (e.g.,
+a `5xx` or read timeout), until the list or `forward_timeout` ends (`503`).
+Provenance records the candidates before and after routing, the registry
+read times (`run.route(candidates, snapshots=backend_list.snapshots())`)
+and each attempt.
+
+Built-in plugins (identifiers starting with `foca.`, which are reserved)
+need no entry in `plugins.available`; an entry sets only `enabled`,
+`roles`, `client_selectable` and `config` (no pins). With `enabled: false`,
+a default pipeline that still lists the router stops the app at startup.
+Other route plugins (e.g., distance routing) replace it in `pipeline` or
+presets.
+
 ## Writing plugins
 
 ```python
@@ -281,6 +317,10 @@ Rules:
   `plugins.defaults.http`). Its errors are `foca.utils.http.HttpError`s
   (with a `reason`); raise or let them propagate: the alternative then
   fails.
+- `check_params(params)` may refuse parameters that the admin settings
+  don't allow (raise `foca.plugins.InvalidParams`; other errors are plugin
+  errors, which stop the app or fail the request); it runs when pipelines
+  are resolved.
 - One instance serves all requests of a process, from several threads:
   keep per-request data in `ctx.state`, not on `self`.
 - `setup()` may run more than once per process, so it must be idempotent.

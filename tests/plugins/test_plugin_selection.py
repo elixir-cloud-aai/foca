@@ -495,7 +495,10 @@ def test_random_pipelines_forbidden_plugins() -> None:
         else:
             run = h.start(request(tags), ALICE)
             used = {
-                alt.plugin for step in run.pipeline.steps for alt in step.alternatives
+                alt.plugin
+                for step in run.pipeline.steps
+                if step.origin == "client"
+                for alt in step.alternatives
             }
             assert used <= set(ALLOWED)
     h.close()
@@ -537,7 +540,7 @@ def test_frame_clashes_with_kept_steps_only() -> None:
     )
     assert [s.id for s in h.presets["p"]] == ["x"]
     run = h.start(request(pipeline_tag([{"id": "x", "plugin": "test.tag"}])), ALICE)
-    assert [s.id for s in run.pipeline.steps] == ["x"]
+    assert [s.id for s in run.pipeline.steps] == ["x", "foca.routing.ordered"]
     h.close()
 
 

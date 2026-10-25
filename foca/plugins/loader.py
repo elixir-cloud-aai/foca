@@ -7,10 +7,16 @@ startup; any problem stops the app with an error (fail fast).
 """
 
 import hashlib
+import importlib
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from importlib.metadata import EntryPoint, entry_points
+from importlib.metadata import (
+    EntryPoint,
+    PackageNotFoundError,
+    distribution,
+    entry_points,
+)
 from typing import Any
 
 from packaging.specifiers import SpecifierSet
@@ -18,7 +24,11 @@ from packaging.utils import canonicalize_name
 from pydantic import ValidationError
 
 from foca.plugins.base import Plugin, check_plugin_class
-from foca.plugins.config import AvailablePluginConfig, PluginsConfig
+from foca.plugins.config import (
+    BUILTIN_PLUGINS,
+    AvailablePluginConfig,
+    PluginsConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +151,66 @@ def _find(plugin_id: str, candidates: Iterable[EntryPoint]) -> EntryPoint:
     return next(iter(found.values()))
 
 
+@dataclass(frozen=True)
+class _BuiltinEntryPoint:
+    """Entry point of a built-in plugin (cf. `BUILTIN_PLUGINS`).
+
+    Built-ins are no entry points of FOCA's metadata, so that
+    `BUILTIN_PLUGINS` is their only source.
+
+    Attributes:
+        name: Plugin identifier.
+        value: Object reference (`module:attribute`).
+        dist: FOCA's distribution, if installed (for versions and RECORD
+            digests in provenance).
+    """
+
+    name: str
+    value: str
+    dist: Any = None
+
+    def load(self) -> Any:
+        """Import the plugin class.
+
+        Returns:
+            The class.
+        """
+        module, _, attribute = self.value.partition(":")
+        return getattr(importlib.import_module(module), attribute)
+
+
+def _find_builtin(plugin_id: str, candidates: Iterable[EntryPoint]) -> Any:
+    """Find the entry point of a built-in plugin.
+
+    Args:
+        plugin_id: Identifier of the plugin.
+        candidates: Entry points of the group.
+
+    Returns:
+        Entry point built from the plugin's object reference.
+
+    Raises:
+        ValueError: Another distribution provides an entry point with the
+            identifier (all of them are checked; entry points of FOCA's own,
+            older metadata with the same reference are ignored).
+    """
+    value = BUILTIN_PLUGINS[plugin_id]
+    for entry_point in candidates:
+        if entry_point.name != plugin_id:
+            continue
+        name = getattr(getattr(entry_point, "dist", None), "name", None)
+        if entry_point.value != value or canonicalize_name(name or "") != "foca":
+            raise ValueError(
+                f"Plugin {plugin_id!r} is built into FOCA; distribution {name!r}"
+                " must not provide it"
+            )
+    try:
+        dist: Any = distribution("foca")
+    except PackageNotFoundError:  # e.g., source checkouts that are not installed
+        dist = None
+    return _BuiltinEntryPoint(plugin_id, value, dist)
+
+
 def _check_pins(
     plugin_id: str, entry_point: EntryPoint, available: AvailablePluginConfig
 ) -> tuple[str | None, str | None]:
@@ -224,13 +294,20 @@ def load_plugins(
             return entry_points(group=ENTRY_POINT_GROUP)
 
     candidates = list(find_entry_points())
+    # other distributions must not claim built-ins, even disabled ones
+    for builtin in BUILTIN_PLUGINS:
+        _find_builtin(builtin, candidates)
     loaded: dict[str, LoadedPlugin] = {}
     try:
         for plugin_id, available in conf.available.items():
             if not available.enabled:
                 logger.info("Plugin %s is disabled", plugin_id)
                 continue
-            entry_point = _find(plugin_id, candidates)
+            entry_point = (
+                _find_builtin(plugin_id, candidates)
+                if plugin_id in BUILTIN_PLUGINS
+                else _find(plugin_id, candidates)
+            )
             distribution, version = _check_pins(plugin_id, entry_point, available)
             cls = check_plugin_class(entry_point.load(), plugin_id=plugin_id, api=api)
             try:

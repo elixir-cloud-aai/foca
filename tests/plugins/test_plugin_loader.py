@@ -47,7 +47,7 @@ def test_loads_allowlisted_plugins_only() -> None:
         api="tes",
         find_entry_points=lambda: eps,
     )
-    assert list(loaded) == ["test.tag"]
+    assert list(loaded) == ["test.tag", "foca.routing.ordered"]
     plugin = loaded["test.tag"]
     assert plugin.instance.config.prefix == "p-"
     assert plugin.instance.id == "test.tag"
@@ -128,7 +128,10 @@ def test_installed_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:
         return [FakeEntryPoint("test.tag", TagPlugin)]
 
     monkeypatch.setattr(loader, "entry_points", entry_points)
-    assert list(load_plugins(conf({"test.tag": {}}), api="tes")) == ["test.tag"]
+    assert list(load_plugins(conf({"test.tag": {}}), api="tes")) == [
+        "test.tag",
+        "foca.routing.ordered",
+    ]
     assert groups == ["foca.plugins"]
 
 

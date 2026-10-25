@@ -28,7 +28,8 @@ plugins:
       allow_private_addresses: false
       allow_http: false
       max_response_size: 16777216  # bytes
-  # Default pipeline: steps, each with ordered alternatives (fallbacks)
+  # Default pipeline: steps, each with ordered alternatives (fallbacks);
+  # default: [foca.routing.ordered]
   pipeline:
     - org.example.tes.policy.images        # short form, see below
     - id: decrypt
@@ -37,6 +38,7 @@ plugins:
           params: {volume: /vol/crypt}
       timeout: 5
       on_failure: skip     # fail (default) | skip
+    - foca.routing.ordered                 # built-in route step
   # Named pipelines that clients may choose (tag `gateway.pipeline`)
   presets:
     encrypted-inputs:
@@ -49,9 +51,13 @@ plugins:
     max_alternatives: 3
     max_size: 8192           # bytes of the tag's value
     roles: []                # who may choose; any authenticated caller if empty
-    prepend:                 # admin frame: always first, also for client
-      - org.example.tes.policy.images  # pipelines, which replace `pipeline`
-    append: []               # always last (or only if a phase is missing)
+    prepend:                 # admin frame: first in client and preset
+      - org.example.tes.policy.images  # pipelines (not `pipeline`: repeat
+                                       # steps that must always run there)
+    append:                  # always last (or only if a phase is missing)
+      - plugin: foca.routing.ordered   # the default
+        if_missing_phase: route
+        on_failure: skip
   # Backends chosen by clients per request (tag `gateway.backends`)
   client_backends:
     enabled: true
@@ -65,6 +71,11 @@ plugins:
 ```
 
 ## Allowlist
+
+FOCA's built-in plugins (e.g., the default route step
+`foca.routing.ordered`, cf. [default routing](../plugins.md#default-routing))
+are always available; list them only to change `enabled`, `roles`,
+`client_selectable` or `config`.
 
 Plugins are Python classes registered under an entry point of the group
 `foca.plugins` by an installed distribution. Only entry points listed in

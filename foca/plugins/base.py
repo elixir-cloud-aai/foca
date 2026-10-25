@@ -106,6 +106,10 @@ class Rejected(Exception):
         self.detail = detail
 
 
+class InvalidParams(ValueError):
+    """Parameters of a pipeline step are not allowed (cf. `check_params`)."""
+
+
 class PluginError(Exception):
     """A plugin failed; the engine tries the next alternative.
 
@@ -175,6 +179,21 @@ class Plugin(Generic[ConfigT, ParamsT]):
 
     def close(self) -> None:
         """Release resources at shutdown; override as needed."""
+
+    def check_params(self, params: ParamsT) -> None:
+        """Check parameters against the admin settings; override as needed.
+
+        Called when pipelines are resolved (at startup, and per request for
+        clients' pipelines), after `Params` validated them.
+
+        Args:
+            params: Validated parameters of a pipeline step.
+
+        Raises:
+            InvalidParams: The parameters are not allowed. Other exceptions
+                are plugin errors: they are logged, and stop the app at
+                startup or fail the request (`PluginError`).
+        """
 
     @classmethod
     def phases(cls) -> tuple[str, ...]:

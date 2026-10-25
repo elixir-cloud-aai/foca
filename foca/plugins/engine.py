@@ -58,7 +58,13 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
-from foca.plugins.base import API_VERSION, NotApplicable, Rejected
+from foca.plugins.base import (
+    API_VERSION,
+    InvalidParams,
+    NotApplicable,
+    PluginError,
+    Rejected,
+)
 from foca.plugins.checks import (
     _check_forward,
     _check_response,
@@ -373,12 +379,26 @@ class PluginHost:
                 loaded = self.plugins.get(alternative.plugin)
                 if loaded is None:
                     continue
+                invalid = (
+                    f"Invalid params of plugin {alternative.plugin!r} in step"
+                    f" {step.id!r}"
+                )
                 try:
                     params = loaded.cls.Params.model_validate(alternative.params)
                 except ValidationError as exc:
-                    raise ValueError(
-                        f"Invalid params of plugin {alternative.plugin!r} in step"
-                        f" {step.id!r}: {exc}"
+                    raise ValueError(f"{invalid}: {exc}") from exc
+                try:
+                    loaded.instance.check_params(params)
+                except InvalidParams as exc:
+                    raise ValueError(f"{invalid}: {exc}") from exc
+                except (KeyboardInterrupt, GeneratorExit):
+                    raise
+                except BaseException as exc:  # e.g., `SystemExit`, bugs
+                    logger.exception(
+                        "Plugin %s failed to check params", alternative.plugin
+                    )
+                    raise PluginError(
+                        f"Plugin {alternative.plugin!r} failed to check params"
                     ) from exc
                 alternatives.append(
                     ResolvedAlternative(plugin=alternative.plugin, params=params)
@@ -600,6 +620,9 @@ class PluginHost:
     ) -> tuple[tuple[ResolvedStep, ...], list[str]]:
         """Frame steps, and find those with identifiers of kept frame steps.
 
+        `if_missing_phase` of appended steps checks the given steps only
+        (not the prepended ones).
+
         Args:
             steps: Resolved steps of a preset or client pipeline.
 
@@ -610,9 +633,10 @@ class PluginHost:
         framed = [*self._prepend, *steps]
         kept = list(self._prepend)
         for phase, step in self._append:
+            # only the preset's or client's own steps count, not the frame
             if phase is not None and any(
                 phase in self.plugins[alt.plugin].cls.phases()
-                for existing in framed
+                for existing in steps
                 for alt in existing.alternatives
             ):
                 continue
@@ -822,6 +846,8 @@ class PipelineRun:
             phase.
         candidates_out: Identifiers of the candidates after it and the
             client's backend selection.
+        snapshots: Times of the registry reads of the candidates, by
+            registry entry.
         selection: Client's choices, from the reserved tags.
         backends_discarded: Backends of the client's selection that were no
             candidates.
@@ -863,6 +889,7 @@ class PipelineRun:
         self.attempt_records: list[AttemptRecord] = []
         self.candidates_in: list[str] = []
         self.candidates_out: list[str] = []
+        self.snapshots: dict[str, str | None] = {}
         self.selection = selection or ClientSelection()
         # recorded in the provenance of the request (#488)
         self.backends_discarded: list[str] = []
@@ -932,6 +959,7 @@ class PipelineRun:
                 "route": {
                     "candidates_in": [clean_url(item) for item in self.candidates_in],
                     "candidates_out": [clean_url(item) for item in self.candidates_out],
+                    "snapshots": self.snapshots,
                 },
                 "selection": (
                     {
@@ -1015,7 +1043,11 @@ class PipelineRun:
         )
         return self.inbound
 
-    def route(self, candidates: Sequence[Backend]) -> list[Backend]:
+    def route(
+        self,
+        candidates: Sequence[Backend],
+        snapshots: Mapping[str, str | None] | None = None,
+    ) -> list[Backend]:
         """Run the `route` phase.
 
         Backends at or below the gateway's public URL are removed first;
@@ -1024,6 +1056,9 @@ class PipelineRun:
 
         Args:
             candidates: Candidate backends, in the server's order.
+            snapshots: Times of the registry reads that the candidates come
+                from, by registry entry, for provenance (cf. `snapshots` of
+                :py:meth:`foca.plugins.backends.BackendList.expand`).
 
         Returns:
             Candidates after the phase, in order.
@@ -1038,6 +1073,7 @@ class PipelineRun:
         if own:
             logger.warning("Backends at the gateway's own URL removed: %s", own)
         self.candidates_in = [backend.id for backend in candidates]
+        self.snapshots = dict(snapshots or {})
         routed: list[Backend] = self._run_phase(
             "route",
             [backend for backend in candidates if backend.id not in own],

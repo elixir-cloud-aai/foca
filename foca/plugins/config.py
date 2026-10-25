@@ -194,6 +194,30 @@ def check_pipeline(steps: list[StepConfig]) -> list[StepConfig]:
     return steps
 
 
+BUILTIN_PLUGINS: dict[str, str] = {
+    "foca.routing.ordered": "foca.plugins.routing:OrderedRouter",
+}
+"""FOCA's built-in plugins, by identifier, with their object references.
+
+They are available without an entry in `plugins.available`; identifiers
+starting with `foca.` are reserved for them."""
+
+DEFAULT_ROUTER = "foca.routing.ordered"
+"""Default route step (cf. :py:mod:`foca.plugins.routing`)."""
+
+
+def _default_route_step(**options: Any) -> "StepConfig":
+    """Build a step of the default router.
+
+    Args:
+        options: Other keys of the step, e.g., `if_missing_phase`.
+
+    Returns:
+        Step.
+    """
+    return StepConfig.model_validate({"plugin": DEFAULT_ROUTER, **options})
+
+
 class AvailablePluginConfig(_Model):
     """Entry of the allowlist of plugins (`plugins.available`).
 
@@ -349,7 +373,11 @@ class ClientPipelinesConfig(_Model):
     max_size: PositiveInt = 8192
     roles: list[str] = []
     prepend: list[StepConfig] = []
-    append: list[StepConfig] = []
+    append: list[StepConfig] = Field(
+        default_factory=lambda: [
+            _default_route_step(if_missing_phase="route", on_failure="skip")
+        ]
+    )
 
     @model_validator(mode="after")
     def _unique_ids(self) -> Self:
@@ -464,15 +492,52 @@ class PluginsConfig(_Model):
         'org.example.tes.policy.images'
     """
 
-    available: dict[str, AvailablePluginConfig] = {}
+    available: dict[str, AvailablePluginConfig] = Field(
+        default_factory=dict, validate_default=True
+    )
     defaults: PluginDefaultsConfig = PluginDefaultsConfig()
-    pipeline: list[StepConfig] = []
+    pipeline: list[StepConfig] = Field(default_factory=lambda: [_default_route_step()])
     presets: dict[str, list[StepConfig]] = {}
     client_pipelines: ClientPipelinesConfig = ClientPipelinesConfig()
     client_backends: ClientBackendsConfig = ClientBackendsConfig()
     tags: TagsConfig = TagsConfig()
     provenance: ProvenanceConfig = ProvenanceConfig()
     gateway_id: str | None = Field(default=None, pattern=GATEWAY_ID_PATTERN)
+
+    @field_validator("available")
+    @classmethod
+    def _add_builtins(
+        cls, available: dict[str, AvailablePluginConfig]
+    ) -> dict[str, AvailablePluginConfig]:
+        """Make FOCA's built-in plugins available.
+
+        Args:
+            available: Allowlist.
+
+        Returns:
+            The allowlist, with entries for the built-in plugins that it does
+            not list.
+
+        Raises:
+            ValueError: An identifier with the reserved prefix `foca.` is no
+                built-in, or a built-in has pins.
+        """
+        for plugin_id, entry in available.items():
+            if plugin_id.startswith("foca.") and plugin_id not in BUILTIN_PLUGINS:
+                raise ValueError(
+                    "Plugin identifiers starting with 'foca.' are reserved:"
+                    f" {plugin_id}"
+                )
+            if plugin_id in BUILTIN_PLUGINS and (entry.distribution or entry.version):
+                raise ValueError(f"Built-in plugin {plugin_id!r} cannot be pinned")
+        return {
+            **available,
+            **{
+                plugin_id: AvailablePluginConfig()
+                for plugin_id in BUILTIN_PLUGINS
+                if plugin_id not in available
+            },
+        }
 
     @field_validator("pipeline")
     @classmethod
