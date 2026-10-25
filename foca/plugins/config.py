@@ -25,6 +25,11 @@ _RESERVED_STEP_KEYS = ("when", "needs")
 # Maximum length of plugin identifiers
 _MAX_PLUGIN_ID_LENGTH = 128
 
+GATEWAY_ID_PATTERN = (
+    r"^(?:[A-Za-z0-9._-]{1,253}|\[[0-9A-Fa-f:.]{2,45}\])(?::[0-9]{1,5})?$"
+)
+"""Pattern of gateway names in `Via` headers (host, optional port)."""
+
 
 class _Model(BaseModel):
     """Base of the plugin configuration models; unknown keys are errors."""
@@ -273,8 +278,10 @@ class PluginsConfig(_Model):
         defaults: Limits of plugin calls and forwarding.
         pipeline: Default pipeline: steps, in order.
         gateway_id: Name of this gateway in `Via` headers (RFC 9110,
-            section 7.6.3), which detect routing loops; defaults to the host
-            of `server.public_url`. Without either, loops are not detected.
+            section 7.6.3), which detect routing loops: a host name or IPv4
+            address, or an IPv6 address in brackets, with an optional port;
+            defaults to the host and port of `server.public_url`. Without
+            either, loops are not detected.
 
     Attributes:
         available: Allowlist of plugins.
@@ -294,7 +301,7 @@ class PluginsConfig(_Model):
     available: dict[str, AvailablePluginConfig] = {}
     defaults: PluginDefaultsConfig = PluginDefaultsConfig()
     pipeline: list[StepConfig] = []
-    gateway_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._:-]{1,255}$")
+    gateway_id: str | None = Field(default=None, pattern=GATEWAY_ID_PATTERN)
 
     @field_validator("pipeline")
     @classmethod

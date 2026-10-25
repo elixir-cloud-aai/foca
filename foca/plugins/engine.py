@@ -63,7 +63,7 @@ from foca.plugins.checks import (
     _via_names,
     default_outbound,
 )
-from foca.plugins.config import PluginsConfig, StepConfig
+from foca.plugins.config import GATEWAY_ID_PATTERN, PluginsConfig, StepConfig
 from foca.plugins.context import Context
 from foca.plugins.errors import (
     ForwardTimeout,
@@ -75,7 +75,12 @@ from foca.plugins.errors import (
     PipelineRejected,
 )
 from foca.plugins.executor import _Executor
-from foca.plugins.loader import LoadedPlugin, check_legacy_keys, load_plugins
+from foca.plugins.loader import (
+    LoadedPlugin,
+    check_legacy_keys,
+    close_plugins,
+    load_plugins,
+)
 from foca.plugins.model import (
     Backend,
     BackendResponse,
@@ -107,9 +112,10 @@ from foca.plugins.records import (
 logger = logging.getLogger(__name__)
 
 MAX_VIA_LENGTH = 1024
-"""Maximum length of the `Via` header of inbound requests, in characters."""
+"""Maximum length of outbound `Via` headers (the inbound header plus this
+gateway's entry), in characters."""
 
-_GATEWAY_ID = re.compile(r"^[A-Za-z0-9._:-]{1,255}$")
+_GATEWAY_ID = re.compile(GATEWAY_ID_PATTERN)
 
 
 def _default_gateway_id(public_url: str | None) -> str | None:
@@ -119,9 +125,9 @@ def _default_gateway_id(public_url: str | None) -> str | None:
         public_url: Public URL of the app, if known.
 
     Returns:
-        Host and port (if any) of the URL, lowercase, without user
-        information; `None` if there is no URL, or the result does not
-        match the pattern of `plugins.gateway_id`.
+        Host (IPv6 addresses in brackets) and port (if any) of the URL,
+        lowercase, without user information; `None` if there is no URL, or
+        the result does not match the pattern of `plugins.gateway_id`.
     """
     if not public_url:
         return None
@@ -132,6 +138,8 @@ def _default_gateway_id(public_url: str | None) -> str | None:
         return None
     if not host:
         return None
+    if ":" in host:
+        host = f"[{host}]"
     name = f"{host}:{port}" if port is not None else host
     return name if _GATEWAY_ID.fullmatch(name) else None
 
@@ -160,6 +168,10 @@ class PluginHost:
         plugins: Mapping[str, LoadedPlugin] | None = None,
     ) -> None:
         """Load the plugins and resolve the default pipeline.
+
+        The app's callbacks (`validate`, `sanitize`, `validate_outbound`, and
+        `build` of :py:meth:`PipelineRun.attempts`) are trusted code that
+        runs outside the plugin deadlines, so they must be fast.
 
         Args:
             conf: Plugin configuration.
@@ -190,7 +202,7 @@ class PluginHost:
         Raises:
             ValueError: Plugins cannot be loaded (cf.
                 :py:func:`foca.plugins.loader.load_plugins`), or the default
-                pipeline is invalid.
+                pipeline is invalid; the plugins are closed then.
         """
         self.conf = conf
         self.api = api
@@ -203,9 +215,13 @@ class PluginHost:
             dict(plugins) if plugins is not None else load_plugins(conf, api=api)
         )
         self._executor = _Executor(conf.defaults.workers)
-        self.default_pipeline = ResolvedPipeline(
-            steps=self.resolve_steps(conf.pipeline, origin="pipeline")
-        )
+        try:
+            self.default_pipeline = ResolvedPipeline(
+                steps=self.resolve_steps(conf.pipeline, origin="pipeline")
+            )
+        except BaseException:
+            self.close()
+            raise
 
     @classmethod
     def from_config(
@@ -321,11 +337,13 @@ class PluginHost:
             Run of the request.
 
         Raises:
-            InvalidVia: The `Via` header of the request is longer than
+            InvalidVia: The `Via` header of the request is so long that the
+                outbound one, with this gateway's entry, would be longer than
                 :py:data:`MAX_VIA_LENGTH` characters.
             LoopDetected: The request already passed this gateway.
         """
-        if len(inbound.headers.get("Via", "")) > MAX_VIA_LENGTH:
+        own = len(f", 1.1 {self.gateway_id}") if self.gateway_id is not None else 0
+        if len(inbound.headers.get("Via", "")) > MAX_VIA_LENGTH - own:
             raise InvalidVia(f"Via header longer than {MAX_VIA_LENGTH} characters")
         if self.gateway_id is not None and self.gateway_id.lower() in _via_names(
             inbound.headers
@@ -389,11 +407,7 @@ class PluginHost:
 
     def close(self) -> None:
         """Close the plugins and stop the thread pool, e.g., at shutdown."""
-        for plugin in self.plugins.values():
-            try:
-                plugin.instance.close()
-            except Exception:
-                logger.exception("Plugin %s failed to close", plugin.id)
+        close_plugins(self.plugins.values())
         self._executor.shutdown()
 
 
@@ -579,10 +593,10 @@ class PipelineRun:
     def _set_via(self, outbound: OutboundRequest) -> None:
         """Set the `Via` header of an outbound request (RFC 9110, 7.6.3).
 
-        The header is the inbound request's, passed through verbatim (at most
-        :py:data:`MAX_VIA_LENGTH` characters), with this gateway's entry
-        appended, whatever plugins or the app's builder set, so that loops
-        through several gateways are detected.
+        The header is the inbound request's, passed through verbatim, with
+        this gateway's entry appended (together at most
+        :py:data:`MAX_VIA_LENGTH` characters), whatever plugins or the app's
+        builder set, so that loops through several gateways are detected.
 
         Args:
             outbound: Outbound request.

@@ -48,8 +48,9 @@ def current_principal() -> Principal:
         access control), roles from group claims (the mapped roles of
         access control, cf.
         :py:func:`foca.security.access_control.enforcement.get_current_groups`)
-        and the bearer token; empty outside requests or without a validated
-        token.
+        and the bearer token, only if a token was validated for the request
+        (i.e., there are claims); empty outside requests or without a
+        validated token.
     """
     if not has_request_context():
         return Principal()
@@ -61,7 +62,9 @@ def current_principal() -> Principal:
         issuer=issuer if isinstance(issuer, str) else None,
         groups=tuple(get_current_groups()),
         claims=dict(claims),
-        token=token.strip() or None if scheme.lower() == "bearer" else None,
+        token=(token.strip() or None)
+        if claims and scheme.lower() == "bearer"
+        else None,
     )
 
 
@@ -75,16 +78,18 @@ def inbound_from_request(payload: Any, route: str | None = None) -> InboundReque
 
     Returns:
         Inbound request, with a copy of the query parameters and of the
-        headers without credentials (cf.
+        headers (repeated fields combined) without credentials (cf.
         :py:data:`foca.plugins.model.CREDENTIAL_HEADERS`).
     """
-    headers = Headers(
-        {
-            name: value
-            for name, value in request.headers.items()
-            if name.lower() not in CREDENTIAL_HEADERS
-        }
-    )
+    # repeated field lines are combined (RFC 9110, section 5.3)
+    fields: dict[str, list[str]] = {}
+    names: dict[str, str] = {}
+    for name, value in request.headers.items():
+        key = name.lower()
+        if key not in CREDENTIAL_HEADERS:
+            names.setdefault(key, name)
+            fields.setdefault(key, []).append(value)
+    headers = Headers({names[key]: ", ".join(values) for key, values in fields.items()})
     rule = request.url_rule.rule if request.url_rule is not None else request.path
     return InboundRequest(
         method=request.method.upper(),
@@ -107,10 +112,10 @@ def problem(exc: GatewayError) -> Response:
         exc: Gateway error.
 
     Returns:
-        Error response with the error's status, title and detail, and its
-        problem type as extension member `problem_type` (FOCA maps `type`
-        per exception class).
+        Error response with the error's status, title (e.g., that of a
+        plugin's rejection) and detail, and its problem type as extension
+        member `problem_type` (FOCA maps `type` per exception class).
     """
     http_exc = HTTPException(description=exc.detail)
     http_exc.code = exc.code
-    return problem_response(http_exc, problem_type=exc.problem_type)
+    return problem_response(http_exc, title=exc.title, problem_type=exc.problem_type)
