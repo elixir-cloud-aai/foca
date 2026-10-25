@@ -173,6 +173,8 @@ configuration models, see [Configuration](configuration/index.md).
         - RouterConfig
         - RouterParams
 
+::: foca.plugins.tags
+
 ::: foca.plugins.runtime
     options:
       members:

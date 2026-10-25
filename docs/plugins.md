@@ -524,6 +524,61 @@ except GatewayError as error:
 - The image digest of the app (env var `FOCA_IMAGE_DIGEST`, e.g., set by a
   Helm chart) is stored with the builds, if set.
 
+## Gateway tags
+
+Gateways record where a request went in the tags of the task or run (TES
+and WES string maps), under the reserved prefix (`plugins.tags.prefix`,
+default `gateway.`), so that clients and dashboards see it with
+`GET /tasks/{id}` (views `BASIC`, `FULL`) or `GET /runs/{id}`:
+
+| Key | Value | Written |
+|---|---|---|
+| `gateway.pipeline_hash` | `sha256:` of the resolved pipeline (RFC 8785) | at creation |
+| `gateway.pipeline_source` | `default`, `preset:<name>` or `client` | at creation |
+| `gateway.plugins` | comma-separated `id@version` of the plugins that ran in the `request` phase, whatever their outcome (the provenance has all phases) | at creation |
+| `gateway.provenance` | path of the provenance endpoint, if the app serves one | at creation |
+| `gateway.backend` | base URL of the backend that accepted (or may have) | after forwarding |
+| `gateway.backend_task_id` | identifier at the backend, if it accepted | after forwarding |
+| `gateway.forwarded_at` | RFC 3339 UTC time of that attempt | after forwarding |
+| `gateway.attempts` | number of attempts, e.g., `3` | after forwarding |
+| `gateway.route` | compact JSON of the last `max_route_entries` attempts: `url`, `outcome`, `reason` | after forwarding |
+| `gateway.route_truncated` | `true` if `gateway.route` omits earlier attempts or cuts the URL of the latest | after forwarding |
+
+Values are at most 1 KiB (`gateway.route`: 4 KiB, earliest attempts dropped
+first); URLs have no user info or query, and failures are reason codes,
+never messages; `gateway.pipeline_hash` is left out for pipelines without
+hash (no I-JSON), and `gateway.plugins` is empty if its first entry does
+not fit. References that do not fit (`gateway.provenance`,
+`gateway.backend_task_id`) are left out rather than cut, and lone
+surrogates become `?`. FOCA provides the tags, and apps write them: they merge
+`foca.plugins.tags.creation_tags(run)` into new tasks after the `request`
+phase and `routing_tags(run)` after forwarding, and relay requests without
+any key under the prefix (`strip_for_forwarding(tags, prefix)`), so nested
+gateways write their own:
+
+```python
+from foca.plugins.tags import creation_tags, without_server_tags
+
+prefix = host.conf.tags.prefix
+task["tags"] = {
+    **without_server_tags(request.payload.get("tags"), prefix),
+    **creation_tags(run),
+}
+```
+
+Dashboards can trust these tags: `request` hooks whose output adds,
+changes or removes a key under the prefix (also the client's own
+`gateway.pipeline` and `gateway.backends`) give `invalid_output`, so
+plugins cannot forge them, and `without_server_tags()` drops all keys but
+the client's before the merge, as a second line of defence. This applies
+to payloads with a `tags` map (TES); apps of other APIs (e.g., WES, whose
+tags are a form field) apply `without_server_tags()` themselves.
+
+Clients may set only `gateway.pipeline` and `gateway.backends`; requests
+with other keys under the prefix are refused (`400`). Clients that submit
+a fetched task again (e.g., to re-run it) must drop the other `gateway.*`
+keys first.
+
 ## Problem types
 
 Gateway errors are problem details with the extension member

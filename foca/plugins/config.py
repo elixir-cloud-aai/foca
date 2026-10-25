@@ -418,12 +418,16 @@ class TagsConfig(_Model):
     Args:
         prefix: Prefix of the reserved tags (e.g., `gateway.pipeline`):
             clients may set only the pipeline and backends tags under it.
+        max_route_entries: Number of attempts listed in the `route` tag
+            (the last ones; cf. :py:mod:`foca.plugins.tags`).
 
     Attributes:
         prefix: Prefix of the reserved tags.
+        max_route_entries: Number of attempts listed in the `route` tag.
     """
 
     prefix: str = Field(default="gateway.", pattern=r"^[a-z0-9][a-z0-9_.-]{0,31}\.$")
+    max_route_entries: PositiveInt = 10
 
 
 class ProvenanceConfig(_Model):

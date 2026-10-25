@@ -141,6 +141,7 @@ from foca.plugins.selection import (
     parse_client_pipeline,
     parse_client_tags,
 )
+from foca.plugins.tags import check_reserved_tags
 from foca.utils.http import GuardedClient
 
 logger = logging.getLogger(__name__)
@@ -817,12 +818,13 @@ class Attempt:
             response: Response of the backend; `client_payload` and
                 `client_headers` are what the client gets, unless plugins
                 change them.
-            remote_id: Identifier of the resource at the backend, if any.
+            remote_id: Identifier of the resource at the backend, if any;
+                converted to a string (backends may send other JSON types).
 
         Returns:
             The response after the `response` phase.
         """
-        self._report("accepted", None, remote_id)
+        self._report("accepted", None, None if remote_id is None else str(remote_id))
         return self._run.respond(response, attempt=self.number)
 
 
@@ -1028,13 +1030,19 @@ class PipelineRun:
         Returns:
             The inbound request after the phase (also in `inbound`).
 
+        Output that adds, changes or removes tags under the reserved prefix
+        (cf. :py:func:`foca.plugins.tags.check_reserved_tags`) is invalid.
+
         Raises:
             PipelineRejected: A plugin rejected the request.
             PipelineFailed: All alternatives of a required step failed.
             Exception: The app's `sanitize` failed (its exception).
         """
+        prefix = self.host.conf.tags.prefix
 
-        def check(candidate: InboundRequest, _: InboundRequest) -> InboundRequest:
+        def check(candidate: InboundRequest, given: InboundRequest) -> InboundRequest:
+            # plugins must not forge (or drop) gateway tags
+            check_reserved_tags(given.payload, candidate.payload, prefix)
             candidate.payload = self.host.check_payload(candidate.payload)
             return candidate
 
