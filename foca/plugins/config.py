@@ -14,6 +14,8 @@ from pydantic import (
     model_validator,
 )
 
+from foca.utils.http import MAX_RESPONSE_SIZE
+
 PLUGIN_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*")
 """Pattern of plugin identifiers (entry point names), e.g., `tes.data.crypt4gh`."""
 
@@ -274,9 +276,12 @@ class HttpConfig(_Model):
         max_response_size: Maximum size of response bodies, in bytes.
     """
 
+    # The field names are those of the arguments of `GuardedClient`, which
+    # the engine passes them to (`**model_dump()`).
+
     allow_private_addresses: bool = False
     allow_http: bool = False
-    max_response_size: PositiveInt = 16 * 1024 * 1024
+    max_response_size: PositiveInt = MAX_RESPONSE_SIZE
 
 
 class PluginDefaultsConfig(_Model):

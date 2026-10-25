@@ -65,6 +65,7 @@ dependencies = [
     "PyYAML>=6.0.1,<7",
     "requests>=2.33.0,<3",  # 2.33.0 fixes CVE-2026-25645
     "swagger-ui-bundle>=1.1,<2",
+    "urllib3>=2.6,<3",  # foca/utils/http.py: guarded connections
     "Werkzeug>=3.1.9,<4",  # 3.1.9 fixes CVE-2026-27199, CVE-2026-102598
 ]
 
