@@ -1,8 +1,14 @@
 """Tests of gateway tags (`foca.plugins.tags`)."""
 
 import json
+from dataclasses import replace
+from typing import Any
 
-from foca.plugins import Backend, BackendResponse
+import pytest
+from pydantic import ValidationError
+
+from foca.plugins import Backend, BackendResponse, NoBackendAvailable
+from foca.plugins.config import PluginsConfig
 from foca.plugins.tags import (
     MAX_ROUTE_SIZE,
     MAX_VALUE_SIZE,
@@ -53,16 +59,59 @@ def test_creation_tags() -> None:
     assert "gateway.provenance" not in tags
 
 
-def test_creation_tags_limits() -> None:
+def test_creation_tags_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     """Long plugin lists are cut to the value limit."""
     host = make_host(["test.tag"])
     run = host.start(inbound(), PRINCIPAL)
     run.request()
     loaded = host.plugins["test.tag"]
-    object.__setattr__(loaded, "version", "9" * 2000)
-    assert creation_tags(run)["gateway.plugins"] == ""
-    object.__setattr__(loaded, "version", None)
+    monkeypatch.setitem(host.plugins, "test.tag", replace(loaded, version="9" * 2000))
+    assert creation_tags(run)["gateway.plugins"] == ""  # the first does not fit
+    monkeypatch.setitem(host.plugins, "test.tag", replace(loaded, version=None))
     assert creation_tags(run)["gateway.plugins"] == "test.tag@unknown"
+
+
+def test_creation_tags_without_hash() -> None:
+    """Pipelines without hash leave the hash tag out (string maps only)."""
+    host = make_host([{"plugin": "test.tag", "params": {"value": "x"}}])
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    original = run.provenance
+
+    def provenance() -> dict[str, Any]:
+        record = original()
+        record["pipeline"]["resolved_hash"] = None
+        return record
+
+    run.provenance = provenance  # type: ignore[method-assign]
+    tags = creation_tags(run)
+    assert "gateway.pipeline_hash" not in tags
+    assert all(isinstance(value, str) for value in tags.values())
+
+
+def test_app_flow() -> None:
+    """Apps merge the tags into tasks and strip them before forwarding."""
+    host = make_host(["test.tag"])
+    task: dict[str, Any] = {
+        "name": "t",
+        "tags": {"project": "a", "gateway.pipeline": "[]"},
+    }
+    run = host.start(inbound(task), PRINCIPAL)
+    request = run.request()
+    stored = dict(request.payload)
+    stored["tags"] = {**stored.get("tags", {}), **creation_tags(run)}
+    relayed = {
+        **stored,
+        "tags": strip_for_forwarding(stored["tags"], host.conf.tags.prefix),
+    }
+    assert relayed["tags"] == {"project": "a"}
+    attempt = next(run.attempts(BACKENDS))
+    attempt.succeeded(BackendResponse(status=200), remote_id="T1")
+    stored["tags"].update(routing_tags(run))
+    assert stored["tags"]["project"] == "a"
+    assert stored["tags"]["gateway.backend_task_id"] == "T1"
+    assert stored["tags"]["gateway.pipeline_source"] == "client"
+    assert all(isinstance(value, str) for value in stored["tags"].values())
 
 
 def test_routing_tags() -> None:
@@ -103,11 +152,9 @@ def test_routing_tags_none_accepted() -> None:
     """Without acceptance, only the attempts are recorded."""
     host = make_host([])
     run = host.start(inbound(), PRINCIPAL)
-    try:
+    with pytest.raises(NoBackendAvailable):
         for attempt in run.attempts(BACKENDS[:1]):
             attempt.failed("connect_error")
-    except Exception:  # noqa: S110 (no backend)
-        pass
     tags = routing_tags(run)
     assert "gateway.backend" not in tags
     assert tags["gateway.attempts"] == "1"
@@ -134,3 +181,28 @@ def test_route_truncated() -> None:
     assert len(route) < 25
     assert tags["gateway.route_truncated"] == "true"
     assert len(tags["gateway.backend_task_id"]) == MAX_VALUE_SIZE
+
+
+def test_route_truncated_by_count() -> None:
+    """Routes list the last `max_route_entries` attempts."""
+    host = make_host([], tags={"max_route_entries": 2})
+    run = host.start(inbound(), PRINCIPAL)
+    attempts = run.attempts(BACKENDS)
+    next(attempts).failed("http_403")
+    next(attempts).failed("http_403")
+    next(attempts).succeeded(BackendResponse(status=200), remote_id=42)  # type: ignore[arg-type]
+    tags = routing_tags(run)
+    route = json.loads(tags["gateway.route"])
+    assert [entry["url"] for entry in route] == [
+        "https://b.example.org",
+        "https://c.example.org",
+    ]
+    assert tags["gateway.route_truncated"] == "true"
+    assert tags["gateway.attempts"] == "3"
+    assert tags["gateway.backend_task_id"] == "42"
+
+
+def test_max_route_entries_validated() -> None:
+    """At least one attempt is listed."""
+    with pytest.raises(ValidationError, match="max_route_entries"):
+        PluginsConfig.model_validate({"tags": {"max_route_entries": 0}})

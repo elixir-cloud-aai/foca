@@ -514,10 +514,13 @@ default `gateway.`), so that clients and dashboards see it with
 
 Values are at most 1 KiB (`gateway.route`: 4 KiB, earliest attempts dropped
 first); URLs have no user info or query, and failures are reason codes,
-never messages. Apps write them with `foca.plugins.tags.creation_tags(run)`
-and `routing_tags(run)`, and relay requests without any key under the
-prefix (`strip_for_forwarding(tags, prefix)`), so nested gateways write
-their own.
+never messages; `gateway.pipeline_hash` is left out for pipelines without
+hash (no I-JSON), and `gateway.plugins` is empty if its first entry does
+not fit. FOCA provides the tags, and apps write them: they merge
+`foca.plugins.tags.creation_tags(run)` into new tasks after the `request`
+phase and `routing_tags(run)` after forwarding, and relay requests without
+any key under the prefix (`strip_for_forwarding(tags, prefix)`), so nested
+gateways write their own.
 
 Clients may set only `gateway.pipeline` and `gateway.backends`; requests
 with other keys under the prefix are refused (`400`). Clients that submit

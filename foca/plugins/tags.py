@@ -6,20 +6,11 @@ that clients and dashboards can read it with `GET /tasks/{id}` (views
 `BASIC` and `FULL`) or `GET /runs/{id}`. Clients may set only
 `<prefix>pipeline` and `<prefix>backends` (cf.
 :py:mod:`foca.plugins.selection`); all other keys under the prefix are
-written by the gateway:
+written by the gateway (keys and values: cf. the docs, "Gateway tags").
 
-| Key | Value | Written |
-|---|---|---|
-| `pipeline_hash` | `sha256:` of the resolved pipeline (RFC 8785) | at creation |
-| `pipeline_source` | `default`, `preset:<name>` or `client` | at creation |
-| `plugins` | comma-separated `id@version` of the plugins that ran | at creation |
-| `provenance` | path of the provenance endpoint, if given | at creation |
-| `backend` | base URL of the backend that accepted (or may have) | after forwarding |
-| `backend_task_id` | identifier at the backend, if accepted | after forwarding |
-| `forwarded_at` | RFC 3339 UTC time of that attempt | after forwarding |
-| `attempts` | number of attempts, as a decimal | after forwarding |
-| `route` | JSON of the last attempts (`url`, `outcome`, `reason`) | after forwarding |
-| `route_truncated` | `true` if `route` omits earlier attempts | after forwarding |
+FOCA provides the tags; apps write them: `creation_tags()` into new tasks
+after the `request` phase, `routing_tags()` after forwarding, and
+`strip_for_forwarding()` for the tags relayed to the backend.
 
 Values are strings of at most `MAX_VALUE_SIZE` bytes (`route`:
 `MAX_ROUTE_SIZE`); URLs have no user info, query or fragment; failures are
@@ -31,11 +22,11 @@ Pure functions on string maps and pipeline runs; no web framework.
 
 import json
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
-MAX_KEY_LENGTH = 64
-"""Maximum length of tag keys."""
+if TYPE_CHECKING:  # pragma: no cover
+    from foca.plugins.engine import PipelineRun
 
 MAX_VALUE_SIZE = 1024
 """Maximum size of tag values, in UTF-8 bytes, except for `route`."""
@@ -104,7 +95,9 @@ def strip_for_forwarding(tags: Mapping[str, str] | None, prefix: str) -> dict[st
     }
 
 
-def creation_tags(run: Any, provenance_path: str | None = None) -> dict[str, str]:
+def creation_tags(
+    run: "PipelineRun", provenance_path: str | None = None
+) -> dict[str, str]:
     """Get the gateway tags of a new task, after the `request` phase.
 
     Args:
@@ -113,7 +106,10 @@ def creation_tags(run: Any, provenance_path: str | None = None) -> dict[str, str
             e.g., `/ga4gh/tes/v1/tasks/ABC123/provenance`, if served.
 
     Returns:
-        Tags under the run's prefix.
+        Tags under the run's prefix. `pipeline_hash` is left out if the
+        pipeline has no hash (data that is no I-JSON); `plugins` lists as
+        many plugins as fit into `MAX_VALUE_SIZE` bytes, in order (empty if
+        the first does not fit).
     """
     prefix = run.host.conf.tags.prefix
     record = run.provenance()
@@ -132,16 +128,17 @@ def creation_tags(run: Any, provenance_path: str | None = None) -> dict[str, str
     while plugins and _size(",".join(plugins)) > MAX_VALUE_SIZE:
         plugins.pop()
     tags = {
-        f"{prefix}pipeline_hash": pipeline["resolved_hash"],
         f"{prefix}pipeline_source": _clip(source),
         f"{prefix}plugins": ",".join(plugins),
     }
+    if pipeline["resolved_hash"] is not None:
+        tags[f"{prefix}pipeline_hash"] = pipeline["resolved_hash"]
     if provenance_path is not None:
         tags[f"{prefix}provenance"] = _clip(provenance_path)
     return tags
 
 
-def routing_tags(run: Any) -> dict[str, str]:
+def routing_tags(run: "PipelineRun") -> dict[str, str]:
     """Get the gateway tags of a task after forwarding.
 
     Args:
