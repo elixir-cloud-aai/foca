@@ -107,6 +107,12 @@ class InvalidRequestURL(RequestNotSent):
     reason = "invalid_url"
 
 
+class InvalidRequest(RequestNotSent):
+    """The request is invalid, e.g., its JSON body or a header."""
+
+    reason = "invalid_request"
+
+
 class HostNotResolved(RequestNotSent):
     """The host has no address."""
 
@@ -631,14 +637,33 @@ def _classify(exc: requests.RequestException, url: str) -> HttpError:
         exc, (urllib3.exceptions.SSLError,)
     ):
         return RequestNotSent(f"TLS error for {url}: {name}", reason="tls_error")
-    if isinstance(
-        exc, requests.exceptions.ConnectTimeout | requests.exceptions.InvalidHeader
-    ) or _caused_by(exc, (urllib3.exceptions.ConnectTimeoutError,)):
+    if isinstance(exc, requests.exceptions.ConnectTimeout) or _caused_by(
+        exc, (urllib3.exceptions.ConnectTimeoutError,)
+    ):
         # `NewConnectionError` (e.g., connection refused) is a subclass
         return RequestNotSent(f"{url} not reached: {name}")
     if isinstance(exc, requests.exceptions.ReadTimeout):
         return RequestMaybeSent(f"{url} timed out: {name}", reason="read_timeout")
     return RequestMaybeSent(f"{url} failed: {name}")
+
+
+def _check_json_body(body: Any, url: str) -> None:
+    """Check that a body can be sent as JSON, as `requests` sends it.
+
+    Args:
+        body: Body.
+        url: URL of the request, for messages.
+
+    Raises:
+        InvalidRequest: The body is no JSON (e.g., `NaN`, a set, an
+            object), or nested too deeply.
+    """
+    try:
+        json.dumps(body, allow_nan=False)
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise InvalidRequest(
+            f"Body for {url} is no JSON: {type(exc).__name__}"
+        ) from exc
 
 
 class GuardedClient:
@@ -771,6 +796,9 @@ class GuardedClient:
         Raises:
             InvalidRequestURL: The URL or method is invalid, or the scheme
                 is not allowed.
+            InvalidRequest: `json` is no JSON (e.g., `NaN`, a set;
+                `invalid_request`), or a header is invalid (e.g., with a
+                line break; `invalid_header`).
             DeadlineExceeded: The deadline passed before sending.
             RequestNotSent: The request certainly did not reach the server
                 (e.g., :py:class:`AddressNotAllowed`).
@@ -784,6 +812,8 @@ class GuardedClient:
             raise InvalidRequestURL(f"Scheme not allowed: {scheme or '(none)'}")
         if not isinstance(method, str) or not _METHOD.fullmatch(method):
             raise InvalidRequestURL("Invalid HTTP method")
+        if json is not None:
+            _check_json_body(json, url)
         remaining = self.remaining()
         if remaining <= 0:
             raise DeadlineExceeded(f"No time left for {url}")
@@ -805,6 +835,10 @@ class GuardedClient:
                 )
             except (AddressNotAllowed, DeadlineExceeded):
                 raise
+            except requests.exceptions.InvalidHeader as exc:
+                raise InvalidRequest(
+                    f"Invalid header for {url}", reason="invalid_header"
+                ) from exc
             except (requests.exceptions.InvalidURL, ValueError) as exc:
                 if guard.expired:
                     raise self._expired(url) from exc

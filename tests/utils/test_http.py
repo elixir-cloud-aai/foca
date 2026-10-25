@@ -23,6 +23,7 @@ from foca.utils.http import (
     GuardedClient,
     HostNotResolved,
     HttpError,
+    InvalidRequest,
     InvalidRequestURL,
     RequestMaybeSent,
     RequestNotSent,
@@ -261,7 +262,6 @@ def test_connection_refused() -> None:
             "tls_error",
         ),
         (requests.exceptions.ConnectTimeout(), RequestNotSent, "connect_error"),
-        (requests.exceptions.InvalidHeader(), RequestNotSent, "connect_error"),
         (requests.exceptions.ReadTimeout(), RequestMaybeSent, "read_timeout"),
         (requests.ConnectionError("reset"), RequestMaybeSent, "connection_lost"),
     ],
@@ -469,6 +469,27 @@ def test_malformed_urls(url: str) -> None:
         GuardedClient(timeout=1).get(url)
     with pytest.raises(InvalidRequestURL):
         check_public_host(url)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "reason"),
+    [
+        ({"json": {"x": float("nan")}}, "invalid_request"),
+        ({"json": {1, 2}}, "invalid_request"),
+        ({"json": [object()]}, "invalid_request"),
+        ({"headers": {"X": "a\r\nB: c"}}, "invalid_header"),
+        ({"headers": {"X": " leading"}}, "invalid_header"),
+    ],
+)
+def test_invalid_requests(kwargs: dict[str, Any], reason: str) -> None:
+    """Bodies that are no JSON and invalid headers are not sent."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    with pytest.raises(InvalidRequest) as info:
+        local(timeout=2).post(f"http://127.0.0.1:{port}/", **kwargs)
+    assert isinstance(info.value, RequestNotSent)
+    assert info.value.reason == reason
 
 
 @pytest.mark.parametrize("method", ["GET\r\nX-Injected: 1", "", "G ET", 1])
