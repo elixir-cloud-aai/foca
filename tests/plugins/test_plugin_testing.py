@@ -347,9 +347,9 @@ def test_fake_http_urls(url: str, params: dict[str, Any] | None, sent: str) -> N
 def test_fake_http_invalid_url() -> None:
     """URLs that `requests` cannot prepare are invalid."""
     http = FakeHttp()
-    http.add("GET", "https://a b.example.org/", json=1)  # kept as given
+    http.add("GET", "https:///x", json=1)  # kept as given
     with pytest.raises(InvalidRequestURL, match="Invalid URL"):
-        http.get("https://a b.example.org/")
+        http.get("https:///x")  # no host, in all versions of requests
     assert http.calls == []
 
 
