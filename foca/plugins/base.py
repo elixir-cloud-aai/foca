@@ -33,7 +33,6 @@ import re
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict
-from pydantic.errors import PydanticUserError
 
 API_VERSION = 1
 """Major version of the plugin API; plugins declare it as `api_version`."""
@@ -271,7 +270,8 @@ def check_plugin_class(cls: Any, plugin_id: str, api: str) -> type[Plugin[Any, A
             )
     try:
         cls.Params.model_json_schema()
-    except PydanticUserError as error:  # e.g., arbitrary types
+    # e.g., arbitrary types (`PydanticUserError`), or custom schema code
+    except Exception as error:
         raise ValueError(
             f"Plugin {plugin_id!r} has Params without JSON Schema: {error}"
         ) from error

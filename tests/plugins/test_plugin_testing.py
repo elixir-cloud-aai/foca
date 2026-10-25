@@ -48,6 +48,8 @@ from foca.plugins.testing import (
 from foca.utils.http import (
     AddressNotAllowed,
     DeadlineExceeded,
+    HttpError,
+    InvalidRequest,
     InvalidRequestURL,
     RequestMaybeSent,
     RequestNotSent,
@@ -260,6 +262,12 @@ def test_builders() -> None:
     response = make_response()
     assert response.client_payload == {"id": "remote-1"}
     assert make_response(client_payload={}).client_payload == {}
+    # `None` is a value (JSON null), not a default
+    assert make_inbound(None).payload is None
+    nulls = make_response(payload=None)
+    assert (nulls.payload, nulls.client_payload) == (None, None)
+    assert make_response(client_payload=None).client_payload is None
+    assert repr(testing.UNSET) == "UNSET"
 
 
 def test_fake_http() -> None:
@@ -351,6 +359,95 @@ def test_fake_http_invalid_url() -> None:
     with pytest.raises(InvalidRequestURL, match="Invalid URL"):
         http.get("https:///x")  # no host, in all versions of requests
     assert http.calls == []
+
+
+def test_fake_http_requests() -> None:
+    """Fake clients refuse bodies and headers that the real client refuses."""
+    http = FakeHttp()
+    http.add("POST", "https://x.example.org/", json=None)
+    assert http.post("https://x.example.org/", json=[1]).json() is None
+    with pytest.raises(InvalidRequest) as info:
+        http.post("https://x.example.org/", json={1, 2})
+    assert info.value.reason == "invalid_request"
+    with pytest.raises(InvalidRequest) as info:
+        http.post("https://x.example.org/", headers={"X-A": "1\r\nX-B: 2"})
+    assert info.value.reason == "invalid_header"
+    assert len(http.calls) == 1
+
+
+def test_fake_http_redacts() -> None:
+    """Errors of fake clients leave out queries and user info of URLs."""
+    http = FakeHttp(max_response_size=1)
+    http.add("GET", "https://x.example.org/big?key=s3cret", content=b"12")
+    for url in (
+        "https://x.example.org/none?key=s3cret",
+        "https://u:s3cret@x.example.org/none",
+        "https://x.example.org/big?key=s3cret",
+        "https://10.0.0.1/?key=s3cret",
+    ):
+        with pytest.raises(HttpError) as info:
+            http.get(url)
+        assert "s3cret" not in str(info.value), url
+    late = FakeHttp(deadline=time.monotonic() - 1)
+    with pytest.raises(DeadlineExceeded) as info:
+        late.get("https://x.example.org/?key=s3cret")
+    assert "s3cret" not in str(info.value)
+
+
+def test_fake_http_records_copies() -> None:
+    """Calls keep the arguments as they were when sent."""
+    http = FakeHttp()
+    http.add("POST", "https://x.example.org/?q=1", json={})
+    params = {"q": ["1"]}
+    headers = {"X-A": "1"}
+    body = {"a": [1]}
+    http.post("https://x.example.org/", params=params, headers=headers, json=body)
+    params["q"].append("2")
+    headers["X-A"] = "2"
+    body["a"].append(2)
+    call = http.calls[0]
+    assert (call.params, call.headers, call.json) == (
+        {"q": ["1"]},
+        {"X-A": "1"},
+        {"a": [1]},
+    )
+
+
+def test_fake_http_deadline_while_waiting() -> None:
+    """Deadlines that pass while waiting for other clients end the call."""
+    http = FakeHttp(deadline=time.monotonic() + 0.2)
+    http.add("GET", "https://x.example.org/", json=1)
+    errors: list[Exception] = []
+
+    def call() -> None:
+        try:
+            http.get("https://x.example.org/")
+        except DeadlineExceeded as exc:
+            errors.append(exc)
+
+    with http._state.lock:
+        worker = threading.Thread(target=call)
+        worker.start()
+        time.sleep(0.4)
+    worker.join(5)
+    assert len(errors) == 1
+    assert http.calls == []
+
+
+def test_fake_http_options() -> None:
+    """Clients made by a fake client keep its guard settings."""
+    http = FakeHttp(allow_http=True, max_response_size=8)
+    child = http.client(deadline=time.monotonic() + 5)
+    assert child.allow_http
+    assert child.max_response_size == 8
+    assert not http.client(allow_http=False).allow_http
+    with PluginHarness(TagPlugin, http=http) as harness:
+        assert harness.host.conf.defaults.http.allow_http
+        assert harness.host.conf.defaults.http.max_response_size == 8
+    with PluginHarness(
+        TagPlugin, http=http, defaults={"http": {"allow_http": False}}
+    ) as harness:
+        assert not harness.host.conf.defaults.http.allow_http
 
 
 def test_fake_http_copies() -> None:
@@ -478,6 +575,36 @@ def test_contract_violations(plugin: Any, kwargs: dict[str, Any], problem: str) 
     assert "breaks the plugin contract" in str(info.value)
 
 
+class _FailingSchema(BaseModel):
+    """Parameters whose schema code fails."""
+
+    @classmethod
+    def model_json_schema(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Fail.
+
+        Args:
+            args: Ignored.
+            kwargs: Ignored.
+
+        Raises:
+            RuntimeError: Always.
+        """
+        raise RuntimeError("schema code failed")
+
+
+def test_contract_title_and_schema() -> None:
+    """Blank titles without docstring and failing schema code are violations."""
+    blank = type("Blank", (TagPlugin,), {"title": " ", "__doc__": None})
+    with pytest.raises(ContractViolation) as info:
+        check_plugin_contract(blank, threads=1)
+    assert "No title: add a docstring or set `title`" in info.value.problems
+    titled = type("Titled", (TagPlugin,), {"title": "Tag", "__doc__": None})
+    check_plugin_contract(titled, threads=1)
+    failing = type("Failing", (TagPlugin,), {"Params": _FailingSchema})
+    with pytest.raises(ContractViolation, match="schema code failed"):
+        check_plugin_contract(failing, threads=1)
+
+
 def test_errors_outside_hooks() -> None:
     """Errors outside the hooks are reported with their phase."""
     with PluginHarness(TagPlugin) as harness:
@@ -496,8 +623,12 @@ def test_framework_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
         "    import flask.json\n"
         "    from starlette.requests import Request\n"
         "import importlib\n"
+        "from importlib import import_module as load\n"
         "def later():\n"
         "    importlib.import_module('werkzeug.routing')\n"
+        "    importlib.import_module(name='fastapi')\n"
+        "    load('quart')\n"
+        "    importlib.import_module(package='flask')\n"
         "    __import__('connexion')\n"
         "    __import__(later.__name__)\n"
         "    print('not an import')\n"
@@ -512,7 +643,9 @@ def test_framework_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     try:
         assert framework_imports(module.WebPlugin) == [
             "connexion",
+            "fastapi",
             "flask.json",
+            "quart",
             "starlette.requests",
             "werkzeug.routing",
         ]

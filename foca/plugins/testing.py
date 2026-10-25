@@ -51,9 +51,12 @@ from foca.utils.http import (
     DeadlineExceeded,
     GuardedClient,
     HttpResponse,
+    InvalidRequest,
     InvalidRequestURL,
     RequestNotSent,
     ResponseTooLarge,
+    _check_json_body,
+    _redact,
     _split,
     is_public_address,
 )
@@ -71,6 +74,22 @@ THREAD_TIMEOUT = 60.0
 
 PLUGIN_ID = "test.plugin"
 """Default identifier of plugins in the harness."""
+
+
+class _Unset:
+    """Type of `UNSET`."""
+
+    def __repr__(self) -> str:
+        """Get the representation, for signatures in the docs.
+
+        Returns:
+            `UNSET`.
+        """
+        return "UNSET"
+
+
+UNSET: Any = _Unset()
+"""Default of builder arguments, so that `None` can be passed as a value."""
 
 
 # Builders
@@ -108,7 +127,7 @@ def make_principal(
 
 
 def make_inbound(
-    payload: Any = None,
+    payload: Any = UNSET,
     *,
     method: str = "POST",
     path: str = "/ga4gh/tes/v1/tasks",
@@ -119,7 +138,7 @@ def make_inbound(
     """Build an inbound request.
 
     Args:
-        payload: Payload; defaults to a minimal TES task.
+        payload: Payload (`None` for none); defaults to a minimal TES task.
         method: HTTP method.
         path: Path of the request.
         route: Route of the API operation.
@@ -129,7 +148,7 @@ def make_inbound(
     Returns:
         Inbound request.
     """
-    if payload is None:
+    if payload is UNSET:
         payload = {"executors": [{"image": "alpine", "command": ["true"]}]}
     return InboundRequest(
         method=method,
@@ -198,9 +217,9 @@ def make_outbound(
 
 def make_response(
     status: int = 200,
-    payload: Any = None,
+    payload: Any = UNSET,
     *,
-    client_payload: Any = None,
+    client_payload: Any = UNSET,
     headers: Mapping[str, str] | None = None,
     client_headers: Mapping[str, str] | None = None,
 ) -> BackendResponse:
@@ -208,21 +227,23 @@ def make_response(
 
     Args:
         status: HTTP status.
-        payload: Payload of the backend; defaults to `{"id": "remote-1"}`.
-        client_payload: Payload for the client; defaults to the payload.
+        payload: Payload of the backend (`None` for none); defaults to
+            `{"id": "remote-1"}`.
+        client_payload: Payload for the client (`None` for none); defaults
+            to the payload.
         headers: Headers of the backend.
         client_headers: Headers for the client.
 
     Returns:
         Response.
     """
-    if payload is None:
+    if payload is UNSET:
         payload = {"id": "remote-1"}
     return BackendResponse(
         status=status,
         headers=Headers(headers or {}),
         payload=payload,
-        client_payload=payload if client_payload is None else client_payload,
+        client_payload=payload if client_payload is UNSET else client_payload,
         client_headers=Headers(client_headers or {}),
     )
 
@@ -275,10 +296,12 @@ class FakeHttp(GuardedClient):
 
     It sends nothing. Like :py:class:`foca.utils.http.GuardedClient`, it
     refuses other schemes than `https` (unless `allow_http`), invalid
-    methods, hosts that are IP addresses that are not public (unless
-    `allow_private_addresses`; host names are not resolved), requests
-    after the deadline, and canned bodies beyond `max_response_size`.
-    Query parameters are encoded as by `requests`. Requests without a
+    methods, bodies that are no JSON, invalid headers, hosts that are IP
+    addresses that are not public (unless `allow_private_addresses`; host
+    names are not resolved), requests after the deadline, and canned
+    bodies beyond `max_response_size`; messages leave out user info,
+    query and fragment of URLs. Query parameters are encoded as by
+    `requests`. Requests without a
     canned response fail with :py:class:`foca.utils.http.RequestNotSent`
     (`no_canned_response`).
 
@@ -320,12 +343,28 @@ class FakeHttp(GuardedClient):
 
         Args:
             kwargs: Arguments of :py:class:`foca.utils.http.GuardedClient`
-                (e.g., the call's `deadline`).
+                (e.g., the call's `deadline`); others are those of this
+                client.
 
         Returns:
             Client.
         """
-        return FakeHttp(_state=self._state, **kwargs)
+        options = {**self.options(), **kwargs}
+        return FakeHttp(_state=self._state, **options)
+
+    def options(self) -> dict[str, Any]:
+        """Get the guard settings of this client.
+
+        Returns:
+            `timeout`, `allow_private_addresses`, `allow_http` and
+            `max_response_size`.
+        """
+        return {
+            "timeout": self.timeout,
+            "allow_private_addresses": self.allow_private_addresses,
+            "allow_http": self.allow_http,
+            "max_response_size": self.max_response_size,
+        }
 
     def add(
         self,
@@ -333,7 +372,7 @@ class FakeHttp(GuardedClient):
         url: str,
         *,
         status: int = 200,
-        json: Any = None,
+        json: Any = UNSET,
         content: bytes = b"",
         headers: Mapping[str, str] | None = None,
         error: Exception | None = None,
@@ -349,7 +388,7 @@ class FakeHttp(GuardedClient):
                 (normalized as by `requests`, e.g., `https://host` as
                 `https://host/`).
             status: HTTP status.
-            json: Body, as JSON.
+            json: Body, as JSON (`None` for `null`).
             content: Body, if not `json`.
             headers: Headers.
             error: Error to raise instead, e.g.,
@@ -359,7 +398,7 @@ class FakeHttp(GuardedClient):
         if error is not None:
             result = error
         else:
-            body = content if json is None else dumps(json).encode()
+            body = content if json is UNSET else dumps(json).encode()
             result = HttpResponse(
                 status=status,
                 headers={key.lower(): value for key, value in (headers or {}).items()},
@@ -400,9 +439,12 @@ class FakeHttp(GuardedClient):
         Raises:
             InvalidRequestURL: The URL or method is invalid, or the scheme
                 is not allowed.
+            InvalidRequest: `json` is no JSON (`invalid_request`), or a
+                header is invalid (`invalid_header`).
             AddressNotAllowed: The host is an IP address that is not
                 public.
-            DeadlineExceeded: The deadline passed.
+            DeadlineExceeded: The deadline passed, also while waiting for
+                other clients.
             RequestNotSent: There is no canned response.
             ResponseTooLarge: The canned body exceeds `max_response_size`.
             Exception: The canned error.
@@ -412,6 +454,8 @@ class FakeHttp(GuardedClient):
             raise InvalidRequestURL(f"Scheme not allowed: {scheme or '(none)'}")
         if not isinstance(method, str) or not _METHOD.fullmatch(method):
             raise InvalidRequestURL("Invalid HTTP method")
+        if json is not None:
+            _check_json_body(json, url)
         if not self.allow_private_addresses:
             try:
                 address = ipaddress.ip_address(host)
@@ -419,50 +463,76 @@ class FakeHttp(GuardedClient):
                 address = None  # host names are not resolved
             if address is not None and not is_public_address(address):
                 raise AddressNotAllowed(
-                    f"Host of {url} has an address that is not public: {host}"
+                    f"Host of {_redact(url)} has an address that is not public"
                 )
-        remaining = self.remaining()
-        if remaining <= 0:
-            raise DeadlineExceeded(f"No time left for {url}")
+        if self.remaining() <= 0:
+            raise DeadlineExceeded(f"No time left for {_redact(url)}")
         try:
-            url = _prepared_url(method, url, params)
-        except requests.RequestException as exc:
-            raise InvalidRequestURL(f"Invalid URL: {exc}") from exc
+            url = _prepared_url(method, url, params, headers)
+        except requests.exceptions.InvalidHeader as exc:
+            raise InvalidRequest(
+                f"Invalid header for {_redact(url)}", reason="invalid_header"
+            ) from exc
+        except (requests.RequestException, ValueError) as exc:
+            raise InvalidRequestURL(f"Invalid URL: {type(exc).__name__}") from exc
         with self._state.lock:
+            # checked again, in case waiting for other clients took long
+            remaining = self.remaining()
+            if remaining <= 0:
+                raise DeadlineExceeded(f"No time left for {_redact(url)}")
+            # copies, so that later changes by the caller do not show
             self._state.calls.append(
-                HttpCall(method.upper(), url, params, headers, json, data, remaining)
+                HttpCall(
+                    method.upper(),
+                    url,
+                    copy.deepcopy(params),
+                    None if headers is None else dict(headers),
+                    copy.deepcopy(json),
+                    data,
+                    remaining,
+                )
             )
             queue = self._state.responses.get((method.upper(), url))
             result = (queue.pop(0) if len(queue) > 1 else queue[0]) if queue else None
         if result is None:
             raise RequestNotSent(
-                f"No canned response for {method} {url}", reason="no_canned_response"
+                f"No canned response for {method} {_redact(url)}",
+                reason="no_canned_response",
             )
         if isinstance(result, Exception):
             raise result
         if len(result.content) > self.max_response_size:
             raise ResponseTooLarge(
-                f"Response of {url} exceeds {self.max_response_size} bytes"
+                f"Response of {_redact(url)} exceeds {self.max_response_size} bytes"
             )
         # each call gets its own response, as from the real client
         return replace(result, headers=dict(result.headers))
 
 
-def _prepared_url(method: str, url: str, params: Mapping[str, Any] | None) -> str:
+def _prepared_url(
+    method: str,
+    url: str,
+    params: Mapping[str, Any] | None,
+    headers: Mapping[str, str] | None = None,
+) -> str:
     """Build the URL of a request as `requests` does.
 
     Args:
         method: HTTP method.
         url: URL.
         params: Query parameters, if any.
+        headers: Headers, if any, which `requests` checks.
 
     Returns:
         The URL as `requests` sends it.
 
     Raises:
-        requests.RequestException: `requests` cannot prepare the URL.
+        requests.RequestException: `requests` cannot prepare the URL, or
+            a header is invalid (`requests.exceptions.InvalidHeader`).
     """
-    prepared = requests.Request(method.upper(), url, params=params).prepare()
+    prepared = requests.Request(
+        method.upper(), url, params=params, headers=dict(headers or {})
+    ).prepare()
     return str(prepared.url)
 
 
@@ -510,7 +580,9 @@ class PluginHarness:
             on_failure: `on_failure` of the step (`fail` or `skip`).
             timeout: Timeout of the step, in seconds; defaults to
                 `plugins.defaults.step_timeout`.
-            http: Fake HTTP client; defaults to one without responses.
+            http: Fake HTTP client; defaults to one without responses. Its
+                guard settings (e.g., `allow_http`) apply to the calls,
+                unless `defaults` sets `http`.
             defaults: `plugins.defaults` (e.g., `workers`).
             host_kwargs: Other arguments of
                 :py:class:`foca.plugins.PluginHost` (e.g., `validate`).
@@ -527,12 +599,19 @@ class PluginHarness:
         }
         if timeout is not None:
             step["timeout"] = timeout
+        self.http = http or FakeHttp()
+        defaults = dict(defaults or {})
+        if http is not None and "http" not in defaults:
+            # the engine passes `plugins.defaults.http` to each client
+            options = http.options()
+            options.pop("timeout")  # the step's
+            defaults["http"] = options
         conf = PluginsConfig.model_validate(
             {
                 "available": {plugin_id: {"config": dict(config or {})}},
                 "pipeline": [step],
                 "client_pipelines": {"append": []},
-                "defaults": dict(defaults or {}),
+                "defaults": defaults,
             }
         )
         cls = check_plugin_class(plugin, plugin_id=plugin_id, api=api)
@@ -546,7 +625,6 @@ class PluginHarness:
             record_digest=None,
             available=conf.available[plugin_id],
         )
-        self.http = http or FakeHttp()
         # closes the plugin if it fails
         self.host = PluginHost(
             conf,
@@ -803,7 +881,8 @@ def framework_imports(plugin: type[Any]) -> list[str] | None:
 
     A lint, not a guarantee: only the module that defines the class is
     scanned (not the modules it imports), for `import` statements and calls
-    of `__import__()` and `import_module()` with literal names.
+    of `__import__()` and `import_module()` (also under an alias) with
+    literal names, positional or as keyword `name`.
 
     Args:
         plugin: Plugin class.
@@ -816,33 +895,44 @@ def framework_imports(plugin: type[Any]) -> list[str] | None:
         source = inspect.getsource(inspect.getmodule(plugin))  # type: ignore[arg-type]
     except (OSError, TypeError):
         return None
+    tree = ast.parse(source)
+    # local names of `import_module` (e.g., `from importlib import
+    # import_module as load`)
+    aliases = {"__import__", "import_module"} | {
+        alias.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "importlib"
+        for alias in node.names
+        if alias.name == "import_module" and alias.asname
+    }
     found: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             names = [node.module]
-        elif _is_dynamic_import(node):
-            names = [node.args[0].value]  # type: ignore[attr-defined]
+        elif (name := _dynamic_import(node, aliases)) is not None:
+            names = [name]
         else:
             continue
         found.update(name for name in names if name.split(".")[0] in FRAMEWORK_MODULES)
     return sorted(found)
 
 
-def _is_dynamic_import(node: ast.AST) -> bool:
-    """Check whether a node imports a module by literal name at runtime.
+def _dynamic_import(node: ast.AST, aliases: set[str]) -> str | None:
+    """Get the module that a node imports by literal name at runtime.
 
     Args:
         node: Node of a syntax tree.
+        aliases: Names of the import functions in the module.
 
     Returns:
-        Whether it is a call of `__import__()` or `import_module()` (also
+        The module name if the node is a call of one of the `aliases` (also
         as an attribute, e.g., `importlib.import_module()`) whose first
-        argument is a string literal.
+        argument (or keyword `name`) is a string literal, else `None`.
     """
-    if not isinstance(node, ast.Call) or not node.args:
-        return False
+    if not isinstance(node, ast.Call):
+        return None
     func = node.func
     name = (
         func.id
@@ -851,12 +941,16 @@ def _is_dynamic_import(node: ast.AST) -> bool:
         if isinstance(func, ast.Attribute)
         else None
     )
-    first = node.args[0]
-    return (
-        name in ("__import__", "import_module")
-        and isinstance(first, ast.Constant)
-        and isinstance(first.value, str)
+    if name not in aliases:
+        return None
+    first = (
+        node.args[0]
+        if node.args
+        else next((kw.value for kw in node.keywords if kw.arg == "name"), None)
     )
+    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+        return first.value
+    return None
 
 
 def check_plugin_contract(
@@ -911,9 +1005,9 @@ def check_plugin_contract(
     problems: list[str] = []
     try:
         check_plugin_class(plugin, plugin_id=plugin_id, api=api)
-    except ValueError as exc:
+    except Exception as exc:  # e.g., errors of custom schema code
         raise ContractViolation(reference, [str(exc)]) from exc
-    if plugin.title is None and not (plugin.__doc__ or "").strip():
+    if not (plugin.title or "").strip() and not (plugin.__doc__ or "").strip():
         problems.append("No title: add a docstring or set `title`")
     for name in ("Config", "Params"):
         try:
