@@ -70,6 +70,61 @@ work on copies, abandoned hooks cannot change the request, but side effects
 they cause later are their own. When all workers are busy, further calls
 fail at once, as timed out.
 
+## Per-request pipelines and backends
+
+Clients choose the pipeline and the backends of a request in two reserved
+tags of the request (TES and WES `tags`, a string map: spec-compliant and
+supported by existing clients), under the prefix `plugins.tags.prefix`
+(default `gateway.`):
+
+- `gateway.pipeline`: the name of a preset (`plugins.presets`), or a
+  pipeline as JSON, e.g.,
+  `[{"plugin": "org.example.tes.data.decrypt"}, {"id": "route", "alternatives": [{"plugin": "org.example.tes.routing.distance", "params": {"max_km": 2000}}]}]`;
+  steps of clients cannot set `timeout`, `on_failure` or
+  `if_missing_phase`;
+- `gateway.backends`: a JSON object (at most 8 KiB)
+  `{"type": "order" | "allow" | "forbid", "backends": [...]}` with one or
+  more backend identifiers or URLs (items with `://` match URLs only,
+  others identifiers only):
+  - `order`: the listed backends first, in the client's order, then the
+    other candidates in the server's order;
+  - `allow`: only the listed backends, in the server's order;
+  - `forbid`: all candidates but the listed ones, in the server's order.
+
+  The selection applies to the candidates after the `route` phase: clients
+  can only narrow or reorder the configured and verified backends; listed
+  backends that are not candidates are discarded, never added.
+
+!!! warning "A client pipeline replaces the default pipeline"
+
+    A preset or client pipeline (even an empty one, `[]`) runs **instead
+    of** `plugins.pipeline`: only the frame (`client_pipelines.prepend` and
+    `append`) runs for every request. Put policies that must not be skipped
+    into `prepend`.
+
+Before any plugin runs, the engine checks the choice and refuses it with
+`400` if the tags are no map or invalid, if per-request choices are disabled
+(`plugins.client_pipelines.enabled`, `plugins.client_backends.enabled`),
+if the pipeline exceeds the limits (`max_steps`, `max_alternatives`,
+`max_size`), if the caller lacks a required role, or if it uses a plugin
+that is not available to the caller (unknown, not installed, disabled, not
+`client_selectable`, or restricted by `roles`; all with the same message,
+so that clients cannot probe the setup). Presets may use plugins that are
+not `client_selectable`, but need the plugins' `roles` too (unknown presets
+and presets that need a role get the same message). Apps of other APIs than
+TES pass the request's tags explicitly (`host.start(..., tags=...)`, e.g.,
+the parsed `tags` form field of WES). Presets and client pipelines are
+framed by the admin's steps (`client_pipelines.prepend` and `append`),
+which clients can neither remove nor reorder; appended steps with
+`if_missing_phase` (e.g., a default `route` step) are added only if no other
+step implements that phase. Requests without the pipeline tag get the
+default pipeline (`plugins.pipeline`), without frame.
+
+All other tags under the prefix are written by the gateway only: clients
+setting them get `400` (`reserved-tag`), so that dashboards can trust them.
+Clients that re-submit a fetched task drop them first, except the two
+above.
+
 ## Forwarding
 
 The app tries the candidates in order. For each, it reports the outcome of
@@ -231,3 +286,21 @@ control uses, so `roles` in the plugin configuration are access control
 roles), the request ID (`request_id()`: a safe `X-Request-ID` header of
 the client, or a new one), and problem responses for gateway errors
 (`problem()`).
+
+## Problem types
+
+Gateway errors are problem details with the extension member
+`problem_type`:
+
+| Problem type (`#…`) | Status | When |
+|---|---|---|
+| `rejected` | 400, 403, 409, 413, 422 | a plugin rejected the request |
+| `plugin-step-failed` | 500 | all alternatives of a required step failed |
+| `invalid-pipeline` | 400 | the pipeline tag is invalid or not allowed |
+| `invalid-backends` | 400 | the backends tag is invalid or not allowed |
+| `reserved-tag` | 400 | the client set another tag under the reserved prefix, or the tags are no map |
+| `no-backend-available` | 503 | no backend accepted the request |
+| `forward-timeout` | 503 | the forwarding attempts took longer than `forward_timeout` |
+| `invalid-via` | 400 | the `Via` header would exceed 1024 characters with the gateway's entry |
+| `loop-detected` | 508 | the request passed this gateway already |
+| `gateway-error` | 500 | other errors of the gateway |

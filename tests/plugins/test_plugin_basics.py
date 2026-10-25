@@ -197,7 +197,11 @@ def test_plugins_config() -> None:
     conf = PluginsConfig.model_validate(
         {"available": {"a.b": {"version": ">=1"}}, "pipeline": [{"plugin": "a.b"}]}
     )
-    assert conf.pipelines() == {"pipeline": conf.pipeline}
+    assert conf.pipelines() == {
+        "pipeline": conf.pipeline,
+        "prepend": [],
+        "append": [],
+    }
     for data, message in [
         ({"available": {"Bad": {}}}, "plugin identifier"),
         ({"available": {"a": {"version": "one"}}}, "version specifier"),

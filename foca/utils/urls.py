@@ -19,7 +19,6 @@ from typing import Any, Literal, get_args
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 import idna
-from flask import request
 
 URLScheme = Literal["http", "https", "mailto"]
 """Supported URL schemes, e.g., for app configuration models."""
@@ -275,6 +274,10 @@ def get_public_url(path: str = "") -> str:
             paths with characters that cannot be encoded (unpaired
             surrogates).
     """
+    # Flask only here, so that the other functions work without it (e.g.,
+    # in `foca.plugins`)
+    from flask import request  # noqa: PLC0415
+
     from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
 
     public_url = get_config().server.public_url

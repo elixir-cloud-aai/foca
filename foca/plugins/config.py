@@ -20,6 +20,9 @@ PLUGIN_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*")
 STEP_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}")
 """Pattern of step identifiers."""
 
+PRESET_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+"""Pattern of preset names."""
+
 # Keys of steps reserved for later versions (conditions, dependencies)
 _RESERVED_STEP_KEYS = ("when", "needs")
 # Maximum length of plugin identifiers
@@ -268,6 +271,104 @@ class PluginDefaultsConfig(_Model):
     workers: PositiveInt = 8
 
 
+class ClientPipelinesConfig(_Model):
+    """Pipelines chosen by clients per request (`plugins.client_pipelines`).
+
+    Clients choose a pipeline in the reserved tag `<prefix>pipeline` of the
+    request's payload (cf. :py:mod:`foca.plugins.selection`): the name of a
+    preset, or a pipeline as JSON. The chosen pipeline replaces the default
+    pipeline entirely (an empty one is allowed); only the frame (`prepend`,
+    `append`) always runs, so policies that must apply to every request
+    belong in `prepend`, not only in `plugins.pipeline`.
+
+    Args:
+        enabled: Whether clients may choose pipelines; if not, requests with
+            the tag are refused (`400`).
+        allowed: Forms that clients may use: `presets` (names) and `inline`
+            (JSON); at least one (use `enabled: false` to allow none).
+        max_steps: Maximum number of steps of inline pipelines.
+        max_alternatives: Maximum number of alternatives per step.
+        max_size: Maximum size of the tag's value, in bytes.
+        roles: Roles that may choose pipelines (any authenticated caller if
+            empty).
+        prepend: Steps run before the client's steps (e.g., policies);
+            clients cannot remove or reorder them. A client's pipeline (or
+            preset) replaces the default pipeline (`plugins.pipeline`)
+            entirely, and may be empty, so steps that must run for every
+            request (e.g., policies) belong here.
+        append: Steps run after the client's steps; steps with
+            `if_missing_phase` only if no other step implements that phase
+            (e.g., a default `route` step).
+
+    Attributes:
+        enabled: Whether clients may choose pipelines.
+        allowed: Forms that clients may use.
+        max_steps: Maximum number of steps of inline pipelines.
+        max_alternatives: Maximum number of alternatives per step.
+        max_size: Maximum size of the tag's value, in bytes.
+        roles: Roles that may choose pipelines.
+        prepend: Steps run before the client's steps.
+        append: Steps run after the client's steps.
+    """
+
+    enabled: bool = True
+    allowed: list[Literal["presets", "inline"]] = Field(
+        default=["presets", "inline"], min_length=1
+    )
+    max_steps: PositiveInt = 8
+    max_alternatives: PositiveInt = 3
+    max_size: PositiveInt = 8192
+    roles: list[str] = []
+    prepend: list[StepConfig] = []
+    append: list[StepConfig] = []
+
+    @model_validator(mode="after")
+    def _unique_ids(self) -> Self:
+        """Check that the frame's steps have unique identifiers.
+
+        Returns:
+            The configuration.
+        """
+        check_pipeline([*self.prepend, *self.append])
+        return self
+
+
+class ClientBackendsConfig(_Model):
+    """Backends chosen by clients per request (`plugins.client_backends`).
+
+    Clients choose backends in the reserved tag `<prefix>backends` (cf.
+    :py:mod:`foca.plugins.selection`); only candidates of the request (i.e.,
+    configured or verified backends of the app's API) can be chosen, others
+    are discarded.
+
+    Args:
+        enabled: Whether clients may choose backends; if not, requests with
+            the tag are refused (`400`).
+        max_items: Maximum number of backends in the tag.
+
+    Attributes:
+        enabled: Whether clients may choose backends.
+        max_items: Maximum number of backends in the tag.
+    """
+
+    enabled: bool = True
+    max_items: PositiveInt = 32
+
+
+class TagsConfig(_Model):
+    """Reserved tags of gateway requests (`plugins.tags`).
+
+    Args:
+        prefix: Prefix of the reserved tags (e.g., `gateway.pipeline`):
+            clients may set only the pipeline and backends tags under it.
+
+    Attributes:
+        prefix: Prefix of the reserved tags.
+    """
+
+    prefix: str = Field(default="gateway.", pattern=r"^[a-z0-9][a-z0-9_.-]{0,31}\.$")
+
+
 class PluginsConfig(_Model):
     """Gateway plugins: allowlist and pipelines (FOCA config section `plugins`).
 
@@ -276,7 +377,15 @@ class PluginsConfig(_Model):
             the group `foca.plugins`): only these are loaded, even if more
             are installed.
         defaults: Limits of plugin calls and forwarding.
-        pipeline: Default pipeline: steps, in order.
+        pipeline: Default pipeline: steps, in order. Requests with a client
+            pipeline or preset do not run it (cf. `client_pipelines.prepend`
+            for steps that must always run).
+        presets: Named pipelines that clients may choose; admin-authored,
+            so they may use plugins that are not `client_selectable`, but
+            only callers with the plugins' `roles` may choose them.
+        client_pipelines: Pipelines chosen by clients per request.
+        client_backends: Backends chosen by clients per request.
+        tags: Reserved tags of gateway requests.
         gateway_id: Name of this gateway in `Via` headers (RFC 9110,
             section 7.6.3), which detect routing loops: a host name or IPv4
             address, or an IPv6 address in brackets, with an optional port;
@@ -287,6 +396,10 @@ class PluginsConfig(_Model):
         available: Allowlist of plugins.
         defaults: Limits of plugin calls and forwarding.
         pipeline: Default pipeline.
+        presets: Named pipelines that clients may choose.
+        client_pipelines: Pipelines chosen by clients per request.
+        client_backends: Backends chosen by clients per request.
+        tags: Reserved tags of gateway requests.
         gateway_id: Name of this gateway in `Via` headers, if set.
 
     Examples:
@@ -301,6 +414,10 @@ class PluginsConfig(_Model):
     available: dict[str, AvailablePluginConfig] = {}
     defaults: PluginDefaultsConfig = PluginDefaultsConfig()
     pipeline: list[StepConfig] = []
+    presets: dict[str, list[StepConfig]] = {}
+    client_pipelines: ClientPipelinesConfig = ClientPipelinesConfig()
+    client_backends: ClientBackendsConfig = ClientBackendsConfig()
+    tags: TagsConfig = TagsConfig()
     gateway_id: str | None = Field(default=None, pattern=GATEWAY_ID_PATTERN)
 
     @field_validator("pipeline")
@@ -315,6 +432,28 @@ class PluginsConfig(_Model):
             The steps.
         """
         return check_pipeline(steps)
+
+    @field_validator("presets")
+    @classmethod
+    def _check_presets(
+        cls, presets: dict[str, list[StepConfig]]
+    ) -> dict[str, list[StepConfig]]:
+        """Check the names and steps of the presets.
+
+        Args:
+            presets: Presets.
+
+        Returns:
+            The presets.
+
+        Raises:
+            ValueError: A name does not match the pattern of preset names.
+        """
+        for name, steps in presets.items():
+            if not PRESET_PATTERN.fullmatch(name):
+                raise ValueError(f"Preset name {name!r} does not match the pattern")
+            check_pipeline(steps)
+        return presets
 
     @field_validator("available")
     @classmethod
@@ -337,9 +476,15 @@ class PluginsConfig(_Model):
         """Get all admin-defined pipelines, by name.
 
         Returns:
-            Pipelines, by name (`pipeline` for the default pipeline).
+            Pipelines, by name: `pipeline` (default), `presets.<name>`,
+            `prepend` and `append` (the frame of client pipelines).
         """
-        return {"pipeline": self.pipeline}
+        return {
+            "pipeline": self.pipeline,
+            **{f"presets.{name}": steps for name, steps in self.presets.items()},
+            "prepend": self.client_pipelines.prepend,
+            "append": self.client_pipelines.append,
+        }
 
     @model_validator(mode="after")
     def _check_references(self) -> Self:
@@ -350,8 +495,10 @@ class PluginsConfig(_Model):
 
         Raises:
             ValueError: A pipeline refers to a plugin that is not in
-                `available`, or a step other than in
-                `client_pipelines.append` sets `if_missing_phase`.
+                `available`, a step other than in `client_pipelines.append`
+                sets `if_missing_phase`. (Clashes of preset steps with the
+                frame's steps are checked by the engine at startup, against
+                the frame steps that are kept.)
         """
         for name, steps in self.pipelines().items():
             for step in steps:

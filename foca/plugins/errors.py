@@ -105,6 +105,24 @@ class InvalidVia(GatewayError):
     slug = "invalid-via"
 
 
+class InvalidSelection(GatewayError):
+    """The client's choice of pipeline or backends is invalid or not allowed."""
+
+    code = 400
+    title = "Bad Request"
+
+    def __init__(self, detail: str, slug: str = "invalid-pipeline") -> None:
+        """Create the error.
+
+        Args:
+            detail: Description of the problem, for the client.
+            slug: Last part of the problem type: `invalid-pipeline`,
+                `invalid-backends` or `reserved-tag`.
+        """
+        self.slug = slug
+        super().__init__(detail)
+
+
 def _phrase(status: int) -> str:
     """Get the reason phrase of a rejection status.
 

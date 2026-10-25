@@ -17,6 +17,8 @@ plugins:
         registries: [registry.example.org]
     org.example.tes.data.decrypt:
       enabled: false                        # kill switch: loaded nowhere
+      client_selectable: true               # clients may choose it (default)
+      roles: []                             # roles that may choose it; any if empty
   defaults:
     timeout: 10            # seconds per alternative and call
     pipeline_timeout: 30   # seconds for the request and route phases
@@ -31,7 +33,28 @@ plugins:
           params: {volume: /vol/crypt}
       timeout: 5
       on_failure: skip     # fail (default) | skip
-  gateway_id: protes.example.org          # default: host of server.public_url
+  # Named pipelines that clients may choose (tag `gateway.pipeline`)
+  presets:
+    encrypted-inputs:
+      - org.example.tes.data.decrypt
+  # Pipelines chosen by clients per request
+  client_pipelines:
+    enabled: true
+    allowed: [presets, inline]   # at least one; `enabled: false` allows none
+    max_steps: 8
+    max_alternatives: 3
+    max_size: 8192           # bytes of the tag's value
+    roles: []                # who may choose; any authenticated caller if empty
+    prepend:                 # admin frame: always first, also for client
+      - org.example.tes.policy.images  # pipelines, which replace `pipeline`
+    append: []               # always last (or only if a phase is missing)
+  # Backends chosen by clients per request (tag `gateway.backends`)
+  client_backends:
+    enabled: true
+    max_items: 32
+  tags:
+    prefix: "gateway."       # reserved tag prefix
+  gateway_id: protes.example.org          # default: host[:port] of server.public_url
 ```
 
 ## Allowlist
@@ -65,6 +88,27 @@ identifier; steps with the same plugin need explicit, unique `id`s.
 - The keys `when` and `needs` are reserved for conditions and dependencies
   of later versions; they and all unknown keys are errors.
 
+## Per-request choices
+
+!!! warning "Policies that must always run belong in `prepend`"
+
+    A client's pipeline (or a preset) **replaces** the default pipeline
+    (`pipeline`) entirely, and an empty client pipeline (`[]`) is allowed.
+    Only the frame (`client_pipelines.prepend` and `append`) runs for every
+    request, so put policy steps that must not be skipped into `prepend`
+    (or disable `client_pipelines`).
+
+Clients choose presets or their own pipelines (`client_pipelines`) and
+backends (`client_backends`) in reserved tags (cf. [per-request pipelines
+and backends](../plugins.md#per-request-pipelines-and-backends)); both are
+enabled by default, limited to the allowlist (the keys `client_selectable`
+and `roles` of the entries in `available`) and to the candidates of each
+request. Presets are written by admins, so they may use plugins that are not
+`client_selectable`, but only callers with the plugins' `roles` may choose
+them. Presets and frames are checked on startup like the default pipeline
+(also that no preset step has the identifier of a frame step); presets that
+need a disabled plugin are unavailable.
+
 ## Migrating from middlewares
 
 Apps that had gateway middlewares (e.g., proTES's `custom.middlewares`)
@@ -72,6 +116,18 @@ refuse to start with that key, naming the new sections: list the plugins
 in `available` and the steps in `pipeline`.
 
 ::: foca.plugins.config.PluginsConfig
+    options:
+      members: false
+
+::: foca.plugins.config.ClientPipelinesConfig
+    options:
+      members: false
+
+::: foca.plugins.config.ClientBackendsConfig
+    options:
+      members: false
+
+::: foca.plugins.config.TagsConfig
     options:
       members: false
 

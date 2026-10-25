@@ -17,17 +17,20 @@ from foca.plugins.base import (
 from foca.plugins.context import Context
 from foca.plugins.engine import (
     Attempt,
+    NotAccepted,
+    OutcomeUnknown,
+    PipelineRun,
+    PluginHost,
+)
+from foca.plugins.errors import (
     ForwardTimeout,
     GatewayError,
+    InvalidSelection,
     InvalidVia,
     LoopDetected,
     NoBackendAvailable,
-    NotAccepted,
-    OutcomeUnknown,
     PipelineFailed,
     PipelineRejected,
-    PipelineRun,
-    PluginHost,
 )
 from foca.plugins.model import (
     Backend,
@@ -52,6 +55,7 @@ __all__ = [
     "GatewayError",
     "Headers",
     "InboundRequest",
+    "InvalidSelection",
     "InvalidVia",
     "Location",
     "LoopDetected",

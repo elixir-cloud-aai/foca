@@ -77,6 +77,10 @@ class _AppError(Exception):
         self.error = error
 
 
+class _NoEnabledPluginError(ValueError):
+    """A step that may not be skipped has no enabled plugin."""
+
+
 class _InvalidOutputError(Exception):
     """A hook produced invalid output."""
 

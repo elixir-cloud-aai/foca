@@ -132,6 +132,15 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.plugins.errors
 
+::: foca.plugins.selection
+    options:
+      members:
+        - parse_client_tags
+        - parse_client_pipeline
+        - apply_backend_selection
+        - BackendSelection
+        - ClientSelection
+
 ::: foca.plugins.loader
     options:
       members:
