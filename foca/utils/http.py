@@ -5,16 +5,18 @@ from users or registries. Unguarded, such requests are server-side request
 forgery (SSRF) vectors and can hang or read without bounds. The
 :py:class:`GuardedClient` therefore:
 
-- connects to public addresses only (cf. :py:func:`is_public_address`): the
-  address of each new connection is checked after it is established and
-  before any data is sent, so that DNS rebinding cannot direct it to an
-  internal host;
+- connects to public addresses only (cf. :py:func:`is_public_address`):
+  each host is resolved once, within the deadline, all its addresses are
+  checked, and the connection goes to a checked address (whose peer address
+  is checked again before any data is sent), so that DNS rebinding cannot
+  direct it to an internal host;
 - never follows redirects (they are returned as responses);
 - ignores proxy settings and `.netrc` files of the environment;
 - uses `https` only, with TLS verification always on, unless `http` is
   allowed explicitly;
-- bounds each request by a deadline (connect timeout capped) and the size
-  of each response;
+- bounds each request as a whole by a deadline (name resolution,
+  connecting, sending and reading, also of servers that send slowly; the
+  connect timeout is capped) and the size of each response;
 - tells errors before sending (:py:class:`RequestNotSent`) from errors
   after (:py:class:`RequestMaybeSent`), so that gateways know whether a
   backend may have received a request.
@@ -22,11 +24,14 @@ forgery (SSRF) vectors and can hang or read without bounds. The
 Built on requests and urllib3; independent of the web framework.
 """
 
+import contextlib
 import ipaddress
 import json
+import re
 import socket
+import threading
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
@@ -36,6 +41,12 @@ import urllib3
 from requests.adapters import HTTPAdapter
 from urllib3.connection import HTTPConnection, HTTPSConnection
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+from urllib3.exceptions import (
+    ConnectTimeoutError,
+    NameResolutionError,
+    NewConnectionError,
+)
+from urllib3.util import connection as urllib3_connection
 
 MAX_RESPONSE_SIZE = 16 * 1024 * 1024
 """Default maximum size of response bodies, in bytes."""
@@ -44,6 +55,9 @@ MAX_CONNECT_TIMEOUT = 10.0
 """Maximum seconds to establish a connection."""
 
 _CHUNK_SIZE = 65536
+
+# HTTP methods are tokens (RFC 9110, section 9.1)
+_METHOD = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,32}")
 
 # Prefixes of IPv6 addresses that embed IPv4 addresses in their last 32
 # bits: IPv4/IPv6 translation (RFC 6052) and IPv4-compatible addresses
@@ -96,7 +110,7 @@ class InvalidRequestURL(RequestNotSent):
 class HostNotResolved(RequestNotSent):
     """The host has no address."""
 
-    reason = "connect_error"
+    reason = "dns_error"
 
 
 class AddressNotAllowed(RequestNotSent):
@@ -163,86 +177,263 @@ def _check_address(address: str, url: str) -> None:
         )
 
 
-def check_public_host(url: str) -> None:
-    """Check that the host of a URL has public addresses only.
+def _resolve(host: str, port: int, timeout: float, url: str) -> list[str]:
+    """Resolve a host within a time limit.
 
-    Host names are resolved; all their addresses must be public (cf.
-    :py:func:`is_public_address`). Resolution is bounded by the system's
-    resolver. Use it to check URLs before they are stored (e.g., discovered
-    backends); requests of the :py:class:`GuardedClient` check the address
-    of each connection themselves.
+    The system resolver cannot be interrupted, so it runs in a daemon
+    thread that is abandoned when the time is up.
+
+    Args:
+        host: Host name or IP address.
+        port: Port.
+        timeout: Seconds for the resolution.
+        url: URL, for messages.
+
+    Returns:
+        Addresses, in the resolver's order, without duplicates.
+
+    Raises:
+        DeadlineExceeded: The time is up before the host is resolved.
+        HostNotResolved: The host cannot be resolved, or has no address.
+    """
+    try:
+        return [str(ipaddress.ip_address(host))]
+    except ValueError:
+        pass
+    outcome: dict[str, Any] = {}
+    done = threading.Event()
+
+    def lookup() -> None:
+        try:
+            outcome["infos"] = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except (OSError, UnicodeError) as exc:
+            outcome["error"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=lookup, name="foca-http-resolve", daemon=True).start()
+    if not done.wait(max(timeout, 0)):
+        raise DeadlineExceeded(f"Host of {url} not resolved in time")
+    if "error" in outcome:
+        raise HostNotResolved(
+            f"Host of {url} not resolved: {type(outcome['error']).__name__}"
+        )
+    addresses = list(dict.fromkeys(str(info[4][0]) for info in outcome["infos"]))
+    if not addresses:
+        raise HostNotResolved(f"Host of {url} has no address")
+    return addresses
+
+
+def _split(url: str) -> tuple[str, str, int]:
+    """Get the scheme, host and port of a URL.
 
     Args:
         url: URL.
 
+    Returns:
+        Scheme (lowercase), host (without brackets) and port (the default
+        of the scheme if not given).
+
     Raises:
+        InvalidRequestURL: The URL cannot be parsed, or its port or host
+            name is invalid.
+        AddressNotAllowed: The host has a zone identifier.
+    """
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError as exc:
+        raise InvalidRequestURL(f"Invalid URL: {exc}") from exc
+    scheme = parts.scheme.lower()
+    host = parts.hostname or ""
+    if "%" in host:
+        raise AddressNotAllowed(f"Host of {url} has a zone identifier")
+    if len(host) > 253 or any(len(label) > 63 for label in host.split(".")):
+        raise InvalidRequestURL("Invalid URL: host name too long")
+    return scheme, host, port or (80 if scheme == "http" else 443)
+
+
+def check_public_host(url: str, timeout: float = MAX_CONNECT_TIMEOUT) -> None:
+    """Check that the host of a URL has public addresses only.
+
+    Host names are resolved; all their addresses must be public (cf.
+    :py:func:`is_public_address`). Use it to check URLs before they are
+    stored (e.g., discovered backends); requests of the
+    :py:class:`GuardedClient` check the addresses of each connection
+    themselves.
+
+    Args:
+        url: URL.
+        timeout: Seconds for the resolution.
+
+    Raises:
+        InvalidRequestURL: The URL cannot be parsed.
+        DeadlineExceeded: The host was not resolved in time.
         HostNotResolved: The host cannot be resolved, or has no address.
         AddressNotAllowed: The host has an address that is not public, or a
             zone identifier.
     """
-    parts = urlsplit(url)
-    host = parts.hostname or ""
-    if "%" in host:
-        raise AddressNotAllowed(f"Host of {url} has a zone identifier")
-    try:
-        addresses: Iterable[str] = [str(ipaddress.ip_address(host))]
-    except ValueError:
-        try:
-            infos = socket.getaddrinfo(host, parts.port or 443, type=socket.SOCK_STREAM)
-        except (OSError, UnicodeError) as exc:
-            raise HostNotResolved(
-                f"Host of {url} not resolved: {type(exc).__name__}"
-            ) from exc
-        addresses = {str(info[4][0]) for info in infos}
-    if not addresses:
-        raise HostNotResolved(f"Host of {url} has no address")
-    for address in addresses:
+    _, host, port = _split(url)
+    for address in _resolve(host, port, timeout, url):
         _check_address(address, url)
 
 
-class _PublicPeerMixin:
-    """Refuse connections to addresses that are not public."""
+class _Guard:
+    """Limits of the requests of one client, shared by its connections.
 
-    def _new_conn(self) -> socket.socket:
-        """Connect, and check the address of the peer.
+    Attributes:
+        allow_private_addresses: Whether addresses that are not public are
+            allowed.
+        end: `time.monotonic()` value by which the current request must end.
+        expired: Whether the current request was stopped at its end.
+    """
+
+    def __init__(self, allow_private_addresses: bool) -> None:
+        """Create the guard.
+
+        Args:
+            allow_private_addresses: Whether private addresses are allowed.
+        """
+        self.allow_private_addresses = allow_private_addresses
+        self.end = float("inf")
+        self.expired = False
+        self._sockets: list[socket.socket] = []
+        self._lock = threading.Lock()
+        self._timer: threading.Timer | None = None
+
+    def left(self) -> float:
+        """Get the seconds left for the current request.
 
         Returns:
-            Socket.
+            Seconds; `0` or less once the end passed.
+        """
+        return self.end - time.monotonic()
+
+    def track(self, sock: socket.socket) -> None:
+        """Track a socket of the current request, to stop it at the end.
+
+        Args:
+            sock: Socket.
+        """
+        with self._lock:
+            self._sockets.append(sock)
+            stop = self.expired
+        if stop:
+            _shutdown(sock)
+
+    def start(self, seconds: float) -> None:
+        """Start a request that must end within some seconds.
+
+        Args:
+            seconds: Seconds.
+        """
+        self.end = time.monotonic() + seconds
+        self.expired = False
+        self._timer = threading.Timer(seconds, self._stop)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def finish(self) -> None:
+        """End the current request: cancel the timer, forget the sockets."""
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        with self._lock:
+            self._sockets = [sock for sock in self._sockets if sock.fileno() != -1]
+
+    def _stop(self) -> None:
+        """Stop the request at its end: shut its sockets down.
+
+        Blocked reads and writes then return at once, whatever the server
+        sends (e.g., one byte at a time).
+        """
+        with self._lock:
+            self.expired = True
+            sockets = list(self._sockets)
+        for sock in sockets:
+            _shutdown(sock)
+
+
+def _shutdown(sock: socket.socket) -> None:
+    """Shut a socket down, ignoring errors (e.g., if it is closed).
+
+    Args:
+        sock: Socket.
+    """
+    with contextlib.suppress(OSError):
+        sock.shutdown(socket.SHUT_RDWR)
+
+
+class _GuardedConnectionMixin:
+    """Connect to checked addresses within the request's time left."""
+
+    guard: _Guard
+
+    def _new_conn(self) -> socket.socket:
+        """Resolve the host once, check its addresses, and connect.
+
+        Returns:
+            Socket, connected to a checked address.
 
         Raises:
-            AddressNotAllowed: The peer's address is not public.
+            AddressNotAllowed: An address of the host, or the peer's
+                address, is not public.
+            DeadlineExceeded: No time is left to resolve or connect.
+            urllib3.exceptions.NameResolutionError: The host cannot be
+                resolved.
+            urllib3.exceptions.ConnectTimeoutError: Connecting timed out.
+            urllib3.exceptions.NewConnectionError: Connecting failed.
         """
-        sock: socket.socket = super()._new_conn()  # type: ignore[misc]
+        conn: Any = self
+        guard = self.guard
+        host = str(conn._dns_host).strip("[]")
         try:
-            _check_address(str(sock.getpeername()[0]), getattr(self, "host", ""))
-        except AddressNotAllowed:
+            addresses = _resolve(host, conn.port, guard.left(), conn.host)
+        except HostNotResolved as exc:
+            error = socket.gaierror(str(exc))
+            raise NameResolutionError(conn.host, conn, error) from exc
+        if not guard.allow_private_addresses:
+            for address in addresses:
+                _check_address(address, conn.host)
+        timeout = min(guard.left(), MAX_CONNECT_TIMEOUT)
+        if timeout <= 0:
+            raise DeadlineExceeded(f"No time left to connect to {conn.host}")
+        try:
+            sock = urllib3_connection.create_connection(
+                (addresses[0], conn.port),
+                timeout,
+                source_address=conn.source_address,
+                socket_options=conn.socket_options,
+            )
+        except TimeoutError as exc:
+            raise ConnectTimeoutError(
+                conn, f"Connection to {conn.host} timed out"
+            ) from exc
+        except OSError as exc:
+            raise NewConnectionError(
+                conn, f"Failed to establish a new connection: {exc}"
+            ) from exc
+        try:
+            if not guard.allow_private_addresses:
+                _check_address(str(sock.getpeername()[0]), conn.host)
+        except BaseException:
             sock.close()
             raise
+        guard.track(sock)
         return sock
 
 
-class _PublicHTTPConnection(_PublicPeerMixin, HTTPConnection):
-    """HTTP connection to public addresses only."""
+class _GuardedAdapter(HTTPAdapter):
+    """Transport adapter whose connections a guard limits."""
 
+    def __init__(self, guard: _Guard) -> None:
+        """Create the adapter.
 
-class _PublicHTTPSConnection(_PublicPeerMixin, HTTPSConnection):
-    """HTTPS connection to public addresses only."""
-
-
-class _PublicHTTPConnectionPool(HTTPConnectionPool):
-    """Pool of HTTP connections to public addresses only."""
-
-    ConnectionCls = _PublicHTTPConnection
-
-
-class _PublicHTTPSConnectionPool(HTTPSConnectionPool):
-    """Pool of HTTPS connections to public addresses only."""
-
-    ConnectionCls = _PublicHTTPSConnection
-
-
-class _PublicAdapter(HTTPAdapter):
-    """Transport adapter that connects to public addresses only."""
+        Args:
+            guard: Guard of the client.
+        """
+        self.guard = guard
+        super().__init__()
 
     def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
         """Create the pool manager, with guarded connection pools.
@@ -252,9 +443,28 @@ class _PublicAdapter(HTTPAdapter):
             kwargs: Keyword arguments of it.
         """
         super().init_poolmanager(*args, **kwargs)
+        attributes = {"guard": self.guard}
+        http = type(
+            "_GuardedHTTPConnection",
+            (_GuardedConnectionMixin, HTTPConnection),
+            attributes,
+        )
+        https = type(
+            "_GuardedHTTPSConnection",
+            (_GuardedConnectionMixin, HTTPSConnection),
+            attributes,
+        )
         self.poolmanager.pool_classes_by_scheme = {
-            "http": _PublicHTTPConnectionPool,
-            "https": _PublicHTTPSConnectionPool,
+            "http": type(
+                "_GuardedHTTPConnectionPool",
+                (HTTPConnectionPool,),
+                {"ConnectionCls": http},
+            ),
+            "https": type(
+                "_GuardedHTTPSConnectionPool",
+                (HTTPSConnectionPool,),
+                {"ConnectionCls": https},
+            ),
         }
 
 
@@ -266,13 +476,11 @@ class HttpResponse:
         status: HTTP status.
         headers: Headers, with lowercase names.
         content: Body.
-        url: URL of the request.
     """
 
     status: int
     headers: dict[str, str] = field(default_factory=dict)
     content: bytes = b""
-    url: str = ""
 
     def json(self) -> Any:
         """Parse the body as JSON.
@@ -396,6 +604,7 @@ class GuardedClient:
         self.allow_private_addresses = allow_private_addresses
         self.allow_http = allow_http
         self.max_response_size = max_response_size
+        self._guard = _Guard(allow_private_addresses)
         self._session: requests.Session | None = None
 
     @property
@@ -408,10 +617,9 @@ class GuardedClient:
         if self._session is None:
             session = requests.Session()
             session.trust_env = False
-            if not self.allow_private_addresses:
-                adapter = _PublicAdapter()
-                session.mount("https://", adapter)
-                session.mount("http://", adapter)
+            adapter = _GuardedAdapter(self._guard)
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
             self._session = session
         return self._session
 
@@ -476,8 +684,12 @@ class GuardedClient:
         Returns:
             Response, with the whole body.
 
+        The request ends within :py:meth:`remaining` seconds as a whole:
+        resolving, connecting, sending and reading.
+
         Raises:
-            InvalidRequestURL: The URL is invalid or its scheme not allowed.
+            InvalidRequestURL: The URL or method is invalid, or the scheme
+                is not allowed.
             DeadlineExceeded: The deadline passed before sending.
             RequestNotSent: The request certainly did not reach the server
                 (e.g., :py:class:`AddressNotAllowed`).
@@ -485,43 +697,67 @@ class GuardedClient:
                 (e.g., read timeout, :py:class:`ResponseTooLarge`, deadline
                 passed while reading).
         """
-        scheme = urlsplit(url).scheme.lower()
+        scheme, _, _ = _split(url)
         allowed = ("https", "http") if self.allow_http else ("https",)
         if scheme not in allowed:
             raise InvalidRequestURL(f"Scheme not allowed: {scheme or '(none)'}")
+        if not isinstance(method, str) or not _METHOD.fullmatch(method):
+            raise InvalidRequestURL("Invalid HTTP method")
         remaining = self.remaining()
         if remaining <= 0:
             raise DeadlineExceeded(f"No time left for {url}")
+        guard = self._guard
+        session = self.session
+        guard.start(remaining)
         try:
-            response = self.session.request(
-                method,
-                url,
-                params=params,
-                headers=headers,
-                json=json,
-                data=data,
-                auth=auth,
-                timeout=(min(remaining, MAX_CONNECT_TIMEOUT), remaining),
-                allow_redirects=False,
-                stream=True,
-                verify=True,
-            )
-        except AddressNotAllowed:
-            raise
-        except requests.exceptions.InvalidURL as exc:
-            raise InvalidRequestURL(f"Invalid URL: {type(exc).__name__}") from exc
-        except requests.RequestException as exc:
-            raise _classify(exc, url) from exc
-        try:
-            content = self._read(response, url)
+            try:
+                response = session.request(
+                    method,
+                    url,
+                    params=params,
+                    headers=headers,
+                    json=json,
+                    data=data,
+                    auth=auth,
+                    timeout=(min(remaining, MAX_CONNECT_TIMEOUT), remaining),
+                    allow_redirects=False,
+                    stream=True,
+                    verify=True,
+                )
+            except (AddressNotAllowed, DeadlineExceeded):
+                raise
+            except (requests.exceptions.InvalidURL, ValueError) as exc:
+                if guard.expired:
+                    raise self._expired(url) from exc
+                raise InvalidRequestURL(f"Invalid URL: {type(exc).__name__}") from exc
+            except requests.RequestException as exc:
+                error = _classify(exc, url)
+                if guard.expired and isinstance(error, RequestMaybeSent):
+                    raise self._expired(url) from exc
+                raise error from exc
+            try:
+                content = self._read(response, url)
+            finally:
+                response.close()
         finally:
-            response.close()
+            guard.finish()
         return HttpResponse(
             status=response.status_code,
             headers={name.lower(): value for name, value in response.headers.items()},
             content=content,
-            url=url,
         )
+
+    @staticmethod
+    def _expired(url: str) -> RequestMaybeSent:
+        """Describe a request stopped at its deadline.
+
+        Args:
+            url: URL of the request.
+
+        Returns:
+            Error.
+        """
+        return RequestMaybeSent(f"{url}: deadline passed", reason="read_timeout")
 
     def _read(self, response: requests.Response, url: str) -> bytes:
         """Read a response body within the size limit and the deadline.
@@ -535,7 +771,9 @@ class GuardedClient:
 
         Raises:
             ResponseTooLarge: The body exceeds the size limit.
-            RequestMaybeSent: Reading failed, or the deadline passed.
+            RequestMaybeSent: Reading failed, or the deadline passed (the
+                guard then shut the connection down, which may look like a
+                complete body).
         """
         content = bytearray()
         try:
@@ -545,12 +783,14 @@ class GuardedClient:
                     raise ResponseTooLarge(
                         f"{url}: response larger than {self.max_response_size} bytes"
                     )
-                if self.deadline is not None and time.monotonic() > self.deadline:
-                    raise RequestMaybeSent(
-                        f"{url}: deadline passed while reading", reason="read_timeout"
-                    )
+                if self._guard.expired:
+                    raise self._expired(url)
         except requests.RequestException as exc:
+            if self._guard.expired:
+                raise self._expired(url) from exc
             raise _classify(exc, url) from exc
+        if self._guard.expired:
+            raise self._expired(url)
         return bytes(content)
 
     def close(self) -> None:

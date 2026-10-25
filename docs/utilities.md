@@ -189,19 +189,23 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
     ...
 ```
 
-- Each connection's peer address must be public (`is_public_address()`:
-  globally reachable, not multicast, embedded IPv4 addresses checked). The
-  check runs after connecting and before sending, so DNS rebinding cannot
-  redirect a request to an internal host; `allow_private_addresses=True`
-  turns it off (e.g., for private deployments and tests).
+- Connections go to public addresses only (`is_public_address()`:
+  globally reachable, not multicast, embedded IPv4 addresses checked). Each
+  host is resolved once, all its addresses are checked, the connection goes
+  to a checked address, and its peer address is checked again before
+  sending, so DNS rebinding cannot redirect a request to an internal host;
+  `allow_private_addresses=True` turns the checks off (e.g., for private
+  deployments and tests).
 - Redirects are returned, never followed; proxies and `.netrc` files of the
   environment are ignored; only `https` is allowed (unless
   `allow_http=True`), and TLS certificates are always verified.
-- Each request ends by the deadline (connections within 10 s at most), and
-  bodies are limited to `max_response_size` bytes (16 MiB by default).
-- Errors carry a reason code (`reason`, e.g., `connect_error`,
-  `tls_error`, `not_public`, `read_timeout`, `connection_lost`), and tell
-  requests that certainly did not reach the server (`RequestNotSent`) from
+- Each request ends by the deadline as a whole (resolving, connecting,
+  sending and reading, also from servers that send slowly; connections
+  within 10 s at most), and bodies are limited to `max_response_size`
+  bytes (16 MiB by default).
+- Errors carry a reason code (`reason`, e.g., `dns_error`,
+  `connect_error`, `tls_error`, `not_public`, `read_timeout`,
+  `connection_lost`), and tell requests that certainly did not reach the server (`RequestNotSent`) from
   those that may have (`RequestMaybeSent`).
 
 `check_public_host(url)` resolves a host and checks all its addresses, e.g.,
