@@ -169,7 +169,10 @@ backends:
 ```
 
 Entry `id`s default to the normalized URL and must be unique; URLs must not
-have user info. `BackendList(entries, api="tes", public_url=...)` turns the
+have user info. Apps name the key with
+`GatewayApp(backends=lambda conf: conf.custom.tes.backends)`: `create_app()`
+then checks the list, and `foca.plugins.runtime.get_backend_list()` returns
+it, with the app's API and public URL. `BackendList(entries, api="tes", public_url=...)` turns the
 entries into the candidates of a request, in order:
 
 - `expand()`: configured backends and the backends discovered in each
