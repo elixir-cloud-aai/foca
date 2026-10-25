@@ -504,3 +504,20 @@ def test_random_pipelines_forbidden_plugins() -> None:
             }
             assert used <= set(ALLOWED)
     h.close()
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ('[{"plugin": "a.b", "params": {"x": NaN}}]', "NaN is not allowed"),
+        ('[{"plugin": "a.b", "params": {"x": -Infinity}}]', "-Infinity"),
+        ('[{"plugin": "a.b", "params": {"x": 1e999}}]', "finite"),
+        ('[{"plugin": "a.b", "params": {"x": [9007199254740992]}}]', "2\\^53"),
+    ],
+)
+def test_client_pipelines_are_i_json(value: str, message: str) -> None:
+    """Client pipelines have finite numbers and exact integers only."""
+    with pytest.raises(InvalidSelection, match=message):
+        parse_client_pipeline(value)
+    steps = parse_client_pipeline('[{"plugin": "a.b", "params": {"x": [1.5, null]}}]')
+    assert steps[0].alternatives[0].params == {"x": [1.5, None]}

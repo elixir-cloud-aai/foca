@@ -17,6 +17,7 @@ setting them get `400`, so that tags under the prefix can be trusted.
 """
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -225,6 +226,52 @@ def _parse_backends(raw: object, max_backends: int) -> BackendSelection:
     return selection
 
 
+MAX_SAFE_INTEGER = 2**53 - 1
+"""Largest integer that JSON numbers represent exactly (I-JSON, RFC 7493)."""
+
+
+def _reject_constant(name: str) -> None:
+    """Reject the JSON extensions `NaN`, `Infinity` and `-Infinity`.
+
+    Args:
+        name: Constant.
+
+    Raises:
+        ValueError: Always.
+    """
+    raise ValueError(f"{name} is not allowed")
+
+
+def check_i_json(data: Any) -> None:
+    """Check that parsed JSON is I-JSON (RFC 7493): finite, exact numbers.
+
+    Numbers that hashes (RFC 8785) cannot represent exactly would make the
+    records of different pipelines collide, or fail.
+
+    Args:
+        data: Parsed JSON.
+
+    Raises:
+        ValueError: A number is not finite, or an integer is beyond
+            :py:data:`MAX_SAFE_INTEGER`.
+    """
+    stack = [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, bool) or item is None or isinstance(item, str):
+            continue
+        if isinstance(item, int):
+            if abs(item) > MAX_SAFE_INTEGER:
+                raise ValueError("Integers are at most 2^53 - 1")
+        elif isinstance(item, float):
+            if not math.isfinite(item):
+                raise ValueError("Numbers must be finite")
+        elif isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
 def parse_client_pipeline(value: str) -> list[StepConfig]:
     """Parse a client's pipeline given as JSON.
 
@@ -238,9 +285,10 @@ def parse_client_pipeline(value: str) -> list[StepConfig]:
         InvalidSelection: The value is not a valid pipeline.
     """
     try:
-        data = json.loads(value)
+        data = json.loads(value, parse_constant=_reject_constant)
         if not isinstance(data, list):
             raise TypeError("not a list")
+        check_i_json(data)
         steps = [ClientStepConfig.model_validate(item).to_step() for item in data]
     except (TypeError, ValueError, RecursionError) as exc:
         detail = _first_error(exc)
@@ -263,6 +311,8 @@ def _first_error(exc: BaseException) -> str:
         return f"{location}: {error['msg']}" if location else str(error["msg"])
     if isinstance(exc, json.JSONDecodeError):
         return "not a preset name or JSON"
+    if isinstance(exc, ValueError):
+        return str(exc)
     return "a pipeline is a list of steps"
 
 
