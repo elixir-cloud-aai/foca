@@ -246,7 +246,7 @@ def test_connection_refused() -> None:
                 urllib3.exceptions.NameResolutionError("h", None, socket.gaierror())  # type: ignore[arg-type]
             ),
             HostNotResolved,
-            "connect_error",
+            "dns_error",
         ),
         (requests.exceptions.SSLError("bad"), RequestNotSent, "tls_error"),
         (
@@ -317,3 +317,228 @@ def test_public_peer_connects(server: str, monkeypatch: pytest.MonkeyPatch) -> N
     """Connections to public addresses pass the check."""
     monkeypatch.setattr(http, "is_public_address", lambda address: True)
     assert GuardedClient(allow_http=True).get(f"{server}/ok").status == 200
+
+
+@pytest.fixture
+def trickle() -> Iterator[str]:
+    """Run a server that sends one byte at a time and never ends.
+
+    Yields:
+        Base URL of the server; the path `/headers` trickles the headers,
+        any other path the body.
+    """
+    listener = socket.create_server(("127.0.0.1", 0))
+    stop = threading.Event()
+
+    def serve(conn: socket.socket) -> None:
+        with conn:
+            request = conn.recv(65536)
+            data = b"HTTP/1.1 200 OK\r\n"
+            if b"/headers" not in request:
+                conn.sendall(data + b"Content-Length: 1000000\r\n\r\n")
+                data = b""
+            try:
+                while not stop.is_set():
+                    conn.sendall(data[:1] or b"x")
+                    data = data[1:]
+                    time.sleep(0.02)
+            except OSError:
+                pass
+
+    def accept() -> None:
+        while not stop.is_set():
+            try:
+                conn, _ = listener.accept()
+            except OSError:
+                return
+            threading.Thread(target=serve, args=(conn,), daemon=True).start()
+
+    threading.Thread(target=accept, daemon=True).start()
+    yield f"http://127.0.0.1:{listener.getsockname()[1]}"
+    stop.set()
+    listener.close()
+
+
+@pytest.mark.parametrize("path", ["/headers", "/body"])
+def test_deadline_bounds_reads(trickle: str, path: str) -> None:
+    """Servers that send slowly cannot keep requests open."""
+    started = time.monotonic()
+    with pytest.raises(RequestMaybeSent) as info:
+        local(deadline=time.monotonic() + 0.3).get(f"{trickle}{path}")
+    assert info.value.reason == "read_timeout"
+    assert time.monotonic() - started < 2
+
+
+def slow_resolver(seconds: float) -> Any:
+    """Create a resolver that takes some seconds.
+
+    Args:
+        seconds: Seconds per resolution.
+
+    Returns:
+        Replacement of `socket.getaddrinfo`.
+    """
+
+    def resolve(*args: Any, **kwargs: Any) -> list[Any]:
+        time.sleep(seconds)
+        return [(None, None, None, "", ("8.8.8.8", 443))]
+
+    return resolve
+
+
+def test_resolution_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Name resolution ends by the deadline."""
+    monkeypatch.setattr(socket, "getaddrinfo", slow_resolver(2))
+    started = time.monotonic()
+    with pytest.raises(DeadlineExceeded):
+        check_public_host("https://slow.example.org/", timeout=0.1)
+    with pytest.raises(DeadlineExceeded):
+        GuardedClient(deadline=time.monotonic() + 0.1).get("https://slow.example.org/")
+    assert time.monotonic() - started < 1.5
+
+
+def test_resolution_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hosts that cannot be resolved are reported as such."""
+
+    def resolve(*args: Any, **kwargs: Any) -> list[Any]:
+        raise socket.gaierror("unknown")
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    with pytest.raises(HostNotResolved) as info:
+        GuardedClient(timeout=2).get("https://unknown.example.org/")
+    assert info.value.reason == "dns_error"
+
+
+def test_no_time_to_connect(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Connections are not opened once the deadline passed."""
+    resolve = http._resolve
+
+    def late(*args: Any) -> list[str]:
+        time.sleep(0.2)
+        return resolve(*args)
+
+    monkeypatch.setattr(http, "_resolve", late)
+    with pytest.raises(DeadlineExceeded, match="connect"):
+        local(deadline=time.monotonic() + 0.1).get(f"{server}/ok")
+
+
+def test_connect_timeout(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Connections that time out are not sent."""
+
+    def timeout(*args: Any, **kwargs: Any) -> socket.socket:
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(http.urllib3_connection, "create_connection", timeout)
+    with pytest.raises(RequestNotSent) as info:
+        local(timeout=2).get(f"{server}/ok")
+    assert info.value.reason == "connect_error"
+
+
+def test_rebinding(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Peers are checked again after connecting."""
+    port = int(server.rsplit(":", 1)[1])
+    connect = http.urllib3_connection.create_connection
+    monkeypatch.setattr(http, "_resolve", lambda *args: ["8.8.8.8"])
+    monkeypatch.setattr(
+        http.urllib3_connection,
+        "create_connection",
+        lambda address, *args, **kwargs: connect(("127.0.0.1", port), *args, **kwargs),
+    )
+    with pytest.raises(AddressNotAllowed, match=r"127\.0\.0\.1"):
+        GuardedClient(allow_http=True, timeout=2).get(
+            f"http://public.example.org:{port}/"
+        )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://[::1/",
+        "https://" + "a" * 64 + ".example.org/",
+        "https://" + "a." * 127 + "org/",
+        "https://example.org:99999/",
+    ],
+)
+def test_malformed_urls(url: str) -> None:
+    """Malformed URLs are invalid, also for host checks."""
+    with pytest.raises(InvalidRequestURL):
+        GuardedClient(timeout=1).get(url)
+    with pytest.raises(InvalidRequestURL):
+        check_public_host(url)
+
+
+@pytest.mark.parametrize("method", ["GET\r\nX-Injected: 1", "", "G ET", 1])
+def test_invalid_methods(method: Any) -> None:
+    """Methods must be tokens."""
+    with pytest.raises(InvalidRequestURL, match="method"):
+        GuardedClient(timeout=1).request(method, "https://example.org/")
+
+
+def test_guard() -> None:
+    """Sockets of expired requests are shut down, also when added late."""
+    guard = http._Guard(allow_private_addresses=True)
+    guard.start(0.01)
+    time.sleep(0.1)
+    assert guard.expired
+    first, second = socket.socketpair()
+    with first, second:
+        guard.track(first)
+        assert first.recv(1) == b""
+    guard.track(first)  # closed: shutting it down fails silently
+    guard.finish()
+    guard.finish()
+    assert guard.left() < 0
+
+
+def test_expired_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Errors of requests stopped at the deadline are read timeouts."""
+    client = GuardedClient(timeout=2)
+
+    def fail(error: Exception) -> Any:
+        def request(*args: Any, **kwargs: Any) -> None:
+            client._guard.expired = True
+            raise error
+
+        return request
+
+    for error in (ValueError("closed"), requests.ConnectionError("reset")):
+        monkeypatch.setattr(client.session, "request", fail(error))
+        with pytest.raises(RequestMaybeSent) as info:
+            client.get("https://example.org/")
+        assert info.value.reason == "read_timeout"
+
+    class Expired:
+        """Response whose reading the deadline stops."""
+
+        def __init__(self, chunks: list[bytes], error: bool = False) -> None:
+            """Create the response.
+
+            Args:
+                chunks: Chunks of the body; the deadline passes before the
+                    first.
+                error: Whether reading fails at the end.
+            """
+            self.chunks = chunks
+            self.error = error
+
+        def iter_content(self, chunk_size: int) -> Iterator[bytes]:
+            """Read the body.
+
+            Args:
+                chunk_size: Ignored.
+
+            Yields:
+                Chunks.
+
+            Raises:
+                ChunkedEncodingError: If reading fails.
+            """
+            client._guard.expired = True
+            yield from self.chunks
+            if self.error:
+                raise requests.exceptions.ChunkedEncodingError("lost")
+
+    for response in (Expired([]), Expired([], error=True), Expired([b"x", b"y"])):
+        client._guard.expired = False
+        with pytest.raises(RequestMaybeSent, match="deadline"):
+            client._read(response, "u")  # type: ignore[arg-type]

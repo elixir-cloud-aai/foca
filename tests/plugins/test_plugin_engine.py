@@ -546,19 +546,25 @@ def test_context_http(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def on_request(self: Any, request: InboundRequest, ctx: Any) -> None:
         clients.append(ctx.http)
+        assert ctx.http.session is not None
+        assert 0 < ctx.http.remaining() <= 3
+        assert abs(ctx.http.deadline - ctx.deadline) < 1e-6
 
     monkeypatch.setattr(TagPlugin, "on_request", on_request)
     host = make_host(
         [{"plugin": "test.tag", "timeout": 3}],
-        defaults={"http": {"allow_http": True}},
+        defaults={"http": {"allow_http": True, "max_response_size": 1024}},
     )
-    host.start(inbound(), PRINCIPAL).request()
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    assert run.executions[0].outcome == "ok"
     client = clients[0]
     assert isinstance(client, GuardedClient)
     assert client.allow_http
     assert not client.allow_private_addresses
+    assert client.max_response_size == 1024
     assert client.timeout == 3
-    assert 0 < client.remaining() <= 3
+    assert client._session is None  # closed after the call
     host.close()
 
 

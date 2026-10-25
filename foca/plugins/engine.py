@@ -1337,13 +1337,15 @@ class PipelineRun:
 
     @staticmethod
     def _finish(execution: Execution, started: float, ctx: Context) -> None:
-        """Complete the record of a call.
+        """Complete the record of a call and close its HTTP client.
 
         Args:
             execution: Record.
             started: `time.monotonic()` value at the start of the call.
             ctx: Context of the call.
         """
+        if ctx.http is not None:  # always set by the engine
+            ctx.http.close()
         execution.duration_ms = round((time.monotonic() - started) * 1000, 3)
         execution.annotations = dict(ctx.annotations)
 
