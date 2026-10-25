@@ -25,7 +25,7 @@ while the host of the first one is in use (cf. :py:func:`configure`).
 import atexit
 import os
 import threading
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,7 +39,7 @@ from foca.plugins.engine import PluginHost
 from foca.plugins.model import OutboundRequest
 
 BackendEntries = (
-    Iterable[ServiceEntry | RegistryEntry | Mapping[str, Any]] | BackendListConfig
+    Sequence[ServiceEntry | RegistryEntry | Mapping[str, Any]] | BackendListConfig
 )
 """Entries of a backend list, as models or mappings."""
 

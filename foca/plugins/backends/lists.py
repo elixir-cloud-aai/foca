@@ -1,8 +1,10 @@
 """Backend lists of gateway apps (cf. :py:mod:`foca.plugins.backends`)."""
 
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Set as AbstractSet
 from typing import Any
+from urllib.parse import urlsplit
 
 from foca.plugins.backends.config import (
     API_TYPES,
@@ -17,18 +19,23 @@ from foca.utils.urls import InvalidURL, normalize_url
 logger = logging.getLogger(__name__)
 
 
-def _location(url: str) -> tuple[str, str]:
-    """Get the host, port and path of a normalized URL, without its scheme.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _location(url: str) -> tuple[str, int | None, bool, str]:
+    """Get the host, port and path of a normalized URL.
 
     Args:
         url: Normalized URL.
 
     Returns:
-        Host with port (if any), and path without trailing slash.
+        Host, effective port, whether it is the default port of the URL's
+        scheme, and path without trailing slash.
     """
-    rest = url.split("://", 1)[-1]
-    host, _, path = rest.partition("/")
-    return host, f"/{path}".rstrip("/")
+    parts = urlsplit(url)
+    default = _DEFAULT_PORTS.get(parts.scheme)
+    port = parts.port or default
+    return parts.hostname or "", port, port == default, parts.path.rstrip("/")
 
 
 class BackendList:
@@ -45,7 +52,7 @@ class BackendList:
 
     def __init__(
         self,
-        entries: Iterable[ServiceEntry | RegistryEntry | Mapping[str, Any]]
+        entries: Sequence[ServiceEntry | RegistryEntry | Mapping[str, Any]]
         | BackendListConfig,
         api: str,
         public_url: str | None = None,
@@ -60,9 +67,12 @@ class BackendList:
                 `server.public_url`).
 
         Raises:
+            TypeError: The entries are not ordered (e.g., a set).
             ValueError: The API has no backend type, or two entries have the
                 same identifier.
         """
+        if isinstance(entries, AbstractSet):
+            raise TypeError("Backend entries must be ordered (e.g., a list)")
         if isinstance(entries, BackendListConfig):
             entries = entries.root
         self.entries = list(BackendListConfig.model_validate(list(entries)).root)
@@ -77,8 +87,10 @@ class BackendList:
     def _is_own(self, url: str) -> bool:
         """Check whether a URL is at or below the gateway's public URL.
 
-        Schemes are ignored: `http` and `https` URLs of the same host and
-        port are the gateway's.
+        Schemes are ignored: URLs of the same host, effective port and path
+        are the gateway's, and so are those with the default port of their
+        scheme if the gateway's URL has the default port of its own (e.g.,
+        `http://host` for `https://host`).
 
         Args:
             url: Normalized URL.
@@ -88,12 +100,19 @@ class BackendList:
         """
         if self._own is None:
             return False
-        host, path = _location(url)
-        return host == self._own[0] and (
-            path == self._own[1] or path.startswith(f"{self._own[1]}/")
+        host, port, default, path = _location(url)
+        own_host, own_port, own_default, own_path = self._own
+        return (
+            host == own_host
+            and (port == own_port or (default and own_default))
+            and (path == own_path or path.startswith(f"{own_path}/"))
         )
 
-    def expand(self, refresh: bool = False) -> list[Backend]:
+    def expand(
+        self,
+        refresh: bool = False,
+        snapshots: MutableMapping[str, str | None] | None = None,
+    ) -> list[Backend]:
         """Get the candidates, in the order of the entries.
 
         Registry entries yield their discovered backends, in the order of
@@ -106,6 +125,9 @@ class BackendList:
 
         Args:
             refresh: Whether to read the registries now (rate-limited).
+            snapshots: Mapping that gets the time of the registry read that
+                the candidates of each registry entry come from (cf.
+                :py:meth:`snapshots`), e.g., for provenance.
 
         Returns:
             Candidates.
@@ -122,6 +144,9 @@ class BackendList:
             if isinstance(entry, ServiceEntry):
                 found = [configured[entry.url]]
             else:
+                urls, read_at = get_cache(entry, self.api).snapshot(refresh=refresh)
+                if snapshots is not None:
+                    snapshots[entry.id] = read_at
                 found = [
                     configured.get(url)
                     or Backend(
@@ -132,7 +157,7 @@ class BackendList:
                         labels=dict(entry.labels),
                         auth=entry.auth,
                     )
-                    for url in get_cache(entry, self.api).urls(refresh=refresh)
+                    for url in urls
                 ]
             for backend in found:
                 if backend.url in seen or self._is_own(backend.url):
@@ -149,7 +174,11 @@ class BackendList:
         return candidates
 
     def snapshots(self) -> dict[str, str | None]:
-        """Get the times of the registry reads that candidates come from.
+        """Get the times of the last good registry reads.
+
+        A read between :py:meth:`expand` and this call gives its time; pass
+        a mapping as `snapshots` to :py:meth:`expand` for the reads that
+        candidates come from.
 
         Returns:
             RFC 3339 UTC time of the last good read (`None` before it), by
