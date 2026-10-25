@@ -171,6 +171,19 @@ _FROM_PAYLOAD: Final = _Default.FROM_PAYLOAD
 """Default of `PluginHost.start(tags=...)`: the tags of the payload (TES)."""
 
 
+def _has_role(roles: Sequence[str], principal: Principal) -> bool:
+    """Check whether a caller has one of some roles.
+
+    Args:
+        roles: Roles; any caller has them if empty.
+        principal: Authenticated caller.
+
+    Returns:
+        Whether the roles are empty or the caller is in one of them.
+    """
+    return not roles or bool(set(roles) & set(principal.groups))
+
+
 class PluginHost:
     """Plugins of a process, and the factory of pipeline runs.
 
@@ -266,6 +279,14 @@ class PluginHost:
                     self.presets[name] = self.resolve_steps(steps, origin="preset")
                 except _NoEnabledPluginError as exc:
                     logger.warning("Preset %s is unavailable: %s", name, exc)
+                    continue
+                _, clashes = self._framed(self.presets[name])
+                if clashes:
+                    raise ValueError(
+                        f"Step {clashes[0]!r} of presets.{name} has the identifier"
+                        " of a step of 'client_pipelines.append'; set an explicit"
+                        " `id`"
+                    )
         except BaseException:
             self.close()
             raise
@@ -456,7 +477,7 @@ class PluginHost:
         if value is None:
             return self.default_pipeline
         conf = self.conf.client_pipelines
-        if conf.roles and not set(conf.roles) & set(principal.groups):
+        if not _has_role(conf.roles, principal):
             raise InvalidSelection("Choosing pipelines is not allowed")
         preset: str | None = None
         is_name = PRESET_PATTERN.fullmatch(value) is not None
@@ -501,13 +522,11 @@ class PluginHost:
         Returns:
             Whether the caller may choose the preset.
         """
-        groups = set(principal.groups)
-        for step in steps:
-            for alternative in step.alternatives:
-                roles = self.conf.available[alternative.plugin].roles
-                if roles and not set(roles) & groups:
-                    return False
-        return True
+        return all(
+            _has_role(self.conf.available[alternative.plugin].roles, principal)
+            for step in steps
+            for alternative in step.alternatives
+        )
 
     def _check_client_steps(
         self, steps: Sequence[StepConfig], principal: Principal
@@ -536,10 +555,7 @@ class PluginHost:
                     available is None
                     or alternative.plugin not in self.plugins
                     or not available.client_selectable
-                    or (
-                        available.roles
-                        and not set(available.roles) & set(principal.groups)
-                    )
+                    or not _has_role(available.roles, principal)
                 ):
                     raise InvalidSelection(
                         f"Plugin not available: {alternative.plugin}"
@@ -558,14 +574,30 @@ class PluginHost:
 
         Raises:
             foca.plugins.selection.InvalidSelection: A step of the client
-                has the identifier of a framing step (which are reserved).
+                has the identifier of a framing step that is kept.
         """
-        conf = self.conf.client_pipelines
-        reserved = {step.id for step in (*conf.prepend, *conf.append)}
-        clashes = sorted(step.id for step in steps if step.id in reserved)
+        framed, clashes = self._framed(steps)
         if clashes:
-            raise InvalidSelection(f"Step identifiers are reserved: {clashes[0]}")
+            raise InvalidSelection(
+                "A step identifier is reserved for the gateway's steps; set an"
+                " explicit `id`"
+            )
+        return framed
+
+    def _framed(
+        self, steps: tuple[ResolvedStep, ...]
+    ) -> tuple[tuple[ResolvedStep, ...], list[str]]:
+        """Frame steps, and find those with identifiers of kept frame steps.
+
+        Args:
+            steps: Resolved steps of a preset or client pipeline.
+
+        Returns:
+            Framed steps (cf. :py:meth:`_frame`), and the identifiers of the
+            steps that clash with the prepended or kept appended steps.
+        """
         framed = [*self._prepend, *steps]
+        kept = list(self._prepend)
         for phase, step in self._append:
             if phase is not None and any(
                 phase in self.plugins[alt.plugin].cls.phases()
@@ -574,7 +606,9 @@ class PluginHost:
             ):
                 continue
             framed.append(step)
-        return tuple(framed)
+            kept.append(step)
+        reserved = {step.id for step in kept}
+        return tuple(framed), sorted(step.id for step in steps if step.id in reserved)
 
     def is_own_url(self, url: str) -> bool:
         """Check whether a URL is at or below the gateway's public URL.

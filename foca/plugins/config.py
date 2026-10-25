@@ -18,10 +18,10 @@ PLUGIN_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*")
 """Pattern of plugin identifiers (entry point names), e.g., `tes.data.crypt4gh`."""
 
 STEP_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}")
+"""Pattern of step identifiers."""
 
 PRESET_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 """Pattern of preset names."""
-"""Pattern of step identifiers."""
 
 # Keys of steps reserved for later versions (conditions, dependencies)
 _RESERVED_STEP_KEYS = ("when", "needs")
@@ -522,7 +522,9 @@ class PluginsConfig(_Model):
             ValueError: A pipeline refers to a plugin that is not in
                 `available`, a step other than in `client_pipelines.append`
                 sets `if_missing_phase`, or a step of a preset has the
-                identifier of a framing step.
+                identifier of a framing step that is always kept (the
+                engine checks appended defaults, `if_missing_phase`, at
+                startup).
         """
         for name, steps in self.pipelines().items():
             for step in steps:
@@ -538,12 +540,17 @@ class PluginsConfig(_Model):
                             " 'plugins.available'"
                         )
         frame = self.client_pipelines
-        reserved = {step.id for step in (*frame.prepend, *frame.append)}
+        reserved = {
+            step.id
+            for step in (*frame.prepend, *frame.append)
+            if step.if_missing_phase is None
+        }
         for name, steps in self.presets.items():
             clashes = sorted(str(step.id) for step in steps if step.id in reserved)
             if clashes:
                 raise ValueError(
                     f"Step {clashes[0]!r} of presets.{name} has the identifier of"
-                    " a step of 'client_pipelines.prepend' or 'append'"
+                    " a step of 'client_pipelines.prepend' or 'append'; set an"
+                    " explicit `id`"
                 )
         return self
