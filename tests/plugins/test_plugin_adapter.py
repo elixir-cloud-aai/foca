@@ -7,8 +7,8 @@ from flask import Flask
 
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
-from foca.plugins import adapter
-from foca.plugins.engine import LoopDetected
+from foca.plugins import Rejected, adapter
+from foca.plugins.engine import LoopDetected, PipelineRejected
 
 
 def test_request_id() -> None:
@@ -85,6 +85,19 @@ def test_current_principal(monkeypatch: pytest.MonkeyPatch) -> None:
         principal = adapter.current_principal()
     assert principal.token is None
     assert principal.issuer is None
+    monkeypatch.setattr(adapter, "get_current_claims", lambda: {})
+    with app.test_request_context(headers={"Authorization": "Bearer unchecked"}):
+        assert adapter.current_principal().token is None
+
+
+def test_repeated_headers() -> None:
+    """Repeated header fields are combined, in order."""
+    app = Flask(__name__)
+    with app.test_request_context(
+        "/tasks", method="POST", headers=[("Via", "1.1 a"), ("via", "1.1 b")]
+    ):
+        inbound = adapter.inbound_from_request(None, route="/tasks")
+    assert inbound.headers["Via"] == "1.1 a, 1.1 b"
 
 
 def test_problem() -> None:
@@ -97,3 +110,8 @@ def test_problem() -> None:
     assert body["title"] == "Loop Detected"
     assert body["detail"] == "passed already"
     assert body["problem_type"].endswith("#loop-detected")
+    rejection = PipelineRejected(Rejected("no", 403, title="Image Not Allowed"), "s")
+    with cnx_app.app.test_request_context():
+        response = adapter.problem(rejection)
+    assert response.status_code == 403
+    assert json.loads(response.get_data())["title"] == "Image Not Allowed"
