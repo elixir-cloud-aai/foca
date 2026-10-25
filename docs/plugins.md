@@ -535,20 +535,22 @@ default `gateway.`), so that clients and dashboards see it with
 |---|---|---|
 | `gateway.pipeline_hash` | `sha256:` of the resolved pipeline (RFC 8785) | at creation |
 | `gateway.pipeline_source` | `default`, `preset:<name>` or `client` | at creation |
-| `gateway.plugins` | comma-separated `id@version` of the plugins that ran | at creation |
+| `gateway.plugins` | comma-separated `id@version` of the plugins that ran in the `request` phase, whatever their outcome (the provenance has all phases) | at creation |
 | `gateway.provenance` | path of the provenance endpoint, if the app serves one | at creation |
 | `gateway.backend` | base URL of the backend that accepted (or may have) | after forwarding |
 | `gateway.backend_task_id` | identifier at the backend, if it accepted | after forwarding |
 | `gateway.forwarded_at` | RFC 3339 UTC time of that attempt | after forwarding |
 | `gateway.attempts` | number of attempts, e.g., `3` | after forwarding |
 | `gateway.route` | compact JSON of the last `max_route_entries` attempts: `url`, `outcome`, `reason` | after forwarding |
-| `gateway.route_truncated` | `true` if `gateway.route` omits earlier attempts | after forwarding |
+| `gateway.route_truncated` | `true` if `gateway.route` omits earlier attempts or cuts the URL of the latest | after forwarding |
 
 Values are at most 1 KiB (`gateway.route`: 4 KiB, earliest attempts dropped
 first); URLs have no user info or query, and failures are reason codes,
 never messages; `gateway.pipeline_hash` is left out for pipelines without
 hash (no I-JSON), and `gateway.plugins` is empty if its first entry does
-not fit. FOCA provides the tags, and apps write them: they merge
+not fit. References that do not fit (`gateway.provenance`,
+`gateway.backend_task_id`) are left out rather than cut, and lone
+surrogates become `?`. FOCA provides the tags, and apps write them: they merge
 `foca.plugins.tags.creation_tags(run)` into new tasks after the `request`
 phase and `routing_tags(run)` after forwarding, and relay requests without
 any key under the prefix (`strip_for_forwarding(tags, prefix)`), so nested

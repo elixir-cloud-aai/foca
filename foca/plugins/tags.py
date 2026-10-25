@@ -26,7 +26,8 @@ Pure functions on string maps and pipeline runs; no web framework.
 import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
-from urllib.parse import urlsplit, urlunsplit
+
+from foca.plugins.provenance import clean_url as _clean_url
 
 if TYPE_CHECKING:  # pragma: no cover
     from foca.plugins.engine import PipelineRun
@@ -45,9 +46,9 @@ def _size(value: str) -> int:
         value: Value.
 
     Returns:
-        Size in UTF-8 bytes.
+        Size in UTF-8 bytes (lone surrogates count as `?`).
     """
-    return len(value.encode("utf-8"))
+    return len(value.encode("utf-8", errors="replace"))
 
 
 def _clip(value: str, limit: int = MAX_VALUE_SIZE) -> str:
@@ -58,9 +59,28 @@ def _clip(value: str, limit: int = MAX_VALUE_SIZE) -> str:
         limit: Maximum size in UTF-8 bytes.
 
     Returns:
-        The value, without trailing characters beyond the limit.
+        The value, without trailing characters beyond the limit, and with
+        lone surrogates (no valid UTF-8) replaced by `?`.
     """
-    return value.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
+    encoded = value.encode("utf-8", errors="replace")
+    return encoded[:limit].decode("utf-8", errors="ignore")
+
+
+def _reference(value: str | None) -> str | None:
+    """Get a reference (path or identifier) as a tag value, if it fits.
+
+    Cut references would point nowhere, so longer ones are left out.
+
+    Args:
+        value: Reference, if any.
+
+    Returns:
+        The value (with lone surrogates replaced by `?`), or `None` if there
+        is none or it exceeds `MAX_VALUE_SIZE` bytes.
+    """
+    if value is None or _size(value) > MAX_VALUE_SIZE:
+        return None
+    return _clip(value)
 
 
 def clean_url(url: str) -> str:
@@ -70,14 +90,12 @@ def clean_url(url: str) -> str:
         url: URL.
 
     Returns:
-        URL with scheme, host, port and path only, without trailing slash.
+        URL with scheme, host, port and path only, without trailing slash
+        (only the scheme if the URL cannot be parsed, e.g., with an invalid
+        port).
     """
-    parts = urlsplit(url)
-    host = parts.hostname or ""
-    if ":" in host:
-        host = f"[{host}]"
-    netloc = f"{host}:{parts.port}" if parts.port else host
-    return urlunsplit((parts.scheme, netloc, parts.path, "", "")).rstrip("/")
+    cleaned = _clean_url(url)
+    return cleaned if cleaned.endswith("://") else cleaned.rstrip("/")
 
 
 def strip_for_forwarding(tags: Mapping[str, str] | None, prefix: str) -> dict[str, str]:
@@ -197,7 +215,11 @@ def creation_tags(
         source = f"preset:{pipeline['preset']}"
     plugins: list[str] = []
     for execution in run.executions:
-        if execution.outcome != "ok" or execution.plugin is None:
+        # plugins that ran, whatever the outcome (e.g., a failed step that
+        # was skipped)
+        if execution.outcome in ("not_applicable", "skipped") or (
+            execution.plugin is None
+        ):
             continue
         loaded = run.host.plugins[execution.plugin]
         name = f"{execution.plugin}@{loaded.version or 'unknown'}"
@@ -211,8 +233,9 @@ def creation_tags(
     }
     if pipeline["resolved_hash"] is not None:
         tags[f"{prefix}pipeline_hash"] = pipeline["resolved_hash"]
-    if provenance_path is not None:
-        tags[f"{prefix}provenance"] = _clip(provenance_path)
+    provenance = _reference(provenance_path)
+    if provenance is not None:
+        tags[f"{prefix}provenance"] = provenance
     return tags
 
 
@@ -235,8 +258,9 @@ def routing_tags(run: "PipelineRun") -> dict[str, str]:
         last = records[-1]
         tags[f"{prefix}backend"] = _clip(clean_url(last.url))
         tags[f"{prefix}forwarded_at"] = last.started_at
-        if last.outcome == "accepted" and last.remote_id is not None:
-            tags[f"{prefix}backend_task_id"] = _clip(last.remote_id)
+        remote_id = _reference(last.remote_id)
+        if last.outcome == "accepted" and remote_id is not None:
+            tags[f"{prefix}backend_task_id"] = remote_id
     entries = [
         {
             key: value
@@ -251,10 +275,16 @@ def routing_tags(run: "PipelineRun") -> dict[str, str]:
     ]
     shown = entries[-conf.max_route_entries :]
     route = json.dumps(shown, separators=(",", ":"))
-    while shown and _size(route) > MAX_ROUTE_SIZE:
+    while len(shown) > 1 and _size(route) > MAX_ROUTE_SIZE:
         shown = shown[1:]
         route = json.dumps(shown, separators=(",", ":"))
+    cut = False
+    if shown and _size(route) > MAX_ROUTE_SIZE:
+        # keep the latest attempt, with its URL cut
+        shown = [{**shown[0], "url": _clip(shown[0]["url"])}]
+        route = json.dumps(shown, separators=(",", ":"))
+        cut = True
     tags[f"{prefix}route"] = route
-    if len(shown) < len(entries):
+    if cut or len(shown) < len(entries):
         tags[f"{prefix}route_truncated"] = "true"
     return tags
