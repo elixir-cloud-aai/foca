@@ -14,21 +14,21 @@ from foca.plugins import (
     InboundRequest,
     Principal,
 )
+from foca.plugins.checks import _check_forward, _check_route, default_outbound
 from foca.plugins.config import PluginsConfig
 from foca.plugins.engine import (
     ForwardTimeout,
+    InvalidVia,
     LoopDetected,
     NoBackendAvailable,
     PipelineFailed,
     PipelineRejected,
     PluginHost,
-    _check_forward,
-    _check_route,
-    _Executor,
-    default_outbound,
-    sanitize_error,
+    _default_gateway_id,
 )
+from foca.plugins.executor import _Executor
 from foca.plugins.model import OutboundRequest
+from foca.plugins.outcomes import sanitize_error
 from foca.utils.http import GuardedClient
 from tests.plugins.fakes import (
     SlowPlugin,
@@ -436,6 +436,9 @@ def test_loop_detection() -> None:
         )
     assert exc_info.value.code == 508
     host.start(inbound(headers={"Via": "garbage"}), PRINCIPAL)
+    with pytest.raises(InvalidVia) as via_info:
+        host.start(inbound(headers={"Via": "1.1 p, " * 200}), PRINCIPAL)
+    assert via_info.value.code == 400
     assert host.is_own_url("https://gw.example.org/protes/")
     assert host.is_own_url("https://gw.example.org/protes/x")
     assert not host.is_own_url("https://gw.example.org/protest")
@@ -551,3 +554,33 @@ def test_context_http(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.timeout == 3
     assert 0 < client.remaining() <= 3
     host.close()
+
+
+@pytest.mark.parametrize(
+    ("public_url", "expected"),
+    [
+        ("https://user:secret@GW.example.org:8443/x", "gw.example.org:8443"),
+        ("https://gw.example.org", "gw.example.org"),
+        ("https://[::1]:80/", "::1:80"),
+        ("https://gw.example.org:bad/", None),
+        ("file:///x", None),
+        ("https://gw_x%2F.example.org/", None),
+        (None, None),
+    ],
+)
+def test_default_gateway_id(public_url: str | None, expected: str | None) -> None:
+    """The default name is the host and port of the public URL, if valid."""
+    assert _default_gateway_id(public_url) == expected
+
+
+def test_outbound_check_sees_via() -> None:
+    """The app's outbound check gets the request with its `Via` header."""
+    seen: list[str | None] = []
+    host = make_host(
+        [],
+        gateway_id="gw.example.org",
+        validate_outbound=lambda outbound: seen.append(outbound.headers.get("Via")),
+    )
+    run = host.start(inbound(), PRINCIPAL)
+    next(run.attempts(BACKENDS)).failed("connect_error")
+    assert seen == ["1.1 gw.example.org"]
