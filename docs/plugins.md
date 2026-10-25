@@ -92,8 +92,8 @@ supported by existing clients), under the prefix `plugins.tags.prefix`
 
   The selection applies to the candidates after the `route` phase: clients
   can only narrow or reorder the configured and verified backends; listed
-  backends that are not candidates are discarded (and recorded), never
-  added.
+  backends that are not candidates are discarded (and recorded, cf.
+  [provenance](#provenance)), never added.
 
 !!! warning "A client pipeline replaces the default pipeline"
 

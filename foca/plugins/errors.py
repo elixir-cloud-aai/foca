@@ -105,24 +105,6 @@ class InvalidVia(GatewayError):
     slug = "invalid-via"
 
 
-def _phrase(status: int) -> str:
-    """Get the reason phrase of a rejection status.
-
-    Args:
-        status: HTTP status, one of :py:data:`foca.plugins.base.REJECTION_STATUSES`.
-
-    Returns:
-        Reason phrase as per RFC 9110.
-    """
-    return {
-        400: "Bad Request",
-        403: "Forbidden",
-        409: "Conflict",
-        413: "Content Too Large",
-        422: "Unprocessable Content",
-    }[status]
-
-
 class InvalidSelection(GatewayError):
     """The client's choice of pipeline or backends is invalid or not allowed."""
 
@@ -139,3 +121,21 @@ class InvalidSelection(GatewayError):
         """
         self.slug = slug
         super().__init__(detail)
+
+
+def _phrase(status: int) -> str:
+    """Get the reason phrase of a rejection status.
+
+    Args:
+        status: HTTP status, one of :py:data:`foca.plugins.base.REJECTION_STATUSES`.
+
+    Returns:
+        Reason phrase as per RFC 9110.
+    """
+    return {
+        400: "Bad Request",
+        403: "Forbidden",
+        409: "Conflict",
+        413: "Content Too Large",
+        422: "Unprocessable Content",
+    }[status]
