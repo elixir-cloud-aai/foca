@@ -46,10 +46,33 @@ def _may_choose(host: PluginHost, principal: Principal) -> bool:
         principal: Caller.
 
     Returns:
-        Whether client pipelines are enabled and the caller has their roles.
+        Whether client pipelines are enabled and the caller has their roles
+        (it may then still have nothing to choose).
     """
     clients = host.conf.client_pipelines
     return clients.enabled and _has_role(clients.roles, principal)
+
+
+def _presets(host: PluginHost, principal: Principal) -> dict[str, Any]:
+    """Get the presets that a caller may choose.
+
+    Args:
+        host: Plugin host.
+        principal: Caller.
+
+    Returns:
+        Resolved steps of the presets, by name; none unless the caller may
+        choose pipelines and presets are allowed.
+    """
+    if not (
+        _may_choose(host, principal) and "presets" in host.conf.client_pipelines.allowed
+    ):
+        return {}
+    return {
+        name: steps
+        for name, steps in host.presets.items()
+        if host.may_use_preset(steps, principal)
+    }
 
 
 def _may_use(host: PluginHost, plugin_id: str, principal: Principal) -> bool:
@@ -134,17 +157,22 @@ def list_plugins(host: PluginHost, principal: Principal) -> dict[str, Any]:
     Returns:
         `plugins` the caller may choose in its own pipelines (none unless it
         may send them), `presets` it may choose (none unless presets are
-        allowed for it), the `default_pipeline` (step identifiers, and
-        their plugins only if the caller may choose pipelines), and the
-        constraints of `client_pipelines` (with
-        `allowed_for_caller`, and the identifiers of the `prepend` and
-        `append` steps), `client_backends` and the `tag_prefix`: what
-        selection accepts (cf. :py:meth:`foca.plugins.PluginHost.resolve`).
+        allowed for it), the steps of the `default_pipeline`, and the
+        constraints of `client_pipelines` (with `allowed_for_caller`, and
+        the identifiers of the `prepend` and `append` steps),
+        `client_backends` and the `tag_prefix`: what selection accepts
+        (cf. :py:meth:`foca.plugins.PluginHost.resolve`). Callers without
+        any choice (`allowed_for_caller` false) get no steps, as step
+        identifiers default to plugin identifiers.
     """
     conf = host.conf
     clients = conf.client_pipelines
-    allowed = _may_choose(host, principal)
-    presets_allowed = allowed and "presets" in clients.allowed
+    presets = _presets(host, principal)
+    # whether selection accepts any choice of the caller; otherwise, steps
+    # are not shown, as their identifiers default to plugin identifiers
+    allowed = bool(presets) or (
+        _may_choose(host, principal) and "inline" in clients.allowed
+    )
     return {
         "plugins": [
             describe_plugin(host, plugin_id)
@@ -152,15 +180,9 @@ def list_plugins(host: PluginHost, principal: Principal) -> dict[str, Any]:
             if _may_use(host, plugin_id, principal)
         ],
         "presets": [
-            {"name": name, "steps": _steps(steps)}
-            for name, steps in host.presets.items()
-            if presets_allowed and host.may_use_preset(steps, principal)
+            {"name": name, "steps": _steps(steps)} for name, steps in presets.items()
         ],
-        "default_pipeline": [
-            # plugins of the default pipeline are not public
-            step if allowed else {"id": step["id"], "plugins": []}
-            for step in _steps(host.default_pipeline.steps)
-        ],
+        "default_pipeline": _steps(host.default_pipeline.steps) if allowed else [],
         "client_pipelines": {
             "enabled": clients.enabled,
             "allowed_for_caller": allowed,
@@ -168,8 +190,8 @@ def list_plugins(host: PluginHost, principal: Principal) -> dict[str, Any]:
             "max_steps": clients.max_steps,
             "max_alternatives": clients.max_alternatives,
             "max_size": clients.max_size,
-            "prepend": [step.id for step in clients.prepend],
-            "append": [step.id for step in clients.append],
+            "prepend": [step.id for step in clients.prepend] if allowed else [],
+            "append": [step.id for step in clients.append] if allowed else [],
         },
         "client_backends": {
             "enabled": conf.client_backends.enabled,
@@ -211,28 +233,32 @@ def service_info_fields(
     Apps add it in their function of `service_info.runtime_fields`.
 
     Args:
-        host: Plugin host; defaults to that of the process (cf.
-            :py:func:`foca.plugins.runtime.get_host`).
+        host: Plugin host; defaults to that of the process if it was
+            created (cf. :py:func:`foca.plugins.runtime.get_host`), else the
+            plugin classes are read without instantiating them, so that
+            computing the service info when the app is created sets up no
+            plugin before workers fork.
         plugins_url: URL of `GET <base>/plugins`, if served.
 
     Returns:
         Field `gateway` with `plugins_url`, whether clients may choose
         pipelines and backends, and the union of the capability descriptors
-        of the loaded plugins; no plugin identifiers, distributions or
+        of the enabled plugins; no plugin identifiers, distributions or
         versions.
     """
     if host is None:
-        host = runtime.get_host()
+        host = runtime.current_host()
+    if host is None:
+        conf, classes = runtime.plugin_classes()
+    else:
+        conf = host.conf
+        classes = {key: loaded.cls for key, loaded in host.plugins.items()}
     capabilities = sorted(
-        {
-            capability
-            for loaded in host.plugins.values()
-            for capability in loaded.cls.capabilities
-        }
+        {capability for cls in classes.values() for capability in cls.capabilities}
     )
     gateway: dict[str, Any] = {
-        "client_pipelines": host.conf.client_pipelines.enabled,
-        "client_backends": host.conf.client_backends.enabled,
+        "client_pipelines": conf.client_pipelines.enabled,
+        "client_backends": conf.client_backends.enabled,
         "capabilities": capabilities,
     }
     if plugins_url is not None:

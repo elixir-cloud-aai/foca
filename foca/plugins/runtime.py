@@ -35,7 +35,10 @@ from foca.plugins.backends import (
     RegistryEntry,
     ServiceEntry,
 )
+from foca.plugins.base import Plugin
+from foca.plugins.config import PluginsConfig
 from foca.plugins.engine import PluginHost
+from foca.plugins.loader import find_plugin_classes
 from foca.plugins.model import OutboundRequest
 
 BackendEntries = (
@@ -180,6 +183,39 @@ def get_host() -> PluginHost:
         if _runtime.host is None:
             _runtime.host = create_host()
         return _runtime.host
+
+
+def current_host() -> PluginHost | None:
+    """Get the plugin host of the process if it was created, without creating it.
+
+    Returns:
+        Host, or `None` before its first use (cf. :py:func:`get_host`).
+    """
+    return _runtime.host
+
+
+def plugin_classes() -> tuple[PluginsConfig, dict[str, type[Plugin[Any, Any]]]]:
+    """Get the plugin configuration and classes, without instantiating plugins.
+
+    Used before workers fork (e.g., to compute the service info when the
+    app is created), so that no plugin is set up in the parent process.
+
+    Returns:
+        Plugin configuration of the current FOCA app (empty if not
+        configured) and the classes of its enabled plugins.
+
+    Raises:
+        RuntimeError: No gateway app is configured, or no FOCA app has been
+            created.
+        ValueError: The plugins cannot be loaded.
+    """
+    from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
+
+    app = _runtime.app
+    if app is None:
+        raise RuntimeError("No gateway app configured: pass Foca(gateway=...)")
+    conf = getattr(get_config(), "plugins", None) or PluginsConfig()
+    return conf, find_plugin_classes(conf, app.api)
 
 
 def get_backend_list() -> BackendList:

@@ -592,11 +592,11 @@ subgroup (from identifiers `<group>.<subgroup>.<name>`), phases,
 capabilities, maturity, distribution, version, third-party data transfers
 and the JSON Schema of the parameters, never the admin settings; and the
 presets it may choose (`presets` allowed, and the roles of their plugins).
-It also holds the steps of the default pipeline (their plugins only for
-callers that may choose pipelines, as for presets), the limits of
-`client_pipelines` (with whether the caller may choose, and the
-identifiers of the `prepend` and `append` steps) and `client_backends`,
-and the tag prefix. Plugins that the caller may not use give `404`
+It also holds the steps of the default pipeline, the limits of
+`client_pipelines` (with whether the caller has anything to choose, and
+the identifiers of the `prepend` and `append` steps) and
+`client_backends`, and the tag prefix. Callers without anything to choose
+get no steps, as step identifiers default to plugin identifiers. Plugins that the caller may not use give `404`
 (`plugin-not-found`), whatever the reason.
 
 Apps serve the listing by adding FOCA's OpenAPI 3 specification
@@ -647,7 +647,10 @@ their `service_info.runtime_fields` function, which gives
 ```
 
 without plugin identifiers, distributions or versions, which would map the
-code a gateway runs to unauthenticated callers.
+code a gateway runs to unauthenticated callers. Before the plugin host of
+the process is in use (e.g., when FOCA checks the service info on app
+creation), the capabilities come from the plugin classes, so that no
+plugin is set up before workers fork.
 
 ## Problem types
 
