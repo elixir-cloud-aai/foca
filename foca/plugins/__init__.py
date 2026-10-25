@@ -9,6 +9,7 @@ web framework.
 from foca.plugins.base import (
     API_VERSION,
     PHASES,
+    InvalidParams,
     NotApplicable,
     Plugin,
     PluginError,
@@ -56,6 +57,7 @@ __all__ = [
     "GatewayError",
     "Headers",
     "InboundRequest",
+    "InvalidParams",
     "InvalidSelection",
     "InvalidVia",
     "Location",

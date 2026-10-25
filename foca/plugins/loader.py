@@ -11,7 +11,12 @@ import importlib
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from importlib.metadata import EntryPoint, entry_points
+from importlib.metadata import (
+    EntryPoint,
+    PackageNotFoundError,
+    distribution,
+    entry_points,
+)
 from typing import Any
 
 from packaging.specifiers import SpecifierSet
@@ -148,18 +153,21 @@ def _find(plugin_id: str, candidates: Iterable[EntryPoint]) -> EntryPoint:
 
 @dataclass(frozen=True)
 class _BuiltinEntryPoint:
-    """Entry point of a built-in plugin when FOCA's metadata lacks it.
+    """Entry point of a built-in plugin (cf. `BUILTIN_PLUGINS`).
 
-    E.g., in source checkouts that are not installed.
+    Built-ins are no entry points of FOCA's metadata, so that
+    `BUILTIN_PLUGINS` is their only source.
 
     Attributes:
         name: Plugin identifier.
         value: Object reference (`module:attribute`).
+        dist: FOCA's distribution, if installed (for versions and RECORD
+            digests in provenance).
     """
 
     name: str
     value: str
-    dist: None = None
+    dist: Any = None
 
     def load(self) -> Any:
         """Import the plugin class.
@@ -179,12 +187,12 @@ def _find_builtin(plugin_id: str, candidates: Iterable[EntryPoint]) -> Any:
         candidates: Entry points of the group.
 
     Returns:
-        FOCA's entry point of the plugin, or one built from its object
-        reference if FOCA's metadata lacks it.
+        Entry point built from the plugin's object reference.
 
     Raises:
         ValueError: Another distribution provides an entry point with the
-            identifier.
+            identifier (all of them are checked; entry points of FOCA's own,
+            older metadata with the same reference are ignored).
     """
     value = BUILTIN_PLUGINS[plugin_id]
     for entry_point in candidates:
@@ -196,8 +204,11 @@ def _find_builtin(plugin_id: str, candidates: Iterable[EntryPoint]) -> Any:
                 f"Plugin {plugin_id!r} is built into FOCA; distribution {name!r}"
                 " must not provide it"
             )
-        return entry_point
-    return _BuiltinEntryPoint(plugin_id, value)
+    try:
+        dist: Any = distribution("foca")
+    except PackageNotFoundError:  # e.g., source checkouts that are not installed
+        dist = None
+    return _BuiltinEntryPoint(plugin_id, value, dist)
 
 
 def _check_pins(
