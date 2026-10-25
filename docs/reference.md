@@ -157,6 +157,8 @@ configuration models, see [Configuration](configuration/index.md).
         - BackendListConfig
         - ServiceEntry
         - RegistryEntry
+        - ApiType
+        - RegistryError
         - BasicCredentialsConfig
         - LocationConfig
         - RegistryCache
