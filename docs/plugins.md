@@ -55,7 +55,7 @@ successful hook, so plugins cannot let through what clients may not send.
 | error | `PluginError` or any other exception | next alternative; logged |
 | timeout | the deadline passed | next alternative |
 | invalid output | the app's check fails, or `on_route` returns other backends | next alternative |
-| rejected | `Rejected(detail, status)` | stops at once; the client gets the status (400, 403, 409, 413 or 422) |
+| rejected | `Rejected(detail, status)` | stops at once; the client gets the status (400, 403, 409, 413 or 422); in the `response` phase, the backend has accepted the request already, so a rejection counts as an error |
 
 Each alternative works on a **copy** of its input, which the engine keeps
 only if the alternative succeeds; a failing alternative leaves no trace.
@@ -133,7 +133,8 @@ Outbound requests carry a `Via` header: the inbound request's `Via` header,
 passed through verbatim, plus the gateway's name (`plugins.gateway_id`, by
 default the host and port of `server.public_url`). Inbound requests whose
 `Via` header already names this gateway are refused (`508 Loop Detected`),
-as are `Via` headers longer than 1024 characters (`400`). Backends at or below the gateway's own public URL are
+as are `Via` headers that would exceed 1024 characters with the gateway's
+entry (`400`). Backends at or below the gateway's own public URL are
 never candidates. Credentials of backends are added by the app after the
 `forward` phase, so plugins never see them; the client's own credentials
 are never forwarded by the engine.
@@ -319,6 +320,13 @@ app = foca.create_app()  # loads the plugins once, to fail fast
 - `validate_outbound` checks each attempt's outbound request after the
   `forward` phase (e.g., that the app can serialize it): if it raises, the
   attempt counts as not accepted (`invalid_outbound`).
+- These callbacks (and the `build` function of `run.attempts()`) are
+  trusted app code: they run in the request's thread, outside the plugin
+  deadlines, so they must be fast and must not do I/O.
+- A process serves one gateway app: `Foca(...)` with other gateway settings
+  fails while the host of the first app is in use
+  (`foca.plugins.runtime.reset()` closes it, e.g., in tests). The host is
+  closed at exit.
 - Configurations with keys of earlier middleware stacks (`middlewares`,
   `custom.middlewares`) are refused with a migration hint, before the app's
   custom model is validated.
