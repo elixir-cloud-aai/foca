@@ -448,14 +448,6 @@ def test_preset_roles() -> None:
     ("conf", "message"),
     [
         (
-            {
-                "available": {"a.b": {}},
-                "presets": {"p": [{"id": "x", "plugin": "a.b"}]},
-                "client_pipelines": {"prepend": [{"id": "x", "plugin": "a.b"}]},
-            },
-            r"'x' of presets\.p",
-        ),
-        (
             {"client_pipelines": {"prepend": [{"plugin": "a.b"}]}},
             "'a.b' of prepend",
         ),
@@ -530,6 +522,64 @@ def test_frame_clashes_with_kept_steps_only() -> None:
     )
     assert [s.id for s in h.presets["p"]] == ["route"]
     h.close()
+    prepend = [{"id": "x", "plugin": "test.skip"}]
+    with pytest.raises(ValueError, match=r"'x' of presets\.p.*prepend"):
+        host(
+            client_pipelines={"prepend": prepend},
+            presets={"p": [{"id": "x", "plugin": "test.tag"}]},
+        )
+    # frame steps without enabled plugins are dropped, so they reserve nothing
+    available = {**{name: {} for name in FAKES}, "test.skip": {"enabled": False}}
+    h = host(
+        available=available,
+        client_pipelines={"prepend": [{**prepend[0], "on_failure": "skip"}]},
+        presets={"p": [{"id": "x", "plugin": "test.tag"}]},
+    )
+    assert [s.id for s in h.presets["p"]] == ["x"]
+    run = h.start(request(pipeline_tag([{"id": "x", "plugin": "test.tag"}])), ALICE)
+    assert [s.id for s in run.pipeline.steps] == ["x"]
+    h.close()
+
+
+def test_choice_tags_must_be_strings() -> None:
+    """Choice tags that are present count, whatever their value."""
+    h = host(client_pipelines={"enabled": False}, client_backends={"enabled": False})
+    for tag in ("gateway.pipeline", "gateway.backends"):
+        with pytest.raises(InvalidSelection, match="disabled"):
+            h.start(request({tag: None}), ALICE)  # type: ignore[dict-item]
+    h.close()
+    h = host()
+    with pytest.raises(InvalidSelection, match="UTF-8 strings"):
+        h.start(request({"gateway.pipeline": None}), ALICE)  # type: ignore[dict-item]
+    with pytest.raises(InvalidSelection, match="selected as JSON"):
+        h.start(request({"gateway.backends": None}), ALICE)  # type: ignore[dict-item]
+    h.close()
+
+
+def test_duplicate_keys() -> None:
+    """Objects of client pipelines have unique keys."""
+    with pytest.raises(InvalidSelection, match="duplicate keys"):
+        parse_client_pipeline('[{"plugin": "a.b", "plugin": "c.d"}]')
+
+
+def test_selection_namespaces() -> None:
+    """URLs match URLs only, other items identifiers only."""
+    candidates = [
+        Backend(id="https://b.example.org", url="https://a.example.org"),
+        Backend(id="b", url="https://b.example.org"),
+    ]
+    selection = BackendSelection.model_validate(
+        {"type": "allow", "backends": ["https://B.example.org/"]}
+    )
+    assert [b.id for b in apply_backend_selection(candidates, selection)[0]] == ["b"]
+    selection = BackendSelection.model_validate(
+        {"type": "allow", "backends": ["a.example.org"]}
+    )
+    assert apply_backend_selection(candidates, selection) == ([], ["a.example.org"])
+    selection = BackendSelection.model_validate(
+        {"type": "allow", "backends": ["https://[bad"]}
+    )
+    assert apply_backend_selection(candidates, selection) == ([], ["https://[bad"])
 
 
 @pytest.mark.parametrize(

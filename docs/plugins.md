@@ -84,7 +84,8 @@ supported by existing clients), under the prefix `plugins.tags.prefix`
   `if_missing_phase`;
 - `gateway.backends`: a JSON object (at most 8 KiB)
   `{"type": "order" | "allow" | "forbid", "backends": [...]}` with one or
-  more backend identifiers or URLs:
+  more backend identifiers or URLs (items with `://` match URLs only,
+  others identifiers only):
   - `order`: the listed backends first, in the client's order, then the
     other candidates in the server's order;
   - `allow`: only the listed backends, in the server's order;
