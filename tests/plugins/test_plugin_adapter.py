@@ -27,7 +27,8 @@ def test_inbound_from_request() -> None:
 
     @app.route("/tasks/<task_id>", methods=["POST"])
     def view(task_id: str) -> str:
-        return task_id
+        """Unused view; only its URL rule matters."""
+        return "ok"
 
     with app.test_request_context(
         "/tasks/abc?view=FULL&view=BASIC&x=1",
