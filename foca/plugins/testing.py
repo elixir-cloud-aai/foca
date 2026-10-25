@@ -593,6 +593,8 @@ class PluginHarness:
         candidates: Sequence[Backend] | None = None,
         inbound: InboundRequest | None = None,
         principal: Principal | None = None,
+        *,
+        request: bool = True,
     ) -> list[Backend]:
         """Run the `request` and `route` phases.
 
@@ -600,12 +602,12 @@ class PluginHarness:
             candidates: Candidates; default to backends `a`, `b` and `c`.
             inbound: Inbound request; defaults to `make_inbound()`.
             principal: Caller; defaults to `make_principal()`.
+            request: Whether to run the `request` phase first.
 
         Returns:
             Candidates after the `route` phase.
         """
-        run = self.start(inbound, principal)
-        run.request()
+        run = self._started(inbound, principal, request)
         return run.route(_candidates(candidates))
 
     def run_forward(
@@ -613,6 +615,8 @@ class PluginHarness:
         backend: Backend | None = None,
         inbound: InboundRequest | None = None,
         principal: Principal | None = None,
+        *,
+        request: bool = True,
     ) -> OutboundRequest | None:
         """Run the `request` and `forward` phases for one backend.
 
@@ -622,13 +626,13 @@ class PluginHarness:
             backend: Backend; defaults to `make_backend()`.
             inbound: Inbound request; defaults to `make_inbound()`.
             principal: Caller; defaults to `make_principal()`.
+            request: Whether to run the `request` phase first.
 
         Returns:
             The outbound request after the phase, or `None` if the
             `forward` step failed (cf. `executions`).
         """
-        run = self.start(inbound, principal)
-        run.request()
+        run = self._started(inbound, principal, request)
         try:
             for attempt in run.attempts([backend or make_backend()]):
                 attempt.failed("test_done")
@@ -643,6 +647,8 @@ class PluginHarness:
         backend: Backend | None = None,
         inbound: InboundRequest | None = None,
         principal: Principal | None = None,
+        *,
+        request: bool = True,
     ) -> BackendResponse:
         """Run the `request`, `forward` and `response` phases.
 
@@ -652,6 +658,7 @@ class PluginHarness:
             backend: Backend; defaults to `make_backend()`.
             inbound: Inbound request; defaults to `make_inbound()`.
             principal: Caller; defaults to `make_principal()`.
+            request: Whether to run the `request` phase first.
 
         Returns:
             The response after the phase.
@@ -659,11 +666,31 @@ class PluginHarness:
         Raises:
             NoBackendAvailable: The `forward` step failed.
         """
-        run = self.start(inbound, principal)
-        run.request()
+        run = self._started(inbound, principal, request)
         for attempt in run.attempts([backend or make_backend()]):
             return attempt.succeeded(response or make_response(), remote_id="remote-1")
         raise AssertionError("unreachable")  # pragma: no cover
+
+    def _started(
+        self,
+        inbound: InboundRequest | None,
+        principal: Principal | None,
+        request: bool,
+    ) -> PipelineRun:
+        """Start a run, and run its `request` phase if wanted.
+
+        Args:
+            inbound: Inbound request, if any.
+            principal: Caller, if any.
+            request: Whether to run the `request` phase.
+
+        Returns:
+            Run.
+        """
+        run = self.start(inbound, principal)
+        if request:
+            run.request()
+        return run
 
     def close(self) -> None:
         """Close the host and the plugin."""
@@ -743,33 +770,65 @@ class ContractViolation(AssertionError):
         super().__init__(f"Plugin {plugin} breaks the plugin contract:\n{lines}")
 
 
-def framework_imports(plugin: type[Any]) -> list[str]:
+def framework_imports(plugin: type[Any]) -> list[str] | None:
     """Find imports of web frameworks in the module of a plugin.
 
-    Only the module that defines the class is scanned, not the modules it
-    imports.
+    A lint, not a guarantee: only the module that defines the class is
+    scanned (not the modules it imports), for `import` statements and calls
+    of `__import__()` and `import_module()` with literal names.
 
     Args:
         plugin: Plugin class.
 
     Returns:
-        Imported framework modules (cf. `FRAMEWORK_MODULES`), sorted; empty
-        if the module source is not available.
+        Imported framework modules (cf. `FRAMEWORK_MODULES`), sorted;
+        `None` if the module source is not available.
     """
     try:
         source = inspect.getsource(inspect.getmodule(plugin))  # type: ignore[arg-type]
     except (OSError, TypeError):
-        return []
+        return None
     found: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             names = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             names = [node.module]
+        elif _is_dynamic_import(node):
+            names = [node.args[0].value]  # type: ignore[attr-defined]
         else:
             continue
         found.update(name for name in names if name.split(".")[0] in FRAMEWORK_MODULES)
     return sorted(found)
+
+
+def _is_dynamic_import(node: ast.AST) -> bool:
+    """Check whether a node imports a module by literal name at runtime.
+
+    Args:
+        node: Node of a syntax tree.
+
+    Returns:
+        Whether it is a call of `__import__()` or `import_module()` (also
+        as an attribute, e.g., `importlib.import_module()`) whose first
+        argument is a string literal.
+    """
+    if not isinstance(node, ast.Call) or not node.args:
+        return False
+    func = node.func
+    name = (
+        func.id
+        if isinstance(func, ast.Name)
+        else func.attr
+        if isinstance(func, ast.Attribute)
+        else None
+    )
+    first = node.args[0]
+    return (
+        name in ("__import__", "import_module")
+        and isinstance(first, ast.Constant)
+        and isinstance(first.value, str)
+    )
 
 
 def check_plugin_contract(
@@ -791,9 +850,13 @@ def check_plugin_contract(
     a title (docstring or `title`), the JSON Schemas of `Config` and
     `Params`, that its module imports no web framework, and that its hooks
     succeed (or reject, or do not apply) on the sample inputs through the
-    engine: once, and with one instance from several threads at once. The
-    engine itself enforces copy semantics (`ctx.original`, failed hooks)
-    and route subsets: such errors show as `invalid_output` outcomes.
+    engine: once, and with one instance from several threads at once.
+    Phases after `request` run without the plugin's `request` hook, so that
+    rejected samples do not hide them; rejections are fine, except in the
+    `response` phase, where they count as errors. The engine itself
+    enforces copy semantics (hooks get copies, `ctx.original` is a copy,
+    failed calls change nothing) and route subsets (other backends give
+    `invalid_output` outcomes).
 
     Args:
         plugin: Plugin class.
@@ -810,7 +873,10 @@ def check_plugin_contract(
     Raises:
         ContractViolation: The plugin breaks the contract; lists all
             problems found.
+        ValueError: `threads` is less than 1.
     """
+    if threads < 1:
+        raise ValueError(f"threads must be at least 1, not {threads}")
     reference = _reference(plugin)
     problems: list[str] = []
     try:
@@ -825,7 +891,12 @@ def check_plugin_contract(
         except Exception as exc:
             problems.append(f"`{name}` exports no JSON Schema: {exc}")
     imports = framework_imports(plugin)
-    if imports:
+    if imports is None:
+        problems.append(
+            f"Source of module {plugin.__module__!r} not found: framework"
+            " imports not checked"
+        )
+    elif imports:
         problems.append(
             f"Imports web frameworks {imports}: use `foca.plugins.model` data"
         )
@@ -837,7 +908,7 @@ def check_plugin_contract(
             api=api,
             plugin_id=plugin_id,
             http=http,
-            defaults={"workers": max(threads, 1)},
+            defaults={"workers": threads},
         )
     except Exception as exc:
         problems.append(f"Not usable with the given config and params: {exc}")
@@ -876,15 +947,29 @@ def _check_hooks(
     runs: list[tuple[str, Callable[[], Any]]] = [
         ("request", lambda: harness.run_request(_copy(inbound)))
     ]
+    # later phases without the request step, so that rejected sample
+    # requests do not hide them
     if "route" in phases:
-        runs.append(("route", lambda: harness.run_route(candidates, _copy(inbound))))
+        runs.append(
+            (
+                "route",
+                lambda: harness.run_route(candidates, _copy(inbound), request=False),
+            )
+        )
     if "forward" in phases:
-        runs.append(("forward", lambda: harness.run_forward(None, _copy(inbound))))
+        runs.append(
+            (
+                "forward",
+                lambda: harness.run_forward(None, _copy(inbound), request=False),
+            )
+        )
     if "response" in phases:
         runs.append(
             (
                 "response",
-                lambda: harness.run_response(_copy(response), None, _copy(inbound)),
+                lambda: harness.run_response(
+                    _copy(response), None, _copy(inbound), request=False
+                ),
             )
         )
     problems = []
@@ -899,8 +984,14 @@ def _check_hooks(
         failed = [
             f"{execution.phase} ({label}): outcome {execution.outcome}"
             f" ({execution.error})"
+            + (
+                ": rejections count as errors in the response phase"
+                if execution.outcome == "rejected"
+                else ""
+            )
             for execution in harness.executions
             if execution.outcome in FAILED_OUTCOMES
+            or (execution.phase == "response" and execution.outcome == "rejected")
         ]
         problems.extend(failed or ([error] if error else []))
     return problems
@@ -930,8 +1021,11 @@ def _check_threads(
     lock = threading.Lock()
 
     def work() -> None:
-        barrier.wait(timeout=THREAD_TIMEOUT)
-        problems = _check_hooks(harness, inbound, candidates, response, "threads")
+        try:
+            barrier.wait(timeout=THREAD_TIMEOUT)
+            problems = _check_hooks(harness, inbound, candidates, response, "threads")
+        except Exception as exc:  # e.g., threading.BrokenBarrierError
+            problems = [f"threads: {type(exc).__name__}: {exc}"]
         with lock:
             found.extend(problems)
 

@@ -366,12 +366,21 @@ def test_contract():
 - `check_plugin_contract(PluginClass, ...)` raises a `ContractViolation`
   that lists every problem: invalid class or metadata (cf. `apis`,
   `maturity`, `capabilities`), no title, `Config` or `Params` without a
-  JSON Schema, imports of web frameworks in the plugin's module, and hook
-  calls that fail (`error`, `invalid_output`, `timeout`) on the sample
-  inputs (`inbound=`, `candidates=`, `response=`, `http=`), once and from
-  20 threads with one instance. Rejecting and `NotApplicable` are fine.
-  The engine itself makes sure that hooks can't change `ctx.original`
-  and that failed calls change nothing.
+  JSON Schema, imports of web frameworks in the plugin's module (a lint,
+  not a guarantee: `import` statements and `__import__()` or
+  `import_module()` with literal names, in that module only; a module
+  without source is a problem too), and hook calls that fail (`error`,
+  `invalid_output`, `timeout`) on the sample inputs (`inbound=`,
+  `candidates=`, `response=`, `http=`), once and from 20 threads with
+  one instance. Phases after `request` run without the plugin's
+  `request` hook, so a rejected sample hides nothing. Rejecting and
+  `NotApplicable` are fine, except rejections in the `response` phase,
+  which count as errors. Calls of `ctx.record()` beyond its limits raise
+  `ValueError`, which fails the call, so the check reports them (records
+  larger than `MAX_RECORD_SIZE` are cut when stored, not rejected). The
+  engine itself makes sure that hooks can't change `ctx.original`, that
+  failed calls change nothing and that routes return candidates only
+  (other backends give `invalid_output`).
 - Apps test the real allowlist path with the fixture
   `fake_plugin_entry_points` (enable it with `pytest_plugins =
   ["foca.plugins.pytest_plugin"]` in `conftest.py`): it registers plugin

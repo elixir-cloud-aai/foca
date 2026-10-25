@@ -3,6 +3,7 @@
 import doctest
 import importlib
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -11,10 +12,13 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from foca.plugins import (
+    Backend,
     Context,
     InboundRequest,
     OutboundRequest,
+    PipelineFailed,
     Plugin,
+    Rejected,
     loader,
     testing,
 )
@@ -45,6 +49,7 @@ from foca.utils.http import (
     ResponseTooLarge,
 )
 from tests.plugins.fakes import (
+    BadRouter,
     FailingPlugin,
     HeaderPlugin,
     RejectPlugin,
@@ -91,6 +96,69 @@ class Untitled(Plugin[EmptyModel, EmptyModel]):  # noqa: D101 (no title)
             request: Inbound request.
             ctx: Context.
         """
+
+
+class Rejecting(Plugin[EmptyModel, EmptyModel]):
+    """Reject requests."""
+
+    def on_request(self, request: InboundRequest, ctx: Context) -> None:
+        """Reject the request.
+
+        Args:
+            request: Inbound request.
+            ctx: Context.
+
+        Raises:
+            Rejected: Always.
+        """
+        raise Rejected("no", 403)
+
+    def on_route(self, candidates: list[Backend], ctx: Context) -> list[Backend]:
+        """Keep the candidates.
+
+        Args:
+            candidates: Candidates.
+            ctx: Context.
+
+        Returns:
+            The candidates.
+        """
+        return candidates
+
+
+class Nostalgic(Plugin[EmptyModel, EmptyModel]):
+    """Try to change the original payload."""
+
+    def on_request(self, request: InboundRequest, ctx: Context) -> None:
+        """Change the copy of the original payload.
+
+        Args:
+            request: Inbound request.
+            ctx: Context.
+        """
+        ctx.original["changed"] = True
+
+
+class RacyPlugin(Plugin[EmptyModel, EmptyModel]):
+    """Keep per-request data on the instance (wrong)."""
+
+    current = 0
+
+    def on_request(self, request: InboundRequest, ctx: Context) -> None:
+        """Count calls on the instance, and notice other calls.
+
+        Args:
+            request: Inbound request.
+            ctx: Context.
+
+        Raises:
+            RuntimeError: Another call ran meanwhile.
+        """
+        self.current += 1
+        mine = self.current
+        time.sleep(0.05)
+        if self.current != mine:
+            raise RuntimeError("shared state")
 
 
 class Opaque:
@@ -268,7 +336,12 @@ def test_contract_passes() -> None:
     check_plugin_contract(OrderedRouter, plugin_id="foca.routing.ordered")
     check_plugin_contract(TagPlugin, params={"key": "k"}, threads=4)
     check_plugin_contract(HeaderPlugin, threads=4)
-    check_plugin_contract(RejectPlugin, threads=2)  # rejecting is allowed
+    check_plugin_contract(Rejecting, threads=2)  # rejecting is allowed
+    check_plugin_contract(Nostalgic, threads=2)
+    with PluginHarness(BadRouter) as harness:  # without the request phase
+        with pytest.raises(PipelineFailed):
+            harness.run_route(request=False)
+        assert [e.phase for e in harness.executions] == ["route"]
     http = FakeHttp()
     http.add("GET", "https://geo.example.org/", json={"c": "SE"})
     check_plugin_contract(GeoPlugin, http=http, threads=2)
@@ -282,6 +355,10 @@ def test_contract_passes() -> None:
         (OpaquePlugin, {}, "`Params` exports no JSON Schema"),
         (TagPlugin, {"params": {"bad": 1}}, "Not usable"),
         (FailingPlugin, {"threads": 2}, "request (once): outcome error"),
+        (RejectPlugin, {"threads": 1}, "response (once): outcome rejected"),
+        (RejectPlugin, {"threads": 1}, "rejections count as errors"),
+        (BadRouter, {"threads": 1}, "route (once): outcome invalid_output"),
+        (RacyPlugin, {"threads": 8}, "request (threads): outcome error"),
         (FailingPlugin, {"threads": 2}, "request (threads): outcome error"),
         (GeoPlugin, {"threads": 1}, "outcome error (RequestNotSent)"),
         (BrokenForward, {"threads": 1}, "forward (once): outcome error"),
@@ -312,6 +389,13 @@ def test_framework_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
         "if typing.TYPE_CHECKING:\n"
         "    import flask.json\n"
         "    from starlette.requests import Request\n"
+        "import importlib\n"
+        "def later():\n"
+        "    importlib.import_module('werkzeug.routing')\n"
+        "    __import__('connexion')\n"
+        "    __import__(later.__name__)\n"
+        "    print('not an import')\n"
+        "    later()\n"
         "class WebPlugin(Plugin):\n"
         '    """Use a framework."""\n'
         "    def on_request(self, request, ctx):\n"
@@ -321,8 +405,10 @@ def test_framework_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     module = importlib.import_module("web_plugin")
     try:
         assert framework_imports(module.WebPlugin) == [
+            "connexion",
             "flask.json",
             "starlette.requests",
+            "werkzeug.routing",
         ]
         with pytest.raises(ContractViolation) as info:
             check_plugin_contract(module.WebPlugin, threads=1)
@@ -331,7 +417,13 @@ def test_framework_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
         sys.modules.pop("web_plugin", None)
     assert framework_imports(TagPlugin) == []
     hidden = type("Hidden", (TagPlugin,), {"__module__": "not.a.module"})
-    assert framework_imports(hidden) == []
+    assert framework_imports(hidden) is None
+    with pytest.raises(ContractViolation) as info:
+        check_plugin_contract(hidden, threads=1)
+    assert (
+        "Source of module 'not.a.module' not found: framework imports not checked"
+        in info.value.problems
+    )
 
 
 def test_relative_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -351,6 +443,34 @@ def test_relative_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     finally:
         for name in ("rel_pkg", "rel_pkg.plugin", "rel_pkg.flask"):
             sys.modules.pop(name, None)
+
+
+def test_threads_validated() -> None:
+    """The concurrency check needs at least one thread."""
+    with pytest.raises(ValueError, match="at least 1"):
+        check_plugin_contract(TagPlugin, threads=0)
+
+
+def test_thread_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Errors of the check's threads are reported."""
+
+    def broken(*args: Any) -> list[str]:
+        raise threading.BrokenBarrierError
+
+    monkeypatch.setattr(testing, "_check_hooks", broken)
+    with PluginHarness(TagPlugin) as harness:
+        problems = testing._check_threads(harness, None, None, None, threads=2)
+    assert problems == ["threads: BrokenBarrierError: "]
+
+
+def test_copy_semantics() -> None:
+    """The engine keeps inputs of failed calls and `ctx.original`."""
+    with PluginHarness(FailingPlugin, on_failure="skip") as harness:
+        assert "broken" not in harness.run_request(make_inbound({"a": 1})).payload
+    with PluginHarness(Nostalgic) as harness:
+        harness.run_request(make_inbound({"a": 1}))
+        assert harness.run is not None
+        assert harness.run.original == {"a": 1}
 
 
 def test_threads_time_out(monkeypatch: pytest.MonkeyPatch) -> None:
