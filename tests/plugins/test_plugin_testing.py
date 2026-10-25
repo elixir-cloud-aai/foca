@@ -24,7 +24,11 @@ from foca.plugins import (
 )
 from foca.plugins.base import EmptyModel
 from foca.plugins.config import PluginsConfig
-from foca.plugins.pytest_plugin import RegisterPlugins
+from foca.plugins.pytest_plugin import (
+    CheckContract,
+    RegisterPlugins,
+    register_fake_plugins,
+)
 from foca.plugins.routing import OrderedRouter
 from foca.plugins.testing import (
     ContractViolation,
@@ -512,6 +516,18 @@ def test_entry_point_fixture(fake_plugin_entry_points: RegisterPlugins) -> None:
     loader.close_plugins(loaded.values())
 
 
-def test_entry_point_fixture_restored() -> None:
-    """The lookup is restored after tests with the fixture."""
-    assert loader.entry_points is importlib.metadata.entry_points
+def test_registration_restored() -> None:
+    """The lookup is restored when the monkeypatch is undone."""
+    original = loader.entry_points
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        register_fake_plugins(monkeypatch, {"org.example.tag": TagPlugin})
+        assert loader.entry_points is not original
+    assert loader.entry_points is original
+    assert original is importlib.metadata.entry_points
+
+
+def test_contract_fixture(plugin_contract: CheckContract) -> None:
+    """The contract fixture checks plugins."""
+    plugin_contract(TagPlugin, threads=2)
+    with pytest.raises(ContractViolation):
+        plugin_contract(FailingPlugin, threads=1)

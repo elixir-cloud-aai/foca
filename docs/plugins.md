@@ -381,11 +381,14 @@ def test_contract():
   engine itself makes sure that hooks can't change `ctx.original`, that
   failed calls change nothing and that routes return candidates only
   (other backends give `invalid_output`).
-- Apps test the real allowlist path with the fixture
-  `fake_plugin_entry_points` (enable it with `pytest_plugins =
-  ["foca.plugins.pytest_plugin"]` in `conftest.py`): it registers plugin
-  classes as installed entry points of `foca.plugins` for one test, so
-  `plugins.available` loads them as in production.
+- `foca.plugins.pytest_plugin` has fixtures (enable them with
+  `pytest_plugins = ["foca.plugins.pytest_plugin"]` in `conftest.py`):
+  `plugin_contract` is `check_plugin_contract`, for the tests of plugin
+  packages; with `fake_plugin_entry_points`, apps test the real allowlist
+  path: it registers plugin classes as installed entry points of
+  `foca.plugins` for one test, so `plugins.available` loads them as in
+  production (`register_fake_plugins(monkeypatch, ...)` does the same
+  with another monkeypatch).
 
 ### Releasing plugins
 
