@@ -46,10 +46,10 @@ Semantics:
 
 import copy
 import logging
+import re
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
-from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -70,6 +70,7 @@ from foca.plugins.errors import (
     ForwardTimeout,
     GatewayError,
     InvalidSelection,
+    InvalidVia,
     LoopDetected,
     NoBackendAvailable,
     PipelineFailed,
@@ -80,6 +81,7 @@ from foca.plugins.loader import LoadedPlugin, check_legacy_keys, load_plugins
 from foca.plugins.model import (
     Backend,
     BackendResponse,
+    FrozenMapping,
     InboundRequest,
     OutboundRequest,
     Principal,
@@ -113,6 +115,35 @@ from foca.plugins.selection import (
 )
 
 logger = logging.getLogger(__name__)
+
+MAX_VIA_LENGTH = 1024
+"""Maximum length of the `Via` header of inbound requests, in characters."""
+
+_GATEWAY_ID = re.compile(r"^[A-Za-z0-9._:-]{1,255}$")
+
+
+def _default_gateway_id(public_url: str | None) -> str | None:
+    """Derive the name of the gateway in `Via` headers from its public URL.
+
+    Args:
+        public_url: Public URL of the app, if known.
+
+    Returns:
+        Host and port (if any) of the URL, lowercase, without user
+        information; `None` if there is no URL, or the result does not
+        match the pattern of `plugins.gateway_id`.
+    """
+    if not public_url:
+        return None
+    try:
+        parts = urlsplit(public_url)
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return None
+    if not host:
+        return None
+    name = f"{host}:{port}" if port is not None else host
+    return name if _GATEWAY_ID.fullmatch(name) else None
 
 
 # Default of `PluginHost.start(tags=...)`: the tags of the payload
@@ -183,9 +214,7 @@ class PluginHost:
         self._sanitize = sanitize
         self._validate_outbound = validate_outbound
         self.public_url = public_url.rstrip("/") if public_url else None
-        self.gateway_id = conf.gateway_id or (
-            urlsplit(public_url).netloc.lower() if public_url else None
-        )
+        self.gateway_id = conf.gateway_id or _default_gateway_id(public_url)
         self.plugins: dict[str, LoadedPlugin] = (
             dict(plugins) if plugins is not None else load_plugins(conf, api=api)
         )
@@ -327,10 +356,14 @@ class PluginHost:
             Run of the request.
 
         Raises:
+            InvalidVia: The `Via` header of the request is longer than
+                :py:data:`MAX_VIA_LENGTH` characters.
             LoopDetected: The request already passed this gateway.
             foca.plugins.selection.InvalidSelection: The client's choices are
                 invalid or not allowed (`400`).
         """
+        if len(inbound.headers.get("Via", "")) > MAX_VIA_LENGTH:
+            raise InvalidVia(f"Via header longer than {MAX_VIA_LENGTH} characters")
         if self.gateway_id is not None and self.gateway_id.lower() in _via_names(
             inbound.headers
         ):
@@ -720,7 +753,8 @@ class PipelineRun:
     def _set_via(self, outbound: OutboundRequest) -> None:
         """Set the `Via` header of an outbound request (RFC 9110, 7.6.3).
 
-        The header is the inbound request's, with this gateway's entry
+        The header is the inbound request's, passed through verbatim (at most
+        :py:data:`MAX_VIA_LENGTH` characters), with this gateway's entry
         appended, whatever plugins or the app's builder set, so that loops
         through several gateways are detected.
 
@@ -853,6 +887,7 @@ class PipelineRun:
                     deadline=budget_end,
                     attempt=number,
                 )
+                self._set_via(outbound)
                 if self.host._validate_outbound is not None:
                     try:
                         self.host._validate_outbound(outbound)
@@ -879,7 +914,6 @@ class PipelineRun:
                     )
                 )
                 continue
-            self._set_via(outbound)
             attempt = Attempt(
                 self, number=number, outbound=outbound, budget_end=budget_end
             )
@@ -1042,23 +1076,6 @@ class PipelineRun:
             PipelineRejected: The plugin rejected the request (except in
                 the `response` phase, where rejections count as errors).
         """
-        candidate = copy.deepcopy(value)
-        state = copy.deepcopy(self._states.get(alternative.plugin, {}))
-        call_deadline = min(time.monotonic() + step.timeout, deadline)
-        ctx = Context(
-            api=self.host.api,
-            plugin_id=alternative.plugin,
-            principal=replace(
-                self.principal,
-                claims=MappingProxyType(copy.deepcopy(dict(self.principal.claims))),
-            ),
-            params=alternative.params.model_copy(deep=True),
-            original=self.original,
-            deadline=call_deadline,
-            state=state,
-            request_id=self.request_id,
-            task_id=self.task_id,
-        )
         execution = Execution(
             step=step.id,
             phase=phase,
@@ -1072,6 +1089,37 @@ class PipelineRun:
         )
         started = time.monotonic()
         output = None
+        call_deadline = min(time.monotonic() + step.timeout, deadline)
+        try:
+            # copies per call, so that a failure fails this alternative only
+            candidate = copy.deepcopy(value)
+            state = copy.deepcopy(self._states.get(alternative.plugin, {}))
+            ctx = Context(
+                api=self.host.api,
+                plugin_id=alternative.plugin,
+                principal=replace(
+                    self.principal,
+                    claims=copy.deepcopy(FrozenMapping(self.principal.claims)),
+                ),
+                params=alternative.params.model_copy(deep=True),
+                original=self.original,
+                deadline=call_deadline,
+                state=state,
+                request_id=self.request_id,
+                task_id=self.task_id,
+            )
+        except Exception as exc:
+            execution.outcome = "error"
+            execution.error = sanitize_error(exc)
+            execution.duration_ms = round((time.monotonic() - started) * 1000, 3)
+            logger.warning(
+                "Plugin %s not called in step %s (%s): %s",
+                alternative.plugin,
+                step.id,
+                phase,
+                execution.error,
+            )
+            return execution, None
         try:
             result = self.host.call(
                 lambda: hook(candidate, ctx), call_deadline - time.monotonic()
@@ -1136,6 +1184,7 @@ class PipelineRun:
 
 
 __all__ = [
+    "MAX_VIA_LENGTH",
     "PROBLEM_TYPE_BASE",
     "Attempt",
     "AttemptRecord",
@@ -1143,6 +1192,7 @@ __all__ = [
     "ForwardTimeout",
     "GatewayError",
     "InvalidSelection",
+    "InvalidVia",
     "LoopDetected",
     "NoBackendAvailable",
     "NotAccepted",

@@ -1,6 +1,8 @@
 """Tests of isolation between calls, requests and gateways."""
 
 import copy
+import pickle
+import threading
 from typing import Any, ClassVar
 
 import pytest
@@ -9,6 +11,7 @@ from pydantic import BaseModel
 from foca.plugins import (
     Backend,
     Context,
+    FrozenMapping,
     Headers,
     InboundRequest,
     OutboundRequest,
@@ -16,7 +19,7 @@ from foca.plugins import (
     Principal,
 )
 from foca.plugins.config import PluginsConfig
-from foca.plugins.engine import LoopDetected, PluginHost
+from foca.plugins.engine import LoopDetected, NoBackendAvailable, PluginHost
 from foca.plugins.loader import load_plugins
 from tests.plugins.fakes import fake_entry_points
 
@@ -85,6 +88,33 @@ class ViaSetter(Plugin[BaseModel, BaseModel]):
         outbound.headers["Via"] = "1.1 elsewhere"
 
 
+class Keeper(Plugin[BaseModel, BaseModel]):
+    """Keep the caller, and a lock if asked, in the state of the request."""
+
+    forwards: ClassVar[list[Principal]] = []
+
+    def on_request(self, request: InboundRequest, ctx: Context) -> None:
+        """Store the caller (and a lock for payloads with `lock`).
+
+        Args:
+            request: Inbound request.
+            ctx: Context.
+        """
+        ctx.state["principal"] = ctx.principal
+        ctx.state["claims"] = ctx.principal.claims
+        if request.payload.get("lock"):
+            ctx.state["lock"] = threading.Lock()
+
+    def on_forward(self, outbound: OutboundRequest, ctx: Context) -> None:
+        """Record the stored caller.
+
+        Args:
+            outbound: Outbound request.
+            ctx: Context.
+        """
+        Keeper.forwards.append(ctx.state["principal"])
+
+
 def host(pipeline: list[Any], gateway_id: str | None = None) -> PluginHost:
     """Create a host with the plugins of this module.
 
@@ -95,7 +125,12 @@ def host(pipeline: list[Any], gateway_id: str | None = None) -> PluginHost:
     Returns:
         Host.
     """
-    targets = {"t.mutator": Mutator, "t.exiter": Exiter, "t.via": ViaSetter}
+    targets = {
+        "t.mutator": Mutator,
+        "t.exiter": Exiter,
+        "t.via": ViaSetter,
+        "t.keeper": Keeper,
+    }
     conf = PluginsConfig.model_validate(
         {
             "available": {name: {} for name in targets},
@@ -201,3 +236,51 @@ def test_interrupts_propagate(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(KeyboardInterrupt):
         gateway.start(request(), Principal()).request()
     gateway.close()
+
+
+def test_principal_in_state() -> None:
+    """Plugins may keep the caller and its claims in the state."""
+    Keeper.forwards.clear()
+    gateway = host(["t.keeper"])
+    principal = Principal(subject="alice", claims={"sub": "alice", "groups": ["u"]})
+    run = gateway.start(request(), principal)
+    run.request()
+    attempt = next(run.attempts([BACKEND]))
+    attempt.failed("connect_error")
+    assert [e.outcome for e in run.executions] == ["ok", "ok"]
+    kept = Keeper.forwards[0]
+    assert kept.subject == "alice"
+    assert dict(kept.claims) == {"sub": "alice", "groups": ["u"]}
+    assert isinstance(kept.claims, FrozenMapping)
+    gateway.close()
+
+
+def test_state_not_copyable() -> None:
+    """State that cannot be copied fails the alternative only."""
+    gateway = host(["t.keeper"])
+    run = gateway.start(
+        InboundRequest(method="POST", path="/tasks", payload={"lock": True}),
+        Principal(),
+    )
+    run.request()
+    attempts = run.attempts([BACKEND])
+    with pytest.raises(NoBackendAvailable):
+        next(attempts)
+    assert [e.outcome for e in run.executions] == ["ok", "error"]
+    assert run.attempt_records[0].reason == "forward_plugin_failed"
+    gateway.close()
+
+
+def test_frozen_mapping() -> None:
+    """Frozen mappings are read-only, copyable and picklable."""
+    claims = FrozenMapping({"sub": "alice", "groups": ["u"]})
+    assert len(claims) == 2
+    assert repr(claims) == "FrozenMapping({'sub': 'alice', 'groups': ['u']})"
+    with pytest.raises(TypeError):
+        claims["sub"] = "mallory"  # type: ignore[index]
+    deep = copy.deepcopy(claims)
+    deep["groups"].append("admin")
+    assert claims["groups"] == ["u"]
+    assert copy.copy(claims) == claims
+    assert pickle.loads(pickle.dumps(claims)) == claims  # noqa: S301 (own data)
+    assert FrozenMapping() == {}
