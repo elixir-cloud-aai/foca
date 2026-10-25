@@ -16,8 +16,9 @@ from yaml import (
 )
 
 from foca import Foca
-from foca.models.config import AccessControlConfig
+from foca.models.config import AccessControlConfig, CORSConfig
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.register_access_control import check_opt_in_roles
 from tests.mock_data import MongoClients
 
 DIR = Path(__file__).parent / "test_files"
@@ -437,6 +438,7 @@ def test_foca_relative_paths_without_file(
     [
         (["*"], False),
         (["Authorization", "x-request-roles"], False),
+        (["Authorization", "X-.*"], False),
         (["Authorization"], True),
     ],
 )
@@ -474,3 +476,19 @@ def test_foca_no_opt_in_roles() -> None:
     app = Foca(config_file=VALID_DB_CONF).create_app()
     response = app.app.test_client().get("/unknown")
     assert "X-Request-Roles" not in response.headers.get("Vary", "")
+
+
+def test_check_opt_in_roles_invalid_pattern(log: pytest.LogCaptureFixture) -> None:
+    """Invalid patterns of allowed headers allow no header."""
+    access_control = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping={"admins": "admin"},
+        opt_in_roles=["admin"],
+    )
+    check_opt_in_roles(access_control, CORSConfig(allow_headers=["(invalid"]))
+    assert "is not allowed in cross-origin requests" in log.text
+    log.clear()
+    check_opt_in_roles(
+        access_control, CORSConfig(enabled=False, allow_headers=["Authorization"])
+    )
+    assert "is not allowed in cross-origin requests" not in log.text

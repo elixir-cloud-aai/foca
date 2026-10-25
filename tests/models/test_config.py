@@ -1012,6 +1012,38 @@ def test_AccessControlConfig_opt_in_roles() -> None:
     assert conf.opt_in_roles == ["admin"]
     assert conf.opt_in_header == "X-Request-Roles"
     assert AccessControlConfig().opt_in_roles == []
+    # rules between opt-in roles are allowed
+    both = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping={"admins": "admin", "root": "superadmin"},
+        opt_in_roles=["admin", "superadmin"],
+        policies=[["g", "superadmin", "admin"]],
+        opt_in_header="Admin-Mode",
+    )
+    assert both.opt_in_header == "Admin-Mode"
+
+
+def test_SecurityConfig_opt_in_header_clash() -> None:
+    """The header of opt-in roles differs from that of service clients."""
+    access_control = {
+        "claim_groups": "groups",
+        "group_mapping": {"admins": "admin"},
+        "opt_in_roles": ["admin"],
+        "opt_in_header": "X-On-Behalf-Of",
+    }
+    with pytest.raises(ValidationError, match="must differ"):
+        SecurityConfig.model_validate(
+            {
+                "access_control": access_control,
+                "auth": {"on_behalf_of_header": "x-on-behalf-of"},
+            }
+        )
+    SecurityConfig.model_validate(
+        {
+            "access_control": {**access_control, "opt_in_roles": []},
+            "auth": {"on_behalf_of_header": "X-On-Behalf-Of"},
+        }
+    )
 
 
 @pytest.mark.parametrize(
@@ -1041,7 +1073,24 @@ def test_AccessControlConfig_opt_in_roles() -> None:
             },
             "to 'ops'",
         ),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin"],
+                "policies": [["g2", "user:alice", "admin", "/items/1"]],
+            },
+            "must not grant the opt-in role 'admin'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin"],
+                "policies": {"first-admin": ["g", "user:alice", "admin"]},
+            },
+            "must not grant the opt-in role 'admin'",
+        ),
         ({"opt_in_header": "X Roles"}, "no valid header name"),
+        ({"opt_in_header": "X_Request_Roles"}, "without '_'"),
         ({"opt_in_header": ""}, "no valid header name"),
     ],
 )

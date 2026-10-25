@@ -804,13 +804,16 @@ class AccessControlConfig(FOCABaseConfig):
             so that admins act as regular users unless they opt in). Asking
             for a role grants nothing that the token's groups do not
             entitle to. Roles of service clients (`client_mapping`) always
-            apply. Configured rules of `policies` must not grant opt-in
-            roles (e.g., `[g, "user:alice", admin]`), as roles granted by
-            rules always apply. If empty (default), all mapped roles always
-            apply.
+            apply. Rules must not grant opt-in roles (e.g., `[g,
+            "user:alice", admin]`), except to other opt-in roles, as roles
+            granted by rules always apply: configured rules of `policies`
+            are refused, as are such rules via the permissions API, and
+            stored ones are warned about. If empty (default), all mapped
+            roles always apply.
         opt_in_header: Request header in which requests ask for opt-in
             roles, as a comma-separated list (e.g., `X-Request-Roles:
-            admin`).
+            admin`). Must be a valid header name without `_` (which servers
+            such as Gunicorn drop), other than `auth.on_behalf_of_header`.
         require_admin: Refuse to start (`ValueError`) if no group (via
             `group_mapping`, with `claim_groups` set) or service client (via
             `client_mapping`) is mapped to the role `admin` and no rule of
@@ -1111,10 +1114,14 @@ class AccessControlConfig(FOCABaseConfig):
             Header name.
 
         Raises:
-            ValueError: The name is no valid header name (an HTTP token).
+            ValueError: The name is no valid header name (an HTTP token), or
+                it contains `_`, as servers such as Gunicorn drop such
+                headers.
         """
-        if not HEADER_NAME.fullmatch(v):
-            raise ValueError(f"'opt_in_header' is no valid header name: {v!r}")
+        if not HEADER_NAME.fullmatch(v) or "_" in v:
+            raise ValueError(
+                f"'opt_in_header' is no valid header name (without '_'): {v!r}"
+            )
         return v
 
     @model_validator(mode="after")
@@ -1126,10 +1133,12 @@ class AccessControlConfig(FOCABaseConfig):
 
         Raises:
             ValueError: An opt-in role is not a role of `group_mapping`, so
-                that nobody could opt in to it, or a configured rule of
-                `policies` grants an opt-in role to a subject that is not an
-                opt-in role itself (e.g., `[g, "user:alice", admin]`), as
-                roles granted by rules always apply.
+                that nobody could opt in to it, or a configured role rule of
+                `policies` (`g`, also resource-scoped, e.g., `g2`) grants an
+                opt-in role to a subject that is not an opt-in role itself
+                (e.g., `[g, "user:alice", admin]`), as roles granted by rules
+                always apply. Rules between opt-in roles (e.g., `[g,
+                superadmin, admin]`, both opt-in) are allowed.
         """
         mapped = set((self.group_mapping or {}).values())
         unmapped = [role for role in self.opt_in_roles if role not in mapped]
@@ -1142,7 +1151,7 @@ class AccessControlConfig(FOCABaseConfig):
         for rule in self.policies or []:
             if (
                 len(rule) >= 3
-                and rule[0] == "g"
+                and rule[0].startswith("g")
                 and rule[2] in opt_in
                 and rule[1] not in opt_in
             ):
@@ -1781,8 +1790,9 @@ class SecurityConfig(FOCABaseConfig):
                 (e.g., policies would not be enforced), access control is
                 enabled without trusted token issuers, in which case all
                 requests to the permissions API and to enforced operations
-                would be rejected, or clients that are not service clients
-                are mapped to roles.
+                would be rejected, clients that are not service clients
+                are mapped to roles, or the header of opt-in roles is that
+                of service clients acting for users.
         """
         access_control = self.access_control
         if not access_control.enabled:
@@ -1807,6 +1817,16 @@ class SecurityConfig(FOCABaseConfig):
             raise ValueError(
                 "'access_control.enabled' requires trusted token issuers "
                 "('auth.issuers')"
+            )
+        on_behalf_of = self.auth.on_behalf_of_header
+        if (
+            access_control.opt_in_roles
+            and on_behalf_of is not None
+            and on_behalf_of.lower() == access_control.opt_in_header.lower()
+        ):
+            raise ValueError(
+                "'access_control.opt_in_header' must differ from "
+                "'auth.on_behalf_of_header'"
             )
         service_clients = {client.client_id for client in self.auth.service_clients}
         unknown = sorted(set(access_control.client_mapping or {}) - service_clients)

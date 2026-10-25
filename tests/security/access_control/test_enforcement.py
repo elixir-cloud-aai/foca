@@ -38,6 +38,7 @@ from foca.models.config import (
     SecurityConfig,
     SpecConfig,
 )
+from foca.plugins import adapter as plugin_adapter
 from foca.security.access_control import (
     add_resource_role,
     enforce_access_control,
@@ -60,6 +61,7 @@ from foca.security.access_control.constants import (
 from foca.security.access_control.enforcement import (
     SubjectType,
     locked_enforcer,
+    register_opt_in_header,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.ownership import is_admin
@@ -1494,6 +1496,53 @@ class TestOptInRoles:
         finally:
             ctx.pop()
 
+    def test_plugin_principal(self, helper_app: Flask) -> None:
+        """Gateway plugins get opt-in roles only if requests ask for them."""
+        self._opt_in(helper_app)
+        claims = {"sub": "carol", "groups": [ADMIN_ENTITLEMENT]}
+        for headers, groups in [([], ()), ([("X-Request-Roles", "admin")], ("admin",))]:
+            ctx = self._context(helper_app, claims, headers)
+            try:
+                assert plugin_adapter.current_principal().groups == groups
+            finally:
+                ctx.pop()
+
+    @pytest.mark.parametrize(
+        "ptype,rule,status",
+        [
+            ("g", {"v0": "user:dave", "v1": "admin"}, 400),
+            ("g", {"v0": "operator", "v1": "admin"}, 400),
+            ("g2", {"v0": "user:dave", "v1": "admin", "v2": "/items/1"}, 400),
+            ("g", {"v0": "user:dave", "v1": "operator"}, 200),
+            ("g", {"v0": "admin", "v1": "operator"}, 200),
+        ],
+    )
+    def test_permissions_api(
+        self, tmp_path: Path, ptype: str, rule: dict[str, str], status: int
+    ) -> None:
+        """The permissions API refuses rules granting opt-in roles."""
+        app = _create_app(tmp_path, _access_control_config(opt_in_roles=["admin"]))
+        response = app.test_client().post(
+            "/admin/access-control/permissions",
+            json={"policy_type": ptype, "rule": rule},
+            headers={**_headers("carol"), "X-Request-Roles": "admin"},
+        )
+        assert response.status_code == status
+
+    def test_stored_grants_warned(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Stored rules granting opt-in roles are warned about."""
+        app = _create_app(tmp_path, _access_control_config(opt_in_roles=["admin"]))
+        adapter = app.config["casbin_adapter"]
+        adapter.save_policy_line("g", ["user:dave", "admin"])
+        adapter.save_policy_line("g", ["user:dave", "operator"])
+        with _capture_logs(caplog):
+            app.test_client().get("/items/1", headers=_headers("dave"))
+        messages = [m for m in _messages(caplog) if "opt-in role" in m]
+        assert len(messages) == 1
+        assert "'user:dave', 'admin'" in messages[0]
+
     def test_default_unchanged(self, helper_app: Flask) -> None:
         """Without opt-in roles, mapped roles always apply."""
         claims = {"sub": "x", "groups": [ADMIN_ENTITLEMENT]}
@@ -1521,9 +1570,11 @@ class TestOptInRoles:
     ) -> None:
         """Admins act as regular users unless they opt in."""
         app = _create_app(tmp_path, _access_control_config(opt_in_roles=["admin"]))
+        register_opt_in_header(app, "X-Request-Roles")
         client = app.test_client()
         response = client.delete("/items/2", headers={**_headers("carol"), **headers})
         assert response.status_code == status
+        assert "X-Request-Roles" in response.headers["Vary"]
         # regular permissions still apply
         assert client.post("/items", headers=_headers("carol")).status_code == 200
 

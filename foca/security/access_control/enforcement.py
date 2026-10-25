@@ -370,11 +370,29 @@ def get_current_groups() -> list[str]:
     values = get_current_group_values()
     groups = []
     if conf.group_mapping is not None:
-        inactive = set(conf.opt_in_roles) - set(get_active_opt_in_roles())
-        groups = [role for role in _get_mapped_roles() if role not in inactive]
+        mapped = _get_mapped_roles()
+        requested = _get_requested_roles()
+        opt_in = set(conf.opt_in_roles)
+        groups = [role for role in mapped if role not in opt_in or role in requested]
     if conf.group_mapping is None or conf.keep_group_subjects:
         groups.extend(_prefix_subject(value, "group") for value in values)
     return list(dict.fromkeys(groups))
+
+
+def grants_opt_in_role(subject: str, role: str) -> bool:
+    """Check whether a role rule would grant an opt-in role without opt-in.
+
+    Args:
+        subject: Subject of the rule (e.g., `user:alice` or a role).
+        role: Role that the rule grants.
+
+    Returns:
+        Whether `role` is an opt-in role (`access_control.opt_in_roles`)
+        and `subject` is not, so that the rule would let the subject have
+        the role without asking for it.
+    """
+    opt_in = _get_access_control_config().opt_in_roles
+    return role in opt_in and subject not in opt_in
 
 
 def register_opt_in_header(app: Flask, header: str) -> None:
@@ -396,6 +414,31 @@ def register_opt_in_header(app: Flask, header: str) -> None:
     app.after_request(_vary)
 
 
+def _warn_opt_in_grants(enforcer: Enforcer) -> None:
+    """Warn about loaded role rules that grant opt-in roles without opt-in.
+
+    Args:
+        enforcer: Casbin enforcer with loaded policy rules.
+    """
+    if not _get_access_control_config().opt_in_roles:
+        return
+    for ptype in enforcer.get_model().model.get("g", {}):
+        for rule in enforcer.get_named_grouping_policy(ptype):
+            if len(rule) >= 2 and grants_opt_in_role(rule[0], rule[1]):
+                # Values are quoted, so that they cannot forge log lines
+                logger.warning(
+                    "Policy rule (%s, %r, %r, ...) grants the opt-in role %r "
+                    "to %r, which then always has it, without opt-in. Revoke "
+                    "it via the permissions API and map groups to the role "
+                    "instead.",
+                    ptype,
+                    rule[0],
+                    rule[1],
+                    rule[1],
+                    rule[0],
+                )
+
+
 def _warn_subject_like_roles(enforcer: Enforcer) -> None:
     """Warn about loaded resource-scoped roles that are subjects.
 
@@ -404,9 +447,11 @@ def _warn_subject_like_roles(enforcer: Enforcer) -> None:
     rights of that subject on the resource, as Casbin resolves roles
     transitively. Such rules are rejected by :py:func:`add_resource_role`,
     but may have been stored before, or directly. They are not removed
-    automatically. Checked on the first policy load of each app instance
-    (per worker process), on the policy rules already loaded by
-    `enforcer`, i.e., without accessing the database.
+    automatically. Role rules that grant opt-in roles without opt-in (cf.
+    :py:func:`grants_opt_in_role`), e.g., stored before the roles were made
+    opt-in, are warned about, too. Checked on the first policy load of each
+    app instance (per worker process), on the policy rules already loaded
+    by `enforcer`, i.e., without accessing the database.
 
     Args:
         enforcer: Casbin enforcer with loaded policy rules.
@@ -417,6 +462,7 @@ def _warn_subject_like_roles(enforcer: Enforcer) -> None:
         current_app.config[_SUBJECT_ROLES_CHECKED_KEY] = True
     if checked:
         return
+    _warn_opt_in_grants(enforcer)
     prefixes = (_get_subject_prefix("user"), *SUBJECT_TYPE_PREFIXES.values())
     for ptype in get_resource_role_ptypes(enforcer.get_model()):
         for subject, role, resource in enforcer.get_named_grouping_policy(ptype):

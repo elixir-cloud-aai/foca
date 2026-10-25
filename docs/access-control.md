@@ -544,12 +544,15 @@ apply to everything that uses the roles of a request: enforcement,
 `get_current_groups()`, `is_admin()`, self-service listings and the [roles
 of gateway plugins](plugins.md).
 
-Only roles of `group_mapping` can be opt-in, and configured rules of
-`policies` must not grant them (e.g., `[g, "user:alice", admin]`), as roles
-granted by rules always apply; the app refuses to start otherwise. Grant
-opt-in roles via groups only, not via the permissions API, for the same
-reason. Roles of [service clients](#service-clients) (`client_mapping`)
-always apply.
+Only roles of `group_mapping` can be opt-in. Rules must not grant them
+(e.g., `[g, "user:alice", admin]`, also resource-scoped `g2` rules), as
+roles granted by rules always apply, except to other opt-in roles (e.g.,
+`[g, superadmin, admin]`, both opt-in): the app refuses to start if
+configured rules of `policies` do, the permissions API refuses such rules
+(`400`), and stored ones (e.g., from before the roles were made opt-in) are
+warned about when policies are first loaded; revoke them and map groups to
+the roles instead. Roles of [service clients](#service-clients)
+(`client_mapping`) always apply.
 
 Apps tell clients which opt-in roles a user may use and which apply to the
 current request, e.g., in a `/me` endpoint:
@@ -571,7 +574,8 @@ def get_me() -> dict:
 With opt-in roles, responses have the header in `Vary`, so that caches keep
 the responses of both modes apart. Browser apps on other origins need the
 header in [`security.cors.allow_headers`](configuration/cors.md) (allowed by
-default, `*`); FOCA warns on startup if it isn't allowed.
+default, `*`); FOCA warns on startup if it isn't allowed (entries that
+are patterns, e.g., `X-.*`, are not checked).
 
 ### Service clients
 
