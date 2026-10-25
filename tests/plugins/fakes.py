@@ -3,7 +3,6 @@
 import threading
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -18,11 +17,13 @@ from foca.plugins import (
     Plugin,
     PluginError,
     Rejected,
+    testing,
 )
 from foca.plugins.base import EmptyModel
 from foca.plugins.config import PluginsConfig
 from foca.plugins.engine import PluginHost
 from foca.plugins.loader import LoadedPlugin, load_plugins
+from foca.plugins.testing import FakeEntryPoint
 
 
 class TagParams(BaseModel):
@@ -236,67 +237,6 @@ class RedirectPlugin(Plugin[EmptyModel, EmptyModel]):
         response.status = 500
 
 
-@dataclass
-class FakeDistribution:
-    """Distribution of fake entry points.
-
-    Attributes:
-        name: Distribution name.
-        version: Version.
-        record: Content of the `RECORD` file, if any.
-    """
-
-    name: str = "fake-plugins"
-    version: str = "1.2.0"
-    record: str | None = "fake/__init__.py,sha256=abc,10\n"
-
-    def read_text(self, filename: str) -> str | None:
-        """Read a metadata file.
-
-        Args:
-            filename: File name.
-
-        Returns:
-            The `RECORD` file, or `None`.
-        """
-        return self.record if filename == "RECORD" else None
-
-
-@dataclass
-class FakeEntryPoint:
-    """Entry point of a fake plugin.
-
-    Attributes:
-        name: Name (plugin identifier).
-        target: Object that the entry point refers to.
-        dist: Distribution.
-        loaded: Number of loads.
-    """
-
-    name: str
-    target: Any
-    dist: FakeDistribution | None = field(default_factory=FakeDistribution)
-    loaded: int = 0
-
-    @property
-    def value(self) -> str:
-        """Get the object reference.
-
-        Returns:
-            `module:attribute` of the target.
-        """
-        return f"tests.plugins.fakes:{getattr(self.target, '__name__', 'x')}"
-
-    def load(self) -> Any:
-        """Load the target.
-
-        Returns:
-            The target.
-        """
-        self.loaded += 1
-        return self.target
-
-
 FAKES: dict[str, type[Plugin[Any, Any]]] = {
     "test.tag": TagPlugin,
     "test.fail": FailingPlugin,
@@ -321,8 +261,7 @@ def fake_entry_points(
     Returns:
         Function returning the entry points.
     """
-    eps = [FakeEntryPoint(name, target) for name, target in (plugins or FAKES).items()]
-    return lambda: eps
+    return testing.fake_entry_points(plugins or FAKES)
 
 
 def make_host(

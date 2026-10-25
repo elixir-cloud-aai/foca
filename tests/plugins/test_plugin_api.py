@@ -12,14 +12,15 @@ from casbin import Enforcer
 from foca import Foca
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
-from foca.plugins import InvalidSelection, Principal, adapter, api, loader, runtime
+from foca.plugins import InvalidSelection, Principal, adapter, api, runtime
 from foca.plugins.engine import PluginHost
+from foca.plugins.pytest_plugin import RegisterPlugins
 from foca.plugins.runtime import GatewayApp
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     RESOURCE_ROLE_MODEL_FILE,
 )
-from tests.plugins.fakes import fake_entry_points, make_host
+from tests.plugins.fakes import FAKES, make_host
 from tests.plugins.test_plugin_engine import inbound
 
 ALICE = Principal(subject="alice", groups=("user",))
@@ -231,10 +232,12 @@ def test_service_info_fields(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_service_info_fields_before_host(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_plugin_entry_points: RegisterPlugins,
 ) -> None:
     """Without a host in use, the service info sets up no plugin."""
-    monkeypatch.setattr(loader, "entry_points", lambda group: fake_entry_points()())
+    fake_plugin_entry_points(FAKES)
     config = tmp_path / "config.yaml"
     config.write_text(
         yaml.safe_dump(
@@ -344,9 +347,9 @@ def test_spec_served() -> None:
     assert client.get("/ga4gh/tes/v1/plugins").status_code == 401
 
 
-def test_spec_merged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_spec_merged(tmp_path: Path, fake_plugin_entry_points: RegisterPlugins) -> None:
     """Apps add the specification to theirs, as documented."""
-    monkeypatch.setattr(loader, "entry_points", lambda group: fake_entry_points()())
+    fake_plugin_entry_points(FAKES)
     petstore = Path(__file__).parents[1] / "test_files/openapi_3_petstore.original.yaml"
     config = tmp_path / "config.yaml"
     config.write_text(

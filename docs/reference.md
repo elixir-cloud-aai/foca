@@ -189,6 +189,10 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.plugins.adapter
 
+::: foca.plugins.testing
+
+::: foca.plugins.pytest_plugin
+
 ## Errors
 
 ::: foca.errors.exceptions
