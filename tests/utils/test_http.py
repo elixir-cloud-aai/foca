@@ -438,6 +438,37 @@ def test_connect_timeout(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert info.value.reason == "connect_error"
 
 
+def test_address_fallback(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Checked addresses are tried in order until one connects."""
+    port = int(server.rsplit(":", 1)[1])
+    # nothing listens on 127.0.0.2 (the server binds 127.0.0.1 only)
+    monkeypatch.setattr(http, "_resolve", lambda *args: ["127.0.0.2", "127.0.0.1"])
+    response = local(timeout=2).get(f"http://dual.example.org:{port}/ok")
+    assert response.json() == [1, 2]
+
+
+def test_address_fallback_bounded(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """All addresses share the connect budget; the last error counts."""
+    timeouts: list[float] = []
+
+    def slow(address: Any, timeout: float, **kwargs: Any) -> socket.socket:
+        timeouts.append(timeout)
+        time.sleep(min(timeout, 0.1))
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(http, "_resolve", lambda *args: ["10.0.0.1", "10.0.0.2"])
+    monkeypatch.setattr(http.urllib3_connection, "create_connection", slow)
+    with pytest.raises(RequestNotSent) as info:
+        local(timeout=2).get(f"{server}/ok")
+    assert info.value.reason == "connect_error"
+    assert len(timeouts) == 2
+    assert timeouts[1] < timeouts[0]
+    timeouts.clear()
+    with pytest.raises(RequestNotSent):
+        local(timeout=0.08).get(f"{server}/ok")
+    assert len(timeouts) == 1  # no time left for the second address
+
+
 def test_rebinding(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Peers are checked again after connecting."""
     port = int(server.rsplit(":", 1)[1])

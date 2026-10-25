@@ -430,6 +430,47 @@ def _shutdown(sock: socket.socket) -> None:
         sock.shutdown(socket.SHUT_RDWR)
 
 
+def _connect_any(conn: Any, addresses: list[str], end: float) -> socket.socket:
+    """Connect to the first address that accepts, in order, by an end.
+
+    Like urllib3's fallback across the addresses of a host, but only to
+    checked addresses, within one connect budget.
+
+    Args:
+        conn: urllib3 connection (for its port, options and messages).
+        addresses: Checked addresses, in the resolver's order.
+        end: `time.monotonic()` value by which connecting must end.
+
+    Returns:
+        Connected socket.
+
+    Raises:
+        urllib3.exceptions.ConnectTimeoutError: The last attempt timed out.
+        urllib3.exceptions.NewConnectionError: The last attempt failed.
+    """
+    error: OSError | None = None
+    for address in addresses:
+        timeout = end - time.monotonic()
+        if timeout <= 0:
+            break
+        try:
+            return urllib3_connection.create_connection(
+                (address, conn.port),
+                timeout,
+                source_address=conn.source_address,
+                socket_options=conn.socket_options,
+            )
+        except OSError as exc:  # also `TimeoutError`
+            error = exc
+    if error is None or isinstance(error, TimeoutError):
+        raise ConnectTimeoutError(conn, f"Connection to {conn.host} timed out") from (
+            error
+        )
+    raise NewConnectionError(
+        conn, f"Failed to establish a new connection: {error}"
+    ) from error
+
+
 class _GuardedConnectionMixin:
     """Connect to checked addresses within the request's time left."""
 
@@ -461,24 +502,10 @@ class _GuardedConnectionMixin:
         if not guard.allow_private_addresses:
             for address in addresses:
                 _check_address(address, conn.host)
-        timeout = min(guard.left(), MAX_CONNECT_TIMEOUT)
-        if timeout <= 0:
+        budget = min(guard.left(), MAX_CONNECT_TIMEOUT)
+        if budget <= 0:
             raise DeadlineExceeded(f"No time left to connect to {conn.host}")
-        try:
-            sock = urllib3_connection.create_connection(
-                (addresses[0], conn.port),
-                timeout,
-                source_address=conn.source_address,
-                socket_options=conn.socket_options,
-            )
-        except TimeoutError as exc:
-            raise ConnectTimeoutError(
-                conn, f"Connection to {conn.host} timed out"
-            ) from exc
-        except OSError as exc:
-            raise NewConnectionError(
-                conn, f"Failed to establish a new connection: {exc}"
-            ) from exc
+        sock = _connect_any(conn, addresses, time.monotonic() + budget)
         try:
             if not guard.allow_private_addresses:
                 _check_address(str(sock.getpeername()[0]), conn.host)
