@@ -23,6 +23,7 @@ from foca.utils.http import (
     GuardedClient,
     HostNotResolved,
     HttpError,
+    InvalidRequest,
     InvalidRequestURL,
     RequestMaybeSent,
     RequestNotSent,
@@ -261,7 +262,6 @@ def test_connection_refused() -> None:
             "tls_error",
         ),
         (requests.exceptions.ConnectTimeout(), RequestNotSent, "connect_error"),
-        (requests.exceptions.InvalidHeader(), RequestNotSent, "connect_error"),
         (requests.exceptions.ReadTimeout(), RequestMaybeSent, "read_timeout"),
         (requests.ConnectionError("reset"), RequestMaybeSent, "connection_lost"),
     ],
@@ -288,7 +288,11 @@ def test_read_errors(monkeypatch: pytest.MonkeyPatch) -> None:
             raise requests.exceptions.ChunkedEncodingError("lost")
 
     with pytest.raises(RequestMaybeSent):
-        GuardedClient()._read(Response(), "u")  # type: ignore[arg-type]
+        GuardedClient()._read(
+            Response(),  # type: ignore[arg-type]
+            "u",
+            http._Guard(allow_private_addresses=False),
+        )
 
 
 def test_fetch_json(server: str) -> None:
@@ -434,6 +438,37 @@ def test_connect_timeout(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert info.value.reason == "connect_error"
 
 
+def test_address_fallback(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Checked addresses are tried in order until one connects."""
+    port = int(server.rsplit(":", 1)[1])
+    # nothing listens on 127.0.0.2 (the server binds 127.0.0.1 only)
+    monkeypatch.setattr(http, "_resolve", lambda *args: ["127.0.0.2", "127.0.0.1"])
+    response = local(timeout=2).get(f"http://dual.example.org:{port}/ok")
+    assert response.json() == [1, 2]
+
+
+def test_address_fallback_bounded(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """All addresses share the connect budget; the last error counts."""
+    timeouts: list[float] = []
+
+    def slow(address: Any, timeout: float, **kwargs: Any) -> socket.socket:
+        timeouts.append(timeout)
+        time.sleep(min(timeout, 0.1))
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(http, "_resolve", lambda *args: ["10.0.0.1", "10.0.0.2"])
+    monkeypatch.setattr(http.urllib3_connection, "create_connection", slow)
+    with pytest.raises(RequestNotSent) as info:
+        local(timeout=2).get(f"{server}/ok")
+    assert info.value.reason == "connect_error"
+    assert len(timeouts) == 2
+    assert timeouts[1] < timeouts[0]
+    timeouts.clear()
+    with pytest.raises(RequestNotSent):
+        local(timeout=0.08).get(f"{server}/ok")
+    assert len(timeouts) == 1  # no time left for the second address
+
+
 def test_rebinding(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Peers are checked again after connecting."""
     port = int(server.rsplit(":", 1)[1])
@@ -467,11 +502,120 @@ def test_malformed_urls(url: str) -> None:
         check_public_host(url)
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "reason"),
+    [
+        ({"json": {"x": float("nan")}}, "invalid_request"),
+        ({"json": {1, 2}}, "invalid_request"),
+        ({"json": [object()]}, "invalid_request"),
+        ({"headers": {"X": "a\r\nB: c"}}, "invalid_header"),
+        ({"headers": {"X": " leading"}}, "invalid_header"),
+    ],
+)
+def test_invalid_requests(kwargs: dict[str, Any], reason: str) -> None:
+    """Bodies that are no JSON and invalid headers are not sent."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    with pytest.raises(InvalidRequest) as info:
+        local(timeout=2).post(f"http://127.0.0.1:{port}/", **kwargs)
+    assert isinstance(info.value, RequestNotSent)
+    assert info.value.reason == reason
+
+
 @pytest.mark.parametrize("method", ["GET\r\nX-Injected: 1", "", "G ET", 1])
 def test_invalid_methods(method: Any) -> None:
     """Methods must be tokens."""
     with pytest.raises(InvalidRequestURL, match="method"):
         GuardedClient(timeout=1).request(method, "https://example.org/")
+
+
+class KeepAliveHandler(Handler):
+    """Handler with persistent connections and slow paths.
+
+    `/sleep/<seconds>` sends half of the body, waits, then sends the rest;
+    `/drip` sends one byte every 50 ms and never ends.
+    """
+
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self) -> None:
+        """Answer by path."""
+        if self.path.startswith("/sleep/"):
+            self.send_response(200)
+            self.send_header("Content-Length", "10")
+            self.end_headers()
+            self.wfile.write(b"x" * 5)
+            self.wfile.flush()
+            time.sleep(float(self.path.rsplit("/", 1)[1]))
+            self.wfile.write(b"y" * 5)
+            return
+        if self.path == "/drip":
+            self.send_response(200)
+            self.send_header("Content-Length", "100000")
+            self.end_headers()
+            try:
+                for _ in range(200):
+                    self.wfile.write(b"x")
+                    self.wfile.flush()
+                    time.sleep(0.05)
+            except OSError:
+                pass
+            return
+        super().do_GET()
+
+
+@pytest.fixture(scope="module")
+def keep_alive() -> Iterator[str]:
+    """Run a local HTTP/1.1 server with persistent connections.
+
+    Yields:
+        Base URL of the server.
+    """
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), KeepAliveHandler)
+    httpd.daemon_threads = True
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+    httpd.server_close()
+
+
+def test_concurrent_deadlines(keep_alive: str) -> None:
+    """Concurrent requests of one client keep their own deadlines."""
+    client = local(timeout=1.0)
+    results: dict[str, Any] = {}
+
+    def get(name: str, seconds: float, delay: float) -> None:
+        time.sleep(delay)
+        try:
+            results[name] = client.get(f"{keep_alive}/sleep/{seconds}").content
+        except HttpError as exc:
+            results[name] = exc
+
+    threads = [
+        threading.Thread(target=get, args=("a", 0.5, 0)),
+        # ends 1.1 s after a starts, within its own second
+        threading.Thread(target=get, args=("b", 0.85, 0.25)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert results == {"a": b"xxxxxyyyyy", "b": b"xxxxxyyyyy"}
+    client.close()
+
+
+def test_reused_connections_bounded(keep_alive: str) -> None:
+    """Deadlines also stop requests on reused connections."""
+    client = local(timeout=0.5)
+    assert client.get(f"{keep_alive}/ok").status == 200
+    started = time.monotonic()
+    with pytest.raises(RequestMaybeSent) as info:
+        client.get(f"{keep_alive}/drip")
+    assert info.value.reason == "read_timeout"
+    assert time.monotonic() - started < 2
+    client.close()
 
 
 def test_guard() -> None:
@@ -488,6 +632,33 @@ def test_guard() -> None:
     guard.finish()
     guard.finish()
     assert guard.left() < 0
+    finished = http._Guard(allow_private_addresses=True)
+    finished.finish()  # never started
+    finished._stop()  # e.g., a timer that fires late: stops nothing
+    assert not finished.expired
+
+
+def test_guards_per_thread() -> None:
+    """Connections find the guard of their thread's request only."""
+    guards = http._Guards(allow_private_addresses=False)
+    with pytest.raises(RuntimeError, match="No guarded request"):
+        guards.current()
+    with guards.request(5) as guard:
+        assert guards.current() is guard
+        seen: list[Any] = []
+
+        def other() -> None:
+            try:
+                guards.current()
+            except RuntimeError as exc:
+                seen.append(exc)
+
+        thread = threading.Thread(target=other)
+        thread.start()
+        thread.join()
+        assert len(seen) == 1
+    with pytest.raises(RuntimeError):
+        guards.current()
 
 
 def test_expired_errors(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -496,7 +667,7 @@ def test_expired_errors(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def fail(error: Exception) -> Any:
         def request(*args: Any, **kwargs: Any) -> None:
-            client._guard.expired = True
+            client._guards.current().expired = True
             raise error
 
         return request
@@ -510,14 +681,18 @@ def test_expired_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     class Expired:
         """Response whose reading the deadline stops."""
 
-        def __init__(self, chunks: list[bytes], error: bool = False) -> None:
+        def __init__(
+            self, guard: Any, chunks: list[bytes], error: bool = False
+        ) -> None:
             """Create the response.
 
             Args:
+                guard: Guard of the request.
                 chunks: Chunks of the body; the deadline passes before the
                     first.
                 error: Whether reading fails at the end.
             """
+            self.guard = guard
             self.chunks = chunks
             self.error = error
 
@@ -533,12 +708,13 @@ def test_expired_errors(monkeypatch: pytest.MonkeyPatch) -> None:
             Raises:
                 ChunkedEncodingError: If reading fails.
             """
-            client._guard.expired = True
+            self.guard.expired = True
             yield from self.chunks
             if self.error:
                 raise requests.exceptions.ChunkedEncodingError("lost")
 
-    for response in (Expired([]), Expired([], error=True), Expired([b"x", b"y"])):
-        client._guard.expired = False
+    for chunks, fails in (([], False), ([], True), ([b"x", b"y"], False)):
+        guard = http._Guard(allow_private_addresses=False)
+        response = Expired(guard, chunks, error=fails)
         with pytest.raises(RequestMaybeSent, match="deadline"):
-            client._read(response, "u")  # type: ignore[arg-type]
+            client._read(response, "u", guard)  # type: ignore[arg-type]

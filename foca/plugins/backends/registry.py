@@ -229,9 +229,11 @@ class RegistryCache:
     """Backends of a registry entry, cached in this process.
 
     Thread-safe. The registry is read by one thread at a time; meanwhile,
-    other threads get the cached backends, except before the first read,
-    which they wait for. Backends of a good read are used for
-    `entry.max_stale` seconds at most while the registry cannot be read.
+    other threads get the cached backends if there are usable ones (a good
+    read within `entry.max_stale` seconds), else they wait for the read
+    (e.g., the first one, or the first after an idle gap). Backends of a
+    good read are used for `entry.max_stale` seconds at most while the
+    registry cannot be read.
 
     Attributes:
         entry: Registry entry.
@@ -274,9 +276,11 @@ class RegistryCache:
             good read, and none once it is older than `entry.max_stale`
             seconds.
         """
-        if not self._due(refresh):
+        usable = self._usable()
+        if usable and not self._due(refresh):
             return self._current()
-        if not self._lock.acquire(blocking=not self._read):
+        # without usable backends, wait for a read that runs meanwhile
+        if not self._lock.acquire(blocking=not usable):
             return self._current()
         try:
             if self._due(refresh):
@@ -284,6 +288,14 @@ class RegistryCache:
             return self._current()
         finally:
             self._lock.release()
+
+    def _usable(self) -> bool:
+        """Check whether a good read is within `entry.max_stale` seconds.
+
+        Returns:
+            Whether the cached backends may be used.
+        """
+        return self._read and time.monotonic() - self._read_good <= self.entry.max_stale
 
     def _current(self) -> list[str]:
         """Get the base URLs of the last good read, unless it is too old.
