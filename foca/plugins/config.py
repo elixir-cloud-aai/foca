@@ -206,6 +206,18 @@ DEFAULT_ROUTER = "foca.routing.ordered"
 """Default route step (cf. :py:mod:`foca.plugins.routing`)."""
 
 
+def _default_route_step(**options: Any) -> "StepConfig":
+    """Build a step of the default router.
+
+    Args:
+        options: Other keys of the step, e.g., `if_missing_phase`.
+
+    Returns:
+        Step.
+    """
+    return StepConfig.model_validate({"plugin": DEFAULT_ROUTER, **options})
+
+
 class AvailablePluginConfig(_Model):
     """Entry of the allowlist of plugins (`plugins.available`).
 
@@ -363,13 +375,7 @@ class ClientPipelinesConfig(_Model):
     prepend: list[StepConfig] = []
     append: list[StepConfig] = Field(
         default_factory=lambda: [
-            StepConfig.model_validate(
-                {
-                    "plugin": DEFAULT_ROUTER,
-                    "if_missing_phase": "route",
-                    "on_failure": "skip",
-                }
-            )
+            _default_route_step(if_missing_phase="route", on_failure="skip")
         ]
     )
 
@@ -490,9 +496,7 @@ class PluginsConfig(_Model):
         default_factory=dict, validate_default=True
     )
     defaults: PluginDefaultsConfig = PluginDefaultsConfig()
-    pipeline: list[StepConfig] = Field(
-        default_factory=lambda: [StepConfig.model_validate(DEFAULT_ROUTER)]
-    )
+    pipeline: list[StepConfig] = Field(default_factory=lambda: [_default_route_step()])
     presets: dict[str, list[StepConfig]] = {}
     client_pipelines: ClientPipelinesConfig = ClientPipelinesConfig()
     client_backends: ClientBackendsConfig = ClientBackendsConfig()

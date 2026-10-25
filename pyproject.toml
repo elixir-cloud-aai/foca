@@ -92,9 +92,6 @@ docs = [
     "mkdocstrings[python]>=1.0.8,<2",
 ]
 
-[project.entry-points."foca.plugins"]
-"foca.routing.ordered" = "foca.plugins.routing:OrderedRouter"
-
 [project.urls]
 Repository = "https://github.com/elixir-cloud-aai/foca"
 Documentation = "https://foca.readthedocs.io"

@@ -2,13 +2,14 @@
 
 import functools
 from collections import Counter
-from importlib.metadata import entry_points
+from importlib.metadata import PackageNotFoundError, version
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from foca.plugins import Backend
-from foca.plugins.config import PluginsConfig
+from foca.plugins import Backend, InvalidSelection, PluginError, loader
+from foca.plugins.config import BUILTIN_PLUGINS, PluginsConfig
 from foca.plugins.engine import PluginHost
 from foca.plugins.loader import load_plugins
 from foca.plugins.routing import OrderedRouter
@@ -127,31 +128,75 @@ def test_default_pipeline() -> None:
     host.close()
 
 
-def test_builtin_entry_points() -> None:
-    """Built-ins load from FOCA's entry point, never from other distributions."""
-    installed = list(entry_points(group="foca.plugins"))
-    assert "foca.routing.ordered" in [ep.name for ep in installed]
-    loaded = load_plugins(
-        PluginsConfig(), api="tes", find_entry_points=lambda: installed
-    )
+def test_builtin_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Built-ins load from `BUILTIN_PLUGINS`, never from other distributions."""
+    loaded = load_plugins(PluginsConfig(), api="tes", find_entry_points=lambda: [])
     plugin = loaded["foca.routing.ordered"]
     assert plugin.cls is OrderedRouter
     assert plugin.distribution == "foca"
+    assert plugin.version == version("foca")
     assert plugin.entry_point == "foca.plugins.routing:OrderedRouter"
-    # without FOCA's metadata, from the object reference
-    loaded = load_plugins(PluginsConfig(), api="tes", find_entry_points=lambda: [])
+    # entry points of FOCA's older metadata are ignored
+    own = SimpleNamespace(
+        name=plugin.id,
+        value=BUILTIN_PLUGINS[plugin.id],
+        dist=FakeDistribution(name="foca"),
+    )
+    loaded = load_plugins(PluginsConfig(), api="tes", find_entry_points=lambda: [own])
     assert loaded["foca.routing.ordered"].cls is OrderedRouter
+
+    # without FOCA's metadata (source checkouts)
+    def missing(name: str) -> None:
+        raise PackageNotFoundError(name)
+
+    monkeypatch.setattr(loader, "distribution", missing)
+    loaded = load_plugins(PluginsConfig(), api="tes", find_entry_points=lambda: [])
     assert loaded["foca.routing.ordered"].distribution is None
+    monkeypatch.undo()
     foreign: list[Any] = [
         FakeEntryPoint("foca.routing.ordered", OrderedRouter),
         FakeEntryPoint(
             "foca.routing.ordered", OrderedRouter, dist=FakeDistribution(name="foca")
         ),
     ]
-    for entry_point in foreign:
+    # all matches are checked, whatever their order
+    for entry_points in (foreign, foreign[::-1], [own, foreign[0]]):
         with pytest.raises(ValueError, match="built into FOCA"):
             load_plugins(
                 PluginsConfig(),
                 api="tes",
-                find_entry_points=functools.partial(list, [entry_point]),
+                find_entry_points=functools.partial(list, entry_points),
             )
+
+
+def test_client_seed_refused() -> None:
+    """Clients cannot set a seed unless allowed."""
+    host = make_host([{"plugin": "test.tag"}])
+    pipeline = '[{"plugin": "foca.routing.ordered", "params": {"seed": 1}}]'
+    with pytest.raises(InvalidSelection, match="'seed' is not allowed"):
+        host.start(inbound({"tags": {"gateway.pipeline": pipeline}}), PRINCIPAL)
+    host.close()
+
+
+def test_snapshots_recorded() -> None:
+    """Registry read times of the candidates are recorded."""
+    host = make_host([{"plugin": "foca.routing.ordered"}])
+    run = host.start(inbound(), PRINCIPAL)
+    snapshots = {"reg": "2026-10-25T09:00:00.000Z", "other": None}
+    run.route(CANDIDATES, snapshots=snapshots)
+    assert run.provenance()["route"]["snapshots"] == snapshots
+    host.close()
+
+
+def test_check_params_bugs(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Errors of `check_params` other than `InvalidParams` are plugin errors."""
+
+    def check_params(self: Any, params: Any) -> None:
+        raise ValueError("bug")
+
+    monkeypatch.setattr(OrderedRouter, "check_params", check_params)
+    with pytest.raises(PluginError, match="failed to check params"):
+        make_host([{"plugin": "foca.routing.ordered"}])
+    assert "Traceback" in caplog.text

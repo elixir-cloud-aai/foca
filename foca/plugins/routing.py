@@ -10,16 +10,17 @@ no round-robin state.
 
 FOCA registers the plugin under the entry point group `foca.plugins`; it is
 available without an entry in `plugins.available` (listing it there sets
-only `enabled`, `roles` and `client_selectable`), is the default pipeline,
+only `enabled`, `roles`, `client_selectable` and `config`), is the default
+pipeline,
 and is appended to per-request pipelines without a route step.
 """
 
 import random
-from typing import Any
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
-from foca.plugins.base import Plugin
+from foca.plugins.base import InvalidParams, Plugin
 from foca.plugins.context import Context
 from foca.plugins.model import Backend
 
@@ -72,17 +73,17 @@ class OrderedRouter(Plugin[RouterConfig, RouterParams]):
     Params = RouterParams
     maturity = "stable"
 
-    def check_params(self, params: Any) -> None:
+    def check_params(self, params: RouterParams) -> None:
         """Refuse seeds unless allowed.
 
         Args:
             params: Validated parameters.
 
         Raises:
-            ValueError: A seed is set, but not allowed.
+            InvalidParams: A seed is set, but not allowed.
         """
         if params.seed is not None and not self.config.allow_seed:
-            raise ValueError("'seed' is not allowed (cf. 'allow_seed')")
+            raise InvalidParams("'seed' is not allowed (cf. 'allow_seed')")
 
     def on_route(self, candidates: list[Backend], ctx: Context) -> list[Backend]:
         """Order the candidates.
@@ -95,7 +96,7 @@ class OrderedRouter(Plugin[RouterConfig, RouterParams]):
             Candidates with the labels, in order, with the backends of each
             registry shuffled in place.
         """
-        params: Any = ctx.params
+        params = cast(RouterParams, ctx.params)
         kept = [
             backend
             for backend in candidates

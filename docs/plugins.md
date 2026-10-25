@@ -234,7 +234,10 @@ own order does not decide the load; there is no round-robin state. Its
 parameters:
 
 - `labels`: labels that candidates must have (e.g.,
-  `{"region": "eu-north"}`), the simplest pinning;
+  `{"region": "eu-north"}`). Labels in `plugins.pipeline` don't bind
+  client pipelines and presets, which replace it: pinning that must always
+  hold belongs in `client_pipelines.prepend` (e.g., a step that rejects or
+  filters);
 - `seed`: a seed for reproducible orders, for tests only: refused unless
   the plugin's admin setting `allow_seed` is on.
 
@@ -309,7 +312,9 @@ Rules:
   (with a `reason`); raise or let them propagate: the alternative then
   fails.
 - `check_params(params)` may refuse parameters that the admin settings
-  don't allow (raise `ValueError`); it runs when pipelines are resolved.
+  don't allow (raise `foca.plugins.InvalidParams`; other errors are plugin
+  errors, which stop the app or fail the request); it runs when pipelines
+  are resolved.
 - One instance serves all requests of a process, from several threads:
   keep per-request data in `ctx.state`, not on `self`.
 - `setup()` may run more than once per process, so it must be idempotent.
