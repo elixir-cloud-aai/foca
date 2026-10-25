@@ -1,6 +1,7 @@
 """Tests of the pipeline engine (`foca.plugins.engine`)."""
 
 import contextlib
+import json
 import threading
 import time
 from typing import Any
@@ -13,6 +14,7 @@ from foca.plugins import (
     Headers,
     InboundRequest,
     Principal,
+    Rejected,
 )
 from foca.plugins.checks import _check_forward, _check_route, default_outbound
 from foca.plugins.config import PluginsConfig
@@ -26,9 +28,10 @@ from foca.plugins.engine import (
     PluginHost,
     _default_gateway_id,
 )
+from foca.plugins.errors import GatewayError
 from foca.plugins.executor import _Executor
 from foca.plugins.model import OutboundRequest
-from foca.plugins.outcomes import sanitize_error
+from foca.plugins.outcomes import describe_error, sanitize_error
 from foca.utils.http import GuardedClient
 from tests.plugins.fakes import (
     SlowPlugin,
@@ -144,7 +147,9 @@ def test_rejection_stops_at_once() -> None:
     assert [e.outcome for e in run.executions] == ["rejected"]
 
 
-def test_invalid_output_tries_next_alternative() -> None:
+def test_invalid_output_tries_next_alternative(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Output rejected by the app's check counts as invalid."""
 
     def validate(payload: Any) -> None:
@@ -165,7 +170,9 @@ def test_invalid_output_tries_next_alternative() -> None:
     run = host.start(inbound(), PRINCIPAL)
     assert run.request().payload == {"name": "task"}
     assert run.executions[0].outcome == "invalid_output"
-    assert "no tags" in (run.executions[0].error or "")
+    # messages of other code go to logs only
+    assert run.executions[0].error == "ValueError"
+    assert "ValueError: no tags" in caplog.text
 
 
 def test_timeout_abandons_hook() -> None:
@@ -526,10 +533,33 @@ def test_close_logs_errors(caplog: pytest.LogCaptureFixture) -> None:
 
 
 def test_sanitize_error() -> None:
-    """Errors are sanitized and truncated."""
-    message = sanitize_error(ValueError("see http://u:p@example.org/" + "a" * 600))
-    assert message.startswith("ValueError: see http://example.org/")
+    """Records get types of errors only; logs get sanitized messages."""
+    error = ValueError("see http://u:p@example.org/?token=abc " + "a" * 600)
+    assert sanitize_error(error) == "ValueError"
+    message = describe_error(error)
+    assert message.startswith("ValueError: see http://example.org/?token")
     assert len(message) == 500
+    assert sanitize_error(GatewayError("bad http://u:p@x.example.org/")) == (
+        "GatewayError: bad http://x.example.org/"
+    )
+    assert sanitize_error(Rejected("no", 403)).startswith("Rejected")
+
+
+def test_plugin_messages_not_recorded(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Messages of plugin errors, e.g., with tokens, are logged only."""
+
+    def on_request(self: Any, request: Any, ctx: Any) -> None:
+        raise RuntimeError("token=s3cr3t")
+
+    monkeypatch.setattr(TagPlugin, "on_request", on_request)
+    host = make_host([{"plugin": "test.tag", "on_failure": "skip"}])
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    assert run.executions[0].error == "RuntimeError"
+    assert "s3cr3t" not in json.dumps(run.provenance())
+    assert "RuntimeError: token=s3cr3t" in caplog.text
 
 
 def test_config_default_host() -> None:
