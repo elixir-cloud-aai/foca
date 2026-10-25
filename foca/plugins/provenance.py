@@ -25,9 +25,10 @@ import json
 import logging
 import math
 import os
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
+from itertools import islice
 from typing import TYPE_CHECKING, Any, Protocol
 
 from foca.plugins.loader import LoadedPlugin
@@ -43,6 +44,16 @@ MAX_SAFE_INTEGER = 2**53 - 1
 
 MAX_CHANGED_PATHS = 256
 """Maximum number of changed paths recorded per call."""
+
+CLIENT_ADDRESS_HEADERS = frozenset({"forwarded", "x-forwarded-for", "x-real-ip"})
+"""Headers with client addresses, left out of hashes (personal data)."""
+
+MAX_POINTER_LENGTH = 512
+"""Maximum length of changed paths; longer ones are recorded as their
+parent's."""
+
+MAX_RUN_CHANGES_SIZE = 65536
+"""Maximum size of the changed paths of a run, in bytes of JSON."""
 
 IMAGE_DIGEST_ENV = "FOCA_IMAGE_DIGEST"
 """Environment variable with the digest of the app's container image, if set
@@ -199,18 +210,22 @@ def _pointer(parent: str, token: str | int) -> str:
     return f"{parent}/{str(token).replace('~', '~0').replace('/', '~1')}"
 
 
-def changed_paths(before: Any, after: Any, prefix: str = "") -> list[str]:
+def changed_paths(
+    before: Any, after: Any, prefix: str = "", limit: int | None = None
+) -> list[str]:
     """List the JSON Pointers at which two JSON values differ.
 
     Objects are compared key by key, and arrays of the same length index
     by index; arrays of different lengths (e.g., after an insertion, which
     shifts all later items) and values of other or different types are
-    compared as a whole.
+    compared as a whole. Pointers longer than :py:data:`MAX_POINTER_LENGTH`
+    are recorded as their parent (once).
 
     Args:
         before: Value before a change.
         after: Value after it.
         prefix: Pointer of the values.
+        limit: Maximum number of pointers; collecting stops there.
 
     Returns:
         Pointers of the changed, added and removed values, in order (keys
@@ -223,25 +238,41 @@ def changed_paths(before: Any, after: Any, prefix: str = "") -> list[str]:
         >>> changed_paths({"b": [1, 2]}, {"b": [0, 1, 2]})
         ['/b']
     """
+    return list(islice(_changed(before, after, prefix), limit))
+
+
+def _changed(before: Any, after: Any, prefix: str) -> Iterator[str]:
+    """Yield the JSON Pointers at which two JSON values differ.
+
+    Args:
+        before: Value before a change.
+        after: Value after it.
+        prefix: Pointer of the values.
+
+    Yields:
+        Pointers (cf. :py:func:`changed_paths`).
+    """
     if isinstance(before, Mapping) and isinstance(after, Mapping):
-        paths = []
         for key in sorted({*before, *after}, key=str):
             child = _pointer(prefix, key)
+            if len(child) > MAX_POINTER_LENGTH:
+                if before != after:
+                    yield prefix
+                return
             if key not in before or key not in after:
-                paths.append(child)
+                yield child
             else:
-                paths.extend(changed_paths(before[key], after[key], child))
-        return paths
+                yield from _changed(before[key], after[key], child)
+        return
     if _is_array(before) and _is_array(after):
         if len(before) != len(after):
-            return [prefix]
-        paths = []
+            yield prefix
+            return
         for index, (old, new) in enumerate(zip(before, after, strict=True)):
-            paths.extend(changed_paths(old, new, _pointer(prefix, index)))
-        return paths
+            yield from _changed(old, new, _pointer(prefix, index))
+        return
     if type(before) is not type(after) or before != after:
-        return [prefix]
-    return []
+        yield prefix
 
 
 def _snapshot(phase: str, value: Any, secret_headers: frozenset[str]) -> Any:
@@ -251,7 +282,8 @@ def _snapshot(phase: str, value: Any, secret_headers: frozenset[str]) -> Any:
         phase: Phase.
         value: Input or output of a hook of the phase.
         secret_headers: Lowercase names of headers left out, besides
-            :py:data:`foca.plugins.model.CREDENTIAL_HEADERS`.
+            :py:data:`foca.plugins.model.CREDENTIAL_HEADERS` and
+            :py:data:`CLIENT_ADDRESS_HEADERS`.
 
     Returns:
         Data of the phase: method, path, query, headers (without
@@ -262,7 +294,7 @@ def _snapshot(phase: str, value: Any, secret_headers: frozenset[str]) -> Any:
     """
     if phase == "route":
         return [backend.id for backend in value]
-    excluded = CREDENTIAL_HEADERS | secret_headers
+    excluded = CREDENTIAL_HEADERS | CLIENT_ADDRESS_HEADERS | secret_headers
     if phase == "response":
         return {
             "client_payload": value.client_payload,
@@ -318,7 +350,7 @@ def describe_changes(
     secret = frozenset(name.lower() for name in secret_headers)
     old, new = _snapshot(phase, before, secret), _snapshot(phase, after, secret)
     try:
-        paths = changed_paths(old, new)
+        paths = changed_paths(old, new, limit=MAX_CHANGED_PATHS + 1)
         changes: dict[str, Any] = {
             "before": content_hash(old),
             "after": content_hash(new),
@@ -463,9 +495,14 @@ class ProvenanceStore:
 
         Returns:
             Provenance to store with the task: as from `run.provenance()`,
-            with default and preset pipelines by hash only, if stored.
+            with default and preset pipelines by hash only, if stored; a
+            record with `error: internal` only if it cannot be built.
         """
-        record: dict[str, Any] = run.provenance()
+        try:
+            record: dict[str, Any] = run.provenance()
+        except Exception:
+            logger.exception("Provenance not built")
+            return {"request_id": run.request_id, "error": "internal", "stored": False}
         try:
             for loaded in run.host.plugins.values():
                 document = build_document(loaded)

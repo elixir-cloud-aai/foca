@@ -7,8 +7,9 @@ from typing import Any
 
 import mongomock
 import pytest
+from pydantic import BaseModel, SecretStr
 
-from foca.plugins import Backend, BackendResponse, ProvenanceStore
+from foca.plugins import Backend, BackendResponse, ProvenanceStore, engine
 from foca.plugins.engine import ForwardTimeout, NoBackendAvailable
 from foca.plugins.model import Headers, InboundRequest, OutboundRequest
 from foca.plugins.provenance import (
@@ -22,8 +23,8 @@ from foca.plugins.provenance import (
     content_hash,
     describe_changes,
 )
-from foca.plugins.records import ResolvedPipeline
-from tests.plugins.fakes import make_host
+from foca.plugins.records import ResolvedAlternative, ResolvedPipeline, ResolvedStep
+from tests.plugins.fakes import HeaderPlugin, TagPlugin, make_host
 from tests.plugins.test_plugin_engine import BACKENDS, PRINCIPAL, inbound
 
 # RFC 8785, appendix B: IEEE 754 doubles (hex) and their serialization
@@ -432,6 +433,138 @@ def test_save_failure(record_failed: bool, collection: bool, stored: bool) -> No
 
 def test_failure_indexes() -> None:
     """Failure records expire after 30 days by default."""
-    assert FAILURE_INDEXES == [
-        {"keys": {"failed_at": 1}, "options": {"expireAfterSeconds": 2592000}}
-    ]
+    _, db = stores(record_failed=True)
+    for index in FAILURE_INDEXES:
+        db.failures.create_index(list(index["keys"].items()), **index["options"])
+    info = db.failures.index_information()
+    ttl = next(spec for name, spec in info.items() if name != "_id_")
+    assert ttl["key"] == [("failed_at", 1)]
+    assert ttl["expireAfterSeconds"] == 30 * 24 * 3600
+
+
+@pytest.mark.parametrize("headers", [None, {1: "x"}, ["x"]])
+def test_response_headers_kept(headers: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Response hooks that replace the headers fail, not the request."""
+
+    def on_response(self: Any, response: BackendResponse, ctx: Any) -> None:
+        response.client_headers = headers
+
+    monkeypatch.setattr(HeaderPlugin, "on_response", on_response)
+    host = make_host([{"plugin": "test.header", "params": {"key": "k", "value": "v"}}])
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    attempt = next(run.attempts(run.route(BACKENDS)))
+    response = attempt.succeeded(BackendResponse(status=200), remote_id="t1")
+    assert isinstance(response.client_headers, Headers)
+    execution = next(e for e in run.executions if e.phase == "response")
+    assert execution.outcome == "invalid_output"
+    assert execution.error == "TypeError: Response hooks must keep Headers"
+    json.dumps(run.provenance())
+
+
+def test_changes_never_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Errors while describing changes are recorded, not raised."""
+
+    def fail(*args: Any) -> None:
+        raise AttributeError("bug")
+
+    monkeypatch.setattr(engine, "describe_changes", fail)
+    host = make_host([{"plugin": "test.tag"}])
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    assert run.executions[0].outcome == "ok"
+    assert run.executions[0].changes == {"error": "internal"}
+
+
+def test_long_pointers() -> None:
+    """Long keys are recorded as their parent; collecting stops at the cap."""
+    key = "k" * 1000
+    assert changed_paths({"a": {}}, {"a": {key: 1}}) == ["/a"]
+    assert changed_paths({"a": {key: 1}}, {"a": {key: 1}}) == []
+    many = {f"k{i}": i for i in range(10000)}
+    assert changed_paths({}, many, limit=3) == ["/k0", "/k1", "/k10"]
+    before = InboundRequest(method="POST", path="/", payload={})
+    after = InboundRequest(method="POST", path="/", payload={key: 1})
+    assert describe_changes("request", before, after)["paths"] == ["/payload"]
+
+
+def test_run_changes_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The changed paths of a run are bounded in size."""
+    monkeypatch.setattr(engine, "MAX_RUN_CHANGES_SIZE", 40)
+    host = make_host(
+        [
+            {"id": "one", "plugin": "test.tag", "params": {"key": "a" * 20}},
+            {"id": "two", "plugin": "test.tag", "params": {"key": "b" * 20}},
+        ]
+    )
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    first, second = (execution.changes for execution in run.executions)
+    assert first is not None and second is not None
+    assert first["paths"] == ["/payload/tags"]
+    assert second["paths"] == []
+    assert second["truncated"] is True
+
+
+@pytest.mark.parametrize("value", [2**64, "\ud800", [1, 2**60]])
+def test_annotations_are_i_json(value: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Annotations that are no I-JSON are refused."""
+    errors: list[Exception] = []
+
+    def on_request(self: Any, request: InboundRequest, ctx: Any) -> None:
+        try:
+            ctx.record("x", value)
+        except ValueError as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(TagPlugin, "on_request", on_request)
+    host = make_host([{"plugin": "test.tag"}])
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    assert len(errors) == 1
+    assert run.executions[0].annotations == {}
+
+
+def test_secret_params_redacted() -> None:
+    """Secret parameters (SecretStr) are not recorded."""
+
+    class Params(BaseModel):
+        token: SecretStr
+
+    step = ResolvedStep(
+        id="s",
+        alternatives=(
+            ResolvedAlternative(plugin="p", params=Params(token=SecretStr("abc"))),
+        ),
+        timeout=1,
+        on_failure="fail",
+        origin="pipeline",
+    )
+    described = ResolvedPipeline(steps=(step,)).describe()
+    assert described[0]["alternatives"][0]["params"] == {"token": "**********"}
+
+
+def test_client_addresses_not_hashed() -> None:
+    """Client address headers are left out of the hashes."""
+    before = InboundRequest(
+        method="POST", path="/", headers=Headers({"X-Forwarded-For": "10.0.0.1"})
+    )
+    after = InboundRequest(
+        method="POST", path="/", headers=Headers({"X-Forwarded-For": "10.0.0.2"})
+    )
+    changes = describe_changes("request", before, after)
+    assert changes["paths"] == []
+    assert changes["before"] == changes["after"]
+
+
+def test_save_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs whose provenance cannot be built still give a record."""
+    store, _ = stores()
+    host = make_host([{"plugin": "test.tag"}])
+    run = host.start(inbound(), PRINCIPAL, request_id="r1")
+
+    def fail() -> None:
+        raise KeyError("bug")
+
+    monkeypatch.setattr(run, "provenance", fail)
+    assert store.save(run) == {"request_id": "r1", "error": "internal", "stored": False}
