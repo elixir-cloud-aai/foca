@@ -56,14 +56,16 @@ def test_list_plugins_by_role() -> None:
     # Alice may not choose pipelines: nothing to choose
     assert listing["plugins"] == []
     assert listing["presets"] == []
-    # only step identifiers of the default pipeline
-    assert listing["default_pipeline"] == [{"id": "test.tag", "plugins": []}]
+    # no steps either: their identifiers default to plugin identifiers
+    assert listing["default_pipeline"] == []
     clients = listing["client_pipelines"]
     assert clients["enabled"]
     assert not clients["allowed_for_caller"]
     assert clients["max_steps"] == 4
     assert clients["prepend"] == []
-    assert clients["append"] == ["foca.routing.ordered"]
+    assert clients["append"] == []
+    assert "test." not in json.dumps(listing)
+    assert "foca.routing" not in json.dumps(listing)
     assert listing["client_backends"] == {"enabled": True, "max_items": 32}
     assert listing["tag_prefix"] == "gateway."
     admin = api.list_plugins(host, ADMIN)
@@ -76,8 +78,28 @@ def test_list_plugins_by_role() -> None:
         {"name": "tagged", "steps": [{"id": "test.tag", "plugins": ["test.tag"]}]}
     ]
     assert admin["client_pipelines"]["allowed_for_caller"]
+    assert admin["client_pipelines"]["append"] == ["foca.routing.ordered"]
     assert admin["default_pipeline"] == [{"id": "test.tag", "plugins": ["test.tag"]}]
     json.dumps(admin)
+    host.close()
+
+
+def test_listing_without_usable_preset() -> None:
+    """Callers allowed presets only, but none of them, see no steps."""
+    host = make_host(
+        ["test.tag"],
+        available={"test.tag": {}, "test.skip": {"roles": ["admin"]}},
+        presets={"admins": ["test.skip"]},
+        client_pipelines={"allowed": ["presets"]},
+    )
+    listing = api.list_plugins(host, ALICE)
+    assert listing["presets"] == []
+    assert listing["default_pipeline"] == []
+    assert not listing["client_pipelines"]["allowed_for_caller"]
+    admin = api.list_plugins(host, ADMIN)
+    assert [preset["name"] for preset in admin["presets"]] == ["admins"]
+    assert admin["client_pipelines"]["allowed_for_caller"]
+    assert admin["default_pipeline"] == [{"id": "test.tag", "plugins": ["test.tag"]}]
     host.close()
 
 
@@ -121,10 +143,12 @@ def test_listing_matches_selection(
     presets = {preset["name"] for preset in listing["presets"]}
     for name in host.presets:
         assert accepts(host, name, principal) == (name in presets), name
-    prepend = [step.get("id") for step in client_pipelines.get("prepend", [])]
-    assert listing["client_pipelines"]["prepend"] == prepend
+    allowed = listing["client_pipelines"]["allowed_for_caller"]
+    assert allowed == bool(listed or presets)
+    expected = [step.get("id") for step in client_pipelines.get("prepend", [])]
+    assert listing["client_pipelines"]["prepend"] == (expected if allowed else [])
     if client_pipelines.get("enabled") is False:
-        assert not listing["client_pipelines"]["allowed_for_caller"]
+        assert not allowed
     host.close()
 
 
@@ -192,7 +216,7 @@ def test_plugin_not_found(plugin_id: str) -> None:
 def test_service_info_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     """The service info gets capabilities, no identifiers or versions."""
     host = listing_host(client_backends={"enabled": False})
-    monkeypatch.setattr(runtime, "get_host", lambda: host)
+    monkeypatch.setattr(runtime, "current_host", lambda: host)
     fields = api.service_info_fields(plugins_url="https://gw.example.org/plugins")
     assert fields == {
         "gateway": {
@@ -205,6 +229,48 @@ def test_service_info_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "plugins_url" not in api.service_info_fields(host)["gateway"]
     assert "test." not in json.dumps(fields)
     host.close()
+
+
+def test_service_info_fields_before_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a host in use, the service info sets up no plugin."""
+    monkeypatch.setattr(loader, "entry_points", lambda group: fake_entry_points()())
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "plugins": {
+                    "available": {"test.tag": {}, "test.reject": {"enabled": False}},
+                    "pipeline": ["test.tag"],
+                    "client_backends": {"enabled": False},
+                }
+            }
+        )
+    )
+    Foca(config_file=config, gateway=GatewayApp(api="tes")).create_app()
+
+    def no_host() -> PluginHost:
+        raise AssertionError("host created")
+
+    monkeypatch.setattr(runtime, "get_host", no_host)
+    monkeypatch.setattr(runtime, "create_host", no_host)
+    assert api.service_info_fields() == {
+        "gateway": {
+            "client_pipelines": True,
+            "client_backends": False,
+            "capabilities": ["tagging"],
+        }
+    }
+    assert runtime.current_host() is None
+    runtime.reset()
+
+
+def test_service_info_fields_unconfigured() -> None:
+    """Without a gateway app, the service info fields cannot be computed."""
+    runtime.reset()
+    with pytest.raises(RuntimeError, match="No gateway app"):
+        api.service_info_fields()
 
 
 def test_controllers(monkeypatch: pytest.MonkeyPatch) -> None:

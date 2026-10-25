@@ -118,6 +118,24 @@ class _BadCapability(_Hooked):
     capabilities: ClassVar[frozenset[str]] = frozenset({"Crypt4GH Input"})
 
 
+class _BadTitle(_Hooked):
+    """Plugin with a title that is no string."""
+
+    title = 1  # type: ignore[assignment]
+
+
+class _BadTransfers(_Hooked):
+    """Plugin with data transfers that are no list of strings."""
+
+    data_transfers = "db-ip.com"  # type: ignore[assignment]
+
+
+class _BadTransferItem(_Hooked):
+    """Plugin with a data transfer that is no string."""
+
+    data_transfers = (object(),)  # type: ignore[assignment]
+
+
 class _Opaque:
     """Type without JSON Schema."""
 
@@ -150,6 +168,9 @@ class _NoHook(Plugin[EmptyModel, EmptyModel]):
         (_BadMaturity, "maturity"),
         (_BadModel, "pydantic"),
         (_BadCapability, "capabilities"),
+        (_BadTitle, "invalid title"),
+        (_BadTransfers, "data_transfers"),
+        (_BadTransferItem, "data_transfers"),
         (_NoSchema, "JSON Schema"),
     ],
 )

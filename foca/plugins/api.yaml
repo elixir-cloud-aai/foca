@@ -81,7 +81,7 @@ components:
   schemas:
     Plugin:
       type: object
-      required: [id, title, description, phases, capabilities, maturity, params_schema]
+      required: [id, title, description, group, subgroup, phases, capabilities, maturity, distribution, version, data_transfers, params_schema]
       properties:
         id:
           type: string
