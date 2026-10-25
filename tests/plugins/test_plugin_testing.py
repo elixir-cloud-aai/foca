@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 
 from foca.plugins import (
     Backend,
+    BackendResponse,
     Context,
     InboundRequest,
     OutboundRequest,
@@ -74,6 +75,50 @@ class GeoPlugin(Plugin[EmptyModel, EmptyModel]):
         """
         assert ctx.http is not None
         ctx.record("country", ctx.http.get("https://geo.example.org/").json()["c"])
+
+
+class StatePlugin(Plugin[EmptyModel, EmptyModel]):
+    """Keep state from the request to the later phases."""
+
+    def on_request(self, request: InboundRequest, ctx: Context) -> None:
+        """Remember the request.
+
+        Args:
+            request: Inbound request.
+            ctx: Context.
+        """
+        ctx.state["seen"] = request.method
+
+    def on_route(self, candidates: list[Backend], ctx: Context) -> list[Backend]:
+        """Use the state.
+
+        Args:
+            candidates: Candidates.
+            ctx: Context.
+
+        Returns:
+            The candidates.
+        """
+        assert ctx.state["seen"]
+        return candidates
+
+    def on_forward(self, outbound: OutboundRequest, ctx: Context) -> None:
+        """Use the state.
+
+        Args:
+            outbound: Outbound request.
+            ctx: Context.
+        """
+        outbound.headers["X-Seen"] = ctx.state["seen"]
+
+    def on_response(self, response: BackendResponse, ctx: Context) -> None:
+        """Use the state.
+
+        Args:
+            response: Response.
+            ctx: Context.
+        """
+        response.client_headers["X-Seen"] = ctx.state["seen"]
 
 
 class BrokenForward(Plugin[EmptyModel, EmptyModel]):
@@ -355,6 +400,11 @@ def test_contract_passes() -> None:
     http = FakeHttp()
     http.add("GET", "https://geo.example.org/", json={"c": "SE"})
     check_plugin_contract(GeoPlugin, http=http, threads=2)
+
+
+def test_contract_state() -> None:
+    """Later phases get the state of the request hook."""
+    check_plugin_contract(StatePlugin, threads=4)
 
 
 @pytest.mark.parametrize(

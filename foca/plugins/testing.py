@@ -852,9 +852,10 @@ def check_plugin_contract(
     web framework, and that its hooks succeed (or reject, or do not apply)
     on the sample inputs through the engine: once, and with one instance
     from several threads at once.
-    Phases after `request` run without the plugin's `request` hook, so that
-    rejected samples do not hide them; rejections are fine, except in the
-    `response` phase, where they count as errors. The engine itself
+    Phases after `request` run after the plugin's `request` hook, so that
+    they get its `ctx.state`, or without it if it rejected the sample or
+    failed, so that this does not hide them; rejections are fine, except in
+    the `response` phase, where they count as errors. The engine itself
     enforces copy semantics (hooks get copies, `ctx.original` is a copy,
     failed calls change nothing) and route subsets (other backends give
     `invalid_output` outcomes).
@@ -945,23 +946,29 @@ def _check_hooks(
         Problems.
     """
     phases = harness.plugin.cls.phases()
+    # later phases after the request hook, so that they get its state, but
+    # without it if it rejected the sample or failed, so that this does not
+    # hide them
+    after = {"request": True}
     runs: list[tuple[str, Callable[[], Any]]] = [
         ("request", lambda: harness.run_request(_copy(inbound)))
     ]
-    # later phases without the request step, so that rejected sample
-    # requests do not hide them
     if "route" in phases:
         runs.append(
             (
                 "route",
-                lambda: harness.run_route(candidates, _copy(inbound), request=False),
+                lambda: harness.run_route(
+                    candidates, _copy(inbound), request=after["request"]
+                ),
             )
         )
     if "forward" in phases:
         runs.append(
             (
                 "forward",
-                lambda: harness.run_forward(None, _copy(inbound), request=False),
+                lambda: harness.run_forward(
+                    None, _copy(inbound), request=after["request"]
+                ),
             )
         )
     if "response" in phases:
@@ -969,7 +976,7 @@ def _check_hooks(
             (
                 "response",
                 lambda: harness.run_response(
-                    _copy(response), None, _copy(inbound), request=False
+                    _copy(response), None, _copy(inbound), request=after["request"]
                 ),
             )
         )
@@ -979,9 +986,14 @@ def _check_hooks(
         try:
             run()
         except PipelineRejected:
+            after["request"] = after["request"] and phase != "request"
             continue
         except Exception as exc:
             error = f"{phase} ({label}): {type(exc).__name__}: {exc}"
+        if phase == "request" and (
+            error or any(e.outcome in FAILED_OUTCOMES for e in harness.executions)
+        ):
+            after["request"] = False
         failed = [
             f"{execution.phase} ({label}): outcome {execution.outcome}"
             f" ({execution.error})"
