@@ -45,6 +45,7 @@ Semantics:
 """
 
 import copy
+import json
 import logging
 import re
 import time
@@ -108,7 +109,12 @@ from foca.plugins.outcomes import (
     _StepFailedError,
     sanitize_error,
 )
-from foca.plugins.provenance import build_key, content_hash, describe_changes
+from foca.plugins.provenance import (
+    MAX_RUN_CHANGES_SIZE,
+    build_key,
+    content_hash,
+    describe_changes,
+)
 from foca.plugins.records import (
     AttemptOutcome,
     AttemptRecord,
@@ -855,6 +861,7 @@ class PipelineRun:
         self.backends_discarded: list[str] = []
         self.final_reason: str | None = None
         self._states: dict[str, dict[str, Any]] = {}
+        self._changes_size = 0
         self._deadline = time.monotonic() + host.conf.defaults.pipeline_timeout
 
     def provenance(self) -> dict[str, Any]:
@@ -1364,10 +1371,40 @@ class PipelineRun:
         if execution.outcome != "ok":
             return execution, None
         self._states[alternative.plugin] = state
-        execution.changes = describe_changes(
-            phase, value, output, self.host.conf.provenance.secret_headers
-        )
+        execution.changes = self._describe_changes(phase, value, output)
         return execution, output
+
+    def _describe_changes(self, phase: str, before: Any, after: Any) -> dict[str, Any]:
+        """Describe the changes of a call within the run's size budget.
+
+        Never raises: records must not fail requests, which backends may
+        have accepted already.
+
+        Args:
+            phase: Phase.
+            before: Input of the call.
+            after: Committed output of the call.
+
+        Returns:
+            Changes (cf. :py:func:`foca.plugins.provenance.describe_changes`);
+            without paths, and `truncated: true`, once the paths of the run
+            exceed :py:data:`foca.plugins.provenance.MAX_RUN_CHANGES_SIZE`
+            bytes; `error: internal` if they cannot be described.
+        """
+        try:
+            changes = describe_changes(
+                phase, before, after, self.host.conf.provenance.secret_headers
+            )
+            size = len(json.dumps(changes.get("paths", [])).encode())
+        except Exception:
+            logger.exception("Changes of a %s hook not described", phase)
+            return {"error": "internal"}
+        if self._changes_size + size > MAX_RUN_CHANGES_SIZE:
+            changes["paths"] = []
+            changes["truncated"] = True
+        else:
+            self._changes_size += size
+        return changes
 
     @staticmethod
     def _finish(execution: Execution, started: float, ctx: Context) -> None:
