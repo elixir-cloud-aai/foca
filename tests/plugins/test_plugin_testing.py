@@ -321,6 +321,51 @@ def test_fake_http_clients() -> None:
         late.get("https://x.example.org/")
 
 
+@pytest.mark.parametrize(
+    ("url", "params", "sent"),
+    [
+        ("https://x.example.org/a", {"q": "x", "opt": None}, "/a?q=x"),
+        ("https://x.example.org/a?", {"q": "x"}, "/a?q=x"),
+        ("https://x.example.org/a#frag", {"q": "x"}, "/a?q=x#frag"),
+        ("https://x.example.org", {"q": "x"}, "/?q=x"),
+        ("https://x.example.org", None, "/"),
+        ("https://x.example.org/a", {}, "/a"),
+    ],
+)
+def test_fake_http_urls(url: str, params: dict[str, Any] | None, sent: str) -> None:
+    """Fake clients build URLs as `requests` does, also for canned ones."""
+    http = FakeHttp()
+    http.add("GET", "https://x.example.org", json=1)
+    http.add("GET", "https://x.example.org/a", json=2)
+    http.add("GET", "https://x.example.org/a?q=x", json=3)
+    http.add("GET", "https://x.example.org/?q=x", json=4)
+    http.add("GET", "https://x.example.org/a?q=x#frag", json=5)
+    http.get(url, params=params)
+    assert http.calls[-1].url == f"https://x.example.org{sent}"
+
+
+def test_fake_http_invalid_url() -> None:
+    """URLs that `requests` cannot prepare are invalid."""
+    http = FakeHttp()
+    http.add("GET", "https://a b.example.org/", json=1)  # kept as given
+    with pytest.raises(InvalidRequestURL, match="Invalid URL"):
+        http.get("https://a b.example.org/")
+    assert http.calls == []
+
+
+def test_fake_http_copies() -> None:
+    """Each call gets its own copy of the canned response."""
+    http = FakeHttp()
+    http.add("GET", "https://x.example.org/", json={"a": 1}, headers={"X": "1"})
+    first = http.get("https://x.example.org/")
+    first.headers["x"] = "changed"
+    first.status = 500
+    second = http.get("https://x.example.org/")
+    assert second is not first
+    assert second.headers == {"x": "1"}
+    assert second.status == 200
+
+
 def test_harness_request() -> None:
     """Harnesses run request hooks with config and params."""
     with PluginHarness(

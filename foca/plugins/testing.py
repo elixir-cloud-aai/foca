@@ -17,17 +17,19 @@ entry points.
 """
 
 import ast
+import contextlib
 import copy
 import inspect
 import ipaddress
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from json import dumps
 from types import TracebackType
 from typing import Any
-from urllib.parse import urlencode
+
+import requests
 
 from foca.plugins.base import Plugin, check_plugin_class
 from foca.plugins.config import PluginsConfig
@@ -343,7 +345,9 @@ class FakeHttp(GuardedClient):
 
         Args:
             method: HTTP method.
-            url: URL, with the query string if the request has one.
+            url: URL, with the query string if the request has one
+                (normalized as by `requests`, e.g., `https://host` as
+                `https://host/`).
             status: HTTP status.
             json: Body, as JSON.
             content: Body, if not `json`.
@@ -361,6 +365,9 @@ class FakeHttp(GuardedClient):
                 headers={key.lower(): value for key, value in (headers or {}).items()},
                 content=body,
             )
+        # kept as given if invalid; requests to it are invalid then
+        with contextlib.suppress(requests.RequestException):
+            url = _prepared_url(method, url, None)
         with self._state.lock:
             self._state.responses.setdefault((method.upper(), url), []).append(result)
 
@@ -380,14 +387,15 @@ class FakeHttp(GuardedClient):
         Args:
             method: HTTP method.
             url: URL.
-            params: Query parameters, appended to the URL for the lookup.
+            params: Query parameters, added to the URL as by `requests`
+                (which is how the URL is recorded and looked up).
             headers: Headers.
             json: Body to send as JSON.
             data: Body to send as is.
             auth: Authentication (ignored).
 
         Returns:
-            The canned response.
+            A copy of the canned response.
 
         Raises:
             InvalidRequestURL: The URL or method is invalid, or the scheme
@@ -416,9 +424,10 @@ class FakeHttp(GuardedClient):
         remaining = self.remaining()
         if remaining <= 0:
             raise DeadlineExceeded(f"No time left for {url}")
-        if params:
-            query = urlencode(params, doseq=True)
-            url = f"{url}{'&' if '?' in url else '?'}{query}"
+        try:
+            url = _prepared_url(method, url, params)
+        except requests.RequestException as exc:
+            raise InvalidRequestURL(f"Invalid URL: {exc}") from exc
         with self._state.lock:
             self._state.calls.append(
                 HttpCall(method.upper(), url, params, headers, json, data, remaining)
@@ -435,7 +444,26 @@ class FakeHttp(GuardedClient):
             raise ResponseTooLarge(
                 f"Response of {url} exceeds {self.max_response_size} bytes"
             )
-        return result
+        # each call gets its own response, as from the real client
+        return replace(result, headers=dict(result.headers))
+
+
+def _prepared_url(method: str, url: str, params: Mapping[str, Any] | None) -> str:
+    """Build the URL of a request as `requests` does.
+
+    Args:
+        method: HTTP method.
+        url: URL.
+        params: Query parameters, if any.
+
+    Returns:
+        The URL as `requests` sends it.
+
+    Raises:
+        requests.RequestException: `requests` cannot prepare the URL.
+    """
+    prepared = requests.Request(method.upper(), url, params=params).prepare()
+    return str(prepared.url)
 
 
 # Harness
