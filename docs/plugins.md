@@ -265,13 +265,16 @@ for attempt in run.attempts(candidates):
         continue
     attempt.succeeded(BackendResponse(status=200), remote_id=remote_id)
     break
+if run.final_reason == "outcome_unknown":
+    ...  # a backend may have the task: mark it as such, don't retry
 ```
 
 The app's client raises `NotAccepted(reason)` when a backend certainly did
 not accept the request (e.g., `connect_error`, `tls_error`, `not_public`,
 `no_credentials`, `http_403`), and `OutcomeUnknown(reason)` when it may have
 (e.g., `read_timeout`, `connection_lost`, `http_502`); the loop then stops
-after `OutcomeUnknown`.
+after `OutcomeUnknown` without raising, with `run.final_reason` set to
+`outcome_unknown`.
 
 `foca.plugins.adapter` is the only module that uses Connexion and Flask: it
 builds the plain request model (`inbound_from_request()`), the caller
