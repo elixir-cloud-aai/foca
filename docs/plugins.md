@@ -169,7 +169,10 @@ backends:
 ```
 
 Entry `id`s default to the normalized URL and must be unique; URLs must not
-have user info. `BackendList(entries, api="tes", public_url=...)` turns the
+have user info. Apps name the key with
+`GatewayApp(backends=lambda conf: conf.custom.tes.backends)`: `create_app()`
+then checks the list, and `foca.plugins.runtime.get_backend_list()` returns
+it, with the app's API and public URL. `BackendList(entries, api="tes", public_url=...)` turns the
 entries into the candidates of a request, in order:
 
 - `expand()`: configured backends and the backends discovered in each
@@ -354,13 +357,16 @@ for attempt in run.attempts(candidates):
         continue
     attempt.succeeded(BackendResponse(status=200), remote_id=remote_id)
     break
+if run.final_reason == "outcome_unknown":
+    ...  # a backend may have the task: mark it as such, don't retry
 ```
 
 The app's client raises `NotAccepted(reason)` when a backend certainly did
 not accept the request (e.g., `connect_error`, `tls_error`, `not_public`,
 `no_credentials`, `http_403`), and `OutcomeUnknown(reason)` when it may have
 (e.g., `read_timeout`, `connection_lost`, `http_502`); the loop then stops
-after `OutcomeUnknown`.
+after `OutcomeUnknown` without raising, with `run.final_reason` set to
+`outcome_unknown`.
 
 `foca.plugins.adapter` is the only module that uses Connexion and Flask: it
 builds the plain request model (`inbound_from_request()`), the caller

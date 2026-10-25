@@ -13,14 +13,13 @@ candidates = run.route(backends)              # phase `route`
 for attempt in run.attempts(candidates):      # phase `forward`, per backend
     try:
         result = send(attempt.outbound, timeout=attempt.remaining())
-    except OutcomeUnknown as exc:             # it may have accepted: stop
-        attempt.report(exc)                   # (a subclass: catch it first)
-        raise
-    except NotAccepted as exc:                # it certainly did not accept:
-        attempt.report(exc)                   # next backend
-        continue
+    except NotAccepted as exc:                # not accepted: next backend;
+        attempt.report(exc)                   # OutcomeUnknown (a subclass):
+        continue                              # stop, without raising
     response = attempt.succeeded(result, remote_id=result.payload["id"])
     break
+if run.final_reason == "outcome_unknown":     # a backend may have it
+    ...
 record = run.provenance()                     # e.g., with ProvenanceStore
 ```
 
@@ -747,7 +746,8 @@ class PipelineRun:
         backends_discarded: Backends of the client's selection that were no
             candidates.
         final_reason: Why forwarding ended without an accepting backend
-            (`forward_timeout` or `no_backend`), if it did.
+            (`forward_timeout`, `no_backend`, or `outcome_unknown` if a
+            backend may have accepted), if it did.
     """
 
     def __init__(
@@ -979,6 +979,9 @@ class PipelineRun:
             `forward` step failed, or whose outbound request the app's
             `validate_outbound` rejects, are skipped (recorded as not
             accepted, reason `forward_plugin_failed` or `invalid_outbound`).
+            After a success, or an attempt whose outcome is unknown, the
+            loop ends without raising; in the latter case, `final_reason`
+            is `outcome_unknown`, and the app must not retry elsewhere.
 
         Raises:
             ForwardTimeout: `plugins.defaults.forward_timeout` passed before
@@ -1041,6 +1044,8 @@ class PipelineRun:
             yield attempt
             if attempt.state is None:
                 raise RuntimeError("Report the outcome of each attempt")
+            if attempt.state == "unknown":
+                self.final_reason = "outcome_unknown"
             if attempt.state != "not_accepted":
                 return
         self.final_reason = "no_backend"
