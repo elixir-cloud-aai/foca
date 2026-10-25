@@ -209,8 +209,6 @@ configuration models, see [Configuration](configuration/index.md).
 ::: foca.utils.misc
 
 ::: foca.utils.urls
-
-::: foca.utils.http
     options:
       members:
         - check_url
@@ -221,6 +219,8 @@ configuration models, see [Configuration](configuration/index.md).
         - URLScheme
         - HTTP_SCHEMES
         - SUPPORTED_SCHEMES
+
+::: foca.utils.http
 
 ::: foca.utils.logging
     options:
