@@ -310,10 +310,18 @@ def test_fetch_json(server: str) -> None:
     assert info.value.reason == "invalid_json"
 
 
-def test_json_too_deep() -> None:
+def test_json_too_deep(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deeply nested JSON is invalid."""
     response = http.HttpResponse(status=200, content=b"[" * 100000)
     with pytest.raises(ValueError, match=r"deeply|Expecting"):
+        response.json()
+
+    def deep(content: bytes) -> None:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    # whether the parser recurses depends on the Python version
+    monkeypatch.setattr(http.json, "loads", deep)
+    with pytest.raises(ValueError, match="deeply"):
         response.json()
 
 
