@@ -23,7 +23,7 @@ from foca.plugins.base import EmptyModel
 from foca.plugins.config import PluginsConfig
 from foca.plugins.engine import PluginHost
 from foca.plugins.loader import LoadedPlugin, load_plugins
-from foca.plugins.testing import FakeDistribution, FakeEntryPoint
+from foca.plugins.testing import FakeEntryPoint
 
 
 class TagParams(BaseModel):
@@ -236,8 +236,6 @@ class RedirectPlugin(Plugin[EmptyModel, EmptyModel]):
         """
         response.status = 500
 
-
-__all__ = ["FakeDistribution", "FakeEntryPoint"]  # re-exported for tests
 
 FAKES: dict[str, type[Plugin[Any, Any]]] = {
     "test.tag": TagPlugin,
