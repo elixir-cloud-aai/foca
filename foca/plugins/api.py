@@ -16,13 +16,15 @@ caller; only the controllers use the web framework, via
 :py:mod:`foca.plugins.adapter`.
 """
 
+from collections.abc import Iterable
 from importlib.resources import files
 from typing import Any
 
 from foca.plugins import runtime
-from foca.plugins.engine import PluginHost
+from foca.plugins.engine import PluginHost, _has_role
 from foca.plugins.errors import GatewayError
 from foca.plugins.model import Principal
+from foca.plugins.records import ResolvedStep
 
 SPEC_PATH = str(files("foca.plugins").joinpath("api.yaml"))
 """Path of the OpenAPI 3 specification of the plugin listing."""
@@ -36,8 +38,22 @@ class PluginNotFound(GatewayError):
     slug = "plugin-not-found"
 
 
+def _may_choose(host: PluginHost, principal: Principal) -> bool:
+    """Check whether a caller may choose pipelines per request.
+
+    Args:
+        host: Plugin host.
+        principal: Caller.
+
+    Returns:
+        Whether client pipelines are enabled and the caller has their roles.
+    """
+    clients = host.conf.client_pipelines
+    return clients.enabled and _has_role(clients.roles, principal)
+
+
 def _may_use(host: PluginHost, plugin_id: str, principal: Principal) -> bool:
-    """Check whether a caller may choose a plugin in per-request pipelines.
+    """Check whether a caller may choose a plugin in its own pipelines.
 
     Args:
         host: Plugin host.
@@ -45,16 +61,19 @@ def _may_use(host: PluginHost, plugin_id: str, principal: Principal) -> bool:
         principal: Caller.
 
     Returns:
-        Whether the plugin is loaded (enabled), selectable by clients and, if
-        restricted to roles, allowed for one of the caller's roles.
+        Whether the caller may send pipelines (`inline`), and the plugin is
+        loaded (enabled), selectable by clients and, if restricted to roles,
+        allowed for one of the caller's roles; as selection checks it.
     """
     loaded = host.plugins.get(plugin_id)
-    if loaded is None:
+    if (
+        loaded is None
+        or not _may_choose(host, principal)
+        or "inline" not in host.conf.client_pipelines.allowed
+    ):
         return False
     available = loaded.available
-    return available.client_selectable and (
-        not available.roles or bool(set(available.roles) & set(principal.groups))
-    )
+    return available.client_selectable and _has_role(available.roles, principal)
 
 
 def describe_plugin(host: PluginHost, plugin_id: str) -> dict[str, Any]:
@@ -90,7 +109,7 @@ def describe_plugin(host: PluginHost, plugin_id: str) -> dict[str, Any]:
     }
 
 
-def _steps(steps: Any) -> list[dict[str, Any]]:
+def _steps(steps: Iterable[ResolvedStep]) -> list[dict[str, str | list[str]]]:
     """Describe resolved steps without parameters.
 
     Args:
@@ -113,16 +132,18 @@ def list_plugins(host: PluginHost, principal: Principal) -> dict[str, Any]:
         principal: Caller.
 
     Returns:
-        `plugins` the caller may choose, `presets` (unless presets are not
-        allowed), the `default_pipeline` (step identifiers and plugins), and
-        the constraints of `client_pipelines` (with `allowed_for_caller`),
-        `client_backends` and the `tag_prefix`.
+        `plugins` the caller may choose in its own pipelines (none unless it
+        may send them), `presets` it may choose (none unless presets are
+        allowed for it), the `default_pipeline` (step identifiers and
+        plugins), and the constraints of `client_pipelines` (with
+        `allowed_for_caller`, and the identifiers of the `prepend` and
+        `append` steps), `client_backends` and the `tag_prefix`: what
+        selection accepts (cf. :py:meth:`foca.plugins.PluginHost.resolve`).
     """
     conf = host.conf
     clients = conf.client_pipelines
-    allowed = clients.enabled and (
-        not clients.roles or bool(set(clients.roles) & set(principal.groups))
-    )
+    allowed = _may_choose(host, principal)
+    presets_allowed = allowed and "presets" in clients.allowed
     return {
         "plugins": [
             describe_plugin(host, plugin_id)
@@ -132,7 +153,7 @@ def list_plugins(host: PluginHost, principal: Principal) -> dict[str, Any]:
         "presets": [
             {"name": name, "steps": _steps(steps)}
             for name, steps in host.presets.items()
-            if "presets" in clients.allowed
+            if presets_allowed and host.may_use_preset(steps, principal)
         ],
         "default_pipeline": _steps(host.default_pipeline.steps),
         "client_pipelines": {
@@ -168,8 +189,9 @@ def get_plugin(
 
     Raises:
         PluginNotFound: The plugin is unknown, disabled, not selectable or
-            not allowed for the caller (the same error for all, so that
-            callers cannot probe the setup).
+            not allowed for the caller, or the caller may not send its own
+            pipelines (the same error for all, so that callers cannot probe
+            the setup).
     """
     if not _may_use(host, plugin_id, principal):
         raise PluginNotFound(f"Plugin not available: {plugin_id}")

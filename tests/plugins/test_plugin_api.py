@@ -10,10 +10,11 @@ import yaml
 from foca import Foca
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
-from foca.plugins import Principal, adapter, api, loader, runtime
+from foca.plugins import InvalidSelection, Principal, adapter, api, loader, runtime
 from foca.plugins.engine import PluginHost
 from foca.plugins.runtime import GatewayApp
 from tests.plugins.fakes import fake_entry_points, make_host
+from tests.plugins.test_plugin_engine import inbound
 
 ALICE = Principal(subject="alice", groups=("user",))
 ADMIN = Principal(subject="root", groups=("user", "admin"))
@@ -45,23 +46,95 @@ def test_list_plugins_by_role() -> None:
     """Callers see the selectable plugins that their roles allow."""
     host = listing_host(client_pipelines={"roles": ["admin"], "max_steps": 4})
     listing = api.list_plugins(host, ALICE)
-    ids = [plugin["id"] for plugin in listing["plugins"]]
-    assert ids == ["test.tag", "foca.routing.ordered"]
-    assert listing["presets"] == [
-        {"name": "tagged", "steps": [{"id": "test.tag", "plugins": ["test.tag"]}]}
-    ]
+    # Alice may not choose pipelines: nothing to choose
+    assert listing["plugins"] == []
+    assert listing["presets"] == []
     assert listing["default_pipeline"] == [{"id": "test.tag", "plugins": ["test.tag"]}]
     clients = listing["client_pipelines"]
     assert clients["enabled"]
     assert not clients["allowed_for_caller"]
     assert clients["max_steps"] == 4
+    assert clients["prepend"] == []
+    assert clients["append"] == ["foca.routing.ordered"]
     assert listing["client_backends"] == {"enabled": True, "max_items": 32}
     assert listing["tag_prefix"] == "gateway."
     admin = api.list_plugins(host, ADMIN)
-    assert "test.skip" in [plugin["id"] for plugin in admin["plugins"]]
+    assert [plugin["id"] for plugin in admin["plugins"]] == [
+        "test.tag",
+        "test.skip",
+        "foca.routing.ordered",
+    ]
+    assert admin["presets"] == [
+        {"name": "tagged", "steps": [{"id": "test.tag", "plugins": ["test.tag"]}]}
+    ]
     assert admin["client_pipelines"]["allowed_for_caller"]
     json.dumps(admin)
     host.close()
+
+
+@pytest.mark.parametrize(
+    "client_pipelines",
+    [
+        {},
+        {"allowed": ["inline"]},
+        {"allowed": ["presets"]},
+        {"roles": ["admin"]},
+        {"enabled": False},
+        {"prepend": [{"id": "first", "plugin": "test.header"}]},
+    ],
+)
+@pytest.mark.parametrize("principal", [ALICE, ADMIN])
+def test_listing_matches_selection(
+    client_pipelines: dict[str, Any], principal: Principal
+) -> None:
+    """Listed plugins and presets are exactly those that selection accepts."""
+    host = make_host(
+        ["test.tag"],
+        available={
+            "test.tag": {},
+            "test.header": {},
+            "test.skip": {"roles": ["admin"]},
+            "test.fail": {"client_selectable": False},
+            "test.reject": {"enabled": False},
+        },
+        presets={
+            "tagged": ["test.tag"],
+            "admins": ["test.skip"],
+            "hidden": ["test.fail"],
+        },
+        client_pipelines=client_pipelines,
+    )
+    listing = api.list_plugins(host, principal)
+    listed = {plugin["id"] for plugin in listing["plugins"]}
+    for plugin_id in [*host.plugins, "test.reject"]:
+        pipeline = json.dumps([{"plugin": plugin_id}])
+        assert accepts(host, pipeline, principal) == (plugin_id in listed), plugin_id
+    presets = {preset["name"] for preset in listing["presets"]}
+    for name in host.presets:
+        assert accepts(host, name, principal) == (name in presets), name
+    prepend = [step.get("id") for step in client_pipelines.get("prepend", [])]
+    assert listing["client_pipelines"]["prepend"] == prepend
+    if client_pipelines.get("enabled") is False:
+        assert not listing["client_pipelines"]["allowed_for_caller"]
+    host.close()
+
+
+def accepts(host: PluginHost, value: str, principal: Principal) -> bool:
+    """Check whether selection accepts a pipeline choice.
+
+    Args:
+        host: Host.
+        value: Value of the pipeline tag.
+        principal: Caller.
+
+    Returns:
+        Whether a request with the choice starts.
+    """
+    try:
+        host.start(inbound({"tags": {"gateway.pipeline": value}}), principal)
+    except InvalidSelection:
+        return False
+    return True
 
 
 def test_presets_hidden_if_not_allowed() -> None:
@@ -85,10 +158,12 @@ def test_describe_plugin() -> None:
     host.close()
 
 
-def test_group_and_subgroup() -> None:
+def test_group_and_subgroup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Identifiers `<group>.<subgroup>.<name>` give group and subgroup."""
     host = listing_host()
-    host.plugins["org.example.tes.policy.images"] = host.plugins["test.tag"]
+    monkeypatch.setitem(
+        host.plugins, "org.example.tes.policy.images", host.plugins["test.tag"]
+    )
     plugin = api.describe_plugin(host, "org.example.tes.policy.images")
     assert (plugin["group"], plugin["subgroup"]) == ("tes", "policy")
     host.close()
@@ -134,6 +209,10 @@ def test_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
         assert api.getPlugin("test.tag")["id"] == "test.tag"
         response = api.getPlugin("test.skip")
         assert response.status_code == 404
+        body = response.get_json()
+        assert body["status"] == 404
+        assert body["problem_type"].endswith("#plugin-not-found")
+        assert "test.skip" in body["detail"]
     host.close()
 
 
@@ -185,4 +264,9 @@ def test_spec_merged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = foca.create_app().app.test_client()
     response = client.get("/v2/plugins")
     assert response.status_code == 401
+    assert json.loads(response.data) == {"title": "Unauthorized", "status": 401}
+    # the app's own `info` wins (FOCA's file comes first)
+    assert client.get("/v2/openapi.json").get_json()["info"]["title"] == (
+        "Swagger Petstore"
+    )
     runtime.reset()

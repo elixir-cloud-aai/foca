@@ -536,16 +536,20 @@ keys first.
 
 Clients that choose pipelines per request (e.g., SDKs, dashboards) list
 what they may choose with `GET <base>/plugins` and
-`GET <base>/plugins/{plugin_id}`, both authenticated. The listing holds the
-plugins that the caller may choose (loaded, `client_selectable`, and
-allowed for one of the caller's roles), with title, description, group and
+`GET <base>/plugins/{plugin_id}`, both authenticated. The listing holds
+exactly what selection accepts from the caller: the plugins it may use in
+its own pipelines (if it may send them: `client_pipelines` enabled, its
+`roles`, `inline` allowed; then loaded, `client_selectable`, and allowed
+for one of the caller's roles), with title, description, group and
 subgroup (from identifiers `<group>.<subgroup>.<name>`), phases,
-capabilities, maturity, version, third-party data transfers and the JSON
-Schema of the parameters, never the admin settings. It also holds the
-presets (if clients may use them), the steps of the default pipeline, the
-limits of `client_pipelines` and `client_backends`, and the tag prefix.
-Plugins that the caller may not choose give `404` (`plugin-not-found`),
-whatever the reason.
+capabilities, maturity, distribution, version, third-party data transfers
+and the JSON Schema of the parameters, never the admin settings; and the
+presets it may choose (`presets` allowed, and the roles of their plugins).
+It also holds the steps of the default pipeline, the limits of
+`client_pipelines` (with whether the caller may choose, and the
+identifiers of the `prepend` and `append` steps) and `client_backends`,
+and the tag prefix. Plugins that the caller may not use give `404`
+(`plugin-not-found`), whatever the reason.
 
 Apps serve the listing by adding FOCA's OpenAPI 3 specification
 (`foca.plugins.api.SPEC_PATH`) to the files of their API specification, so
