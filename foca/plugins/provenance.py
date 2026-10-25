@@ -22,14 +22,27 @@ Plain data and pymongo collections; no web framework.
 
 import hashlib
 import json
+import logging
 import math
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from foca.plugins.loader import LoadedPlugin
+from foca.plugins.model import CREDENTIAL_HEADERS
+
+if TYPE_CHECKING:  # pragma: no cover (types only; the engine imports this module)
+    from foca.plugins.engine import PipelineRun
+
+logger = logging.getLogger(__name__)
+
+MAX_SAFE_INTEGER = 2**53 - 1
+"""Largest integer that hashes represent exactly (I-JSON, RFC 7493)."""
+
+MAX_CHANGED_PATHS = 256
+"""Maximum number of changed paths recorded per call."""
 
 IMAGE_DIGEST_ENV = "FOCA_IMAGE_DIGEST"
 """Environment variable with the digest of the app's container image, if set
@@ -92,6 +105,8 @@ def _serialize(value: Any, parts: list[str]) -> None:
     if value is None or isinstance(value, bool):
         parts.append({None: "null", True: "true", False: "false"}[value])
     elif isinstance(value, int):
+        if abs(value) > MAX_SAFE_INTEGER:
+            raise ValueError("Integers beyond 2^53 - 1 are not I-JSON")
         parts.append(_number(float(value)))
     elif isinstance(value, float):
         parts.append(_number(value))
@@ -126,7 +141,8 @@ def canonical_json(value: Any) -> str:
 
     Object keys are sorted by their UTF-16 code units, numbers are written
     as in ECMAScript, and there is no whitespace. Integers are treated as
-    IEEE 754 doubles, as RFC 8785 requires.
+    IEEE 754 doubles, as RFC 8785 requires, so integers beyond 2^53 - 1,
+    which doubles do not represent exactly, are refused (I-JSON).
 
     Args:
         value: JSON data (`dict`, `list`, `tuple`, `str`, `int`, `float`,
@@ -137,7 +153,8 @@ def canonical_json(value: Any) -> str:
 
     Raises:
         TypeError: The value is not JSON data.
-        ValueError: A number is not finite.
+        ValueError: A number is not finite, or an integer is beyond
+            :py:data:`MAX_SAFE_INTEGER`.
 
     Examples:
         >>> canonical_json({"b": [1.0, 2.5e-7], "a": "€"})
@@ -185,8 +202,10 @@ def _pointer(parent: str, token: str | int) -> str:
 def changed_paths(before: Any, after: Any, prefix: str = "") -> list[str]:
     """List the JSON Pointers at which two JSON values differ.
 
-    Objects are compared key by key and arrays index by index; values of
-    other types, or of different types, are compared as a whole.
+    Objects are compared key by key, and arrays of the same length index
+    by index; arrays of different lengths (e.g., after an insertion, which
+    shifts all later items) and values of other or different types are
+    compared as a whole.
 
     Args:
         before: Value before a change.
@@ -201,6 +220,8 @@ def changed_paths(before: Any, after: Any, prefix: str = "") -> list[str]:
     Examples:
         >>> changed_paths({"a": 1, "b": [1, 2]}, {"a": 1, "b": [1, 3], "c/d": 0})
         ['/b/1', '/c~1d']
+        >>> changed_paths({"b": [1, 2]}, {"b": [0, 1, 2]})
+        ['/b']
     """
     if isinstance(before, Mapping) and isinstance(after, Mapping):
         paths = []
@@ -212,17 +233,102 @@ def changed_paths(before: Any, after: Any, prefix: str = "") -> list[str]:
                 paths.extend(changed_paths(before[key], after[key], child))
         return paths
     if _is_array(before) and _is_array(after):
+        if len(before) != len(after):
+            return [prefix]
         paths = []
-        for index in range(max(len(before), len(after))):
-            child = _pointer(prefix, index)
-            if index >= len(before) or index >= len(after):
-                paths.append(child)
-            else:
-                paths.extend(changed_paths(before[index], after[index], child))
+        for index, (old, new) in enumerate(zip(before, after, strict=True)):
+            paths.extend(changed_paths(old, new, _pointer(prefix, index)))
         return paths
     if type(before) is not type(after) or before != after:
         return [prefix]
     return []
+
+
+def _snapshot(phase: str, value: Any, secret_headers: frozenset[str]) -> Any:
+    """Get the data of a phase that plugins may change, as JSON data.
+
+    Args:
+        phase: Phase.
+        value: Input or output of a hook of the phase.
+        secret_headers: Lowercase names of headers left out, besides
+            :py:data:`foca.plugins.model.CREDENTIAL_HEADERS`.
+
+    Returns:
+        Data of the phase: method, path, query, headers (without
+        credentials and secret headers) and payload of requests; the
+        client's part of responses; candidate identifiers. The credential
+        type of outbound requests (`auth`) is left out, as hashes of short
+        values can be guessed.
+    """
+    if phase == "route":
+        return [backend.id for backend in value]
+    excluded = CREDENTIAL_HEADERS | secret_headers
+    if phase == "response":
+        return {
+            "client_payload": value.client_payload,
+            "client_headers": _headers(value.client_headers, excluded),
+        }
+    return {
+        "method": value.method,
+        "path": value.path,
+        "query": value.query,
+        "headers": _headers(value.headers, excluded),
+        "payload": value.payload,
+    }
+
+
+def _headers(headers: Mapping[str, str], excluded: Iterable[str]) -> dict[str, str]:
+    """Get headers with lowercase names, without excluded ones.
+
+    Args:
+        headers: Headers.
+        excluded: Lowercase names of excluded headers.
+
+    Returns:
+        Headers.
+    """
+    left_out = set(excluded)
+    return {
+        name.lower(): text
+        for name, text in headers.items()
+        if name.lower() not in left_out
+    }
+
+
+def describe_changes(
+    phase: str,
+    before: Any,
+    after: Any,
+    secret_headers: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Describe the changes of a hook call, without values.
+
+    Args:
+        phase: Phase.
+        before: Input of the call.
+        after: Committed output of the call.
+        secret_headers: Names of headers left out besides credentials (cf.
+            `plugins.provenance.secret_headers`).
+
+    Returns:
+        Hashes before and after and the changed JSON Pointers (at most
+        :py:data:`MAX_CHANGED_PATHS`, with `truncated: true` if there are
+        more); `error: not_json` if the data is not I-JSON.
+    """
+    secret = frozenset(name.lower() for name in secret_headers)
+    old, new = _snapshot(phase, before, secret), _snapshot(phase, after, secret)
+    try:
+        paths = changed_paths(old, new)
+        changes: dict[str, Any] = {
+            "before": content_hash(old),
+            "after": content_hash(new),
+            "paths": paths[:MAX_CHANGED_PATHS],
+        }
+    except (TypeError, ValueError, ArithmeticError, RecursionError):
+        return {"error": "not_json"}
+    if len(paths) > MAX_CHANGED_PATHS:
+        changes["truncated"] = True
+    return changes
 
 
 def _is_array(value: Any) -> bool:
@@ -237,6 +343,26 @@ def _is_array(value: Any) -> bool:
     return isinstance(value, list | tuple)
 
 
+def _build_fields(loaded: LoadedPlugin) -> dict[str, Any]:
+    """Get the fields that identify the build of a loaded plugin.
+
+    Args:
+        loaded: Loaded plugin.
+
+    Returns:
+        Plugin identifier, distribution, version, entry point, RECORD
+        digest and the image digest from `FOCA_IMAGE_DIGEST`, if set.
+    """
+    return {
+        "id": loaded.id,
+        "distribution": loaded.distribution,
+        "version": loaded.version,
+        "entry_point": loaded.entry_point,
+        "record_digest": loaded.record_digest,
+        "image_digest": os.environ.get(IMAGE_DIGEST_ENV) or None,
+    }
+
+
 def build_key(loaded: LoadedPlugin) -> str:
     """Identify the build of a loaded plugin.
 
@@ -244,18 +370,11 @@ def build_key(loaded: LoadedPlugin) -> str:
         loaded: Loaded plugin.
 
     Returns:
-        Hash of the plugin identifier, distribution, version, entry point
-        and RECORD digest.
+        Hash of the plugin identifier, distribution, version, entry point,
+        RECORD digest and image digest, so that a new image gives new build
+        documents.
     """
-    return content_hash(
-        {
-            "id": loaded.id,
-            "distribution": loaded.distribution,
-            "version": loaded.version,
-            "entry_point": loaded.entry_point,
-            "record_digest": loaded.record_digest,
-        }
-    )
+    return content_hash(_build_fields(loaded))
 
 
 def build_document(loaded: LoadedPlugin) -> dict[str, Any]:
@@ -268,16 +387,32 @@ def build_document(loaded: LoadedPlugin) -> dict[str, Any]:
         Document with the key as `_id`, the build fields, the plugin's API
         version and the image digest from `FOCA_IMAGE_DIGEST`, if set.
     """
+    fields = _build_fields(loaded)
     return {
-        "_id": build_key(loaded),
-        "id": loaded.id,
-        "distribution": loaded.distribution,
-        "version": loaded.version,
-        "entry_point": loaded.entry_point,
-        "record_digest": loaded.record_digest,
+        "_id": content_hash(fields),
+        **fields,
         "api_version": loaded.cls.api_version,
-        "image_digest": os.environ.get(IMAGE_DIGEST_ENV) or None,
     }
+
+
+class Collection(Protocol):
+    """Collection that stores documents, e.g., of pymongo."""
+
+    def update_one(self, filter: Any, update: Any, upsert: bool = ...) -> Any:
+        """Update or insert one document.
+
+        Args:
+            filter: Query of the document.
+            update: Update.
+            upsert: Whether to insert the document if none matches.
+        """
+
+    def insert_one(self, document: Any) -> Any:
+        """Insert one document.
+
+        Args:
+            document: Document.
+        """
 
 
 class ProvenanceStore:
@@ -296,7 +431,10 @@ class ProvenanceStore:
     """
 
     def __init__(
-        self, plugin_builds: Any, pipelines: Any, failures: Any | None = None
+        self,
+        plugin_builds: Collection,
+        pipelines: Collection,
+        failures: Collection | None = None,
     ) -> None:
         """Create the store.
 
@@ -310,46 +448,58 @@ class ProvenanceStore:
         self.pipelines = pipelines
         self.failures = failures
 
-    def save(self, run: Any) -> dict[str, Any]:
+    def save(self, run: "PipelineRun") -> dict[str, Any]:
         """Store the shared parts of a run's provenance.
 
         Stores the builds of the run's plugins and, for default and preset
         pipelines, the resolved pipeline; client pipelines stay inline, so
-        that they are deleted with the task.
+        that they are deleted with the task. Never raises, as the backend
+        may have accepted the request already: errors of the collections
+        are logged, and the record then keeps what could not be stored
+        (`stored: false`).
 
         Args:
-            run: Pipeline run (:py:class:`foca.plugins.PipelineRun`).
+            run: Pipeline run.
 
         Returns:
             Provenance to store with the task: as from `run.provenance()`,
-            with default and preset pipelines by hash only.
+            with default and preset pipelines by hash only, if stored.
         """
         record: dict[str, Any] = run.provenance()
-        for loaded in run.host.plugins.values():
-            document = build_document(loaded)
-            if document["_id"] in record["plugins"]:
-                _insert_once(self.plugin_builds, document)
-        pipeline = record["pipeline"]
-        if pipeline["source"] != "client":
-            _insert_once(
-                self.pipelines,
-                {"_id": pipeline["resolved_hash"], "resolved": pipeline["resolved"]},
-            )
-            del pipeline["resolved"]
+        try:
+            for loaded in run.host.plugins.values():
+                document = build_document(loaded)
+                if document["_id"] in record["plugins"]:
+                    _insert_once(self.plugin_builds, document)
+            pipeline = record["pipeline"]
+            if pipeline["source"] != "client" and pipeline["resolved_hash"]:
+                _insert_once(
+                    self.pipelines,
+                    {
+                        "_id": pipeline["resolved_hash"],
+                        "resolved": pipeline["resolved"],
+                    },
+                )
+                del pipeline["resolved"]
+        except Exception as exc:
+            logger.warning("Provenance not stored: %s", type(exc).__name__)
+            record["stored"] = False
         return record
 
-    def save_failure(self, run: Any, error: Exception) -> bool:
+    def save_failure(self, run: "PipelineRun", error: Exception) -> bool:
         """Store the record of a failed pipeline run, if configured.
 
+        Never raises: errors of the collection are logged.
+
         Args:
-            run: Pipeline run (:py:class:`foca.plugins.PipelineRun`).
+            run: Pipeline run.
             error: Error that ended the run, e.g., a
                 :py:class:`foca.plugins.GatewayError`.
 
         Returns:
             Whether the record was stored: only if
-            `plugins.provenance.record_failed` is on and the store has a
-            collection for failures.
+            `plugins.provenance.record_failed` is on, the store has a
+            collection for failures, and storing succeeded.
         """
         if self.failures is None or not run.host.conf.provenance.record_failed:
             return False
@@ -360,15 +510,19 @@ class ProvenanceStore:
             "status": getattr(error, "code", None),
             "slug": getattr(error, "slug", None),
         }
-        self.failures.insert_one(record)
+        try:
+            self.failures.insert_one(record)
+        except Exception as exc:
+            logger.warning("Failure record not stored: %s", type(exc).__name__)
+            return False
         return True
 
 
-def _insert_once(collection: Any, document: dict[str, Any]) -> None:
+def _insert_once(collection: Collection, document: dict[str, Any]) -> None:
     """Insert a document unless one with its `_id` exists.
 
     Args:
-        collection: Collection (pymongo).
+        collection: Collection.
         document: Document with `_id`.
     """
     collection.update_one(
