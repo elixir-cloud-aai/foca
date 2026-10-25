@@ -15,6 +15,7 @@ top-level sections are interpreted by FOCA; all of them are optional:
 | [`security.auth`](auth.md) | Bearer token validation |
 | [`security.access_control`](access-control.md) | Access control |
 | [`security.cors`](cors.md) | Cross-origin resource sharing |
+| [`plugins`](plugins.md) | Gateway plugins: allowlist and pipelines |
 | [`custom`](custom.md) | Validated app-specific settings |
 
 Values of these sections are **validated** when the app is created; invalid

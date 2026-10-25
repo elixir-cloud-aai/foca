@@ -112,9 +112,11 @@ nav:
       - security.auth: configuration/auth.md
       - security.access_control: configuration/access-control.md
       - security.cors: configuration/cors.md
+      - plugins: configuration/plugins.md
       - custom: configuration/custom.md
   - Authentication: authentication.md
   - Access control: access-control.md
+  - Gateway plugins: plugins.md
   - Deployment: deployment.md
   - Helm library chart: helm-chart.md
   - Utilities: utilities.md

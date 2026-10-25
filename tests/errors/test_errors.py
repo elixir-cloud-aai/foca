@@ -724,11 +724,16 @@ class TestProblemResponse:
         with pytest.raises(ValueError, match="error status code"):
             problem_response(exc)
 
-    @pytest.mark.parametrize("member", ["title", "status", "detail", "type"])
+    @pytest.mark.parametrize("member", ["status", "detail", "type"])
     def test_reserved_members(self, member: str) -> None:
         """Extension members cannot override those set from the exception."""
         with pytest.raises(ValueError, match=member):
             problem_response(Conflict("x"), **{member: "x"})
+
+    def test_title(self) -> None:
+        """Titles may be specific to the request."""
+        response = problem_response(Conflict("x"), title="Name Taken")
+        assert self._problem(response)["title"] == "Name Taken"
 
 
 @pytest.mark.parametrize(

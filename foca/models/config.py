@@ -24,6 +24,7 @@ from pydantic import (
 )
 from pymongo import MongoClient, collection, database
 
+from foca.plugins.config import PluginsConfig
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     ADMIN_ROLE,
@@ -2212,6 +2213,7 @@ class Config(FOCABaseConfig):
         jobs: Background job config parameters.
         log: Logger config parameters.
         service_info: GA4GH service info parameters.
+        plugins: Gateway plugin parameters (cf. :py:mod:`foca.plugins`).
 
     Attributes:
         server: Server config parameters.
@@ -2222,6 +2224,7 @@ class Config(FOCABaseConfig):
         jobs: Background job config parameters.
         log: Logger config parameters.
         service_info: GA4GH service info parameters.
+        plugins: Gateway plugin parameters, if configured.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2245,4 +2248,5 @@ class Config(FOCABaseConfig):
     jobs: JobsConfig | None = None
     log: LogConfig = LogConfig()
     service_info: ServiceInfoConfig | None = None
+    plugins: PluginsConfig | None = None
     model_config = ConfigDict(extra="allow")

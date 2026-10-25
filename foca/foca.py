@@ -14,6 +14,8 @@ from foca.database.register_mongodb import register_mongodb
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.celery_app import create_celery_app
 from foca.factories.connexion_app import create_connexion_app
+from foca.plugins import runtime
+from foca.plugins.runtime import GatewayApp
 from foca.security.access_control.register_access_control import (
     register_access_control,
 )
@@ -30,6 +32,7 @@ class Foca:
         self,
         config_file: Path | str | Sequence[Path | str] | None = None,
         custom_config_model: str | None = None,
+        gateway: GatewayApp | None = None,
     ) -> None:
         """Instantiate FOCA class.
 
@@ -52,6 +55,9 @@ class Foca:
                 that default values are supplied for each config
                 parameters, so as to make it easier for others to
                 write/modify their app configuration.
+            gateway: Settings of a gateway app (e.g., proTES) for its plugin
+                host (cf. :py:mod:`foca.plugins.runtime`); configurations
+                with keys of earlier middleware stacks are then refused.
 
         Attributes:
             config_file: Path(s) to application configuration file(s), as
@@ -76,6 +82,7 @@ class Foca:
                 write/modify their app configuration.
             conf: App configuration. Instance of
                 :py:class:`foca.models.config.Config`.
+            gateway: Settings of a gateway app, if any.
         """
         self.config_file = config_file
         self.custom_config_model: str | None = custom_config_model
@@ -83,10 +90,13 @@ class Foca:
             config_file=self.config_file,
             custom_config_model=self.custom_config_model,
             format_logs=True,
+            gateway=gateway is not None,
         )
         self.conf = parser.config
         self.config_files: list[Path] = parser.config_files
         self.config_dir: Path = parser.config_dir
+        self.gateway = gateway
+        runtime.configure(gateway)
         logger.info("Log formatting configured.")
         if not self.config_files:
             logger.info("Default app configuration used.")
@@ -126,7 +136,9 @@ class Foca:
                 specifications route operations to
                 `foca.api.service_info.getServiceInfo`, but no service info is
                 configured.
-            ValueError: Operations routed to the controllers of
+            ValueError: Gateway plugins cannot be loaded (cf.
+                :py:class:`foca.plugins.PluginHost`), or operations routed to
+                the controllers of
                 :py:mod:`foca.security.access_control.ownership_server` do not
                 enforce access control policies, group settings keep all
                 group mappings from applying, or no admin is configured and
@@ -166,6 +178,18 @@ class Foca:
         # Check service info, including fields computed at runtime, and that
         # it is configured if served
         check_service_info(cnx_app.app)
+
+        # Load the plugins once, so that problems stop the app on startup;
+        # each process creates its own host on first use (after forks), so
+        # plugins are instantiated (`setup()`) once more there
+        if self.gateway is not None:
+            runtime.create_host().close()
+            logger.info("Gateway plugins checked.")
+        elif self.conf.plugins is not None:
+            logger.warning(
+                "Section 'plugins' is configured, but the app is no gateway"
+                " (cf. 'Foca(gateway=...)'); plugins are not loaded."
+            )
 
         return cnx_app
 
