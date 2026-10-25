@@ -615,10 +615,9 @@ class PluginsConfig(_Model):
         Raises:
             ValueError: A pipeline refers to a plugin that is not in
                 `available`, a step other than in `client_pipelines.append`
-                sets `if_missing_phase`, or a step of a preset has the
-                identifier of a framing step that is always kept (the
-                engine checks appended defaults, `if_missing_phase`, at
-                startup).
+                sets `if_missing_phase`. (Clashes of preset steps with the
+                frame's steps are checked by the engine at startup, against
+                the frame steps that are kept.)
         """
         for name, steps in self.pipelines().items():
             for step in steps:
@@ -633,18 +632,4 @@ class PluginsConfig(_Model):
                             f"Plugin {alternative.plugin!r} of {name} is not in"
                             " 'plugins.available'"
                         )
-        frame = self.client_pipelines
-        reserved = {
-            step.id
-            for step in (*frame.prepend, *frame.append)
-            if step.if_missing_phase is None
-        }
-        for name, steps in self.presets.items():
-            clashes = sorted(str(step.id) for step in steps if step.id in reserved)
-            if clashes:
-                raise ValueError(
-                    f"Step {clashes[0]!r} of presets.{name} has the identifier of"
-                    " a step of 'client_pipelines.prepend' or 'append'; set an"
-                    " explicit `id`"
-                )
         return self

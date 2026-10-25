@@ -185,6 +185,7 @@ class Foca:
         if self.gateway is not None:
             runtime.create_host().close()
             if self.gateway.backends is not None:
+                # validates the backend list only; requests build their own
                 runtime.get_backend_list()
             logger.info("Gateway plugins checked.")
         elif self.conf.plugins is not None:

@@ -127,6 +127,10 @@ them. Presets and frames are checked on startup like the default pipeline
 (also that no preset step has the identifier of a frame step); presets that
 need a disabled plugin are unavailable.
 
+The backends themselves are not part of `plugins`: gateway apps configure
+them as a [backend list](../plugins.md#backend-lists) under a key of their
+own (e.g., proTES: `custom.tes.backends`).
+
 ## Provenance
 
 Records describe each plugin's changes as hashes before and after and the
