@@ -180,6 +180,7 @@ configuration models, see [Configuration](configuration/index.md).
         - get_host
         - create_host
         - configure
+        - get_backend_list
         - reset
 
 ::: foca.plugins.adapter

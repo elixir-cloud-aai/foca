@@ -177,3 +177,31 @@ def test_outcome_exceptions() -> None:
     ]
     with pytest.raises(ValueError, match="Reason"):
         NotAccepted("HTTP 403")
+
+
+def test_backend_list(tmp_path: Path, fake_plugins: None) -> None:
+    """Gateway apps get their backend list from the configuration."""
+    config = write_config(
+        tmp_path,
+        {
+            "server": {"public_url": "https://gw.example.org/ga4gh/tes/v1"},
+            "custom": {
+                "backends": [
+                    {"type": "ga4gh-tes", "url": "https://tes.example.org"},
+                    {"type": "ga4gh-tes", "url": "https://gw.example.org/ga4gh/tes/v1"},
+                ]
+            },
+        },
+    )
+    gateway = GatewayApp(api="tes", backends=lambda conf: conf.custom["backends"])
+    Foca(config_file=config, gateway=gateway).create_app()
+    backends = runtime.get_backend_list()
+    assert [backend.url for backend in backends.expand()] == ["https://tes.example.org"]
+    runtime.reset()
+    Foca(config_file=config, gateway=GatewayApp(api="tes")).create_app()
+    with pytest.raises(RuntimeError, match="No backend list"):
+        runtime.get_backend_list()
+    runtime.reset()
+    invalid = GatewayApp(api="tes", backends=lambda conf: [{"type": "x"}])
+    with pytest.raises(ValueError):
+        Foca(config_file=config, gateway=invalid).create_app()
