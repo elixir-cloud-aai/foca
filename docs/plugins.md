@@ -129,10 +129,11 @@ the attempt:
 All attempts of a request together may take `plugins.defaults.forward_timeout`
 seconds (`503` when exceeded); no backend accepting gives `503` too.
 
-Outbound requests carry a `Via` header with the gateway's name
-(`plugins.gateway_id`, by default the host of `server.public_url`), and
-inbound requests whose `Via` header already names this gateway are refused
-(`508 Loop Detected`). Backends at or below the gateway's own public URL are
+Outbound requests carry a `Via` header: the inbound request's `Via` header,
+passed through verbatim, plus the gateway's name (`plugins.gateway_id`, by
+default the host and port of `server.public_url`). Inbound requests whose
+`Via` header already names this gateway are refused (`508 Loop Detected`),
+as are `Via` headers longer than 1024 characters (`400`). Backends at or below the gateway's own public URL are
 never candidates. Credentials of backends are added by the app after the
 `forward` phase, so plugins never see them; the client's own credentials
 are never forwarded by the engine.
@@ -252,6 +253,7 @@ Rules:
   alternative then fails.
 - One instance serves all requests of a process, from several threads:
   keep per-request data in `ctx.state`, not on `self`.
+- `setup()` may run more than once per process, so it must be idempotent.
 - Identifiers of plugins outside FOCA's own repositories start with a
   prefix of their own (e.g., `org.example.`).
 - Hooks are plain functions (`def`); FOCA 1.0 will also accept `async def`
