@@ -17,7 +17,7 @@ setting them get `400`, so that tags under the prefix can be trusted.
 """
 
 import json
-import re
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -35,8 +35,8 @@ PIPELINE_TAG = "pipeline"
 BACKENDS_TAG = "backends"
 """Name of the tag with the client's backend selection, after the prefix."""
 
-PRESET_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
-"""Pattern of preset names."""
+MAX_BACKENDS_SIZE = 8192
+"""Maximum size of the backends tag, in bytes."""
 
 _MAX_BACKEND_ITEM_LENGTH = 2048
 
@@ -94,7 +94,7 @@ class BackendSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["order", "allow", "forbid"]
-    backends: list[str] = Field(max_length=1024)
+    backends: list[str] = Field(min_length=1, max_length=1024)
 
     @field_validator("backends")
     @classmethod
@@ -111,7 +111,9 @@ class BackendSelection(BaseModel):
             ValueError: An item is empty or too long.
         """
         if any(not 0 < len(item) <= _MAX_BACKEND_ITEM_LENGTH for item in backends):
-            raise ValueError("Backends are strings of 1 to 2048 characters")
+            raise ValueError(
+                f"Backends are strings of 1 to {_MAX_BACKEND_ITEM_LENGTH} characters"
+            )
         return backends
 
 
@@ -122,16 +124,19 @@ class ClientSelection:
     Attributes:
         pipeline: Value of the pipeline tag, as sent, if any.
         backends: Backend selection, if any.
-        backends_raw: Value of the backends tag, as sent, if any.
     """
 
     pipeline: str | None = None
     backends: BackendSelection | None = None
-    backends_raw: str | None = None
 
 
 def parse_client_tags(
-    tags: object, prefix: str, max_pipeline_size: int, max_backends: int
+    tags: object,
+    prefix: str,
+    max_pipeline_size: int,
+    max_backends: int,
+    pipelines_enabled: bool = True,
+    backends_enabled: bool = True,
 ) -> ClientSelection:
     """Read the client's choices from the tags of a payload.
 
@@ -140,16 +145,22 @@ def parse_client_tags(
         prefix: Reserved prefix (`plugins.tags.prefix`).
         max_pipeline_size: Maximum size of the pipeline tag, in bytes.
         max_backends: Maximum number of backends in the backends tag.
+        pipelines_enabled: Whether clients may choose pipelines.
+        backends_enabled: Whether clients may choose backends.
 
     Returns:
         Choices; empty if there are no tags.
 
     Raises:
-        InvalidSelection: A tag under the prefix other than the pipeline and
-            backends tags is set (`reserved-tag`), or a tag value is invalid.
+        InvalidSelection: The tags are not a mapping, a tag under the prefix
+            other than the pipeline and backends tags is set
+            (`reserved-tag`), a choice is disabled, or a tag value is
+            invalid.
     """
-    if not isinstance(tags, Mapping):
+    if tags is None:
         return ClientSelection()
+    if not isinstance(tags, Mapping):
+        raise InvalidSelection("Tags are a map of strings", slug="reserved-tag")
     allowed = {f"{prefix}{PIPELINE_TAG}", f"{prefix}{BACKENDS_TAG}"}
     reserved = sorted(
         str(key) for key in tags if str(key).startswith(prefix) and key not in allowed
@@ -160,17 +171,23 @@ def parse_client_tags(
             slug="reserved-tag",
         )
     pipeline = tags.get(f"{prefix}{PIPELINE_TAG}")
+    raw = tags.get(f"{prefix}{BACKENDS_TAG}")
+    if pipeline is not None and not pipelines_enabled:
+        raise InvalidSelection("Choosing pipelines per request is disabled")
+    if raw is not None and not backends_enabled:
+        raise InvalidSelection(
+            "Choosing backends per request is disabled", slug="invalid-backends"
+        )
     if pipeline is not None and (
         not isinstance(pipeline, str) or len(pipeline.encode()) > max_pipeline_size
     ):
         raise InvalidSelection(
             f"Pipelines are strings of at most {max_pipeline_size} bytes"
         )
-    raw = tags.get(f"{prefix}{BACKENDS_TAG}")
     backends = None
     if raw is not None:
         backends = _parse_backends(raw, max_backends)
-    return ClientSelection(pipeline=pipeline, backends=backends, backends_raw=raw)
+    return ClientSelection(pipeline=pipeline, backends=backends)
 
 
 def _parse_backends(raw: object, max_backends: int) -> BackendSelection:
@@ -186,6 +203,11 @@ def _parse_backends(raw: object, max_backends: int) -> BackendSelection:
     Raises:
         InvalidSelection: The value is not a valid selection.
     """
+    if isinstance(raw, str) and len(raw.encode()) > MAX_BACKENDS_SIZE:
+        raise InvalidSelection(
+            f"Backend selections are at most {MAX_BACKENDS_SIZE} bytes",
+            slug="invalid-backends",
+        )
     try:
         if not isinstance(raw, str):
             raise TypeError("not a string")
@@ -204,6 +226,52 @@ def _parse_backends(raw: object, max_backends: int) -> BackendSelection:
     return selection
 
 
+MAX_SAFE_INTEGER = 2**53 - 1
+"""Largest integer that JSON numbers represent exactly (I-JSON, RFC 7493)."""
+
+
+def _reject_constant(name: str) -> None:
+    """Reject the JSON extensions `NaN`, `Infinity` and `-Infinity`.
+
+    Args:
+        name: Constant.
+
+    Raises:
+        ValueError: Always.
+    """
+    raise ValueError(f"{name} is not allowed")
+
+
+def check_i_json(data: Any) -> None:
+    """Check that parsed JSON is I-JSON (RFC 7493): finite, exact numbers.
+
+    Numbers that hashes (RFC 8785) cannot represent exactly would make the
+    records of different pipelines collide, or fail.
+
+    Args:
+        data: Parsed JSON.
+
+    Raises:
+        ValueError: A number is not finite, or an integer is beyond
+            :py:data:`MAX_SAFE_INTEGER`.
+    """
+    stack = [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, bool) or item is None or isinstance(item, str):
+            continue
+        if isinstance(item, int):
+            if abs(item) > MAX_SAFE_INTEGER:
+                raise ValueError("Integers are at most 2^53 - 1")
+        elif isinstance(item, float):
+            if not math.isfinite(item):
+                raise ValueError("Numbers must be finite")
+        elif isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
 def parse_client_pipeline(value: str) -> list[StepConfig]:
     """Parse a client's pipeline given as JSON.
 
@@ -217,9 +285,10 @@ def parse_client_pipeline(value: str) -> list[StepConfig]:
         InvalidSelection: The value is not a valid pipeline.
     """
     try:
-        data = json.loads(value)
+        data = json.loads(value, parse_constant=_reject_constant)
         if not isinstance(data, list):
             raise TypeError("not a list")
+        check_i_json(data)
         steps = [ClientStepConfig.model_validate(item).to_step() for item in data]
     except (TypeError, ValueError, RecursionError) as exc:
         detail = _first_error(exc)
@@ -242,6 +311,8 @@ def _first_error(exc: BaseException) -> str:
         return f"{location}: {error['msg']}" if location else str(error["msg"])
     if isinstance(exc, json.JSONDecodeError):
         return "not a preset name or JSON"
+    if isinstance(exc, ValueError):
+        return str(exc)
     return "a pipeline is a list of steps"
 
 

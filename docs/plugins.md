@@ -82,9 +82,9 @@ supported by existing clients), under the prefix `plugins.tags.prefix`
   `[{"plugin": "org.example.tes.data.decrypt"}, {"id": "route", "alternatives": [{"plugin": "org.example.tes.routing.distance", "params": {"max_km": 2000}}]}]`;
   steps of clients cannot set `timeout`, `on_failure` or
   `if_missing_phase`;
-- `gateway.backends`: a JSON object
-  `{"type": "order" | "allow" | "forbid", "backends": [...]}` with backend
-  identifiers or URLs:
+- `gateway.backends`: a JSON object (at most 8 KiB)
+  `{"type": "order" | "allow" | "forbid", "backends": [...]}` with one or
+  more backend identifiers or URLs:
   - `order`: the listed backends first, in the client's order, then the
     other candidates in the server's order;
   - `allow`: only the listed backends, in the server's order;
@@ -95,14 +95,25 @@ supported by existing clients), under the prefix `plugins.tags.prefix`
   backends that are not candidates are discarded (and recorded), never
   added.
 
+!!! warning "A client pipeline replaces the default pipeline"
+
+    A preset or client pipeline (even an empty one, `[]`) runs **instead
+    of** `plugins.pipeline`: only the frame (`client_pipelines.prepend` and
+    `append`) runs for every request. Put policies that must not be skipped
+    into `prepend`.
+
 Before any plugin runs, the engine checks the choice and refuses it with
-`400` if the tags are invalid, if per-request choices are disabled
+`400` if the tags are no map or invalid, if per-request choices are disabled
 (`plugins.client_pipelines.enabled`, `plugins.client_backends.enabled`),
 if the pipeline exceeds the limits (`max_steps`, `max_alternatives`,
 `max_size`), if the caller lacks a required role, or if it uses a plugin
 that is not available to the caller (unknown, not installed, disabled, not
 `client_selectable`, or restricted by `roles`; all with the same message,
-so that clients cannot probe the setup). Presets and client pipelines are
+so that clients cannot probe the setup). Presets may use plugins that are
+not `client_selectable`, but need the plugins' `roles` too (unknown presets
+and presets that need a role get the same message). Apps of other APIs than
+TES pass the request's tags explicitly (`host.start(..., tags=...)`, e.g.,
+the parsed `tags` form field of WES). Presets and client pipelines are
 framed by the admin's steps (`client_pipelines.prepend` and `append`),
 which clients can neither remove nor reorder; appended steps with
 `if_missing_phase` (e.g., a default `route` step) are added only if no other
@@ -277,6 +288,8 @@ foca = Foca(
     custom_config_model="my_gateway.config.CustomConfig",
     gateway=GatewayApp(
         api="tes",
+        name="my-gateway",  # name and version of the app, for provenance
+        version="1.2.0",
         validate=check_task,  # raises if a task is invalid
         sanitize=sanitize_task,  # returns the sanitized task
         validate_outbound=check_relay,  # optional, per attempt
@@ -351,26 +364,60 @@ Each run records what was requested and resolved (prospective) and what
 actually ran (retrospective). `run.provenance()` returns it as plain JSON
 data for the app to store with its resource (e.g., the task):
 
-- `engine`: versions of FOCA, the plugin API and the app (`GatewayApp(name=...,
-  version=...)`);
+- `engine`: versions of FOCA, the plugin API and the app (`app`: name and
+  version from `GatewayApp(name=..., version=...)`, the host's `app_info`);
 - `pipeline`: `source` (`default`, `preset` or `client`), `preset`,
   `requested` (a reference to the client's tag, e.g.,
   `tags[gateway.pipeline]`, as the tag is stored with the task anyway),
   `resolved` (steps with all parameters) and `resolved_hash`
   (`sha256:` of its RFC 8785 canonical JSON);
 - `plugins`: the plugins that ran, by build key (a hash of identifier,
-  distribution, version, entry point and RECORD digest);
+  distribution, version, entry point, RECORD digest and image digest);
 - `executions`: per hook call, in order: step, phase, alternative, plugin,
   outcome, start time, duration, attempt number, sanitized error,
   annotations (`ctx.record()`) and the changes: hashes before and after
-  and the changed JSON Pointers, without values (`detail: paths`);
+  and the changed JSON Pointers, without values (at most 256, then
+  `truncated: true`; arrays whose length changed as a whole); fields that
+  do not apply are left out;
 - `route` (candidates in and out), the client's backend `selection` (with
   `discarded` items), the forwarding `attempts` (backend, outcome, reason,
   remote ID, timings) and the `final_reason` (`forward_timeout`,
-  `no_backend`) if forwarding failed.
+  `no_backend`, `outcome_unknown`) if forwarding failed.
 
-Records hold no IP addresses, tokens, header values or claims. Plugins must
-not `record()` personal data.
+Records hold no IP addresses, tokens, header values or claims, and hashes
+leave out credentials and `plugins.provenance.secret_headers`. Plugins must
+not `record()` personal data. Data that is no I-JSON (e.g., integers beyond
+2^53 - 1) is recorded as `error: not_json` instead of hashes; building and
+storing records never fails the request. A record, shortened:
+
+```json
+{
+  "engine": {"foca": "0.18.0", "plugin_api": 1,
+             "app": {"name": "my-gateway", "version": "1.2.0"}},
+  "request_id": "4f3c...",
+  "pipeline": {"source": "preset", "preset": "encrypted-inputs",
+               "requested": "tags[gateway.pipeline]",
+               "resolved_hash": "sha256:9a1e..."},
+  "plugins": {"sha256:77b0...": "org.example.tes.data.decrypt"},
+  "executions": [
+    {"step": "org.example.tes.data.decrypt", "phase": "request",
+     "alternative": 0, "plugin": "sha256:77b0...",
+     "plugin_id": "org.example.tes.data.decrypt", "outcome": "ok",
+     "started_at": "2026-10-25T09:00:00.000Z", "duration_ms": 12.5,
+     "annotations": {"volumes": 1},
+     "changes": {"before": "sha256:01aa...", "after": "sha256:c4d2...",
+                 "paths": ["/payload/volumes"]}}
+  ],
+  "route": {"candidates_in": ["tes-a", "tes-b"],
+            "candidates_out": ["tes-b", "tes-a"]},
+  "selection": null,
+  "attempts": [{"number": 1, "backend": "tes-b", "outcome": "accepted",
+                "reason": null, "remote_id": "task-1",
+                "started_at": "2026-10-25T09:00:00.020Z",
+                "duration_ms": 80.1}],
+  "final_reason": null
+}
+```
 
 `foca.plugins.ProvenanceStore` stores the shared parts once, in
 collections that the app owns and declares in its `db` config:
@@ -407,7 +454,9 @@ Gateway errors are problem details with the extension member
 | `plugin-step-failed` | 500 | all alternatives of a required step failed |
 | `invalid-pipeline` | 400 | the pipeline tag is invalid or not allowed |
 | `invalid-backends` | 400 | the backends tag is invalid or not allowed |
-| `reserved-tag` | 400 | the client set another tag under the reserved prefix |
+| `reserved-tag` | 400 | the client set another tag under the reserved prefix, or the tags are no map |
 | `no-backend-available` | 503 | no backend accepted the request |
 | `forward-timeout` | 503 | the forwarding attempts took longer than `forward_timeout` |
+| `invalid-via` | 400 | the `Via` header would exceed 1024 characters with the gateway's entry |
 | `loop-detected` | 508 | the request passed this gateway already |
+| `gateway-error` | 500 | other errors of the gateway |
