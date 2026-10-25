@@ -671,11 +671,8 @@ def test_redacted_messages() -> None:
     """Messages of errors give URLs without secrets and control characters."""
     client = GuardedClient(timeout=0)
     with pytest.raises(DeadlineExceeded) as info:
-        client.get("https://user:pw@example.org/a\nb?token=s#frag")
-    message = str(info.value)
-    assert "example.org" in message
-    for secret in ("user", "pw", "token", "frag", "\n"):
-        assert secret not in message
+        client.get("https://user:pw@example.org/a\x1bb?token=s#frag")
+    assert str(info.value) == "No time left for https://example.org/a\\x1bb"
     assert http._redact("https://[::1]:8443/p?q") == "https://[::1]:8443/p"
     assert http._redact("https://example.org:99999/") == "(invalid URL)"
     assert http._redact("example.org") == "example.org"
