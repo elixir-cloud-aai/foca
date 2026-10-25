@@ -223,6 +223,33 @@ def test_expand(registry: Registry) -> None:
     }
 
 
+def test_discovered_ids_unique(
+    registry: Registry, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Discovered backends whose URL is a configured entry's id are skipped."""
+    registry.services = [
+        service("s1", "https://tes-b.example.org"),
+        service("s2", "https://tes-d.example.org"),
+    ]
+    blist = make_list(
+        [
+            {"type": "ga4gh-service-registry", "url": REGISTRY, "id": "reg"},
+            {
+                "type": "ga4gh-tes",
+                "url": "https://tes-x.example.org",
+                "id": "https://tes-b.example.org",
+            },
+        ]
+    )
+    with caplog.at_level(logging.DEBUG, logger="foca.plugins.backends.lists"):
+        candidates = blist.expand()
+    assert [(b.id, b.url) for b in candidates] == [
+        ("https://tes-d.example.org", "https://tes-d.example.org"),
+        ("https://tes-b.example.org", "https://tes-x.example.org"),
+    ]
+    assert "id is taken" in caplog.text
+
+
 def test_own_url_any_scheme() -> None:
     """Backends at the gateway's host and path are left out, whatever the scheme."""
     blist = make_list(
