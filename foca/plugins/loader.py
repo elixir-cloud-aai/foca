@@ -179,6 +179,19 @@ def _check_pins(
     return name, version
 
 
+def close_plugins(plugins: Iterable[LoadedPlugin]) -> None:
+    """Close plugin instances, logging (not raising) their errors.
+
+    Args:
+        plugins: Loaded plugins.
+    """
+    for plugin in plugins:
+        try:
+            plugin.instance.close()
+        except Exception:
+            logger.exception("Plugin %s failed to close", plugin.id)
+
+
 def load_plugins(
     conf: PluginsConfig,
     api: str,
@@ -197,6 +210,8 @@ def load_plugins(
     Returns:
         Loaded plugins, by identifier, in the order of `conf.available`.
 
+    Plugins loaded before an error are closed.
+
     Raises:
         ValueError: A plugin is not installed, provided several times, does
             not match its pins, is not a valid plugin for the API (cf.
@@ -210,28 +225,37 @@ def load_plugins(
 
     candidates = list(find_entry_points())
     loaded: dict[str, LoadedPlugin] = {}
-    for plugin_id, available in conf.available.items():
-        if not available.enabled:
-            logger.info("Plugin %s is disabled", plugin_id)
-            continue
-        entry_point = _find(plugin_id, candidates)
-        distribution, version = _check_pins(plugin_id, entry_point, available)
-        cls = check_plugin_class(entry_point.load(), plugin_id=plugin_id, api=api)
-        try:
-            config = cls.Config.model_validate(available.config)
-        except ValidationError as exc:
-            raise ValueError(f"Invalid config of plugin {plugin_id!r}: {exc}") from exc
-        loaded[plugin_id] = LoadedPlugin(
-            id=plugin_id,
-            cls=cls,
-            instance=cls(plugin_id, config),
-            distribution=distribution,
-            version=version,
-            entry_point=entry_point.value,
-            record_digest=_record_digest(entry_point),
-            available=available,
-        )
-        logger.info(
-            "Plugin %s loaded (%s %s)", plugin_id, distribution or "?", version or "?"
-        )
+    try:
+        for plugin_id, available in conf.available.items():
+            if not available.enabled:
+                logger.info("Plugin %s is disabled", plugin_id)
+                continue
+            entry_point = _find(plugin_id, candidates)
+            distribution, version = _check_pins(plugin_id, entry_point, available)
+            cls = check_plugin_class(entry_point.load(), plugin_id=plugin_id, api=api)
+            try:
+                config = cls.Config.model_validate(available.config)
+            except ValidationError as exc:
+                raise ValueError(
+                    f"Invalid config of plugin {plugin_id!r}: {exc}"
+                ) from exc
+            loaded[plugin_id] = LoadedPlugin(
+                id=plugin_id,
+                cls=cls,
+                instance=cls(plugin_id, config),
+                distribution=distribution,
+                version=version,
+                entry_point=entry_point.value,
+                record_digest=_record_digest(entry_point),
+                available=available,
+            )
+            logger.info(
+                "Plugin %s loaded (%s %s)",
+                plugin_id,
+                distribution or "?",
+                version or "?",
+            )
+    except BaseException:
+        close_plugins(loaded.values())
+        raise
     return loaded

@@ -3,6 +3,7 @@
 import copy
 import json
 import logging
+import math
 import time
 from typing import Any
 
@@ -16,6 +17,22 @@ MAX_ANNOTATIONS_SIZE = 2048
 
 # Types of annotation values: JSON scalars, or short lists of them
 _SCALARS = (str, int, float, bool, type(None))
+
+
+def _is_scalar(value: Any) -> bool:
+    """Check whether a value is a JSON scalar.
+
+    Args:
+        value: Value.
+
+    Returns:
+        Whether the value is a string, number (finite), boolean or `None`.
+    """
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return isinstance(value, _SCALARS)
+
+
 _MAX_LIST_LENGTH = 16
 _MAX_KEY_LENGTH = 64
 
@@ -123,12 +140,10 @@ class Context:
         if not isinstance(key, str) or not 0 < len(key) <= _MAX_KEY_LENGTH:
             raise ValueError("Annotation keys must be strings of 1 to 64 characters")
         if isinstance(value, list | tuple):
-            if len(value) > _MAX_LIST_LENGTH or not all(
-                isinstance(item, _SCALARS) for item in value
-            ):
+            if len(value) > _MAX_LIST_LENGTH or not all(map(_is_scalar, value)):
                 raise ValueError("Annotation lists hold at most 16 JSON scalars")
             value = list(value)
-        elif not isinstance(value, _SCALARS):
+        elif not _is_scalar(value):
             raise ValueError("Annotation values must be JSON scalars or lists")
         annotations = {**self.annotations, key: value}
         size = len(json.dumps(annotations, separators=(",", ":")).encode())
