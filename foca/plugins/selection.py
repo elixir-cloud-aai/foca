@@ -170,22 +170,25 @@ def parse_client_tags(
             f"Tags under {prefix!r} are reserved for the gateway: {reserved[0]}",
             slug="reserved-tag",
         )
+    # present tags count, also with values that are no strings (e.g., null)
+    has_pipeline = f"{prefix}{PIPELINE_TAG}" in tags
+    has_backends = f"{prefix}{BACKENDS_TAG}" in tags
     pipeline = tags.get(f"{prefix}{PIPELINE_TAG}")
     raw = tags.get(f"{prefix}{BACKENDS_TAG}")
-    if pipeline is not None and not pipelines_enabled:
+    if has_pipeline and not pipelines_enabled:
         raise InvalidSelection("Choosing pipelines per request is disabled")
-    if raw is not None and not backends_enabled:
+    if has_backends and not backends_enabled:
         raise InvalidSelection(
             "Choosing backends per request is disabled", slug="invalid-backends"
         )
-    if pipeline is not None and (
+    if has_pipeline and (
         not isinstance(pipeline, str) or _size(pipeline) > max_pipeline_size
     ):
         raise InvalidSelection(
             f"Pipelines are UTF-8 strings of at most {max_pipeline_size} bytes"
         )
     backends = None
-    if raw is not None:
+    if has_backends:
         backends = _parse_backends(raw, max_backends)
     return ClientSelection(pipeline=pipeline, backends=backends)
 
@@ -331,7 +334,9 @@ def parse_client_pipeline(value: str) -> list[StepConfig]:
         InvalidSelection: The value is not a valid pipeline.
     """
     try:
-        data = json.loads(value, parse_constant=_reject_constant)
+        data = json.loads(
+            value, parse_constant=_reject_constant, object_pairs_hook=_unique_keys
+        )
         if not isinstance(data, list):
             raise TypeError("not a list")
         check_i_json(data)
@@ -340,6 +345,24 @@ def parse_client_pipeline(value: str) -> list[StepConfig]:
         detail = _first_error(exc)
         raise InvalidSelection(f"Invalid pipeline: {detail}") from exc
     return steps
+
+
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build a JSON object, refusing duplicate keys (cf. I-JSON).
+
+    Args:
+        pairs: Keys and values, in order.
+
+    Returns:
+        Object.
+
+    Raises:
+        ValueError: A key occurs more than once.
+    """
+    data = dict(pairs)
+    if len(data) < len(pairs):
+        raise ValueError("Objects must not have duplicate keys")
+    return data
 
 
 def _first_error(exc: BaseException) -> str:
@@ -382,8 +405,10 @@ def apply_backend_selection(
 ) -> tuple[list[Backend], list[str]]:
     """Apply a client's backend selection to the routed candidates.
 
-    Items that are not candidates (unknown, unverified, of another type, or
-    removed by routing) are discarded; the server never adds backends.
+    Items with `://` are URLs and match the candidates' (normalized) URLs
+    only; other items match their identifiers only. Items that are not
+    candidates (unknown, unverified, of another type, or removed by routing)
+    are discarded; the server never adds backends.
 
     Args:
         candidates: Candidates after the `route` phase, in order.
@@ -393,14 +418,15 @@ def apply_backend_selection(
         Candidates after the selection, in order, and the items that matched
         no candidate.
     """
-    keys: dict[str, Backend] = {}
+    ids: dict[str, Backend] = {}
+    urls: dict[str, Backend] = {}
     for backend in candidates:
-        keys.setdefault(backend.id, backend)
-        keys.setdefault(_key(backend.url), backend)
+        ids.setdefault(backend.id, backend)
+        urls.setdefault(_key(backend.url), backend)
     listed: list[Backend] = []
     discarded: list[str] = []
     for item in selection.backends:
-        match = keys.get(item) or keys.get(_key(item))
+        match = urls.get(_key(item)) if "://" in item else ids.get(item)
         if match is None:
             discarded.append(item)
         elif match not in listed:
