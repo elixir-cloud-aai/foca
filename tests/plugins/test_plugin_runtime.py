@@ -46,6 +46,23 @@ def write_config(tmp_path: Path, data: dict[str, Any]) -> Path:
     return path
 
 
+def test_app_info(tmp_path: Path, fake_plugins: None) -> None:
+    """Hosts get the name and version of the app, for provenance."""
+    config = write_config(
+        tmp_path,
+        {"plugins": {"available": {"test.tag": {}}, "pipeline": ["test.tag"]}},
+    )
+    for gateway, expected in (
+        (GatewayApp(api="tes", name="x", version="1"), {"name": "x", "version": "1"}),
+        (GatewayApp(api="tes"), {}),
+    ):
+        Foca(config_file=config, gateway=gateway).create_app()
+        host = runtime.create_host()
+        assert host.app_info == expected
+        host.close()
+        runtime.reset()
+
+
 def test_gateway_app(tmp_path: Path, fake_plugins: None) -> None:
     """Gateway apps check their plugins on startup and get a host per process."""
     config = write_config(
