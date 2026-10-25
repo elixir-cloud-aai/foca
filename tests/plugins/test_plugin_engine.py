@@ -439,6 +439,11 @@ def test_loop_detection() -> None:
     with pytest.raises(InvalidVia) as via_info:
         host.start(inbound(headers={"Via": "1.1 p, " * 200}), PRINCIPAL)
     assert via_info.value.code == 400
+    longest = "x" * (1024 - len(", 1.1 gw.example.org"))
+    run = host.start(inbound(headers={"Via": longest}), PRINCIPAL)
+    assert len(next(run.attempts(BACKENDS)).outbound.headers["Via"]) == 1024
+    with pytest.raises(InvalidVia):
+        host.start(inbound(headers={"Via": longest + "x"}), PRINCIPAL)
     assert host.is_own_url("https://gw.example.org/protes/")
     assert host.is_own_url("https://gw.example.org/protes/x")
     assert not host.is_own_url("https://gw.example.org/protest")
@@ -561,7 +566,7 @@ def test_context_http(monkeypatch: pytest.MonkeyPatch) -> None:
     [
         ("https://user:secret@GW.example.org:8443/x", "gw.example.org:8443"),
         ("https://gw.example.org", "gw.example.org"),
-        ("https://[::1]:80/", "::1:80"),
+        ("https://[::1]:80/", "[::1]:80"),
         ("https://gw.example.org:bad/", None),
         ("file:///x", None),
         ("https://gw_x%2F.example.org/", None),
@@ -584,3 +589,17 @@ def test_outbound_check_sees_via() -> None:
     run = host.start(inbound(), PRINCIPAL)
     next(run.attempts(BACKENDS)).failed("connect_error")
     assert seen == ["1.1 gw.example.org"]
+
+
+def test_host_closes_plugins_on_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hosts that cannot start close the plugins they loaded."""
+    closed: list[str] = []
+    monkeypatch.setattr(
+        SlowPlugin, "close", lambda self: closed.append(self.id), raising=False
+    )
+    with pytest.raises(ValueError, match=r"test\.tag"):
+        make_host(
+            [{"plugin": "test.tag"}],
+            available={"test.slow": {}, "test.tag": {"enabled": False}},
+        )
+    assert closed == ["test.slow"]
