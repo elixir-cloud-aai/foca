@@ -112,7 +112,8 @@ class ServiceEntry(_Model):
     type: Literal["ga4gh-tes"]
     url: str
     url_schemes: list[Literal["https", "http"]] = Field(default=["https"], min_length=1)
-    id: str | None = Field(default=None, min_length=1)
+    # the normalized URL by default (set when validated)
+    id: str = Field(default="", min_length=1)
     auth: Literal["client_credentials", "basic", "none"] = "client_credentials"
     basic: BasicCredentialsConfig | None = None
     labels: dict[str, str] = {}
@@ -132,7 +133,7 @@ class ServiceEntry(_Model):
         self.url = normalize_url(
             self.url, schemes=self.url_schemes, name="Backend URLs"
         )
-        if self.id is None:
+        if not self.id:
             self.id = self.url
         if (self.auth == "basic") != (self.basic is not None):
             raise ValueError(
@@ -149,7 +150,7 @@ class ServiceEntry(_Model):
         """
         location = self.location
         return Backend(
-            id=self.id or self.url,
+            id=self.id,
             url=self.url,
             source="configured",
             labels=dict(self.labels),
@@ -167,9 +168,15 @@ class RegistryEntry(_Model):
         type: Type of the entry (`ga4gh-service-registry`).
         url: Base URL of the registry's API (`https`), e.g.,
             `https://registry.example.org/ga4gh/registry/v1`.
+        url_schemes: Allowed schemes of `url`; `https` only by default
+            (tests may allow `http`).
         id: Identifier of the entry (`Backend.group` of its backends);
             defaults to the normalized URL.
         refresh_interval: Seconds between reads of the registry.
+        max_stale: Seconds that the last good list of backends is used
+            for while the registry cannot be read; then, the entry yields
+            no candidates until the next good read. At least
+            `refresh_interval`.
         timeout: Seconds per request to the registry.
         versions: Accepted versions of the app's API, as prefixes (e.g.,
             `1.1` accepts `1.1` and `1.1.0`, but not `1.10`).
@@ -179,25 +186,36 @@ class RegistryEntry(_Model):
             token (`client_credentials`) or none (`none`).
         allow_private_addresses: Whether discovered backends may have hosts
             with addresses that are not public.
+        registry_allow_private_addresses: Whether the registry's own host
+            may have addresses that are not public (e.g., a registry in the
+            same cluster).
         labels: Labels of the discovered backends.
 
     Attributes:
         type: Type of the entry.
         url: Normalized base URL of the registry's API.
+        url_schemes: Allowed schemes of `url`.
         id: Identifier of the entry.
         refresh_interval: Seconds between reads of the registry.
+        max_stale: Seconds that the last good list is used for.
         timeout: Seconds per request to the registry.
         versions: Accepted versions of the app's API, as prefixes.
         environments: Accepted environments of services.
         auth: Credentials for the discovered backends.
-        allow_private_addresses: Whether private addresses are allowed.
+        allow_private_addresses: Whether private addresses of discovered
+            backends are allowed.
+        registry_allow_private_addresses: Whether private addresses of the
+            registry are allowed.
         labels: Labels of the discovered backends.
     """
 
     type: Literal["ga4gh-service-registry"]
     url: str
-    id: str | None = Field(default=None, min_length=1)
+    url_schemes: list[Literal["https", "http"]] = Field(default=["https"], min_length=1)
+    # the normalized URL by default (set when validated)
+    id: str = Field(default="", min_length=1)
     refresh_interval: PositiveInt = 300
+    max_stale: PositiveInt = 3600
     timeout: PositiveFloat = 10
     versions: list[Annotated[str, Field(min_length=1)]] = Field(
         default=["1.0", "1.1"], min_length=1
@@ -205,22 +223,29 @@ class RegistryEntry(_Model):
     environments: list[Annotated[str, Field(min_length=1)]] = []
     auth: Literal["client_credentials", "none"] = "client_credentials"
     allow_private_addresses: bool = False
+    registry_allow_private_addresses: bool = False
     labels: dict[str, str] = {}
 
     @model_validator(mode="after")
     def _check(self) -> Self:
-        """Normalize the URL and default the identifier.
+        """Normalize the URL, default the identifier, check `max_stale`.
 
         Returns:
             The entry.
 
         Raises:
-            ValueError: The URL is invalid, has user info or is no `https`
-                URL.
+            ValueError: The URL is invalid, has user info or another scheme,
+                or `max_stale` is less than `refresh_interval`.
         """
-        self.url = normalize_url(self.url, schemes=["https"], name="Registry URLs")
-        if self.id is None:
+        self.url = normalize_url(
+            self.url, schemes=self.url_schemes, name="Registry URLs"
+        )
+        if not self.id:
             self.id = self.url
+        if self.max_stale < self.refresh_interval:
+            raise ValueError(
+                f"Registry {self.id!r}: `max_stale` must be at least `refresh_interval`"
+            )
         return self
 
 
@@ -255,5 +280,5 @@ class BackendListConfig(RootModel[list[BackendEntry]]):
         for entry in self.root:
             if entry.id in seen:
                 raise ValueError(f"Backend entries with the same id: {entry.id}")
-            seen.add(entry.id or "")
+            seen.add(entry.id)
         return self

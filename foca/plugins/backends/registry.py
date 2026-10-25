@@ -105,20 +105,27 @@ def _verifications(document: object) -> dict[str, tuple[object, object]]:
     Args:
         document: Response of `GET /verifications`.
 
+    Items that are no objects with string identifiers are skipped (and
+    logged), like invalid services: one invalid item must not keep the last
+    good list, with backends whose verification was revoked, in use.
+
     Returns:
         URL and API type of each verified service, as verified.
 
     Raises:
-        RegistryError: The response is not a list of objects with string
-            identifiers.
+        RegistryError: The response is not a list.
     """
     if not isinstance(document, list):
         raise RegistryError("Verifications are not a list")
     verified: dict[str, tuple[object, object]] = {}
+    skipped = 0
     for item in document:
         if not isinstance(item, dict) or not isinstance(item.get("service_id"), str):
-            raise RegistryError("Verifications without service identifier")
+            skipped += 1
+            continue
         verified[item["service_id"]] = (item.get("url"), item.get("type"))
+    if skipped:
+        logger.warning("Skipped %d verifications without service identifier", skipped)
     return verified
 
 
@@ -144,8 +151,7 @@ def select_services(
         API were rejected.
 
     Raises:
-        RegistryError: A response is not a list (of objects, for
-            verifications).
+        RegistryError: A response is not a list.
     """
     if not isinstance(services, list):
         raise RegistryError("Services are not a list")
@@ -224,7 +230,8 @@ class RegistryCache:
 
     Thread-safe. The registry is read by one thread at a time; meanwhile,
     other threads get the cached backends, except before the first read,
-    which they wait for.
+    which they wait for. Backends of a good read are used for
+    `entry.max_stale` seconds at most while the registry cannot be read.
 
     Attributes:
         entry: Registry entry.
@@ -245,6 +252,7 @@ class RegistryCache:
         self._lock = threading.Lock()
         self._urls: dict[str, str] = {}
         self._read = False
+        self._read_good = 0.0
         self._last_read = 0.0
         self._next_read = 0.0
         self._rejected: set[str] = set()
@@ -263,18 +271,30 @@ class RegistryCache:
 
         Returns:
             Base URLs, in the order of the registry; none before the first
-            good read.
+            good read, and none once it is older than `entry.max_stale`
+            seconds.
         """
         if not self._due(refresh):
-            return list(self._urls.values())
+            return self._current()
         if not self._lock.acquire(blocking=not self._read):
-            return list(self._urls.values())
+            return self._current()
         try:
             if self._due(refresh):
                 self._refresh()
-            return list(self._urls.values())
+            return self._current()
         finally:
             self._lock.release()
+
+    def _current(self) -> list[str]:
+        """Get the base URLs of the last good read, unless it is too old.
+
+        Returns:
+            Base URLs; none if the last good read is older than
+            `entry.max_stale` seconds.
+        """
+        if time.monotonic() - self._read_good > self.entry.max_stale:
+            return []
+        return list(self._urls.values())
 
     def _due(self, refresh: bool) -> bool:
         """Check whether the registry is to be read.
@@ -301,9 +321,15 @@ class RegistryCache:
         now = time.monotonic()
         self._last_read = now
         self._next_read = now + min(entry.refresh_interval, RETRY_INTERVAL)
+        options = {
+            "allow_private_addresses": entry.registry_allow_private_addresses,
+            "allow_http": "http" in entry.url_schemes,
+        }
         try:
-            verifications = fetch_json(f"{entry.url}/verifications", entry.timeout)
-            services = fetch_json(f"{entry.url}/services", entry.timeout)
+            verifications = fetch_json(
+                f"{entry.url}/verifications", entry.timeout, **options
+            )
+            services = fetch_json(f"{entry.url}/services", entry.timeout, **options)
             selection = select_services(
                 services,
                 verifications,
@@ -320,13 +346,11 @@ class RegistryCache:
             # `HttpError` and `RegistryError` for failed reads; others are bugs
             expected = isinstance(exc, HttpError | RegistryError)
             log = logger.warning if expected else logger.exception
-            log(
-                "Backends not discovered at registry %s (%s); keeping %d"
-                " backends discovered earlier",
-                entry.url,
-                exc,
-                len(self._urls),
-            )
+            if self._read and now - self._read_good > entry.max_stale:
+                kept = "using none, as the last good read is older than max_stale"
+            else:
+                kept = f"keeping {len(self._urls)} backends discovered earlier"
+            log("Backends not discovered at registry %s (%s); %s", entry.url, exc, kept)
             return
         self._next_read = now + entry.refresh_interval
         for reason in selection.rejected:
@@ -342,6 +366,7 @@ class RegistryCache:
             )
         self._urls = selection.urls
         self._read = True
+        self._read_good = now
         self.read_at = (
             datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         )

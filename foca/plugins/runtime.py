@@ -25,13 +25,23 @@ while the host of the first one is in use (cf. :py:func:`configure`).
 import atexit
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from foca.plugins.backends import BackendList
+from foca.plugins.backends import (
+    BackendList,
+    BackendListConfig,
+    RegistryEntry,
+    ServiceEntry,
+)
 from foca.plugins.engine import PluginHost
 from foca.plugins.model import OutboundRequest
+
+BackendEntries = (
+    Iterable[ServiceEntry | RegistryEntry | Mapping[str, Any]] | BackendListConfig
+)
+"""Entries of a backend list, as models or mappings."""
 
 
 @dataclass(frozen=True)
@@ -58,7 +68,9 @@ class GatewayApp:
     validate_outbound: Callable[[OutboundRequest], None] | None = None
     name: str | None = None
     version: str | None = None
-    backends: Callable[[Any], Any] | None = None
+    # the argument is the app's `foca.models.config.Config`, whose app
+    # sections (e.g., `custom`) are not typed
+    backends: Callable[[Any], BackendEntries] | None = None
 
 
 class _Runtime:
@@ -184,7 +196,9 @@ def get_backend_list() -> BackendList:
         RuntimeError: No gateway app is configured, it has no `backends`
             function, or no FOCA app has been created.
         ValueError: The entries are invalid (cf.
-            :py:class:`foca.plugins.backends.BackendList`).
+            :py:class:`foca.plugins.backends.BackendList`), or the list has
+            registry entries but `server.public_url` is not set, which
+            keeps the gateway from being one of its own backends.
     """
     from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
 
@@ -194,6 +208,12 @@ def get_backend_list() -> BackendList:
             "No backend list configured: pass Foca(gateway=GatewayApp(backends=...))"
         )
     config = get_config()
-    return BackendList(
+    backends = BackendList(
         app.backends(config), api=app.api, public_url=config.server.public_url
     )
+    if backends.public_url is None and backends.has_registries():
+        raise ValueError(
+            "Backend lists with registry entries need `server.public_url`, so"
+            " that the gateway is never one of its own backends"
+        )
+    return backends

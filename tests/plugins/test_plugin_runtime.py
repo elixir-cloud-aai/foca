@@ -205,3 +205,17 @@ def test_backend_list(tmp_path: Path, fake_plugins: None) -> None:
     invalid = GatewayApp(api="tes", backends=lambda conf: [{"type": "x"}])
     with pytest.raises(ValueError):
         Foca(config_file=config, gateway=invalid).create_app()
+    runtime.reset()
+
+
+def test_backend_list_needs_public_url(tmp_path: Path, fake_plugins: None) -> None:
+    """Backend lists with registries need the public URL (loop protection)."""
+    registry = {
+        "type": "ga4gh-service-registry",
+        "url": "https://registry.example.org/ga4gh/registry/v1",
+    }
+    config = write_config(tmp_path, {})
+    gateway = GatewayApp(api="tes", backends=lambda conf: [registry])
+    with pytest.raises(ValueError, match="public_url"):
+        Foca(config_file=config, gateway=gateway).create_app()
+    runtime.reset()
