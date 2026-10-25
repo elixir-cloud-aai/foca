@@ -626,10 +626,11 @@ security:
       - [p, user, "/ga4gh/tes/v1/tasks/:id/provenance", GET]
 ```
 
-These rules are for models that match paths with `keyMatch2` (e.g.,
+These patterns need a model that matches paths with `keyMatch2` (e.g.,
 FOCA's `resource_role_model.conf`), where `:plugin_id` matches one path
-segment; a trailing `*` (e.g., `plugins*`) does not match
-`/plugins/<id>`.
+segment (a trailing `*`, e.g., `plugins*`, does not match
+`/plugins/<id>`); with `default_model.conf`, which matches paths exactly,
+list each path explicitly.
 
 The public service info gets generic descriptors only: apps add
 `foca.plugins.api.service_info_fields(plugins_url=...)` to the fields of
