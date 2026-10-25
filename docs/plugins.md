@@ -434,7 +434,12 @@ data for the app to store with its resource (e.g., the task):
   `no_backend`, `outcome_unknown`) if forwarding failed.
 
 Records hold no IP addresses, tokens, header values or claims, and hashes
-leave out credentials and `plugins.provenance.secret_headers`. Plugins must
+leave out credentials, client addresses (`Forwarded`, `X-Forwarded-For`,
+`X-Real-IP`) and `plugins.provenance.secret_headers`. Hashes of values with
+little entropy (e.g., short API keys, user names) can be guessed, so put
+such headers in `secret_headers`, and declare secret plugin parameters as
+`pydantic.SecretStr`, which records show as `**********`. Changed paths
+are capped in number and length per call, and in size per run. Plugins must
 not `record()` personal data. Data that is no I-JSON (e.g., integers beyond
 2^53 - 1) is recorded as `error: not_json` instead of hashes; building and
 storing records never fails the request. A record, shortened:
