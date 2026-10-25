@@ -232,10 +232,12 @@ def test_service_info_fields(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_service_info_fields_before_host(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_plugin_entry_points: RegisterPlugins,
 ) -> None:
     """Without a host in use, the service info sets up no plugin."""
-    monkeypatch.setattr(loader, "entry_points", lambda group: fake_entry_points()())
+    fake_plugin_entry_points(FAKES)
     config = tmp_path / "config.yaml"
     config.write_text(
         yaml.safe_dump(
