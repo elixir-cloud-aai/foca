@@ -7,7 +7,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    PositiveFloat,
     PositiveInt,
     RootModel,
     model_validator,
@@ -216,7 +215,7 @@ class RegistryEntry(_Model):
     id: str = Field(default="", min_length=1)
     refresh_interval: PositiveInt = 300
     max_stale: PositiveInt = 3600
-    timeout: PositiveFloat = 10
+    timeout: Annotated[float, Field(gt=0, allow_inf_nan=False)] = 10
     versions: list[Annotated[str, Field(min_length=1)]] = Field(
         default=["1.0", "1.1"], min_length=1
     )

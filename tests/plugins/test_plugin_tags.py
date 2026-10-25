@@ -48,7 +48,8 @@ def test_creation_tags() -> None:
     assert tags == {
         "gateway.pipeline_hash": run.provenance()["pipeline"]["resolved_hash"],
         "gateway.pipeline_source": "default",
-        "gateway.plugins": "test.tag@1.2.0",
+        # plugins that ran, whatever the outcome
+        "gateway.plugins": "test.fail@1.2.0,test.tag@1.2.0",
         "gateway.provenance": "/ga4gh/tes/v1/tasks/A/provenance",
     }
     host = make_host(
@@ -247,7 +248,49 @@ def test_route_truncated() -> None:
     assert route[-1]["outcome"] == "accepted"
     assert len(route) < 25
     assert tags["gateway.route_truncated"] == "true"
-    assert len(tags["gateway.backend_task_id"]) == MAX_VALUE_SIZE
+    assert "gateway.backend_task_id" not in tags  # too long: left out
+
+
+def test_route_keeps_latest() -> None:
+    """A latest attempt too large for the route is kept, with a cut URL."""
+    backend = Backend(id="b", url=f"https://{'x' * 60}.example.org/{'p' * 5000}")
+    host = make_host([])
+    run = host.start(inbound(), PRINCIPAL)
+    next(run.attempts([backend])).succeeded(BackendResponse(status=201))
+    tags = routing_tags(run)
+    route = json.loads(tags["gateway.route"])
+    assert len(tags["gateway.route"].encode()) <= MAX_ROUTE_SIZE
+    assert [entry["outcome"] for entry in route] == ["accepted"]
+    assert route[0]["url"].startswith("https://x")
+    assert tags["gateway.route_truncated"] == "true"
+
+
+def test_tags_of_malformed_text() -> None:
+    """Lone surrogates and invalid ports do not break the tags."""
+    assert clean_url("https://a.example.org:port/x") == "https://"
+    host = make_host(["test.tag"])
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    tags = creation_tags(run, provenance_path="/tasks/\ud800/provenance")
+    assert tags["gateway.provenance"] == "/tasks/?/provenance"
+    tags["gateway.provenance"].encode("utf-8")
+    run = host.start(inbound(), PRINCIPAL)
+    backend = Backend(id="b", url="https://b.example.org")
+    next(run.attempts([backend])).succeeded(
+        BackendResponse(status=201), remote_id="T\udc80"
+    )
+    assert routing_tags(run)["gateway.backend_task_id"] == "T?"
+    host.close()
+
+
+def test_long_provenance_path_left_out() -> None:
+    """Provenance paths beyond the value limit are left out, not cut."""
+    host = make_host(["test.tag"])
+    run = host.start(inbound(), PRINCIPAL)
+    run.request()
+    tags = creation_tags(run, provenance_path="/" + "p" * MAX_VALUE_SIZE)
+    assert "gateway.provenance" not in tags
+    host.close()
 
 
 def test_route_truncated_by_count() -> None:

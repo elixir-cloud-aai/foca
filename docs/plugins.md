@@ -196,7 +196,8 @@ entries into the candidates of a request, in order:
   registry, in the registry's order. Backends with the same URL are listed
   once, at the first position, with the settings of a configured entry if
   there is one; backends at or below the gateway's public URL (same host,
-  port and path, any scheme) are left out. `Backend.auth` names the credentials (registry entries pass theirs to
+  port and path, any scheme; default ports count as the same) are left
+  out. `Backend.auth` names the credentials (registry entries pass theirs to
   their backends).
 - `entry_for(backend)`: the entry behind a candidate, e.g., for the `basic`
   environment variables, when the app adds credentials after the `forward`
@@ -204,8 +205,9 @@ entries into the candidates of a request, in order:
 - `find(url)`: a backend by URL, re-reading the registries (at most every
   10 s) if no candidate has it, e.g., for status polling and cancellation in
   other processes.
-- `snapshots()`: the time of the registry reads that the candidates come
-  from, for provenance.
+- `snapshots()`: the time of the last good registry reads; for the reads
+  that candidates come from, e.g., for provenance, pass a mapping:
+  `expand(snapshots=reads)`.
 - `describe()`: identifier, URL, source, group and labels of each
   candidate, without credentials, e.g., for the service info.
 
@@ -533,20 +535,22 @@ default `gateway.`), so that clients and dashboards see it with
 |---|---|---|
 | `gateway.pipeline_hash` | `sha256:` of the resolved pipeline (RFC 8785) | at creation |
 | `gateway.pipeline_source` | `default`, `preset:<name>` or `client` | at creation |
-| `gateway.plugins` | comma-separated `id@version` of the plugins that ran | at creation |
+| `gateway.plugins` | comma-separated `id@version` of the plugins that ran in the `request` phase, whatever their outcome (the provenance has all phases) | at creation |
 | `gateway.provenance` | path of the provenance endpoint, if the app serves one | at creation |
 | `gateway.backend` | base URL of the backend that accepted (or may have) | after forwarding |
 | `gateway.backend_task_id` | identifier at the backend, if it accepted | after forwarding |
 | `gateway.forwarded_at` | RFC 3339 UTC time of that attempt | after forwarding |
 | `gateway.attempts` | number of attempts, e.g., `3` | after forwarding |
 | `gateway.route` | compact JSON of the last `max_route_entries` attempts: `url`, `outcome`, `reason` | after forwarding |
-| `gateway.route_truncated` | `true` if `gateway.route` omits earlier attempts | after forwarding |
+| `gateway.route_truncated` | `true` if `gateway.route` omits earlier attempts or cuts the URL of the latest | after forwarding |
 
 Values are at most 1 KiB (`gateway.route`: 4 KiB, earliest attempts dropped
 first); URLs have no user info or query, and failures are reason codes,
 never messages; `gateway.pipeline_hash` is left out for pipelines without
 hash (no I-JSON), and `gateway.plugins` is empty if its first entry does
-not fit. FOCA provides the tags, and apps write them: they merge
+not fit. References that do not fit (`gateway.provenance`,
+`gateway.backend_task_id`) are left out rather than cut, and lone
+surrogates become `?`. FOCA provides the tags, and apps write them: they merge
 `foca.plugins.tags.creation_tags(run)` into new tasks after the `request`
 phase and `routing_tags(run)` after forwarding, and relay requests without
 any key under the prefix (`strip_for_forwarding(tags, prefix)`), so nested
