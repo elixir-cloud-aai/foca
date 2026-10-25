@@ -127,7 +127,11 @@ def _check_response(
 
     Raises:
         ValueError: The backend's status, headers or payload were changed.
+        TypeError: The client's headers are not
+            :py:class:`foca.plugins.model.Headers`.
     """
+    if not isinstance(candidate.client_headers, Headers):
+        raise TypeError("Response hooks must keep Headers")
     if (
         candidate.status != given.status
         or candidate.headers != given.headers
