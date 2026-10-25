@@ -204,7 +204,8 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
   within 10 s at most), and bodies are limited to `max_response_size`
   bytes (16 MiB by default).
 - Errors carry a reason code (`reason`, e.g., `dns_error`,
-  `connect_error`, `tls_error`, `not_public`, `read_timeout`,
+  `connect_error`, `tls_error`, `not_public`, `invalid_request` (a body
+  that is no JSON), `invalid_header`, `read_timeout`,
   `connection_lost`), and tell requests that certainly did not reach the server (`RequestNotSent`) from
   those that may have (`RequestMaybeSent`).
 
