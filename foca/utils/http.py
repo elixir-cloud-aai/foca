@@ -31,7 +31,7 @@ import re
 import socket
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
@@ -279,13 +279,13 @@ def check_public_host(url: str, timeout: float = MAX_CONNECT_TIMEOUT) -> None:
 
 
 class _Guard:
-    """Limits of the requests of one client, shared by its connections.
+    """Limits of one request: its end, its timer and its sockets.
 
     Attributes:
         allow_private_addresses: Whether addresses that are not public are
             allowed.
-        end: `time.monotonic()` value by which the current request must end.
-        expired: Whether the current request was stopped at its end.
+        end: `time.monotonic()` value by which the request must end.
+        expired: Whether the request was stopped at its end.
     """
 
     def __init__(self, allow_private_addresses: bool) -> None:
@@ -300,9 +300,10 @@ class _Guard:
         self._sockets: list[socket.socket] = []
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
+        self._finished = False
 
     def left(self) -> float:
-        """Get the seconds left for the current request.
+        """Get the seconds left for the request.
 
         Returns:
             Seconds; `0` or less once the end passed.
@@ -310,7 +311,7 @@ class _Guard:
         return self.end - time.monotonic()
 
     def track(self, sock: socket.socket) -> None:
-        """Track a socket of the current request, to stop it at the end.
+        """Track a socket of the request (new or reused), to stop it at the end.
 
         Args:
             sock: Socket.
@@ -322,24 +323,27 @@ class _Guard:
             _shutdown(sock)
 
     def start(self, seconds: float) -> None:
-        """Start a request that must end within some seconds.
+        """Start the request, which must end within some seconds.
 
         Args:
             seconds: Seconds.
         """
         self.end = time.monotonic() + seconds
-        self.expired = False
         self._timer = threading.Timer(seconds, self._stop)
         self._timer.daemon = True
         self._timer.start()
 
     def finish(self) -> None:
-        """End the current request: cancel the timer, forget the sockets."""
+        """End the request: cancel the timer, forget the sockets.
+
+        Call it before the connection goes back to the pool, so that the
+        timer cannot stop a socket that another request reuses.
+        """
+        with self._lock:
+            self._finished = True
+            self._sockets = []
         if self._timer is not None:
             self._timer.cancel()
-            self._timer = None
-        with self._lock:
-            self._sockets = [sock for sock in self._sockets if sock.fileno() != -1]
 
     def _stop(self) -> None:
         """Stop the request at its end: shut its sockets down.
@@ -348,10 +352,66 @@ class _Guard:
         sends (e.g., one byte at a time).
         """
         with self._lock:
+            if self._finished:
+                return
             self.expired = True
             sockets = list(self._sockets)
         for sock in sockets:
             _shutdown(sock)
+
+
+class _Guards:
+    """Guards of the requests of one client, by thread.
+
+    urllib3 connects, sends and reads in the thread of the request, so the
+    connections of a client find the guard of their request here.
+
+    Attributes:
+        allow_private_addresses: Whether addresses that are not public are
+            allowed.
+    """
+
+    def __init__(self, allow_private_addresses: bool) -> None:
+        """Create the registry.
+
+        Args:
+            allow_private_addresses: Whether private addresses are allowed.
+        """
+        self.allow_private_addresses = allow_private_addresses
+        self._local = threading.local()
+
+    def current(self) -> _Guard:
+        """Get the guard of the request of this thread.
+
+        Returns:
+            Guard.
+
+        Raises:
+            RuntimeError: No request runs in this thread.
+        """
+        guard: _Guard | None = getattr(self._local, "guard", None)
+        if guard is None:
+            raise RuntimeError("No guarded request runs in this thread")
+        return guard
+
+    @contextlib.contextmanager
+    def request(self, seconds: float) -> Iterator[_Guard]:
+        """Guard a request of this thread.
+
+        Args:
+            seconds: Seconds within which the request must end.
+
+        Yields:
+            Guard of the request; finished afterwards.
+        """
+        guard = _Guard(self.allow_private_addresses)
+        guard.start(seconds)
+        self._local.guard = guard
+        try:
+            yield guard
+        finally:
+            guard.finish()
+            self._local.guard = None
 
 
 def _shutdown(sock: socket.socket) -> None:
@@ -367,7 +427,7 @@ def _shutdown(sock: socket.socket) -> None:
 class _GuardedConnectionMixin:
     """Connect to checked addresses within the request's time left."""
 
-    guard: _Guard
+    guards: _Guards
 
     def _new_conn(self) -> socket.socket:
         """Resolve the host once, check its addresses, and connect.
@@ -385,7 +445,7 @@ class _GuardedConnectionMixin:
             urllib3.exceptions.NewConnectionError: Connecting failed.
         """
         conn: Any = self
-        guard = self.guard
+        guard = self.guards.current()
         host = str(conn._dns_host).strip("[]")
         try:
             addresses = _resolve(host, conn.port, guard.left(), conn.host)
@@ -423,16 +483,37 @@ class _GuardedConnectionMixin:
         return sock
 
 
-class _GuardedAdapter(HTTPAdapter):
-    """Transport adapter whose connections a guard limits."""
+class _GuardedPoolMixin:
+    """Track reused connections in the guard of their new request."""
 
-    def __init__(self, guard: _Guard) -> None:
+    guards: _Guards
+
+    def _get_conn(self, timeout: float | None = None) -> Any:
+        """Get a connection of the pool, tracking its socket, if open.
+
+        Args:
+            timeout: Seconds to wait for a free connection.
+
+        Returns:
+            Connection.
+        """
+        conn = super()._get_conn(timeout)  # type: ignore[misc]
+        sock = getattr(conn, "sock", None)
+        if sock is not None:
+            self.guards.current().track(sock)
+        return conn
+
+
+class _GuardedAdapter(HTTPAdapter):
+    """Transport adapter whose connections the guards of requests limit."""
+
+    def __init__(self, guards: _Guards) -> None:
         """Create the adapter.
 
         Args:
-            guard: Guard of the client.
+            guards: Guards of the client's requests.
         """
-        self.guard = guard
+        self.guards = guards
         super().__init__()
 
     def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
@@ -443,7 +524,7 @@ class _GuardedAdapter(HTTPAdapter):
             kwargs: Keyword arguments of it.
         """
         super().init_poolmanager(*args, **kwargs)
-        attributes = {"guard": self.guard}
+        attributes = {"guards": self.guards}
         http = type(
             "_GuardedHTTPConnection",
             (_GuardedConnectionMixin, HTTPConnection),
@@ -457,13 +538,13 @@ class _GuardedAdapter(HTTPAdapter):
         self.poolmanager.pool_classes_by_scheme = {
             "http": type(
                 "_GuardedHTTPConnectionPool",
-                (HTTPConnectionPool,),
-                {"ConnectionCls": http},
+                (_GuardedPoolMixin, HTTPConnectionPool),
+                {"ConnectionCls": http, **attributes},
             ),
             "https": type(
                 "_GuardedHTTPSConnectionPool",
-                (HTTPSConnectionPool,),
-                {"ConnectionCls": https},
+                (_GuardedPoolMixin, HTTPSConnectionPool),
+                {"ConnectionCls": https, **attributes},
             ),
         }
 
@@ -604,7 +685,7 @@ class GuardedClient:
         self.allow_private_addresses = allow_private_addresses
         self.allow_http = allow_http
         self.max_response_size = max_response_size
-        self._guard = _Guard(allow_private_addresses)
+        self._guards = _Guards(allow_private_addresses)
         self._session: requests.Session | None = None
 
     @property
@@ -617,7 +698,7 @@ class GuardedClient:
         if self._session is None:
             session = requests.Session()
             session.trust_env = False
-            adapter = _GuardedAdapter(self._guard)
+            adapter = _GuardedAdapter(self._guards)
             session.mount("https://", adapter)
             session.mount("http://", adapter)
             self._session = session
@@ -706,10 +787,8 @@ class GuardedClient:
         remaining = self.remaining()
         if remaining <= 0:
             raise DeadlineExceeded(f"No time left for {url}")
-        guard = self._guard
         session = self.session
-        guard.start(remaining)
-        try:
+        with self._guards.request(remaining) as guard:
             try:
                 response = session.request(
                     method,
@@ -736,11 +815,10 @@ class GuardedClient:
                     raise self._expired(url) from exc
                 raise error from exc
             try:
-                content = self._read(response, url)
+                content = self._read(response, url, guard)
             finally:
+                guard.finish()  # before the connection goes back to the pool
                 response.close()
-        finally:
-            guard.finish()
         return HttpResponse(
             status=response.status_code,
             headers={name.lower(): value for name, value in response.headers.items()},
@@ -759,12 +837,13 @@ class GuardedClient:
         """
         return RequestMaybeSent(f"{url}: deadline passed", reason="read_timeout")
 
-    def _read(self, response: requests.Response, url: str) -> bytes:
+    def _read(self, response: requests.Response, url: str, guard: _Guard) -> bytes:
         """Read a response body within the size limit and the deadline.
 
         Args:
             response: Streamed response.
             url: URL of the request.
+            guard: Guard of the request.
 
         Returns:
             Body.
@@ -783,13 +862,13 @@ class GuardedClient:
                     raise ResponseTooLarge(
                         f"{url}: response larger than {self.max_response_size} bytes"
                     )
-                if self._guard.expired:
+                if guard.expired:
                     raise self._expired(url)
         except requests.RequestException as exc:
-            if self._guard.expired:
+            if guard.expired:
                 raise self._expired(url) from exc
             raise _classify(exc, url) from exc
-        if self._guard.expired:
+        if guard.expired:
             raise self._expired(url)
         return bytes(content)
 
