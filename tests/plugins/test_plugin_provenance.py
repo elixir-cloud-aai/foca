@@ -9,16 +9,20 @@ import mongomock
 import pytest
 
 from foca.plugins import Backend, BackendResponse, ProvenanceStore
-from foca.plugins.engine import ForwardTimeout, NoBackendAvailable, _changes
-from foca.plugins.model import InboundRequest
+from foca.plugins.engine import ForwardTimeout, NoBackendAvailable
+from foca.plugins.model import Headers, InboundRequest, OutboundRequest
 from foca.plugins.provenance import (
     FAILURE_INDEXES,
     IMAGE_DIGEST_ENV,
+    MAX_CHANGED_PATHS,
     build_document,
+    build_key,
     canonical_json,
     changed_paths,
     content_hash,
+    describe_changes,
 )
+from foca.plugins.records import ResolvedPipeline
 from tests.plugins.fakes import make_host
 from tests.plugins.test_plugin_engine import BACKENDS, PRINCIPAL, inbound
 
@@ -110,16 +114,79 @@ def test_changed_paths() -> None:
     """Changes are listed as JSON Pointers, without values."""
     before = {"a": {"b": 1, "c": [1, 2, 3]}, "d": "x", "e~": 1, "f": 1}
     after = {"a": {"b": 2, "c": [1, 2]}, "d": "x", "e~": 2, "f": True, "g": 1}
-    assert changed_paths(before, after) == ["/a/b", "/a/c/2", "/e~0", "/f", "/g"]
-    assert changed_paths([1], [1, {"x": 1}]) == ["/1"]
+    assert changed_paths(before, after) == ["/a/b", "/a/c", "/e~0", "/f", "/g"]
+    assert changed_paths([1], [1, {"x": 1}]) == [""]
+    assert changed_paths([1, [2]], [1, [3]]) == ["/1/0"]
     assert changed_paths({"a": 1}, [1], prefix="/p") == ["/p"]
     assert changed_paths({"a": [1]}, {"a": [1]}) == []
 
 
-def test_changes_not_json() -> None:
-    """Payloads that are no JSON data are recorded as such."""
-    request = InboundRequest(method="POST", path="/", payload={"a": object()})
-    assert _changes("request", request, request) == {"error": "not_json"}
+@pytest.mark.parametrize("payload", [{"a": object()}, {"a": 10**400}, {"a": 2**53}])
+def test_changes_not_json(payload: Any) -> None:
+    """Payloads that are no I-JSON are recorded as such, without errors."""
+    request = InboundRequest(method="POST", path="/", payload=payload)
+    assert describe_changes("request", request, request) == {"error": "not_json"}
+    with pytest.raises(ValueError, match="I-JSON"):
+        canonical_json(-(2**53))
+    assert canonical_json(2**53 - 1) == "9007199254740991"
+
+
+def test_huge_integers_in_runs() -> None:
+    """Huge integers in payloads do not fail runs."""
+    host = make_host([{"plugin": "test.tag"}])
+    run = host.start(inbound({"n": 10**400}), PRINCIPAL)
+    run.request()
+    assert run.executions[0].outcome == "ok"
+    assert run.provenance()["executions"][0]["changes"] == {"error": "not_json"}
+
+
+def test_changes_truncated() -> None:
+    """Calls record a bounded number of changed paths."""
+    before = InboundRequest(method="POST", path="/", payload={})
+    after = InboundRequest(
+        method="POST", path="/", payload={f"k{i}": i for i in range(300)}
+    )
+    changes = describe_changes("request", before, after)
+    assert len(changes["paths"]) == MAX_CHANGED_PATHS
+    assert changes["truncated"] is True
+    assert "truncated" not in describe_changes("request", before, before)
+
+
+def test_changes_without_credentials() -> None:
+    """Credentials and secret headers are not part of the hashes."""
+    backend = Backend(id="a", url="https://a.example.org")
+
+    def outbound(headers: dict[str, str], auth: str | None) -> OutboundRequest:
+        return OutboundRequest(
+            backend=backend,
+            method="POST",
+            path="/",
+            headers=Headers(headers),
+            auth=auth,
+        )
+
+    before = outbound({"X-Key": "1", "Accept": "a"}, None)
+    after = outbound(
+        {"Authorization": "Bearer t", "X-Key": "2", "Accept": "a"}, "basic"
+    )
+    changes = describe_changes("forward", before, after, secret_headers=["X-Key"])
+    assert changes["paths"] == []
+    assert changes["before"] == changes["after"]
+    assert describe_changes("forward", before, after)["paths"] == ["/headers/x-key"]
+
+
+def test_resolved_not_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Records of pipelines that are no I-JSON have no hash, but no error."""
+    host = make_host([{"plugin": "test.tag"}])
+    run = host.start(inbound(), PRINCIPAL)
+    monkeypatch.setattr(ResolvedPipeline, "describe", lambda self: [{"x": 2**60}])
+    pipeline = run.provenance()["pipeline"]
+    assert pipeline["resolved_hash"] is None
+    assert pipeline["error"] == "not_json"
+    store, db = stores()
+    record = store.save(run)
+    assert "resolved" in record["pipeline"]
+    assert db.pipelines.count_documents({}) == 0
 
 
 def test_run_provenance() -> None:
@@ -176,6 +243,7 @@ def test_run_provenance() -> None:
         "outcome": "skipped",
         "started_at": executions[1]["started_at"],
         "duration_ms": 0.0,
+        "annotations": {},
     }
     tag = executions[2]
     assert tag["plugin"] in record["plugins"]
@@ -272,6 +340,60 @@ def test_store(monkeypatch: pytest.MonkeyPatch) -> None:
     assert build_document(host.plugins["test.tag"]) == build
 
 
+def test_builds_per_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    """New images give new build documents."""
+    store, db = stores()
+    host = make_host([{"plugin": "test.tag"}])
+    keys = []
+    for digest in ("sha256:old", "sha256:new"):
+        monkeypatch.setenv(IMAGE_DIGEST_ENV, digest)
+        keys.append(build_key(host.plugins["test.tag"]))
+        run = host.start(inbound(), PRINCIPAL)
+        run.request()
+        store.save(run)
+    assert keys[0] != keys[1]
+    digests = {build["image_digest"] for build in db.plugin_builds.find()}
+    assert digests == {"sha256:old", "sha256:new"}
+
+
+class Broken:
+    """Collection whose writes fail."""
+
+    def update_one(self, *args: Any, **kwargs: Any) -> None:
+        """Fail.
+
+        Args:
+            args: Ignored.
+            kwargs: Ignored.
+
+        Raises:
+            ConnectionError: Always.
+        """
+        raise ConnectionError("down")
+
+    def insert_one(self, document: Any) -> None:
+        """Fail.
+
+        Args:
+            document: Ignored.
+
+        Raises:
+            ConnectionError: Always.
+        """
+        raise ConnectionError("down")
+
+
+def test_store_errors() -> None:
+    """Errors of the collections are logged, never raised."""
+    store = ProvenanceStore(Broken(), Broken(), Broken())
+    host = make_host([{"plugin": "test.reject"}], provenance={"record_failed": True})
+    run = host.start(inbound(), PRINCIPAL)
+    with pytest.raises(Exception) as info:
+        run.request()
+    assert store.save(run)["stored"] is False
+    assert store.save_failure(run, info.value) is False
+
+
 def test_store_client_pipeline() -> None:
     """Client pipelines stay inline."""
     store, db = stores()
@@ -304,5 +426,12 @@ def test_save_failure(record_failed: bool, collection: bool, stored: bool) -> No
         failure = db.failures.find_one()
         assert failure["error"]["type"] == "PipelineRejected"
         assert failure["error"]["slug"] == "rejected"
+        assert failure["error"]["status"] == 403
         assert failure["failed_at"] is not None
-    assert FAILURE_INDEXES[0]["keys"] == {"failed_at": 1}
+
+
+def test_failure_indexes() -> None:
+    """Failure records expire after 30 days by default."""
+    assert FAILURE_INDEXES == [
+        {"keys": {"failed_at": 1}, "options": {"expireAfterSeconds": 2592000}}
+    ]
