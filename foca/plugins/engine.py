@@ -50,7 +50,8 @@ import re
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
-from typing import Any
+from enum import Enum
+from typing import Any, Final
 from urllib.parse import urlsplit
 
 from pydantic import ValidationError
@@ -65,13 +66,13 @@ from foca.plugins.checks import (
 )
 from foca.plugins.config import (
     GATEWAY_ID_PATTERN,
+    PRESET_PATTERN,
     PluginsConfig,
     StepConfig,
     check_pipeline,
 )
 from foca.plugins.context import Context
 from foca.plugins.errors import (
-    PROBLEM_TYPE_BASE,
     ForwardTimeout,
     GatewayError,
     InvalidSelection,
@@ -117,7 +118,6 @@ from foca.plugins.records import (
     _utc_now,
 )
 from foca.plugins.selection import (
-    PRESET_PATTERN,
     ClientSelection,
     apply_backend_selection,
     parse_client_pipeline,
@@ -159,8 +159,14 @@ def _default_gateway_id(public_url: str | None) -> str | None:
     return name if _GATEWAY_ID.fullmatch(name) else None
 
 
-# Default of `PluginHost.start(tags=...)`: the tags of the payload
-_FROM_PAYLOAD = object()
+class _Default(Enum):
+    """Sentinels of default arguments."""
+
+    FROM_PAYLOAD = "from_payload"
+
+
+_FROM_PAYLOAD: Final = _Default.FROM_PAYLOAD
+"""Default of `PluginHost.start(tags=...)`: the tags of the payload (TES)."""
 
 
 class PluginHost:
@@ -357,7 +363,7 @@ class PluginHost:
         principal: Principal,
         *,
         request_id: str | None = None,
-        tags: object = _FROM_PAYLOAD,
+        tags: object | _Default = _FROM_PAYLOAD,
     ) -> "PipelineRun":
         """Start the pipeline run of a request.
 
@@ -369,9 +375,9 @@ class PluginHost:
             inbound: Inbound request, after the app's checks and sanitation.
             principal: Authenticated caller.
             request_id: Identifier of the request, for logs.
-            tags: Tags of the request (a string map), e.g., the parsed
-                `tags` form field of WES; by default, the `tags` of the
-                payload, if it is a mapping (e.g., a TES task).
+            tags: Tags of the request (a string map, or `None`), e.g., the
+                parsed `tags` form field of WES; required for APIs other
+                than `tes`, whose default is the `tags` of the task.
 
         Returns:
             Run of the request.
@@ -381,8 +387,10 @@ class PluginHost:
                 outbound one, with this gateway's entry, would be longer than
                 :py:data:`MAX_VIA_LENGTH` characters.
             LoopDetected: The request already passed this gateway.
-            foca.plugins.selection.InvalidSelection: The client's choices are
-                invalid or not allowed (`400`).
+            foca.plugins.selection.InvalidSelection: The tags are not a
+                mapping, or the client's choices are invalid or not allowed
+                (`400`).
+            TypeError: `tags` is not given for an API other than `tes`.
         """
         own = len(f", 1.1 {self.gateway_id}") if self.gateway_id is not None else 0
         if len(inbound.headers.get("Via", "")) > MAX_VIA_LENGTH - own:
@@ -392,6 +400,8 @@ class PluginHost:
         ):
             raise LoopDetected(f"Request already passed gateway {self.gateway_id}")
         if tags is _FROM_PAYLOAD:
+            if self.api != "tes":
+                raise TypeError(f"Pass the tags of {self.api} requests: start(tags=)")
             payload = inbound.payload
             tags = payload.get("tags") if isinstance(payload, Mapping) else None
         conf = self.conf
@@ -400,11 +410,9 @@ class PluginHost:
             prefix=conf.tags.prefix,
             max_pipeline_size=conf.client_pipelines.max_size,
             max_backends=conf.client_backends.max_items,
+            pipelines_enabled=conf.client_pipelines.enabled,
+            backends_enabled=conf.client_backends.enabled,
         )
-        if selection.backends is not None and not conf.client_backends.enabled:
-            raise InvalidSelection(
-                "Choosing backends per request is disabled", slug="invalid-backends"
-            )
         return PipelineRun(
             self,
             pipeline=self.resolve(selection.pipeline, principal),
@@ -428,23 +436,29 @@ class PluginHost:
 
         Raises:
             foca.plugins.selection.InvalidSelection: The choice is invalid
-                or not allowed. Plugins that are unknown, not installed,
-                disabled, not selectable or not allowed for the caller get
-                the same message, so that clients cannot probe the setup.
+                or not allowed (whether choices are enabled at all is
+                checked when the tags are read, cf. :py:meth:`start`).
+                Plugins that are unknown, not installed, disabled, not
+                selectable or not allowed for the caller get the same
+                message, as do presets that are unknown or need a role, so
+                that clients cannot probe the setup.
         """
         if value is None:
             return self.default_pipeline
         conf = self.conf.client_pipelines
-        if not conf.enabled:
-            raise InvalidSelection("Choosing pipelines per request is disabled")
         if conf.roles and not set(conf.roles) & set(principal.groups):
             raise InvalidSelection("Choosing pipelines is not allowed")
         preset: str | None = None
-        if PRESET_PATTERN.fullmatch(value) and "presets" in conf.allowed:
-            if value not in self.presets:
-                raise InvalidSelection(f"Unknown preset: {value}")
+        is_name = PRESET_PATTERN.fullmatch(value) is not None
+        if is_name and "presets" in conf.allowed:
+            if value not in self.presets or not self._may_use_preset(
+                self.presets[value], principal
+            ):
+                raise InvalidSelection(f"Preset not available: {value}")
             preset = value
             resolved = self.presets[value]
+        elif is_name:
+            raise InvalidSelection("Presets are not allowed: pipelines are JSON")
         elif "inline" in conf.allowed:
             steps = parse_client_pipeline(value)
             self._check_client_steps(steps, principal)
@@ -460,6 +474,30 @@ class PluginHost:
             source="preset" if preset is not None else "client",
             preset=preset,
         )
+
+    def _may_use_preset(
+        self, steps: Sequence[ResolvedStep], principal: Principal
+    ) -> bool:
+        """Check whether a caller has the roles of the plugins of a preset.
+
+        Presets are admin-authored, so they may use plugins that clients
+        cannot choose themselves (`client_selectable: false`), but not
+        plugins restricted to roles that the caller lacks.
+
+        Args:
+            steps: Resolved steps of the preset.
+            principal: Authenticated caller.
+
+        Returns:
+            Whether the caller may choose the preset.
+        """
+        groups = set(principal.groups)
+        for step in steps:
+            for alternative in step.alternatives:
+                roles = self.conf.available[alternative.plugin].roles
+                if roles and not set(roles) & groups:
+                    return False
+        return True
 
     def _check_client_steps(
         self, steps: Sequence[StepConfig], principal: Principal
@@ -765,6 +803,7 @@ class PipelineRun:
         self.candidates_in: list[str] = []
         self.candidates_out: list[str] = []
         self.selection = selection or ClientSelection()
+        # recorded in the provenance of the request (#488)
         self.backends_discarded: list[str] = []
         self._states: dict[str, dict[str, Any]] = {}
         self._deadline = time.monotonic() + host.conf.defaults.pipeline_timeout
@@ -1204,7 +1243,6 @@ class PipelineRun:
 
 __all__ = [
     "MAX_VIA_LENGTH",
-    "PROBLEM_TYPE_BASE",
     "Attempt",
     "AttemptRecord",
     "Execution",

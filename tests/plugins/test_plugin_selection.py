@@ -1,12 +1,15 @@
 """Tests of per-request pipelines and backends (`foca.plugins.selection`)."""
 
 import json
+import random
 from typing import Any
 
 import pytest
 
 from foca.plugins import Backend, Headers, InboundRequest, Principal
 from foca.plugins.config import PluginsConfig
+from foca.plugins.engine import PluginHost
+from foca.plugins.loader import load_plugins
 from foca.plugins.selection import (
     BackendSelection,
     InvalidSelection,
@@ -14,7 +17,7 @@ from foca.plugins.selection import (
     parse_client_pipeline,
     parse_client_tags,
 )
-from tests.plugins.fakes import FAKES, make_host
+from tests.plugins.fakes import FAKES, fake_entry_points, make_host
 
 BACKENDS = [
     Backend(id="a", url="https://a.example.org"),
@@ -148,7 +151,7 @@ def test_inline_pipeline_and_frame() -> None:
         (
             {"client_pipelines": {"allowed": ["inline"]}},
             pipeline_tag("tagging"),
-            "not a preset",
+            "Presets are not allowed",
             "invalid-pipeline",
         ),
         (
@@ -157,7 +160,7 @@ def test_inline_pipeline_and_frame() -> None:
             "preset name only",
             "invalid-pipeline",
         ),
-        ({}, pipeline_tag("unknown"), "Unknown preset", "invalid-pipeline"),
+        ({}, pipeline_tag("unknown"), "Preset not available", "invalid-pipeline"),
         ({}, pipeline_tag("Nope!"), "not a preset name or JSON", "invalid-pipeline"),
         ({}, pipeline_tag({"plugin": "test.tag"}), "list of steps", "invalid-pipeline"),
         (
@@ -375,9 +378,129 @@ def test_presets_with_disabled_plugins() -> None:
         },
     )
     assert list(h.presets) == ["optional"]
-    with pytest.raises(InvalidSelection, match="Unknown preset"):
+    with pytest.raises(InvalidSelection, match="Preset not available"):
         h.start(request(pipeline_tag("tagging")), ALICE)
     run = h.start(request(pipeline_tag("optional")), ALICE)
     assert [s.id for s in run.pipeline.steps] == ["route"]
     with pytest.raises(ValueError, match="Invalid params"):
         host(presets={"bad": [{"plugin": "test.tag", "params": {"x": 1}}]})
+
+
+def test_tags_not_a_mapping() -> None:
+    """Tags that are not a map are refused, not ignored."""
+    req = request()
+    req.payload["tags"] = ["gateway.pipeline", "[]"]
+    with pytest.raises(InvalidSelection, match="map of strings") as exc_info:
+        host().start(req, ALICE)
+    assert exc_info.value.code == 400
+
+
+def test_tags_of_other_apis() -> None:
+    """Apps of other APIs pass the tags explicitly."""
+    conf = PluginsConfig.model_validate(
+        {"available": {"test.tag": {}}, "presets": {"p": ["test.tag"]}}
+    )
+    plugins = load_plugins(conf, api="wes", find_entry_points=fake_entry_points())
+    wes = PluginHost(conf, api="wes", plugins=plugins)
+    with pytest.raises(TypeError, match="tags="):
+        wes.start(request(), ALICE)
+    run = wes.start(request(), ALICE, tags={"gateway.pipeline": "p"})
+    assert run.pipeline.preset == "p"
+    assert wes.start(request(), ALICE, tags=None).pipeline.source == "default"
+    wes.close()
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        (json.dumps({"type": "allow", "backends": ["a" * 2000] * 5}), "8192 bytes"),
+        ('{"type": "allow", "backends": []}', "JSON"),
+    ],
+)
+def test_backend_selection_limits(raw: str, message: str) -> None:
+    """Backend selections are bounded in size and not empty."""
+    with pytest.raises(InvalidSelection, match=message) as exc_info:
+        parse_client_tags({"gateway.backends": raw}, "gateway.", 8192, 32)
+    assert exc_info.value.problem_type.endswith("#invalid-backends")
+
+
+def test_preset_roles() -> None:
+    """Presets need the roles of their plugins, not `client_selectable`."""
+    available = {
+        **{n: {} for n in FAKES},
+        "test.tag": {"client_selectable": False},
+        "test.skip": {"roles": ["admin"]},
+    }
+    h = host(
+        available=available,
+        presets={"tagging": [{"plugin": "test.tag"}], "admins": ["test.skip"]},
+    )
+    assert h.start(request(pipeline_tag("tagging")), ALICE).pipeline.preset == "tagging"
+    with pytest.raises(InvalidSelection, match="Preset not available: admins"):
+        h.start(request(pipeline_tag("admins")), ALICE)
+    admin = Principal(subject="root", groups=("admin",))
+    assert h.start(request(pipeline_tag("admins")), admin).pipeline.preset == "admins"
+
+
+@pytest.mark.parametrize(
+    ("conf", "message"),
+    [
+        (
+            {
+                "available": {"a.b": {}},
+                "presets": {"p": [{"id": "x", "plugin": "a.b"}]},
+                "client_pipelines": {"prepend": [{"id": "x", "plugin": "a.b"}]},
+            },
+            r"'x' of presets\.p",
+        ),
+        (
+            {"client_pipelines": {"prepend": [{"plugin": "a.b"}]}},
+            "'a.b' of prepend",
+        ),
+        ({"client_pipelines": {"allowed": []}}, "at least 1"),
+    ],
+)
+def test_invalid_frames(conf: dict[str, Any], message: str) -> None:
+    """Frames, presets and forms are checked at startup."""
+    with pytest.raises(ValueError, match=message):
+        PluginsConfig.model_validate(conf)
+
+
+ALLOWED = ["test.tag", "test.skip", "test.header"]
+FORBIDDEN = ["test.fail", "test.reject", "test.slow", "test.none", "test.off"]
+
+
+def test_random_pipelines_forbidden_plugins() -> None:
+    """No random client pipeline gets a forbidden plugin through."""
+    available = {
+        **{n: {} for n in FAKES},
+        "test.fail": {"client_selectable": False},
+        "test.reject": {"roles": ["admin"]},
+        "test.slow": {"enabled": False},
+        "test.off": {"client_selectable": False, "enabled": False},
+    }
+    h = host(available=available, client_pipelines={"max_steps": 4})
+    rng = random.Random(487)  # noqa: S311 (reproducible test data)
+    for _ in range(300):
+        steps: list[dict[str, Any]] = [
+            {
+                "id": f"s{index}",
+                "alternatives": [
+                    {"plugin": rng.choice(ALLOWED + FORBIDDEN)}
+                    for _ in range(rng.randint(1, 3))
+                ],
+            }
+            for index in range(rng.randint(0, 4))
+        ]
+        plugins = {alt["plugin"] for step in steps for alt in step["alternatives"]}
+        tags = pipeline_tag(steps)
+        if plugins & set(FORBIDDEN):
+            with pytest.raises(InvalidSelection, match="not available"):
+                h.start(request(tags), ALICE)
+        else:
+            run = h.start(request(tags), ALICE)
+            used = {
+                alt.plugin for step in run.pipeline.steps for alt in step.alternatives
+            }
+            assert used <= set(ALLOWED)
+    h.close()
