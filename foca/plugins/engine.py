@@ -13,14 +13,14 @@ candidates = run.route(backends)              # phase `route`
 for attempt in run.attempts(candidates):      # phase `forward`, per backend
     try:
         result = send(attempt.outbound, timeout=attempt.remaining())
-    except NotAccepted:                       # the backend certainly did not
-        attempt.failed("connect_error")       # accept: next backend
-        continue
-    except OutcomeUnknown:                    # it may have accepted: stop
-        attempt.unknown("read_timeout")
-        raise
-    response = attempt.succeeded(result)      # phase `response`
+    except NotAccepted as exc:                # not accepted: next backend;
+        attempt.report(exc)                   # OutcomeUnknown (a subclass):
+        continue                              # stop, without raising
+    response = attempt.succeeded(result, remote_id=result.payload["id"])
     break
+if run.final_reason == "outcome_unknown":     # a backend may have it
+    ...
+record = run.provenance()                     # e.g., with ProvenanceStore
 ```
 
 Semantics:
@@ -45,9 +45,11 @@ Semantics:
 """
 
 import copy
+import json
 import logging
 import re
 import time
+import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from enum import Enum
@@ -56,7 +58,7 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
-from foca.plugins.base import NotApplicable, Rejected
+from foca.plugins.base import API_VERSION, NotApplicable, Rejected
 from foca.plugins.checks import (
     _check_forward,
     _check_response,
@@ -106,7 +108,16 @@ from foca.plugins.outcomes import (
     _InvalidOutputError,
     _NoEnabledPluginError,
     _StepFailedError,
+    describe_error,
     sanitize_error,
+)
+from foca.plugins.provenance import (
+    MAX_RUN_CHANGES_SIZE,
+    build_key,
+    clean_url,
+    content_hash,
+    describe_changes,
+    limit_record,
 )
 from foca.plugins.records import (
     AttemptOutcome,
@@ -115,6 +126,7 @@ from foca.plugins.records import (
     ResolvedAlternative,
     ResolvedPipeline,
     ResolvedStep,
+    _foca_version,
     _utc_now,
 )
 from foca.plugins.selection import (
@@ -191,6 +203,7 @@ class PluginHost:
         plugins: Loaded plugins, by identifier.
         public_url: Public URL of the gateway, normalized, if known.
         gateway_id: Name of the gateway in `Via` headers, if known.
+        app_info: Name and version of the app, for provenance.
         default_pipeline: Resolved default pipeline.
         presets: Resolved presets, by name; presets that need a disabled
             plugin are left out.
@@ -206,6 +219,7 @@ class PluginHost:
         validate_outbound: Callable[[OutboundRequest], None] | None = None,
         public_url: str | None = None,
         plugins: Mapping[str, LoadedPlugin] | None = None,
+        app_info: Mapping[str, str] | None = None,
     ) -> None:
         """Load the plugins and resolve the default pipeline.
 
@@ -238,6 +252,8 @@ class PluginHost:
             plugins: Loaded plugins, e.g., for tests (cf.
                 :py:mod:`foca.plugins.testing`); by default, the plugins of
                 the allowlist are loaded from their entry points.
+            app_info: Name and version of the app, for provenance (e.g.,
+                `{"name": "proTES", "version": "0.4.0"}`).
 
         Raises:
             ValueError: Plugins cannot be loaded (cf.
@@ -250,6 +266,7 @@ class PluginHost:
         self._sanitize = sanitize
         self._validate_outbound = validate_outbound
         self.public_url = public_url.rstrip("/") if public_url else None
+        self.app_info: dict[str, str] = dict(app_info or {})
         self.gateway_id = conf.gateway_id or _default_gateway_id(public_url)
         self.plugins: dict[str, LoadedPlugin] = (
             dict(plugins) if plugins is not None else load_plugins(conf, api=api)
@@ -293,6 +310,7 @@ class PluginHost:
         validate: Callable[[Any], None] | None = None,
         sanitize: Callable[[Any], Any] | None = None,
         validate_outbound: Callable[[OutboundRequest], None] | None = None,
+        app_info: Mapping[str, str] | None = None,
     ) -> "PluginHost":
         """Create the host from the FOCA configuration.
 
@@ -302,6 +320,7 @@ class PluginHost:
             validate: Payload check (cf. :py:class:`PluginHost`).
             sanitize: Payload sanitation (cf. :py:class:`PluginHost`).
             validate_outbound: Outbound check (cf. :py:class:`PluginHost`).
+            app_info: Name and version of the app (cf. :py:class:`PluginHost`).
 
         Returns:
             Host with the plugins of `plugins` (none if not configured).
@@ -320,6 +339,7 @@ class PluginHost:
             sanitize=sanitize,
             validate_outbound=validate_outbound,
             public_url=config.server.public_url,
+            app_info=app_info,
         )
 
     def resolve_steps(
@@ -790,6 +810,8 @@ class PipelineRun:
         inbound: Inbound request; after `request()`, the committed one.
         principal: Authenticated caller.
         request_id: Identifier of the request.
+        run_id: Random identifier of the run, e.g., for records of failed
+            runs without a request identifier.
         task_id: Identifier of the gateway's resource, once created; set by
             the app, passed to hooks of later phases.
         original: Payload of the inbound request before any plugin ran.
@@ -802,6 +824,9 @@ class PipelineRun:
         selection: Client's choices, from the reserved tags.
         backends_discarded: Backends of the client's selection that were no
             candidates.
+        final_reason: Why forwarding ended without an accepting backend
+            (`forward_timeout`, `no_backend`, or `outcome_unknown` if a
+            backend may have accepted), if it did.
     """
 
     def __init__(
@@ -829,6 +854,7 @@ class PipelineRun:
         self.inbound = inbound
         self.principal = principal
         self.request_id = request_id
+        self.run_id = uuid.uuid4().hex
         self.task_id: str | None = None
         self.original = copy.deepcopy(inbound.payload)
         self._inbound_via = inbound.headers.get("Via")
@@ -839,8 +865,99 @@ class PipelineRun:
         self.selection = selection or ClientSelection()
         # recorded in the provenance of the request (#488)
         self.backends_discarded: list[str] = []
+        self.final_reason: str | None = None
         self._states: dict[str, dict[str, Any]] = {}
+        self._changes_size = 0
         self._deadline = time.monotonic() + host.conf.defaults.pipeline_timeout
+
+    def provenance(self) -> dict[str, Any]:
+        """Describe the run so far as JSON data, for storage with the task.
+
+        Holds no IP addresses, tokens, header values or claims; plugins are
+        referenced by build key (cf. :py:class:`foca.plugins.provenance.ProvenanceStore`
+        for storing builds and admin-defined pipelines once).
+
+        Returns:
+            Record with `engine` (FOCA, plugin API and app versions),
+            `request_id`, the prospective `pipeline` (`source`, `preset`,
+            `requested` as a reference to the client's tag, `resolved`,
+            `resolved_hash`), the `plugins` that ran (names by build key),
+            the `executions` of hooks, the `route` (candidates in and out),
+            the client's backend `selection`, the forwarding `attempts` and
+            the `final_reason`, if forwarding failed. URLs have no user info
+            or query. Never raises for data that is no I-JSON: `resolved`
+            and `resolved_hash` are then `None`, with `error: not_json`.
+            Records larger than
+            :py:data:`foca.plugins.provenance.MAX_RECORD_SIZE` are cut
+            (cf. :py:func:`foca.plugins.provenance.limit_record`).
+        """
+        builds = {
+            plugin_id: build_key(loaded)
+            for plugin_id, loaded in self.host.plugins.items()
+        }
+        ran = {execution.plugin for execution in self.executions if execution.plugin}
+        resolved: list[dict[str, Any]] | None = self.pipeline.describe()
+        try:
+            resolved_hash: str | None = content_hash(resolved)
+        except (TypeError, ValueError, ArithmeticError, RecursionError):
+            # e.g., parameters that are no I-JSON, which might not be stored
+            resolved_hash = resolved = None
+        prefix = self.host.conf.tags.prefix
+        selection = self.selection.backends
+        return limit_record(
+            {
+                "engine": {
+                    "foca": _foca_version(),
+                    "plugin_api": API_VERSION,
+                    "app": dict(self.host.app_info),
+                },
+                "request_id": self.request_id,
+                "pipeline": {
+                    "source": self.pipeline.source,
+                    "preset": self.pipeline.preset,
+                    "requested": (
+                        f"tags[{prefix}pipeline]"
+                        if self.selection.pipeline is not None
+                        else None
+                    ),
+                    "resolved": resolved,
+                    "resolved_hash": resolved_hash,
+                    **({} if resolved_hash else {"error": "not_json"}),
+                },
+                "plugins": {builds[plugin]: plugin for plugin in sorted(ran)},
+                "executions": [
+                    execution.describe(builds) for execution in self.executions
+                ],
+                "route": {
+                    "candidates_in": [clean_url(item) for item in self.candidates_in],
+                    "candidates_out": [clean_url(item) for item in self.candidates_out],
+                },
+                "selection": (
+                    {
+                        "type": selection.type,
+                        "backends": [clean_url(item) for item in selection.backends],
+                        "discarded": [
+                            clean_url(item) for item in self.backends_discarded
+                        ],
+                    }
+                    if selection is not None
+                    else None
+                ),
+                "attempts": [
+                    {
+                        "number": record.number,
+                        "backend": clean_url(record.backend),
+                        "outcome": record.outcome,
+                        "reason": record.reason,
+                        "remote_id": record.remote_id,
+                        "started_at": record.started_at,
+                        "duration_ms": record.duration_ms,
+                    }
+                    for record in self.attempt_records
+                ],
+                "final_reason": self.final_reason,
+            }
+        )
 
     def _set_via(self, outbound: OutboundRequest) -> None:
         """Set the `Via` header of an outbound request (RFC 9110, 7.6.3).
@@ -951,6 +1068,9 @@ class PipelineRun:
             `forward` step failed, or whose outbound request the app's
             `validate_outbound` rejects, are skipped (recorded as not
             accepted, reason `forward_plugin_failed` or `invalid_outbound`).
+            After a success, or an attempt whose outcome is unknown, the
+            loop ends without raising; in the latter case, `final_reason`
+            is `outcome_unknown`, and the app must not retry elsewhere.
 
         Raises:
             ForwardTimeout: `plugins.defaults.forward_timeout` passed before
@@ -965,6 +1085,7 @@ class PipelineRun:
                 continue
             if time.monotonic() >= budget_end:
                 timeout = self.host.conf.defaults.forward_timeout
+                self.final_reason = "forward_timeout"
                 raise ForwardTimeout(
                     f"No backend accepted within {timeout} s", run=self
                 )
@@ -987,7 +1108,7 @@ class PipelineRun:
                         logger.warning(
                             "Outbound request to %s invalid: %s",
                             backend.id,
-                            sanitize_error(exc),
+                            describe_error(exc),
                         )
                         reason = "invalid_outbound"
             except _StepFailedError:
@@ -1012,8 +1133,15 @@ class PipelineRun:
             yield attempt
             if attempt.state is None:
                 raise RuntimeError("Report the outcome of each attempt")
+            if attempt.state == "unknown":
+                self.final_reason = "outcome_unknown"
             if attempt.state != "not_accepted":
                 return
+        if time.monotonic() >= budget_end:
+            timeout = self.host.conf.defaults.forward_timeout
+            self.final_reason = "forward_timeout"
+            raise ForwardTimeout(f"No backend accepted within {timeout} s", run=self)
+        self.final_reason = "no_backend"
         raise NoBackendAvailable("No backend accepted the request", run=self)
 
     def respond(self, response: BackendResponse, attempt: int) -> BackendResponse:
@@ -1177,7 +1305,6 @@ class PipelineRun:
             started_at=_utc_now(),
             duration_ms=0.0,
             attempt=attempt,
-            before=value,
         )
         started = time.monotonic()
         output = None
@@ -1209,7 +1336,7 @@ class PipelineRun:
                 alternative.plugin,
                 step.id,
                 phase,
-                execution.error,
+                describe_error(exc),
             )
             return execution, None
         try:
@@ -1221,6 +1348,13 @@ class PipelineRun:
             except _AppError:
                 raise
             except Exception as exc:
+                logger.warning(
+                    "Output of plugin %s in step %s (%s) invalid: %s",
+                    alternative.plugin,
+                    step.id,
+                    phase,
+                    describe_error(exc),
+                )
                 raise _InvalidOutputError(sanitize_error(exc)) from exc
         except _AppError as exc:
             execution.outcome = "error"
@@ -1253,14 +1387,46 @@ class PipelineRun:
                 alternative.plugin,
                 step.id,
                 phase,
-                execution.error,
+                describe_error(exc),
             )
         self._finish(execution, started, ctx)
         if execution.outcome != "ok":
             return execution, None
         self._states[alternative.plugin] = state
-        execution.after = output
+        execution.changes = self._describe_changes(phase, value, output)
         return execution, output
+
+    def _describe_changes(self, phase: str, before: Any, after: Any) -> dict[str, Any]:
+        """Describe the changes of a call within the run's size budget.
+
+        Never raises: records must not fail requests, which backends may
+        have accepted already.
+
+        Args:
+            phase: Phase.
+            before: Input of the call.
+            after: Committed output of the call.
+
+        Returns:
+            Changes (cf. :py:func:`foca.plugins.provenance.describe_changes`);
+            without paths, and `truncated: true`, once the paths of the run
+            exceed :py:data:`foca.plugins.provenance.MAX_RUN_CHANGES_SIZE`
+            bytes; `error: internal` if they cannot be described.
+        """
+        try:
+            changes = describe_changes(
+                phase, before, after, self.host.conf.provenance.secret_headers
+            )
+            size = len(json.dumps(changes.get("paths", [])).encode())
+        except Exception:
+            logger.exception("Changes of a %s hook not described", phase)
+            return {"error": "internal"}
+        if self._changes_size + size > MAX_RUN_CHANGES_SIZE:
+            changes["paths"] = []
+            changes["truncated"] = True
+        else:
+            self._changes_size += size
+        return changes
 
     @staticmethod
     def _finish(execution: Execution, started: float, ctx: Context) -> None:
@@ -1296,5 +1462,6 @@ __all__ = [
     "ResolvedPipeline",
     "ResolvedStep",
     "default_outbound",
+    "describe_error",
     "sanitize_error",
 ]

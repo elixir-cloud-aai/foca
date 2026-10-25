@@ -148,6 +148,8 @@ configuration models, see [Configuration](configuration/index.md).
         - check_legacy_keys
         - LoadedPlugin
 
+::: foca.plugins.provenance
+
 ::: foca.plugins.runtime
     options:
       members:

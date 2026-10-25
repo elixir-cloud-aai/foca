@@ -369,6 +369,28 @@ class TagsConfig(_Model):
     prefix: str = Field(default="gateway.", pattern=r"^[a-z0-9][a-z0-9_.-]{0,31}\.$")
 
 
+class ProvenanceConfig(_Model):
+    """Provenance of gateway requests (`plugins.provenance`).
+
+    Args:
+        record_failed: Whether records of failed pipeline runs (e.g.,
+            rejected requests, which have no task) are stored for audits,
+            in a collection of the app with a retention (TTL index, e.g.,
+            30 days with :py:data:`foca.plugins.provenance.FAILURE_INDEXES`);
+            off by default, so that no record of rejected input is kept.
+        secret_headers: Names of headers that are left out of the hashes of
+            changes, besides credentials (`Authorization`, `Cookie`,
+            `Proxy-Authorization` etc.), e.g., API keys of backends.
+
+    Attributes:
+        record_failed: Whether records of failed pipeline runs are stored.
+        secret_headers: Names of headers left out of the hashes of changes.
+    """
+
+    record_failed: bool = False
+    secret_headers: list[str] = []
+
+
 class PluginsConfig(_Model):
     """Gateway plugins: allowlist and pipelines (FOCA config section `plugins`).
 
@@ -386,6 +408,7 @@ class PluginsConfig(_Model):
         client_pipelines: Pipelines chosen by clients per request.
         client_backends: Backends chosen by clients per request.
         tags: Reserved tags of gateway requests.
+        provenance: Provenance of gateway requests.
         gateway_id: Name of this gateway in `Via` headers (RFC 9110,
             section 7.6.3), which detect routing loops: a host name or IPv4
             address, or an IPv6 address in brackets, with an optional port;
@@ -400,6 +423,7 @@ class PluginsConfig(_Model):
         client_pipelines: Pipelines chosen by clients per request.
         client_backends: Backends chosen by clients per request.
         tags: Reserved tags of gateway requests.
+        provenance: Provenance of gateway requests.
         gateway_id: Name of this gateway in `Via` headers, if set.
 
     Examples:
@@ -418,6 +442,7 @@ class PluginsConfig(_Model):
     client_pipelines: ClientPipelinesConfig = ClientPipelinesConfig()
     client_backends: ClientBackendsConfig = ClientBackendsConfig()
     tags: TagsConfig = TagsConfig()
+    provenance: ProvenanceConfig = ProvenanceConfig()
     gateway_id: str | None = Field(default=None, pattern=GATEWAY_ID_PATTERN)
 
     @field_validator("pipeline")

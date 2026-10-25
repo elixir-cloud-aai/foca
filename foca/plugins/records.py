@@ -1,7 +1,10 @@
 """Resolved pipelines and records of hook calls and attempts."""
 
+import functools
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -12,6 +15,19 @@ Outcome = Literal[
 
 
 AttemptOutcome = Literal["accepted", "not_accepted", "unknown"]
+
+
+@functools.cache
+def _foca_version() -> str:
+    """Get the installed version of FOCA, without importing the app factory.
+
+    Returns:
+        Version, or `0+unknown` if FOCA is not installed.
+    """
+    try:
+        return version("foca")
+    except PackageNotFoundError:  # pragma: no cover (source checkouts)
+        return "0+unknown"
 
 
 def _utc_now() -> str:
@@ -108,8 +124,10 @@ class Execution:
             `forward` and `response` phases.
         error: Sanitized error, if any (cf. :py:func:`sanitize_error`).
         annotations: Annotations recorded by the plugin.
-        before: Input of the call, for provenance (not serialized).
-        after: Output of a successful call, for provenance (not serialized).
+        changes: Changes of a successful call (cf.
+            :py:func:`foca.plugins.provenance.describe_changes`): `before`
+            and `after` hashes of the phase's data and the changed JSON
+            Pointers (`paths`), without values.
     """
 
     step: str
@@ -122,8 +140,36 @@ class Execution:
     attempt: int | None = None
     error: str | None = None
     annotations: dict[str, Any] = field(default_factory=dict)
-    before: Any = field(default=None, repr=False)
-    after: Any = field(default=None, repr=False)
+    changes: dict[str, Any] | None = None
+
+    def describe(self, builds: Mapping[str, str]) -> dict[str, Any]:
+        """Describe the call as JSON data, for provenance.
+
+        Args:
+            builds: Build keys by plugin identifier (cf.
+                :py:func:`foca.plugins.provenance.build_key`).
+
+        Returns:
+            Record with the plugin's build key as `plugin`, its identifier
+            as `plugin_id`, and without the fields that are `None` (e.g.,
+            `plugin` of skipped steps, `attempt` outside forwarding,
+            `error` and `changes` of calls without them).
+        """
+        record = {
+            "step": self.step,
+            "phase": self.phase,
+            "alternative": self.alternative,
+            "plugin": builds.get(self.plugin) if self.plugin else None,
+            "plugin_id": self.plugin,
+            "outcome": self.outcome,
+            "started_at": self.started_at,
+            "duration_ms": self.duration_ms,
+            "attempt": self.attempt,
+            "error": self.error,
+            "annotations": self.annotations,
+            "changes": self.changes,
+        }
+        return {key: value for key, value in record.items() if value is not None}
 
 
 @dataclass

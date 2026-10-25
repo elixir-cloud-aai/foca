@@ -43,12 +43,16 @@ class GatewayApp:
         sanitize: Payload sanitation (cf. :py:class:`foca.plugins.PluginHost`).
         validate_outbound: Outbound check (cf.
             :py:class:`foca.plugins.PluginHost`).
+        name: Name of the app, for provenance (e.g., `proTES`).
+        version: Version of the app, for provenance.
     """
 
     api: str
     validate: Callable[[Any], None] | None = None
     sanitize: Callable[[Any], Any] | None = None
     validate_outbound: Callable[[OutboundRequest], None] | None = None
+    name: str | None = None
+    version: str | None = None
 
 
 class _Runtime:
@@ -132,6 +136,11 @@ def create_host() -> PluginHost:
         validate=app.validate,
         sanitize=app.sanitize,
         validate_outbound=app.validate_outbound,
+        app_info={
+            key: value
+            for key, value in (("name", app.name), ("version", app.version))
+            if value
+        },
     )
 
 

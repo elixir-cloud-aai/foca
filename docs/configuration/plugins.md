@@ -54,6 +54,9 @@ plugins:
     max_items: 32
   tags:
     prefix: "gateway."       # reserved tag prefix
+  provenance:
+    record_failed: false     # store records of failed runs (audit)
+    secret_headers: []       # left out of change hashes, besides credentials
   gateway_id: protes.example.org          # default: host[:port] of server.public_url
 ```
 
@@ -108,6 +111,19 @@ request. Presets are written by admins, so they may use plugins that are not
 them. Presets and frames are checked on startup like the default pipeline
 (also that no preset step has the identifier of a frame step); presets that
 need a disabled plugin are unavailable.
+
+## Provenance
+
+Records describe each plugin's changes as hashes before and after and the
+changed JSON Pointers, without values. Credentials (`Authorization`,
+`Cookie`, `Proxy-Authorization`), the headers in
+`provenance.secret_headers` (e.g., API keys) and the credential type of
+outbound requests are left out of the hashes, as hashes of short secrets
+can be guessed offline. `provenance.record_failed` stores records of failed
+runs (e.g., rejected requests) for audits, in a collection of the app with
+a TTL index (`foca.plugins.provenance.FAILURE_INDEXES`: 30 days; set the
+retention you need); it is off by default, so that no record of rejected
+input is kept (cf. [provenance](../plugins.md#provenance)).
 
 ## Migrating from middlewares
 

@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from foca.plugins.model import Principal
+from foca.plugins.selection import check_i_json
 
 MAX_ANNOTATIONS_SIZE = 2048
 """Maximum size of the annotations of one call, as compact JSON, in bytes."""
@@ -130,8 +131,9 @@ class Context:
             value: Value.
 
         Raises:
-            ValueError: The key or value is invalid, or the annotations get
-                too large.
+            ValueError: The key or value is invalid (also if it is no I-JSON,
+                e.g., integers beyond 2^53 - 1), or the annotations get too
+                large.
         """
         if not isinstance(key, str) or not 0 < len(key) <= _MAX_KEY_LENGTH:
             raise ValueError("Annotation keys must be strings of 1 to 64 characters")
@@ -141,6 +143,7 @@ class Context:
             value = list(value)
         elif not _is_scalar(value):
             raise ValueError("Annotation values must be JSON scalars or lists")
+        check_i_json({key: value})  # e.g., exact integers, valid Unicode
         annotations = {**self.annotations, key: value}
         size = len(json.dumps(annotations, separators=(",", ":")).encode())
         if size > MAX_ANNOTATIONS_SIZE:
