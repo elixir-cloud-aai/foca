@@ -1,8 +1,10 @@
 """Tests of backend lists (`foca.plugins.backends`), without network."""
 
+import json
 import logging
-import os
+import threading
 from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import pytest
@@ -47,6 +49,7 @@ class Registry:
         verifications: Verifications; by default, of all services.
         error: Error to raise, if any.
         reads: Number of reads of the services.
+        options: Options of the last request.
     """
 
     def __init__(self) -> None:
@@ -55,13 +58,15 @@ class Registry:
         self.verifications: Any = None
         self.error: Exception | None = None
         self.reads = 0
+        self.options: dict[str, Any] = {}
 
-    def fetch(self, url: str, timeout: float) -> Any:
+    def fetch(self, url: str, timeout: float, **options: Any) -> Any:
         """Answer a request.
 
         Args:
             url: URL.
             timeout: Timeout.
+            options: Options of `fetch_json`.
 
         Returns:
             Document.
@@ -69,6 +74,7 @@ class Registry:
         Raises:
             Exception: The configured error.
         """
+        self.options = options
         if self.error is not None:
             raise self.error
         if url.endswith("/verifications"):
@@ -217,6 +223,29 @@ def test_expand(registry: Registry) -> None:
     }
 
 
+def test_own_url_any_scheme() -> None:
+    """Backends at the gateway's host and path are left out, whatever the scheme."""
+    blist = make_list(
+        [
+            {"type": "ga4gh-tes", "url": url, "url_schemes": ["http", "https"]}
+            for url in (
+                "http://gw.example.org/tes",
+                "http://gw.example.org/tes/sub",
+                "https://gw.example.org:8443/tes",
+                "https://gw.example.org/tesx",
+                "https://gw.example.org",
+            )
+        ],
+        public_url="https://gw.example.org/tes/",
+    )
+    assert [b.url for b in blist.expand()] == [
+        "https://gw.example.org:8443/tes",
+        "https://gw.example.org/tesx",
+        "https://gw.example.org",
+    ]
+    assert not blist.has_registries()
+
+
 def test_several_registries(registry: Registry) -> None:
     """Several registries yield their backends in order."""
     registry.services = [service("s1", "https://tes-a.example.org")]
@@ -293,8 +322,124 @@ def test_invalid_responses() -> None:
         select_services({}, [], entry, api)
     with pytest.raises(backends.RegistryError, match="Verifications are"):
         select_services([], {}, entry, api)
-    with pytest.raises(backends.RegistryError, match="identifier"):
-        select_services([], [{"id": 1}], entry, api)
+
+
+def test_malformed_verifications(
+    registry: Registry, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Malformed verifications are skipped, so that revocations apply."""
+    registry.services = [
+        service("s1", "https://tes-a.example.org"),
+        service("s2", "https://tes-b.example.org"),
+    ]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    cache = backends.get_cache(entry, "tes")
+    assert len(cache.urls()) == 2
+    # s2 is revoked, and the registry lists a malformed item
+    registry.verifications = [
+        {"service_id": "s1", "url": "https://tes-a.example.org", "type": TES},
+        {"id": 1},
+        "x",
+    ]
+    cache._next_read = 0
+    with caplog.at_level(logging.WARNING):
+        assert cache.urls() == ["https://tes-a.example.org"]
+    assert "Skipped 2 verifications" in caplog.text
+
+
+def test_max_stale(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
+    """Old lists are not used while the registry cannot be read."""
+    registry.services = [service("s1", "https://tes-a.example.org")]
+    entry = RegistryEntry(
+        type="ga4gh-service-registry", url=REGISTRY, refresh_interval=10, max_stale=20
+    )
+    cache = backends.get_cache(entry, "tes")
+    assert cache.urls() == ["https://tes-a.example.org"]
+    registry.error = HttpError("down")
+    cache._next_read = 0
+    assert cache.urls() == ["https://tes-a.example.org"]
+    cache._read_good -= 21
+    assert cache.urls() == []  # not due: too old anyway
+    cache._next_read = 0
+    with caplog.at_level(logging.WARNING):
+        assert cache.urls() == []
+    assert "older than max_stale" in caplog.text
+    registry.error = None
+    cache._next_read = 0
+    assert cache.urls() == ["https://tes-a.example.org"]
+    with pytest.raises(ValidationError, match="max_stale"):
+        RegistryEntry(
+            type="ga4gh-service-registry",
+            url=REGISTRY,
+            refresh_interval=60,
+            max_stale=30,
+        )
+
+
+def test_registry_options(registry: Registry) -> None:
+    """Registries are read with their own address and scheme options."""
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    backends.get_cache(entry, "tes").urls()
+    assert registry.options == {"allow_private_addresses": False, "allow_http": False}
+    entry = RegistryEntry(
+        type="ga4gh-service-registry",
+        url="http://registry.internal",
+        url_schemes=["http"],
+        registry_allow_private_addresses=True,
+    )
+    backends.get_cache(entry, "tes").urls()
+    assert registry.options == {"allow_private_addresses": True, "allow_http": True}
+
+
+class RegistryHandler(BaseHTTPRequestHandler):
+    """Local registry with one verified TES."""
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Don't log.
+
+        Args:
+            format: Format.
+            args: Arguments.
+        """
+
+    def do_GET(self) -> None:
+        """Answer `GET /services` and `GET /verifications`."""
+        tes = service("s1", "https://tes.example.org/ga4gh/tes/v1")
+        if self.path.endswith("/verifications"):
+            document: Any = [
+                {"service_id": "s1", "url": tes["url"], "type": tes["type"]}
+            ]
+        else:
+            document = [tes]
+        body = json.dumps(document).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def test_local_registry() -> None:
+    """Registries are read with the real client (local server, no DNS)."""
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), RegistryHandler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    backends.clear_caches()
+    try:
+        entry = RegistryEntry(
+            type="ga4gh-service-registry",
+            url=f"http://127.0.0.1:{httpd.server_address[1]}/ga4gh/registry/v1",
+            url_schemes=["http"],
+            registry_allow_private_addresses=True,
+            allow_private_addresses=True,  # no DNS for the TES host
+            timeout=5,
+        )
+        assert backends.get_cache(entry, "tes").urls() == ["https://tes.example.org"]
+        private = entry.model_copy(update={"registry_allow_private_addresses": False})
+        assert backends.get_cache(private, "tes").urls() == []
+    finally:
+        backends.clear_caches()
+        httpd.shutdown()
+        httpd.server_close()
 
 
 def test_cache(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
@@ -395,6 +540,7 @@ def test_fork_resets_locks(registry: Registry) -> None:
     entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
     cache = backends.get_cache(entry, "tes")
     lock = cache._lock
+    caches_lock = discovery._caches_lock
     discovery._reset_after_fork()
     assert cache._lock is not lock
-    assert os.getpid()
+    assert discovery._caches_lock is not caches_lock

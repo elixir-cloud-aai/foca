@@ -1,6 +1,6 @@
 """Backend lists of gateway apps (cf. :py:mod:`foca.plugins.backends`)."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from foca.plugins.backends.config import (
@@ -12,6 +12,20 @@ from foca.plugins.backends.config import (
 from foca.plugins.backends.registry import get_cache
 from foca.plugins.model import Backend
 from foca.utils.urls import InvalidURL, normalize_url
+
+
+def _location(url: str) -> tuple[str, str]:
+    """Get the host, port and path of a normalized URL, without its scheme.
+
+    Args:
+        url: Normalized URL.
+
+    Returns:
+        Host with port (if any), and path without trailing slash.
+    """
+    rest = url.split("://", 1)[-1]
+    host, _, path = rest.partition("/")
+    return host, f"/{path}".rstrip("/")
 
 
 class BackendList:
@@ -28,40 +42,40 @@ class BackendList:
 
     def __init__(
         self,
-        entries: Iterable[ServiceEntry | RegistryEntry] | BackendListConfig,
+        entries: Iterable[ServiceEntry | RegistryEntry | Mapping[str, Any]]
+        | BackendListConfig,
         api: str,
         public_url: str | None = None,
     ) -> None:
         """Create the list.
 
         Args:
-            entries: Entries, in order (validated, e.g., by
+            entries: Entries, in order, as models or mappings (validated by
                 :py:class:`BackendListConfig`).
             api: API of the backends, e.g., `tes`.
             public_url: Public URL of the gateway (e.g.,
                 `server.public_url`).
 
         Raises:
-            ValueError: The API has no backend type, an entry is of the
-                type of another API, or two entries have the same
-                identifier.
+            ValueError: The API has no backend type, or two entries have the
+                same identifier.
         """
         if isinstance(entries, BackendListConfig):
             entries = entries.root
         self.entries = list(BackendListConfig.model_validate(list(entries)).root)
         if api not in API_TYPES:
             raise ValueError(f"No backend type for API {api!r}")
+        # With a second API type, check `entry.type` against
+        # `API_TYPES[api].entry_type` here.
         self.api = api
-        entry_type = API_TYPES[api].entry_type
-        for entry in self.entries:
-            if isinstance(entry, ServiceEntry) and entry.type != entry_type:
-                raise ValueError(  # pragma: no cover (one API type for now)
-                    f"Backend {entry.id!r} is no {entry_type} backend"
-                )
         self.public_url = public_url.rstrip("/") if public_url else None
+        self._own = _location(self.public_url) if self.public_url else None
 
     def _is_own(self, url: str) -> bool:
         """Check whether a URL is at or below the gateway's public URL.
+
+        Schemes are ignored: `http` and `https` URLs of the same host and
+        port are the gateway's.
 
         Args:
             url: Normalized URL.
@@ -69,9 +83,12 @@ class BackendList:
         Returns:
             Whether it is.
         """
-        if self.public_url is None:
+        if self._own is None:
             return False
-        return url == self.public_url or url.startswith(f"{self.public_url}/")
+        host, path = _location(url)
+        return host == self._own[0] and (
+            path == self._own[1] or path.startswith(f"{self._own[1]}/")
+        )
 
     def expand(self, refresh: bool = False) -> list[Backend]:
         """Get the candidates, in the order of the entries.
@@ -125,7 +142,7 @@ class BackendList:
             registry entry identifier, e.g., for provenance.
         """
         return {
-            entry.id or entry.url: get_cache(entry, self.api).read_at
+            entry.id: get_cache(entry, self.api).read_at
             for entry in self.entries
             if isinstance(entry, RegistryEntry)
         }
@@ -170,6 +187,14 @@ class BackendList:
                 if backend.url == key:
                     return backend
         return None
+
+    def has_registries(self) -> bool:
+        """Check whether any entry is a registry entry.
+
+        Returns:
+            Whether backends are discovered.
+        """
+        return any(isinstance(entry, RegistryEntry) for entry in self.entries)
 
     def describe(self) -> list[dict[str, Any]]:
         """Describe the candidates for clients, e.g., in the service info.

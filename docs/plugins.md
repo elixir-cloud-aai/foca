@@ -84,7 +84,8 @@ supported by existing clients), under the prefix `plugins.tags.prefix`
   `if_missing_phase`;
 - `gateway.backends`: a JSON object (at most 8 KiB)
   `{"type": "order" | "allow" | "forbid", "backends": [...]}` with one or
-  more backend identifiers or URLs:
+  more backend identifiers or URLs (items with `://` match URLs only,
+  others identifiers only):
   - `order`: the listed backends first, in the client's order, then the
     other candidates in the server's order;
   - `allow`: only the listed backends, in the server's order;
@@ -166,13 +167,16 @@ backends:
     location: {latitude: 60.17, longitude: 24.94}
   - type: ga4gh-service-registry
     id: cloud-registry
-    url: https://registry.example.org/ga4gh/registry/v1   # https only
+    url: https://registry.example.org/ga4gh/registry/v1
+    url_schemes: [https]           # default; tests may add http
     refresh_interval: 300
+    max_stale: 3600                # then no candidates until a good read
     timeout: 10
     versions: ["1.1"]              # API versions, as prefixes
     environments: [prod]           # any if empty
     auth: client_credentials       # for discovered backends: or none
-    allow_private_addresses: false
+    allow_private_addresses: false           # hosts of discovered backends
+    registry_allow_private_addresses: false  # the registry's own host
   - type: ga4gh-tes
     url: https://tes-fallback.example.org
     auth: basic
@@ -182,15 +186,17 @@ backends:
 Entry `id`s default to the normalized URL and must be unique; URLs must not
 have user info. Apps name the key with
 `GatewayApp(backends=lambda conf: conf.custom.tes.backends)`: `create_app()`
-then checks the list, and `foca.plugins.runtime.get_backend_list()` returns
-it, with the app's API and public URL. `BackendList(entries, api="tes", public_url=...)` turns the
+then checks the list (lists with registry entries need `server.public_url`,
+so that the gateway never discovers itself), and
+`foca.plugins.runtime.get_backend_list()` returns it, with the app's API and
+public URL. `BackendList(entries, api="tes", public_url=...)` turns the
 entries into the candidates of a request, in order:
 
 - `expand()`: configured backends and the backends discovered in each
   registry, in the registry's order. Backends with the same URL are listed
   once, at the first position, with the settings of a configured entry if
-  there is one; backends at or below the gateway's public URL are left out.
-  `Backend.auth` names the credentials (registry entries pass theirs to
+  there is one; backends at or below the gateway's public URL (same host,
+  port and path, any scheme) are left out. `Backend.auth` names the credentials (registry entries pass theirs to
   their backends).
 - `entry_for(backend)`: the entry behind a candidate, e.g., for the `basic`
   environment variables, when the app adds credentials after the `forward`
@@ -200,16 +206,22 @@ entries into the candidates of a request, in order:
   other processes.
 - `snapshots()`: the time of the registry reads that the candidates come
   from, for provenance.
+- `describe()`: identifier, URL, source, group and labels of each
+  candidate, without credentials, e.g., for the service info.
 
 Registries are the trust anchor: only services that the registry lists as
 verified (`GET /verifications`, an extension of the ELIXIR Cloud Registry)
 with their current URL and API type are used, if their version and
 environment are accepted, their URLs are `https` and their hosts have public
-addresses only (unless `allow_private_addresses`). Registries are read
-without access token and without following redirects. Each process caches
-the backends of each registry for `refresh_interval` seconds and keeps the
-last good list while a registry is unreachable (retrying after 30 s at
-most); before the first good read, a registry yields no candidates.
+addresses only (unless `allow_private_addresses`); malformed items are
+skipped and logged. Registries are read without access token and without
+following redirects, at public addresses only unless
+`registry_allow_private_addresses` (e.g., a registry in the same cluster).
+Each process caches the backends of each registry for `refresh_interval`
+seconds and keeps the last good list while a registry is unreachable or
+answers invalidly (retrying after 30 s at most), for `max_stale` seconds at
+most, so that revoked backends are not used for long; before the first good
+read, and after `max_stale`, a registry yields no candidates.
 
 ## Default routing
 
