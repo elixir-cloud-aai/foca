@@ -51,8 +51,9 @@ plugins:
     max_alternatives: 3
     max_size: 8192           # bytes of the tag's value
     roles: []                # who may choose; any authenticated caller if empty
-    prepend:                 # admin frame: always first, also for client
-      - org.example.tes.policy.images  # pipelines, which replace `pipeline`
+    prepend:                 # admin frame: first in client and preset
+      - org.example.tes.policy.images  # pipelines (not `pipeline`: repeat
+                                       # steps that must always run there)
     append:                  # always last (or only if a phase is missing)
       - plugin: foca.routing.ordered   # the default
         if_missing_phase: route
