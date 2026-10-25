@@ -797,12 +797,13 @@ class Attempt:
             response: Response of the backend; `client_payload` and
                 `client_headers` are what the client gets, unless plugins
                 change them.
-            remote_id: Identifier of the resource at the backend, if any.
+            remote_id: Identifier of the resource at the backend, if any;
+                converted to a string (backends may send other JSON types).
 
         Returns:
             The response after the `response` phase.
         """
-        self._report("accepted", None, remote_id)
+        self._report("accepted", None, None if remote_id is None else str(remote_id))
         return self._run.respond(response, attempt=self.number)
 
 
