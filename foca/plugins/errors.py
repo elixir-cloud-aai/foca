@@ -97,6 +97,14 @@ class LoopDetected(GatewayError):
     slug = "loop-detected"
 
 
+class InvalidVia(GatewayError):
+    """The `Via` header of the request is too long."""
+
+    code = 400
+    title = "Bad Request"
+    slug = "invalid-via"
+
+
 def _phrase(status: int) -> str:
     """Get the reason phrase of a rejection status.
 
