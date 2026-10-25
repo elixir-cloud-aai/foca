@@ -235,9 +235,11 @@ def test_inline_pipeline_and_frame() -> None:
         (
             {"client_pipelines": {"prepend": [{"id": "p", "plugin": "test.skip"}]}},
             pipeline_tag([{"id": "p", "plugin": "test.tag"}]),
-            "reserved",
+            "reserved for the gateway's steps; set an explicit `id`",
             "invalid-pipeline",
         ),
+        ({}, {"gateway.pipeline": "\ud800"}, "UTF-8", "invalid-pipeline"),
+        ({}, {"gateway.backends": "\ud800"}, "UTF-8", "invalid-backends"),
         (
             {},
             pipeline_tag([{"plugin": "test.tag"}, {"plugin": "test.tag"}]),
@@ -458,6 +460,7 @@ def test_preset_roles() -> None:
             "'a.b' of prepend",
         ),
         ({"client_pipelines": {"allowed": []}}, "at least 1"),
+        ({"presets": {"p": [{"plugin": "a.b"}]}}, r"'a\.b' of presets\.p"),
     ],
 )
 def test_invalid_frames(conf: dict[str, Any], message: str) -> None:
@@ -507,6 +510,52 @@ def test_random_pipelines_forbidden_plugins() -> None:
             }
             assert used <= set(ALLOWED)
     h.close()
+
+
+def test_frame_clashes_with_kept_steps_only() -> None:
+    """Identifiers clash only with frame steps that are kept."""
+    append = [{"id": "route", "plugin": "test.reverse", "if_missing_phase": "route"}]
+    h = host(client_pipelines={"append": append})
+    own_router = [{"id": "route", "plugin": "test.bad-router"}]
+    run = h.start(request(pipeline_tag(own_router)), ALICE)
+    assert [s.id for s in run.pipeline.steps] == ["route"]
+    with pytest.raises(InvalidSelection, match="set an explicit `id`"):
+        h.start(request(pipeline_tag([{"id": "route", "plugin": "test.tag"}])), ALICE)
+    h.close()
+    with pytest.raises(ValueError, match=r"'route' of presets\.p.*explicit `id`"):
+        host(
+            client_pipelines={"append": append},
+            presets={"p": [{"id": "route", "plugin": "test.tag"}]},
+        )
+    h = host(
+        client_pipelines={"append": append},
+        presets={"p": own_router},
+    )
+    assert [s.id for s in h.presets["p"]] == ["route"]
+    h.close()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        '[{"plugin": "a.b", "params": {"x": "\\ud800"}}]',
+        '[{"plugin": "a.b", "params": {"\\udfff": 1}}]',
+    ],
+)
+def test_client_pipelines_are_unicode(value: str) -> None:
+    """Client pipelines have no unpaired surrogates."""
+    with pytest.raises(InvalidSelection, match="valid Unicode"):
+        parse_client_pipeline(value)
+
+
+def test_client_pipelines_nesting() -> None:
+    """Client pipelines are nested 32 levels deep at most."""
+    # 29 levels, plus the pipeline array, the step and its params
+    nested = "[" * 29 + "]" * 29
+    parse_client_pipeline(f'[{{"plugin": "a.b", "params": {{"x": {nested}}}}}]')
+    nested = "[" * 30 + "]" * 30
+    with pytest.raises(InvalidSelection, match="at most 32 levels"):
+        parse_client_pipeline(f'[{{"plugin": "a.b", "params": {{"x": {nested}}}}}]')
 
 
 @pytest.mark.parametrize(
