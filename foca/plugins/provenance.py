@@ -21,6 +21,7 @@ Plain data and pymongo collections; no web framework.
 """
 
 import hashlib
+import hmac
 import json
 import logging
 import math
@@ -30,6 +31,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from itertools import islice
 from typing import TYPE_CHECKING, Any, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 from foca.plugins.loader import LoadedPlugin
 from foca.plugins.model import CREDENTIAL_HEADERS
@@ -47,6 +49,16 @@ MAX_CHANGED_PATHS = 256
 
 CLIENT_ADDRESS_HEADERS = frozenset({"forwarded", "x-forwarded-for", "x-real-ip"})
 """Headers with client addresses, left out of hashes (personal data)."""
+
+RESPONSE_CREDENTIAL_HEADERS = frozenset({"set-cookie"})
+"""Headers of responses with credentials, left out of hashes."""
+
+MAX_RECORD_SIZE = 1024 * 1024
+"""Maximum size of a provenance record, in bytes of JSON."""
+
+# Key of the hashes of changes, per process: they are compared within a run
+# only, and must not be guessable offline (cf. `describe_changes`)
+_CHANGE_KEY = os.urandom(32)
 
 MAX_POINTER_LENGTH = 512
 """Maximum length of changed paths; longer ones are recorded as their
@@ -269,7 +281,12 @@ def _changed(before: Any, after: Any, prefix: str) -> Iterator[str]:
             yield prefix
             return
         for index, (old, new) in enumerate(zip(before, after, strict=True)):
-            yield from _changed(old, new, _pointer(prefix, index))
+            child = _pointer(prefix, index)
+            if len(child) > MAX_POINTER_LENGTH:
+                if before != after:
+                    yield prefix
+                return
+            yield from _changed(old, new, child)
         return
     if type(before) is not type(after) or before != after:
         yield prefix
@@ -298,7 +315,9 @@ def _snapshot(phase: str, value: Any, secret_headers: frozenset[str]) -> Any:
     if phase == "response":
         return {
             "client_payload": value.client_payload,
-            "client_headers": _headers(value.client_headers, excluded),
+            "client_headers": _headers(
+                value.client_headers, excluded | RESPONSE_CREDENTIAL_HEADERS
+            ),
         }
     return {
         "method": value.method,
@@ -327,6 +346,82 @@ def _headers(headers: Mapping[str, str], excluded: Iterable[str]) -> dict[str, s
     }
 
 
+def change_hash(data: Any) -> str:
+    """Hash data for the records of changes, with a key of this process.
+
+    Plain hashes of values with little entropy (e.g., short tokens, user
+    names) can be guessed offline, and the hashes of changes are compared
+    within a run only, so they are keyed (HMAC-SHA256 of the RFC 8785
+    form, with a random key per process).
+
+    Args:
+        data: JSON data.
+
+    Returns:
+        `hmac-sha256:` and the hex digest.
+
+    Raises:
+        TypeError: The data is not JSON data.
+        ValueError: The data is not I-JSON.
+    """
+    digest = hmac.new(_CHANGE_KEY, canonical_json(data).encode(), hashlib.sha256)
+    return f"hmac-sha256:{digest.hexdigest()}"
+
+
+def clean_url(value: str) -> str:
+    """Remove user info, query and fragment from a URL-like value.
+
+    Args:
+        value: Backend identifier or URL.
+
+    Returns:
+        The value; without user info, query and fragment if it has `://`.
+    """
+    if not isinstance(value, str) or "://" not in value:
+        return value
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        netloc = f"{host}:{parts.port}" if parts.port else host
+    except ValueError:
+        return value.split("://", 1)[0] + "://"
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+
+
+def limit_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Cut a provenance record to :py:data:`MAX_RECORD_SIZE` bytes of JSON.
+
+    Drops, until it fits, in this order: the changed paths of executions,
+    their annotations, and the resolved pipeline; then sets `truncated`.
+
+    Args:
+        record: Record.
+
+    Returns:
+        The record, cut in place if needed.
+    """
+
+    def size() -> int:
+        return len(json.dumps(record, default=str).encode())
+
+    if size() <= MAX_RECORD_SIZE:
+        return record
+    for execution in record["executions"]:
+        changes = execution.get("changes")
+        if changes and changes.get("paths"):
+            changes["paths"] = []
+            changes["truncated"] = True
+    if size() > MAX_RECORD_SIZE:
+        for execution in record["executions"]:
+            execution.pop("annotations", None)
+    if size() > MAX_RECORD_SIZE:
+        record["pipeline"]["resolved"] = None
+    record["truncated"] = True
+    return record
+
+
 def describe_changes(
     phase: str,
     before: Any,
@@ -352,8 +447,8 @@ def describe_changes(
     try:
         paths = changed_paths(old, new, limit=MAX_CHANGED_PATHS + 1)
         changes: dict[str, Any] = {
-            "before": content_hash(old),
-            "after": content_hash(new),
+            "before": change_hash(old),
+            "after": change_hash(new),
             "paths": paths[:MAX_CHANGED_PATHS],
         }
     except (TypeError, ValueError, ArithmeticError, RecursionError):
@@ -446,6 +541,15 @@ class Collection(Protocol):
             document: Document.
         """
 
+    def replace_one(self, filter: Any, replacement: Any, upsert: bool = ...) -> Any:
+        """Replace or insert one document.
+
+        Args:
+            filter: Query of the document.
+            replacement: Document.
+            upsert: Whether to insert the document if none matches.
+        """
+
 
 class ProvenanceStore:
     """Stores of provenance data in collections of the app.
@@ -495,7 +599,8 @@ class ProvenanceStore:
 
         Returns:
             Provenance to store with the task: as from `run.provenance()`,
-            with default and preset pipelines by hash only, if stored; a
+            with default and preset pipelines by hash only, if stored, and
+            with the build documents (`builds`) if they were not stored; a
             record with `error: internal` only if it cannot be built.
         """
         try:
@@ -503,11 +608,15 @@ class ProvenanceStore:
         except Exception:
             logger.exception("Provenance not built")
             return {"request_id": run.request_id, "error": "internal", "stored": False}
+        documents: list[dict[str, Any]] = []
         try:
-            for loaded in run.host.plugins.values():
-                document = build_document(loaded)
-                if document["_id"] in record["plugins"]:
-                    _insert_once(self.plugin_builds, document)
+            documents = [
+                document
+                for document in map(build_document, run.host.plugins.values())
+                if document["_id"] in record["plugins"]
+            ]
+            for document in documents:
+                _insert_once(self.plugin_builds, document)
             pipeline = record["pipeline"]
             if pipeline["source"] != "client" and pipeline["resolved_hash"]:
                 _insert_once(
@@ -521,12 +630,16 @@ class ProvenanceStore:
         except Exception as exc:
             logger.warning("Provenance not stored: %s", type(exc).__name__)
             record["stored"] = False
+            # the builds, so that the record identifies the code anyway
+            record["builds"] = {document["_id"]: document for document in documents}
         return record
 
     def save_failure(self, run: "PipelineRun", error: Exception) -> bool:
         """Store the record of a failed pipeline run, if configured.
 
-        Never raises: errors of the collection are logged.
+        Never raises: errors of the collection are logged. Idempotent: the
+        record's `_id` is the request identifier (or the run's, cf.
+        `PipelineRun.run_id`), and storing again replaces it.
 
         Args:
             run: Pipeline run.
@@ -547,8 +660,9 @@ class ProvenanceStore:
             "status": getattr(error, "code", None),
             "slug": getattr(error, "slug", None),
         }
+        record["_id"] = run.request_id or f"run-{run.run_id}"
         try:
-            self.failures.insert_one(record)
+            self.failures.replace_one({"_id": record["_id"]}, record, upsert=True)
         except Exception as exc:
             logger.warning("Failure record not stored: %s", type(exc).__name__)
             return False

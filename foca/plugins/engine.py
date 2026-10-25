@@ -49,6 +49,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from enum import Enum
@@ -113,13 +114,16 @@ from foca.plugins.outcomes import (
     _InvalidOutputError,
     _NoEnabledPluginError,
     _StepFailedError,
+    describe_error,
     sanitize_error,
 )
 from foca.plugins.provenance import (
     MAX_RUN_CHANGES_SIZE,
     build_key,
+    clean_url,
     content_hash,
     describe_changes,
+    limit_record,
 )
 from foca.plugins.records import (
     AttemptOutcome,
@@ -821,6 +825,8 @@ class PipelineRun:
         inbound: Inbound request; after `request()`, the committed one.
         principal: Authenticated caller.
         request_id: Identifier of the request.
+        run_id: Random identifier of the run, e.g., for records of failed
+            runs without a request identifier.
         task_id: Identifier of the gateway's resource, once created; set by
             the app, passed to hooks of later phases.
         original: Payload of the inbound request before any plugin ran.
@@ -865,6 +871,7 @@ class PipelineRun:
         self.inbound = inbound
         self.principal = principal
         self.request_id = request_id
+        self.run_id = uuid.uuid4().hex
         self.task_id: str | None = None
         self.original = copy.deepcopy(inbound.payload)
         self._inbound_via = inbound.headers.get("Via")
@@ -895,71 +902,81 @@ class PipelineRun:
             `resolved_hash`), the `plugins` that ran (names by build key),
             the `executions` of hooks, the `route` (candidates in and out),
             the client's backend `selection`, the forwarding `attempts` and
-            the `final_reason`, if forwarding failed. Never raises for
-            data that is no I-JSON: `resolved_hash` is then `None`, with
-            `error: not_json`.
+            the `final_reason`, if forwarding failed. URLs have no user info
+            or query. Never raises for data that is no I-JSON: `resolved`
+            and `resolved_hash` are then `None`, with `error: not_json`.
+            Records larger than
+            :py:data:`foca.plugins.provenance.MAX_RECORD_SIZE` are cut
+            (cf. :py:func:`foca.plugins.provenance.limit_record`).
         """
         builds = {
             plugin_id: build_key(loaded)
             for plugin_id, loaded in self.host.plugins.items()
         }
         ran = {execution.plugin for execution in self.executions if execution.plugin}
-        resolved = self.pipeline.describe()
+        resolved: list[dict[str, Any]] | None = self.pipeline.describe()
         try:
             resolved_hash: str | None = content_hash(resolved)
         except (TypeError, ValueError, ArithmeticError, RecursionError):
-            resolved_hash = None  # e.g., parameters that are no I-JSON
+            # e.g., parameters that are no I-JSON, which might not be stored
+            resolved_hash = resolved = None
         prefix = self.host.conf.tags.prefix
         selection = self.selection.backends
-        return {
-            "engine": {
-                "foca": _foca_version(),
-                "plugin_api": API_VERSION,
-                "app": dict(self.host.app_info),
-            },
-            "request_id": self.request_id,
-            "pipeline": {
-                "source": self.pipeline.source,
-                "preset": self.pipeline.preset,
-                "requested": (
-                    f"tags[{prefix}pipeline]"
-                    if self.selection.pipeline is not None
+        return limit_record(
+            {
+                "engine": {
+                    "foca": _foca_version(),
+                    "plugin_api": API_VERSION,
+                    "app": dict(self.host.app_info),
+                },
+                "request_id": self.request_id,
+                "pipeline": {
+                    "source": self.pipeline.source,
+                    "preset": self.pipeline.preset,
+                    "requested": (
+                        f"tags[{prefix}pipeline]"
+                        if self.selection.pipeline is not None
+                        else None
+                    ),
+                    "resolved": resolved,
+                    "resolved_hash": resolved_hash,
+                    **({} if resolved_hash else {"error": "not_json"}),
+                },
+                "plugins": {builds[plugin]: plugin for plugin in sorted(ran)},
+                "executions": [
+                    execution.describe(builds) for execution in self.executions
+                ],
+                "route": {
+                    "candidates_in": [clean_url(item) for item in self.candidates_in],
+                    "candidates_out": [clean_url(item) for item in self.candidates_out],
+                    "snapshots": self.snapshots,
+                },
+                "selection": (
+                    {
+                        "type": selection.type,
+                        "backends": [clean_url(item) for item in selection.backends],
+                        "discarded": [
+                            clean_url(item) for item in self.backends_discarded
+                        ],
+                    }
+                    if selection is not None
                     else None
                 ),
-                "resolved": resolved,
-                "resolved_hash": resolved_hash,
-                **({} if resolved_hash else {"error": "not_json"}),
-            },
-            "plugins": {builds[plugin]: plugin for plugin in sorted(ran)},
-            "executions": [execution.describe(builds) for execution in self.executions],
-            "route": {
-                "candidates_in": self.candidates_in,
-                "candidates_out": self.candidates_out,
-                "snapshots": self.snapshots,
-            },
-            "selection": (
-                {
-                    "type": selection.type,
-                    "backends": list(selection.backends),
-                    "discarded": self.backends_discarded,
-                }
-                if selection is not None
-                else None
-            ),
-            "attempts": [
-                {
-                    "number": record.number,
-                    "backend": record.backend,
-                    "outcome": record.outcome,
-                    "reason": record.reason,
-                    "remote_id": record.remote_id,
-                    "started_at": record.started_at,
-                    "duration_ms": record.duration_ms,
-                }
-                for record in self.attempt_records
-            ],
-            "final_reason": self.final_reason,
-        }
+                "attempts": [
+                    {
+                        "number": record.number,
+                        "backend": clean_url(record.backend),
+                        "outcome": record.outcome,
+                        "reason": record.reason,
+                        "remote_id": record.remote_id,
+                        "started_at": record.started_at,
+                        "duration_ms": record.duration_ms,
+                    }
+                    for record in self.attempt_records
+                ],
+                "final_reason": self.final_reason,
+            }
+        )
 
     def _set_via(self, outbound: OutboundRequest) -> None:
         """Set the `Via` header of an outbound request (RFC 9110, 7.6.3).
@@ -1118,7 +1135,7 @@ class PipelineRun:
                         logger.warning(
                             "Outbound request to %s invalid: %s",
                             backend.id,
-                            sanitize_error(exc),
+                            describe_error(exc),
                         )
                         reason = "invalid_outbound"
             except _StepFailedError:
@@ -1147,6 +1164,10 @@ class PipelineRun:
                 self.final_reason = "outcome_unknown"
             if attempt.state != "not_accepted":
                 return
+        if time.monotonic() >= budget_end:
+            timeout = self.host.conf.defaults.forward_timeout
+            self.final_reason = "forward_timeout"
+            raise ForwardTimeout(f"No backend accepted within {timeout} s", run=self)
         self.final_reason = "no_backend"
         raise NoBackendAvailable("No backend accepted the request", run=self)
 
@@ -1347,7 +1368,7 @@ class PipelineRun:
                 alternative.plugin,
                 step.id,
                 phase,
-                execution.error,
+                describe_error(exc),
             )
             return execution, None
         try:
@@ -1359,6 +1380,13 @@ class PipelineRun:
             except _AppError:
                 raise
             except Exception as exc:
+                logger.warning(
+                    "Output of plugin %s in step %s (%s) invalid: %s",
+                    alternative.plugin,
+                    step.id,
+                    phase,
+                    describe_error(exc),
+                )
                 raise _InvalidOutputError(sanitize_error(exc)) from exc
         except _AppError as exc:
             execution.outcome = "error"
@@ -1391,7 +1419,7 @@ class PipelineRun:
                 alternative.plugin,
                 step.id,
                 phase,
-                execution.error,
+                describe_error(exc),
             )
         self._finish(execution, started, ctx)
         if execution.outcome != "ok":
@@ -1468,5 +1496,6 @@ __all__ = [
     "ResolvedPipeline",
     "ResolvedStep",
     "default_outbound",
+    "describe_error",
     "sanitize_error",
 ]
