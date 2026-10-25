@@ -18,7 +18,7 @@ setting them get `400`, so that tags under the prefix can be trusted.
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -179,15 +179,31 @@ def parse_client_tags(
             "Choosing backends per request is disabled", slug="invalid-backends"
         )
     if pipeline is not None and (
-        not isinstance(pipeline, str) or len(pipeline.encode()) > max_pipeline_size
+        not isinstance(pipeline, str) or _size(pipeline) > max_pipeline_size
     ):
         raise InvalidSelection(
-            f"Pipelines are strings of at most {max_pipeline_size} bytes"
+            f"Pipelines are UTF-8 strings of at most {max_pipeline_size} bytes"
         )
     backends = None
     if raw is not None:
         backends = _parse_backends(raw, max_backends)
     return ClientSelection(pipeline=pipeline, backends=backends)
+
+
+def _size(value: str) -> float:
+    """Get the size of a tag value in UTF-8.
+
+    Args:
+        value: Tag value.
+
+    Returns:
+        Bytes; infinite if the value is no valid Unicode (e.g., has unpaired
+        surrogates), so that it exceeds every limit.
+    """
+    try:
+        return len(value.encode())
+    except UnicodeEncodeError:
+        return float("inf")
 
 
 def _parse_backends(raw: object, max_backends: int) -> BackendSelection:
@@ -203,9 +219,10 @@ def _parse_backends(raw: object, max_backends: int) -> BackendSelection:
     Raises:
         InvalidSelection: The value is not a valid selection.
     """
-    if isinstance(raw, str) and len(raw.encode()) > MAX_BACKENDS_SIZE:
+    if isinstance(raw, str) and _size(raw) > MAX_BACKENDS_SIZE:
         raise InvalidSelection(
-            f"Backend selections are at most {MAX_BACKENDS_SIZE} bytes",
+            f"Backend selections are UTF-8 strings of at most {MAX_BACKENDS_SIZE}"
+            " bytes",
             slug="invalid-backends",
         )
     try:
@@ -228,6 +245,9 @@ def _parse_backends(raw: object, max_backends: int) -> BackendSelection:
 
 MAX_SAFE_INTEGER = 2**53 - 1
 """Largest integer that JSON numbers represent exactly (I-JSON, RFC 7493)."""
+
+MAX_JSON_DEPTH = 32
+"""Maximum nesting depth of client pipelines (arrays and objects)."""
 
 
 def _reject_constant(name: str) -> None:
@@ -252,24 +272,50 @@ def check_i_json(data: Any) -> None:
         data: Parsed JSON.
 
     Raises:
-        ValueError: A number is not finite, or an integer is beyond
-            :py:data:`MAX_SAFE_INTEGER`.
+        ValueError: A number is not finite, an integer is beyond
+            :py:data:`MAX_SAFE_INTEGER`, a string has unpaired surrogates,
+            or arrays and objects are nested more than
+            :py:data:`MAX_JSON_DEPTH` levels deep.
     """
-    stack = [data]
+    stack: list[tuple[Any, int]] = [(data, 1)]
     while stack:
-        item = stack.pop()
-        if isinstance(item, bool) or item is None or isinstance(item, str):
+        item, depth = stack.pop()
+        if isinstance(item, bool) or item is None:
             continue
-        if isinstance(item, int):
+        if isinstance(item, str):
+            _check_string(item)
+        elif isinstance(item, int):
             if abs(item) > MAX_SAFE_INTEGER:
                 raise ValueError("Integers are at most 2^53 - 1")
         elif isinstance(item, float):
             if not math.isfinite(item):
                 raise ValueError("Numbers must be finite")
-        elif isinstance(item, dict):
-            stack.extend(item.values())
-        elif isinstance(item, list):
-            stack.extend(item)
+        elif isinstance(item, dict | list):
+            if depth > MAX_JSON_DEPTH:
+                raise ValueError(f"Nesting is at most {MAX_JSON_DEPTH} levels deep")
+            children: Iterable[Any]
+            if isinstance(item, dict):
+                for key in item:
+                    _check_string(key)
+                children = item.values()
+            else:
+                children = item
+            stack.extend((child, depth + 1) for child in children)
+
+
+def _check_string(value: str) -> None:
+    """Check that a string is valid Unicode (no unpaired surrogates).
+
+    Args:
+        value: String.
+
+    Raises:
+        ValueError: The string has unpaired surrogates.
+    """
+    try:
+        value.encode()
+    except UnicodeEncodeError:
+        raise ValueError("Strings must be valid Unicode") from None
 
 
 def parse_client_pipeline(value: str) -> list[StepConfig]:
