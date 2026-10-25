@@ -155,3 +155,22 @@ def test_no_legacy_keys() -> None:
 
     check_legacy_keys(Config.model_validate({"custom": {"other": 1}}))
     check_legacy_keys(Config())
+
+
+def test_load_error_closes_plugins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plugins loaded before an error are closed, even if closing fails."""
+    closed: list[str] = []
+
+    def close(self: TagPlugin) -> None:
+        closed.append(self.id)
+        raise RuntimeError("cannot close")
+
+    monkeypatch.setattr(TagPlugin, "close", close)
+    eps = [FakeEntryPoint("test.tag", TagPlugin), FakeEntryPoint("test.x", dict)]
+    with pytest.raises(ValueError, match="not a subclass"):
+        load_plugins(
+            conf({"test.tag": {}, "test.x": {}}),
+            api="tes",
+            find_entry_points=lambda: eps,
+        )
+    assert closed == ["test.tag"]
