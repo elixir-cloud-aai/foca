@@ -373,21 +373,22 @@ class ProvenanceConfig(_Model):
     """Provenance of gateway requests (`plugins.provenance`).
 
     Args:
-        detail: What is recorded of the changes of each plugin call:
-            `paths`, the hashes before and after and the changed JSON
-            Pointers, without values (the only level for now).
         record_failed: Whether records of failed pipeline runs (e.g.,
             rejected requests, which have no task) are stored for audits,
-            in a collection of the app with a retention (TTL index); off by
-            default, so that no record of rejected input is kept.
+            in a collection of the app with a retention (TTL index, e.g.,
+            30 days with :py:data:`foca.plugins.provenance.FAILURE_INDEXES`);
+            off by default, so that no record of rejected input is kept.
+        secret_headers: Names of headers that are left out of the hashes of
+            changes, besides credentials (`Authorization`, `Cookie`,
+            `Proxy-Authorization` etc.), e.g., API keys of backends.
 
     Attributes:
-        detail: What is recorded of the changes of each plugin call.
         record_failed: Whether records of failed pipeline runs are stored.
+        secret_headers: Names of headers left out of the hashes of changes.
     """
 
-    detail: Literal["paths"] = "paths"
     record_failed: bool = False
+    secret_headers: list[str] = []
 
 
 class PluginsConfig(_Model):

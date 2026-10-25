@@ -108,7 +108,7 @@ from foca.plugins.outcomes import (
     _StepFailedError,
     sanitize_error,
 )
-from foca.plugins.provenance import build_key, content_hash
+from foca.plugins.provenance import build_key, content_hash, describe_changes
 from foca.plugins.records import (
     AttemptOutcome,
     AttemptRecord,
@@ -116,7 +116,6 @@ from foca.plugins.records import (
     ResolvedAlternative,
     ResolvedPipeline,
     ResolvedStep,
-    _changes,
     _foca_version,
     _utc_now,
 )
@@ -837,7 +836,9 @@ class PipelineRun:
             `resolved_hash`), the `plugins` that ran (names by build key),
             the `executions` of hooks, the `route` (candidates in and out),
             the client's backend `selection`, the forwarding `attempts` and
-            the `final_reason`, if forwarding failed.
+            the `final_reason`, if forwarding failed. Never raises for
+            data that is no I-JSON: `resolved_hash` is then `None`, with
+            `error: not_json`.
         """
         builds = {
             plugin_id: build_key(loaded)
@@ -845,6 +846,10 @@ class PipelineRun:
         }
         ran = {execution.plugin for execution in self.executions if execution.plugin}
         resolved = self.pipeline.describe()
+        try:
+            resolved_hash: str | None = content_hash(resolved)
+        except (TypeError, ValueError, ArithmeticError, RecursionError):
+            resolved_hash = None  # e.g., parameters that are no I-JSON
         prefix = self.host.conf.tags.prefix
         selection = self.selection.backends
         return {
@@ -863,7 +868,8 @@ class PipelineRun:
                     else None
                 ),
                 "resolved": resolved,
-                "resolved_hash": content_hash(resolved),
+                "resolved_hash": resolved_hash,
+                **({} if resolved_hash else {"error": "not_json"}),
             },
             "plugins": {builds[plugin]: plugin for plugin in sorted(ran)},
             "executions": [execution.describe(builds) for execution in self.executions],
@@ -1318,7 +1324,9 @@ class PipelineRun:
         if execution.outcome != "ok":
             return execution, None
         self._states[alternative.plugin] = state
-        execution.changes = _changes(phase, value, output)
+        execution.changes = describe_changes(
+            phase, value, output, self.host.conf.provenance.secret_headers
+        )
         return execution, output
 
     @staticmethod
