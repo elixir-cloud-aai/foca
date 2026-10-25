@@ -614,6 +614,9 @@ class PluginHost:
     ) -> tuple[tuple[ResolvedStep, ...], list[str]]:
         """Frame steps, and find those with identifiers of kept frame steps.
 
+        `if_missing_phase` of appended steps checks the given steps only
+        (not the prepended ones).
+
         Args:
             steps: Resolved steps of a preset or client pipeline.
 
@@ -624,9 +627,10 @@ class PluginHost:
         framed = [*self._prepend, *steps]
         kept = list(self._prepend)
         for phase, step in self._append:
+            # only the preset's or client's own steps count, not the frame
             if phase is not None and any(
                 phase in self.plugins[alt.plugin].cls.phases()
-                for existing in framed
+                for existing in steps
                 for alt in existing.alternatives
             ):
                 continue

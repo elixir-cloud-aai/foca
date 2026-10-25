@@ -235,9 +235,13 @@ parameters:
 
 - `labels`: labels that candidates must have (e.g.,
   `{"region": "eu-north"}`). Labels in `plugins.pipeline` don't bind
-  client pipelines and presets, which replace it: pinning that must always
-  hold belongs in `client_pipelines.prepend` (e.g., a step that rejects or
-  filters);
+  client pipelines and presets, which replace it, and
+  `client_pipelines.prepend` frames only those, not `plugins.pipeline`
+  (which runs for requests without a pipeline tag): pinning that must
+  always hold belongs in both (e.g., a step that rejects or filters).
+  `if_missing_phase` of appended steps looks at the client's or preset's
+  own steps only, so a route step in `prepend` keeps the appended
+  router;
 - `seed`: a seed for reproducible orders, for tests only: refused unless
   the plugin's admin setting `allow_seed` is on.
 
