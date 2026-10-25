@@ -56,7 +56,13 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
-from foca.plugins.base import API_VERSION, NotApplicable, Rejected
+from foca.plugins.base import (
+    API_VERSION,
+    InvalidParams,
+    NotApplicable,
+    PluginError,
+    Rejected,
+)
 from foca.plugins.checks import (
     _check_forward,
     _check_response,
@@ -366,10 +372,17 @@ class PluginHost:
                 try:
                     params = loaded.cls.Params.model_validate(alternative.params)
                     loaded.instance.check_params(params)
-                except (ValidationError, ValueError) as exc:
+                except (ValidationError, InvalidParams) as exc:
                     raise ValueError(
                         f"Invalid params of plugin {alternative.plugin!r} in step"
                         f" {step.id!r}: {exc}"
+                    ) from exc
+                except Exception as exc:
+                    logger.exception(
+                        "Plugin %s failed to check params", alternative.plugin
+                    )
+                    raise PluginError(
+                        f"Plugin {alternative.plugin!r} failed to check params"
                     ) from exc
                 alternatives.append(
                     ResolvedAlternative(plugin=alternative.plugin, params=params)

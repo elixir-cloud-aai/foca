@@ -106,6 +106,10 @@ class Rejected(Exception):
         self.detail = detail
 
 
+class InvalidParams(ValueError):
+    """Parameters of a pipeline step are not allowed (cf. `check_params`)."""
+
+
 class PluginError(Exception):
     """A plugin failed; the engine tries the next alternative.
 
@@ -186,7 +190,9 @@ class Plugin(Generic[ConfigT, ParamsT]):
             params: Validated parameters of a pipeline step.
 
         Raises:
-            ValueError: The parameters are not allowed.
+            InvalidParams: The parameters are not allowed. Other exceptions
+                are plugin errors: they are logged, and stop the app at
+                startup or fail the request (`PluginError`).
         """
 
     @classmethod
