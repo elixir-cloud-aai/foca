@@ -16,6 +16,9 @@ from foca.plugins.backends import (
     ServiceEntry,
     select_services,
 )
+from foca.plugins.backends import (
+    registry as discovery,
+)
 from foca.utils.http import AddressNotAllowed, HostNotResolved, HttpError
 
 REGISTRY = "https://registry.example.org/ga4gh/registry/v1"
@@ -96,8 +99,8 @@ def registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[Registry]:
         if url in hosts:
             raise hosts[url]
 
-    monkeypatch.setattr(backends, "fetch_json", fake.fetch)
-    monkeypatch.setattr(backends, "check_public_host", check)
+    monkeypatch.setattr(discovery, "fetch_json", fake.fetch)
+    monkeypatch.setattr(discovery, "check_public_host", check)
     fake.hosts = hosts  # type: ignore[attr-defined]
     backends.clear_caches()
     yield fake
@@ -392,6 +395,6 @@ def test_fork_resets_locks(registry: Registry) -> None:
     entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
     cache = backends.get_cache(entry, "tes")
     lock = cache._lock
-    backends._reset_after_fork()
+    discovery._reset_after_fork()
     assert cache._lock is not lock
     assert os.getpid()
