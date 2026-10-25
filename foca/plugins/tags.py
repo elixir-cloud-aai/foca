@@ -9,8 +9,11 @@ that clients and dashboards can read it with `GET /tasks/{id}` (views
 written by the gateway (keys and values: cf. the docs, "Gateway tags").
 
 FOCA provides the tags; apps write them: `creation_tags()` into new tasks
-after the `request` phase, `routing_tags()` after forwarding, and
-`strip_for_forwarding()` for the tags relayed to the backend.
+after the `request` phase (merged into `without_server_tags()` of the
+payload's tags), `routing_tags()` after forwarding, and
+`strip_for_forwarding()` for the tags relayed to the backend. The engine
+refuses `request` hook output that adds, changes or removes keys under the
+prefix (`check_reserved_tags()`), so plugins cannot forge them.
 
 Values are strings of at most `MAX_VALUE_SIZE` bytes (`route`:
 `MAX_ROUTE_SIZE`); URLs have no user info, query or fragment; failures are
@@ -92,6 +95,81 @@ def strip_for_forwarding(tags: Mapping[str, str] | None, prefix: str) -> dict[st
         key: value
         for key, value in (tags or {}).items()
         if not str(key).startswith(prefix)
+    }
+
+
+CLIENT_KEYS = ("pipeline", "backends")
+"""Keys under the prefix that clients set (without the prefix)."""
+
+
+def _tags_of(payload: object) -> Mapping[str, object]:
+    """Get the tags of a payload (e.g., a TES task).
+
+    Args:
+        payload: Payload.
+
+    Returns:
+        Its `tags`, if it is a mapping with a mapping there; else none.
+    """
+    tags = payload.get("tags") if isinstance(payload, Mapping) else None
+    return tags if isinstance(tags, Mapping) else {}
+
+
+def reserved_tags(tags: Mapping[str, object] | None, prefix: str) -> dict[str, object]:
+    """Get the tags under the reserved prefix.
+
+    Args:
+        tags: Tags, if any.
+        prefix: Reserved prefix (`plugins.tags.prefix`).
+
+    Returns:
+        Tags whose keys start with the prefix.
+    """
+    return {
+        key: value for key, value in (tags or {}).items() if str(key).startswith(prefix)
+    }
+
+
+def check_reserved_tags(before: object, after: object, prefix: str) -> None:
+    """Check that a hook kept the tags under the reserved prefix of a payload.
+
+    Args:
+        before: Payload given to the hook.
+        after: Payload after the hook.
+        prefix: Reserved prefix.
+
+    Raises:
+        ValueError: A key under the prefix was added, changed or removed
+            (the client's own `pipeline` and `backends` keys too).
+    """
+    old = reserved_tags(_tags_of(before), prefix)
+    new = reserved_tags(_tags_of(after), prefix)
+    if old != new:
+        changed = sorted(
+            key for key in old.keys() | new.keys() if old.get(key) != new.get(key)
+        )
+        raise ValueError(f"Plugins must not change tags under {prefix!r}: {changed}")
+
+
+def without_server_tags(tags: Mapping[str, str] | None, prefix: str) -> dict[str, str]:
+    """Drop the keys under the prefix that only the gateway writes.
+
+    Use it on the payload's tags before merging the gateway's tags, as a
+    second line of defence besides the engine's check.
+
+    Args:
+        tags: Tags, if any.
+        prefix: Reserved prefix.
+
+    Returns:
+        Tags without keys under the prefix, except the client's
+        `<prefix>pipeline` and `<prefix>backends`.
+    """
+    client = {f"{prefix}{key}" for key in CLIENT_KEYS}
+    return {
+        key: value
+        for key, value in (tags or {}).items()
+        if not str(key).startswith(prefix) or key in client
     }
 
 
