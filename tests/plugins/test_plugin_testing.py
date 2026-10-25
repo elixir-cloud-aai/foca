@@ -37,10 +37,12 @@ from foca.plugins.testing import (
     make_response,
 )
 from foca.utils.http import (
+    AddressNotAllowed,
     DeadlineExceeded,
     InvalidRequestURL,
     RequestMaybeSent,
     RequestNotSent,
+    ResponseTooLarge,
 )
 from tests.plugins.fakes import (
     FailingPlugin,
@@ -157,20 +159,39 @@ def test_fake_http() -> None:
         http.get("http://x.example.org/a")
     with pytest.raises(InvalidRequestURL):
         http.get("x.example.org")
+    with pytest.raises(InvalidRequestURL, match="method"):
+        http.request("GET /", "https://x.example.org/a")
+    for url in ("https://10.0.0.1/", "https://[::1]/", "https://127.0.0.1:8443/"):
+        with pytest.raises(AddressNotAllowed):
+            http.get(url)
     assert [call.method for call in http.calls] == ["GET"] * 4 + ["POST"]
+
+
+def test_fake_http_guards() -> None:
+    """Fake clients mirror the size limit and the private-address switch."""
+    http = FakeHttp(allow_private_addresses=True, max_response_size=4)
+    http.add("GET", "https://10.0.0.1/", content=b"1234")
+    http.add("GET", "https://8.8.8.8/", content=b"12345")
+    assert http.get("https://10.0.0.1/").content == b"1234"
+    with pytest.raises(ResponseTooLarge):
+        http.get("https://8.8.8.8/")
+    public = FakeHttp()
+    public.add("GET", "https://8.8.8.8/", json=1)
+    assert public.get("https://8.8.8.8/").json() == 1
 
 
 def test_fake_http_clients() -> None:
     """Clients made by a fake share its state, with their own deadline."""
     http = FakeHttp(allow_http=True)
-    http.add("GET", "http://x.example.org/?a=1&b=2", json=[])
+    http.add("GET", "http://x.example.org/?a=1&b=x+y", json=[])
     client = http.client(deadline=time.monotonic() + 10, allow_http=True)
-    assert client.get("http://x.example.org/", params={"a": 1, "b": 2}).json() == []
+    params = {"a": 1, "b": "x y"}
+    assert client.get("http://x.example.org/", params=params).json() == []
     with pytest.raises(RequestNotSent):
-        client.get("http://x.example.org/?a=1", params={"b": 2, "c": 3})
+        client.get("http://x.example.org/?a=1", params={"b": ["2", "&"]})
     assert [call.url for call in http.calls] == [
-        "http://x.example.org/?a=1&b=2",
-        "http://x.example.org/?a=1&b=2&c=3",
+        "http://x.example.org/?a=1&b=x+y",
+        "http://x.example.org/?a=1&b=2&b=%26",
     ]
     late = http.client(deadline=time.monotonic() - 1)
     with pytest.raises(DeadlineExceeded):

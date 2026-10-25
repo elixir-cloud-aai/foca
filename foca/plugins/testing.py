@@ -19,13 +19,15 @@ entry points.
 import ast
 import copy
 import inspect
-import json as _json
+import ipaddress
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from json import dumps
 from types import TracebackType
 from typing import Any
+from urllib.parse import urlencode
 
 from foca.plugins.base import Plugin, check_plugin_class
 from foca.plugins.config import PluginsConfig
@@ -42,11 +44,16 @@ from foca.plugins.model import (
 )
 from foca.plugins.records import Execution
 from foca.utils.http import (
+    _METHOD,
+    AddressNotAllowed,
     DeadlineExceeded,
     GuardedClient,
     HttpResponse,
     InvalidRequestURL,
     RequestNotSent,
+    ResponseTooLarge,
+    _split,
+    is_public_address,
 )
 
 FRAMEWORK_MODULES = frozenset(
@@ -265,9 +272,13 @@ class FakeHttp(GuardedClient):
     """Stand-in for `ctx.http`: records requests, returns canned responses.
 
     It sends nothing. Like :py:class:`foca.utils.http.GuardedClient`, it
-    refuses other schemes than `https` (unless `allow_http`) and requests
-    after the deadline. Requests without a canned response fail with
-    :py:class:`foca.utils.http.RequestNotSent` (`no_canned_response`).
+    refuses other schemes than `https` (unless `allow_http`), invalid
+    methods, hosts that are IP addresses that are not public (unless
+    `allow_private_addresses`; host names are not resolved), requests
+    after the deadline, and canned bodies beyond `max_response_size`.
+    Query parameters are encoded as by `requests`. Requests without a
+    canned response fail with :py:class:`foca.utils.http.RequestNotSent`
+    (`no_canned_response`).
 
     Pass `client` as `http_client` of a host (as
     :py:class:`PluginHarness` does): the clients of all calls then share
@@ -344,7 +355,7 @@ class FakeHttp(GuardedClient):
         if error is not None:
             result = error
         else:
-            body = content if json is None else _json.dumps(json).encode()
+            body = content if json is None else dumps(json).encode()
             result = HttpResponse(
                 status=status,
                 headers={key.lower(): value for key, value in (headers or {}).items()},
@@ -379,19 +390,34 @@ class FakeHttp(GuardedClient):
             The canned response.
 
         Raises:
-            InvalidRequestURL: The scheme is not allowed.
+            InvalidRequestURL: The URL or method is invalid, or the scheme
+                is not allowed.
+            AddressNotAllowed: The host is an IP address that is not
+                public.
             DeadlineExceeded: The deadline passed.
             RequestNotSent: There is no canned response.
+            ResponseTooLarge: The canned body exceeds `max_response_size`.
             Exception: The canned error.
         """
-        scheme = url.partition("://")[0].lower() if "://" in url else ""
+        scheme, host, _ = _split(url)
         if scheme not in (("https", "http") if self.allow_http else ("https",)):
             raise InvalidRequestURL(f"Scheme not allowed: {scheme or '(none)'}")
+        if not isinstance(method, str) or not _METHOD.fullmatch(method):
+            raise InvalidRequestURL("Invalid HTTP method")
+        if not self.allow_private_addresses:
+            try:
+                address = ipaddress.ip_address(host)
+            except ValueError:
+                address = None  # host names are not resolved
+            if address is not None and not is_public_address(address):
+                raise AddressNotAllowed(
+                    f"Host of {url} has an address that is not public: {host}"
+                )
         remaining = self.remaining()
         if remaining <= 0:
             raise DeadlineExceeded(f"No time left for {url}")
         if params:
-            query = "&".join(f"{key}={value}" for key, value in params.items())
+            query = urlencode(params, doseq=True)
             url = f"{url}{'&' if '?' in url else '?'}{query}"
         with self._state.lock:
             self._state.calls.append(
@@ -405,6 +431,10 @@ class FakeHttp(GuardedClient):
             )
         if isinstance(result, Exception):
             raise result
+        if len(result.content) > self.max_response_size:
+            raise ResponseTooLarge(
+                f"Response of {url} exceeds {self.max_response_size} bytes"
+            )
         return result
 
 
@@ -791,7 +821,7 @@ def check_plugin_contract(
         problems.append("No title: add a docstring or set `title`")
     for name in ("Config", "Params"):
         try:
-            _json.dumps(getattr(plugin, name).model_json_schema())
+            dumps(getattr(plugin, name).model_json_schema())
         except Exception as exc:
             problems.append(f"`{name}` exports no JSON Schema: {exc}")
     imports = framework_imports(plugin)
