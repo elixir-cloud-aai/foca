@@ -134,8 +134,9 @@ def list_plugins(host: PluginHost, principal: Principal) -> dict[str, Any]:
     Returns:
         `plugins` the caller may choose in its own pipelines (none unless it
         may send them), `presets` it may choose (none unless presets are
-        allowed for it), the `default_pipeline` (step identifiers and
-        plugins), and the constraints of `client_pipelines` (with
+        allowed for it), the `default_pipeline` (step identifiers, and
+        their plugins only if the caller may choose pipelines), and the
+        constraints of `client_pipelines` (with
         `allowed_for_caller`, and the identifiers of the `prepend` and
         `append` steps), `client_backends` and the `tag_prefix`: what
         selection accepts (cf. :py:meth:`foca.plugins.PluginHost.resolve`).
@@ -155,7 +156,11 @@ def list_plugins(host: PluginHost, principal: Principal) -> dict[str, Any]:
             for name, steps in host.presets.items()
             if presets_allowed and host.may_use_preset(steps, principal)
         ],
-        "default_pipeline": _steps(host.default_pipeline.steps),
+        "default_pipeline": [
+            # plugins of the default pipeline are not public
+            step if allowed else {"id": step["id"], "plugins": []}
+            for step in _steps(host.default_pipeline.steps)
+        ],
         "client_pipelines": {
             "enabled": clients.enabled,
             "allowed_for_caller": allowed,

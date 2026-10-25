@@ -588,7 +588,8 @@ subgroup (from identifiers `<group>.<subgroup>.<name>`), phases,
 capabilities, maturity, distribution, version, third-party data transfers
 and the JSON Schema of the parameters, never the admin settings; and the
 presets it may choose (`presets` allowed, and the roles of their plugins).
-It also holds the steps of the default pipeline, the limits of
+It also holds the steps of the default pipeline (their plugins only for
+callers that may choose pipelines, as for presets), the limits of
 `client_pipelines` (with whether the caller may choose, and the
 identifiers of the `prepend` and `append` steps) and `client_backends`,
 and the tag prefix. Plugins that the caller may not use give `404`
@@ -620,9 +621,15 @@ FOCA adds no policies of its own, e.g.:
 security:
   access_control:
     policies:
-      - [p, user, "/ga4gh/tes/v1/plugins*", GET]
+      - [p, user, "/ga4gh/tes/v1/plugins", GET]
+      - [p, user, "/ga4gh/tes/v1/plugins/:plugin_id", GET]
       - [p, user, "/ga4gh/tes/v1/tasks/:id/provenance", GET]
 ```
+
+These rules are for models that match paths with `keyMatch2` (e.g.,
+FOCA's `resource_role_model.conf`), where `:plugin_id` matches one path
+segment; a trailing `*` (e.g., `plugins*`) does not match
+`/plugins/<id>`.
 
 The public service info gets generic descriptors only: apps add
 `foca.plugins.api.service_info_fields(plugins_url=...)` to the fields of
