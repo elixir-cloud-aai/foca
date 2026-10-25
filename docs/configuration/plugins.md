@@ -17,6 +17,8 @@ plugins:
         registries: [registry.example.org]
     org.example.tes.data.decrypt:
       enabled: false                        # kill switch: loaded nowhere
+      client_selectable: true               # clients may choose it (default)
+      roles: []                             # roles that may choose it; any if empty
   defaults:
     timeout: 10            # seconds per alternative and call
     pipeline_timeout: 30   # seconds for the request and route phases
@@ -38,13 +40,13 @@ plugins:
   # Pipelines chosen by clients per request
   client_pipelines:
     enabled: true
-    allowed: [presets, inline]
+    allowed: [presets, inline]   # at least one; `enabled: false` allows none
     max_steps: 8
     max_alternatives: 3
     max_size: 8192           # bytes of the tag's value
     roles: []                # who may choose; any authenticated caller if empty
-    prepend:                 # admin frame: always first
-      - org.example.tes.policy.images
+    prepend:                 # admin frame: always first, also for client
+      - org.example.tes.policy.images  # pipelines, which replace `pipeline`
     append: []               # always last (or only if a phase is missing)
   # Backends chosen by clients per request (tag `gateway.backends`)
   client_backends:
@@ -55,7 +57,7 @@ plugins:
   provenance:
     detail: paths            # changes as hashes and JSON Pointers
     record_failed: false     # store records of failed runs (audit)
-  gateway_id: protes.example.org          # default: host of server.public_url
+  gateway_id: protes.example.org          # default: host[:port] of server.public_url
 ```
 
 ## Allowlist
@@ -91,13 +93,24 @@ identifier; steps with the same plugin need explicit, unique `id`s.
 
 ## Per-request choices
 
+!!! warning "Policies that must always run belong in `prepend`"
+
+    A client's pipeline (or a preset) **replaces** the default pipeline
+    (`pipeline`) entirely, and an empty client pipeline (`[]`) is allowed.
+    Only the frame (`client_pipelines.prepend` and `append`) runs for every
+    request, so put policy steps that must not be skipped into `prepend`
+    (or disable `client_pipelines`).
+
 Clients choose presets or their own pipelines (`client_pipelines`) and
 backends (`client_backends`) in reserved tags (cf. [per-request pipelines
 and backends](../plugins.md#per-request-pipelines-and-backends)); both are
-enabled by default, limited to the allowlist (`client_selectable`, `roles`)
-and to the candidates of each request. Presets and frames are checked on
-startup like the default pipeline; presets that need a disabled plugin are
-unavailable.
+enabled by default, limited to the allowlist (the keys `client_selectable`
+and `roles` of the entries in `available`) and to the candidates of each
+request. Presets are written by admins, so they may use plugins that are not
+`client_selectable`, but only callers with the plugins' `roles` may choose
+them. Presets and frames are checked on startup like the default pipeline
+(also that no preset step has the identifier of a frame step); presets that
+need a disabled plugin are unavailable.
 
 ## Provenance
 

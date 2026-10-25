@@ -82,9 +82,9 @@ supported by existing clients), under the prefix `plugins.tags.prefix`
   `[{"plugin": "org.example.tes.data.decrypt"}, {"id": "route", "alternatives": [{"plugin": "org.example.tes.routing.distance", "params": {"max_km": 2000}}]}]`;
   steps of clients cannot set `timeout`, `on_failure` or
   `if_missing_phase`;
-- `gateway.backends`: a JSON object
-  `{"type": "order" | "allow" | "forbid", "backends": [...]}` with backend
-  identifiers or URLs:
+- `gateway.backends`: a JSON object (at most 8 KiB)
+  `{"type": "order" | "allow" | "forbid", "backends": [...]}` with one or
+  more backend identifiers or URLs:
   - `order`: the listed backends first, in the client's order, then the
     other candidates in the server's order;
   - `allow`: only the listed backends, in the server's order;
@@ -95,14 +95,25 @@ supported by existing clients), under the prefix `plugins.tags.prefix`
   backends that are not candidates are discarded (and recorded), never
   added.
 
+!!! warning "A client pipeline replaces the default pipeline"
+
+    A preset or client pipeline (even an empty one, `[]`) runs **instead
+    of** `plugins.pipeline`: only the frame (`client_pipelines.prepend` and
+    `append`) runs for every request. Put policies that must not be skipped
+    into `prepend`.
+
 Before any plugin runs, the engine checks the choice and refuses it with
-`400` if the tags are invalid, if per-request choices are disabled
+`400` if the tags are no map or invalid, if per-request choices are disabled
 (`plugins.client_pipelines.enabled`, `plugins.client_backends.enabled`),
 if the pipeline exceeds the limits (`max_steps`, `max_alternatives`,
 `max_size`), if the caller lacks a required role, or if it uses a plugin
 that is not available to the caller (unknown, not installed, disabled, not
 `client_selectable`, or restricted by `roles`; all with the same message,
-so that clients cannot probe the setup). Presets and client pipelines are
+so that clients cannot probe the setup). Presets may use plugins that are
+not `client_selectable`, but need the plugins' `roles` too (unknown presets
+and presets that need a role get the same message). Apps of other APIs than
+TES pass the request's tags explicitly (`host.start(..., tags=...)`, e.g.,
+the parsed `tags` form field of WES). Presets and client pipelines are
 framed by the admin's steps (`client_pipelines.prepend` and `append`),
 which clients can neither remove nor reorder; appended steps with
 `if_missing_phase` (e.g., a default `route` step) are added only if no other
@@ -341,7 +352,9 @@ Gateway errors are problem details with the extension member
 | `plugin-step-failed` | 500 | all alternatives of a required step failed |
 | `invalid-pipeline` | 400 | the pipeline tag is invalid or not allowed |
 | `invalid-backends` | 400 | the backends tag is invalid or not allowed |
-| `reserved-tag` | 400 | the client set another tag under the reserved prefix |
+| `reserved-tag` | 400 | the client set another tag under the reserved prefix, or the tags are no map |
 | `no-backend-available` | 503 | no backend accepted the request |
 | `forward-timeout` | 503 | the forwarding attempts took longer than `forward_timeout` |
+| `invalid-via` | 400 | the `Via` header would exceed 1024 characters with the gateway's entry |
 | `loop-detected` | 508 | the request passed this gateway already |
+| `gateway-error` | 500 | other errors of the gateway |
