@@ -1051,8 +1051,8 @@ class PipelineRun:
         Args:
             candidates: Candidate backends, in the server's order.
             snapshots: Times of the registry reads that the candidates come
-                from, by registry entry, for provenance (cf.
-                :py:meth:`foca.plugins.backends.BackendList.snapshots`).
+                from, by registry entry, for provenance (cf. `snapshots` of
+                :py:meth:`foca.plugins.backends.BackendList.expand`).
 
         Returns:
             Candidates after the phase, in order.
