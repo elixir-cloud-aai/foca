@@ -9,8 +9,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from foca.plugins.provenance import changed_paths, content_hash
-
 Outcome = Literal[
     "ok", "not_applicable", "error", "timeout", "invalid_output", "rejected", "skipped"
 ]
@@ -127,9 +125,9 @@ class Execution:
         error: Sanitized error, if any (cf. :py:func:`sanitize_error`).
         annotations: Annotations recorded by the plugin.
         changes: Changes of a successful call (cf.
-            `plugins.provenance.detail`): `before` and `after` hashes of the
-            phase's data and the changed JSON Pointers (`paths`), without
-            values.
+            :py:func:`foca.plugins.provenance.describe_changes`): `before`
+            and `after` hashes of the phase's data and the changed JSON
+            Pointers (`paths`), without values.
     """
 
     step: str
@@ -153,7 +151,9 @@ class Execution:
 
         Returns:
             Record with the plugin's build key as `plugin`, its identifier
-            as `plugin_id`, and without empty fields.
+            as `plugin_id`, and without the fields that are `None` (e.g.,
+            `plugin` of skipped steps, `attempt` outside forwarding,
+            `error` and `changes` of calls without them).
         """
         record = {
             "step": self.step,
@@ -169,7 +169,7 @@ class Execution:
             "annotations": self.annotations,
             "changes": self.changes,
         }
-        return {key: value for key, value in record.items() if value or value == 0}
+        return {key: value for key, value in record.items() if value is not None}
 
 
 @dataclass
@@ -195,56 +195,3 @@ class AttemptRecord:
     remote_id: str | None
     started_at: str
     duration_ms: float
-
-
-def _snapshot(phase: str, value: Any) -> Any:
-    """Get the data of a phase that plugins may change, as JSON data.
-
-    Args:
-        phase: Phase.
-        value: Input or output of a hook of the phase.
-
-    Returns:
-        Data of the phase: method, path, query, headers and payload of
-        requests; the client's part of responses; candidate identifiers.
-    """
-    if phase == "route":
-        return [backend.id for backend in value]
-    if phase == "response":
-        return {
-            "client_payload": value.client_payload,
-            "client_headers": {k.lower(): v for k, v in value.client_headers.items()},
-        }
-    data = {
-        "method": value.method,
-        "path": value.path,
-        "query": value.query,
-        "headers": {name.lower(): text for name, text in value.headers.items()},
-        "payload": value.payload,
-    }
-    if phase == "forward":
-        data["auth"] = value.auth
-    return data
-
-
-def _changes(phase: str, before: Any, after: Any) -> dict[str, Any]:
-    """Describe the changes of a hook call, without values.
-
-    Args:
-        phase: Phase.
-        before: Input of the call.
-        after: Committed output of the call.
-
-    Returns:
-        Hashes before and after and the changed JSON Pointers; `error` if
-        the data is not JSON data.
-    """
-    old, new = _snapshot(phase, before), _snapshot(phase, after)
-    try:
-        return {
-            "before": content_hash(old),
-            "after": content_hash(new),
-            "paths": changed_paths(old, new),
-        }
-    except (TypeError, ValueError):
-        return {"error": "not_json"}
