@@ -46,8 +46,8 @@ class OutcomeUnknown(NotAccepted):
     """
 
 
-def sanitize_error(exc: BaseException) -> str:
-    """Describe an exception for records, without credentials.
+def describe_error(exc: BaseException) -> str:
+    """Describe an exception for logs, without credentials in URLs.
 
     Args:
         exc: Exception.
@@ -58,6 +58,29 @@ def sanitize_error(exc: BaseException) -> str:
     """
     message = _USER_INFO.sub(r"\1", f"{type(exc).__name__}: {exc}")
     return message[:MAX_ERROR_LENGTH]
+
+
+def sanitize_error(exc: BaseException) -> str:
+    """Describe an exception for records.
+
+    Messages of other code (plugins, the app, libraries) may hold secrets
+    or personal data, so records get their type only (logs get the
+    message, cf. :py:func:`describe_error`); FOCA's own gateway errors and
+    rejections (whose messages are meant for clients) keep their message.
+
+    Args:
+        exc: Exception.
+
+    Returns:
+        Type, and for gateway errors and rejections the message, as from
+        :py:func:`describe_error`.
+    """
+    from foca.plugins.base import Rejected  # noqa: PLC0415 (import cycle)
+    from foca.plugins.errors import GatewayError  # noqa: PLC0415
+
+    if isinstance(exc, GatewayError | Rejected):
+        return describe_error(exc)
+    return type(exc).__name__
 
 
 class _DeadlineExceededError(Exception):

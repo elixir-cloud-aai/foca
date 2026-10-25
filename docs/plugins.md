@@ -315,26 +315,38 @@ data for the app to store with its resource (e.g., the task):
 - `plugins`: the plugins that ran, by build key (a hash of identifier,
   distribution, version, entry point, RECORD digest and image digest);
 - `executions`: per hook call, in order: step, phase, alternative, plugin,
-  outcome, start time, duration, attempt number, sanitized error,
-  annotations (`ctx.record()`) and the changes: hashes before and after
-  and the changed JSON Pointers, without values (at most 256, then
-  `truncated: true`; arrays whose length changed as a whole); fields that
-  do not apply are left out;
+  outcome, start time, duration, attempt number, error (the type only,
+  as messages of plugins may hold secrets; logs get the message; FOCA's
+  gateway errors and rejections keep theirs), annotations
+  (`ctx.record()`) and the changes: keyed hashes before and after
+  (`hmac-sha256:`, with a random key per process, so that they can be
+  compared within a record, but not guessed offline) and the changed JSON
+  Pointers, without values (at most 256, then `truncated: true`; arrays
+  whose length changed as a whole); fields that do not apply are left
+  out;
 - `route` (candidates in and out), the client's backend `selection` (with
   `discarded` items), the forwarding `attempts` (backend, outcome, reason,
   remote ID, timings) and the `final_reason` (`forward_timeout`,
-  `no_backend`, `outcome_unknown`) if forwarding failed.
+  `no_backend`, `outcome_unknown`) if forwarding failed. Backend URLs
+  appear without user info, query and fragment.
 
 Records hold no IP addresses, tokens, header values or claims, and hashes
 leave out credentials, client addresses (`Forwarded`, `X-Forwarded-For`,
-`X-Real-IP`) and `plugins.provenance.secret_headers`. Hashes of values with
+`X-Real-IP`), `Set-Cookie` of responses and
+`plugins.provenance.secret_headers`. Hashes of values with
 little entropy (e.g., short API keys, user names) can be guessed, so put
 such headers in `secret_headers`, and declare secret plugin parameters as
 `pydantic.SecretStr`, which records show as `**********`. Changed paths
-are capped in number and length per call, and in size per run. Plugins must
+are capped in number and length per call, and in size per run. Changed
+paths name the keys of maps (e.g., of `env` or `tags`), so keys should
+hold no personal data. Records take at most 1 MiB of JSON
+(`foca.plugins.provenance.MAX_RECORD_SIZE`): larger ones lose, in this
+order, the changed paths, the annotations and the `resolved` pipeline
+(`resolved_hash` stays), and get `truncated: true`. Plugins must
 not `record()` personal data. Data that is no I-JSON (e.g., integers beyond
-2^53 - 1) is recorded as `error: not_json` instead of hashes; building and
-storing records never fails the request. A record, shortened:
+2^53 - 1) is recorded as `error: not_json` instead of hashes (and of the
+`resolved` pipeline); building and storing records never fails the
+request. A record, shortened:
 
 ```json
 {
@@ -351,7 +363,8 @@ storing records never fails the request. A record, shortened:
      "plugin_id": "org.example.tes.data.decrypt", "outcome": "ok",
      "started_at": "2026-10-25T09:00:00.000Z", "duration_ms": 12.5,
      "annotations": {"volumes": 1},
-     "changes": {"before": "sha256:01aa...", "after": "sha256:c4d2...",
+     "changes": {"before": "hmac-sha256:01aa...",
+                 "after": "hmac-sha256:c4d2...",
                  "paths": ["/payload/volumes"]}}
   ],
   "route": {"candidates_in": ["tes-a", "tes-b"],
@@ -380,12 +393,20 @@ except GatewayError as error:
 
 - `plugin_builds` and `pipelines` are keyed by hash (`_id`) and need no
   index; only default and preset pipelines (admin-defined) are stored
-  there, client pipelines stay inline and are deleted with the task.
+  there, client pipelines stay inline and are deleted with the task. If
+  writing them fails, the record keeps the pipeline and the build
+  documents (`builds`) inline, with `stored: false`.
+- Writes are synchronous: their timeouts are those of the app's MongoDB
+  client (e.g., `serverSelectionTimeoutMS`, `socketTimeoutMS` and
+  `w`/`wtimeoutMS` in the connection string, cf. `MONGO_URI`), and add
+  to the time of the request.
 - Failed runs (e.g., rejected requests, which have no task) are stored
   only with `plugins.provenance.record_failed: true`; give the collection
   a TTL index (`foca.plugins.provenance.FAILURE_INDEXES`, 30 days by
   default) for the retention you need. Failure records hold the same data
-  as other records, plus the time and the error type.
+  as other records, plus the time and the error type; their `_id` is the
+  request ID (else `run-` and the run's random ID), so storing a record
+  again replaces it.
 - The image digest of the app (env var `FOCA_IMAGE_DIGEST`, e.g., set by a
   Helm chart) is stored with the builds, if set.
 
