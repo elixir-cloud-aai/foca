@@ -8,11 +8,12 @@ same service registry are shuffled among themselves, so that the
 registry's own order does not decide which backend gets the load; there is
 no round-robin state.
 
-FOCA registers the plugin under the entry point group `foca.plugins`; it is
-available without an entry in `plugins.available` (listing it there sets
-only `enabled`, `roles`, `client_selectable` and `config`), is the default
-pipeline,
-and is appended to per-request pipelines without a route step.
+The plugin is built into FOCA (cf.
+:py:data:`foca.plugins.config.BUILTIN_PLUGINS`, its only source; it is no
+entry point of FOCA's metadata): it is available without an entry in
+`plugins.available` (listing it there sets only `enabled`, `roles`,
+`client_selectable` and `config`), is the default pipeline, and is
+appended to per-request pipelines without a route step.
 """
 
 import random

@@ -111,6 +111,20 @@ def test_appended_to_client_pipelines() -> None:
     assert [step.id for step in run.pipeline.steps] == ["test.reverse"]
 
 
+def test_prepended_route_steps_keep_router() -> None:
+    """Route steps in the admin's prepend do not drop the appended router."""
+    host = make_host(
+        [{"plugin": "foca.routing.ordered"}],
+        client_pipelines={"prepend": [{"plugin": "test.reverse"}]},
+    )
+    run = host.start(inbound({"tags": {"gateway.pipeline": "[]"}}), PRINCIPAL)
+    assert [step.id for step in run.pipeline.steps] == [
+        "test.reverse",
+        "foca.routing.ordered",
+    ]
+    host.close()
+
+
 def test_disabled() -> None:
     """The router can be disabled; required steps then stop the app."""
     available = {"foca.routing.ordered": {"enabled": False}}

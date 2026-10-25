@@ -16,9 +16,12 @@ from foca.plugins.tags import (
     creation_tags,
     routing_tags,
     strip_for_forwarding,
+    without_server_tags,
 )
-from tests.plugins.fakes import make_host
+from tests.plugins.fakes import TagPlugin, make_host
 from tests.plugins.test_plugin_engine import BACKENDS, PRINCIPAL, inbound
+
+BACKENDS_TAG = '{"type": "order", "backends": ["a"]}'
 
 
 def test_strip_for_forwarding() -> None:
@@ -99,7 +102,11 @@ def test_app_flow() -> None:
     run = host.start(inbound(task), PRINCIPAL)
     request = run.request()
     stored = dict(request.payload)
-    stored["tags"] = {**stored.get("tags", {}), **creation_tags(run)}
+    prefix = host.conf.tags.prefix
+    stored["tags"] = {
+        **without_server_tags(stored.get("tags"), prefix),
+        **creation_tags(run),
+    }
     relayed = {
         **stored,
         "tags": strip_for_forwarding(stored["tags"], host.conf.tags.prefix),
@@ -112,6 +119,66 @@ def test_app_flow() -> None:
     assert stored["tags"]["gateway.backend_task_id"] == "T1"
     assert stored["tags"]["gateway.pipeline_source"] == "client"
     assert all(isinstance(value, str) for value in stored["tags"].values())
+
+
+@pytest.mark.parametrize(
+    ("before", "key", "value"),
+    [
+        ({}, "gateway.backend", "https://evil.example"),  # added
+        ({}, "gateway.provenance", "/x"),
+        ({"gateway.backends": BACKENDS_TAG}, "gateway.backends", "x"),  # changed
+        ({"gateway.backends": BACKENDS_TAG}, "gateway.backends", None),  # removed
+    ],
+)
+def test_plugins_cannot_forge_server_tags(
+    before: dict[str, str], key: str, value: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Request hooks that change tags under the prefix give invalid output."""
+
+    def on_request(self: Any, request: Any, ctx: Any) -> None:
+        tags = request.payload.setdefault("tags", {})
+        if value is None:
+            del tags[key]
+        else:
+            tags[key] = value
+        tags["project"] = "b"  # other tags are fine
+
+    monkeypatch.setattr(TagPlugin, "on_request", on_request)
+    host = make_host([{"plugin": "test.tag", "on_failure": "skip"}])
+    run = host.start(inbound({"tags": dict(before)}), PRINCIPAL)
+    request = run.request()
+    assert run.executions[0].outcome == "invalid_output"
+    assert request.payload["tags"] == before
+
+
+def test_other_tags_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Request hooks may change tags outside the prefix, or add the map."""
+
+    def on_request(self: Any, request: Any, ctx: Any) -> None:
+        request.payload["tags"] = {**(request.payload.get("tags") or {}), "a": "1"}
+
+    monkeypatch.setattr(TagPlugin, "on_request", on_request)
+    host = make_host([{"plugin": "test.tag"}])
+    for task in ({}, {"tags": {"gateway.backends": BACKENDS_TAG}}, {"tags": None}):
+        run = host.start(inbound(dict(task)), PRINCIPAL)
+        assert run.request().payload["tags"]["a"] == "1"
+        assert run.executions[0].outcome == "ok"
+
+
+def test_without_server_tags() -> None:
+    """The defensive merge keeps only the client's keys under the prefix."""
+    tags = {
+        "project": "a",
+        "gateway.pipeline": "[]",
+        "gateway.backends": "x",
+        "gateway.backend": "https://evil.example",
+    }
+    assert without_server_tags(tags, "gateway.") == {
+        "project": "a",
+        "gateway.pipeline": "[]",
+        "gateway.backends": "x",
+    }
+    assert without_server_tags(None, "gateway.") == {}
 
 
 def test_routing_tags() -> None:

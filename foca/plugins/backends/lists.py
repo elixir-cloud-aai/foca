@@ -1,5 +1,6 @@
 """Backend lists of gateway apps (cf. :py:mod:`foca.plugins.backends`)."""
 
+import logging
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -12,6 +13,8 @@ from foca.plugins.backends.config import (
 from foca.plugins.backends.registry import get_cache
 from foca.plugins.model import Backend
 from foca.utils.urls import InvalidURL, normalize_url
+
+logger = logging.getLogger(__name__)
 
 
 def _location(url: str) -> tuple[str, str]:
@@ -96,7 +99,10 @@ class BackendList:
         Registry entries yield their discovered backends, in the order of
         the registry. Backends with the same URL are listed once, at the
         first position, with the settings of a configured entry if there is
-        one; backends at or below the gateway's public URL are left out.
+        one; backends at or below the gateway's public URL are left out, and
+        so are discovered backends whose identifier (their URL) is a
+        configured entry's identifier for another URL, so that identifiers
+        stay unique among the candidates.
 
         Args:
             refresh: Whether to read the registries now (rate-limited).
@@ -109,6 +115,7 @@ class BackendList:
             for entry in reversed(self.entries)
             if isinstance(entry, ServiceEntry)
         }
+        taken = {backend.id: backend.url for backend in configured.values()}
         candidates: list[Backend] = []
         seen: set[str] = set()
         for entry in self.entries:
@@ -129,6 +136,13 @@ class BackendList:
                 ]
             for backend in found:
                 if backend.url in seen or self._is_own(backend.url):
+                    continue
+                if taken.get(backend.id, backend.url) != backend.url:
+                    logger.debug(
+                        "Discovered backend %s skipped: its id is taken by a"
+                        " configured entry",
+                        backend.url,
+                    )
                     continue
                 seen.add(backend.url)
                 candidates.append(backend)

@@ -141,6 +141,7 @@ from foca.plugins.selection import (
     parse_client_pipeline,
     parse_client_tags,
 )
+from foca.plugins.tags import check_reserved_tags
 from foca.utils.http import GuardedClient
 
 logger = logging.getLogger(__name__)
@@ -614,6 +615,9 @@ class PluginHost:
     ) -> tuple[tuple[ResolvedStep, ...], list[str]]:
         """Frame steps, and find those with identifiers of kept frame steps.
 
+        `if_missing_phase` of appended steps checks the given steps only
+        (not the prepended ones).
+
         Args:
             steps: Resolved steps of a preset or client pipeline.
 
@@ -624,9 +628,10 @@ class PluginHost:
         framed = [*self._prepend, *steps]
         kept = list(self._prepend)
         for phase, step in self._append:
+            # only the preset's or client's own steps count, not the frame
             if phase is not None and any(
                 phase in self.plugins[alt.plugin].cls.phases()
-                for existing in framed
+                for existing in steps
                 for alt in existing.alternatives
             ):
                 continue
@@ -1019,13 +1024,19 @@ class PipelineRun:
         Returns:
             The inbound request after the phase (also in `inbound`).
 
+        Output that adds, changes or removes tags under the reserved prefix
+        (cf. :py:func:`foca.plugins.tags.check_reserved_tags`) is invalid.
+
         Raises:
             PipelineRejected: A plugin rejected the request.
             PipelineFailed: All alternatives of a required step failed.
             Exception: The app's `sanitize` failed (its exception).
         """
+        prefix = self.host.conf.tags.prefix
 
-        def check(candidate: InboundRequest, _: InboundRequest) -> InboundRequest:
+        def check(candidate: InboundRequest, given: InboundRequest) -> InboundRequest:
+            # plugins must not forge (or drop) gateway tags
+            check_reserved_tags(given.payload, candidate.payload, prefix)
             candidate.payload = self.host.check_payload(candidate.payload)
             return candidate
 

@@ -223,6 +223,33 @@ def test_expand(registry: Registry) -> None:
     }
 
 
+def test_discovered_ids_unique(
+    registry: Registry, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Discovered backends whose URL is a configured entry's id are skipped."""
+    registry.services = [
+        service("s1", "https://tes-b.example.org"),
+        service("s2", "https://tes-d.example.org"),
+    ]
+    blist = make_list(
+        [
+            {"type": "ga4gh-service-registry", "url": REGISTRY, "id": "reg"},
+            {
+                "type": "ga4gh-tes",
+                "url": "https://tes-x.example.org",
+                "id": "https://tes-b.example.org",
+            },
+        ]
+    )
+    with caplog.at_level(logging.DEBUG, logger="foca.plugins.backends.lists"):
+        candidates = blist.expand()
+    assert [(b.id, b.url) for b in candidates] == [
+        ("https://tes-d.example.org", "https://tes-d.example.org"),
+        ("https://tes-b.example.org", "https://tes-x.example.org"),
+    ]
+    assert "id is taken" in caplog.text
+
+
 def test_own_url_any_scheme() -> None:
     """Backends at the gateway's host and path are left out, whatever the scheme."""
     blist = make_list(
@@ -492,10 +519,89 @@ def test_cache_read_meanwhile(
     """Reads done by another thread while waiting are not repeated."""
     entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
     cache = backends.get_cache(entry, "tes")
-    dues = iter([True, False])
+    # no usable read: the thread waits for the lock, then finds the read done
+    dues = iter([False])
     monkeypatch.setattr(cache, "_due", lambda refresh: next(dues))
     assert cache.urls() == []
     assert registry.reads == 0
+
+
+def blocking_reads(registry: Registry, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Make reads of the registry wait for a release.
+
+    Args:
+        registry: Fake registry.
+        monkeypatch: Pytest fixture.
+
+    Returns:
+        Events `started` (a read waits) and `release`.
+    """
+    started, release = threading.Event(), threading.Event()
+    fetch = registry.fetch
+
+    def slow(url: str, timeout: float, **options: Any) -> Any:
+        started.set()
+        assert release.wait(5)
+        return fetch(url, timeout, **options)
+
+    monkeypatch.setattr(discovery, "fetch_json", slow)
+    return started, release
+
+
+def in_thread(function: Any) -> tuple[threading.Thread, list[Any]]:
+    """Call a function in a thread.
+
+    Args:
+        function: Function.
+
+    Returns:
+        Started thread, and a list that gets the result.
+    """
+    results: list[Any] = []
+    thread = threading.Thread(target=lambda: results.append(function()))
+    thread.start()
+    return thread, results
+
+
+@pytest.mark.parametrize("stale", [False, True])
+def test_cache_waits_without_usable_read(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch, stale: bool
+) -> None:
+    """Without a usable read, threads wait for the one that reads."""
+    registry.services = [service("s1", "https://tes-a.example.org")]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    cache = backends.get_cache(entry, "tes")
+    if stale:  # a good read, older than max_stale (e.g., after an idle gap)
+        assert cache.urls() == ["https://tes-a.example.org"]
+        cache._read_good -= entry.max_stale + 1
+        cache._next_read = 0
+    started, release = blocking_reads(registry, monkeypatch)
+    reader, first = in_thread(cache.urls)
+    assert started.wait(5)
+    waiter, second = in_thread(cache.urls)
+    waiter.join(0.2)
+    assert waiter.is_alive()  # waits for the read
+    release.set()
+    reader.join(5)
+    waiter.join(5)
+    assert first == second == [["https://tes-a.example.org"]]
+
+
+def test_cache_serves_during_refresh(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a usable read, threads get it while another thread reads."""
+    registry.services = [service("s1", "https://tes-a.example.org")]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    cache = backends.get_cache(entry, "tes")
+    assert cache.urls() == ["https://tes-a.example.org"]
+    cache._next_read = 0
+    started, release = blocking_reads(registry, monkeypatch)
+    reader, _ = in_thread(cache.urls)
+    assert started.wait(5)
+    assert cache.urls() == ["https://tes-a.example.org"]  # at once
+    release.set()
+    reader.join(5)
 
 
 def test_unresolved_hosts(registry: Registry) -> None:
