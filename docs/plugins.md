@@ -235,9 +235,13 @@ parameters:
 
 - `labels`: labels that candidates must have (e.g.,
   `{"region": "eu-north"}`). Labels in `plugins.pipeline` don't bind
-  client pipelines and presets, which replace it: pinning that must always
-  hold belongs in `client_pipelines.prepend` (e.g., a step that rejects or
-  filters);
+  client pipelines and presets, which replace it, and
+  `client_pipelines.prepend` frames only those, not `plugins.pipeline`
+  (which runs for requests without a pipeline tag): pinning that must
+  always hold belongs in both (e.g., a step that rejects or filters).
+  `if_missing_phase` of appended steps looks at the client's or preset's
+  own steps only, so a route step in `prepend` keeps the appended
+  router;
 - `seed`: a seed for reproducible orders, for tests only: refused unless
   the plugin's admin setting `allow_seed` is on.
 
@@ -628,7 +632,25 @@ not fit. FOCA provides the tags, and apps write them: they merge
 `foca.plugins.tags.creation_tags(run)` into new tasks after the `request`
 phase and `routing_tags(run)` after forwarding, and relay requests without
 any key under the prefix (`strip_for_forwarding(tags, prefix)`), so nested
-gateways write their own.
+gateways write their own:
+
+```python
+from foca.plugins.tags import creation_tags, without_server_tags
+
+prefix = host.conf.tags.prefix
+task["tags"] = {
+    **without_server_tags(request.payload.get("tags"), prefix),
+    **creation_tags(run),
+}
+```
+
+Dashboards can trust these tags: `request` hooks whose output adds,
+changes or removes a key under the prefix (also the client's own
+`gateway.pipeline` and `gateway.backends`) give `invalid_output`, so
+plugins cannot forge them, and `without_server_tags()` drops all keys but
+the client's before the merge, as a second line of defence. This applies
+to payloads with a `tags` map (TES); apps of other APIs (e.g., WES, whose
+tags are a form field) apply `without_server_tags()` themselves.
 
 Clients may set only `gateway.pipeline` and `gateway.backends`; requests
 with other keys under the prefix are refused (`400`). Clients that submit
@@ -648,7 +670,8 @@ subgroup (from identifiers `<group>.<subgroup>.<name>`), phases,
 capabilities, maturity, distribution, version, third-party data transfers
 and the JSON Schema of the parameters, never the admin settings; and the
 presets it may choose (`presets` allowed, and the roles of their plugins).
-It also holds the steps of the default pipeline, the limits of
+It also holds the steps of the default pipeline (their plugins only for
+callers that may choose pipelines, as for presets), the limits of
 `client_pipelines` (with whether the caller may choose, and the
 identifiers of the `prepend` and `append` steps) and `client_backends`,
 and the tag prefix. Plugins that the caller may not use give `404`
@@ -680,9 +703,15 @@ FOCA adds no policies of its own, e.g.:
 security:
   access_control:
     policies:
-      - [p, user, "/ga4gh/tes/v1/plugins*", GET]
+      - [p, user, "/ga4gh/tes/v1/plugins", GET]
+      - [p, user, "/ga4gh/tes/v1/plugins/:plugin_id", GET]
       - [p, user, "/ga4gh/tes/v1/tasks/:id/provenance", GET]
 ```
+
+These rules are for models that match paths with `keyMatch2` (e.g.,
+FOCA's `resource_role_model.conf`), where `:plugin_id` matches one path
+segment; a trailing `*` (e.g., `plugins*`) does not match
+`/plugins/<id>`.
 
 The public service info gets generic descriptors only: apps add
 `foca.plugins.api.service_info_fields(plugins_url=...)` to the fields of

@@ -33,6 +33,7 @@ import re
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict
+from pydantic.errors import PydanticUserError
 
 API_VERSION = 1
 """Major version of the plugin API; plugins declare it as `api_version`."""
@@ -235,8 +236,9 @@ def check_plugin_class(cls: Any, plugin_id: str, api: str) -> type[Plugin[Any, A
     Raises:
         ValueError: The object is not a subclass of :py:class:`Plugin`, it
             implements another major version of the plugin API, does not
-            support the app's API, implements no hook, or has invalid
-            metadata.
+            support the app's API, implements no hook, has invalid
+            metadata, or parameters without JSON Schema (which the plugin
+            listing serves).
     """
     if not isinstance(cls, type) or not issubclass(cls, Plugin):
         raise ValueError(
@@ -258,6 +260,12 @@ def check_plugin_class(cls: Any, plugin_id: str, api: str) -> type[Plugin[Any, A
             raise ValueError(
                 f"Plugin {plugin_id!r} has no pydantic Config/Params model"
             )
+    try:
+        cls.Params.model_json_schema()
+    except PydanticUserError as error:  # e.g., arbitrary types
+        raise ValueError(
+            f"Plugin {plugin_id!r} has Params without JSON Schema: {error}"
+        ) from error
     invalid = sorted(
         repr(capability)
         for capability in cls.capabilities

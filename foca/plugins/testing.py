@@ -847,10 +847,11 @@ def check_plugin_contract(
     """Check that a plugin meets the plugin contract.
 
     Checks the class (cf. :py:func:`foca.plugins.base.check_plugin_class`),
-    a title (docstring or `title`), the JSON Schemas of `Config` and
-    `Params`, that its module imports no web framework, and that its hooks
-    succeed (or reject, or do not apply) on the sample inputs through the
-    engine: once, and with one instance from several threads at once.
+    a title (docstring or `title`), the JSON Schema of `Config` (and that
+    those of `Config` and `Params` serialize), that its module imports no
+    web framework, and that its hooks succeed (or reject, or do not apply)
+    on the sample inputs through the engine: once, and with one instance
+    from several threads at once.
     Phases after `request` run without the plugin's `request` hook, so that
     rejected samples do not hide them; rejections are fine, except in the
     `response` phase, where they count as errors. The engine itself

@@ -5,7 +5,7 @@ import time
 from typing import Any, ClassVar
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 import foca.plugins
 from foca.plugins import Headers, Plugin, Principal, Rejected
@@ -118,6 +118,24 @@ class _BadCapability(_Hooked):
     capabilities: ClassVar[frozenset[str]] = frozenset({"Crypt4GH Input"})
 
 
+class _Opaque:
+    """Type without JSON Schema."""
+
+
+class _OpaqueParams(BaseModel):
+    """Parameters without JSON Schema."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    value: _Opaque | None = None
+
+
+class _NoSchema(_Hooked):
+    """Plugin whose parameters have no JSON Schema."""
+
+    Params = _OpaqueParams
+
+
 class _NoHook(Plugin[EmptyModel, EmptyModel]):
     """Plugin without hooks."""
 
@@ -132,6 +150,7 @@ class _NoHook(Plugin[EmptyModel, EmptyModel]):
         (_BadMaturity, "maturity"),
         (_BadModel, "pydantic"),
         (_BadCapability, "capabilities"),
+        (_NoSchema, "JSON Schema"),
     ],
 )
 def test_check_plugin_class(cls: Any, message: str) -> None:

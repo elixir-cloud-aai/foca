@@ -187,6 +187,12 @@ class OpaquePlugin(Untitled):
     Params = OpaqueParams
 
 
+class OpaqueConfig(Untitled):
+    """Have settings without a JSON Schema."""
+
+    Config = OpaqueParams
+
+
 def test_doctests() -> None:
     """The examples of the kit work."""
     assert doctest.testmod(testing).failed == 0
@@ -356,7 +362,8 @@ def test_contract_passes() -> None:
     [
         (dict, {}, "not a subclass"),
         (Untitled, {}, "No title"),
-        (OpaquePlugin, {}, "`Params` exports no JSON Schema"),
+        (OpaquePlugin, {}, "Params without JSON Schema"),
+        (OpaqueConfig, {}, "`Config` exports no JSON Schema"),
         (TagPlugin, {"params": {"bad": 1}}, "Not usable"),
         (FailingPlugin, {"threads": 2}, "request (once): outcome error"),
         (RejectPlugin, {"threads": 1}, "response (once): outcome rejected"),

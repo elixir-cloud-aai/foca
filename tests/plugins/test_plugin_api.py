@@ -1,11 +1,13 @@
 """Tests of the plugin listing (`foca.plugins.api`)."""
 
 import json
+from importlib.resources import path as resource_path
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from casbin import Enforcer
 
 from foca import Foca
 from foca.factories.connexion_app import create_connexion_app
@@ -14,6 +16,10 @@ from foca.plugins import InvalidSelection, Principal, adapter, api, runtime
 from foca.plugins.engine import PluginHost
 from foca.plugins.pytest_plugin import RegisterPlugins
 from foca.plugins.runtime import GatewayApp
+from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH,
+    RESOURCE_ROLE_MODEL_FILE,
+)
 from tests.plugins.fakes import FAKES, make_host
 from tests.plugins.test_plugin_engine import inbound
 
@@ -50,7 +56,8 @@ def test_list_plugins_by_role() -> None:
     # Alice may not choose pipelines: nothing to choose
     assert listing["plugins"] == []
     assert listing["presets"] == []
-    assert listing["default_pipeline"] == [{"id": "test.tag", "plugins": ["test.tag"]}]
+    # only step identifiers of the default pipeline
+    assert listing["default_pipeline"] == [{"id": "test.tag", "plugins": []}]
     clients = listing["client_pipelines"]
     assert clients["enabled"]
     assert not clients["allowed_for_caller"]
@@ -69,6 +76,7 @@ def test_list_plugins_by_role() -> None:
         {"name": "tagged", "steps": [{"id": "test.tag", "plugins": ["test.tag"]}]}
     ]
     assert admin["client_pipelines"]["allowed_for_caller"]
+    assert admin["default_pipeline"] == [{"id": "test.tag", "plugins": ["test.tag"]}]
     json.dumps(admin)
     host.close()
 
@@ -215,6 +223,39 @@ def test_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
         assert body["problem_type"].endswith("#plugin-not-found")
         assert "test.skip" in body["detail"]
     host.close()
+
+
+def documented_policies() -> list[list[str]]:
+    """Get the policies of the listing example in `docs/plugins.md`.
+
+    Returns:
+        Policy rules of the example.
+    """
+    text = (Path(__file__).parents[2] / "docs" / "plugins.md").read_text()
+    marker = "allow the listing in the app's policies"
+    block = text.split(marker, 1)[1].split("```yaml\n", 1)[1].split("```", 1)[0]
+    return yaml.safe_load(block)["security"]["access_control"]["policies"]
+
+
+@pytest.mark.parametrize(
+    ("path", "allowed"),
+    [
+        ("/ga4gh/tes/v1/plugins", True),
+        ("/ga4gh/tes/v1/plugins/org.example.tag", True),
+        ("/ga4gh/tes/v1/tasks/t1/provenance", True),
+        ("/ga4gh/tes/v1/plugins/a/b", False),
+        ("/ga4gh/tes/v1/tasks/t1", False),
+    ],
+)
+def test_documented_policies(path: str, allowed: bool) -> None:
+    """The documented rules allow both listing endpoints (keyMatch2)."""
+    with resource_path(ACCESS_CONTROL_BASE_PATH, RESOURCE_ROLE_MODEL_FILE) as model:
+        enforcer = Enforcer(str(model))
+    for ptype, *rule in documented_policies():
+        enforcer.add_named_policy(ptype, *rule)
+    enforcer.add_grouping_policy("user:alice", "user")
+    assert enforcer.enforce("user:alice", path, "GET") is allowed
+    assert not enforcer.enforce("user:alice", path, "POST")
 
 
 def test_spec() -> None:
