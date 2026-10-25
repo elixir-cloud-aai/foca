@@ -362,7 +362,10 @@ def test_contract():
 - `ctx.http` is a `FakeHttp`: add responses (`http.add("GET", url,
   json=...)`, or `error=` one of `foca.utils.http`'s errors), pass it as
   `http=`, and check `http.calls`; requests without a response fail, and
-  the deadline applies as with the real client.
+  the deadline applies as with the real client. The harness passes it to
+  `PluginHost(http_client=...)`, a factory of the `ctx.http` clients: a
+  deliberate injection point for tests (e.g., apps' tests with fake
+  clients), which code sets and configuration cannot.
 - `check_plugin_contract(PluginClass, ...)` raises a `ContractViolation`
   that lists every problem: invalid class or metadata (cf. `apis`,
   `maturity`, `capabilities`), no title, `Config` or `Params` without a
