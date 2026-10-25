@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from foca.plugins import Backend, InvalidSelection, PluginError, loader
 from foca.plugins.config import BUILTIN_PLUGINS, PluginsConfig
@@ -33,11 +34,16 @@ CANDIDATES = [
 ]
 
 
-def route(params: dict[str, Any] | None = None, **kwargs: Any) -> tuple[list[str], Any]:
+def route(
+    params: dict[str, Any] | None = None,
+    candidates: list[Backend] | None = None,
+    **kwargs: Any,
+) -> tuple[list[str], Any]:
     """Route the candidates with the router.
 
     Args:
         params: Parameters of the router.
+        candidates: Candidates; default to `CANDIDATES`.
         kwargs: Other arguments of `make_host`.
 
     Returns:
@@ -47,7 +53,7 @@ def route(params: dict[str, Any] | None = None, **kwargs: Any) -> tuple[list[str
         [{"plugin": "foca.routing.ordered", "params": params or {}}], **kwargs
     )
     run = host.start(inbound(), PRINCIPAL)
-    routed = run.route(CANDIDATES)
+    routed = run.route(CANDIDATES if candidates is None else candidates)
     host.close()
     return [backend.id for backend in routed], run
 
@@ -87,8 +93,14 @@ def test_labels() -> None:
 
 def test_no_groups() -> None:
     """Configured backends only are not shuffled."""
-    ids, run = route({"labels": {"region": "us"}, "seed": None})
-    assert sorted(ids) == ["r0", "r2"]
+    configured = [
+        Backend(id=f"c{index}", url=f"https://c{index}.example.org")
+        for index in range(8)
+    ]
+    for _ in range(5):
+        ids, run = route(candidates=configured)
+        assert ids == [f"c{index}" for index in range(8)]
+        assert "shuffled_groups" not in run.executions[0].annotations
     ids, run = route({"labels": {"nothing": "x"}})
     assert ids == []
     assert "shuffled_groups" not in run.executions[0].annotations
@@ -214,3 +226,41 @@ def test_check_params_bugs(
     with pytest.raises(PluginError, match="failed to check params"):
         make_host([{"plugin": "foca.routing.ordered"}])
     assert "Traceback" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [SystemExit(1), ValidationError.from_exception_data("RouterParams", [])],
+)
+def test_check_params_errors_are_plugin_errors(
+    error: BaseException, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`SystemExit` and validation errors of `check_params` are plugin errors."""
+
+    def check_params(self: Any, params: Any) -> None:
+        raise error
+
+    monkeypatch.setattr(OrderedRouter, "check_params", check_params)
+    with pytest.raises(PluginError, match="failed to check params"):
+        make_host([{"plugin": "foca.routing.ordered"}])
+
+
+def test_check_params_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`KeyboardInterrupt` in `check_params` is not caught."""
+
+    def check_params(self: Any, params: Any) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(OrderedRouter, "check_params", check_params)
+    with pytest.raises(KeyboardInterrupt):
+        make_host([{"plugin": "foca.routing.ordered"}])
+
+
+def test_disabled_builtin_claimed() -> None:
+    """Other distributions must not claim built-ins, even disabled ones."""
+    conf = PluginsConfig.model_validate(
+        {"available": {"foca.routing.ordered": {"enabled": False}}, "pipeline": []}
+    )
+    foreign = [FakeEntryPoint("foca.routing.ordered", OrderedRouter)]
+    with pytest.raises(ValueError, match="built into FOCA"):
+        load_plugins(conf, api="tes", find_entry_points=lambda: foreign)

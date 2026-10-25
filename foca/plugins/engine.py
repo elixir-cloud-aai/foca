@@ -379,15 +379,21 @@ class PluginHost:
                 loaded = self.plugins.get(alternative.plugin)
                 if loaded is None:
                     continue
+                invalid = (
+                    f"Invalid params of plugin {alternative.plugin!r} in step"
+                    f" {step.id!r}"
+                )
                 try:
                     params = loaded.cls.Params.model_validate(alternative.params)
+                except ValidationError as exc:
+                    raise ValueError(f"{invalid}: {exc}") from exc
+                try:
                     loaded.instance.check_params(params)
-                except (ValidationError, InvalidParams) as exc:
-                    raise ValueError(
-                        f"Invalid params of plugin {alternative.plugin!r} in step"
-                        f" {step.id!r}: {exc}"
-                    ) from exc
-                except Exception as exc:
+                except InvalidParams as exc:
+                    raise ValueError(f"{invalid}: {exc}") from exc
+                except (KeyboardInterrupt, GeneratorExit):
+                    raise
+                except BaseException as exc:  # e.g., `SystemExit`, bugs
                     logger.exception(
                         "Plugin %s failed to check params", alternative.plugin
                     )

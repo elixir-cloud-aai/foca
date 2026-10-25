@@ -294,6 +294,9 @@ def load_plugins(
             return entry_points(group=ENTRY_POINT_GROUP)
 
     candidates = list(find_entry_points())
+    # other distributions must not claim built-ins, even disabled ones
+    for builtin in BUILTIN_PLUGINS:
+        _find_builtin(builtin, candidates)
     loaded: dict[str, LoadedPlugin] = {}
     try:
         for plugin_id, available in conf.available.items():
