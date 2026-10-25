@@ -9,7 +9,7 @@ startup; any problem stops the app with an error (fail fast).
 import hashlib
 import importlib
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from importlib.metadata import (
     EntryPoint,
@@ -262,6 +262,79 @@ def close_plugins(plugins: Iterable[LoadedPlugin]) -> None:
             logger.exception("Plugin %s failed to close", plugin.id)
 
 
+def _resolve(
+    conf: PluginsConfig,
+    api: str,
+    find_entry_points: Callable[[], Iterable[Any]] | None,
+) -> Iterator[
+    tuple[
+        str, AvailablePluginConfig, Any, type[Plugin[Any, Any]], str | None, str | None
+    ]
+]:
+    """Find and check the classes of the enabled plugins of the allowlist.
+
+    Args:
+        conf: Plugin configuration.
+        api: API of the app, which plugins must support.
+        find_entry_points: Function returning the entry points of the group
+            `foca.plugins`; defaults to those of the installed distributions.
+
+    Yields:
+        Identifier, allowlist entry, entry point, class, distribution and
+        version of each enabled plugin, in the order of `conf.available`.
+
+    Raises:
+        ValueError: A plugin is not installed, provided several times, does
+            not match its pins or is not a valid plugin for the API.
+    """
+    if find_entry_points is None:
+
+        def find_entry_points() -> Iterable[Any]:
+            return entry_points(group=ENTRY_POINT_GROUP)
+
+    candidates = list(find_entry_points())
+    # other distributions must not claim built-ins, even disabled ones
+    for builtin in BUILTIN_PLUGINS:
+        _find_builtin(builtin, candidates)
+    for plugin_id, available in conf.available.items():
+        if not available.enabled:
+            logger.info("Plugin %s is disabled", plugin_id)
+            continue
+        entry_point = (
+            _find_builtin(plugin_id, candidates)
+            if plugin_id in BUILTIN_PLUGINS
+            else _find(plugin_id, candidates)
+        )
+        distribution, version = _check_pins(plugin_id, entry_point, available)
+        cls = check_plugin_class(entry_point.load(), plugin_id=plugin_id, api=api)
+        yield plugin_id, available, entry_point, cls, distribution, version
+
+
+def find_plugin_classes(
+    conf: PluginsConfig,
+    api: str,
+    find_entry_points: Callable[[], Iterable[Any]] | None = None,
+) -> dict[str, type[Plugin[Any, Any]]]:
+    """Find the classes of the enabled plugins, without instantiating them.
+
+    Args:
+        conf: Plugin configuration.
+        api: API of the app (e.g., `tes`), which plugins must support.
+        find_entry_points: Function returning the entry points of the group
+            `foca.plugins` (cf. :py:func:`load_plugins`).
+
+    Returns:
+        Plugin classes, by identifier, in the order of `conf.available`.
+
+    Raises:
+        ValueError: A plugin cannot be loaded (cf. :py:func:`load_plugins`).
+    """
+    return {
+        plugin_id: cls
+        for plugin_id, _, _, cls, _, _ in _resolve(conf, api, find_entry_points)
+    }
+
+
 def load_plugins(
     conf: PluginsConfig,
     api: str,
@@ -288,28 +361,11 @@ def load_plugins(
             :py:func:`foca.plugins.base.check_plugin_class`), or its admin
             settings are invalid.
     """
-    if find_entry_points is None:
-
-        def find_entry_points() -> Iterable[Any]:
-            return entry_points(group=ENTRY_POINT_GROUP)
-
-    candidates = list(find_entry_points())
-    # other distributions must not claim built-ins, even disabled ones
-    for builtin in BUILTIN_PLUGINS:
-        _find_builtin(builtin, candidates)
     loaded: dict[str, LoadedPlugin] = {}
     try:
-        for plugin_id, available in conf.available.items():
-            if not available.enabled:
-                logger.info("Plugin %s is disabled", plugin_id)
-                continue
-            entry_point = (
-                _find_builtin(plugin_id, candidates)
-                if plugin_id in BUILTIN_PLUGINS
-                else _find(plugin_id, candidates)
-            )
-            distribution, version = _check_pins(plugin_id, entry_point, available)
-            cls = check_plugin_class(entry_point.load(), plugin_id=plugin_id, api=api)
+        for plugin_id, available, entry_point, cls, distribution, version in _resolve(
+            conf, api, find_entry_points
+        ):
             try:
                 config = cls.Config.model_validate(available.config)
             except ValidationError as exc:

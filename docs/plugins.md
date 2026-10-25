@@ -579,6 +579,79 @@ with other keys under the prefix are refused (`400`). Clients that submit
 a fetched task again (e.g., to re-run it) must drop the other `gateway.*`
 keys first.
 
+## Plugin listing
+
+Clients that choose pipelines per request (e.g., SDKs, dashboards) list
+what they may choose with `GET <base>/plugins` and
+`GET <base>/plugins/{plugin_id}`, both authenticated. The listing holds
+exactly what selection accepts from the caller: the plugins it may use in
+its own pipelines (if it may send them: `client_pipelines` enabled, its
+`roles`, `inline` allowed; then loaded, `client_selectable`, and allowed
+for one of the caller's roles), with title, description, group and
+subgroup (from identifiers `<group>.<subgroup>.<name>`), phases,
+capabilities, maturity, distribution, version, third-party data transfers
+and the JSON Schema of the parameters, never the admin settings; and the
+presets it may choose (`presets` allowed, and the roles of their plugins).
+It also holds the steps of the default pipeline, the limits of
+`client_pipelines` (with whether the caller has anything to choose, and
+the identifiers of the `prepend` and `append` steps) and
+`client_backends`, and the tag prefix. Callers without anything to choose
+get no steps, as step identifiers default to plugin identifiers. Plugins that the caller may not use give `404`
+(`plugin-not-found`), whatever the reason.
+
+Apps serve the listing by adding FOCA's OpenAPI 3 specification
+(`foca.plugins.api.SPEC_PATH`) to the files of their API specification, so
+that the paths get the app's base path, security and access control. List
+it first, so that the app's own `info` and `servers` win (later files update
+earlier ones):
+
+```python
+from pathlib import Path
+
+from foca import Foca
+from foca.plugins.api import SPEC_PATH
+
+foca = Foca(config_file="config.yaml")
+spec = foca.conf.api.specs[0]
+files = spec.path if isinstance(spec.path, list) else [spec.path]
+spec.path = [Path(SPEC_PATH), *files]
+app = foca.create_app()
+```
+
+With access control enforced, allow the listing in the app's policies;
+FOCA adds no policies of its own, e.g.:
+
+```yaml
+security:
+  access_control:
+    policies:
+      - [p, user, "/ga4gh/tes/v1/plugins", GET]
+      - [p, user, "/ga4gh/tes/v1/plugins/:plugin_id", GET]
+      - [p, user, "/ga4gh/tes/v1/tasks/:id/provenance", GET]
+```
+
+These patterns need a model that matches paths with `keyMatch2` (e.g.,
+FOCA's `resource_role_model.conf`), where `:plugin_id` matches one path
+segment (a trailing `*`, e.g., `plugins*`, does not match
+`/plugins/<id>`); with `default_model.conf`, which matches paths exactly,
+list each path explicitly.
+
+The public service info gets generic descriptors only: apps add
+`foca.plugins.api.service_info_fields(plugins_url=...)` to the fields of
+their `service_info.runtime_fields` function, which gives
+
+```json
+{"gateway": {"client_pipelines": true, "client_backends": false,
+             "capabilities": ["routing", "tagging"],
+             "plugins_url": "https://gw.example.org/ga4gh/tes/v1/plugins"}}
+```
+
+without plugin identifiers, distributions or versions, which would map the
+code a gateway runs to unauthenticated callers. Before the plugin host of
+the process is in use (e.g., when FOCA checks the service info on app
+creation), the capabilities come from the plugin classes, so that no
+plugin is set up before workers fork.
+
 ## Problem types
 
 Gateway errors are problem details with the extension member
@@ -594,5 +667,6 @@ Gateway errors are problem details with the extension member
 | `no-backend-available` | 503 | no backend accepted the request |
 | `forward-timeout` | 503 | the forwarding attempts took longer than `forward_timeout` |
 | `invalid-via` | 400 | the `Via` header would exceed 1024 characters with the gateway's entry |
+| `plugin-not-found` | 404 | the plugin is unknown or not available to the caller |
 | `loop-detected` | 508 | the request passed this gateway already |
 | `gateway-error` | 500 | other errors of the gateway |

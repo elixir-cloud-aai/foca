@@ -514,7 +514,7 @@ class PluginHost:
         preset: str | None = None
         is_name = PRESET_PATTERN.fullmatch(value) is not None
         if is_name and "presets" in conf.allowed:
-            if value not in self.presets or not self._may_use_preset(
+            if value not in self.presets or not self.may_use_preset(
                 self.presets[value], principal
             ):
                 raise InvalidSelection(f"Preset not available: {value}")
@@ -538,7 +538,7 @@ class PluginHost:
             preset=preset,
         )
 
-    def _may_use_preset(
+    def may_use_preset(
         self, steps: Sequence[ResolvedStep], principal: Principal
     ) -> bool:
         """Check whether a caller has the roles of the plugins of a preset.

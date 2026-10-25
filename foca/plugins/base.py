@@ -33,6 +33,7 @@ import re
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict
+from pydantic.errors import PydanticUserError
 
 API_VERSION = 1
 """Major version of the plugin API; plugins declare it as `api_version`."""
@@ -235,8 +236,9 @@ def check_plugin_class(cls: Any, plugin_id: str, api: str) -> type[Plugin[Any, A
     Raises:
         ValueError: The object is not a subclass of :py:class:`Plugin`, it
             implements another major version of the plugin API, does not
-            support the app's API, implements no hook, or has invalid
-            metadata.
+            support the app's API, implements no hook, has invalid
+            metadata (e.g., a title that is no string), or parameters
+            without JSON Schema (which the plugin listing serves).
     """
     if not isinstance(cls, type) or not issubclass(cls, Plugin):
         raise ValueError(
@@ -253,11 +255,26 @@ def check_plugin_class(cls: Any, plugin_id: str, api: str) -> type[Plugin[Any, A
         raise ValueError(f"Plugin {plugin_id!r} implements no hook")
     if cls.maturity not in ("experimental", "stable", "deprecated"):
         raise ValueError(f"Plugin {plugin_id!r} has an invalid maturity")
+    # metadata that the plugin listing serves as JSON
+    for name in ("title", "description"):
+        if not isinstance(getattr(cls, name), str | None):
+            raise ValueError(f"Plugin {plugin_id!r} has an invalid {name}")
+    transfers = cls.data_transfers
+    if not isinstance(transfers, tuple | list) or not all(
+        isinstance(transfer, str) for transfer in transfers
+    ):
+        raise ValueError(f"Plugin {plugin_id!r} has invalid data_transfers")
     for model in (cls.Config, cls.Params):
         if not (isinstance(model, type) and issubclass(model, BaseModel)):
             raise ValueError(
                 f"Plugin {plugin_id!r} has no pydantic Config/Params model"
             )
+    try:
+        cls.Params.model_json_schema()
+    except PydanticUserError as error:  # e.g., arbitrary types
+        raise ValueError(
+            f"Plugin {plugin_id!r} has Params without JSON Schema: {error}"
+        ) from error
     invalid = sorted(
         repr(capability)
         for capability in cls.capabilities
