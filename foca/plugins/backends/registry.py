@@ -65,6 +65,18 @@ def _same(first: object, second: str) -> bool:
     return isinstance(first, str) and first.casefold() == second.casefold()
 
 
+def _version(api_type: object) -> object:
+    """Get the version of a registry API type.
+
+    Args:
+        api_type: `type` of a service or verification.
+
+    Returns:
+        Its `version`, if it is an object; else `None`.
+    """
+    return api_type.get("version") if isinstance(api_type, dict) else None
+
+
 def _is_api(api_type: object, api: ApiType) -> bool:
     """Check whether a service type is that of the API.
 
@@ -181,6 +193,8 @@ def select_services(
             not isinstance(url, str)
             or url != verified_url
             or not _is_api(verified_type, api)
+            # the version verified is the version offered
+            or _version(verified_type) != _version(api_type)
         ):
             selection.rejected.append(
                 f"{service_id!r}: URL or API type differ from the verified ones"
@@ -241,6 +255,24 @@ class RegistryCache:
         read_at: RFC 3339 UTC time of the last good read, if any.
     """
 
+    @property
+    def read_at(self) -> str | None:
+        """Get the time of the last good read.
+
+        Returns:
+            RFC 3339 UTC time, if any.
+        """
+        return self._good[1]
+
+    @property
+    def _urls(self) -> dict[str, str]:
+        """Get the base URLs of the last good read, by service identifier.
+
+        Returns:
+            Base URLs.
+        """
+        return self._good[0]
+
     def __init__(self, entry: RegistryEntry, api: ApiType) -> None:
         """Create an empty cache.
 
@@ -250,9 +282,9 @@ class RegistryCache:
         """
         self.entry = entry
         self.api = api
-        self.read_at: str | None = None
         self._lock = threading.Lock()
-        self._urls: dict[str, str] = {}
+        # base URLs by service and time of the last good read, set together
+        self._good: tuple[dict[str, str], str | None] = ({}, None)
         self._read = False
         self._read_good = 0.0
         self._last_read = 0.0
@@ -276,12 +308,26 @@ class RegistryCache:
             good read, and none once it is older than `entry.max_stale`
             seconds.
         """
+        return self.snapshot(refresh)[0]
+
+    def snapshot(self, refresh: bool = False) -> tuple[list[str], str | None]:
+        """Get the base URLs and the time of the read they come from.
+
+        Args:
+            refresh: Cf. :py:meth:`urls`.
+
+        Returns:
+            Base URLs (cf. :py:meth:`urls`), and the RFC 3339 UTC time of
+            the good read that they come from (`None` before the first).
+        """
         usable = self._usable()
         if usable and not self._due(refresh):
             return self._current()
         # without usable backends, wait for a read that runs meanwhile
         if not self._lock.acquire(blocking=not usable):
-            return self._current()
+            if self._usable():
+                return self._current()
+            self._lock.acquire()  # expired meanwhile: wait for the read
         try:
             if self._due(refresh):
                 self._refresh()
@@ -297,16 +343,17 @@ class RegistryCache:
         """
         return self._read and time.monotonic() - self._read_good <= self.entry.max_stale
 
-    def _current(self) -> list[str]:
+    def _current(self) -> tuple[list[str], str | None]:
         """Get the base URLs of the last good read, unless it is too old.
 
         Returns:
-            Base URLs; none if the last good read is older than
-            `entry.max_stale` seconds.
+            Base URLs (none if the last good read is older than
+            `entry.max_stale` seconds), and the time of the read.
         """
+        urls, read_at = self._good
         if time.monotonic() - self._read_good > self.entry.max_stale:
-            return []
-        return list(self._urls.values())
+            return [], read_at
+        return list(urls.values()), read_at
 
     def _due(self, refresh: bool) -> bool:
         """Check whether the registry is to be read.
@@ -330,9 +377,8 @@ class RegistryCache:
         the requests that read the registry.
         """
         entry = self.entry
-        now = time.monotonic()
-        self._last_read = now
-        self._next_read = now + min(entry.refresh_interval, RETRY_INTERVAL)
+        self._last_read = time.monotonic()
+        self._next_read = self._last_read + min(entry.refresh_interval, RETRY_INTERVAL)
         options = {
             "allow_private_addresses": entry.registry_allow_private_addresses,
             "allow_http": "http" in entry.url_schemes,
@@ -355,6 +401,9 @@ class RegistryCache:
                 },
             )
         except Exception as exc:
+            # times count from the end of the read
+            now = time.monotonic()
+            self._next_read = now + min(entry.refresh_interval, RETRY_INTERVAL)
             # `HttpError` and `RegistryError` for failed reads; others are bugs
             expected = isinstance(exc, HttpError | RegistryError)
             log = logger.warning if expected else logger.exception
@@ -364,6 +413,7 @@ class RegistryCache:
                 kept = f"keeping {len(self._urls)} backends discovered earlier"
             log("Backends not discovered at registry %s (%s); %s", entry.url, exc, kept)
             return
+        now = time.monotonic()
         self._next_read = now + entry.refresh_interval
         for reason in selection.rejected:
             if reason not in self._rejected:
@@ -376,12 +426,12 @@ class RegistryCache:
                 entry.url,
                 ", ".join(selection.urls.values()) or "none",
             )
-        self._urls = selection.urls
-        self._read = True
-        self._read_good = now
-        self.read_at = (
+        read_at = (
             datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         )
+        self._good = (selection.urls, read_at)
+        self._read = True
+        self._read_good = now
 
 
 # Caches of this process, by API and registry entry
