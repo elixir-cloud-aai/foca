@@ -157,6 +157,8 @@ def test_context() -> None:
         ("k", list(range(17))),
         ("k", [{"a": 1}]),
         ("k", "x" * 2100),
+        ("k", float("nan")),
+        ("k", [1.0, float("inf")]),
     ]:
         with pytest.raises(ValueError):
             ctx.record(key, value)

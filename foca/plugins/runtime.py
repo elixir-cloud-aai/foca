@@ -16,9 +16,13 @@ foca = Foca(
 Controllers and Celery tasks then get the host of their process with
 :py:func:`get_host`. The host, with its thread pool, is created on first use
 in each process, i.e., after Gunicorn or Celery forked their workers, so
-that no worker inherits threads of its parent.
+that no worker inherits threads of its parent; it is closed at exit.
+
+A process serves one gateway app: FOCA refuses to configure another one
+while the host of the first one is in use (cf. :py:func:`configure`).
 """
 
+import atexit
 import os
 import threading
 from collections.abc import Callable
@@ -67,18 +71,42 @@ os.register_at_fork(after_in_child=_runtime.forget)
 
 
 def configure(app: GatewayApp | None) -> None:
-    """Set the gateway settings of the process (done by `Foca(gateway=...)`).
-
-    A host created before is closed.
+    """Set the gateway settings of the process (done by `Foca(...)`).
 
     Args:
         app: Settings; `None` for apps that are no gateways.
+
+    Raises:
+        RuntimeError: The host of other settings is in use (one gateway app
+            per process; cf. :py:func:`reset`).
     """
+    with _runtime.lock:
+        if _runtime.host is not None and app != _runtime.app:
+            raise RuntimeError(
+                "The plugin host of another gateway app is in use: a process "
+                "serves one gateway app"
+            )
+        _runtime.app = app
+
+
+def reset() -> None:
+    """Close the host of the process and forget the settings, e.g., in tests."""
     with _runtime.lock:
         if _runtime.host is not None:
             _runtime.host.close()
-        _runtime.app = app
+        _runtime.app = None
         _runtime.host = None
+
+
+def _close_at_exit() -> None:
+    """Close the host of the process at exit, if it was created."""
+    host = _runtime.host
+    if host is not None:
+        _runtime.host = None
+        host.close()
+
+
+atexit.register(_close_at_exit)
 
 
 def create_host() -> PluginHost:

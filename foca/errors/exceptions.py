@@ -290,7 +290,9 @@ def shorten_detail(detail: str) -> str:
     return _shorten(detail, get_config().exceptions.max_detail_length)
 
 
-def problem_response(exc: HTTPException, **extensions: Any) -> Response:
+def problem_response(
+    exc: HTTPException, *, title: str | None = None, **extensions: Any
+) -> Response:
     """Build an error response with the description of an exception.
 
     The problem details mapped to an exception class are the same for all
@@ -312,6 +314,8 @@ def problem_response(exc: HTTPException, **extensions: Any) -> Response:
     Args:
         exc: werkzeug HTTP exception with an HTTP error status code (400 to
             599) and a request-specific description.
+        title: Title replacing the mapped one, e.g., a title specific to the
+            request (cf. :py:func:`foca.plugins.adapter.problem`).
         extensions: Extension members of the problem details (e.g.,
             ``serviceId="..."``); values must be JSON-serializable. With
             `exceptions.public_members`, only listed members are sent.
@@ -327,7 +331,7 @@ def problem_response(exc: HTTPException, **extensions: Any) -> Response:
         ValueError: The exception is not a werkzeug HTTP exception (e.g., a
             Connexion `ProblemException`), has no HTTP error status code or
             no description (e.g., a plain `HTTPException`), or the extension
-            members include `title`, `status`, `detail` or `type`.
+            members include `status`, `detail` or `type`.
     """
     status = _get_status(exc) if isinstance(exc, HTTPException) else None
     if status is None or exc.description is None:
@@ -348,6 +352,8 @@ def problem_response(exc: HTTPException, **extensions: Any) -> Response:
         detail=_shorten(exc.description, conf.max_detail_length),
         **extensions,
     )
+    if title is not None:
+        problem["title"] = title
     return _response(exc=exc, problem=problem, conf=conf)
 
 

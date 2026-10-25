@@ -155,6 +155,7 @@ configuration models, see [Configuration](configuration/index.md).
         - get_host
         - create_host
         - configure
+        - reset
 
 ::: foca.plugins.adapter
 

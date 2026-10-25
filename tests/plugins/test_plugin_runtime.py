@@ -28,7 +28,7 @@ def fake_plugins(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Use the fake plugins as installed entry points; reset the runtime."""
     monkeypatch.setattr(loader, "entry_points", lambda group: fake_entry_points()())
     yield
-    runtime.configure(None)
+    runtime.reset()
 
 
 def write_config(tmp_path: Path, data: dict[str, Any]) -> Path:
@@ -58,9 +58,19 @@ def test_gateway_app(tmp_path: Path, fake_plugins: None) -> None:
     assert runtime.get_host() is host
     assert list(host.plugins) == ["test.tag"]
     runtime._runtime.forget()
-    assert runtime.get_host() is not host
+    current = runtime.get_host()
+    assert current is not host
+    host.close()
     runtime.configure(GatewayApp(api="tes"))
+    assert runtime.get_host() is current
+    with pytest.raises(RuntimeError, match="one gateway app"):
+        runtime.configure(GatewayApp(api="wes"))
+    with pytest.raises(RuntimeError, match="one gateway app"):
+        Foca(config_file=config)
+    runtime._close_at_exit()
     assert runtime._runtime.host is None
+    runtime._close_at_exit()
+    runtime.configure(GatewayApp(api="wes"))
 
 
 def test_gateway_app_invalid_plugins(tmp_path: Path, fake_plugins: None) -> None:
@@ -76,7 +86,7 @@ def test_plugins_without_gateway(
 ) -> None:
     """Apps that are no gateways warn about a plugins section."""
     config = write_config(tmp_path, {"plugins": {}})
-    runtime.configure(None)
+    runtime.reset()
     warnings: list[str] = []
     monkeypatch.setattr(
         foca_module.logger, "warning", lambda message, *args: warnings.append(message)
@@ -94,13 +104,13 @@ def test_legacy_keys_before_custom_model(tmp_path: Path) -> None:
             custom_config_model="tests.test_files.model_valid.CustomConfig",
             gateway=GatewayApp(api="tes"),
         )
-    runtime.configure(None)
+    runtime.reset()
     assert Foca(config_file=config).gateway is None
 
 
 def test_no_gateway() -> None:
     """Hosts need a gateway app."""
-    runtime.configure(None)
+    runtime.reset()
     with pytest.raises(RuntimeError, match="No gateway app"):
         runtime.get_host()
 
