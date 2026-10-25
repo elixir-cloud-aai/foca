@@ -173,6 +173,8 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.plugins.tags
 
+::: foca.plugins.api
+
 ::: foca.plugins.runtime
     options:
       members:

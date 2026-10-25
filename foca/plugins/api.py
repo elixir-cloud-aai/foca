@@ -1,0 +1,241 @@
+"""Discovery of gateway plugins: `GET <base>/plugins` and the service info.
+
+Clients (e.g., SDKs, dashboards) that choose pipelines per request list the
+plugins and presets they may use with `GET <base>/plugins` (authenticated)
+and `GET <base>/plugins/{plugin_id}`. Apps serve both by adding the path
+items of :py:data:`SPEC_PATH` (`foca/plugins/api.yaml`) to their API
+specification, under their base path (e.g., `/ga4gh/tes/v1/plugins`), and
+allow them in their access control policies.
+
+The public service info gets generic capability descriptors only, without
+plugin identifiers, distributions or versions, which would map the code a
+gateway runs (cf. :py:func:`service_info_fields`).
+
+The listing is plain data of the configuration, the loaded plugins and the
+caller; only the controllers use the web framework, via
+:py:mod:`foca.plugins.adapter`.
+"""
+
+from importlib.resources import files
+from typing import Any
+
+from foca.plugins import runtime
+from foca.plugins.engine import PluginHost
+from foca.plugins.errors import GatewayError
+from foca.plugins.model import Principal
+
+SPEC_PATH = str(files("foca.plugins").joinpath("api.yaml"))
+"""Path of the OpenAPI 3 specification of the plugin listing."""
+
+
+class PluginNotFound(GatewayError):
+    """The plugin is unknown, or not available to the caller."""
+
+    code = 404
+    title = "Not Found"
+    slug = "plugin-not-found"
+
+
+def _may_use(host: PluginHost, plugin_id: str, principal: Principal) -> bool:
+    """Check whether a caller may choose a plugin in per-request pipelines.
+
+    Args:
+        host: Plugin host.
+        plugin_id: Identifier of the plugin.
+        principal: Caller.
+
+    Returns:
+        Whether the plugin is loaded (enabled), selectable by clients and, if
+        restricted to roles, allowed for one of the caller's roles.
+    """
+    loaded = host.plugins.get(plugin_id)
+    if loaded is None:
+        return False
+    available = loaded.available
+    return available.client_selectable and (
+        not available.roles or bool(set(available.roles) & set(principal.groups))
+    )
+
+
+def describe_plugin(host: PluginHost, plugin_id: str) -> dict[str, Any]:
+    """Describe a loaded plugin for clients.
+
+    Args:
+        host: Plugin host.
+        plugin_id: Identifier of a loaded plugin.
+
+    Returns:
+        Identifier, title, description, group and subgroup (from identifiers
+        `<group>.<subgroup>.<name>`), phases, capabilities, maturity,
+        distribution, version, third-party data transfers and the JSON
+        Schema of the parameters; never the admin settings.
+    """
+    loaded = host.plugins[plugin_id]
+    cls = loaded.cls
+    title, description = cls.summary()
+    parts = plugin_id.split(".")
+    return {
+        "id": plugin_id,
+        "title": title,
+        "description": description,
+        "group": parts[-3] if len(parts) >= 3 else None,
+        "subgroup": parts[-2] if len(parts) >= 3 else None,
+        "phases": list(cls.phases()),
+        "capabilities": sorted(cls.capabilities),
+        "maturity": cls.maturity,
+        "distribution": loaded.distribution,
+        "version": loaded.version,
+        "data_transfers": list(cls.data_transfers),
+        "params_schema": cls.Params.model_json_schema(),
+    }
+
+
+def _steps(steps: Any) -> list[dict[str, Any]]:
+    """Describe resolved steps without parameters.
+
+    Args:
+        steps: Resolved steps.
+
+    Returns:
+        Identifier and plugins of the alternatives of each step.
+    """
+    return [
+        {"id": step.id, "plugins": [alt.plugin for alt in step.alternatives]}
+        for step in steps
+    ]
+
+
+def list_plugins(host: PluginHost, principal: Principal) -> dict[str, Any]:
+    """List what a caller may choose in per-request pipelines.
+
+    Args:
+        host: Plugin host.
+        principal: Caller.
+
+    Returns:
+        `plugins` the caller may choose, `presets` (unless presets are not
+        allowed), the `default_pipeline` (step identifiers and plugins), and
+        the constraints of `client_pipelines` (with `allowed_for_caller`),
+        `client_backends` and the `tag_prefix`.
+    """
+    conf = host.conf
+    clients = conf.client_pipelines
+    allowed = clients.enabled and (
+        not clients.roles or bool(set(clients.roles) & set(principal.groups))
+    )
+    return {
+        "plugins": [
+            describe_plugin(host, plugin_id)
+            for plugin_id in host.plugins
+            if _may_use(host, plugin_id, principal)
+        ],
+        "presets": [
+            {"name": name, "steps": _steps(steps)}
+            for name, steps in host.presets.items()
+            if "presets" in clients.allowed
+        ],
+        "default_pipeline": _steps(host.default_pipeline.steps),
+        "client_pipelines": {
+            "enabled": clients.enabled,
+            "allowed_for_caller": allowed,
+            "allowed": list(clients.allowed),
+            "max_steps": clients.max_steps,
+            "max_alternatives": clients.max_alternatives,
+            "max_size": clients.max_size,
+            "prepend": [step.id for step in clients.prepend],
+            "append": [step.id for step in clients.append],
+        },
+        "client_backends": {
+            "enabled": conf.client_backends.enabled,
+            "max_items": conf.client_backends.max_items,
+        },
+        "tag_prefix": conf.tags.prefix,
+    }
+
+
+def get_plugin(
+    host: PluginHost, plugin_id: str, principal: Principal
+) -> dict[str, Any]:
+    """Describe one plugin that a caller may choose.
+
+    Args:
+        host: Plugin host.
+        plugin_id: Identifier of the plugin.
+        principal: Caller.
+
+    Returns:
+        Description (cf. :py:func:`describe_plugin`).
+
+    Raises:
+        PluginNotFound: The plugin is unknown, disabled, not selectable or
+            not allowed for the caller (the same error for all, so that
+            callers cannot probe the setup).
+    """
+    if not _may_use(host, plugin_id, principal):
+        raise PluginNotFound(f"Plugin not available: {plugin_id}")
+    return describe_plugin(host, plugin_id)
+
+
+def service_info_fields(
+    host: PluginHost | None = None, plugins_url: str | None = None
+) -> dict[str, Any]:
+    """Get the service info extension of a gateway, for public discovery.
+
+    Apps add it in their function of `service_info.runtime_fields`.
+
+    Args:
+        host: Plugin host; defaults to that of the process (cf.
+            :py:func:`foca.plugins.runtime.get_host`).
+        plugins_url: URL of `GET <base>/plugins`, if served.
+
+    Returns:
+        Field `gateway` with `plugins_url`, whether clients may choose
+        pipelines and backends, and the union of the capability descriptors
+        of the loaded plugins; no plugin identifiers, distributions or
+        versions.
+    """
+    if host is None:
+        host = runtime.get_host()
+    capabilities = sorted(
+        {
+            capability
+            for loaded in host.plugins.values()
+            for capability in loaded.cls.capabilities
+        }
+    )
+    gateway: dict[str, Any] = {
+        "client_pipelines": host.conf.client_pipelines.enabled,
+        "client_backends": host.conf.client_backends.enabled,
+        "capabilities": capabilities,
+    }
+    if plugins_url is not None:
+        gateway["plugins_url"] = plugins_url
+    return {"gateway": gateway}
+
+
+def listPlugins() -> Any:
+    """List the plugins of the current caller (`GET <base>/plugins`).
+
+    Returns:
+        Listing (cf. :py:func:`list_plugins`).
+    """
+    from foca.plugins import adapter  # noqa: PLC0415 (web framework, on use)
+
+    return list_plugins(runtime.get_host(), adapter.current_principal())
+
+
+def getPlugin(plugin_id: str) -> Any:
+    """Describe one plugin (`GET <base>/plugins/{plugin_id}`).
+
+    Args:
+        plugin_id: Identifier of the plugin.
+
+    Returns:
+        Description, or a `404` problem response.
+    """
+    from foca.plugins import adapter  # noqa: PLC0415 (web framework, on use)
+
+    try:
+        return get_plugin(runtime.get_host(), plugin_id, adapter.current_principal())
+    except PluginNotFound as exc:
+        return adapter.problem(exc)

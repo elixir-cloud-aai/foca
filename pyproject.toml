@@ -114,6 +114,7 @@ include = ["foca*"]
 
 [tool.setuptools.package-data]
 "foca" = ["py.typed"]
+"foca.plugins" = ["*.yaml"]
 "foca.utils" = ["*.yaml"]
 "foca.security.access_control.api" = ["*.yaml", "*.conf"]
 

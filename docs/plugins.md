@@ -445,6 +445,64 @@ with other keys under the prefix are refused (`400`). Clients that submit
 a fetched task again (e.g., to re-run it) must drop the other `gateway.*`
 keys first.
 
+## Plugin listing
+
+Clients that choose pipelines per request (e.g., SDKs, dashboards) list
+what they may choose with `GET <base>/plugins` and
+`GET <base>/plugins/{plugin_id}`, both authenticated. The listing holds the
+plugins that the caller may choose (loaded, `client_selectable`, and
+allowed for one of the caller's roles), with title, description, group and
+subgroup (from identifiers `<group>.<subgroup>.<name>`), phases,
+capabilities, maturity, version, third-party data transfers and the JSON
+Schema of the parameters, never the admin settings. It also holds the
+presets (if clients may use them), the steps of the default pipeline, the
+limits of `client_pipelines` and `client_backends`, and the tag prefix.
+Plugins that the caller may not choose give `404` (`plugin-not-found`),
+whatever the reason.
+
+Apps serve the listing by adding FOCA's OpenAPI 3 specification
+(`foca.plugins.api.SPEC_PATH`) to the files of their API specification, so
+that the paths get the app's base path, security and access control. List
+it first, so that the app's own `info` and `servers` win (later files update
+earlier ones):
+
+```python
+from pathlib import Path
+
+from foca import Foca
+from foca.plugins.api import SPEC_PATH
+
+foca = Foca(config_file="config.yaml")
+spec = foca.conf.api.specs[0]
+files = spec.path if isinstance(spec.path, list) else [spec.path]
+spec.path = [Path(SPEC_PATH), *files]
+app = foca.create_app()
+```
+
+With access control enforced, allow the listing in the app's policies;
+FOCA adds no policies of its own, e.g.:
+
+```yaml
+security:
+  access_control:
+    policies:
+      - [p, user, "/ga4gh/tes/v1/plugins*", GET]
+      - [p, user, "/ga4gh/tes/v1/tasks/:id/provenance", GET]
+```
+
+The public service info gets generic descriptors only: apps add
+`foca.plugins.api.service_info_fields(plugins_url=...)` to the fields of
+their `service_info.runtime_fields` function, which gives
+
+```json
+{"gateway": {"client_pipelines": true, "client_backends": false,
+             "capabilities": ["routing", "tagging"],
+             "plugins_url": "https://gw.example.org/ga4gh/tes/v1/plugins"}}
+```
+
+without plugin identifiers, distributions or versions, which would map the
+code a gateway runs to unauthenticated callers.
+
 ## Problem types
 
 Gateway errors are problem details with the extension member
@@ -459,4 +517,6 @@ Gateway errors are problem details with the extension member
 | `reserved-tag` | 400 | the client set another tag under the reserved prefix |
 | `no-backend-available` | 503 | no backend accepted the request |
 | `forward-timeout` | 503 | the forwarding attempts took longer than `forward_timeout` |
+| `invalid-via` | 400 | the `Via` header is longer than 1024 characters |
+| `plugin-not-found` | 404 | the plugin is unknown or not available to the caller |
 | `loop-detected` | 508 | the request passed this gateway already |
