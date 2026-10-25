@@ -25,12 +25,23 @@ while the host of the first one is in use (cf. :py:func:`configure`).
 import atexit
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from foca.plugins.backends import (
+    BackendList,
+    BackendListConfig,
+    RegistryEntry,
+    ServiceEntry,
+)
 from foca.plugins.engine import PluginHost
 from foca.plugins.model import OutboundRequest
+
+BackendEntries = (
+    Sequence[ServiceEntry | RegistryEntry | Mapping[str, Any]] | BackendListConfig
+)
+"""Entries of a backend list, as models or mappings."""
 
 
 @dataclass(frozen=True)
@@ -45,6 +56,10 @@ class GatewayApp:
             :py:class:`foca.plugins.PluginHost`).
         name: Name of the app, for provenance (e.g., `proTES`).
         version: Version of the app, for provenance.
+        backends: Function that gets the entries of the app's backend list
+            from the FOCA configuration, e.g.,
+            `lambda conf: conf.custom.tes.backends` (cf.
+            :py:func:`get_backend_list`).
     """
 
     api: str
@@ -53,6 +68,9 @@ class GatewayApp:
     validate_outbound: Callable[[OutboundRequest], None] | None = None
     name: str | None = None
     version: str | None = None
+    # the argument is the app's `foca.models.config.Config`, whose app
+    # sections (e.g., `custom`) are not typed
+    backends: Callable[[Any], BackendEntries] | None = None
 
 
 class _Runtime:
@@ -162,3 +180,40 @@ def get_host() -> PluginHost:
         if _runtime.host is None:
             _runtime.host = create_host()
         return _runtime.host
+
+
+def get_backend_list() -> BackendList:
+    """Get the backend list of the gateway app.
+
+    The list is built from the configuration of the current FOCA app with
+    the app's API and `server.public_url`; it is cheap to create, as the
+    registry caches are shared per process.
+
+    Returns:
+        Backend list.
+
+    Raises:
+        RuntimeError: No gateway app is configured, it has no `backends`
+            function, or no FOCA app has been created.
+        ValueError: The entries are invalid (cf.
+            :py:class:`foca.plugins.backends.BackendList`), or the list has
+            registry entries but `server.public_url` is not set, which
+            keeps the gateway from being one of its own backends.
+    """
+    from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
+
+    app = _runtime.app
+    if app is None or app.backends is None:
+        raise RuntimeError(
+            "No backend list configured: pass Foca(gateway=GatewayApp(backends=...))"
+        )
+    config = get_config()
+    backends = BackendList(
+        app.backends(config), api=app.api, public_url=config.server.public_url
+    )
+    if backends.public_url is None and backends.has_registries():
+        raise ValueError(
+            "Backend lists with registry entries need `server.public_url`, so"
+            " that the gateway is never one of its own backends"
+        )
+    return backends
