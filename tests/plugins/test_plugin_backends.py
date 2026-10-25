@@ -483,7 +483,7 @@ def test_cache(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING):
         assert cache.urls() == ["https://tes-a.example.org"]
     assert "keeping 1 backends" in caplog.text
-    assert cache._next_read - cache._last_read == backends.RETRY_INTERVAL
+    assert cache._next_read - cache._last_read == pytest.approx(backends.RETRY_INTERVAL)
     # bugs are logged with the trace
     registry.error = RuntimeError("bug")
     cache._next_read = 0
