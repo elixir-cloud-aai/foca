@@ -999,3 +999,55 @@ def test_docstring_examples() -> None:
     results = doctest.testmod(foca.models.config)
     assert results.attempted > 0
     assert results.failed == 0
+
+
+def test_AccessControlConfig_opt_in_roles() -> None:
+    """Opt-in roles are roles of the group mapping."""
+    conf = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping={"admins": "admin"},
+        opt_in_roles=["admin"],
+        policies=[["g", "admin", "editor"]],
+    )
+    assert conf.opt_in_roles == ["admin"]
+    assert conf.opt_in_header == "X-Request-Roles"
+    assert AccessControlConfig().opt_in_roles == []
+
+
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [
+        ({"opt_in_roles": ["admin"]}, "must be roles of 'group_mapping'"),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin", "ops"],
+            },
+            "opted in to: ops",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin"],
+                "policies": [["g", "user:alice", "admin"]],
+            },
+            "must not grant the opt-in role 'admin'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin", "ops": "ops"},
+                "opt_in_roles": ["admin"],
+                "policies": [["g", "ops", "admin"]],
+            },
+            "to 'ops'",
+        ),
+        ({"opt_in_header": "X Roles"}, "no valid header name"),
+        ({"opt_in_header": ""}, "no valid header name"),
+    ],
+)
+def test_AccessControlConfig_invalid_opt_in_roles(
+    kwargs: dict[str, Any], message: str
+) -> None:
+    """Opt-in roles that could not apply as opt-in are refused."""
+    with pytest.raises(ValidationError, match=message):
+        AccessControlConfig(claim_groups="groups", **kwargs)

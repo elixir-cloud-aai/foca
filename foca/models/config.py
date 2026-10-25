@@ -98,6 +98,10 @@ def _validate_log_level_choices(cls: type[BaseModel], level: int) -> int:
     return level
 
 
+HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
+"""Pattern of HTTP header names (tokens, RFC 9110)."""
+
+
 class ExceptionLoggingEnum(Enum):
     """Enumerator for exception logging config values.
 
@@ -795,6 +799,18 @@ class AccessControlConfig(FOCABaseConfig):
             mapped to (e.g., to grant resource-scoped roles to groups). Has
             no effect without `group_mapping`, as values are then always
             used as such.
+        opt_in_roles: Roles of `group_mapping` that apply only to requests
+            that ask for them in the header `opt_in_header` (e.g., `admin`,
+            so that admins act as regular users unless they opt in). Asking
+            for a role grants nothing that the token's groups do not
+            entitle to. Roles of service clients (`client_mapping`) always
+            apply. Configured rules of `policies` must not grant opt-in
+            roles (e.g., `[g, "user:alice", admin]`), as roles granted by
+            rules always apply. If empty (default), all mapped roles always
+            apply.
+        opt_in_header: Request header in which requests ask for opt-in
+            roles, as a comma-separated list (e.g., `X-Request-Roles:
+            admin`).
         require_admin: Refuse to start (`ValueError`) if no group (via
             `group_mapping`, with `claim_groups` set) or service client (via
             `client_mapping`) is mapped to the role `admin` and no rule of
@@ -868,6 +884,10 @@ class AccessControlConfig(FOCABaseConfig):
         group_mapping: Mapping of values of `claim_groups` to roles.
         keep_group_subjects: Whether to also use values of `claim_groups`
             as subjects if `group_mapping` is set.
+        opt_in_roles: Roles of `group_mapping` that apply only to requests
+            that ask for them.
+        opt_in_header: Request header in which requests ask for opt-in
+            roles.
         require_admin: Refuse to start if no group, service client or
             configured policy rule is granted the role `admin`.
         client_mapping: Mapping of service clients to roles.
@@ -914,6 +934,8 @@ class AccessControlConfig(FOCABaseConfig):
     claim_groups: str | None = None
     group_mapping: dict[str, str] | None = None
     keep_group_subjects: bool = False
+    opt_in_roles: list[str] = []
+    opt_in_header: str = "X-Request-Roles"
     require_admin: bool = False
     client_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
@@ -1075,6 +1097,61 @@ class AccessControlConfig(FOCABaseConfig):
                             "the prefix of subjects, as mapped subjects would "
                             "otherwise get the rights of that subject"
                         )
+        return self
+
+    @field_validator("opt_in_header")
+    @classmethod
+    def validate_opt_in_header(cls, v: str) -> str:
+        """Validate the header of opt-in roles.
+
+        Args:
+            v: Header name.
+
+        Returns:
+            Header name.
+
+        Raises:
+            ValueError: The name is no valid header name (an HTTP token).
+        """
+        if not HEADER_NAME.fullmatch(v):
+            raise ValueError(f"'opt_in_header' is no valid header name: {v!r}")
+        return v
+
+    @model_validator(mode="after")
+    def validate_opt_in_roles(self) -> Self:
+        """Ensure that opt-in roles apply only to requests that ask for them.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: An opt-in role is not a role of `group_mapping`, so
+                that nobody could opt in to it, or a configured rule of
+                `policies` grants an opt-in role to a subject that is not an
+                opt-in role itself (e.g., `[g, "user:alice", admin]`), as
+                roles granted by rules always apply.
+        """
+        mapped = set((self.group_mapping or {}).values())
+        unmapped = [role for role in self.opt_in_roles if role not in mapped]
+        if unmapped:
+            raise ValueError(
+                "'opt_in_roles' must be roles of 'group_mapping', as only "
+                f"roles from group claims can be opted in to: {', '.join(unmapped)}"
+            )
+        opt_in = set(self.opt_in_roles)
+        for rule in self.policies or []:
+            if (
+                len(rule) >= 3
+                and rule[0] == "g"
+                and rule[2] in opt_in
+                and rule[1] not in opt_in
+            ):
+                raise ValueError(
+                    f"Configured rules must not grant the opt-in role "
+                    f"'{rule[2]}' ('opt_in_roles') to '{rule[1]}', as roles "
+                    "granted by rules always apply: map groups to it "
+                    "('group_mapping') instead"
+                )
         return self
 
     @model_validator(mode="after")

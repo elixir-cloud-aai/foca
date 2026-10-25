@@ -513,6 +513,66 @@ from foca.security.access_control import (
 )
 ```
 
+### Opt-in roles
+
+By default, roles mapped from group claims apply to every request of their
+members: users in an admin group act as admins all the time, also for
+everyday tasks. To follow the principle of least privilege, make such roles
+_opt-in_: they then apply only to requests that ask for them in the header
+`opt_in_header` (default: `X-Request-Roles`), e.g., when a UI switches to an
+admin mode:
+
+```yaml
+security:
+  access_control:
+    claim_groups: eduperson_entitlement
+    group_mapping:
+      "urn:example:group:my-app-admins#login.example.org": admin
+    opt_in_roles: [admin]
+```
+
+```console
+curl -H "Authorization: Bearer $TOKEN" -H "X-Request-Roles: admin" ...
+```
+
+Without the header, an admin's request gets the permissions of a regular
+user, plus those of their other roles; with it, it gets admin permissions.
+The header lists roles separated by commas, compared exactly. Asking for a
+role grants nothing that the token's groups don't entitle to: roles that the
+subject doesn't have, and roles that aren't opt-in, are ignored. Opt-in roles
+apply to everything that uses the roles of a request: enforcement,
+`get_current_groups()`, `is_admin()`, self-service listings and the [roles
+of gateway plugins](plugins.md).
+
+Only roles of `group_mapping` can be opt-in, and configured rules of
+`policies` must not grant them (e.g., `[g, "user:alice", admin]`), as roles
+granted by rules always apply; the app refuses to start otherwise. Grant
+opt-in roles via groups only, not via the permissions API, for the same
+reason. Roles of [service clients](#service-clients) (`client_mapping`)
+always apply.
+
+Apps tell clients which opt-in roles a user may use and which apply to the
+current request, e.g., in a `/me` endpoint:
+
+```python
+from foca.security.access_control import (
+    get_active_opt_in_roles,
+    get_available_opt_in_roles,
+)
+
+
+def get_me() -> dict:
+    return {
+        "admin_available": "admin" in get_available_opt_in_roles(),
+        "admin": "admin" in get_active_opt_in_roles(),
+    }
+```
+
+With opt-in roles, responses have the header in `Vary`, so that caches keep
+the responses of both modes apart. Browser apps on other origins need the
+header in [`security.cors.allow_headers`](configuration/cors.md) (allowed by
+default, `*`); FOCA warns on startup if it isn't allowed.
+
 ### Service clients
 
 Requests with [service tokens](authentication.md#service-tokens) of service

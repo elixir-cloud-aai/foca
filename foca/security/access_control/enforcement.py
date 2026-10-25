@@ -14,7 +14,7 @@ from casbin.model import Model
 from connexion.exceptions import BadRequestProblem, Forbidden
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
-from flask import current_app, has_request_context, request
+from flask import Flask, Response, current_app, has_request_context, request
 from flask.globals import request_ctx
 
 from foca.config.access import get_config
@@ -284,6 +284,72 @@ def get_current_group_values() -> list[str]:
     return list(dict.fromkeys(str(value) for value in values))
 
 
+def _get_mapped_roles() -> list[str]:
+    """Get the roles that the group claim values of the current request map to.
+
+    Returns:
+        Roles of `access_control.group_mapping` of the values of the group
+        claim (cf. :py:func:`get_current_group_values`), including opt-in
+        roles that the request does not ask for, without duplicates.
+    """
+    mapping = _get_access_control_config().group_mapping or {}
+    return list(
+        dict.fromkeys(
+            mapping[value] for value in get_current_group_values() if value in mapping
+        )
+    )
+
+
+def _get_requested_roles() -> set[str]:
+    """Get the roles that the current request asks for.
+
+    Returns:
+        Roles listed in the header `access_control.opt_in_header` (comma
+        separated, also in several header lines), or none if no opt-in
+        roles are configured or there is no request.
+    """
+    conf = _get_access_control_config()
+    if not conf.opt_in_roles or not has_request_context():
+        return set()
+    return {
+        role.strip()
+        for value in request.headers.getlist(conf.opt_in_header)
+        for role in value.split(",")
+        if role.strip()
+    }
+
+
+def get_available_opt_in_roles() -> list[str]:
+    """Get the opt-in roles that the subject of the current request may use.
+
+    Use this, e.g., to let a `/me` endpoint report whether a user may switch
+    to admin mode, together with :py:func:`get_active_opt_in_roles`.
+
+    Returns:
+        Roles of `access_control.opt_in_roles` that the group claim values
+        of the current request map to (`access_control.group_mapping`),
+        whether or not the request asks for them, in the order of
+        `opt_in_roles`.
+    """
+    mapped = _get_mapped_roles()
+    return [
+        role for role in _get_access_control_config().opt_in_roles if role in mapped
+    ]
+
+
+def get_active_opt_in_roles() -> list[str]:
+    """Get the opt-in roles that apply to the current request.
+
+    Returns:
+        Opt-in roles that the subject may use (cf.
+        :py:func:`get_available_opt_in_roles`) and that the request asks for
+        in the header `access_control.opt_in_header`, in the order of
+        `access_control.opt_in_roles`. Asking for other roles has no effect.
+    """
+    requested = _get_requested_roles()
+    return [role for role in get_available_opt_in_roles() if role in requested]
+
+
 def get_current_groups() -> list[str]:
     """Get roles of the subject of the current request from group claims.
 
@@ -291,10 +357,12 @@ def get_current_groups() -> list[str]:
         Values of the claim configured via `access_control.claim_groups` of
         the validated token of the current request (cf.
         :py:func:`get_current_group_values`), mapped to roles via
-        `access_control.group_mapping`, if set. Values without a mapping are
-        dropped if a mapping is set. Without a mapping, values are prefixed
-        with `group:` (e.g., `group:vo-members`), so that they cannot
-        collide with role names. If a mapping and
+        `access_control.group_mapping`, if set; opt-in roles
+        (`access_control.opt_in_roles`) only if the request asks for them
+        (cf. :py:func:`get_active_opt_in_roles`). Values without a mapping
+        are dropped if a mapping is set. Without a mapping, values are
+        prefixed with `group:` (e.g., `group:vo-members`), so that they
+        cannot collide with role names. If a mapping and
         `access_control.keep_group_subjects` are set, all values are
         additionally returned with that prefix, after the mapped roles.
     """
@@ -302,12 +370,30 @@ def get_current_groups() -> list[str]:
     values = get_current_group_values()
     groups = []
     if conf.group_mapping is not None:
-        groups = [
-            conf.group_mapping[value] for value in values if value in conf.group_mapping
-        ]
+        inactive = set(conf.opt_in_roles) - set(get_active_opt_in_roles())
+        groups = [role for role in _get_mapped_roles() if role not in inactive]
     if conf.group_mapping is None or conf.keep_group_subjects:
         groups.extend(_prefix_subject(value, "group") for value in values)
     return list(dict.fromkeys(groups))
+
+
+def register_opt_in_header(app: Flask, header: str) -> None:
+    """Mark responses as depending on the header of opt-in roles.
+
+    Responses then have the header in `Vary`, so that caches do not serve
+    a response to a request that asked for opt-in roles (e.g., admin
+    views) to one that did not, or vice versa.
+
+    Args:
+        app: Flask app.
+        header: Header of opt-in roles (`access_control.opt_in_header`).
+    """
+
+    def _vary(response: Response) -> Response:
+        response.vary.add(header)
+        return response
+
+    app.after_request(_vary)
 
 
 def _warn_subject_like_roles(enforcer: Enforcer) -> None:
