@@ -3,6 +3,7 @@
 import json
 import struct
 import time
+from collections.abc import Iterator
 from typing import Any
 
 import mongomock
@@ -662,10 +663,34 @@ def test_provenance_urls_clean() -> None:
     )
     attempt = next(run.attempts([Backend(id=url, url=url)]))
     attempt.succeeded(BackendResponse(status=200), remote_id="t1")
-    text = json.dumps(run.provenance())
-    assert "token" not in text
-    assert "u:p@" not in text
-    assert "https://x.example.org/" in text
+    record = run.provenance()
+    clean = "https://x.example.org/"
+    assert record["route"]["candidates_in"] == [clean]
+    assert record["route"]["candidates_out"] == [clean]
+    assert record["selection"]["backends"] == [clean]
+    assert record["selection"]["discarded"] == [clean]
+    assert [item["backend"] for item in record["attempts"]] == [clean]
+    assert url not in set(strings(record))
+
+
+def strings(data: Any) -> Iterator[str]:
+    """List the strings in JSON data.
+
+    Args:
+        data: JSON data.
+
+    Yields:
+        Strings (keys and values), depth first.
+    """
+    if isinstance(data, str):
+        yield data
+    elif isinstance(data, dict):
+        for key, value in data.items():
+            yield key
+            yield from strings(value)
+    elif isinstance(data, list):
+        for item in data:
+            yield from strings(item)
 
 
 def test_array_pointers_bounded() -> None:
