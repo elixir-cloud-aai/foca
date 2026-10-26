@@ -323,8 +323,9 @@ and the image tags would move to new images. If the tagged commit itself is
 wrong, release a new version.
 
 The Helm library chart `foca-common` (`charts/foca-common`) is versioned and
-released separately, from signed tags `chart-vX.Y.Z`; see [releases of the
-library chart](helm-chart.md#releases).
+released separately, from signed tags `chart-vX.Y.Z`, and published after
+approval in the `chart-release` environment; see [releases of the library
+chart](helm-chart.md#releases).
 
 ## Python guidelines
 

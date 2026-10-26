@@ -146,9 +146,10 @@ def is_public_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) ->
 
     Returns:
         Whether the address is globally reachable (as per the IANA
-        special-purpose address registries) and not a multicast address;
-        IPv4 addresses embedded in IPv6 addresses (IPv4-mapped, NAT64 and
-        IPv4-compatible ones) are checked themselves.
+        special-purpose address registries) and neither a multicast nor an
+        IPv6 site-local address (`fec0::/10`, deprecated, but not marked as
+        such in the registry); IPv4 addresses embedded in IPv6 addresses
+        (IPv4-mapped, NAT64 and IPv4-compatible ones) are checked themselves.
 
     Examples:
         >>> is_public_address(ipaddress.ip_address("192.0.2.1"))
@@ -161,6 +162,8 @@ def is_public_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) ->
             address = address.ipv4_mapped
         elif any(address in prefix for prefix in _EMBEDDING_PREFIXES):
             address = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+        elif address.is_site_local:
+            return False
     return address.is_global and not address.is_multicast
 
 
