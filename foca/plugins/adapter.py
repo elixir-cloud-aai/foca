@@ -10,7 +10,7 @@ Flask) replaces this module and keeps its function names and signatures.
 
 import re
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from flask import has_request_context, request
 from flask.wrappers import Response
@@ -21,8 +21,10 @@ from foca.plugins.engine import GatewayError
 from foca.plugins.model import CREDENTIAL_HEADERS, Headers, InboundRequest, Principal
 from foca.security.access_control.enforcement import (
     get_current_claims,
-    get_current_groups,
+    get_current_client,
+    get_current_roles,
     get_current_subject,
+    get_on_behalf_of_user,
 )
 
 # Request IDs taken from clients (`X-Request-ID`)
@@ -44,23 +46,35 @@ def current_principal() -> Principal:
     """Get the authenticated caller of the current request.
 
     Returns:
-        Subject, issuer and claims of the validated token (as used by
-        access control), roles from group claims (the mapped roles of
-        access control, cf.
-        :py:func:`foca.security.access_control.enforcement.get_current_groups`)
-        and the bearer token, only if a token was validated for the request
-        (i.e., there are claims); empty outside requests or without a
-        validated token.
+        Identity (the service client, or else the user), the user a service
+        client acts for, roles, issuer and claims of the validated token, as
+        access control uses them (cf. :py:class:`Principal`), and the
+        bearer token only if a token was validated for the request (i.e.,
+        there are claims); empty outside requests or without a validated
+        token.
+
+    Raises:
+        connexion.exceptions.BadRequestProblem: The user named in
+            `auth.on_behalf_of_header` is invalid.
+        connexion.exceptions.Forbidden: The caller names a user, but is not
+            a service client allowed to act for users.
     """
     if not has_request_context():
         return Principal()
     claims = get_current_claims()
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     issuer = claims.get("iss")
+    client = get_current_client()
+    subject = client if client is not None else get_current_subject()
+    subject_type: Literal["user", "client"] | None = (
+        None if subject is None else "client" if client is not None else "user"
+    )
     return Principal(
-        subject=get_current_subject(),
+        subject=subject,
+        subject_type=subject_type,
+        acting_for=get_on_behalf_of_user(),
         issuer=issuer if isinstance(issuer, str) else None,
-        groups=tuple(get_current_groups()),
+        groups=tuple(get_current_roles()),
         claims=dict(claims),
         token=(token.strip() or None)
         if claims and scheme.lower() == "bearer"

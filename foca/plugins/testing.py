@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from json import dumps
 from types import TracebackType
-from typing import Any
+from typing import Any, Literal
 
 import requests
 
@@ -98,6 +98,8 @@ UNSET: Any = _Unset()
 def make_principal(
     subject: str | None = "user",
     *,
+    subject_type: Literal["user", "client"] | None = None,
+    acting_for: str | None = None,
     groups: Iterable[str] = (),
     claims: Mapping[str, Any] | None = None,
     token: str | None = None,
@@ -107,6 +109,9 @@ def make_principal(
 
     Args:
         subject: Subject.
+        subject_type: Type of the subject; defaults to `user` if there is
+            a subject.
+        acting_for: User that a service client acts for.
         groups: Groups (roles).
         claims: Claims; default to `sub` and `iss`.
         token: Access token.
@@ -117,8 +122,12 @@ def make_principal(
     """
     if claims is None:
         claims = {"sub": subject, "iss": issuer}
+    if subject_type is None and subject is not None:
+        subject_type = "user"
     return Principal(
         subject=subject,
+        subject_type=subject_type,
+        acting_for=acting_for,
         issuer=issuer,
         groups=tuple(groups),
         claims=claims,

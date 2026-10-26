@@ -264,28 +264,81 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
     return namespaced
 
 
+def _get_current_identity_and_roles() -> tuple[list[str], list[str]]:
+    """Get the identity and the roles of the current request, for policies.
+
+    Returns:
+        The identity: for service tokens (cf. :py:func:`get_current_client`),
+        the client ID prefixed with `client:`; for other tokens, the subject
+        (cf. :py:func:`get_current_subject`) prefixed with
+        `access_control.subject_prefix`, if identified (otherwise none).
+        And the roles: the role of the service client
+        (`access_control.client_mapping`), if mapped, followed by the roles
+        from group claims (cf. :py:func:`get_current_groups`), without
+        duplicates.
+    """
+    client = _get_current_service_client()
+    roles: list[str] = []
+    if client is None:
+        subject = get_current_subject()
+        identity = [] if subject is None else [_prefix_subject(subject)]
+    else:
+        identity = [_prefix_subject(client.client_id, "client")]
+        mapping = _get_access_control_config().client_mapping or {}
+        if client.client_id in mapping:
+            roles.append(mapping[client.client_id])
+    return identity, list(dict.fromkeys([*roles, *get_current_groups()]))
+
+
 def _get_current_policy_subjects() -> list[str]:
     """Get the subjects of the current request as used in policy rules.
 
     Returns:
-        For service tokens (cf. :py:func:`get_current_client`), the client
-        ID prefixed with `client:` and the role of the client
-        (`access_control.client_mapping`), if mapped; for other tokens, the
-        subject (cf. :py:func:`get_current_subject`) prefixed with
-        `access_control.subject_prefix`, if identified. Followed by the
-        roles from group claims (cf. :py:func:`get_current_groups`), without
-        duplicates.
+        The identity of the current request, followed by its roles (cf.
+        :py:func:`_get_current_identity_and_roles`), without duplicates.
     """
-    client = _get_current_service_client()
-    if client is None:
-        subject = get_current_subject()
-        subjects = [] if subject is None else [_prefix_subject(subject)]
-    else:
-        subjects = [_prefix_subject(client.client_id, "client")]
-        mapping = _get_access_control_config().client_mapping or {}
-        if client.client_id in mapping:
-            subjects.append(mapping[client.client_id])
-    return list(dict.fromkeys([*subjects, *get_current_groups()]))
+    identity, roles = _get_current_identity_and_roles()
+    return list(dict.fromkeys([*identity, *roles]))
+
+
+def _has_global_roles(enforcer: Enforcer) -> bool:
+    """Check whether the model of an enforcer defines global roles (`g`).
+
+    Args:
+        enforcer: Casbin enforcer.
+
+    Returns:
+        Whether the model has a role definition `g`.
+    """
+    return "g" in enforcer.get_model().model.get("g", {})
+
+
+def get_current_roles() -> list[str]:
+    """Get the roles of the current request, as access control applies them.
+
+    Use this, e.g., to restrict features of an app to roles, consistently
+    with the policies (cf. :py:func:`is_permitted`).
+
+    Returns:
+        The role of the service client (`access_control.client_mapping`),
+        if mapped, and the roles from group claims (cf.
+        :py:func:`get_current_groups`), followed by the roles that global
+        role rules (`g`, e.g., `g, user:alice, admin`) grant to the
+        identity or these roles, also transitively, if access control is
+        enabled and its model defines global roles; without duplicates.
+
+    Raises:
+        pymongo.errors.PyMongoError: The stored rules could not be read.
+    """
+    identity, roles = _get_current_identity_and_roles()
+    if not (identity or roles) or not _get_access_control_config().enabled:
+        return roles
+    granted: list[str] = []
+    with locked_enforcer() as enforcer:
+        if _has_global_roles(enforcer):
+            for subject in [*identity, *roles]:
+                granted.extend(enforcer.get_implicit_roles_for_user(subject))
+    return [role for role in dict.fromkeys([*roles, *granted]) if role not in identity]
 
 
 def get_claim_groups(issuer: Any) -> str | None:

@@ -514,12 +514,16 @@ trusted issuers) and roles of the current request, and
 (`get_claim_groups(issuer)` returns the group claim applying to tokens of an
 issuer) as is
 (neither mapped nor prefixed); `get_current_claims()` returns a copy of all
-claims of its token:
+claims of its token. `get_current_roles()` returns all roles that access
+control applies to the request: also the role of a service client
+(`client_mapping`) and roles granted via global role rules (`g`), also
+transitively (e.g., to restrict features of the app to roles):
 
 ```python
 from foca.security.access_control import (
     get_current_group_values,
     get_current_groups,
+    get_current_roles,
     get_current_subject,
 )
 ```

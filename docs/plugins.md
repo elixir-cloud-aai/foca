@@ -489,11 +489,25 @@ after `OutcomeUnknown` without raising, with `run.final_reason` set to
 
 `foca.plugins.adapter` is the only module that uses Connexion and Flask: it
 builds the plain request model (`inbound_from_request()`), the caller
-(`current_principal()`, with the claims and mapped roles that access
-control uses, so `roles` in the plugin configuration are access control
-roles), the request ID (`request_id()`: a safe `X-Request-ID` header of
-the client, or a new one), and problem responses for gateway errors
-(`problem()`).
+(`current_principal()`), the request ID (`request_id()`: a safe
+`X-Request-ID` header of the client, or a new one), and problem responses
+for gateway errors (`problem()`).
+
+The caller (`Principal`) is identified as by access control and its
+ownership helpers:
+
+- `subject` and `subject_type`: the client ID of a service client
+  (`client`), or else the user's subject (`user`); key quotas or records
+  on both, as a client and a user may have the same identifier;
+- `acting_for`: the user that a service client acts for (header
+  `auth.on_behalf_of_header`), who owns the resources it creates (e.g.,
+  tasks); callers that may not act for users get `403`;
+- `groups`: the roles that access control applies
+  (`foca.security.access_control.get_current_roles()`): the role mapped
+  from the service client (`access_control.client_mapping`) or from group
+  claims, and roles granted via global role rules (`g`, e.g.,
+  `g, user:alice, admin`), also transitively. So `roles` in the plugin
+  configuration are access control roles.
 
 ## Provenance
 
