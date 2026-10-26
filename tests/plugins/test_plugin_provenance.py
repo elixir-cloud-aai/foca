@@ -312,7 +312,9 @@ def test_final_reason() -> None:
 
 def test_client_pipeline_requested() -> None:
     """Client pipelines are recorded by reference to their tag."""
-    host = make_host([], presets={"p": [{"plugin": "test.tag"}]})
+    host = make_host(
+        [], presets={"p": [{"plugin": "test.tag"}]}, client_pipelines={"enabled": True}
+    )
     run = host.start(inbound({"tags": {"gateway.pipeline": "p"}}), PRINCIPAL)
     record = run.provenance()
     assert record["pipeline"]["source"] == "preset"
@@ -429,7 +431,7 @@ def test_store_errors() -> None:
 def test_store_client_pipeline() -> None:
     """Client pipelines stay inline."""
     store, db = stores()
-    host = make_host([])
+    host = make_host([], client_pipelines={"enabled": True})
     run = host.start(
         inbound({"tags": {"gateway.pipeline": '[{"plugin": "test.tag"}]'}}),
         PRINCIPAL,
