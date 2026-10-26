@@ -105,14 +105,22 @@ def get_current_subject() -> str | None:
     Returns:
         Value of the claim configured via `access_control.claim_identity`
         (default: `auth.claim_identity`) of the validated token of the
-        current request, or `None` if not available. The value is returned
-        as is, i.e., without `access_control.subject_prefix`.
+        current request, namespaced by its issuer if the issuer has a
+        namespace (`<namespace>|<subject>`, e.g., with several trusted
+        issuers; cf. :py:func:`foca.security.auth.namespace_subject`), or
+        `None` if not available, or if it cannot be namespaced. The value
+        is returned without `access_control.subject_prefix`.
     """
+    from foca.security.auth import namespace_subject  # noqa: PLC0415 (import cycle)
+
     claim = _get_access_control_config().claim_identity
     if claim is None:
         claim = get_config().security.auth.claim_identity
-    subject = _get_claims().get(claim)
-    return None if subject is None else str(subject)
+    claims = _get_claims()
+    subject = claims.get(claim)
+    if subject is None:
+        return None
+    return namespace_subject(str(subject), claims.get("iss"))
 
 
 def _get_subject_prefix(subject_type: SubjectType) -> str:
@@ -198,13 +206,16 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
             `auth.on_behalf_of_header`, if any, is used.
 
     Returns:
-        Named user identifier, as is (i.e., without
-        `access_control.subject_prefix`), or `None` if the caller names no
-        user.
+        Named user identifier, without `access_control.subject_prefix`,
+        namespaced by the issuer of the service client if it has a
+        namespace (cf. :py:func:`get_current_subject`), as service clients
+        name users of their issuer; or `None` if the caller names no user.
 
     Raises:
         connexion.exceptions.BadRequestProblem: The named user is not a
-            string, is empty or blank, or has surrounding whitespace.
+            string, is empty or blank, has surrounding whitespace, or
+            cannot be namespaced (cf.
+            :py:func:`foca.security.auth.namespace_subject`).
         connexion.exceptions.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
@@ -230,12 +241,23 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
         raise BadRequestProblem(
             detail="The user acted for must not have surrounding whitespace"
         )
+    from foca.security.auth import (  # noqa: PLC0415 (import cycle)
+        get_client_issuer,
+        namespace_subject,
+    )
+
+    auth = get_config().security.auth
+    namespaced = namespace_subject(user, get_client_issuer(client, auth), auth)
+    if namespaced is None:
+        raise BadRequestProblem(
+            detail="The user acted for cannot be identified: it must not contain '|'"
+        )
     logger.debug(
         "Service client '%s' acts for user '%s'",
         escape_log_value(client.client_id),
-        escape_log_value(user),
+        escape_log_value(namespaced),
     )
-    return user
+    return namespaced
 
 
 def _get_current_policy_subjects() -> list[str]:
@@ -246,12 +268,14 @@ def _get_current_policy_subjects() -> list[str]:
         ID prefixed with `client:` and the role of the client
         (`access_control.client_mapping`), if mapped; for other tokens, the
         subject (cf. :py:func:`get_current_subject`) prefixed with
-        `access_control.subject_prefix`. Followed by the roles from group
-        claims (cf. :py:func:`get_current_groups`), without duplicates.
+        `access_control.subject_prefix`, if identified. Followed by the
+        roles from group claims (cf. :py:func:`get_current_groups`), without
+        duplicates.
     """
     client = _get_current_service_client()
     if client is None:
-        subjects = [_prefix_subject(str(get_current_subject()))]
+        subject = get_current_subject()
+        subjects = [] if subject is None else [_prefix_subject(subject)]
     else:
         subjects = [_prefix_subject(client.client_id, "client")]
         mapping = _get_access_control_config().client_mapping or {}

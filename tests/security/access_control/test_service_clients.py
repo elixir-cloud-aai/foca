@@ -11,7 +11,7 @@ from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from flask import Flask
 from flask.globals import request_ctx
 
-from foca.models.config import Config
+from foca.models.config import Config, IssuerConfig
 from foca.security.access_control import (
     add_resource_role,
     get_current_client,
@@ -34,6 +34,7 @@ from foca.security.access_control.enforcement import (
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
 ISSUER = "https://login.example.org/oidc/"
+OTHER_ISSUER = "https://other.example.org/"
 HEADER = "X-On-Behalf-Of"
 # Claims of validated tokens
 CONQUEST = {"iss": ISSUER, "sub": "conquest", "client_id": "conquest"}
@@ -254,6 +255,21 @@ class TestOnBehalfOf:
         """No user is named outside of requests."""
         with app.app_context():
             assert get_on_behalf_of_user() is None
+
+    def test_namespaced(self, app: Flask) -> None:
+        """Named users are namespaced by the issuer of the service client."""
+        auth = app.config.foca.security.auth  # type: ignore[attr-defined]  # dynamic attribute
+        auth.issuers = [ISSUER, IssuerConfig(issuer=OTHER_ISSUER, namespace="")]
+        auth.service_clients[0].issuer = ISSUER
+        with request(app, CONQUEST, headers={HEADER: "alice"}):
+            assert get_on_behalf_of_user() == f"{ISSUER}|alice"
+        auth.service_clients[0].issuer = OTHER_ISSUER
+        with request(app, {**CONQUEST, "iss": OTHER_ISSUER}, headers={HEADER: "a"}):
+            assert get_on_behalf_of_user() == "a"
+            # bare users must not look namespaced
+            with pytest.raises(BadRequestProblem) as exc:
+                get_on_behalf_of_user("x|a")
+            assert "'|'" in str(exc.value.detail)
 
     def test_header_not_configured(self, app: Flask) -> None:
         """Without a configured header, headers are ignored."""

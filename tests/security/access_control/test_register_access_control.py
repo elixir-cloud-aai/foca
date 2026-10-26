@@ -616,7 +616,7 @@ class TestRegisterAccessControlSetup:
     def test_several_issuers(
         self, caplog: pytest.LogCaptureFixture, issuers: list[str], warned: bool
     ) -> None:
-        """Subjects of several issuers may collide, which is warned about."""
+        """Group claim values of several issuers may collide (warned about)."""
         config = Config(
             security=SecurityConfig(
                 auth=AuthConfig(issuers=issuers, audience=["my-app"])

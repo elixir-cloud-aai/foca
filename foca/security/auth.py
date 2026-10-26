@@ -17,7 +17,11 @@ from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.http import quote_header_value
 
 from foca.config.access import get_app_config, get_config
-from foca.models.config import AuthConfig, ServiceClientConfig
+from foca.models.config import (
+    NAMESPACE_SEPARATOR,
+    AuthConfig,
+    ServiceClientConfig,
+)
 from foca.utils.logging import escape_log_value
 
 # Get logger instance
@@ -202,11 +206,9 @@ def get_service_client(
     """
     client_id = get_token_client(claims)
     # Implied issuer of service clients, if only one issuer is trusted
-    trusted_issuers = set(conf.issuers)
-    implied_issuer = trusted_issuers.pop() if len(trusted_issuers) == 1 else None
     for client in conf.service_clients:
         if client.client_id == client_id:
-            issuer = implied_issuer if client.issuer is None else client.issuer
+            issuer = get_client_issuer(client, conf)
             subject = client.client_id if client.subject is None else client.subject
             is_service_token = (
                 issuer is not None
@@ -215,6 +217,57 @@ def get_service_client(
             )
             return client if is_service_token else None
     return None
+
+
+def get_client_issuer(client: ServiceClientConfig, conf: AuthConfig) -> str | None:
+    """Get the issuer of the service tokens of a service client.
+
+    Args:
+        client: Service client.
+        conf: Authentication settings.
+
+    Returns:
+        The client's `issuer` or, if not set, the only trusted issuer;
+        `None` if neither is set.
+    """
+    if client.issuer is not None:
+        return client.issuer
+    issuers = conf.issuer_urls
+    return issuers[0] if len(issuers) == 1 else None
+
+
+def namespace_subject(
+    subject: str, issuer: Any, conf: AuthConfig | None = None
+) -> str | None:
+    """Namespace a subject by its issuer, as used for access control.
+
+    Subjects are namespaced as `<namespace>|<subject>` if the issuer has a
+    namespace (cf. :py:class:`foca.models.config.IssuerConfig`), so that
+    equal subjects of different issuers are different users. Use this to
+    name users of an issuer, e.g., in policy rules or when granting them
+    roles.
+
+    Args:
+        subject: Subject, as issued (e.g., the `sub` claim).
+        issuer: Issuer of the subject (`iss` claim).
+        conf: Authentication settings; default to those of the current app.
+
+    Returns:
+        The subject, namespaced if its issuer has a namespace; `None` if
+        subjects are namespaced, but the issuer is not trusted, or the
+        subject is bare and contains `|`, so that it could collide with a
+        namespaced subject.
+    """
+    if conf is None:
+        conf = get_config().security.auth
+    if not conf.namespaced:
+        return subject
+    if not isinstance(issuer, str) or issuer not in conf.issuer_urls:
+        return None
+    namespace = conf.get_namespace(issuer)
+    if namespace is None:
+        return None if NAMESPACE_SEPARATOR in subject else subject
+    return f"{namespace}{NAMESPACE_SEPARATOR}{subject}"
 
 
 def log_auth_config_warnings(conf: AuthConfig) -> None:
@@ -311,7 +364,7 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
     except jwt.PyJWTError as exc:
         raise _unauthorized("JWT could not be decoded") from exc
     issuer = unverified_claims.get("iss")
-    if not isinstance(issuer, str) or issuer not in conf.issuers:
+    if not isinstance(issuer, str) or issuer not in conf.issuer_urls:
         raise _unauthorized("JWT issuer is not trusted")
 
     # Reject JWTs that are not access tokens (e.g., ID tokens) before any

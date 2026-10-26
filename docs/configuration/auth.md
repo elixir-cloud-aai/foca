@@ -55,7 +55,25 @@ tokens](../authentication.md#service-tokens)). See
 [Authentication](../authentication.md) for how tokens are validated and how to
 require them for operations.
 
+Issuers are listed as URLs, or with settings of their own, e.g., to choose
+the namespace of their subjects (cf. [several trusted
+issuers](../authentication.md#several-trusted-issuers)):
+
+```yaml
+security:
+  auth:
+    issuers:
+      - issuer: https://login.example.org/oidc/
+        namespace: ""
+      - issuer: https://login.example.com/oidc/
+        namespace: example-com
+```
+
 ::: foca.models.config.AuthConfig
+    options:
+      members: false
+
+::: foca.models.config.IssuerConfig
     options:
       members: false
 

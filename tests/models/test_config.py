@@ -23,6 +23,7 @@ from foca.models.config import (
     DBConfig,
     ExceptionConfig,
     IndexConfig,
+    IssuerConfig,
     MongoConfig,
     SecurityConfig,
     ServerConfig,
@@ -669,6 +670,94 @@ def test_AuthConfig_service_clients() -> None:
     )
     assert [client.subject for client in res.service_clients] == [None, "uuid-1"]
     assert [client.on_behalf_of for client in res.service_clients] == [False, True]
+
+
+A = "https://a.example.org"
+B = "https://b.example.org"
+
+
+@pytest.mark.parametrize(
+    "issuers,namespaces",
+    [
+        # one issuer: bare by default
+        ([A], [None]),
+        ([A, A], [None]),
+        ([{"issuer": A}], [None]),
+        ([A, {"issuer": A}], [None]),
+        ([{"issuer": A, "namespace": "a"}], ["a"]),
+        ([{"issuer": A, "namespace": ""}], [None]),
+        # several issuers: the issuer by default
+        ([A, B], [A, B]),
+        ([{"issuer": A, "namespace": ""}, B], [None, B]),
+        (
+            [{"issuer": A, "namespace": "x"}, {"issuer": B, "namespace": "y"}],
+            ["x", "y"],
+        ),
+        # a namespace may equal another issuer, as long as it is unique
+        ([{"issuer": A, "namespace": B}, {"issuer": B, "namespace": A}], [B, A]),
+    ],
+)
+def test_AuthConfig_issuer_namespaces(
+    issuers: list[Any], namespaces: list[str | None]
+) -> None:
+    """Test AuthConfig instantiation; namespaces of issuers."""
+    res = AuthConfig.model_validate({"issuers": issuers, "audience": ["foca"]})
+    assert [res.get_namespace(issuer) for issuer in res.issuer_urls] == namespaces
+    assert res.namespaced is any(namespaces)
+    with pytest.raises(KeyError):
+        res.get_namespace("https://c.example.org")
+
+
+@pytest.mark.parametrize(
+    "issuers,match",
+    [
+        # several bare issuers
+        ([{"issuer": A, "namespace": ""}, {"issuer": B, "namespace": ""}], "bare"),
+        # same namespace
+        ([{"issuer": A, "namespace": "x"}, {"issuer": B, "namespace": "x"}], "same"),
+        ([A, {"issuer": B, "namespace": A}], "same namespace"),
+        # different settings for the same issuer
+        ([A, {"issuer": A, "namespace": "a"}], "different settings"),
+        # issuers with forbidden characters cannot be the default namespace
+        (["https://a.example.org/|x", B], "set `security"),
+        # forbidden characters
+        ([{"issuer": A, "namespace": "a|b"}], "must not contain"),
+        ([{"issuer": A, "namespace": "a,b"}], "must not contain"),
+        ([{"issuer": A, "namespace": "a\nb"}], "must not contain"),
+        ([{"issuer": ""}], "at least 1 character"),
+    ],
+)
+def test_AuthConfig_issuer_namespaces_invalid(issuers: list[Any], match: str) -> None:
+    """Test AuthConfig instantiation; conflicting namespaces of issuers."""
+    with pytest.raises(ValidationError, match=match):
+        AuthConfig.model_validate({"issuers": issuers, "audience": ["foca"]})
+
+
+def test_AuthConfig_issuer_one_with_forbidden_characters() -> None:
+    """Test AuthConfig instantiation; a single issuer is not a namespace."""
+    res = AuthConfig(issuers=["https://a.example.org/|x"], audience=["foca"])
+    assert res.namespaced is False
+    assert res.issuer_urls == ["https://a.example.org/|x"]
+
+
+def test_AuthConfig_service_client_issuer_objects() -> None:
+    """Test AuthConfig instantiation; service clients of issuer objects."""
+    res = AuthConfig.model_validate(
+        {
+            "issuers": [{"issuer": A, "namespace": ""}, IssuerConfig(issuer=B)],
+            "audience": ["foca"],
+            "service_clients": [{"client_id": "conquest", "issuer": B}],
+        }
+    )
+    assert res.service_clients[0].issuer == B
+    with pytest.raises(ValidationError, match="issuer"):
+        AuthConfig.model_validate(
+            {
+                "issuers": [{"issuer": A, "namespace": ""}, B],
+                "audience": ["foca"],
+                "service_clients": [{"client_id": "conquest"}],
+            }
+        )
 
 
 @pytest.mark.parametrize(

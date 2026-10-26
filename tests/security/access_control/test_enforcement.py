@@ -60,6 +60,7 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.enforcement import (
     SubjectType,
+    _get_current_policy_subjects,
     locked_enforcer,
     register_opt_in_header,
 )
@@ -76,6 +77,7 @@ COLLECTION_NAME = "policy_rules"
 ADMIN_ENTITLEMENT = "urn:example:group:admins"
 GROUP = "urn:geant:example.org:group:team#example.org"
 ISSUER = "https://login.example.org/oidc/"
+OTHER = "https://other.example.org/"
 THIS_MODULE = __name__
 
 # Bearer tokens mapped to the claims of their (fake) validated JWTs
@@ -1240,6 +1242,37 @@ class TestCurrentSubject:
         ctx = self._context(helper_app, {"sub": "x", "groups": ADMIN_ENTITLEMENT})
         try:
             assert get_current_groups() == ["admin"]
+        finally:
+            ctx.pop()
+
+    @pytest.mark.parametrize(
+        "claims,subject",
+        [
+            ({"iss": ISSUER, "sub": "carol"}, "carol"),
+            ({"iss": OTHER, "sub": "carol"}, "other|carol"),
+            ({"iss": ISSUER, "sub": "other|carol"}, None),
+            ({"iss": "https://x.example.org", "sub": "carol"}, None),
+            ({"sub": "carol"}, None),
+        ],
+    )
+    def test_namespaced_subject(
+        self, helper_app: Flask, claims: dict[str, Any], subject: str | None
+    ) -> None:
+        """Subjects are namespaced by issuer, if it has a namespace."""
+        get_app_config(helper_app).security.auth = AuthConfig.model_validate(
+            {
+                "issuers": [
+                    {"issuer": ISSUER, "namespace": ""},
+                    {"issuer": OTHER, "namespace": "other"},
+                ],
+                "audience": ["foca"],
+            }
+        )
+        ctx = self._context(helper_app, claims)
+        try:
+            assert get_current_subject() == subject
+            subjects = _get_current_policy_subjects()
+            assert subjects == ([] if subject is None else [f"user:{subject}"])
         finally:
             ctx.pop()
 
