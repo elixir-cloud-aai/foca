@@ -364,6 +364,31 @@ def test_check_admin_role_group_rules(
     assert (NO_ADMIN in caplog.text) is not admin
 
 
+def test_issuer_group_claims(caplog: pytest.LogCaptureFixture) -> None:
+    """Group claims of issuers count for the group checks."""
+    auth = AuthConfig.model_validate(
+        {
+            "issuers": [
+                {"issuer": "https://a.example.org", "claim_groups": "roles"},
+                "https://b.example.org",
+            ],
+            "audience": ["my-app"],
+        }
+    )
+    conf = AccessControlConfig(
+        group_mapping={"a": "user"},
+        keep_group_subjects=True,
+        policies=[["g", "group:admins", "admin"]],
+    )
+    with caplog.at_level(logging.WARNING):
+        _check_group_config(conf, auth)
+        _check_admin_role(conf, auth)
+    assert _warnings(caplog) == []
+    # without issuers, only the global group claim counts
+    with pytest.raises(ValueError, match="no group claim"):
+        _check_group_config(conf, AuthConfig())
+
+
 def test_check_admin_role_clients(caplog: pytest.LogCaptureFixture) -> None:
     """Service clients mapped to the role `admin` count, and are logged."""
     conf = AccessControlConfig(

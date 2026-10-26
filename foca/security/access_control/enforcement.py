@@ -288,6 +288,25 @@ def _get_current_policy_subjects() -> list[str]:
     return list(dict.fromkeys([*subjects, *get_current_groups()]))
 
 
+def get_claim_groups(issuer: Any = None) -> str | None:
+    """Get the group claim of the tokens of an issuer.
+
+    Args:
+        issuer: Issuer (`iss` claim); any value, as claims are untyped.
+
+    Returns:
+        The `claim_groups` of the issuer's settings in `auth.issuers`, or by
+        default (also for untrusted issuers) `access_control.claim_groups`.
+    """
+    claim_groups = _get_access_control_config().claim_groups
+    if not isinstance(issuer, str):
+        return claim_groups
+    conf = get_config().security.auth.get_issuer_configs().get(issuer)
+    if conf is None or conf.claim_groups is None:
+        return claim_groups
+    return conf.claim_groups
+
+
 def get_current_group_values() -> list[str]:
     """Get values of the group claim of the current request.
 
@@ -295,16 +314,18 @@ def get_current_group_values() -> list[str]:
     of (cf. :py:func:`add_resource_role`).
 
     Returns:
-        Values of the claim configured via `access_control.claim_groups` of
-        the validated token of the current request, as is, i.e., neither
-        mapped nor prefixed, and without duplicates. Empty if the claim is
-        not configured or not available, or if its value is neither a
-        string nor a list.
+        Values of the group claim of the validated token of the current
+        request (`claim_groups` of its issuer, by default
+        `access_control.claim_groups`; cf. :py:func:`get_claim_groups`), as
+        is, i.e., neither mapped nor prefixed, and without duplicates. Empty
+        if the claim is not configured or not available, or if its value is
+        neither a string nor a list.
     """
-    conf = _get_access_control_config()
-    if conf.claim_groups is None:
+    claims = _get_claims()
+    claim_groups = get_claim_groups(claims.get("iss"))
+    if claim_groups is None:
         return []
-    values = _get_claims().get(conf.claim_groups, [])
+    values = claims.get(claim_groups, [])
     if isinstance(values, str):
         values = [values]
     if not isinstance(values, (list, tuple)):

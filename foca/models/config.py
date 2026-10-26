@@ -785,7 +785,9 @@ class AccessControlConfig(FOCABaseConfig):
             enforcing policies, prefixed with `group:` unless
             `group_mapping` is set. Must not have surrounding whitespace, as
             the claim is looked up as written (the app refuses to start,
-            `ValueError`).
+            `ValueError`). Trusted issuers may have a `claim_groups` of their
+            own (`auth.issuers[].claim_groups`), which replaces this one for
+            their tokens.
         group_mapping: Mapping of values of `claim_groups` to roles. If set,
             only mapped values are used as roles, unless
             `keep_group_subjects` is set. If it maps any value,
@@ -1345,6 +1347,30 @@ MAX_NAMESPACE_LENGTH = 256
 into policy rules (1024 characters per value)."""
 
 
+def _check_userinfo_claims(claims: list[str]) -> list[str]:
+    """Ensure that claims identifying clients are not added from user info.
+
+    Args:
+        claims: Claims to add from user info.
+
+    Returns:
+        Claims to add from user info.
+
+    Raises:
+        ValueError: `client_id` or `azp` is to be added, so that user info
+            could make tokens appear to be obtained by other clients (e.g.,
+            by service clients).
+    """
+    # Client claims as per `foca.security.auth.CLIENT_CLAIMS` (import cycle)
+    client_claims = sorted({"client_id", "azp"} & set(claims))
+    if client_claims:
+        raise ValueError(
+            "Claims identifying the client that obtained a token cannot be "
+            f"added from user info: {', '.join(client_claims)}"
+        )
+    return claims
+
+
 class IssuerConfig(FOCABaseConfig):
     """Model for configuring a trusted token issuer.
 
@@ -1364,23 +1390,98 @@ class IssuerConfig(FOCABaseConfig):
             line breaks, and must have at most 256 characters
             (`MAX_NAMESPACE_LENGTH`), so that namespaced subjects fit into
             policy rules.
+        audience: Accepted audiences of the issuer's tokens (cf.
+            `AuthConfig.audience`). If `None` (default),
+            `AuthConfig.audience`.
+        claim_groups: Claim of the issuer's tokens listing groups or
+            entitlements of the subject (cf.
+            `AccessControlConfig.claim_groups`). If `None` (default),
+            `AccessControlConfig.claim_groups`.
+        userinfo_claims: Claims to add from the issuer's user info if its
+            tokens lack them (cf. `AuthConfig.userinfo_claims`). If `None`
+            (default), `AuthConfig.userinfo_claims`.
 
     Attributes:
         issuer: Issuer.
         namespace: Namespace of the subjects of the issuer's tokens.
+        audience: Accepted audiences of the issuer's tokens.
+        claim_groups: Claim of the issuer's tokens listing groups.
+        userinfo_claims: Claims to add from the issuer's user info.
 
     Raises:
         pydantic.ValidationError: The class was instantiated with an illegal
-            data type, `issuer` is empty, or `namespace` contains `|`, a
-            comma or a line break, or is too long.
+            data type, `issuer` is empty, `namespace` contains `|`, a comma
+            or a line break or is too long, `audience` is empty or has blank
+            audiences, `claim_groups` is empty or has surrounding whitespace,
+            or `userinfo_claims` contain `client_id` or `azp`.
 
     Examples:
-        >>> IssuerConfig(issuer="https://login.example.org/", namespace="ls")
-        IssuerConfig(issuer='https://login.example.org/', namespace='ls')
+        >>> conf = IssuerConfig(issuer="https://login.example.org/", namespace="ls")
+        >>> conf.namespace, conf.audience
+        ('ls', None)
     """
 
     issuer: str = Field(min_length=1)
     namespace: str | None = Field(default=None, max_length=MAX_NAMESPACE_LENGTH)
+    audience: list[str] | None = Field(default=None, min_length=1)
+    claim_groups: str | None = Field(default=None, min_length=1)
+    userinfo_claims: list[str] | None = None
+
+    @field_validator("audience")
+    @classmethod
+    def validate_audience(cls, v: list[str] | None) -> list[str] | None:
+        """Ensure that audiences are not blank.
+
+        Args:
+            v: Audiences.
+
+        Returns:
+            Audiences.
+
+        Raises:
+            ValueError: An audience is blank.
+        """
+        if v is not None and not all(aud.strip() for aud in v):
+            raise ValueError(f"Audiences of issuers must not be blank: {v!r}")
+        return v
+
+    @field_validator("claim_groups")
+    @classmethod
+    def validate_claim_groups(cls, v: str | None) -> str | None:
+        """Ensure that the group claim can be looked up as written.
+
+        Args:
+            v: Group claim.
+
+        Returns:
+            Group claim.
+
+        Raises:
+            ValueError: The claim has surrounding whitespace, so that users
+                would have no groups.
+        """
+        if v is not None and v != v.strip():
+            raise ValueError(
+                f"Group claims of issuers must not have surrounding whitespace: {v!r}"
+            )
+        return v
+
+    @field_validator("userinfo_claims")
+    @classmethod
+    def validate_userinfo_claims(cls, v: list[str] | None) -> list[str] | None:
+        """Ensure that claims identifying clients are not added from user info.
+
+        Args:
+            v: Claims to add from user info.
+
+        Returns:
+            Claims to add from user info.
+
+        Raises:
+            ValueError: `client_id` or `azp` is to be added (cf.
+                `AuthConfig.validate_userinfo_claims`).
+        """
+        return None if v is None else _check_userinfo_claims(v)
 
     @field_validator("namespace")
     @classmethod
@@ -1434,7 +1535,9 @@ class AuthConfig(FOCABaseConfig):
         audience: List of audiences that the app identifies itself with.
             JWTs whose `aud` claim does not contain any of them are rejected.
             Required if `issuers` are set, unless `verify_audience` is
-            ``False``.
+            ``False`` or all issuers have an `audience` of their own (cf.
+            :py:class:`IssuerConfig`), which replaces this one for their
+            tokens.
         verify_audience: Whether to validate the audience of JWTs. If
             ``False``, tokens that trusted issuers issued for other services
             are accepted, too; only disable it if the issuer does not include
@@ -1477,7 +1580,9 @@ class AuthConfig(FOCABaseConfig):
             `validate_userinfo` is set), but not beyond the token's expiry.
             The claims `client_id` and `azp` cannot be added, as they
             identify the client that obtained the token (cf. `clients` and
-            `service_clients`).
+            `service_clients`). Issuers may have `userinfo_claims` of their
+            own (cf. :py:class:`IssuerConfig`), which replace these for their
+            tokens.
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
@@ -1579,14 +1684,7 @@ class AuthConfig(FOCABaseConfig):
                 info could make tokens appear to be obtained by other
                 clients (e.g., by service clients).
         """
-        # Client claims as per `foca.security.auth.CLIENT_CLAIMS` (import cycle)
-        client_claims = sorted({"client_id", "azp"} & set(v))
-        if client_claims:
-            raise ValueError(
-                "Claims identifying the client that obtained a token cannot be "
-                f"added from user info: {', '.join(client_claims)}"
-            )
-        return v
+        return _check_userinfo_claims(v)
 
     @field_validator("service_clients")
     @classmethod
@@ -1624,10 +1722,17 @@ class AuthConfig(FOCABaseConfig):
         has_audience = bool(self.audience) and all(
             aud.strip() for aud in self.audience or []
         )
-        if self.issuers and self.verify_audience and not has_audience:
+        # Issuers with audiences of their own need no global one
+        without_audience = [
+            issuer
+            for issuer, conf in self.get_issuer_configs().items()
+            if conf.audience is None
+        ]
+        if without_audience and self.verify_audience and not has_audience:
             raise ValueError(
                 "Trusted token issuers require an audience: set "
-                "`security.auth.audience` to the (non-blank) audiences that "
+                "`security.auth.audience` (or `audience` of each of "
+                "`security.auth.issuers`) to the (non-blank) audiences that "
                 "the issuers put into the `aud` claim of tokens for the app "
                 "(e.g., its client ID), or set "
                 "`security.auth.verify_audience: false` to accept tokens for "
@@ -1668,6 +1773,59 @@ class AuthConfig(FOCABaseConfig):
             )
         )
 
+    def get_issuer_configs(self) -> dict[str, IssuerConfig]:
+        """Get the settings of the trusted issuers.
+
+        Computed from `issuers` on each call (a few entries). Changes of
+        `issuers` after validation are not validated.
+
+        Returns:
+            Settings of each trusted issuer, in the order of `issuers`; plain
+            URLs with the default settings.
+
+        Raises:
+            ValueError: An issuer is listed with different settings.
+        """
+        settings: dict[str, IssuerConfig] = {}
+        for entry in self.issuers:
+            conf = IssuerConfig(issuer=entry) if isinstance(entry, str) else entry
+            if settings.setdefault(conf.issuer, conf) != conf:
+                raise ValueError(
+                    f"Issuer '{conf.issuer}' is listed with different settings "
+                    "(`security.auth.issuers`)"
+                )
+        return settings
+
+    def get_audience(self, issuer: str) -> list[str] | None:
+        """Get the accepted audiences of the tokens of an issuer.
+
+        Args:
+            issuer: Issuer.
+
+        Returns:
+            The issuer's `audience`, or by default (also for untrusted
+            issuers) `audience`.
+        """
+        conf = self.get_issuer_configs().get(issuer)
+        if conf is None or conf.audience is None:
+            return self.audience
+        return conf.audience
+
+    def get_userinfo_claims(self, issuer: str) -> list[str]:
+        """Get the claims to add from the user info of an issuer.
+
+        Args:
+            issuer: Issuer.
+
+        Returns:
+            The issuer's `userinfo_claims`, or by default (also for untrusted
+            issuers) `userinfo_claims`.
+        """
+        conf = self.get_issuer_configs().get(issuer)
+        if conf is None or conf.userinfo_claims is None:
+            return self.userinfo_claims
+        return conf.userinfo_claims
+
     def get_namespaces(self) -> dict[str, str | None]:
         """Get the namespaces of the subjects of the trusted issuers.
 
@@ -1683,24 +1841,13 @@ class AuthConfig(FOCABaseConfig):
         Raises:
             ValueError: An issuer is listed with different settings.
         """
-        settings: dict[str, str | None] = {}
-        for entry in self.issuers:
-            issuer, namespace = (
-                (entry, None)
-                if isinstance(entry, str)
-                else (entry.issuer, entry.namespace)
-            )
-            if settings.setdefault(issuer, namespace) != namespace:
-                raise ValueError(
-                    f"Issuer '{issuer}' is listed with different settings "
-                    "(`security.auth.issuers`)"
-                )
+        settings = self.get_issuer_configs()
         several = len(settings) > 1
         return {
             issuer: (issuer if several else None)
-            if namespace is None
-            else (namespace or None)
-            for issuer, namespace in settings.items()
+            if conf.namespace is None
+            else (conf.namespace or None)
+            for issuer, conf in settings.items()
         }
 
     @model_validator(mode="after")

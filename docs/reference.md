@@ -39,6 +39,7 @@ configuration models, see [Configuration](configuration/index.md).
         - get_active_opt_in_roles
         - get_current_claims
         - get_current_group_values
+        - get_claim_groups
         - get_current_client
         - get_on_behalf_of_user
         - locked_enforcer

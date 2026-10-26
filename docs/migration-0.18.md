@@ -185,6 +185,14 @@ resource's document (`set_owner_field()`) and filter by it
 Resource ownership via policy rules (`add_owner()` etc.) is unchanged and
 stays the default of FOCA's helpers.
 
+### Settings per issuer
+
+Issuers in `security.auth.issuers` can have an `audience`, a group claim
+(`claim_groups`) and `userinfo_claims` of their own, which replace the
+global settings for their tokens (cf. [several trusted
+issuers](authentication.md#several-trusted-issuers)). Apps without such
+settings behave as before.
+
 ### Startup checks
 
 `Foca.create_app()` logs new warnings about settings that let the app run,

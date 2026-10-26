@@ -391,7 +391,9 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
     )
     if conf.clients is not None:
         _verify_client(claims=claims, conf=conf)
-    missing_claims = [claim for claim in conf.userinfo_claims if claim not in claims]
+    missing_claims = [
+        claim for claim in conf.get_userinfo_claims(issuer) if claim not in claims
+    ]
     service_client = get_service_client(claims=claims, conf=conf)
     if service_client is not None:
         # Service tokens represent clients, which have no user info
@@ -593,7 +595,7 @@ def _verify_signature(
                 token,
                 key=key,
                 algorithms=conf.algorithms,
-                audience=conf.audience,
+                audience=conf.get_audience(issuer),
                 issuer=issuer,
                 options=options,
             )

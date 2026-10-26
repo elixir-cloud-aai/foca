@@ -45,6 +45,7 @@ from foca.security.access_control import (
     enforcement,
     get_active_opt_in_roles,
     get_available_opt_in_roles,
+    get_claim_groups,
     get_current_claims,
     get_current_group_values,
     get_current_groups,
@@ -1275,6 +1276,34 @@ class TestCurrentSubject:
             assert subjects == ([] if subject is None else [f"user:{subject}"])
         finally:
             ctx.pop()
+
+    def test_issuer_group_claim(self, helper_app: Flask) -> None:
+        """Groups are taken from the group claim of the token's issuer."""
+        get_app_config(helper_app).security.auth = AuthConfig.model_validate(
+            {
+                "issuers": [
+                    {"issuer": ISSUER, "claim_groups": "roles"},
+                    {"issuer": OTHER, "namespace": "other"},
+                ],
+                "audience": ["foca"],
+            }
+        )
+        claims = {"sub": "x", "roles": ["a"], "groups": ["b"]}
+        for issuer, values in [
+            (ISSUER, ["a"]),
+            # falls back to `access_control.claim_groups`
+            (OTHER, ["b"]),
+            ("https://x.example.org", ["b"]),
+            (None, ["b"]),
+        ]:
+            ctx = self._context(helper_app, {**claims, "iss": issuer})
+            try:
+                assert get_current_group_values() == values
+                assert get_claim_groups(issuer) == (
+                    "roles" if issuer == ISSUER else "groups"
+                )
+            finally:
+                ctx.pop()
 
     def test_custom_identity_claim(self, helper_app: Flask) -> None:
         """Subject is taken from the configured identity claim."""
