@@ -14,19 +14,19 @@ from foca.plugins import (
     BackendResponse,
     NotAccepted,
     OutcomeUnknown,
-    loader,
     runtime,
 )
 from foca.plugins.model import OutboundRequest
+from foca.plugins.pytest_plugin import RegisterPlugins
 from foca.plugins.runtime import GatewayApp
-from tests.plugins.fakes import fake_entry_points, make_host
+from tests.plugins.fakes import FAKES, make_host
 from tests.plugins.test_plugin_engine import BACKENDS, PRINCIPAL, inbound
 
 
 @pytest.fixture
-def fake_plugins(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def fake_plugins(fake_plugin_entry_points: RegisterPlugins) -> Iterator[None]:
     """Use the fake plugins as installed entry points; reset the runtime."""
-    monkeypatch.setattr(loader, "entry_points", lambda group: fake_entry_points()())
+    fake_plugin_entry_points(FAKES)
     yield
     runtime.reset()
 

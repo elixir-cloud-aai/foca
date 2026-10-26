@@ -7,11 +7,8 @@ import pytest
 
 from foca.plugins.config import PluginsConfig
 from foca.plugins.loader import check_legacy_keys, load_plugins
-from tests.plugins.fakes import (
-    FakeDistribution,
-    FakeEntryPoint,
-    TagPlugin,
-)
+from foca.plugins.testing import FakeDistribution, FakeEntryPoint
+from tests.plugins.fakes import TagPlugin
 
 
 def conf(available: dict[str, Any]) -> PluginsConfig:

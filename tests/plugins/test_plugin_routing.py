@@ -14,7 +14,8 @@ from foca.plugins.config import BUILTIN_PLUGINS, PluginsConfig
 from foca.plugins.engine import PluginHost
 from foca.plugins.loader import load_plugins
 from foca.plugins.routing import OrderedRouter
-from tests.plugins.fakes import FakeDistribution, FakeEntryPoint, make_host
+from foca.plugins.testing import FakeDistribution, FakeEntryPoint
+from tests.plugins.fakes import make_host
 from tests.plugins.test_plugin_engine import PRINCIPAL, inbound
 
 CANDIDATES = [

@@ -471,16 +471,18 @@ if group settings keep groups from applying (see [startup
 checks](configuration/access-control.md#startup-checks)).
 
 !!! warning "Several trusted issuers"
-    Subjects and group claim values are not scoped by issuer: a rule for
-    `user:<sub>` or `group:<value>` applies to tokens of _all_ trusted
-    issuers (`security.auth.issuers`). If several issuers can issue the same
-    `sub` or group claim value to different users (e.g., if users can choose
-    their identifier or create groups at one of them), these users get each
-    other's rights, up to administrator rights. Only trust several issuers
-    together with access control if their subjects and group claim values
-    cannot collide, e.g., because they are assigned by the same identity
-    provider. FOCA logs a warning on startup if access control is enabled
-    with several trusted issuers.
+    With several trusted issuers (`security.auth.issuers`), subjects are
+    namespaced by issuer (e.g., `user:https://login.example.org/oidc/|alice`;
+    cf. [several trusted
+    issuers](authentication.md#several-trusted-issuers)), but group claim
+    values are not: a rule for `group:<value>`, and a `group_mapping` of
+    `<value>`, apply to tokens of _all_ trusted issuers. If several issuers
+    can issue the same group claim value to different users (e.g., if users
+    can create groups at one of them), these users get each other's rights,
+    up to administrator rights. Only trust several issuers together with
+    group claims if their group claim values cannot collide, e.g., because
+    they are assigned by the same identity provider. FOCA logs a warning on
+    startup if access control is enabled with several trusted issuers.
 
 To keep users, groups and roles apart, subjects are namespaced in rules:
 
@@ -500,7 +502,8 @@ must use these forms (e.g., `p, user:alice,
 identifiers do not match.
 
 In your controllers, use `get_current_subject()` and `get_current_groups()`
-to get the subject (without prefix) and roles of the current request, and
+to get the subject (without prefix; namespaced by issuer with several
+trusted issuers) and roles of the current request, and
 `get_current_group_values()` to get the values of its group claim as is
 (neither mapped nor prefixed); `get_current_claims()` returns a copy of all
 claims of its token:
@@ -512,6 +515,73 @@ from foca.security.access_control import (
     get_current_subject,
 )
 ```
+
+### Opt-in roles
+
+By default, roles mapped from group claims apply to every request of their
+members: users in an admin group act as admins all the time, also for
+everyday tasks. To follow the principle of least privilege, make such roles
+_opt-in_: they then apply only to requests that ask for them in the header
+`opt_in_header` (default: `X-Request-Roles`), e.g., when a UI switches to an
+admin mode:
+
+```yaml
+security:
+  access_control:
+    claim_groups: eduperson_entitlement
+    group_mapping:
+      "urn:example:group:my-app-admins#login.example.org": admin
+    opt_in_roles: [admin]
+```
+
+```console
+curl -H "Authorization: Bearer $TOKEN" -H "X-Request-Roles: admin" ...
+```
+
+Without the header, an admin's request gets the permissions of a regular
+user, plus those of their other roles; with it, it gets admin permissions.
+The header lists roles separated by commas, compared exactly. Asking for a
+role grants nothing that the token's groups don't entitle to: roles that the
+subject doesn't have, and roles that aren't opt-in, are ignored. Opt-in roles
+apply to everything that uses the roles of a request: enforcement,
+`get_current_groups()`, `is_admin()`, self-service listings and the [roles
+of gateway plugins](plugins.md).
+
+Only roles of `group_mapping` can be opt-in. Rules must not grant them
+(e.g., `[g, "user:alice", admin]`, also resource-scoped `g2` rules), not
+even to other opt-in roles (e.g., `[g, superadmin, admin]`), as the role
+would then apply without asking for it: the app refuses to start if
+configured rules of `policies` do, the permissions API refuses such rules
+(`400`), and stored ones (e.g., from before the roles were made opt-in) are
+warned about when policies are first loaded; revoke them and map groups to
+the roles instead. Opt-in roles may grant other roles (e.g., `[g, admin,
+editor]`). Roles of [service clients](#service-clients)
+(`client_mapping`) always apply.
+
+Apps tell clients which opt-in roles a user may use and which apply to the
+current request, e.g., in a `/me` endpoint:
+
+```python
+from foca.security.access_control import (
+    get_active_opt_in_roles,
+    get_available_opt_in_roles,
+)
+
+
+def get_me() -> dict:
+    return {
+        "admin_available": "admin" in get_available_opt_in_roles(),
+        "admin": "admin" in get_active_opt_in_roles(),
+    }
+```
+
+With opt-in roles, responses have the header in `Vary`, so that caches keep
+the responses of both modes apart. Browser apps on other origins need the
+header in [`security.cors.allow_headers`](configuration/cors.md) (allowed by
+default, `*`); FOCA warns on startup if it isn't allowed, matching
+header names ignoring case and patterns (e.g., `X-.*`) as flask-cors does.
+Object groupings of custom models (e.g., `g2 = _, _` for paths) must not
+use names of opt-in roles, as all `g*` rules are checked as role rules.
 
 ### Service clients
 
@@ -1008,8 +1078,9 @@ in the resource's document instead, without policy rules per resource:
   `client`) and identifier of the subject the request is attributed to, as
   for `add_owner()`: the user that an allowed service client [acts
   for](#service-clients), otherwise the calling service client (by client
-  ID), otherwise the calling user (by `claim_identity`). Store the document
-  afterwards, so that the owner is written together with the resource.
+  ID), otherwise the calling user (by `claim_identity`, namespaced as
+  returned by `get_current_subject()`). Store the document afterwards, so
+  that the owner is written together with the resource.
   Users that service clients act for are assumed to be of the issuer of the
   client's token, as their issuer is not known.
 * `owner_filter()` returns a MongoDB filter for the documents the caller
@@ -1161,7 +1232,8 @@ paths:
   /tasks/{id}/permissions/users/{userId}:
     parameters:
       - {name: id, in: path, required: true, schema: {type: string}}
-      - {name: userId, in: path, required: true, schema: {type: string}}
+      # namespaced users (several trusted issuers) may contain slashes
+      - {name: userId, in: path, required: true, schema: {type: string, format: path}}
     put:
       operationId: foca.security.access_control.ownership_server.putUserRole
       requestBody:
@@ -1208,8 +1280,8 @@ security:
   access_control:
     policies:
       - [p, owner, "/api/tasks/:id/permissions", GET]
-      - [p, owner, "/api/tasks/:id/permissions/users/:user", "(PUT)|(DELETE)"]
-      # groups may contain slashes
+      # namespaced users and groups may contain slashes
+      - [p, owner, "/api/tasks/:id/permissions/users/*", "(PUT)|(DELETE)"]
       - [p, owner, "/api/tasks/:id/permissions/groups/*", "(PUT)|(DELETE)"]
 ```
 

@@ -2,7 +2,7 @@
 
 import importlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from enum import Enum
 from importlib.resources import files
 from pathlib import Path
@@ -96,6 +96,10 @@ def _validate_log_level_choices(cls: type[BaseModel], level: int) -> int:
         raise ValueError(f"illegal log level specified: {level}")
 
     return level
+
+
+HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
+"""Pattern of HTTP header names (tokens, RFC 9110)."""
 
 
 class ExceptionLoggingEnum(Enum):
@@ -795,6 +799,19 @@ class AccessControlConfig(FOCABaseConfig):
             mapped to (e.g., to grant resource-scoped roles to groups). Has
             no effect without `group_mapping`, as values are then always
             used as such.
+        opt_in_roles: Roles of `group_mapping` that apply only to requests
+            that ask for them in the header `opt_in_header` (e.g., `admin`,
+            so that admins act as regular users unless they opt in). Asking
+            for a role grants nothing that the token's groups do not
+            entitle to. Roles of service clients (`client_mapping`) always
+            apply, and rules must not grant opt-in roles (cf.
+            :py:func:`foca.security.access_control.enforcement.grants_opt_in_role`
+            and the guide on opt-in roles). If empty (default), all mapped
+            roles always apply.
+        opt_in_header: Request header in which requests ask for opt-in
+            roles, as a comma-separated list (e.g., `X-Request-Roles:
+            admin`). Must be a valid header name without `_` (which servers
+            such as Gunicorn drop), other than `auth.on_behalf_of_header`.
         require_admin: Refuse to start (`ValueError`) if no group (via
             `group_mapping`, with `claim_groups` set) or service client (via
             `client_mapping`) is mapped to the role `admin` and no rule of
@@ -868,6 +885,10 @@ class AccessControlConfig(FOCABaseConfig):
         group_mapping: Mapping of values of `claim_groups` to roles.
         keep_group_subjects: Whether to also use values of `claim_groups`
             as subjects if `group_mapping` is set.
+        opt_in_roles: Roles of `group_mapping` that apply only to requests
+            that ask for them.
+        opt_in_header: Request header in which requests ask for opt-in
+            roles.
         require_admin: Refuse to start if no group, service client or
             configured policy rule is granted the role `admin`.
         client_mapping: Mapping of service clients to roles.
@@ -914,6 +935,8 @@ class AccessControlConfig(FOCABaseConfig):
     claim_groups: str | None = None
     group_mapping: dict[str, str] | None = None
     keep_group_subjects: bool = False
+    opt_in_roles: list[str] = []
+    opt_in_header: str = "X-Request-Roles"
     require_admin: bool = False
     client_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
@@ -1075,6 +1098,69 @@ class AccessControlConfig(FOCABaseConfig):
                             "the prefix of subjects, as mapped subjects would "
                             "otherwise get the rights of that subject"
                         )
+        return self
+
+    @field_validator("opt_in_header")
+    @classmethod
+    def validate_opt_in_header(cls, v: str) -> str:
+        """Validate the header of opt-in roles.
+
+        Args:
+            v: Header name.
+
+        Returns:
+            Header name.
+
+        Raises:
+            ValueError: The name is no valid header name (an HTTP token), or
+                it contains `_`, as servers such as Gunicorn drop such
+                headers.
+        """
+        if not HEADER_NAME.fullmatch(v) or "_" in v:
+            raise ValueError(
+                f"'opt_in_header' is no valid header name (without '_'): {v!r}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_opt_in_roles(self) -> Self:
+        """Ensure that opt-in roles apply only to requests that ask for them.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: An opt-in role is not a role of `group_mapping`, so
+                that nobody could opt in to it, or a configured role rule of
+                `policies` (`g`, also resource-scoped, e.g., `g2`) grants an
+                opt-in role (e.g., `[g, "user:alice", admin]`), also to
+                another opt-in role, as the role would then apply without
+                asking for it.
+        """
+        mapped = set((self.group_mapping or {}).values())
+        unmapped = [role for role in self.opt_in_roles if role not in mapped]
+        if unmapped:
+            raise ValueError(
+                "'opt_in_roles' must be roles of 'group_mapping', as only "
+                f"roles from group claims can be opted in to: {', '.join(unmapped)}"
+            )
+        # Imported here, as the access control package imports this module
+        from foca.security.access_control.enforcement import (  # noqa: PLC0415
+            grants_opt_in_role,
+        )
+
+        for rule in self.policies or []:
+            if (
+                len(rule) >= 3
+                and rule[0].startswith("g")
+                and grants_opt_in_role(rule[1], rule[2], self.opt_in_roles)
+            ):
+                raise ValueError(
+                    f"Configured rules must not grant the opt-in role "
+                    f"'{rule[2]}' ('opt_in_roles') to '{rule[1]}', as it would "
+                    "then apply without asking for it: map groups to it "
+                    "('group_mapping') instead"
+                )
         return self
 
     @model_validator(mode="after")
@@ -1249,6 +1335,77 @@ class ServiceClientConfig(FOCABaseConfig):
     on_behalf_of: bool = False
 
 
+NAMESPACE_SEPARATOR = "|"
+"""Separator of the namespace and the subject of namespaced subjects."""
+
+_NAMESPACE_FORBIDDEN = frozenset(f"{NAMESPACE_SEPARATOR},\r\n")
+
+MAX_NAMESPACE_LENGTH = 256
+"""Maximum length of namespaces of issuers, so that namespaced subjects fit
+into policy rules (1024 characters per value)."""
+
+
+class IssuerConfig(FOCABaseConfig):
+    """Model for configuring a trusted token issuer.
+
+    Plain URLs in `AuthConfig.issuers` stand for issuers with the default
+    settings.
+
+    Args:
+        issuer: Issuer, i.e., value of the `iss` claim of its tokens.
+        namespace: Namespace of the subjects of the issuer's tokens, as
+            `<namespace>|<subject>` (cf.
+            :py:func:`foca.security.auth.namespace_subject`), so that equal
+            subjects of different issuers are different users. If `None`
+            (default), the issuer if several issuers are trusted, else none.
+            An empty value keeps the issuer's subjects bare, e.g., for the
+            first issuer of an app that trusts a second one later, so that
+            its stored subjects stay valid. Must not contain `|`, commas or
+            line breaks, and must have at most 256 characters
+            (`MAX_NAMESPACE_LENGTH`), so that namespaced subjects fit into
+            policy rules.
+
+    Attributes:
+        issuer: Issuer.
+        namespace: Namespace of the subjects of the issuer's tokens.
+
+    Raises:
+        pydantic.ValidationError: The class was instantiated with an illegal
+            data type, `issuer` is empty, or `namespace` contains `|`, a
+            comma or a line break, or is too long.
+
+    Examples:
+        >>> IssuerConfig(issuer="https://login.example.org/", namespace="ls")
+        IssuerConfig(issuer='https://login.example.org/', namespace='ls')
+    """
+
+    issuer: str = Field(min_length=1)
+    namespace: str | None = Field(default=None, max_length=MAX_NAMESPACE_LENGTH)
+
+    @field_validator("namespace")
+    @classmethod
+    def validate_namespace(cls, v: str | None) -> str | None:
+        """Ensure that namespaced subjects cannot collide.
+
+        Args:
+            v: Namespace.
+
+        Returns:
+            Namespace.
+
+        Raises:
+            ValueError: The namespace contains `|`, the separator of
+                namespaced subjects, a comma or a line break, which policy
+                rules do not allow.
+        """
+        if v is not None and set(v) & _NAMESPACE_FORBIDDEN:
+            raise ValueError(
+                "Namespaces of issuers must not contain '|', commas or line "
+                f"breaks: {v!r}"
+            )
+        return v
+
+
 class AuthConfig(FOCABaseConfig):
     """Model for configuring JSON Web Token (JWT)-based authorization.
 
@@ -1263,8 +1420,12 @@ class AuthConfig(FOCABaseConfig):
 
     Args:
         issuers: Trusted token issuers, i.e., values of the `iss` claim of
-            accepted tokens. Tokens of other issuers are rejected without
-            contacting them. If empty, all tokens are rejected.
+            accepted tokens, as URLs or with settings of their own (cf.
+            :py:class:`IssuerConfig`). Tokens of other issuers are rejected
+            without contacting them. If empty, all tokens are rejected. With
+            several issuers, subjects are namespaced by issuer (cf.
+            `IssuerConfig.namespace`); issuers must have different
+            namespaces, and at most one may keep its subjects bare.
         add_key_to_claims: Whether to add the identity provider's public key
             that the token was verified with, in PEM format, to the claims.
         allow_expired: Allow/disallow expired JWTs. If ``False``, a ``401``
@@ -1365,8 +1526,9 @@ class AuthConfig(FOCABaseConfig):
             (or blank), client IDs of `service_clients` are not unique,
             service clients are not among the accepted `clients`, the
             issuer of a service client is not trusted or, with several
-            trusted `issuers`, not set, or `userinfo_claims` contain
-            `client_id` or `azp`.
+            trusted `issuers`, not set, `userinfo_claims` contain
+            `client_id` or `azp`, an issuer is listed with different
+            settings, or issuers have the same namespace (also none).
 
     Examples:
         >>> auth = AuthConfig(
@@ -1381,7 +1543,7 @@ class AuthConfig(FOCABaseConfig):
         ['at+jwt', 'application/at+jwt']
     """
 
-    issuers: list[str] = []
+    issuers: Sequence[str | IssuerConfig] = []
     add_key_to_claims: bool = True
     allow_expired: bool = False
     audience: list[str] | None = None
@@ -1496,6 +1658,89 @@ class AuthConfig(FOCABaseConfig):
             )
         return self
 
+    @property
+    def issuer_urls(self) -> list[str]:
+        """Trusted issuers, without duplicates, in the order of `issuers`."""
+        return list(
+            dict.fromkeys(
+                entry if isinstance(entry, str) else entry.issuer
+                for entry in self.issuers
+            )
+        )
+
+    def get_namespaces(self) -> dict[str, str | None]:
+        """Get the namespaces of the subjects of the trusted issuers.
+
+        Computed from `issuers` on each call (a few entries). Changes of
+        `issuers` after validation are not validated.
+
+        Returns:
+            Namespace of each trusted issuer, in the order of `issuers`: its
+            `namespace`, or by default the issuer if several issuers are
+            trusted; `None` if its subjects are bare (an empty or, with one
+            issuer, unset namespace).
+
+        Raises:
+            ValueError: An issuer is listed with different settings.
+        """
+        settings: dict[str, str | None] = {}
+        for entry in self.issuers:
+            issuer, namespace = (
+                (entry, None)
+                if isinstance(entry, str)
+                else (entry.issuer, entry.namespace)
+            )
+            if settings.setdefault(issuer, namespace) != namespace:
+                raise ValueError(
+                    f"Issuer '{issuer}' is listed with different settings "
+                    "(`security.auth.issuers`)"
+                )
+        several = len(settings) > 1
+        return {
+            issuer: (issuer if several else None)
+            if namespace is None
+            else (namespace or None)
+            for issuer, namespace in settings.items()
+        }
+
+    @model_validator(mode="after")
+    def validate_issuer_namespaces(self) -> Self:
+        """Ensure that subjects of different issuers cannot collide.
+
+        Returns:
+            Model instance.
+
+        Raises:
+            ValueError: An issuer is listed with different settings, an
+                issuer whose namespace defaults to the issuer contains `|`,
+                a comma or a line break, or is longer than
+                `MAX_NAMESPACE_LENGTH`, issuers share a namespace, or more
+                than one issuer keeps its subjects bare.
+        """
+        seen: dict[str | None, str] = {}
+        for issuer, namespace in self.get_namespaces().items():
+            if namespace == issuer and set(issuer) & _NAMESPACE_FORBIDDEN:
+                raise ValueError(
+                    f"Issuer '{issuer}' contains '|', a comma or a line break, "
+                    "so it cannot be the namespace of its subjects: set "
+                    "`security.auth.issuers[].namespace`"
+                )
+            if namespace == issuer and len(issuer) > MAX_NAMESPACE_LENGTH:
+                raise ValueError(
+                    f"Issuer '{issuer}' is longer than {MAX_NAMESPACE_LENGTH} "
+                    "characters, so it cannot be the namespace of its subjects: "
+                    "set a shorter `security.auth.issuers[].namespace`"
+                )
+            if namespace in seen:
+                what = "bare subjects" if namespace is None else "namespace"
+                raise ValueError(
+                    f"Issuers '{seen[namespace]}' and '{issuer}' have the same "
+                    f"{what}, so their subjects could collide: set different "
+                    "`security.auth.issuers[].namespace`"
+                )
+            seen[namespace] = issuer
+        return self
+
     @model_validator(mode="after")
     def validate_service_client_issuers(self) -> Self:
         """Require trusted issuers of service clients.
@@ -1508,7 +1753,8 @@ class AuthConfig(FOCABaseConfig):
                 issuer, or several issuers are trusted and the issuer of a
                 service client is not set.
         """
-        several_issuers = len(set(self.issuers)) > 1
+        issuers = self.issuer_urls
+        several_issuers = len(issuers) > 1
         for client in self.service_clients:
             if client.issuer is None:
                 if several_issuers:
@@ -1519,7 +1765,7 @@ class AuthConfig(FOCABaseConfig):
                         "of its service tokens, as client IDs are only unique "
                         "per issuer."
                     )
-            elif client.issuer not in self.issuers:
+            elif client.issuer not in issuers:
                 raise ValueError(
                     f"Issuer of service client '{client.client_id}' is not "
                     "trusted: set `security.auth.service_clients[].issuer` to "
@@ -1704,8 +1950,9 @@ class SecurityConfig(FOCABaseConfig):
                 (e.g., policies would not be enforced), access control is
                 enabled without trusted token issuers, in which case all
                 requests to the permissions API and to enforced operations
-                would be rejected, or clients that are not service clients
-                are mapped to roles.
+                would be rejected, clients that are not service clients
+                are mapped to roles, or the header of opt-in roles is that
+                of service clients acting for users.
         """
         access_control = self.access_control
         if not access_control.enabled:
@@ -1730,6 +1977,16 @@ class SecurityConfig(FOCABaseConfig):
             raise ValueError(
                 "'access_control.enabled' requires trusted token issuers "
                 "('auth.issuers')"
+            )
+        on_behalf_of = self.auth.on_behalf_of_header
+        if (
+            access_control.opt_in_roles
+            and on_behalf_of is not None
+            and on_behalf_of.lower() == access_control.opt_in_header.lower()
+        ):
+            raise ValueError(
+                "'access_control.opt_in_header' must differ from "
+                "'auth.on_behalf_of_header'"
             )
         service_clients = {client.client_id for client in self.auth.service_clients}
         unknown = sorted(set(access_control.client_mapping or {}) - service_clients)

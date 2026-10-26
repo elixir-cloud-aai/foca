@@ -23,6 +23,7 @@ from foca.models.config import (
     DBConfig,
     ExceptionConfig,
     IndexConfig,
+    IssuerConfig,
     MongoConfig,
     SecurityConfig,
     ServerConfig,
@@ -671,6 +672,94 @@ def test_AuthConfig_service_clients() -> None:
     assert [client.on_behalf_of for client in res.service_clients] == [False, True]
 
 
+A = "https://a.example.org"
+B = "https://b.example.org"
+
+
+@pytest.mark.parametrize(
+    "issuers,namespaces",
+    [
+        # one issuer: bare by default
+        ([A], [None]),
+        ([A, A], [None]),
+        ([{"issuer": A}], [None]),
+        ([A, {"issuer": A}], [None]),
+        ([{"issuer": A, "namespace": "a"}], ["a"]),
+        ([{"issuer": A, "namespace": ""}], [None]),
+        # several issuers: the issuer by default
+        ([A, B], [A, B]),
+        ([{"issuer": A, "namespace": ""}, B], [None, B]),
+        (
+            [{"issuer": A, "namespace": "x"}, {"issuer": B, "namespace": "y"}],
+            ["x", "y"],
+        ),
+        # a namespace may equal another issuer, as long as it is unique
+        ([{"issuer": A, "namespace": B}, {"issuer": B, "namespace": A}], [B, A]),
+    ],
+)
+def test_AuthConfig_issuer_namespaces(
+    issuers: list[Any], namespaces: list[str | None]
+) -> None:
+    """Test AuthConfig instantiation; namespaces of issuers."""
+    res = AuthConfig.model_validate({"issuers": issuers, "audience": ["foca"]})
+    assert list(res.get_namespaces().values()) == namespaces
+    assert list(res.get_namespaces()) == res.issuer_urls
+
+
+@pytest.mark.parametrize(
+    "issuers,match",
+    [
+        # several bare issuers
+        ([{"issuer": A, "namespace": ""}, {"issuer": B, "namespace": ""}], "bare"),
+        # same namespace
+        ([{"issuer": A, "namespace": "x"}, {"issuer": B, "namespace": "x"}], "same"),
+        ([A, {"issuer": B, "namespace": A}], "same namespace"),
+        # different settings for the same issuer
+        ([A, {"issuer": A, "namespace": "a"}], "different settings"),
+        # issuers with forbidden characters cannot be the default namespace
+        (["https://a.example.org/|x", B], "set `security"),
+        # forbidden characters
+        ([{"issuer": A, "namespace": "a|b"}], "must not contain"),
+        ([{"issuer": A, "namespace": "a,b"}], "must not contain"),
+        ([{"issuer": A, "namespace": "a\nb"}], "must not contain"),
+        ([{"issuer": ""}], "at least 1 character"),
+        ([{"issuer": A, "namespace": "x" * 257}], "at most 256 characters"),
+        ([f"https://{'x' * 250}.org", B], "shorter"),
+    ],
+)
+def test_AuthConfig_issuer_namespaces_invalid(issuers: list[Any], match: str) -> None:
+    """Test AuthConfig instantiation; conflicting namespaces of issuers."""
+    with pytest.raises(ValidationError, match=match):
+        AuthConfig.model_validate({"issuers": issuers, "audience": ["foca"]})
+
+
+def test_AuthConfig_issuer_one_with_forbidden_characters() -> None:
+    """Test AuthConfig instantiation; a single issuer is not a namespace."""
+    res = AuthConfig(issuers=["https://a.example.org/|x"], audience=["foca"])
+    assert res.get_namespaces() == {"https://a.example.org/|x": None}
+    assert res.issuer_urls == ["https://a.example.org/|x"]
+
+
+def test_AuthConfig_service_client_issuer_objects() -> None:
+    """Test AuthConfig instantiation; service clients of issuer objects."""
+    res = AuthConfig.model_validate(
+        {
+            "issuers": [{"issuer": A, "namespace": ""}, IssuerConfig(issuer=B)],
+            "audience": ["foca"],
+            "service_clients": [{"client_id": "conquest", "issuer": B}],
+        }
+    )
+    assert res.service_clients[0].issuer == B
+    with pytest.raises(ValidationError, match="issuer"):
+        AuthConfig.model_validate(
+            {
+                "issuers": [{"issuer": A, "namespace": ""}, B],
+                "audience": ["foca"],
+                "service_clients": [{"client_id": "conquest"}],
+            }
+        )
+
+
 @pytest.mark.parametrize(
     "issuers,issuer",
     [
@@ -999,3 +1088,110 @@ def test_docstring_examples() -> None:
     results = doctest.testmod(foca.models.config)
     assert results.attempted > 0
     assert results.failed == 0
+
+
+def test_AccessControlConfig_opt_in_roles() -> None:
+    """Opt-in roles are roles of the group mapping."""
+    conf = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping={"admins": "admin"},
+        opt_in_roles=["admin"],
+        policies=[["g", "admin", "editor"]],
+    )
+    assert conf.opt_in_roles == ["admin"]
+    assert conf.opt_in_header == "X-Request-Roles"
+    assert AccessControlConfig().opt_in_roles == []
+    custom = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping={"admins": "admin"},
+        opt_in_roles=["admin"],
+        opt_in_header="Admin-Mode",
+    )
+    assert custom.opt_in_header == "Admin-Mode"
+
+
+def test_SecurityConfig_opt_in_header_clash() -> None:
+    """The header of opt-in roles differs from that of service clients."""
+    access_control = {
+        "claim_groups": "groups",
+        "group_mapping": {"admins": "admin"},
+        "opt_in_roles": ["admin"],
+        "opt_in_header": "X-On-Behalf-Of",
+    }
+    with pytest.raises(ValidationError, match="must differ"):
+        SecurityConfig.model_validate(
+            {
+                "access_control": access_control,
+                "auth": {"on_behalf_of_header": "x-on-behalf-of"},
+            }
+        )
+    SecurityConfig.model_validate(
+        {
+            "access_control": {**access_control, "opt_in_roles": []},
+            "auth": {"on_behalf_of_header": "X-On-Behalf-Of"},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [
+        ({"opt_in_roles": ["admin"]}, "must be roles of 'group_mapping'"),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin", "ops"],
+            },
+            "opted in to: ops",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin"],
+                "policies": [["g", "user:alice", "admin"]],
+            },
+            "must not grant the opt-in role 'admin'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin", "ops": "ops"},
+                "opt_in_roles": ["admin"],
+                "policies": [["g", "ops", "admin"]],
+            },
+            "to 'ops'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin"],
+                "policies": [["g2", "user:alice", "admin", "/items/1"]],
+            },
+            "must not grant the opt-in role 'admin'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin"],
+                "policies": {"first-admin": ["g", "user:alice", "admin"]},
+            },
+            "must not grant the opt-in role 'admin'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin", "root": "superadmin"},
+                "opt_in_roles": ["admin", "superadmin"],
+                "policies": [["g", "superadmin", "admin"]],
+            },
+            "to 'superadmin'",
+        ),
+        ({"opt_in_header": "X Roles"}, "no valid header name"),
+        ({"opt_in_header": "X_Request_Roles"}, "without '_'"),
+        ({"opt_in_header": ""}, "no valid header name"),
+    ],
+)
+def test_AccessControlConfig_invalid_opt_in_roles(
+    kwargs: dict[str, Any], message: str
+) -> None:
+    """Opt-in roles that could not apply as opt-in are refused."""
+    with pytest.raises(ValidationError, match=message):
+        AccessControlConfig(claim_groups="groups", **kwargs)
