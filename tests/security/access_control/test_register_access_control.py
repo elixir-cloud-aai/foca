@@ -418,6 +418,8 @@ def test_issuer_group_claims_empty_mapping(
     assert (EMPTY_MAPPING in caplog.text) is warned
     # group subjects count for `admin` only with a group claim
     assert (NO_ADMIN in caplog.text) is warned
+    # the message names group claims of issuers, too
+    assert ("'security.auth.issuers[].claim_groups' set" in caplog.text) is warned
 
 
 def test_check_admin_role_clients(caplog: pytest.LogCaptureFixture) -> None:

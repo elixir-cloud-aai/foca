@@ -393,7 +393,8 @@ def _check_admin_role(
     missing = (
         f"No group or service client is mapped to the role '{ADMIN_ROLE}' "
         "('security.access_control.group_mapping', with "
-        "'security.access_control.claim_groups' set, or "
+        "'security.access_control.claim_groups' or "
+        "'security.auth.issuers[].claim_groups' set, or "
         "'security.access_control.client_mapping') and no configured policy "
         "rule that applies grants it ('security.access_control.policies')"
     )
