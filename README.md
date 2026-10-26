@@ -33,6 +33,11 @@ the logic of your app. It provides:
   [RabbitMQ](https://www.rabbitmq.com/);
 - CORS and a [GA4GH service
   info](https://github.com/ga4gh-discovery/ga4gh-service-info) endpoint;
+- a plugin engine for gateway apps (e.g., proTES): installed, versioned
+  plugins that check, change and route requests to backends, in pipelines
+  set by operators;
+- an HTTP client for untrusted URLs, guarded against server-side request
+  forgery;
 - Docker base images with SBOM and provenance attestations, and a Helm library
   chart for Kubernetes with a provenance attestation, all signed.
 <!-- --8<-- [end:synopsis] -->
@@ -40,9 +45,10 @@ the logic of your app. It provides:
 **Read the [documentation][docs]** for the configuration, authentication,
 access control, the deployment with Docker and Helm, the utilities, the API
 reference and development. Upgrading from an earlier version? See [Migrating
-to 0.17.0][docs-migration] (from 0.15 or earlier, first [Migrating to
-0.16.0][docs-migration-0.16], [Migrating to 0.15.0][docs-migration-0.15] and
-[Migrating to 0.14.0][docs-migration-0.14]).
+to 0.18.0][docs-migration] (from 0.16 or earlier, first [Migrating to
+0.17.0][docs-migration-0.17], [Migrating to 0.16.0][docs-migration-0.16],
+[Migrating to 0.15.0][docs-migration-0.15] and [Migrating to
+0.14.0][docs-migration-0.14]).
 
 ## Why FOCA
 
@@ -152,10 +158,11 @@ conduct][code-of-conduct].
 [docs-config]: <https://foca.readthedocs.io/en/latest/configuration/>
 [docs-contributing]: <https://foca.readthedocs.io/en/latest/contributing/>
 [docs-getting-started]: <https://foca.readthedocs.io/en/latest/getting-started/>
-[docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.17/>
+[docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.18/>
 [docs-migration-0.14]: <https://foca.readthedocs.io/en/latest/migration-0.14/>
 [docs-migration-0.15]: <https://foca.readthedocs.io/en/latest/migration-0.15/>
 [docs-migration-0.16]: <https://foca.readthedocs.io/en/latest/migration-0.16/>
+[docs-migration-0.17]: <https://foca.readthedocs.io/en/latest/migration-0.17/>
 [example]: <https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore>
 [logo]: <https://raw.githubusercontent.com/elixir-cloud-aai/foca/dev/docs/images/logo_elixir_on_cloud.png>
 [org]: <https://elixir-on.cloud/>
