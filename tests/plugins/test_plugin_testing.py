@@ -250,6 +250,12 @@ def test_builders() -> None:
     principal = make_principal(groups=["admin"])
     assert principal.claims == {"sub": "user", "iss": "https://login.example.org"}
     assert principal.groups == ("admin",)
+    assert principal.subject_type == "user"
+    client = make_principal("portal", subject_type="client", acting_for="alice")
+    assert (client.subject_type, client.acting_for) == ("client", "alice")
+    assert make_principal(None).subject_type is None
+    with pytest.raises(ValueError, match="needs a subject"):
+        make_principal(None, subject_type="client")
     assert make_principal(claims={}).claims == {}
     inbound = make_inbound(headers={"X-A": "1"}, query={"q": ["1"]})
     assert inbound.payload["executors"][0]["image"] == "alpine"

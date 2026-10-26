@@ -514,7 +514,8 @@ trusted issuers) and roles of the current request, and
 (`get_claim_groups(issuer)` returns the group claim applying to tokens of an
 issuer) as is
 (neither mapped nor prefixed); `get_current_claims()` returns a copy of all
-claims of its token. `get_current_roles()` returns all roles that access
+claims of its token. While `get_current_groups()` returns the roles from
+group claims only, `get_current_roles()` returns all roles that access
 control applies to the request: also the role of a service client
 (`client_mapping`) and roles granted via global role rules (`g`), also
 transitively (e.g., to restrict features of the app to roles):
@@ -556,7 +557,7 @@ The header lists roles separated by commas, compared exactly. Asking for a
 role grants nothing that the token's groups don't entitle to: roles that the
 subject doesn't have, and roles that aren't opt-in, are ignored. Opt-in roles
 apply to everything that uses the roles of a request: enforcement,
-`get_current_groups()`, `is_admin()`, self-service listings and the [roles
+`get_current_groups()`, `get_current_roles()`, `is_admin()`, self-service listings and the [roles
 of gateway plugins](plugins.md).
 
 Only roles of `group_mapping` can be opt-in. Rules must not grant them

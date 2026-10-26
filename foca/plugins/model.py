@@ -225,7 +225,8 @@ class Principal:
             or the client ID of a service client (cf.
             :py:func:`foca.security.access_control.get_current_client`).
         subject_type: Type of the subject: `user` or `client`; `None` if
-            the caller is not identified.
+            the caller is not identified. Defaults to `user` if there is a
+            subject.
         acting_for: User that a service client acts for, as named in the
             header `auth.on_behalf_of_header` (cf.
             :py:func:`foca.security.access_control.get_on_behalf_of_user`);
@@ -234,7 +235,7 @@ class Principal:
         issuer: Issuer of the caller's token, if known.
         groups: Roles of the caller, as access control applies them (cf.
             :py:func:`foca.security.access_control.get_current_roles`):
-            mapped from the service client or from group claims, and
+            mapped from the service client and from group claims, and
             granted via global role rules.
         claims: Validated claims of the caller's token.
         token: The caller's bearer token, e.g., for token exchange or
@@ -248,6 +249,19 @@ class Principal:
     groups: tuple[str, ...] = ()
     claims: Mapping[str, Any] = field(default_factory=dict, hash=False)
     token: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        """Default the type of a subject to `user`.
+
+        Raises:
+            ValueError: A subject type is given without a subject.
+        """
+        if self.subject is None:
+            if self.subject_type is not None:
+                raise ValueError("A subject type needs a subject")
+        elif self.subject_type is None:
+            # frozen dataclass
+            object.__setattr__(self, "subject_type", "user")
 
 
 @dataclass

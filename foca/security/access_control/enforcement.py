@@ -333,11 +333,27 @@ def get_current_roles() -> list[str]:
     identity, roles = _get_current_identity_and_roles()
     if not (identity or roles) or not _get_access_control_config().enabled:
         return roles
+    subjects = [*identity, *roles]
     granted: list[str] = []
     with locked_enforcer() as enforcer:
         if _has_global_roles(enforcer):
-            for subject in [*identity, *roles]:
-                granted.extend(enforcer.get_implicit_roles_for_user(subject))
+            # Global roles only (not, e.g., resource-scoped roles or object
+            # groups of other role definitions), within Casbin's maximum
+            # hierarchy level, as enforcement applies them
+            role_manager = enforcer.get_role_manager()
+            queue = list(subjects)
+            while queue:
+                for role in role_manager.get_roles(queue.pop(0)):
+                    if role not in granted:
+                        granted.append(role)
+                        queue.append(role)
+            granted = [
+                role
+                for role in granted
+                if any(role_manager.has_link(subject, role) for subject in subjects)
+            ]
+    # Rules may lead back to the identity (e.g., `g, admin, user:alice`),
+    # which is no role
     return [role for role in dict.fromkeys([*roles, *granted]) if role not in identity]
 
 

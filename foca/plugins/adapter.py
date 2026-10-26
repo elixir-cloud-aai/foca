@@ -55,9 +55,9 @@ def current_principal() -> Principal:
 
     Raises:
         connexion.exceptions.BadRequestProblem: The user named in
-            `auth.on_behalf_of_header` is invalid.
+            `auth.on_behalf_of_header` is invalid (`400`).
         connexion.exceptions.Forbidden: The caller names a user, but is not
-            a service client allowed to act for users.
+            a service client allowed to act for users (`403`).
     """
     if not has_request_context():
         return Principal()
@@ -65,10 +65,10 @@ def current_principal() -> Principal:
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     issuer = claims.get("iss")
     client = get_current_client()
-    subject = client if client is not None else get_current_subject()
-    subject_type: Literal["user", "client"] | None = (
-        None if subject is None else "client" if client is not None else "user"
-    )
+    subject: str | None = client
+    subject_type: Literal["client"] | None = "client"
+    if client is None:
+        subject, subject_type = get_current_subject(), None  # user, if any
     return Principal(
         subject=subject,
         subject_type=subject_type,

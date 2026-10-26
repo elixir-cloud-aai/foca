@@ -12,7 +12,7 @@ from foca.plugins import Rejected, adapter
 from foca.plugins.engine import LoopDetected, PipelineRejected
 from foca.plugins.model import Principal
 from foca.security.access_control.enforcement import locked_enforcer
-from tests.security.access_control.test_ownership import (
+from tests.security.access_control.callers import (
     ADMINS,
     ALICE,
     CAROL,
@@ -20,8 +20,8 @@ from tests.security.access_control.test_ownership import (
     DAVE,
     HEADER,
     PROTES,
-    _create_app,
     as_caller,
+    create_app,
 )
 
 
@@ -139,7 +139,7 @@ class TestPrincipalIdentity:
 
     def test_user(self) -> None:
         """Users are identified by their subject, with group roles."""
-        app = _create_app()
+        app = create_app()
         with as_caller(app, ALICE):
             principal = adapter.current_principal()
         assert principal.subject == "alice"
@@ -149,7 +149,7 @@ class TestPrincipalIdentity:
 
     def test_client_mapping(self) -> None:
         """Service clients get their client ID and mapped role."""
-        app = _create_app(client_mapping={"protes": "admin"})
+        app = create_app(client_mapping={"protes": "admin"})
         with as_caller(app, PROTES):
             principal = adapter.current_principal()
         assert principal.subject == "protes"
@@ -158,7 +158,7 @@ class TestPrincipalIdentity:
 
     def test_g_rules(self) -> None:
         """Roles from global role rules count, also transitively."""
-        app = _create_app()
+        app = create_app()
         with app.app_context(), locked_enforcer() as enforcer:
             enforcer.add_grouping_policy("user:dave", "admin")
             enforcer.add_grouping_policy("superusers", "admin")
@@ -171,7 +171,7 @@ class TestPrincipalIdentity:
 
     def test_on_behalf_of(self) -> None:
         """Service clients acting for users name them."""
-        app = _create_app()
+        app = create_app()
         with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
             principal = adapter.current_principal()
         assert principal.subject == "conquest"
@@ -185,7 +185,7 @@ class TestPrincipalIdentity:
 
     def test_without_access_control(self) -> None:
         """Without access control, roles come from group claims only."""
-        app = _create_app()
+        app = create_app()
         app.config.foca.security.access_control.enabled = False  # type: ignore[attr-defined]  # dynamic attribute
         del app.config["CASBIN_MODEL"]
         with as_caller(app, CAROL):

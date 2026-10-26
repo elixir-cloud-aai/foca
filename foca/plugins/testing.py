@@ -109,8 +109,8 @@ def make_principal(
 
     Args:
         subject: Subject.
-        subject_type: Type of the subject; defaults to `user` if there is
-            a subject.
+        subject_type: Type of the subject (`user` or `client`); defaults
+            to `user` if there is a subject.
         acting_for: User that a service client acts for.
         groups: Groups (roles).
         claims: Claims; default to `sub` and `iss`.
@@ -122,8 +122,6 @@ def make_principal(
     """
     if claims is None:
         claims = {"sub": subject, "iss": issuer}
-    if subject_type is None and subject is not None:
-        subject_type = "user"
     return Principal(
         subject=subject,
         subject_type=subject_type,
