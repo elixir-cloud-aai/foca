@@ -1,6 +1,7 @@
 """Tests of the plugin listing (`foca.plugins.api`)."""
 
 import json
+import sys
 from importlib.resources import path as resource_path
 from pathlib import Path
 from typing import Any
@@ -401,6 +402,7 @@ def test_spec_merged_with_app_controller(
         '    """Show a pet."""\n'
     )
     monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "petstore_controllers", raising=False)
     petstore = Path(__file__).parents[1] / "test_files/openapi_3_petstore.original.yaml"
     config = tmp_path / "config.yaml"
     config.write_text(
