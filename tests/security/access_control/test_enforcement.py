@@ -1530,6 +1530,31 @@ class TestOptInRoles:
         finally:
             ctx.pop()
 
+    @pytest.mark.parametrize(
+        "group_mapping,groups",
+        [
+            (None, [f"group:{ADMIN_ENTITLEMENT}"]),
+            ({"ops": "operator"}, []),
+        ],
+    )
+    def test_unmapped(
+        self,
+        helper_app: Flask,
+        group_mapping: dict[str, str] | None,
+        groups: list[str],
+    ) -> None:
+        """Nobody can opt in to roles that no group is mapped to."""
+        self._opt_in(helper_app, group_mapping=group_mapping)
+        claims = {"sub": "carol", "groups": [ADMIN_ENTITLEMENT]}
+        ctx = self._context(helper_app, claims, [("X-Request-Roles", "admin")])
+        try:
+            assert get_available_opt_in_roles() == []
+            assert get_active_opt_in_roles() == []
+            assert get_current_groups() == groups
+            assert is_admin() is False
+        finally:
+            ctx.pop()
+
     def test_other_roles_apply(self, helper_app: Flask) -> None:
         """Roles that are not opt-in always apply."""
         mapping = {ADMIN_ENTITLEMENT: "admin", "ops": "operator"}
@@ -1615,6 +1640,16 @@ class TestOptInRoles:
             headers={**_headers("carol"), "X-Request-Roles": "admin"},
         )
         assert response.status_code == status
+
+    def test_permissions_api_unmapped(self, tmp_path: Path) -> None:
+        """Rules granting opt-in roles that no group is mapped to are refused."""
+        app = _create_app(tmp_path, _access_control_config(opt_in_roles=["auditor"]))
+        response = app.test_client().post(
+            "/admin/access-control/permissions",
+            json={"policy_type": "g", "rule": {"v0": "user:dave", "v1": "auditor"}},
+            headers=_headers("carol"),
+        )
+        assert response.status_code == 400
 
     def test_stored_grants_warned(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture

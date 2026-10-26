@@ -280,10 +280,12 @@ def _check_group_config(
 def check_opt_in_roles(
     access_control_config: AccessControlConfig, cors_config: CORSConfig
 ) -> None:
-    """Log the opt-in roles, and warn if browsers cannot ask for them.
+    """Log the opt-in roles, and warn if nobody or no browser can ask for them.
 
     Run by `Foca.create_app()` also without access control, as gateway
-    plugins use the roles, too.
+    plugins use the roles, too. Warns of opt-in roles that no group is mapped
+    to (`group_mapping`), which nobody can opt in to, and of a header of
+    opt-in roles that cross-origin requests may not send.
 
     Args:
         access_control_config: Access control configuration.
@@ -292,6 +294,16 @@ def check_opt_in_roles(
     conf = access_control_config
     header = conf.opt_in_header
     logger.info("Opt-in roles: %s (header '%s').", ", ".join(conf.opt_in_roles), header)
+    mapped = set((conf.group_mapping or {}).values())
+    unmapped = [role for role in conf.opt_in_roles if role not in mapped]
+    if unmapped:
+        logger.warning(
+            "No group is mapped to the opt-in roles "
+            "('security.access_control.group_mapping'): %s. No user can opt "
+            "in to them until groups are mapped to them (service clients "
+            "mapped to them always have them).",
+            ", ".join(unmapped),
+        )
     if not cors_config.enabled:
         return
     if not any(_allows(value, header) for value in cors_config.allow_headers):

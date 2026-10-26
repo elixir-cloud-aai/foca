@@ -155,8 +155,9 @@ warnings, naming the setting to change, among others:
   `group_mapping` without `keep_group_subjects`, `keep_group_subjects`
   without `group_mapping`, several trusted issuers with group claims (their
   values are not namespaced by issuer), and stored configured rules removed as
-  `policies` is not set; opt-in roles that CORS doesn't
-  allow to ask for (also without access control);
+  `policies` is not set; opt-in roles that no group is mapped to, and
+  opt-in roles that CORS doesn't allow to ask for (also without access
+  control);
 - [service info](configuration/service-info.md#placeholders): values in
   reserved example domains, as in templates;
 - [authentication](configuration/auth.md), on the first token validation

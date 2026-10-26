@@ -535,7 +535,7 @@ def test_AccessControlConfig_mapped_resource_roles_invalid(
     data: dict[str, Any] = {mapping: {"x": role}}
     if resource_roles is not None:
         data["resource_roles"] = resource_roles
-    with pytest.raises(ValidationError, match=f"must not map to '{role}'"):
+    with pytest.raises(ValidationError, match=f"must not include '{role}'"):
         AccessControlConfig.model_validate(data)
 
 
@@ -1136,13 +1136,13 @@ def test_SecurityConfig_opt_in_header_clash() -> None:
 @pytest.mark.parametrize(
     "kwargs,message",
     [
-        ({"opt_in_roles": ["admin"]}, "must be roles of 'group_mapping'"),
+        # also if no group is mapped to the role
         (
             {
-                "group_mapping": {"admins": "admin"},
-                "opt_in_roles": ["admin", "ops"],
+                "opt_in_roles": ["admin"],
+                "policies": [["g", "user:alice", "admin"]],
             },
-            "opted in to: ops",
+            "must not grant the opt-in role 'admin'",
         ),
         (
             {
@@ -1184,6 +1184,11 @@ def test_SecurityConfig_opt_in_header_clash() -> None:
             },
             "to 'superadmin'",
         ),
+        # checked like mapped roles, also if no group is mapped to them
+        ({"opt_in_roles": ["owner"]}, "must not include 'owner'"),
+        ({"opt_in_roles": ["group:admins"]}, "must not start with 'group:'"),
+        ({"opt_in_roles": ["user:alice"]}, "must not start with 'user:'"),
+        ({"opt_in_roles": ["client:svc"]}, "must not start with 'client:'"),
         ({"opt_in_header": "X Roles"}, "no valid header name"),
         ({"opt_in_header": "X_Request_Roles"}, "without '_'"),
         ({"opt_in_header": ""}, "no valid header name"),
@@ -1192,6 +1197,30 @@ def test_SecurityConfig_opt_in_header_clash() -> None:
 def test_AccessControlConfig_invalid_opt_in_roles(
     kwargs: dict[str, Any], message: str
 ) -> None:
-    """Opt-in roles that could not apply as opt-in are refused."""
+    """Opt-in settings under which roles could apply without opt-in are refused.
+
+    I.e., rules granting opt-in roles, opt-in roles that are resource roles
+    or subjects, and invalid header names.
+    """
     with pytest.raises(ValidationError, match=message):
         AccessControlConfig(claim_groups="groups", **kwargs)
+
+
+@pytest.mark.parametrize(
+    "group_mapping",
+    [None, {}, {"admins": "admin"}],
+)
+def test_AccessControlConfig_unmapped_opt_in_roles(
+    group_mapping: dict[str, str] | None,
+) -> None:
+    """Opt-in roles need no group mapping to them (e.g., in a base config).
+
+    Nobody can opt in to them until groups are mapped to them; the app
+    warns of them on startup (cf. `check_opt_in_roles()`).
+    """
+    conf = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping=group_mapping,
+        opt_in_roles=["admin", "ops"],
+    )
+    assert conf.opt_in_roles == ["admin", "ops"]

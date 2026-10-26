@@ -39,11 +39,12 @@ Access control requires `enabled: true` and trusted token
 `enforce: true`, policies are enforced on all operations that require
 authentication. `client_mapping` maps [service
 clients](../authentication.md#service-tokens) (`security.auth.service_clients`)
-to roles; other clients cannot be mapped. `opt_in_roles` lists roles of
-`group_mapping` that apply only to requests asking for them in the header
+to roles; other clients cannot be mapped. `opt_in_roles` lists roles
+(of `group_mapping`) that apply only to requests asking for them in the header
 `opt_in_header` (default: `X-Request-Roles`), e.g., for an admin mode (see
 [opt-in roles](../access-control.md#opt-in-roles)); by default, there are
-none. `resource_roles` are the roles
+none. Roles that no group is mapped to yet are allowed (e.g., in an app's
+base config), with a warning on startup. `resource_roles` are the roles
 that the [resource ownership](../access-control.md#resource-ownership) helpers
 grant and revoke. `policies` can also be given as named rules, so that
 config overlays can change single rules (see [configuring
@@ -86,10 +87,13 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   the resource ownership helpers refuse to grant them. Set
   `keep_group_subjects: true` if the app grants roles to groups.
 - **Opt-in roles:** the opt-in roles and their header are logged
-  (`INFO`), and a warning is logged if CORS is enabled but doesn't allow
-  the header. This also runs without access control, as gateway plugins
-  use the roles, too. Invalid opt-in settings already fail validation of
-  the configuration (see [opt-in roles](../access-control.md#opt-in-roles)).
+  (`INFO`), and a warning is logged for opt-in roles that no group is
+  mapped to (no user can opt in to them), and if CORS is enabled but
+  doesn't allow the header. This also runs without access control, as
+  gateway plugins use the roles, too. Opt-in settings under which roles
+  could apply without opt-in (e.g., rules granting them) already fail
+  validation of the configuration (see [opt-in
+  roles](../access-control.md#opt-in-roles)).
 - `keep_group_subjects` without `group_mapping` (no effect) and several
   trusted `issuers` with group claims (their values are not namespaced by
   issuer) are

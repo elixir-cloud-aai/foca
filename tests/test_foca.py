@@ -480,6 +480,53 @@ def test_foca_no_opt_in_roles() -> None:
     assert "X-Request-Roles" not in response.headers.get("Vary", "")
 
 
+@pytest.mark.parametrize(
+    "group_mapping,unmapped",
+    [
+        (None, "admin, ops"),
+        ({}, "admin, ops"),
+        ({"admins": "admin"}, "ops"),
+        ({"admins": "admin", "operators": "ops"}, None),
+    ],
+)
+def test_check_opt_in_roles_unmapped(
+    log: pytest.LogCaptureFixture,
+    group_mapping: dict[str, str] | None,
+    unmapped: str | None,
+) -> None:
+    """Opt-in roles that no group is mapped to are warned of."""
+    access_control = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping=group_mapping,
+        opt_in_roles=["admin", "ops"],
+    )
+    check_opt_in_roles(access_control, CORSConfig())
+    warnings = [
+        record.getMessage() for record in log.records if record.levelname == "WARNING"
+    ]
+    if unmapped is None:
+        assert not warnings
+    else:
+        assert len(warnings) == 1
+        assert warnings[0].startswith(
+            "No group is mapped to the opt-in roles "
+            f"('security.access_control.group_mapping'): {unmapped}."
+        )
+
+
+def test_foca_unmapped_opt_in_roles(
+    tmp_path: Path, log: pytest.LogCaptureFixture
+) -> None:
+    """Apps start with opt-in roles that no group is mapped to, and warn."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        safe_dump({"security": {"access_control": {"opt_in_roles": ["admin"]}}})
+    )
+    app = Foca(config_file=config_file).create_app()
+    assert "X-Request-Roles" in app.app.test_client().get("/unknown").headers["Vary"]
+    assert "No group is mapped to the opt-in roles" in log.text
+
+
 def test_check_opt_in_roles_invalid_pattern(log: pytest.LogCaptureFixture) -> None:
     """Invalid patterns of allowed headers allow no header."""
     access_control = AccessControlConfig(

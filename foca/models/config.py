@@ -801,14 +801,19 @@ class AccessControlConfig(FOCABaseConfig):
             mapped to (e.g., to grant resource-scoped roles to groups). Has
             no effect without `group_mapping`, as values are then always
             used as such.
-        opt_in_roles: Roles of `group_mapping` that apply only to requests
+        opt_in_roles: Roles (of `group_mapping`) that apply only to requests
             that ask for them in the header `opt_in_header` (e.g., `admin`,
-            so that admins act as regular users unless they opt in). Asking
+            so that admins act as regular users unless they opt in). Like
+            mapped roles, they must not be `resource_roles` or start with a
+            prefix of subjects. Asking
             for a role grants nothing that the token's groups do not
             entitle to. Roles of service clients (`client_mapping`) always
             apply, and rules must not grant opt-in roles (cf.
             :py:func:`foca.security.access_control.enforcement.grants_opt_in_role`
-            and the guide on opt-in roles). If empty (default), all mapped
+            and the guide on opt-in roles). Roles that no group is mapped
+            to are allowed (e.g., in the base config of an app, whose
+            deployments set the mapping), but nobody can opt in to them; the
+            app warns of them on startup. If empty (default), all mapped
             roles always apply.
         opt_in_header: Request header in which requests ask for opt-in
             roles, as a comma-separated list (e.g., `X-Request-Roles:
@@ -887,8 +892,8 @@ class AccessControlConfig(FOCABaseConfig):
         group_mapping: Mapping of values of `claim_groups` to roles.
         keep_group_subjects: Whether to also use values of `claim_groups`
             as subjects if `group_mapping` is set.
-        opt_in_roles: Roles of `group_mapping` that apply only to requests
-            that ask for them.
+        opt_in_roles: Roles (of `group_mapping`) that apply only to
+            requests that ask for them.
         opt_in_header: Request header in which requests ask for opt-in
             roles.
         require_admin: Refuse to start if no group, service client or
@@ -1067,31 +1072,36 @@ class AccessControlConfig(FOCABaseConfig):
 
     @model_validator(mode="after")
     def validate_mapped_roles(self) -> Self:
-        """Ensure that roles mapped from group claims or clients are global roles.
+        """Ensure that mapped and opt-in roles are global roles.
+
+        Also checks the opt-in roles, which may not be mapped yet (cf.
+        `validate_opt_in_roles()`), as groups are to be mapped to them.
 
         Returns:
             Validated access control configuration.
 
         Raises:
-            ValueError: A role of `group_mapping` or `client_mapping` is one
-                of `resource_roles`, so that the mapped groups or clients
-                would have that role on every resource (a mapped role is a
-                subject of its own, which matches the policy rules of the
-                role on all resources), or it starts with `subject_prefix`,
-                `group:` or `client:`, so that the mapped groups or clients
-                would get the rights of that subject.
+            ValueError: A role of `group_mapping`, `client_mapping` or
+                `opt_in_roles` is one of `resource_roles`, so that the mapped
+                groups or clients would have that role on every resource (a
+                mapped role is a subject of its own, which matches the
+                policy rules of the role on all resources), or it starts
+                with `subject_prefix`, `group:` or `client:`, so that the
+                mapped groups or clients would get the rights of that
+                subject (and subjects always apply, also without opt-in).
         """
         prefixes = [self.subject_prefix, *SUBJECT_TYPE_PREFIXES.values()]
-        for name, mapping in (
-            ("group_mapping", self.group_mapping),
-            ("client_mapping", self.client_mapping),
+        for name, roles in (
+            ("group_mapping", list((self.group_mapping or {}).values())),
+            ("client_mapping", list((self.client_mapping or {}).values())),
+            ("opt_in_roles", self.opt_in_roles),
         ):
-            for role in (mapping or {}).values():
+            for role in roles:
                 if role in self.resource_roles:
                     raise ValueError(
-                        f"'{name}' must not map to '{role}', a role of "
-                        "'resource_roles', as mapped subjects would otherwise "
-                        "have that role on every resource"
+                        f"Roles of '{name}' must not include '{role}', a role "
+                        "of 'resource_roles', as mapped subjects would "
+                        "otherwise have that role on every resource"
                     )
                 for prefix in prefixes:
                     if role.startswith(prefix):
@@ -1128,24 +1138,20 @@ class AccessControlConfig(FOCABaseConfig):
     def validate_opt_in_roles(self) -> Self:
         """Ensure that opt-in roles apply only to requests that ask for them.
 
+        Opt-in roles that no group is mapped to are allowed, e.g., in the
+        base config of an app whose deployments set `group_mapping`; nobody
+        can opt in to them, and `Foca.create_app()` warns of them (cf.
+        :py:func:`foca.security.access_control.register_access_control.check_opt_in_roles`).
+
         Returns:
             Validated access control configuration.
 
         Raises:
-            ValueError: An opt-in role is not a role of `group_mapping`, so
-                that nobody could opt in to it, or a configured role rule of
-                `policies` (`g`, also resource-scoped, e.g., `g2`) grants an
-                opt-in role (e.g., `[g, "user:alice", admin]`), also to
-                another opt-in role, as the role would then apply without
-                asking for it.
+            ValueError: A configured role rule of `policies` (`g`, also
+                resource-scoped, e.g., `g2`) grants an opt-in role (e.g.,
+                `[g, "user:alice", admin]`), also to another opt-in role, as
+                the role would then apply without asking for it.
         """
-        mapped = set((self.group_mapping or {}).values())
-        unmapped = [role for role in self.opt_in_roles if role not in mapped]
-        if unmapped:
-            raise ValueError(
-                "'opt_in_roles' must be roles of 'group_mapping', as only "
-                f"roles from group claims can be opted in to: {', '.join(unmapped)}"
-            )
         # Imported here, as the access control package imports this module
         from foca.security.access_control.enforcement import (  # noqa: PLC0415
             grants_opt_in_role,
