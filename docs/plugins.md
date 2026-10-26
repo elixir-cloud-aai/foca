@@ -693,7 +693,11 @@ Apps serve the listing by adding FOCA's OpenAPI 3 specification
 (`foca.plugins.api.SPEC_PATH`) to the files of their API specification, so
 that the paths get the app's base path, security and access control. List
 it first, so that the app's own `info` and `servers` win (later files update
-earlier ones):
+earlier ones). Its operations set their own `x-openapi-router-controller`, so
+a controller that the app adds to all operations with `add_operation_fields`
+does not apply to them. Their operation IDs (`listFocaPlugins`,
+`getFocaPlugin`) are taken in the merged specification, where operation IDs
+must be unique:
 
 ```python
 from pathlib import Path
