@@ -76,12 +76,15 @@ for users, naming them in the `X-On-Behalf-Of` header
 trusted clients to act for users.
 
 Subjects with the `admin` role may do everything, including managing
-policies via the [permissions API](#explore-app). To make a user an admin,
-add a rule like `g, user:bob, admin` to the access control database
-(collection `policy_rules` of database `access_control_db`), or map a group
-claim of your identity provider to the `admin` role via `claim_groups` and
-`group_mapping` (see the commented example in the [configuration
-file][app-config]).
+policies via the [permissions API](#explore-app). Admins make other users
+admins via the permissions API (e.g., with the rule `g, user:bob, admin`);
+changes made there take effect at once. To make the first user an admin,
+map a group claim of your identity provider to the `admin` role via
+`claim_groups` and `group_mapping` (see the commented example in the
+[configuration file][app-config]), or add the rule to the access control
+database (collection `policy_rules` of database `access_control_db`) and
+then restart the app: running apps do not notice rules changed in the
+database directly.
 
 ## Installation
 
