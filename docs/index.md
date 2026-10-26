@@ -27,9 +27,9 @@
 - [Helm library chart](helm-chart.md): the `foca-common` chart for the Helm
   charts of apps.
 - [Utilities](utilities.md): helpers for common tasks.
-- Migrating to [0.17.0](migration-0.17.md), [0.16.0](migration-0.16.md),
-  [0.15.0](migration-0.15.md) and [0.14.0](migration-0.14.md): breaking
-  changes and how to upgrade apps.
+- Migrating to [0.18.0](migration-0.18.md), [0.17.0](migration-0.17.md),
+  [0.16.0](migration-0.16.md), [0.15.0](migration-0.15.md) and
+  [0.14.0](migration-0.14.md): breaking changes and how to upgrade apps.
 - [Contributing](contributing.md): how to contribute, the development setup,
   versioning and releases, and the Python guidelines.
 - [API reference](reference.md): the code, generated from its docstrings.

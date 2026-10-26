@@ -27,7 +27,7 @@ startup; get the host of the process with `foca.plugins.runtime.get_host()`
 in controllers and Celery tasks; and remove keys of earlier middleware
 stacks (`middlewares`, `custom.middlewares`), which are refused with a
 migration hint. Apps that are no gateways ignore the `plugins` section (with
-a warning).
+a warning), but it must still be valid, as it is validated for all apps.
 
 ## Phases
 
