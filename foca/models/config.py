@@ -1392,14 +1392,18 @@ class IssuerConfig(FOCABaseConfig):
             policy rules.
         audience: Accepted audiences of the issuer's tokens (cf.
             `AuthConfig.audience`). If `None` (default),
-            `AuthConfig.audience`.
+            `AuthConfig.audience` applies.
         claim_groups: Claim of the issuer's tokens listing groups or
             entitlements of the subject (cf.
             `AccessControlConfig.claim_groups`). If `None` (default),
-            `AccessControlConfig.claim_groups`.
+            `AccessControlConfig.claim_groups` applies. An empty value
+            takes no groups from the issuer's tokens, e.g., for an issuer
+            trusted for login only, whose group claim values could collide
+            with those of other issuers.
         userinfo_claims: Claims to add from the issuer's user info if its
             tokens lack them (cf. `AuthConfig.userinfo_claims`). If `None`
-            (default), `AuthConfig.userinfo_claims`.
+            (default), `AuthConfig.userinfo_claims` applies; an empty list
+            adds none.
 
     Attributes:
         issuer: Issuer.
@@ -1412,7 +1416,7 @@ class IssuerConfig(FOCABaseConfig):
         pydantic.ValidationError: The class was instantiated with an illegal
             data type, `issuer` is empty, `namespace` contains `|`, a comma
             or a line break or is too long, `audience` is empty or has blank
-            audiences, `claim_groups` is empty or has surrounding whitespace,
+            audiences, `claim_groups` has surrounding whitespace,
             or `userinfo_claims` contain `client_id` or `azp`.
 
     Examples:
@@ -1424,7 +1428,7 @@ class IssuerConfig(FOCABaseConfig):
     issuer: str = Field(min_length=1)
     namespace: str | None = Field(default=None, max_length=MAX_NAMESPACE_LENGTH)
     audience: list[str] | None = Field(default=None, min_length=1)
-    claim_groups: str | None = Field(default=None, min_length=1)
+    claim_groups: str | None = None
     userinfo_claims: list[str] | None = None
 
     @field_validator("audience")
@@ -1730,8 +1734,9 @@ class AuthConfig(FOCABaseConfig):
         ]
         if without_audience and self.verify_audience and not has_audience:
             raise ValueError(
-                "Trusted token issuers require an audience: set "
-                "`security.auth.audience` (or `audience` of each of "
+                "Trusted token issuers require an audience "
+                f"({', '.join(without_audience)} have none of their own): "
+                "set `security.auth.audience` (or `audience` of each of "
                 "`security.auth.issuers`) to the (non-blank) audiences that "
                 "the issuers put into the `aud` claim of tokens for the app "
                 "(e.g., its client ID), or set "

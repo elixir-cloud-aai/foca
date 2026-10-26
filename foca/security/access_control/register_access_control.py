@@ -248,17 +248,20 @@ def _check_group_config(
             "Groups are mapped to roles "
             "('security.access_control.group_mapping'), but no group claim "
             "is set, so no mapping would apply: set "
-            "'security.access_control.claim_groups' to the claim with the "
-            "groups of users (and add it to 'security.auth.userinfo_claims' "
-            "if the identity provider releases it via user info only), or "
-            "unset 'security.access_control.group_mapping'."
+            "'security.access_control.claim_groups' (or "
+            "'security.auth.issuers[].claim_groups') to the claim with the "
+            "groups of users (and add it to 'security.auth.userinfo_claims', "
+            "or those of the issuer, if the identity provider releases it via "
+            "user info only), or unset "
+            "'security.access_control.group_mapping'."
         )
     # An empty mapping without a group claim is allowed
     elif conf.group_mapping is not None and not has_group_claim:
         logger.warning(
             "'security.access_control.group_mapping' is set (empty), but no "
-            "group claim is set ('security.access_control.claim_groups'), so "
-            "users have no groups."
+            "group claim is set ('security.access_control.claim_groups' or "
+            "'security.auth.issuers[].claim_groups'), so users have no "
+            "groups."
         )
     # Unmapped group claim values are dropped once a mapping is set, also an
     # empty one

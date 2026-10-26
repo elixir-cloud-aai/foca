@@ -61,7 +61,9 @@ issuers](../authentication.md#several-trusted-issuers)). Identity providers
 differ, so issuers may also have an `audience`, a group claim
 (`claim_groups`, cf. [`security.access_control`](access-control.md)) and
 `userinfo_claims` of their own, which replace the global settings for their
-tokens; unset ones fall back to the global settings:
+tokens; unset ones fall back to the global settings. An empty
+`userinfo_claims` adds no claims from the issuer's user info, and an empty
+`claim_groups` takes no groups from its tokens:
 
 ```yaml
 security:

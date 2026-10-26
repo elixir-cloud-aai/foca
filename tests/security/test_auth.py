@@ -479,6 +479,19 @@ class TestValidateToken:
         app = make_app(issuers=[{"issuer": ISSUER}])
         assert validate(app, make_token())["user_id"] == SUBJECT
 
+    def test_issuer_audiences(self, idp: MagicMock) -> None:
+        """Audiences of other issuers do not apply."""
+        app = make_app(
+            issuers=[
+                {"issuer": OTHER_ISSUER, "audience": ["a"]},
+                {"issuer": ISSUER, "audience": ["b"]},
+            ],
+            audience=None,
+        )
+        assert validate(app, make_token(aud="b"))["user_id"] == SUBJECT
+        with raises_unauthorized():
+            validate(app, make_token(aud="a"))
+
     def test_audience_mismatch(self, idp: MagicMock) -> None:
         """Tokens for other audiences are rejected."""
         with raises_unauthorized():
@@ -871,8 +884,11 @@ class TestAuthConfig:
         conf = AuthConfig.model_validate({"issuers": [own]})
         assert conf.get_audience(ISSUER) == ["own"]
         assert conf.get_audience(OTHER_ISSUER) is None
-        with pytest.raises(ValidationError, match="verify_audience"):
+        with pytest.raises(ValidationError, match=f"{OTHER_ISSUER} have none"):
             AuthConfig.model_validate({"issuers": [own, OTHER_ISSUER]})
+        # the global audience is not used then
+        conf = AuthConfig.model_validate({"issuers": [own], "audience": [" "]})
+        assert conf.get_audience(ISSUER) == ["own"]
         conf = AuthConfig.model_validate(
             {"issuers": [own, OTHER_ISSUER], "audience": [AUDIENCE]}
         )
@@ -883,7 +899,6 @@ class TestAuthConfig:
         [
             ({"audience": []}, "at least 1 item"),
             ({"audience": ["a", " "]}, "blank"),
-            ({"claim_groups": ""}, "at least 1 character"),
             ({"claim_groups": " groups"}, "whitespace"),
             ({"userinfo_claims": ["azp"]}, "azp"),
         ],

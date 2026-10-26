@@ -206,7 +206,7 @@ def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
 NO_EFFECT = "'security.access_control.keep_group_subjects' has no effect"
 # Parts of the messages naming the setting to change
 SET_CLAIM = "set 'security.access_control.claim_groups'"
-NO_CLAIM = "no group claim is set ('security.access_control.claim_groups')"
+NO_CLAIM = "no group claim is set ('security.access_control.claim_groups' or"
 KEEP = "'security.access_control.keep_group_subjects' is not"
 
 
@@ -387,6 +387,37 @@ def test_issuer_group_claims(caplog: pytest.LogCaptureFixture) -> None:
     # without issuers, only the global group claim counts
     with pytest.raises(ValueError, match="no group claim"):
         _check_group_config(conf, AuthConfig())
+
+
+@pytest.mark.parametrize(
+    "claim_groups,warned",
+    [
+        # issuers' own claims count
+        ("roles", False),
+        # no group claim anywhere
+        (None, True),
+        ("", True),
+    ],
+)
+def test_issuer_group_claims_empty_mapping(
+    caplog: pytest.LogCaptureFixture, claim_groups: str | None, warned: bool
+) -> None:
+    """Empty group mappings without any group claim are warned about."""
+    issuer: dict[str, Any] = {"issuer": "https://a.example.org"}
+    if claim_groups is not None:
+        issuer["claim_groups"] = claim_groups
+    auth = AuthConfig.model_validate({"issuers": [issuer], "audience": ["my-app"]})
+    conf = AccessControlConfig(
+        group_mapping={},
+        keep_group_subjects=True,
+        policies=[["g", "group:admins", "admin"]],
+    )
+    with caplog.at_level(logging.WARNING):
+        _check_group_config(conf, auth)
+        _check_admin_role(conf, auth)
+    assert (EMPTY_MAPPING in caplog.text) is warned
+    # group subjects count for `admin` only with a group claim
+    assert (NO_ADMIN in caplog.text) is warned
 
 
 def test_check_admin_role_clients(caplog: pytest.LogCaptureFixture) -> None:

@@ -79,6 +79,7 @@ ADMIN_ENTITLEMENT = "urn:example:group:admins"
 GROUP = "urn:geant:example.org:group:team#example.org"
 ISSUER = "https://login.example.org/oidc/"
 OTHER = "https://other.example.org/"
+NO_GROUPS = "https://social.example.org/"
 THIS_MODULE = __name__
 
 # Bearer tokens mapped to the claims of their (fake) validated JWTs
@@ -1277,33 +1278,41 @@ class TestCurrentSubject:
         finally:
             ctx.pop()
 
-    def test_issuer_group_claim(self, helper_app: Flask) -> None:
+    @pytest.mark.parametrize(
+        "issuer,claim,values",
+        [
+            (ISSUER, "roles", ["a"]),
+            # no groups from tokens of this issuer
+            (NO_GROUPS, None, []),
+            # falls back to `access_control.claim_groups`
+            (OTHER, "groups", ["b"]),
+            ("https://x.example.org", "groups", ["b"]),
+            (None, "groups", ["b"]),
+            (123, "groups", ["b"]),
+            (["x"], "groups", ["b"]),
+        ],
+    )
+    def test_issuer_group_claim(
+        self, helper_app: Flask, issuer: Any, claim: str | None, values: list[str]
+    ) -> None:
         """Groups are taken from the group claim of the token's issuer."""
         get_app_config(helper_app).security.auth = AuthConfig.model_validate(
             {
                 "issuers": [
                     {"issuer": ISSUER, "claim_groups": "roles"},
                     {"issuer": OTHER, "namespace": "other"},
+                    {"issuer": NO_GROUPS, "claim_groups": ""},
                 ],
                 "audience": ["foca"],
             }
         )
-        claims = {"sub": "x", "roles": ["a"], "groups": ["b"]}
-        for issuer, values in [
-            (ISSUER, ["a"]),
-            # falls back to `access_control.claim_groups`
-            (OTHER, ["b"]),
-            ("https://x.example.org", ["b"]),
-            (None, ["b"]),
-        ]:
-            ctx = self._context(helper_app, {**claims, "iss": issuer})
-            try:
-                assert get_current_group_values() == values
-                assert get_claim_groups(issuer) == (
-                    "roles" if issuer == ISSUER else "groups"
-                )
-            finally:
-                ctx.pop()
+        claims = {"sub": "x", "roles": ["a"], "groups": ["b"], "iss": issuer}
+        ctx = self._context(helper_app, claims)
+        try:
+            assert get_claim_groups(issuer) == claim
+            assert get_current_group_values() == values
+        finally:
+            ctx.pop()
 
     def test_custom_identity_claim(self, helper_app: Flask) -> None:
         """Subject is taken from the configured identity claim."""

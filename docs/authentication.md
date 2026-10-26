@@ -164,8 +164,8 @@ which replace `audience`, `access_control.claim_groups` and
 
 !!! warning "Audience required"
     With trusted `issuers`, an `audience` is required (globally, or for each
-    issuer); otherwise, FOCA refuses to start. Register the app with the identity provider and set
-    its client ID (or the audience the provider adds to tokens for the app)
+    issuer); otherwise, FOCA refuses to start. Register the app with the
+    identity provider and set its client ID (or the audience the provider adds to tokens for the app)
     as `audience`. Only if the provider does not include the app in the
     `aud` claim of its tokens, set `verify_audience: false`: then any token
     issued by a trusted issuer is accepted, including tokens issued for

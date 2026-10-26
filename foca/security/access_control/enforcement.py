@@ -288,7 +288,7 @@ def _get_current_policy_subjects() -> list[str]:
     return list(dict.fromkeys([*subjects, *get_current_groups()]))
 
 
-def get_claim_groups(issuer: Any = None) -> str | None:
+def get_claim_groups(issuer: Any) -> str | None:
     """Get the group claim of the tokens of an issuer.
 
     Args:
@@ -296,15 +296,16 @@ def get_claim_groups(issuer: Any = None) -> str | None:
 
     Returns:
         The `claim_groups` of the issuer's settings in `auth.issuers`, or by
-        default (also for untrusted issuers) `access_control.claim_groups`.
+        default (also for untrusted issuers) `access_control.claim_groups`;
+        `None` if no group claim applies (e.g., an empty `claim_groups` of
+        the issuer).
     """
     claim_groups = _get_access_control_config().claim_groups
-    if not isinstance(issuer, str):
-        return claim_groups
-    conf = get_config().security.auth.get_issuer_configs().get(issuer)
-    if conf is None or conf.claim_groups is None:
-        return claim_groups
-    return conf.claim_groups
+    if isinstance(issuer, str):
+        conf = get_config().security.auth.get_issuer_configs().get(issuer)
+        if conf is not None and conf.claim_groups is not None:
+            claim_groups = conf.claim_groups
+    return claim_groups or None
 
 
 def get_current_group_values() -> list[str]:
