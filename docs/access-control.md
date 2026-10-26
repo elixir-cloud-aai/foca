@@ -545,13 +545,14 @@ apply to everything that uses the roles of a request: enforcement,
 of gateway plugins](plugins.md).
 
 Only roles of `group_mapping` can be opt-in. Rules must not grant them
-(e.g., `[g, "user:alice", admin]`, also resource-scoped `g2` rules), as
-roles granted by rules always apply, except to other opt-in roles (e.g.,
-`[g, superadmin, admin]`, both opt-in): the app refuses to start if
+(e.g., `[g, "user:alice", admin]`, also resource-scoped `g2` rules), not
+even to other opt-in roles (e.g., `[g, superadmin, admin]`), as the role
+would then apply without asking for it: the app refuses to start if
 configured rules of `policies` do, the permissions API refuses such rules
 (`400`), and stored ones (e.g., from before the roles were made opt-in) are
 warned about when policies are first loaded; revoke them and map groups to
-the roles instead. Roles of [service clients](#service-clients)
+the roles instead. Opt-in roles may grant other roles (e.g., `[g, admin,
+editor]`). Roles of [service clients](#service-clients)
 (`client_mapping`) always apply.
 
 Apps tell clients which opt-in roles a user may use and which apply to the

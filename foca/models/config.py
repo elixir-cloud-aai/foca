@@ -1133,10 +1133,9 @@ class AccessControlConfig(FOCABaseConfig):
             ValueError: An opt-in role is not a role of `group_mapping`, so
                 that nobody could opt in to it, or a configured role rule of
                 `policies` (`g`, also resource-scoped, e.g., `g2`) grants an
-                opt-in role to a subject that is not an opt-in role itself
-                (e.g., `[g, "user:alice", admin]`), as roles granted by rules
-                always apply. Rules between opt-in roles (e.g., `[g,
-                superadmin, admin]`, both opt-in) are allowed.
+                opt-in role (e.g., `[g, "user:alice", admin]`), also to
+                another opt-in role, as the role would then apply without
+                asking for it.
         """
         mapped = set((self.group_mapping or {}).values())
         unmapped = [role for role in self.opt_in_roles if role not in mapped]
@@ -1158,8 +1157,8 @@ class AccessControlConfig(FOCABaseConfig):
             ):
                 raise ValueError(
                     f"Configured rules must not grant the opt-in role "
-                    f"'{rule[2]}' ('opt_in_roles') to '{rule[1]}', as roles "
-                    "granted by rules always apply: map groups to it "
+                    f"'{rule[2]}' ('opt_in_roles') to '{rule[1]}', as it would "
+                    "then apply without asking for it: map groups to it "
                     "('group_mapping') instead"
                 )
         return self

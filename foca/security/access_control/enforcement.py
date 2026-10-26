@@ -383,27 +383,30 @@ def get_current_groups() -> list[str]:
 def grants_opt_in_role(
     subject: str, role: str, opt_in_roles: Iterable[str] | None = None
 ) -> bool:
-    """Check whether a role rule would grant an opt-in role without opt-in.
+    """Check whether a role rule grants an opt-in role.
 
-    Role rules are those of policy types `g*` (e.g., `g`, `g2`), whose
-    first values are a subject and a role. Object groupings of other
-    models (e.g., `g2` of `default_model.conf`) are checked alike, so they
-    must not use names of opt-in roles.
+    Rules must not grant opt-in roles to any subject, also not to other
+    opt-in roles: the role would then apply without opt-in, or with the
+    opt-in of another role, which :py:func:`get_active_opt_in_roles` would
+    not report. Role rules are those of policy types `g*` (e.g., `g`,
+    `g2`), whose first values are a subject and a role. Object groupings of
+    other models (e.g., `g2` of `default_model.conf`) are checked alike, so
+    they must not use names of opt-in roles.
 
     Args:
-        subject: Subject of the rule (e.g., `user:alice` or a role).
+        subject: Subject of the rule (e.g., `user:alice` or a role); not
+            used, as no subject may be granted an opt-in role.
         role: Role that the rule grants.
         opt_in_roles: Opt-in roles; default to `access_control.opt_in_roles`
             of the current app.
 
     Returns:
-        Whether `role` is an opt-in role and `subject` is not, so that the
-        rule would let the subject have the role without asking for it.
+        Whether `role` is an opt-in role.
     """
+    del subject  # any subject
     if opt_in_roles is None:
         opt_in_roles = _get_access_control_config().opt_in_roles
-    opt_in = set(opt_in_roles)
-    return role in opt_in and subject not in opt_in
+    return role in opt_in_roles
 
 
 def register_opt_in_header(app: Flask, header: str) -> None:
@@ -439,7 +442,7 @@ def _warn_opt_in_grants(enforcer: Enforcer) -> None:
                 # Values are quoted, so that they cannot forge log lines
                 logger.warning(
                     "Policy rule (%s, %r, %r, ...) grants the opt-in role %r "
-                    "to %r, which then always has it, without opt-in. Revoke "
+                    "to %r, which then has it without asking for it. Revoke "
                     "it via the permissions API and map groups to the role "
                     "instead.",
                     ptype,

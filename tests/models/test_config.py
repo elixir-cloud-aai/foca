@@ -1012,15 +1012,13 @@ def test_AccessControlConfig_opt_in_roles() -> None:
     assert conf.opt_in_roles == ["admin"]
     assert conf.opt_in_header == "X-Request-Roles"
     assert AccessControlConfig().opt_in_roles == []
-    # rules between opt-in roles are allowed
-    both = AccessControlConfig(
+    custom = AccessControlConfig(
         claim_groups="groups",
-        group_mapping={"admins": "admin", "root": "superadmin"},
-        opt_in_roles=["admin", "superadmin"],
-        policies=[["g", "superadmin", "admin"]],
+        group_mapping={"admins": "admin"},
+        opt_in_roles=["admin"],
         opt_in_header="Admin-Mode",
     )
-    assert both.opt_in_header == "Admin-Mode"
+    assert custom.opt_in_header == "Admin-Mode"
 
 
 def test_SecurityConfig_opt_in_header_clash() -> None:
@@ -1088,6 +1086,14 @@ def test_SecurityConfig_opt_in_header_clash() -> None:
                 "policies": {"first-admin": ["g", "user:alice", "admin"]},
             },
             "must not grant the opt-in role 'admin'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin", "root": "superadmin"},
+                "opt_in_roles": ["admin", "superadmin"],
+                "policies": [["g", "superadmin", "admin"]],
+            },
+            "to 'superadmin'",
         ),
         ({"opt_in_header": "X Roles"}, "no valid header name"),
         ({"opt_in_header": "X_Request_Roles"}, "without '_'"),

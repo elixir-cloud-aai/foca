@@ -1527,6 +1527,7 @@ class TestOptInRoles:
         [
             ("g", {"v0": "user:dave", "v1": "admin"}, 400),
             ("g", {"v0": "operator", "v1": "admin"}, 400),
+            ("g", {"v0": "admin", "v1": "admin"}, 400),
             ("g2", {"v0": "user:dave", "v1": "admin", "v2": "/items/1"}, 400),
             ("g", {"v0": "user:dave", "v1": "operator"}, 200),
             ("g", {"v0": "admin", "v1": "operator"}, 200),
@@ -1552,11 +1553,13 @@ class TestOptInRoles:
         adapter = app.config["casbin_adapter"]
         adapter.save_policy_line("g", ["user:dave", "admin"])
         adapter.save_policy_line("g", ["user:dave", "operator"])
+        adapter.save_policy_line("g2", ["user:bob", "admin", "/items/2"])
         with _capture_logs(caplog):
             app.test_client().get("/items/1", headers=_headers("dave"))
         messages = [m for m in _messages(caplog) if "opt-in role" in m]
-        assert len(messages) == 1
-        assert "'user:dave', 'admin'" in messages[0]
+        assert len(messages) == 2
+        assert "(g, 'user:dave', 'admin', ...)" in messages[0]
+        assert "(g2, 'user:bob', 'admin', ...)" in messages[1]
 
     def test_default_unchanged(self, helper_app: Flask) -> None:
         """Without opt-in roles, mapped roles always apply."""
