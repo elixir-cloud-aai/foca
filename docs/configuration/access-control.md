@@ -43,7 +43,8 @@ to roles; other clients cannot be mapped. `opt_in_roles` lists roles of
 `group_mapping` that apply only to requests asking for them in the header
 `opt_in_header` (default: `X-Request-Roles`), e.g., for an admin mode (see
 [opt-in roles](../access-control.md#opt-in-roles)); by default, there are
-none. `resource_roles` are the roles
+none. Roles that no group is mapped to yet are allowed (e.g., in an app's
+base config), with a warning on startup. `resource_roles` are the roles
 that the [resource ownership](../access-control.md#resource-ownership) helpers
 grant and revoke. `policies` can also be given as named rules, so that
 config overlays can change single rules (see [configuring

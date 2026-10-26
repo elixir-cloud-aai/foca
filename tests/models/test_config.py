@@ -1136,13 +1136,13 @@ def test_SecurityConfig_opt_in_header_clash() -> None:
 @pytest.mark.parametrize(
     "kwargs,message",
     [
-        ({"opt_in_roles": ["admin"]}, "must be roles of 'group_mapping'"),
+        # also when nothing maps to the role yet
         (
             {
-                "group_mapping": {"admins": "admin"},
-                "opt_in_roles": ["admin", "ops"],
+                "opt_in_roles": ["admin"],
+                "policies": [["g", "user:alice", "admin"]],
             },
-            "opted in to: ops",
+            "must not grant the opt-in role 'admin'",
         ),
         (
             {
@@ -1195,3 +1195,23 @@ def test_AccessControlConfig_invalid_opt_in_roles(
     """Opt-in roles that could not apply as opt-in are refused."""
     with pytest.raises(ValidationError, match=message):
         AccessControlConfig(claim_groups="groups", **kwargs)
+
+
+@pytest.mark.parametrize(
+    "group_mapping",
+    [None, {}, {"admins": "admin"}],
+)
+def test_AccessControlConfig_unmapped_opt_in_roles(
+    group_mapping: dict[str, str] | None,
+) -> None:
+    """Opt-in roles need no group mapping to them (e.g., in a base config).
+
+    Nobody can opt in to them until groups are mapped to them; the app
+    warns of them on startup (cf. `check_opt_in_roles()`).
+    """
+    conf = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping=group_mapping,
+        opt_in_roles=["admin", "ops"],
+    )
+    assert conf.opt_in_roles == ["admin", "ops"]
