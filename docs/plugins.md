@@ -72,10 +72,12 @@ fail at once, as timed out.
 
 ## Per-request pipelines and backends
 
-Clients choose the pipeline and the backends of a request in two reserved
-tags of the request (TES and WES `tags`, a string map: spec-compliant and
-supported by existing clients), under the prefix `plugins.tags.prefix`
-(default `gateway.`):
+Authenticated clients choose the pipeline and the backends of a request in
+two reserved tags of the request (TES and WES `tags`, a string map:
+spec-compliant and supported by existing clients), under the prefix
+`plugins.tags.prefix` (default `gateway.`). Pipeline choices are off by
+default (cf. [per-request
+choices](configuration/plugins.md#per-request-choices)):
 
 - `gateway.pipeline`: the name of a preset (`plugins.presets`), or a
   pipeline as JSON, e.g.,
@@ -99,13 +101,15 @@ supported by existing clients), under the prefix `plugins.tags.prefix`
 !!! warning "A client pipeline replaces the default pipeline"
 
     A preset or client pipeline (even an empty one, `[]`) runs **instead
-    of** `plugins.pipeline`: only the frame (`client_pipelines.prepend` and
-    `append`) runs for every request. Put policies that must not be skipped
-    into `prepend`.
+    of** `plugins.pipeline`, framed by `client_pipelines.prepend` and
+    `append`, but requests without the pipeline tag get `plugins.pipeline`
+    **without** the frame: see [where policies
+    belong](configuration/plugins.md#per-request-choices).
 
 Before any plugin runs, the engine checks the choice and refuses it with
 `400` if the tags are no map or invalid, if per-request choices are disabled
 (`plugins.client_pipelines.enabled`, `plugins.client_backends.enabled`),
+if the caller is not authenticated (has no subject),
 if the pipeline exceeds the limits (`max_steps`, `max_alternatives`,
 `max_size`), if the caller lacks a required role, or if it uses a plugin
 that is not available to the caller (unknown, not installed, disabled, not
@@ -446,10 +450,19 @@ app = foca.create_app()  # loads the plugins once, to fail fast
 - These callbacks (and the `build` function of `run.attempts()`) are
   trusted app code: they run in the request's thread, outside the plugin
   deadlines, so they must be fast and must not do I/O.
-- A process serves one gateway app: `Foca(...)` with other gateway settings
-  fails while the host of the first app is in use
-  (`foca.plugins.runtime.reset()` closes it, e.g., in tests). The host is
-  closed at exit.
+- A process serves one gateway app: every `Foca(gateway=...)` in the
+  process, e.g., also in a Celery worker module whose tasks use the host,
+  must pass the same `GatewayApp`, also before the host is created. Define
+  it once and import it: settings with other callables (e.g., a new
+  `lambda`) count as other settings and fail. `Foca(...)` without
+  `gateway=` leaves the settings alone.
+- Hosts and backend lists are built from the configuration of the first
+  `Foca(gateway=...)` of the process, not of the FOCA app created last, and
+  `create_app()` serves only that app: create the gateway app's `Foca(...)`
+  before importing modules that create others. `create_app()` of another
+  `Foca(gateway=...)` fails, e.g., when retried after a failed startup, or
+  in tests: there, `foca.plugins.runtime.reset()` closes the host and
+  forgets the settings. The host is closed at exit.
 - Configurations with keys of earlier middleware stacks (`middlewares`,
   `custom.middlewares`) are refused with a migration hint, before the app's
   custom model is validated.
@@ -683,25 +696,30 @@ Clients that choose pipelines per request (e.g., SDKs, dashboards) list
 what they may choose with `GET <base>/plugins` and
 `GET <base>/plugins/{plugin_id}`, both authenticated. The listing holds
 exactly what selection accepts from the caller: the plugins it may use in
-its own pipelines (if it may send them: `client_pipelines` enabled, its
-`roles`, `inline` allowed; then loaded, `client_selectable`, and allowed
-for one of the caller's roles), with title, description, group and
-subgroup (from identifiers `<group>.<subgroup>.<name>`), phases,
-capabilities, maturity, distribution, version, third-party data transfers
-and the JSON Schema of the parameters, never the admin settings; and the
-presets it may choose (`presets` allowed, and the roles of their plugins).
-It also holds the steps of the default pipeline, the limits of
-`client_pipelines` (with whether the caller has anything to choose, and
-the identifiers of the `prepend` and `append` steps) and
-`client_backends`, and the tag prefix. Callers without anything to choose
-get no steps, as step identifiers default to plugin identifiers. Plugins that the caller may not use give `404`
-(`plugin-not-found`), whatever the reason.
+its own pipelines (if it may send them: `client_pipelines` enabled, an
+authenticated caller with its `roles`, `inline` allowed; then loaded,
+`client_selectable`, and allowed for one of the caller's roles), with
+title, description, group and subgroup (from identifiers
+`<group>.<subgroup>.<name>`), phases, capabilities, maturity, distribution,
+version, third-party data transfers and the JSON Schema of the parameters,
+never the admin settings; and the presets it may choose (`presets` allowed,
+and the roles of their plugins). It also holds the steps of the default
+pipeline, the limits of `client_pipelines` (with whether the caller has
+anything to choose, and the identifiers of the `prepend` and `append`
+steps) and `client_backends`, and the tag prefix. Callers without anything
+to choose get no steps, as step identifiers default to plugin identifiers.
+Plugins that the caller may not use give `404` (`plugin-not-found`),
+whatever the reason.
 
 Apps serve the listing by adding FOCA's OpenAPI 3 specification
 (`foca.plugins.api.SPEC_PATH`) to the files of their API specification, so
 that the paths get the app's base path, security and access control. List
 it first, so that the app's own `info` and `servers` win (later files update
-earlier ones):
+earlier ones). Its operations set their own `x-openapi-router-controller`, so
+a controller that the app adds to all operations with `add_operation_fields`
+does not apply to them. Their operation IDs (`listFocaPlugins`,
+`getFocaPlugin`) are taken in the merged specification, where operation IDs
+must be unique:
 
 ```python
 from pathlib import Path

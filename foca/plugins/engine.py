@@ -73,6 +73,7 @@ from foca.plugins.checks import (
     default_outbound,
 )
 from foca.plugins.config import (
+    DEFAULT_ROUTER,
     GATEWAY_ID_PATTERN,
     PRESET_PATTERN,
     PluginsConfig,
@@ -202,6 +203,55 @@ def _has_role(roles: Sequence[str], principal: Principal) -> bool:
     return not roles or bool(set(roles) & set(principal.groups))
 
 
+def _is_default_route_step(step: ResolvedStep) -> bool:
+    """Check whether a step is the default route step without params.
+
+    Args:
+        step: Resolved step.
+
+    Returns:
+        Whether all alternatives are the default router with default params.
+    """
+    return all(
+        alternative.plugin == DEFAULT_ROUTER
+        and not alternative.params.model_dump(exclude_defaults=True)
+        for alternative in step.alternatives
+    )
+
+
+def _has_step(steps: Sequence[ResolvedStep], step: ResolvedStep) -> bool:
+    """Check whether steps have a step with the same effect as another.
+
+    Args:
+        steps: Resolved steps.
+        step: Resolved step.
+
+    Returns:
+        Whether a step has the same alternatives (plugins and params),
+        `on_failure` and `timeout` (identifiers may differ).
+    """
+    return any(
+        kept.alternatives == step.alternatives
+        and kept.on_failure == step.on_failure
+        and kept.timeout == step.timeout
+        for kept in steps
+    )
+
+
+def _is_authenticated(principal: Principal) -> bool:
+    """Check whether a caller is authenticated.
+
+    Args:
+        principal: Caller.
+
+    Returns:
+        Whether a token with the caller's identity was validated (i.e.,
+        the caller has a subject); only such callers may choose pipelines
+        and backends per request.
+    """
+    return principal.subject is not None
+
+
 class PluginHost:
     """Plugins of a process, and the factory of pipeline runs.
 
@@ -311,9 +361,46 @@ class PluginHost:
                         " of a step of 'client_pipelines.prepend' or 'append';"
                         " set an explicit `id`"
                     )
+            self._warn_skippable_steps()
         except BaseException:
             self.close()
             raise
+
+    def _warn_skippable_steps(self) -> None:
+        """Warn about steps of the default pipeline that clients can skip.
+
+        A client's pipeline or preset replaces the default pipeline, so a
+        step of it runs for clients' choices only if the frame has the same
+        step: a step of `client_pipelines.prepend`, or of `append` without
+        `if_missing_phase` (which clients can make it drop), with the same
+        alternatives (plugins and params), `on_failure` and `timeout`; or,
+        if clients may choose presets only, if every preset has it. The
+        default route step without params is exempt, as it only reorders
+        the candidates (it filters none).
+        """
+        conf = self.conf.client_pipelines
+        if not conf.enabled:
+            return
+        frame = [
+            *self._prepend,
+            *(step for phase, step in self._append if phase is None),
+        ]
+        # what clients can choose instead of the default pipeline
+        choices = [()] if "inline" in conf.allowed else list(self.presets.values())
+        skippable = [
+            step.id
+            for step in self.default_pipeline.steps
+            if not _is_default_route_step(step)
+            and any(not _has_step([*frame, *steps], step) for steps in choices)
+        ]
+        if skippable:
+            logger.warning(
+                "Client pipelines are enabled, so clients can skip steps of"
+                " plugins.pipeline that client_pipelines.prepend (or append,"
+                " without if_missing_phase) lacks: %s; repeat steps that must"
+                " run for every request (e.g., policies) in prepend",
+                ", ".join(skippable),
+            )
 
     @classmethod
     def from_config(
@@ -458,7 +545,7 @@ class PluginHost:
             LoopDetected: The request already passed this gateway.
             foca.plugins.selection.InvalidSelection: The tags are not a
                 mapping, or the client's choices are invalid or not allowed
-                (`400`).
+                (`400`), e.g., as the caller is not authenticated.
             TypeError: `tags` is not given for an API other than `tes`.
         """
         own = len(f", 1.1 {self.gateway_id}") if self.gateway_id is not None else 0
@@ -482,6 +569,11 @@ class PluginHost:
             pipelines_enabled=conf.client_pipelines.enabled,
             backends_enabled=conf.client_backends.enabled,
         )
+        if selection.backends is not None and not _is_authenticated(principal):
+            raise InvalidSelection(
+                "Choosing backends needs an authenticated caller",
+                slug="invalid-backends",
+            )
         return PipelineRun(
             self,
             pipeline=self.resolve(selection.pipeline, principal),
@@ -505,8 +597,9 @@ class PluginHost:
 
         Raises:
             foca.plugins.selection.InvalidSelection: The choice is invalid
-                or not allowed (whether choices are enabled at all is
-                checked when the tags are read, cf. :py:meth:`start`).
+                or not allowed, e.g., as the caller is not authenticated
+                (whether choices are enabled at all is checked when the tags
+                are read, cf. :py:meth:`start`).
                 Plugins that are unknown, not installed, disabled, not
                 selectable or not allowed for the caller get the same
                 message, as do presets that are unknown or need a role, so
@@ -515,6 +608,8 @@ class PluginHost:
         if value is None:
             return self.default_pipeline
         conf = self.conf.client_pipelines
+        if not _is_authenticated(principal):
+            raise InvalidSelection("Choosing pipelines needs an authenticated caller")
         if not _has_role(conf.roles, principal):
             raise InvalidSelection("Choosing pipelines is not allowed")
         preset: str | None = None

@@ -21,7 +21,7 @@ from importlib.resources import files
 from typing import Any
 
 from foca.plugins import runtime
-from foca.plugins.engine import PluginHost, _has_role
+from foca.plugins.engine import PluginHost, _has_role, _is_authenticated
 from foca.plugins.errors import GatewayError
 from foca.plugins.model import Principal
 from foca.plugins.records import ResolvedStep
@@ -46,11 +46,15 @@ def _may_choose(host: PluginHost, principal: Principal) -> bool:
         principal: Caller.
 
     Returns:
-        Whether client pipelines are enabled and the caller has their roles
-        (it may then still have nothing to choose).
+        Whether client pipelines are enabled, the caller is authenticated
+        and has their roles (it may then still have nothing to choose).
     """
     clients = host.conf.client_pipelines
-    return clients.enabled and _has_role(clients.roles, principal)
+    return (
+        clients.enabled
+        and _is_authenticated(principal)
+        and _has_role(clients.roles, principal)
+    )
 
 
 def _presets(host: PluginHost, principal: Principal) -> dict[str, Any]:
@@ -266,7 +270,7 @@ def service_info_fields(
     return {"gateway": gateway}
 
 
-def listPlugins() -> Any:
+def listFocaPlugins() -> Any:
     """List the plugins of the current caller (`GET <base>/plugins`).
 
     Returns:
@@ -277,7 +281,7 @@ def listPlugins() -> Any:
     return list_plugins(runtime.get_host(), adapter.current_principal())
 
 
-def getPlugin(plugin_id: str) -> Any:
+def getFocaPlugin(plugin_id: str) -> Any:
     """Describe one plugin (`GET <base>/plugins/{plugin_id}`).
 
     Args:

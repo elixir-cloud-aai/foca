@@ -329,14 +329,17 @@ class ClientPipelinesConfig(_Model):
 
     Clients choose a pipeline in the reserved tag `<prefix>pipeline` of the
     request's payload (cf. :py:mod:`foca.plugins.selection`): the name of a
-    preset, or a pipeline as JSON. The chosen pipeline replaces the default
-    pipeline entirely (an empty one is allowed); only the frame (`prepend`,
-    `append`) always runs, so policies that must apply to every request
-    belong in `prepend`, not only in `plugins.pipeline`.
+    preset, or a pipeline as JSON. Only authenticated callers may choose.
+    The chosen pipeline replaces the default pipeline entirely (an empty one
+    is allowed), framed by `prepend` and `append`; requests without the tag
+    get the default pipeline without the frame. So steps that must run for
+    every request (e.g., policies) belong in both `plugins.pipeline` and
+    `prepend`; on startup, the app warns about steps of the default pipeline
+    that clients can skip. Disabled by default.
 
     Args:
-        enabled: Whether clients may choose pipelines; if not, requests with
-            the tag are refused (`400`).
+        enabled: Whether clients may choose pipelines (default: no); if
+            not, requests with the tag are refused (`400`).
         allowed: Forms that clients may use: `presets` (names) and `inline`
             (JSON); at least one (use `enabled: false` to allow none).
         max_steps: Maximum number of steps of inline pipelines.
@@ -345,10 +348,9 @@ class ClientPipelinesConfig(_Model):
         roles: Roles that may choose pipelines (any authenticated caller if
             empty).
         prepend: Steps run before the client's steps (e.g., policies);
-            clients cannot remove or reorder them. A client's pipeline (or
-            preset) replaces the default pipeline (`plugins.pipeline`)
-            entirely, and may be empty, so steps that must run for every
-            request (e.g., policies) belong here.
+            clients cannot remove or reorder them. They do not run for
+            requests without a choice, so repeat steps that must run for
+            every request in `plugins.pipeline`.
         append: Steps run after the client's steps; steps with
             `if_missing_phase` only if no other step implements that phase
             (e.g., a default `route` step).
@@ -364,7 +366,7 @@ class ClientPipelinesConfig(_Model):
         append: Steps run after the client's steps.
     """
 
-    enabled: bool = True
+    enabled: bool = False
     allowed: list[Literal["presets", "inline"]] = Field(
         default=["presets", "inline"], min_length=1
     )

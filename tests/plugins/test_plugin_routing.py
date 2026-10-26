@@ -109,7 +109,7 @@ def test_no_groups() -> None:
 
 def test_appended_to_client_pipelines() -> None:
     """Pipelines of clients without a route step get the router."""
-    host = make_host([{"plugin": "test.tag"}])
+    host = make_host([{"plugin": "test.tag"}], client_pipelines={"enabled": True})
     run = host.start(
         inbound({"tags": {"gateway.pipeline": '[{"plugin": "test.tag"}]'}}), PRINCIPAL
     )
@@ -128,7 +128,7 @@ def test_prepended_route_steps_keep_router() -> None:
     """Route steps in the admin's prepend do not drop the appended router."""
     host = make_host(
         [{"plugin": "foca.routing.ordered"}],
-        client_pipelines={"prepend": [{"plugin": "test.reverse"}]},
+        client_pipelines={"enabled": True, "prepend": [{"plugin": "test.reverse"}]},
     )
     run = host.start(inbound({"tags": {"gateway.pipeline": "[]"}}), PRINCIPAL)
     assert [step.id for step in run.pipeline.steps] == [
@@ -198,7 +198,7 @@ def test_builtin_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_client_seed_refused() -> None:
     """Clients cannot set a seed unless allowed."""
-    host = make_host([{"plugin": "test.tag"}])
+    host = make_host([{"plugin": "test.tag"}], client_pipelines={"enabled": True})
     pipeline = '[{"plugin": "foca.routing.ordered", "params": {"seed": 1}}]'
     with pytest.raises(InvalidSelection, match="'seed' is not allowed"):
         host.start(inbound({"tags": {"gateway.pipeline": pipeline}}), PRINCIPAL)

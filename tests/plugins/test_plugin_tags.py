@@ -53,7 +53,9 @@ def test_creation_tags() -> None:
         "gateway.provenance": "/ga4gh/tes/v1/tasks/A/provenance",
     }
     host = make_host(
-        [], presets={"p": ["test.tag", {"id": "again", "plugin": "test.tag"}]}
+        [],
+        presets={"p": ["test.tag", {"id": "again", "plugin": "test.tag"}]},
+        client_pipelines={"enabled": True},
     )
     run = host.start(inbound({"tags": {"gateway.pipeline": "p"}}), PRINCIPAL)
     run.request()
@@ -95,7 +97,7 @@ def test_creation_tags_without_hash() -> None:
 
 def test_app_flow() -> None:
     """Apps merge the tags into tasks and strip them before forwarding."""
-    host = make_host(["test.tag"])
+    host = make_host(["test.tag"], client_pipelines={"enabled": True})
     task: dict[str, Any] = {
         "name": "t",
         "tags": {"project": "a", "gateway.pipeline": "[]"},
