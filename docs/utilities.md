@@ -190,12 +190,12 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
 ```
 
 - Connections go to public addresses only (`is_public_address()`:
-  globally reachable, not multicast, embedded IPv4 addresses checked). Each
-  host is resolved once, all its addresses are checked, the connection goes
-  to a checked address, and its peer address is checked again before
-  sending, so DNS rebinding cannot redirect a request to an internal host;
-  `allow_private_addresses=True` turns the checks off (e.g., for private
-  deployments and tests).
+  globally reachable, not multicast, not IPv6 site-local, embedded IPv4
+  addresses checked). Each host is resolved once, all its addresses are
+  checked, the connection goes to a checked address, and its peer address
+  is checked again before sending, so DNS rebinding cannot redirect a
+  request to an internal host; `allow_private_addresses=True` turns the
+  checks off (e.g., for private deployments and tests).
 - Redirects are returned, never followed; proxies and `.netrc` files of the
   environment are ignored; only `https` is allowed (unless
   `allow_http=True`), and TLS certificates are always verified. Cookies
