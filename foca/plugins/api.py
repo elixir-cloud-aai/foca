@@ -266,7 +266,7 @@ def service_info_fields(
     return {"gateway": gateway}
 
 
-def listPlugins() -> Any:
+def listFocaPlugins() -> Any:
     """List the plugins of the current caller (`GET <base>/plugins`).
 
     Returns:
@@ -277,7 +277,7 @@ def listPlugins() -> Any:
     return list_plugins(runtime.get_host(), adapter.current_principal())
 
 
-def getPlugin(plugin_id: str) -> Any:
+def getFocaPlugin(plugin_id: str) -> Any:
     """Describe one plugin (`GET <base>/plugins/{plugin_id}`).
 
     Args:

@@ -1,1 +1,15 @@
-examples/
+# Allowlist: only the files needed to build the base image (see
+# `docker/Dockerfile`) go into the build context, so that local files (e.g.,
+# `.env` files, virtual environments or caches) stay out of the image
+*
+!LICENSE
+!MANIFEST.in
+!README.md
+!foca/
+!pyproject.toml
+
+# Exclude local files inside the allowed paths
+**/.env*
+!**/.env.example
+**/__pycache__
+**/*.py[cod]

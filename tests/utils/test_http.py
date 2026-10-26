@@ -132,6 +132,7 @@ def local(**kwargs: Any) -> GuardedClient:
         ("::1", False),
         ("fe80::1", False),
         ("fd00::1", False),
+        ("fec0::1", False),
         ("ff0e::1", False),
         ("::ffff:10.0.0.1", False),
         ("::ffff:8.8.8.8", True),

@@ -28,7 +28,7 @@ repos:
   # Same version as in `requirements/semgrep.txt` (checked by the lint job);
   # rules and their tests in `.semgrep/`
   - repo: https://github.com/semgrep/pre-commit
-    rev: v1.181.0
+    rev: v1.182.1
     hooks:
       - id: semgrep
         args:
