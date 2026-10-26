@@ -560,14 +560,17 @@ apply to everything that uses the roles of a request: enforcement,
 `get_current_groups()`, `get_current_roles()`, `is_admin()`, self-service
 listings and the [roles of gateway plugins](plugins.md).
 
-Groups get opt-in roles via `group_mapping`. An app's base config can
-make a role opt-in before its deployments map groups to it: until they do,
-no user can opt in to the role, and the app warns of it on startup. Like
-mapped roles, opt-in roles must not be `resource_roles` or start with a
-prefix of subjects. Rules must not grant opt-in roles (e.g., `[g,
-"user:alice", admin]`, also resource-scoped `g2` rules), not even to other
-opt-in roles (e.g., `[g, superadmin, admin]`), as the role
-would then apply without asking for it: the app refuses to start if
+Groups get opt-in roles via `group_mapping`. An app's base config can make
+a role opt-in before its deployments map groups to it: until they do, no
+user can opt in to the role, and the app warns of it on startup. Check
+that warning after deploying: a misspelled opt-in role (e.g., `Admin` for
+`admin`) is only warned of, and the mapped role then applies without
+asking for it. Like mapped roles, opt-in roles must not be `resource_roles`
+or start with a prefix of subjects.
+
+Rules must not grant opt-in roles (e.g., `[g, "user:alice", admin]`, also
+resource-scoped `g2` rules), not even to other opt-in roles (e.g., `[g,
+superadmin, admin]`), as the role would then apply without asking for it: the app refuses to start if
 configured rules of `policies` do, the permissions API refuses such rules
 (`400`), and stored ones (e.g., from before the roles were made opt-in) are
 warned about when policies are first loaded; revoke them and map groups to

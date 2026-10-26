@@ -509,7 +509,7 @@ def test_check_opt_in_roles_unmapped(
     else:
         assert len(warnings) == 1
         assert warnings[0].startswith(
-            f"No group is mapped to the opt-in roles "
+            "No group is mapped to the opt-in roles "
             f"('security.access_control.group_mapping'): {unmapped}."
         )
 

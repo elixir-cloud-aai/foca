@@ -1072,7 +1072,7 @@ class AccessControlConfig(FOCABaseConfig):
 
     @model_validator(mode="after")
     def validate_mapped_roles(self) -> Self:
-        """Ensure that roles mapped from group claims or clients are global roles.
+        """Ensure that mapped and opt-in roles are global roles.
 
         Also checks the opt-in roles, which may not be mapped yet (cf.
         `validate_opt_in_roles()`), as groups are to be mapped to them.
