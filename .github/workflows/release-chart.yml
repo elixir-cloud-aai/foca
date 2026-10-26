@@ -139,8 +139,9 @@ jobs:
       # messages is best-effort: if they change, the check fails closed.
       # Tags cannot be deleted or moved (tag ruleset): if a release failed,
       # re-run this workflow for the same tag (this check passes while the
-      # version is unpublished); if the tagged commit is wrong, bump the
-      # chart's version and release a new tag.
+      # version is unpublished; `publish` needs a new approval); if the
+      # tagged commit is wrong, bump the chart's version and release a new
+      # tag.
       - name: Check that version is not published
         env:
           VERSION: ${{ needs.test.outputs.version }}
