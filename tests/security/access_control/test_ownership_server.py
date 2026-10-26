@@ -35,6 +35,7 @@ from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.auth import _unauthorized
 
 ISSUER = "https://login.example.org/oidc/"
+OTHER_ISSUER = "https://login.example.com/oidc/"
 ADMINS = "urn:example:group:admins"
 CONTROLLERS = ownership_server.__name__
 TASK = "/api/tasks/1"
@@ -45,11 +46,16 @@ TOKENS: dict[str, dict[str, Any]] = {
     "alice": {"iss": ISSUER, "sub": "alice", "groups": ["devs", "ops/team"]},
     "bob": {"iss": ISSUER, "sub": "bob"},
     "carol": {"iss": ISSUER, "sub": "carol", "groups": [ADMINS]},
+    # same subject as `alice`, of another issuer
+    "other-alice": {"iss": OTHER_ISSUER, "sub": "alice"},
+    # bare subject that looks namespaced
+    "pipe": {"iss": ISSUER, "sub": f"{OTHER_ISSUER}|alice"},
 }
 
 POLICIES = [
     ("p", ["owner", "/api/tasks/:id/permissions", "GET"]),
-    ("p", ["owner", "/api/tasks/:id/permissions/users/:user", "(PUT)|(DELETE)"]),
+    # namespaced users and groups may contain slashes
+    ("p", ["owner", "/api/tasks/:id/permissions/users/*", "(PUT)|(DELETE)"]),
     ("p", ["owner", "/api/tasks/:id/permissions/groups/*", "(PUT)|(DELETE)"]),
     ("p", ["owner", "/api/projects/:p/files/:f/permissions", "GET"]),
     ("p", ["owner", "/api/projects/:p/files/:f/permissions/users/:u", "PUT"]),
@@ -118,7 +124,11 @@ SPEC: dict[str, Any] = {
             "get": _operation("getResourceRoles"),
         },
         "/tasks/{taskId}/permissions/users/{userId}": {
-            "parameters": [_parameter("taskId"), _parameter("userId")],
+            # namespaced users (several issuers) may contain slashes
+            "parameters": [
+                _parameter("taskId"),
+                _parameter("userId", format="path"),
+            ],
             "put": _operation("putUserRole", requestBody=ROLE_BODY),
             "delete": _operation("deleteUserRole"),
         },
@@ -159,6 +169,7 @@ def _create_app(
     spec: dict[str, Any] = SPEC,
     enforce: bool = True,
     disable_auth: bool = False,
+    issuers: list[Any] | None = None,
 ) -> Flask:
     """Create an app with an API and in-memory policies."""
     spec_file = tmp_path / "spec.yaml"
@@ -168,7 +179,10 @@ def _create_app(
     config = Config.model_validate(
         {
             "security": {
-                "auth": {"issuers": [ISSUER], "audience": ["foca"]},
+                "auth": {
+                    "issuers": [ISSUER] if issuers is None else issuers,
+                    "audience": ["foca"],
+                },
                 "access_control": {
                     "enabled": True,
                     "enforce": enforce,
@@ -391,6 +405,39 @@ class TestUserRoles:
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
 
+class TestNamespacedUsers:
+    """Tests for users of several issuers, namespaced by issuer."""
+
+    def test_grant_and_revoke(self, tmp_path: Path) -> None:
+        """Namespaced users, containing slashes, are routed and kept apart."""
+        app = _create_app(
+            tmp_path, issuers=[{"issuer": ISSUER, "namespace": ""}, OTHER_ISSUER]
+        )
+        # the bare `user:alice` of the first issuer owns the task, the user of
+        # the same subject of the other issuer does not
+        assert _call(app, "get", f"{TASK}/permissions", "alice").status_code == 200
+        assert (
+            _call(app, "get", f"{TASK}/permissions", "other-alice").status_code == 403
+        )
+        user = f"{OTHER_ISSUER}|alice"
+        path = f"{TASK}/permissions/users/{user}"
+        response = _call(app, "put", path, "alice", "maintainer")
+        assert response.status_code == 200
+        assert response.json == {
+            "subject_type": "user",
+            "subject": user,
+            "role": "maintainer",
+        }
+        assert ResourceRole("user", user, "maintainer") in _roles(app)
+        response = _call(app, "delete", path, "alice")
+        assert response.status_code == 200
+        assert response.json == user
+        assert _roles(app) == [ResourceRole("user", "alice", "owner")]
+        # bare subjects that look namespaced are not identified
+        response = _call(app, "get", f"{TASK}/permissions", "pipe")
+        assert response.status_code == 401
+
+
 class TestRoutes:
     """Tests for taking resources from routes."""
 
@@ -426,7 +473,7 @@ def _spec_with(path: str, method: str, **fields: Any) -> dict[str, Any]:
 
 
 USER_ROLE = "/tasks/{taskId}/permissions/users/{userId}"
-USER_ROUTE = "PUT /api/tasks/<taskId>/permissions/users/<userId> (putUserRole)"
+USER_ROUTE = "PUT /api/tasks/<taskId>/permissions/users/<path:userId> (putUserRole)"
 
 
 class TestEnforcementRequired:
@@ -476,7 +523,7 @@ class TestEnforcementRequired:
         with pytest.raises(ValueError, match="not enforced") as exc_info:
             _create_app(tmp_path, spec)
         message = str(exc_info.value)
-        assert "HEAD /api/tasks/<taskId>/permissions/users/<userId>" in message
+        assert "HEAD /api/tasks/<taskId>/permissions/users/<path:userId>" in message
         assert "OPTIONS" not in message
 
     def test_request_refused(self, tmp_path: Path) -> None:

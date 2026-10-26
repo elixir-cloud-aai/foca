@@ -1662,49 +1662,40 @@ class AuthConfig(FOCABaseConfig):
             )
         )
 
-    def _issuer_settings(self) -> dict[str, IssuerConfig]:
-        """Get the settings of each trusted issuer.
+    def get_namespaces(self) -> dict[str, str | None]:
+        """Get the namespaces of the subjects of the trusted issuers.
+
+        Computed from `issuers` on each call (a few entries), so that
+        changes of `issuers` apply.
 
         Returns:
-            Settings, by issuer; plain URLs with the default settings.
-
-        Raises:
-            ValueError: An issuer is listed with different settings.
-        """
-        settings: dict[str, IssuerConfig] = {}
-        for entry in self.issuers:
-            conf = IssuerConfig(issuer=entry) if isinstance(entry, str) else entry
-            if settings.setdefault(conf.issuer, conf) != conf:
-                raise ValueError(
-                    f"Issuer '{conf.issuer}' is listed with different settings "
-                    "(`security.auth.issuers`)"
-                )
-        return settings
-
-    def get_namespace(self, issuer: str) -> str | None:
-        """Get the namespace of the subjects of a trusted issuer.
-
-        Args:
-            issuer: Trusted issuer.
-
-        Returns:
-            Its `namespace`, or by default the issuer if several issuers are
+            Namespace of each trusted issuer, in the order of `issuers`: its
+            `namespace`, or by default the issuer if several issuers are
             trusted; `None` if its subjects are bare (an empty or, with one
             issuer, unset namespace).
 
         Raises:
-            KeyError: The issuer is not trusted.
+            ValueError: An issuer is listed with different settings.
         """
-        settings = self._issuer_settings()
-        namespace = settings[issuer].namespace
-        if namespace is None:
-            return issuer if len(settings) > 1 else None
-        return namespace or None
-
-    @property
-    def namespaced(self) -> bool:
-        """Whether the subjects of any trusted issuer are namespaced."""
-        return any(self.get_namespace(issuer) for issuer in self.issuer_urls)
+        settings: dict[str, str | None] = {}
+        for entry in self.issuers:
+            issuer, namespace = (
+                (entry, None)
+                if isinstance(entry, str)
+                else (entry.issuer, entry.namespace)
+            )
+            if settings.setdefault(issuer, namespace) != namespace:
+                raise ValueError(
+                    f"Issuer '{issuer}' is listed with different settings "
+                    "(`security.auth.issuers`)"
+                )
+        several = len(settings) > 1
+        return {
+            issuer: (issuer if several else None)
+            if namespace is None
+            else (namespace or None)
+            for issuer, namespace in settings.items()
+        }
 
     @model_validator(mode="after")
     def validate_issuer_namespaces(self) -> Self:
@@ -1720,8 +1711,7 @@ class AuthConfig(FOCABaseConfig):
                 namespace, or several issuers keep their subjects bare.
         """
         seen: dict[str | None, str] = {}
-        for issuer in self._issuer_settings():
-            namespace = self.get_namespace(issuer)
+        for issuer, namespace in self.get_namespaces().items():
             if namespace == issuer and set(issuer) & _NAMESPACE_FORBIDDEN:
                 raise ValueError(
                     f"Issuer '{issuer}' contains '|', a comma or a line break, "

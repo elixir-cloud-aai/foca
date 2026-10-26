@@ -249,8 +249,12 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
     auth = get_config().security.auth
     namespaced = namespace_subject(user, get_client_issuer(client, auth), auth)
     if namespaced is None:
+        # Service clients have a trusted issuer (cf. AuthConfig), so only
+        # bare users that look namespaced cannot be identified
         raise BadRequestProblem(
-            detail="The user acted for cannot be identified: it must not contain '|'"
+            detail="The user acted for cannot be identified: users of issuers "
+            "with bare subjects must not contain '|' if other issuers' "
+            "subjects are namespaced"
         )
     logger.debug(
         "Service client '%s' acts for user '%s'",

@@ -91,9 +91,16 @@ rewrite them to the namespaced form (cf. [trusting a second
 issuer](authentication.md#several-trusted-issuers)). Issuers can be listed
 with settings of their own (`issuer`, `namespace`) instead of as URLs;
 issuers with the same namespace, or several issuers with bare subjects, are
-refused on startup. Apps that name other users (e.g., in rules or when
+refused on startup. `security.auth.issuers` is therefore typed
+`Sequence[str | IssuerConfig]` instead of `list[str]`: use
+`issuer_urls` to get the trusted issuers as URLs. Apps that name other users (e.g., in rules or when
 granting roles) must name users of namespaced issuers in the namespaced
 form, e.g., via `namespace_subject()` (in `foca.security.auth`).
+Namespaced subjects contain the issuer by default, i.e., slashes: give
+user path parameters of the [endpoints for managing
+roles](access-control.md#endpoints-for-managing-roles) `format: path`, and
+match them with `*` in rules (e.g.,
+`/api/tasks/:id/permissions/users/*`), as for groups.
 
 ### Validation details by default
 

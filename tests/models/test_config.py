@@ -702,10 +702,8 @@ def test_AuthConfig_issuer_namespaces(
 ) -> None:
     """Test AuthConfig instantiation; namespaces of issuers."""
     res = AuthConfig.model_validate({"issuers": issuers, "audience": ["foca"]})
-    assert [res.get_namespace(issuer) for issuer in res.issuer_urls] == namespaces
-    assert res.namespaced is any(namespaces)
-    with pytest.raises(KeyError):
-        res.get_namespace("https://c.example.org")
+    assert list(res.get_namespaces().values()) == namespaces
+    assert list(res.get_namespaces()) == res.issuer_urls
 
 
 @pytest.mark.parametrize(
@@ -736,7 +734,7 @@ def test_AuthConfig_issuer_namespaces_invalid(issuers: list[Any], match: str) ->
 def test_AuthConfig_issuer_one_with_forbidden_characters() -> None:
     """Test AuthConfig instantiation; a single issuer is not a namespace."""
     res = AuthConfig(issuers=["https://a.example.org/|x"], audience=["foca"])
-    assert res.namespaced is False
+    assert res.get_namespaces() == {"https://a.example.org/|x": None}
     assert res.issuer_urls == ["https://a.example.org/|x"]
 
 

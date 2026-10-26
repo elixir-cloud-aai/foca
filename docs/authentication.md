@@ -127,7 +127,9 @@ claims of the token are not namespaced either.
     by default: rules, role grants and owners stored for its bare subjects
     (e.g., `user:alice`) then no longer apply. To keep them, set
     `namespace: ""` for the first issuer, so that its subjects stay bare,
-    and let the new issuer's subjects be namespaced:
+    and let the new issuer's subjects be namespaced (users of the first
+    issuer whose subjects contain `|` are then no longer identified;
+    check for such subjects first):
 
     ```yaml
     security:

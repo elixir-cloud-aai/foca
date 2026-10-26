@@ -249,8 +249,10 @@ def namespace_subject(
 
     Args:
         subject: Subject, as issued (e.g., the `sub` claim).
-        issuer: Issuer of the subject (`iss` claim).
-        conf: Authentication settings; default to those of the current app.
+        issuer: Issuer of the subject (`iss` claim); any value, as claims
+            are untyped, but only trusted issuers are namespaced.
+        conf: Authentication settings; defaults to those of the current
+            app.
 
     Returns:
         The subject, namespaced if its issuer has a namespace; `None` if
@@ -260,11 +262,12 @@ def namespace_subject(
     """
     if conf is None:
         conf = get_config().security.auth
-    if not conf.namespaced:
+    namespaces = conf.get_namespaces()
+    if not any(namespaces.values()):
         return subject
-    if not isinstance(issuer, str) or issuer not in conf.issuer_urls:
+    if not isinstance(issuer, str) or issuer not in namespaces:
         return None
-    namespace = conf.get_namespace(issuer)
+    namespace = namespaces[issuer]
     if namespace is None:
         return None if NAMESPACE_SEPARATOR in subject else subject
     return f"{namespace}{NAMESPACE_SEPARATOR}{subject}"

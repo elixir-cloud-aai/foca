@@ -1232,7 +1232,8 @@ paths:
   /tasks/{id}/permissions/users/{userId}:
     parameters:
       - {name: id, in: path, required: true, schema: {type: string}}
-      - {name: userId, in: path, required: true, schema: {type: string}}
+      # namespaced users (several trusted issuers) may contain slashes
+      - {name: userId, in: path, required: true, schema: {type: string, format: path}}
     put:
       operationId: foca.security.access_control.ownership_server.putUserRole
       requestBody:
@@ -1279,8 +1280,8 @@ security:
   access_control:
     policies:
       - [p, owner, "/api/tasks/:id/permissions", GET]
-      - [p, owner, "/api/tasks/:id/permissions/users/:user", "(PUT)|(DELETE)"]
-      # groups may contain slashes
+      # namespaced users and groups may contain slashes
+      - [p, owner, "/api/tasks/:id/permissions/users/*", "(PUT)|(DELETE)"]
       - [p, owner, "/api/tasks/:id/permissions/groups/*", "(PUT)|(DELETE)"]
 ```
 
