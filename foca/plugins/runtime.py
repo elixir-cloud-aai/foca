@@ -18,10 +18,10 @@ Controllers and Celery tasks then get the host of their process with
 in each process, i.e., after Gunicorn or Celery forked their workers, so
 that no worker inherits threads of its parent; it is closed at exit.
 
-A process serves one gateway app: the first `Foca(gateway=...)` binds its
-settings and configuration to the process, later ones must pass the same
-settings, and `Foca(...)` without `gateway=` (e.g., in a Celery worker module)
-leaves them alone (cf. :py:func:`configure`).
+A process serves one gateway app: every `Foca(gateway=...)` must pass the
+same settings, and `Foca(...)` without `gateway=` (e.g., in a Celery worker
+module) leaves them alone. Hosts are built from the configuration of the
+gateway app, not of the FOCA app created last (cf. :py:func:`configure`).
 """
 
 from __future__ import annotations
@@ -104,32 +104,44 @@ _runtime = _Runtime()
 os.register_at_fork(after_in_child=_runtime.forget)
 
 
-def configure(app: GatewayApp, config: Config) -> None:
+def configure(app: GatewayApp, config: Config, *, rebind: bool = False) -> None:
     """Bind gateway settings and their configuration to the process.
 
-    Done by `Foca(gateway=...)`. The first call binds both; later calls
-    must pass the same settings and keep the first configuration, so that
-    hosts never depend on which FOCA app was created last.
+    `Foca(gateway=...)` binds both if no settings are bound; later instances
+    must pass the same settings and keep the bound configuration, so that
+    hosts never depend on which FOCA app was created last (e.g., a Celery
+    worker module imported while the gateway app is created).
+    `Foca.create_app()` rebinds the configuration of the app it creates.
 
     Args:
         app: Settings of the gateway app.
         config: Configuration of the FOCA app that the settings belong to.
+        rebind: Bind `config` also if another configuration is bound.
 
     Raises:
         RuntimeError: Other settings are bound (one gateway app per process;
             settings with other callables, e.g., a new `lambda`, are other
-            settings; cf. :py:func:`reset`).
+            settings), or `rebind` is set and the host of another
+            configuration is in use (cf. :py:func:`reset`).
     """
     with _runtime.lock:
         if _runtime.app is None:
             _runtime.app = app
             _runtime.config = config
-        elif app != _runtime.app:
+            return
+        if app != _runtime.app:
             raise RuntimeError(
                 "Other gateway settings are configured: a process serves one"
                 " gateway app, so pass the same GatewayApp to every"
                 " Foca(gateway=...)"
             )
+        if rebind and config is not _runtime.config:
+            if _runtime.host is not None:
+                raise RuntimeError(
+                    "The plugin host of another configuration is in use: a"
+                    " process serves one gateway app"
+                )
+            _runtime.config = config
 
 
 def reset() -> None:
@@ -259,8 +271,8 @@ def get_backend_list() -> BackendList:
             registry entries but `server.public_url` is not set, which
             keeps the gateway from being one of its own backends.
     """
-    app, config = _runtime.app, _runtime.config
-    if app is None or app.backends is None or config is None:
+    app, config = _bound()
+    if app.backends is None:
         raise RuntimeError(
             "No backend list configured: pass Foca(gateway=GatewayApp(backends=...))"
         )

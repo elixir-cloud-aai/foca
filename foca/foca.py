@@ -60,13 +60,14 @@ class Foca:
             gateway: Settings of a gateway app (e.g., proTES) for its plugin
                 host (cf. :py:mod:`foca.plugins.runtime`); configurations
                 with keys of earlier middleware stacks are then refused.
-                The first instance with settings binds them and its
-                configuration to the process; later instances must pass the
-                same settings, instances without them leave them alone.
+                A process serves one gateway app: all instances with
+                settings must pass the same ones, instances without them
+                leave them alone (cf.
+                :py:func:`foca.plugins.runtime.configure`).
 
         Raises:
-            RuntimeError: Other gateway settings are bound to the process
-                (cf. :py:func:`foca.plugins.runtime.configure`).
+            RuntimeError: Other gateway settings are configured in the
+                process (cf. :py:func:`foca.plugins.runtime.configure`).
 
         Attributes:
             config_file: Path(s) to application configuration file(s), as
@@ -154,6 +155,9 @@ class Foca:
                 group mappings from applying, or no admin is configured and
                 `security.access_control.require_admin` is set (cf.
                 :py:func:`foca.security.access_control.register_access_control.register_access_control`).
+            RuntimeError: Other gateway settings are configured in the
+                process, or the plugin host of another app's configuration is
+                in use (cf. :py:func:`foca.plugins.runtime.configure`).
         """
         cnx_app = self._create_base_app()
 
@@ -199,6 +203,7 @@ class Foca:
         # each process creates its own host on first use (after forks), so
         # plugins are instantiated (`setup()`) once more there
         if self.gateway is not None:
+            runtime.configure(self.gateway, self.conf, rebind=True)
             runtime.create_host().close()
             if self.gateway.backends is not None:
                 # validates the backend list only; requests build their own
