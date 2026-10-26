@@ -453,10 +453,14 @@ If `claim_groups` is set, the values of that claim (a list or a single
 string) are additionally checked as subjects, i.e., they act as roles. If
 the identity provider only provides the claim via user info, not in access
 tokens (e.g., `eduperson_entitlement` with some identity providers), add
-it to [`security.auth.userinfo_claims`](configuration/auth.md). If
-`group_mapping` is set, claim values are mapped to roles, and values without
-mapping are ignored, unless `keep_group_subjects` is set: then all claim
-values are _additionally_ used as group subjects (e.g., `group:vo-members`),
+it to [`security.auth.userinfo_claims`](configuration/auth.md). With
+several trusted issuers whose tokens list groups in different claims, set
+`claim_groups` per issuer in [`security.auth.issuers`](configuration/auth.md),
+which replaces the global one for that issuer's tokens; an empty one takes
+no groups from them. If `group_mapping` is set, claim values are mapped to
+roles, and values without mapping are ignored, unless `keep_group_subjects`
+is set: then all claim values are _additionally_ used as group subjects
+(e.g., `group:vo-members`),
 as without `group_mapping` (see [granting roles to
 groups](#granting-roles-to-groups)). Access is granted if any of the subjects
 is allowed.
@@ -481,8 +485,10 @@ checks](configuration/access-control.md#startup-checks)).
     can create groups at one of them), these users get each other's rights,
     up to administrator rights. Only trust several issuers together with
     group claims if their group claim values cannot collide, e.g., because
-    they are assigned by the same identity provider. FOCA logs a warning on
-    startup if access control is enabled with several trusted issuers.
+    they are assigned by the same identity provider, or take no groups from
+    the tokens of the other issuers (`claim_groups: ""` in
+    `security.auth.issuers`). FOCA logs a warning on startup if access
+    control is enabled with several trusted issuers that have group claims.
 
 To keep users, groups and roles apart, subjects are namespaced in rules:
 
@@ -504,7 +510,9 @@ identifiers do not match.
 In your controllers, use `get_current_subject()` and `get_current_groups()`
 to get the subject (without prefix; namespaced by issuer with several
 trusted issuers) and roles of the current request, and
-`get_current_group_values()` to get the values of its group claim as is
+`get_current_group_values()` to get the values of its group claim
+(`get_claim_groups(issuer)` returns the group claim applying to tokens of an
+issuer) as is
 (neither mapped nor prefixed); `get_current_claims()` returns a copy of all
 claims of its token:
 
