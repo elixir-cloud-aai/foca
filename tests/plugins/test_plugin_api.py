@@ -329,14 +329,16 @@ def test_documented_policies(path: str, allowed: bool) -> None:
 def test_spec() -> None:
     """The specification is packaged and refers to the controllers."""
     spec = yaml.safe_load(Path(api.SPEC_PATH).read_text())
-    operations = {
-        operation["operationId"]
-        for path in spec["paths"].values()
-        for operation in path.values()
+    operations = [
+        operation for path in spec["paths"].values() for operation in path.values()
+    ]
+    assert {operation["operationId"] for operation in operations} == {
+        "listPlugins",
+        "getPlugin",
     }
-    assert operations == {"foca.plugins.api.listPlugins", "foca.plugins.api.getPlugin"}
-    for operation_id in operations:
-        assert callable(getattr(api, operation_id.rsplit(".", 1)[1]))
+    for operation in operations:
+        assert operation["x-openapi-router-controller"] == api.__name__
+        assert callable(getattr(api, operation["operationId"]))
 
 
 def test_spec_served() -> None:
@@ -380,3 +382,51 @@ def test_spec_merged(tmp_path: Path, fake_plugin_entry_points: RegisterPlugins) 
         "Swagger Petstore"
     )
     runtime.reset()
+
+
+def test_spec_merged_with_app_controller(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_plugin_entry_points: RegisterPlugins,
+) -> None:
+    """The listing resolves when apps set their controller for all operations."""
+    fake_plugin_entry_points(FAKES)
+    (tmp_path / "petstore_controllers.py").write_text(
+        '"""Controllers of the petstore."""\n\n\n'
+        "def listPets() -> None:\n"
+        '    """List pets."""\n\n\n'
+        "def createPets() -> None:\n"
+        '    """Create pets."""\n\n\n'
+        "def showPetById() -> None:\n"
+        '    """Show a pet."""\n'
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    petstore = Path(__file__).parents[1] / "test_files/openapi_3_petstore.original.yaml"
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "api": {
+                    "specs": [
+                        {
+                            "path": str(petstore),
+                            "add_operation_fields": {
+                                "x-openapi-router-controller": "petstore_controllers"
+                            },
+                        }
+                    ]
+                },
+                "plugins": {"available": {"test.tag": {}}, "pipeline": ["test.tag"]},
+            }
+        )
+    )
+    foca = Foca(config_file=config, gateway=GatewayApp(api="tes"))
+    spec = foca.conf.api.specs[0]
+    files = spec.path if isinstance(spec.path, list) else [spec.path]
+    spec.path = [Path(api.SPEC_PATH), *files]
+    try:
+        client = foca.create_app().app.test_client()
+        assert client.get("/v2/plugins").status_code == 401
+        assert client.get("/v2/plugins/test.tag").status_code == 401
+    finally:
+        runtime.reset()

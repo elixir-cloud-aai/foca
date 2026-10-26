@@ -7,7 +7,9 @@ paths:
   /plugins:
     get:
       summary: List the plugins and presets that the caller may choose.
-      operationId: foca.plugins.api.listPlugins
+      operationId: listPlugins
+      # set here, so that apps' `add_operation_fields` keep it
+      x-openapi-router-controller: foca.plugins.api
       tags:
         - plugins
       security:
@@ -34,7 +36,9 @@ paths:
   /plugins/{plugin_id}:
     get:
       summary: Describe a plugin that the caller may choose.
-      operationId: foca.plugins.api.getPlugin
+      operationId: getPlugin
+      # set here, so that apps' `add_operation_fields` keep it
+      x-openapi-router-controller: foca.plugins.api
       tags:
         - plugins
       security:
