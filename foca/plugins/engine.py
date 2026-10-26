@@ -73,6 +73,7 @@ from foca.plugins.checks import (
     default_outbound,
 )
 from foca.plugins.config import (
+    DEFAULT_ROUTER,
     GATEWAY_ID_PATTERN,
     PRESET_PATTERN,
     PluginsConfig,
@@ -202,7 +203,23 @@ def _has_role(roles: Sequence[str], principal: Principal) -> bool:
     return not roles or bool(set(roles) & set(principal.groups))
 
 
-def is_authenticated(principal: Principal) -> bool:
+def _is_default_route_step(step: ResolvedStep) -> bool:
+    """Check whether a step is the default route step without params.
+
+    Args:
+        step: Resolved step.
+
+    Returns:
+        Whether all alternatives are the default router with default params.
+    """
+    return all(
+        alternative.plugin == DEFAULT_ROUTER
+        and not alternative.params.model_dump(exclude_defaults=True)
+        for alternative in step.alternatives
+    )
+
+
+def _is_authenticated(principal: Principal) -> bool:
     """Check whether a caller is authenticated.
 
     Args:
@@ -333,26 +350,35 @@ class PluginHost:
     def _warn_skippable_steps(self) -> None:
         """Warn about steps of the default pipeline that clients can skip.
 
-        A client's pipeline or preset replaces the default pipeline, so
-        its steps run only if the frame (`client_pipelines.prepend` or
-        `append`) has a step with the same plugins too.
+        A client's pipeline or preset replaces the default pipeline, so a
+        step of it runs for clients' choices only if the frame has the same
+        step: a step of `client_pipelines.prepend`, or of `append` without
+        `if_missing_phase` (which clients can make it drop), with the same
+        alternatives (plugins and params) and `on_failure`. The default
+        route step without params is exempt, as `append` adds it if needed.
         """
         if not self.conf.client_pipelines.enabled:
             return
-        frame = [*self._prepend, *(step for _, step in self._append)]
-        framed = {
-            alternative.plugin for step in frame for alternative in step.alternatives
-        }
+        frame = [
+            *self._prepend,
+            *(step for phase, step in self._append if phase is None),
+        ]
         skippable = [
             step.id
             for step in self.default_pipeline.steps
-            if not {alternative.plugin for alternative in step.alternatives} <= framed
+            if not _is_default_route_step(step)
+            and not any(
+                kept.alternatives == step.alternatives
+                and kept.on_failure == step.on_failure
+                for kept in frame
+            )
         ]
         if skippable:
             logger.warning(
                 "Client pipelines are enabled, so clients can skip steps of"
-                " plugins.pipeline: %s; steps that must run for every request"
-                " (e.g., policies) belong in client_pipelines.prepend as well",
+                " plugins.pipeline that client_pipelines.prepend (or append,"
+                " without if_missing_phase) lacks: %s; repeat steps that must"
+                " run for every request (e.g., policies) in prepend",
                 ", ".join(skippable),
             )
 
@@ -523,11 +549,16 @@ class PluginHost:
             pipelines_enabled=conf.client_pipelines.enabled,
             backends_enabled=conf.client_backends.enabled,
         )
-        if selection.backends is not None and not is_authenticated(principal):
-            raise InvalidSelection(
-                "Choosing backends needs an authenticated caller",
-                slug="invalid-backends",
-            )
+        if not _is_authenticated(principal):
+            if selection.pipeline is not None:
+                raise InvalidSelection(
+                    "Choosing pipelines needs an authenticated caller"
+                )
+            if selection.backends is not None:
+                raise InvalidSelection(
+                    "Choosing backends needs an authenticated caller",
+                    slug="invalid-backends",
+                )
         return PipelineRun(
             self,
             pipeline=self.resolve(selection.pipeline, principal),
@@ -561,7 +592,7 @@ class PluginHost:
         if value is None:
             return self.default_pipeline
         conf = self.conf.client_pipelines
-        if not is_authenticated(principal):
+        if not _is_authenticated(principal):
             raise InvalidSelection("Choosing pipelines needs an authenticated caller")
         if not _has_role(conf.roles, principal):
             raise InvalidSelection("Choosing pipelines is not allowed")

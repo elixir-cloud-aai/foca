@@ -117,8 +117,11 @@ identifier; steps with the same plugin need explicit, unique `id`s.
     client pipelines and presets, not around `pipeline`, which requests
     without a choice get. So, with `client_pipelines` enabled, list policy
     steps that must not be skipped in **both** `pipeline` and `prepend`.
-    On startup, the app warns about steps of `pipeline` whose plugins are
-    in neither `prepend` nor `append`.
+    On startup, the app warns about steps of `pipeline` that the frame
+    lacks: steps without the same alternatives (plugins and `params`) and
+    `on_failure` in `prepend`, or in `append` without `if_missing_phase`
+    (which clients can drop by sending a step of that phase); only the
+    default route step without `params` is exempt.
 
 Authenticated clients choose presets or their own pipelines
 (`client_pipelines`) and backends (`client_backends`) in reserved tags (cf.
@@ -128,7 +131,8 @@ pipelines are disabled by default, so that no client can skip steps of
 `pipeline` unless an admin allows it; backend choices are enabled by
 default, as they can only narrow or reorder the candidates. Both are
 limited to the allowlist (the keys `client_selectable` and `roles` of the
-entries in `available`) and to the candidates of each request. Presets are written by admins, so they may use plugins that are not
+entries in `available`) and to the candidates of each request. Presets are
+written by admins, so they may use plugins that are not
 `client_selectable`, but only callers with the plugins' `roles` may choose
 them. Presets and frames are checked on startup like the default pipeline
 (also that no preset step has the identifier of a frame step); presets that

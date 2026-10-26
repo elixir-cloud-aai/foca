@@ -75,10 +75,9 @@ fail at once, as timed out.
 Authenticated clients choose the pipeline and the backends of a request in
 two reserved tags of the request (TES and WES `tags`, a string map:
 spec-compliant and supported by existing clients), under the prefix
-`plugins.tags.prefix` (default `gateway.`). Admins enable pipeline choices
-explicitly (`plugins.client_pipelines.enabled`, off by default); backend
-choices are enabled by default, as they can only narrow or reorder the
-candidates:
+`plugins.tags.prefix` (default `gateway.`). Pipeline choices are off by
+default (cf. [per-request
+choices](configuration/plugins.md#per-request-choices)):
 
 - `gateway.pipeline`: the name of a preset (`plugins.presets`), or a
   pipeline as JSON, e.g.,
@@ -107,7 +106,8 @@ candidates:
     **without** the frame. With client pipelines enabled, policies that must
     not be skipped therefore belong in **both** `plugins.pipeline` and
     `prepend`; on startup, the app warns about steps of `plugins.pipeline`
-    whose plugins are in neither `prepend` nor `append`.
+    that clients can skip (cf. [per-request
+    choices](configuration/plugins.md#per-request-choices)).
 
 Before any plugin runs, the engine checks the choice and refuses it with
 `400` if the tags are no map or invalid, if per-request choices are disabled
@@ -676,17 +676,18 @@ what they may choose with `GET <base>/plugins` and
 exactly what selection accepts from the caller: the plugins it may use in
 its own pipelines (if it may send them: `client_pipelines` enabled, an
 authenticated caller with its `roles`, `inline` allowed; then loaded,
-`client_selectable`, and allowed for one of the caller's roles), with title, description, group and
-subgroup (from identifiers `<group>.<subgroup>.<name>`), phases,
-capabilities, maturity, distribution, version, third-party data transfers
-and the JSON Schema of the parameters, never the admin settings; and the
-presets it may choose (`presets` allowed, and the roles of their plugins).
-It also holds the steps of the default pipeline, the limits of
-`client_pipelines` (with whether the caller has anything to choose, and
-the identifiers of the `prepend` and `append` steps) and
-`client_backends`, and the tag prefix. Callers without anything to choose
-get no steps, as step identifiers default to plugin identifiers. Plugins that the caller may not use give `404`
-(`plugin-not-found`), whatever the reason.
+`client_selectable`, and allowed for one of the caller's roles), with
+title, description, group and subgroup (from identifiers
+`<group>.<subgroup>.<name>`), phases, capabilities, maturity, distribution,
+version, third-party data transfers and the JSON Schema of the parameters,
+never the admin settings; and the presets it may choose (`presets` allowed,
+and the roles of their plugins). It also holds the steps of the default
+pipeline, the limits of `client_pipelines` (with whether the caller has
+anything to choose, and the identifiers of the `prepend` and `append`
+steps) and `client_backends`, and the tag prefix. Callers without anything
+to choose get no steps, as step identifiers default to plugin identifiers.
+Plugins that the caller may not use give `404` (`plugin-not-found`),
+whatever the reason.
 
 Apps serve the listing by adding FOCA's OpenAPI 3 specification
 (`foca.plugins.api.SPEC_PATH`) to the files of their API specification, so

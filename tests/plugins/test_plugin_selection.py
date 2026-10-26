@@ -660,33 +660,78 @@ def test_choices_need_authenticated_caller(tags: dict[str, str], slug: str) -> N
     """Anonymous callers cannot choose pipelines or backends."""
     h = host()
     with pytest.raises(InvalidSelection, match="authenticated") as exc_info:
-        h.start(request(tags), Principal())
+        h.start(request(tags), Principal(groups=("member",)))
     assert exc_info.value.problem_type.endswith(f"#{slug}")
-    with pytest.raises(InvalidSelection, match="authenticated"):
-        h.resolve(tags.get("gateway.pipeline", "[]"), Principal(groups=("member",)))
     assert h.start(request(), Principal()).pipeline.source == "default"
     h.close()
 
 
-def test_warns_about_skippable_steps(caplog: pytest.LogCaptureFixture) -> None:
+def test_resolve_needs_authenticated_caller() -> None:
+    """Pipelines resolved directly also need an authenticated caller."""
+    h = host()
+    with pytest.raises(InvalidSelection, match="authenticated") as exc_info:
+        h.resolve("[]", Principal(groups=("member",)))
+    assert exc_info.value.problem_type.endswith("#invalid-pipeline")
+    h.close()
+
+
+@pytest.mark.parametrize(
+    ("pipeline", "client_pipelines", "skippable"),
+    [
+        (
+            [
+                {"plugin": "test.tag"},
+                {"id": "kept", "plugin": "test.header"},
+                "foca.routing.ordered",
+            ],
+            {"prepend": [{"id": "policy", "plugin": "test.header"}]},
+            "test.tag",
+        ),
+        (  # dropped when clients' pipelines have a route step
+            [{"id": "policy-route", "plugin": "test.reverse"}],
+            {"append": [{"plugin": "test.reverse", "if_missing_phase": "route"}]},
+            "policy-route",
+        ),
+        (  # other params
+            [{"plugin": "test.tag", "params": {"value": "a"}}],
+            {"prepend": [{"plugin": "test.tag", "params": {"value": "b"}}]},
+            "test.tag",
+        ),
+        (  # other failure handling
+            [{"plugin": "test.tag"}],
+            {"prepend": [{"plugin": "test.tag", "on_failure": "skip"}]},
+            "test.tag",
+        ),
+        (
+            [{"plugin": "test.tag"}, "foca.routing.ordered"],
+            {"append": [{"plugin": "test.tag"}]},
+            None,
+        ),
+        (["foca.routing.ordered"], {}, None),
+        (
+            [{"plugin": "foca.routing.ordered", "params": {"labels": {"a": "b"}}}],
+            {},
+            "foca.routing.ordered",
+        ),
+    ],
+)
+def test_warns_about_skippable_steps(
+    pipeline: list[dict[str, Any] | str],
+    client_pipelines: dict[str, Any],
+    skippable: str | None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Steps that clients can skip are named on startup."""
-    pipeline: list[dict[str, Any] | str] = [
-        {"plugin": "test.tag"},
-        {"id": "kept", "plugin": "test.header"},
-        "foca.routing.ordered",
-    ]
     with caplog.at_level(logging.WARNING, logger="foca.plugins.engine"):
+        make_host(pipeline).close()  # client pipelines disabled
+        assert "can skip" not in caplog.text
         make_host(
-            pipeline,
-            client_pipelines={
-                "enabled": True,
-                "prepend": [{"id": "policy", "plugin": "test.header"}],
-            },
+            pipeline, client_pipelines={"enabled": True, **client_pipelines}
         ).close()
-    assert "can skip steps of plugins.pipeline: test.tag" in caplog.text
-    assert "kept" not in caplog.text
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="foca.plugins.engine"):
-        make_host(pipeline).close()
-        make_host(["foca.routing.ordered"], client_pipelines={"enabled": True}).close()
-    assert "can skip" not in caplog.text
+    if skippable is None:
+        assert "can skip" not in caplog.text
+    else:
+        assert caplog.text.rstrip().endswith(
+            f"lacks: {skippable}; repeat steps that must run for every"
+            " request (e.g., policies) in prepend"
+        )
