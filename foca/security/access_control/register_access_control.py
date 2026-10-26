@@ -299,8 +299,9 @@ def check_opt_in_roles(
     if unmapped:
         logger.warning(
             "No group is mapped to the opt-in roles "
-            "('security.access_control.group_mapping'): %s. Nobody can opt in "
-            "to them until groups are mapped to them.",
+            "('security.access_control.group_mapping'): %s. No user can opt "
+            "in to them until groups are mapped to them (service clients "
+            "mapped to them always have them).",
             ", ".join(unmapped),
         )
     if not cors_config.enabled:

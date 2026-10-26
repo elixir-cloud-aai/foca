@@ -535,7 +535,7 @@ def test_AccessControlConfig_mapped_resource_roles_invalid(
     data: dict[str, Any] = {mapping: {"x": role}}
     if resource_roles is not None:
         data["resource_roles"] = resource_roles
-    with pytest.raises(ValidationError, match=f"must not map to '{role}'"):
+    with pytest.raises(ValidationError, match=f"must not include '{role}'"):
         AccessControlConfig.model_validate(data)
 
 
@@ -1136,7 +1136,7 @@ def test_SecurityConfig_opt_in_header_clash() -> None:
 @pytest.mark.parametrize(
     "kwargs,message",
     [
-        # also when nothing maps to the role yet
+        # also if no group is mapped to the role
         (
             {
                 "opt_in_roles": ["admin"],
@@ -1184,6 +1184,11 @@ def test_SecurityConfig_opt_in_header_clash() -> None:
             },
             "to 'superadmin'",
         ),
+        # checked like mapped roles, also if no group is mapped to them
+        ({"opt_in_roles": ["owner"]}, "must not include 'owner'"),
+        ({"opt_in_roles": ["group:admins"]}, "must not start with 'group:'"),
+        ({"opt_in_roles": ["user:alice"]}, "must not start with 'user:'"),
+        ({"opt_in_roles": ["client:svc"]}, "must not start with 'client:'"),
         ({"opt_in_header": "X Roles"}, "no valid header name"),
         ({"opt_in_header": "X_Request_Roles"}, "without '_'"),
         ({"opt_in_header": ""}, "no valid header name"),
@@ -1192,7 +1197,11 @@ def test_SecurityConfig_opt_in_header_clash() -> None:
 def test_AccessControlConfig_invalid_opt_in_roles(
     kwargs: dict[str, Any], message: str
 ) -> None:
-    """Opt-in roles that could not apply as opt-in are refused."""
+    """Opt-in settings under which roles could apply without opt-in are refused.
+
+    I.e., rules granting opt-in roles, opt-in roles that are resource roles
+    or subjects, and invalid header names.
+    """
     with pytest.raises(ValidationError, match=message):
         AccessControlConfig(claim_groups="groups", **kwargs)
 
