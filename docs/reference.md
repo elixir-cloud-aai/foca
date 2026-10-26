@@ -35,6 +35,8 @@ configuration models, see [Configuration](configuration/index.md).
         - is_permitted
         - get_current_subject
         - get_current_groups
+        - get_available_opt_in_roles
+        - get_active_opt_in_roles
         - get_current_claims
         - get_current_group_values
         - get_current_client

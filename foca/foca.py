@@ -16,7 +16,9 @@ from foca.factories.celery_app import create_celery_app
 from foca.factories.connexion_app import create_connexion_app
 from foca.plugins import runtime
 from foca.plugins.runtime import GatewayApp
+from foca.security.access_control.enforcement import register_opt_in_header
 from foca.security.access_control.register_access_control import (
+    check_opt_in_roles,
     register_access_control,
 )
 from foca.security.cors import enable_cors
@@ -153,6 +155,12 @@ class Foca:
             logger.info("CORS enabled.")
         else:
             logger.info("CORS not enabled.")
+
+        # Opt-in roles: responses depend on the header asking for them
+        access_control = self.conf.security.access_control
+        if access_control.opt_in_roles:
+            register_opt_in_header(cnx_app.app, access_control.opt_in_header)
+            check_opt_in_roles(access_control, self.conf.security.cors)
 
         # Register OpenAPI specs
         if self.conf.api.specs:

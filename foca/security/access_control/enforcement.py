@@ -4,7 +4,7 @@ import copy
 import inspect
 import logging
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Literal
@@ -14,7 +14,7 @@ from casbin.model import Model
 from connexion.exceptions import BadRequestProblem, Forbidden
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
-from flask import current_app, has_request_context, request
+from flask import Flask, Response, current_app, has_request_context, request
 from flask.globals import request_ctx
 
 from foca.config.access import get_config
@@ -284,6 +284,72 @@ def get_current_group_values() -> list[str]:
     return list(dict.fromkeys(str(value) for value in values))
 
 
+def _get_mapped_roles() -> list[str]:
+    """Get the roles that the group claim values of the current request map to.
+
+    Returns:
+        Roles of `access_control.group_mapping` of the values of the group
+        claim (cf. :py:func:`get_current_group_values`), including opt-in
+        roles that the request does not ask for, without duplicates.
+    """
+    mapping = _get_access_control_config().group_mapping or {}
+    return list(
+        dict.fromkeys(
+            mapping[value] for value in get_current_group_values() if value in mapping
+        )
+    )
+
+
+def _get_requested_roles() -> set[str]:
+    """Get the roles that the current request asks for.
+
+    Returns:
+        Roles listed in the header `access_control.opt_in_header` (comma
+        separated, also in several header lines), or none if no opt-in
+        roles are configured or there is no request.
+    """
+    conf = _get_access_control_config()
+    if not conf.opt_in_roles or not has_request_context():
+        return set()
+    return {
+        role.strip()
+        for value in request.headers.getlist(conf.opt_in_header)
+        for role in value.split(",")
+        if role.strip()
+    }
+
+
+def get_available_opt_in_roles() -> list[str]:
+    """Get the opt-in roles that the subject of the current request may use.
+
+    Use this, e.g., to let a `/me` endpoint report whether a user may switch
+    to admin mode, together with :py:func:`get_active_opt_in_roles`.
+
+    Returns:
+        Roles of `access_control.opt_in_roles` that the group claim values
+        of the current request map to (`access_control.group_mapping`),
+        whether or not the request asks for them, in the order of
+        `opt_in_roles`.
+    """
+    mapped = _get_mapped_roles()
+    return [
+        role for role in _get_access_control_config().opt_in_roles if role in mapped
+    ]
+
+
+def get_active_opt_in_roles() -> list[str]:
+    """Get the opt-in roles that apply to the current request.
+
+    Returns:
+        Opt-in roles that the subject may use (cf.
+        :py:func:`get_available_opt_in_roles`) and that the request asks for
+        in the header `access_control.opt_in_header`, in the order of
+        `access_control.opt_in_roles`. Asking for other roles has no effect.
+    """
+    requested = _get_requested_roles()
+    return [role for role in get_available_opt_in_roles() if role in requested]
+
+
 def get_current_groups() -> list[str]:
     """Get roles of the subject of the current request from group claims.
 
@@ -291,10 +357,12 @@ def get_current_groups() -> list[str]:
         Values of the claim configured via `access_control.claim_groups` of
         the validated token of the current request (cf.
         :py:func:`get_current_group_values`), mapped to roles via
-        `access_control.group_mapping`, if set. Values without a mapping are
-        dropped if a mapping is set. Without a mapping, values are prefixed
-        with `group:` (e.g., `group:vo-members`), so that they cannot
-        collide with role names. If a mapping and
+        `access_control.group_mapping`, if set; opt-in roles
+        (`access_control.opt_in_roles`) only if the request asks for them
+        (cf. :py:func:`get_active_opt_in_roles`). Values without a mapping
+        are dropped if a mapping is set. Without a mapping, values are
+        prefixed with `group:` (e.g., `group:vo-members`), so that they
+        cannot collide with role names. If a mapping and
         `access_control.keep_group_subjects` are set, all values are
         additionally returned with that prefix, after the mapped roles.
     """
@@ -302,12 +370,87 @@ def get_current_groups() -> list[str]:
     values = get_current_group_values()
     groups = []
     if conf.group_mapping is not None:
+        active = set(get_active_opt_in_roles())
+        opt_in = set(conf.opt_in_roles)
         groups = [
-            conf.group_mapping[value] for value in values if value in conf.group_mapping
+            role for role in _get_mapped_roles() if role not in opt_in or role in active
         ]
     if conf.group_mapping is None or conf.keep_group_subjects:
         groups.extend(_prefix_subject(value, "group") for value in values)
     return list(dict.fromkeys(groups))
+
+
+def grants_opt_in_role(
+    subject: str, role: str, opt_in_roles: Iterable[str] | None = None
+) -> bool:
+    """Check whether a role rule grants an opt-in role.
+
+    Rules must not grant opt-in roles to any subject, also not to other
+    opt-in roles: the role would then apply without opt-in, or with the
+    opt-in of another role, which :py:func:`get_active_opt_in_roles` would
+    not report. Role rules are those of policy types `g*` (e.g., `g`,
+    `g2`), whose first values are a subject and a role. Object groupings of
+    other models (e.g., `g2` of `default_model.conf`) are checked alike, so
+    they must not use names of opt-in roles.
+
+    Args:
+        subject: Subject of the rule (e.g., `user:alice` or a role); not
+            used, as no subject may be granted an opt-in role.
+        role: Role that the rule grants.
+        opt_in_roles: Opt-in roles; default to `access_control.opt_in_roles`
+            of the current app.
+
+    Returns:
+        Whether `role` is an opt-in role.
+    """
+    del subject  # any subject
+    if opt_in_roles is None:
+        opt_in_roles = _get_access_control_config().opt_in_roles
+    return role in opt_in_roles
+
+
+def register_opt_in_header(app: Flask, header: str) -> None:
+    """Mark responses as depending on the header of opt-in roles.
+
+    Responses then have the header in `Vary`, so that caches do not serve
+    a response to a request that asked for opt-in roles (e.g., admin
+    views) to one that did not, or vice versa.
+
+    Args:
+        app: Flask app.
+        header: Header of opt-in roles (`access_control.opt_in_header`).
+    """
+
+    def _vary(response: Response) -> Response:
+        response.vary.add(header)
+        return response
+
+    app.after_request(_vary)
+
+
+def _warn_opt_in_grants(enforcer: Enforcer) -> None:
+    """Warn about loaded role rules that grant opt-in roles without opt-in.
+
+    Args:
+        enforcer: Casbin enforcer with loaded policy rules.
+    """
+    if not _get_access_control_config().opt_in_roles:
+        return
+    for ptype in enforcer.get_model().model.get("g", {}):
+        for rule in enforcer.get_named_grouping_policy(ptype):
+            if len(rule) >= 2 and grants_opt_in_role(rule[0], rule[1]):
+                # Values are quoted, so that they cannot forge log lines
+                logger.warning(
+                    "Policy rule (%s, %r, %r, ...) grants the opt-in role %r "
+                    "to %r, which then has it without asking for it. Revoke "
+                    "it via the permissions API and map groups to the role "
+                    "instead.",
+                    ptype,
+                    rule[0],
+                    rule[1],
+                    rule[1],
+                    rule[0],
+                )
 
 
 def _warn_subject_like_roles(enforcer: Enforcer) -> None:
@@ -318,9 +461,11 @@ def _warn_subject_like_roles(enforcer: Enforcer) -> None:
     rights of that subject on the resource, as Casbin resolves roles
     transitively. Such rules are rejected by :py:func:`add_resource_role`,
     but may have been stored before, or directly. They are not removed
-    automatically. Checked on the first policy load of each app instance
-    (per worker process), on the policy rules already loaded by
-    `enforcer`, i.e., without accessing the database.
+    automatically. Role rules that grant opt-in roles without opt-in (cf.
+    :py:func:`grants_opt_in_role`), e.g., stored before the roles were made
+    opt-in, are warned about, too. Checked on the first policy load of each
+    app instance (per worker process), on the policy rules already loaded
+    by `enforcer`, i.e., without accessing the database.
 
     Args:
         enforcer: Casbin enforcer with loaded policy rules.
@@ -331,6 +476,7 @@ def _warn_subject_like_roles(enforcer: Enforcer) -> None:
         current_app.config[_SUBJECT_ROLES_CHECKED_KEY] = True
     if checked:
         return
+    _warn_opt_in_grants(enforcer)
     prefixes = (_get_subject_prefix("user"), *SUBJECT_TYPE_PREFIXES.values())
     for ptype in get_resource_role_ptypes(enforcer.get_model()):
         for subject, role, resource in enforcer.get_named_grouping_policy(ptype):
@@ -736,13 +882,20 @@ def _validate_grantable_role(role: str) -> None:
 
     Raises:
         ValueError: The role starts with `access_control.subject_prefix`,
-            `group:` or `client:`.
+            `group:` or `client:`, or it is an opt-in role
+            (`access_control.opt_in_roles`), which subjects would then
+            always have on the resource.
     """
     for prefix in [_get_subject_prefix("user"), *SUBJECT_TYPE_PREFIXES.values()]:
         if role.startswith(prefix):
             raise ValueError(
                 f"Roles must not start with '{prefix}', the prefix of subjects"
             )
+    if role in _get_access_control_config().opt_in_roles:
+        raise ValueError(
+            f"'{role}' is an opt-in role, which subjects would always have: "
+            "map groups to it instead"
+        )
 
 
 def add_resource_role(
@@ -787,7 +940,7 @@ def add_resource_role(
             subject is empty, the subject type is not supported, the role
             starts with `access_control.subject_prefix`, `group:` or
             `client:` (so that subjects cannot get the roles of other
-            subjects through it), or
+            subjects through it), the role is an opt-in role, or
             the prefixed subject, role or resource is not a valid value for
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).

@@ -1,6 +1,7 @@
 """Methods to manage permission management configuration."""
 
 import logging
+import re
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from foca.models.config import (
     CollectionConfig,
     Config,
     ConnexionOptions,
+    CORSConfig,
     DBConfig,
     MongoConfig,
 )
@@ -234,6 +236,60 @@ def _check_group_config(access_control_config: AccessControlConfig) -> None:
             "roles on resources granted to groups ('group:<value>') don't "
             "apply, and the resource ownership helpers refuse to grant them."
         )
+
+
+def check_opt_in_roles(
+    access_control_config: AccessControlConfig, cors_config: CORSConfig
+) -> None:
+    """Log the opt-in roles, and warn if browsers cannot ask for them.
+
+    Run by `Foca.create_app()` also without access control, as gateway
+    plugins use the roles, too.
+
+    Args:
+        access_control_config: Access control configuration.
+        cors_config: CORS configuration.
+    """
+    conf = access_control_config
+    header = conf.opt_in_header
+    logger.info("Opt-in roles: %s (header '%s').", ", ".join(conf.opt_in_roles), header)
+    if not cors_config.enabled:
+        return
+    if not any(_allows(value, header) for value in cors_config.allow_headers):
+        logger.warning(
+            "The header of opt-in roles ('security.access_control.opt_in_header') "
+            "is not allowed in cross-origin requests: add it to "
+            "'security.cors.allow_headers', so that browser apps can ask for "
+            "opt-in roles."
+        )
+
+
+# Characters that make entries of `allow_headers` patterns, as for flask-cors
+_REGEX_CHARS = frozenset("*\\]?$^[()")
+
+
+def _allows(entry: str, header: str) -> bool:
+    """Check whether an entry of `security.cors.allow_headers` allows a header.
+
+    As flask-cors does, entries with characters of regular expressions are
+    patterns, and others are header names.
+
+    Args:
+        entry: Entry: `*`, a header name or a pattern (regular expression).
+        header: Header name.
+
+    Returns:
+        Whether the entry is `*`, the header (ignoring case), or a pattern
+        matching it (ignoring case; an invalid pattern matches nothing).
+    """
+    if entry == "*" or entry.lower() == header.lower():
+        return True
+    if not set(entry) & _REGEX_CHARS:
+        return False
+    try:
+        return re.match(entry, header, re.IGNORECASE) is not None
+    except re.error:
+        return False
 
 
 def _check_admin_role(access_control_config: AccessControlConfig) -> None:

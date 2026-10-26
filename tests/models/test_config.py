@@ -999,3 +999,110 @@ def test_docstring_examples() -> None:
     results = doctest.testmod(foca.models.config)
     assert results.attempted > 0
     assert results.failed == 0
+
+
+def test_AccessControlConfig_opt_in_roles() -> None:
+    """Opt-in roles are roles of the group mapping."""
+    conf = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping={"admins": "admin"},
+        opt_in_roles=["admin"],
+        policies=[["g", "admin", "editor"]],
+    )
+    assert conf.opt_in_roles == ["admin"]
+    assert conf.opt_in_header == "X-Request-Roles"
+    assert AccessControlConfig().opt_in_roles == []
+    custom = AccessControlConfig(
+        claim_groups="groups",
+        group_mapping={"admins": "admin"},
+        opt_in_roles=["admin"],
+        opt_in_header="Admin-Mode",
+    )
+    assert custom.opt_in_header == "Admin-Mode"
+
+
+def test_SecurityConfig_opt_in_header_clash() -> None:
+    """The header of opt-in roles differs from that of service clients."""
+    access_control = {
+        "claim_groups": "groups",
+        "group_mapping": {"admins": "admin"},
+        "opt_in_roles": ["admin"],
+        "opt_in_header": "X-On-Behalf-Of",
+    }
+    with pytest.raises(ValidationError, match="must differ"):
+        SecurityConfig.model_validate(
+            {
+                "access_control": access_control,
+                "auth": {"on_behalf_of_header": "x-on-behalf-of"},
+            }
+        )
+    SecurityConfig.model_validate(
+        {
+            "access_control": {**access_control, "opt_in_roles": []},
+            "auth": {"on_behalf_of_header": "X-On-Behalf-Of"},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [
+        ({"opt_in_roles": ["admin"]}, "must be roles of 'group_mapping'"),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin", "ops"],
+            },
+            "opted in to: ops",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin"],
+                "policies": [["g", "user:alice", "admin"]],
+            },
+            "must not grant the opt-in role 'admin'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin", "ops": "ops"},
+                "opt_in_roles": ["admin"],
+                "policies": [["g", "ops", "admin"]],
+            },
+            "to 'ops'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin"],
+                "policies": [["g2", "user:alice", "admin", "/items/1"]],
+            },
+            "must not grant the opt-in role 'admin'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin"},
+                "opt_in_roles": ["admin"],
+                "policies": {"first-admin": ["g", "user:alice", "admin"]},
+            },
+            "must not grant the opt-in role 'admin'",
+        ),
+        (
+            {
+                "group_mapping": {"admins": "admin", "root": "superadmin"},
+                "opt_in_roles": ["admin", "superadmin"],
+                "policies": [["g", "superadmin", "admin"]],
+            },
+            "to 'superadmin'",
+        ),
+        ({"opt_in_header": "X Roles"}, "no valid header name"),
+        ({"opt_in_header": "X_Request_Roles"}, "without '_'"),
+        ({"opt_in_header": ""}, "no valid header name"),
+    ],
+)
+def test_AccessControlConfig_invalid_opt_in_roles(
+    kwargs: dict[str, Any], message: str
+) -> None:
+    """Opt-in roles that could not apply as opt-in are refused."""
+    with pytest.raises(ValidationError, match=message):
+        AccessControlConfig(claim_groups="groups", **kwargs)

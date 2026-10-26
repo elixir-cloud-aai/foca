@@ -39,7 +39,11 @@ Access control requires `enabled: true` and trusted token
 `enforce: true`, policies are enforced on all operations that require
 authentication. `client_mapping` maps [service
 clients](../authentication.md#service-tokens) (`security.auth.service_clients`)
-to roles; other clients cannot be mapped. `resource_roles` are the roles
+to roles; other clients cannot be mapped. `opt_in_roles` lists roles of
+`group_mapping` that apply only to requests asking for them in the header
+`opt_in_header` (default: `X-Request-Roles`), e.g., for an admin mode (see
+[opt-in roles](../access-control.md#opt-in-roles)); by default, there are
+none. `resource_roles` are the roles
 that the [resource ownership](../access-control.md#resource-ownership) helpers
 grant and revoke. `policies` can also be given as named rules, so that
 config overlays can change single rules (see [configuring
@@ -79,6 +83,11 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   groups](../access-control.md#granting-roles-to-groups) don't apply, and
   the resource ownership helpers refuse to grant them. Set
   `keep_group_subjects: true` if the app grants roles to groups.
+- **Opt-in roles:** the opt-in roles and their header are logged
+  (`INFO`), and a warning is logged if CORS is enabled but doesn't allow
+  the header. This also runs without access control, as gateway plugins
+  use the roles, too. Invalid opt-in settings already fail validation of
+  the configuration (see [opt-in roles](../access-control.md#opt-in-roles)).
 - `keep_group_subjects` without `group_mapping` (no effect) and several
   trusted `issuers` (subjects are not scoped by issuer) are warned about,
   too, and so is the removal of stored configured rules if `policies` is
