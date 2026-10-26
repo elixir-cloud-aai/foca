@@ -202,6 +202,20 @@ def _has_role(roles: Sequence[str], principal: Principal) -> bool:
     return not roles or bool(set(roles) & set(principal.groups))
 
 
+def is_authenticated(principal: Principal) -> bool:
+    """Check whether a caller is authenticated.
+
+    Args:
+        principal: Caller.
+
+    Returns:
+        Whether a token with the caller's identity was validated (i.e.,
+        the caller has a subject); only such callers may choose pipelines
+        and backends per request.
+    """
+    return principal.subject is not None
+
+
 class PluginHost:
     """Plugins of a process, and the factory of pipeline runs.
 
@@ -311,9 +325,36 @@ class PluginHost:
                         " of a step of 'client_pipelines.prepend' or 'append';"
                         " set an explicit `id`"
                     )
+            self._warn_skippable_steps()
         except BaseException:
             self.close()
             raise
+
+    def _warn_skippable_steps(self) -> None:
+        """Warn about steps of the default pipeline that clients can skip.
+
+        A client's pipeline or preset replaces the default pipeline, so
+        its steps run only if the frame (`client_pipelines.prepend` or
+        `append`) has a step with the same plugins too.
+        """
+        if not self.conf.client_pipelines.enabled:
+            return
+        frame = [*self._prepend, *(step for _, step in self._append)]
+        framed = {
+            alternative.plugin for step in frame for alternative in step.alternatives
+        }
+        skippable = [
+            step.id
+            for step in self.default_pipeline.steps
+            if not {alternative.plugin for alternative in step.alternatives} <= framed
+        ]
+        if skippable:
+            logger.warning(
+                "Client pipelines are enabled, so clients can skip steps of"
+                " plugins.pipeline: %s; steps that must run for every request"
+                " (e.g., policies) belong in client_pipelines.prepend as well",
+                ", ".join(skippable),
+            )
 
     @classmethod
     def from_config(
@@ -482,6 +523,11 @@ class PluginHost:
             pipelines_enabled=conf.client_pipelines.enabled,
             backends_enabled=conf.client_backends.enabled,
         )
+        if selection.backends is not None and not is_authenticated(principal):
+            raise InvalidSelection(
+                "Choosing backends needs an authenticated caller",
+                slug="invalid-backends",
+            )
         return PipelineRun(
             self,
             pipeline=self.resolve(selection.pipeline, principal),
@@ -515,6 +561,8 @@ class PluginHost:
         if value is None:
             return self.default_pipeline
         conf = self.conf.client_pipelines
+        if not is_authenticated(principal):
+            raise InvalidSelection("Choosing pipelines needs an authenticated caller")
         if not _has_role(conf.roles, principal):
             raise InvalidSelection("Choosing pipelines is not allowed")
         preset: str | None = None

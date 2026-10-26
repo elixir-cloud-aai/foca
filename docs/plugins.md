@@ -72,10 +72,13 @@ fail at once, as timed out.
 
 ## Per-request pipelines and backends
 
-Clients choose the pipeline and the backends of a request in two reserved
-tags of the request (TES and WES `tags`, a string map: spec-compliant and
-supported by existing clients), under the prefix `plugins.tags.prefix`
-(default `gateway.`):
+Authenticated clients choose the pipeline and the backends of a request in
+two reserved tags of the request (TES and WES `tags`, a string map:
+spec-compliant and supported by existing clients), under the prefix
+`plugins.tags.prefix` (default `gateway.`). Admins enable pipeline choices
+explicitly (`plugins.client_pipelines.enabled`, off by default); backend
+choices are enabled by default, as they can only narrow or reorder the
+candidates:
 
 - `gateway.pipeline`: the name of a preset (`plugins.presets`), or a
   pipeline as JSON, e.g.,
@@ -99,13 +102,17 @@ supported by existing clients), under the prefix `plugins.tags.prefix`
 !!! warning "A client pipeline replaces the default pipeline"
 
     A preset or client pipeline (even an empty one, `[]`) runs **instead
-    of** `plugins.pipeline`: only the frame (`client_pipelines.prepend` and
-    `append`) runs for every request. Put policies that must not be skipped
-    into `prepend`.
+    of** `plugins.pipeline`, framed by `client_pipelines.prepend` and
+    `append`. Requests without the pipeline tag get `plugins.pipeline`
+    **without** the frame. With client pipelines enabled, policies that must
+    not be skipped therefore belong in **both** `plugins.pipeline` and
+    `prepend`; on startup, the app warns about steps of `plugins.pipeline`
+    whose plugins are in neither `prepend` nor `append`.
 
 Before any plugin runs, the engine checks the choice and refuses it with
 `400` if the tags are no map or invalid, if per-request choices are disabled
 (`plugins.client_pipelines.enabled`, `plugins.client_backends.enabled`),
+if the caller is not authenticated (has no subject),
 if the pipeline exceeds the limits (`max_steps`, `max_alternatives`,
 `max_size`), if the caller lacks a required role, or if it uses a plugin
 that is not available to the caller (unknown, not installed, disabled, not
@@ -667,9 +674,9 @@ Clients that choose pipelines per request (e.g., SDKs, dashboards) list
 what they may choose with `GET <base>/plugins` and
 `GET <base>/plugins/{plugin_id}`, both authenticated. The listing holds
 exactly what selection accepts from the caller: the plugins it may use in
-its own pipelines (if it may send them: `client_pipelines` enabled, its
-`roles`, `inline` allowed; then loaded, `client_selectable`, and allowed
-for one of the caller's roles), with title, description, group and
+its own pipelines (if it may send them: `client_pipelines` enabled, an
+authenticated caller with its `roles`, `inline` allowed; then loaded,
+`client_selectable`, and allowed for one of the caller's roles), with title, description, group and
 subgroup (from identifiers `<group>.<subgroup>.<name>`), phases,
 capabilities, maturity, distribution, version, third-party data transfers
 and the JSON Schema of the parameters, never the admin settings; and the

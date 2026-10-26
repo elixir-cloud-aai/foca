@@ -43,17 +43,17 @@ plugins:
   presets:
     encrypted-inputs:
       - org.example.tes.data.decrypt
-  # Pipelines chosen by clients per request
+  # Pipelines chosen by clients per request (disabled by default)
   client_pipelines:
-    enabled: true
+    enabled: true            # default: false
     allowed: [presets, inline]   # at least one; `enabled: false` allows none
     max_steps: 8
     max_alternatives: 3
     max_size: 8192           # bytes of the tag's value
     roles: []                # who may choose; any authenticated caller if empty
     prepend:                 # admin frame: first in client and preset
-      - org.example.tes.policy.images  # pipelines (not `pipeline`: repeat
-                                       # steps that must always run there)
+      - org.example.tes.policy.images  # pipelines only, not in `pipeline`:
+                                       # policies belong in both
     append:                  # always last (or only if a phase is missing)
       - plugin: foca.routing.ordered   # the default
         if_missing_phase: route
@@ -109,20 +109,26 @@ identifier; steps with the same plugin need explicit, unique `id`s.
 
 ## Per-request choices
 
-!!! warning "Policies that must always run belong in `prepend`"
+!!! warning "Policies that must always run belong in `pipeline` and `prepend`"
 
     A client's pipeline (or a preset) **replaces** the default pipeline
     (`pipeline`) entirely, and an empty client pipeline (`[]`) is allowed.
-    Only the frame (`client_pipelines.prepend` and `append`) runs for every
-    request, so put policy steps that must not be skipped into `prepend`
-    (or disable `client_pipelines`).
+    The frame (`client_pipelines.prepend` and `append`) runs only around
+    client pipelines and presets, not around `pipeline`, which requests
+    without a choice get. So, with `client_pipelines` enabled, list policy
+    steps that must not be skipped in **both** `pipeline` and `prepend`.
+    On startup, the app warns about steps of `pipeline` whose plugins are
+    in neither `prepend` nor `append`.
 
-Clients choose presets or their own pipelines (`client_pipelines`) and
-backends (`client_backends`) in reserved tags (cf. [per-request pipelines
-and backends](../plugins.md#per-request-pipelines-and-backends)); both are
-enabled by default, limited to the allowlist (the keys `client_selectable`
-and `roles` of the entries in `available`) and to the candidates of each
-request. Presets are written by admins, so they may use plugins that are not
+Authenticated clients choose presets or their own pipelines
+(`client_pipelines`) and backends (`client_backends`) in reserved tags (cf.
+[per-request pipelines and
+backends](../plugins.md#per-request-pipelines-and-backends)). Client
+pipelines are disabled by default, so that no client can skip steps of
+`pipeline` unless an admin allows it; backend choices are enabled by
+default, as they can only narrow or reorder the candidates. Both are
+limited to the allowlist (the keys `client_selectable` and `roles` of the
+entries in `available`) and to the candidates of each request. Presets are written by admins, so they may use plugins that are not
 `client_selectable`, but only callers with the plugins' `roles` may choose
 them. Presets and frames are checked on startup like the default pipeline
 (also that no preset step has the identifier of a frame step); presets that

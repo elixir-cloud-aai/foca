@@ -1,6 +1,7 @@
 """Tests of per-request pipelines and backends (`foca.plugins.selection`)."""
 
 import json
+import logging
 import random
 from typing import Any
 
@@ -60,12 +61,14 @@ def host(**conf: Any) -> Any:
     """Create a host with fake plugins and presets.
 
     Args:
-        conf: Configuration of `client_pipelines`, `available` etc.
+        conf: Configuration of `client_pipelines` (enabled unless set
+            otherwise), `available` etc.
 
     Returns:
         Host.
     """
     available = conf.pop("available", None) or {name: {} for name in FAKES}
+    conf["client_pipelines"] = {"enabled": True, **conf.get("client_pipelines", {})}
     return make_host(
         [{"plugin": "test.reverse"}],
         available=available,
@@ -400,7 +403,11 @@ def test_tags_not_a_mapping() -> None:
 def test_tags_of_other_apis() -> None:
     """Apps of other APIs pass the tags explicitly."""
     conf = PluginsConfig.model_validate(
-        {"available": {"test.tag": {}}, "presets": {"p": ["test.tag"]}}
+        {
+            "available": {"test.tag": {}},
+            "presets": {"p": ["test.tag"]},
+            "client_pipelines": {"enabled": True},
+        }
     )
     plugins = load_plugins(conf, api="wes", find_entry_points=fake_entry_points())
     wes = PluginHost(conf, api="wes", plugins=plugins)
@@ -623,3 +630,63 @@ def test_client_pipelines_are_i_json(value: str, message: str) -> None:
         parse_client_pipeline(value)
     steps = parse_client_pipeline('[{"plugin": "a.b", "params": {"x": [1.5, null]}}]')
     assert steps[0].alternatives[0].params == {"x": [1.5, None]}
+
+
+def test_client_pipelines_disabled_by_default() -> None:
+    """Clients cannot replace the default pipeline unless admins allow it."""
+    assert not PluginsConfig().client_pipelines.enabled
+    h = make_host(
+        [{"plugin": "test.tag"}, {"plugin": "test.reverse"}],
+        available={name: {"client_selectable": False} for name in FAKES},
+    )
+    for value in ("[]", "tagging"):
+        with pytest.raises(InvalidSelection, match="disabled"):
+            h.start(request(pipeline_tag(value)), ALICE)
+    h.close()
+
+
+@pytest.mark.parametrize(
+    ("tags", "slug"),
+    [
+        (pipeline_tag([]), "invalid-pipeline"),
+        (pipeline_tag("tagging"), "invalid-pipeline"),
+        (
+            {"gateway.backends": '{"type": "allow", "backends": ["a"]}'},
+            "invalid-backends",
+        ),
+    ],
+)
+def test_choices_need_authenticated_caller(tags: dict[str, str], slug: str) -> None:
+    """Anonymous callers cannot choose pipelines or backends."""
+    h = host()
+    with pytest.raises(InvalidSelection, match="authenticated") as exc_info:
+        h.start(request(tags), Principal())
+    assert exc_info.value.problem_type.endswith(f"#{slug}")
+    with pytest.raises(InvalidSelection, match="authenticated"):
+        h.resolve(tags.get("gateway.pipeline", "[]"), Principal(groups=("member",)))
+    assert h.start(request(), Principal()).pipeline.source == "default"
+    h.close()
+
+
+def test_warns_about_skippable_steps(caplog: pytest.LogCaptureFixture) -> None:
+    """Steps that clients can skip are named on startup."""
+    pipeline: list[dict[str, Any] | str] = [
+        {"plugin": "test.tag"},
+        {"id": "kept", "plugin": "test.header"},
+        "foca.routing.ordered",
+    ]
+    with caplog.at_level(logging.WARNING, logger="foca.plugins.engine"):
+        make_host(
+            pipeline,
+            client_pipelines={
+                "enabled": True,
+                "prepend": [{"id": "policy", "plugin": "test.header"}],
+            },
+        ).close()
+    assert "can skip steps of plugins.pipeline: test.tag" in caplog.text
+    assert "kept" not in caplog.text
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="foca.plugins.engine"):
+        make_host(pipeline).close()
+        make_host(["foca.routing.ordered"], client_pipelines={"enabled": True}).close()
+    assert "can skip" not in caplog.text

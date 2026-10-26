@@ -31,7 +31,8 @@ def listing_host(**kwargs: Any) -> PluginHost:
     """Create a host with restricted and hidden plugins.
 
     Args:
-        kwargs: Other arguments of `make_host`.
+        kwargs: Other arguments of `make_host`; `client_pipelines` are
+            enabled unless set otherwise.
 
     Returns:
         Host.
@@ -45,6 +46,7 @@ def listing_host(**kwargs: Any) -> PluginHost:
             "test.reject": {"enabled": False},
         },
         presets={"tagged": [{"plugin": "test.tag", "params": {"key": "k"}}]},
+        client_pipelines={"enabled": True, **kwargs.pop("client_pipelines", {})},
         **kwargs,
     )
 
@@ -84,13 +86,24 @@ def test_list_plugins_by_role() -> None:
     host.close()
 
 
+def test_listing_for_anonymous_callers() -> None:
+    """Anonymous callers may choose nothing, whatever their roles."""
+    host = listing_host()
+    listing = api.list_plugins(host, Principal(groups=("user", "admin")))
+    assert listing["plugins"] == []
+    assert listing["presets"] == []
+    assert not listing["client_pipelines"]["allowed_for_caller"]
+    assert api.list_plugins(host, ALICE)["client_pipelines"]["allowed_for_caller"]
+    host.close()
+
+
 def test_listing_without_usable_preset() -> None:
     """Callers allowed presets only, but none of them, see no steps."""
     host = make_host(
         ["test.tag"],
         available={"test.tag": {}, "test.skip": {"roles": ["admin"]}},
         presets={"admins": ["test.skip"]},
-        client_pipelines={"allowed": ["presets"]},
+        client_pipelines={"enabled": True, "allowed": ["presets"]},
     )
     listing = api.list_plugins(host, ALICE)
     assert listing["presets"] == []
@@ -259,7 +272,7 @@ def test_service_info_fields_before_host(
     monkeypatch.setattr(runtime, "create_host", no_host)
     assert api.service_info_fields() == {
         "gateway": {
-            "client_pipelines": True,
+            "client_pipelines": False,  # the default
             "client_backends": False,
             "capabilities": ["tagging"],
         }
