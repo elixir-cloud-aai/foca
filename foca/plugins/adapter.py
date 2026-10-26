@@ -10,7 +10,7 @@ Flask) replaces this module and keeps its function names and signatures.
 
 import re
 import uuid
-from typing import Any, Literal
+from typing import Any
 
 from flask import has_request_context, request
 from flask.wrappers import Response
@@ -54,10 +54,10 @@ def current_principal() -> Principal:
         token.
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The user named in
-            `auth.on_behalf_of_header` is invalid (`400`).
-        connexion.exceptions.Forbidden: The caller names a user, but is not
-            a service client allowed to act for users (`403`).
+        connexion.exceptions.BadRequestProblem: The user named by a service
+            client in `auth.on_behalf_of_header` is invalid (`400`).
+        connexion.exceptions.Forbidden: A service client names a user, but
+            is not allowed to act for users (`403`).
     """
     if not has_request_context():
         return Principal()
@@ -65,14 +65,12 @@ def current_principal() -> Principal:
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     issuer = claims.get("iss")
     client = get_current_client()
-    subject: str | None = client
-    subject_type: Literal["client"] | None = "client"
-    if client is None:
-        subject, subject_type = get_current_subject(), None  # user, if any
     return Principal(
-        subject=subject,
-        subject_type=subject_type,
-        acting_for=get_on_behalf_of_user(),
+        subject=client if client is not None else get_current_subject(),
+        # users by default
+        subject_type="client" if client is not None else None,
+        # only service clients act for users; others' headers are ignored here
+        acting_for=None if client is None else get_on_behalf_of_user(),
         issuer=issuer if isinstance(issuer, str) else None,
         groups=tuple(get_current_roles()),
         claims=dict(claims),

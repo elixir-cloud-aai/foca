@@ -551,14 +551,14 @@ security:
 curl -H "Authorization: Bearer $TOKEN" -H "X-Request-Roles: admin" ...
 ```
 
-Without the header, an admin's request gets the permissions of a regular
-user, plus those of their other roles; with it, it gets admin permissions.
-The header lists roles separated by commas, compared exactly. Asking for a
-role grants nothing that the token's groups don't entitle to: roles that the
+Without the header, an admin's request gets the permissions of a regular user,
+plus those of their other roles; with it, it gets admin permissions. The
+header lists roles separated by commas, compared exactly. Asking for a role
+grants nothing that the token's groups don't entitle to: roles that the
 subject doesn't have, and roles that aren't opt-in, are ignored. Opt-in roles
 apply to everything that uses the roles of a request: enforcement,
-`get_current_groups()`, `get_current_roles()`, `is_admin()`, self-service listings and the [roles
-of gateway plugins](plugins.md).
+`get_current_groups()`, `get_current_roles()`, `is_admin()`, self-service
+listings and the [roles of gateway plugins](plugins.md).
 
 Only roles of `group_mapping` can be opt-in. Rules must not grant them
 (e.g., `[g, "user:alice", admin]`, also resource-scoped `g2` rules), not

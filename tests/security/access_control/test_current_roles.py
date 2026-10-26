@@ -12,6 +12,7 @@ from tests.security.access_control.callers import (
     ALICE,
     CAROL,
     DAVE,
+    NO_SUBJECT,
     PROTES,
     as_caller,
     create_app,
@@ -39,6 +40,10 @@ def test_client_and_group_roles() -> None:
     with as_caller(app, CAROL):
         assert get_current_roles() == ["admin", f"group:{ADMINS}"]
     with as_caller(app, None):
+        assert get_current_roles() == []
+    # unidentified callers have no roles, as for `is_admin()`
+    _add_rules(app, (f"group:{ADMINS}", "operator"))
+    with as_caller(app, {**NO_SUBJECT, "groups": [ADMINS]}):
         assert get_current_roles() == []
 
 

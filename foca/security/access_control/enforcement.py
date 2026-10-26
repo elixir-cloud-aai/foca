@@ -326,12 +326,18 @@ def get_current_roles() -> list[str]:
         role rules (`g`, e.g., `g, user:alice, admin`) grant to the
         identity or these roles, also transitively, if access control is
         enabled and its model defines global roles; without duplicates.
+        Empty if the request has neither a user nor a service client
+        (e.g., a token without the identity claim).
 
     Raises:
         pymongo.errors.PyMongoError: The stored rules could not be read.
     """
     identity, roles = _get_current_identity_and_roles()
-    if not (identity or roles) or not _get_access_control_config().enabled:
+    if not identity:
+        # As for `is_admin()`: unidentified callers have no roles (access
+        # control refuses them, cf. `is_permitted()`)
+        return []
+    if not _get_access_control_config().enabled:
         return roles
     subjects = [*identity, *roles]
     granted: list[str] = []

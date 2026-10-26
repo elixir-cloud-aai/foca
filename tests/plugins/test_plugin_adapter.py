@@ -177,11 +177,11 @@ class TestPrincipalIdentity:
         assert principal.subject == "conquest"
         assert principal.subject_type == "client"
         assert principal.acting_for == "alice"
-        with (
-            as_caller(app, ALICE, headers={HEADER: "bob"}),
-            pytest.raises(Forbidden),
-        ):
+        with as_caller(app, PROTES, headers={HEADER: "bob"}), pytest.raises(Forbidden):
             adapter.current_principal()
+        # ignored for users (ownership helpers reject it)
+        with as_caller(app, ALICE, headers={HEADER: "bob"}):
+            assert adapter.current_principal().acting_for is None
 
     def test_without_access_control(self) -> None:
         """Without access control, roles come from group claims only."""

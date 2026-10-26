@@ -515,14 +515,16 @@ ownership helpers:
   on both, as a client and a user may have the same identifier;
 - `acting_for`: the user that a service client acts for (header
   `auth.on_behalf_of_header`), who owns the resources it creates (e.g.,
-  tasks); callers that may not act for users get `403`, invalid names
-  `400`;
+  tasks); service clients that may not act for users get `403`, invalid
+  names `400` (the header of other callers is ignored here, but rejected
+  by the ownership helpers);
 - `groups`: the roles that access control applies
   (`foca.security.access_control.get_current_roles()`): the role mapped
   from the service client (`access_control.client_mapping`) and from group
   claims, and roles granted via global role rules (`g`, e.g.,
-  `g, user:alice, admin`), also transitively. So `roles` in the plugin
-  configuration are access control roles.
+  `g, user:alice, admin`), also transitively; none for unidentified
+  callers. So `roles` in the plugin configuration are access control
+  roles.
 
 ## Provenance
 
