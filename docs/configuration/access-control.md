@@ -85,13 +85,9 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   `keep_group_subjects: true` if the app grants roles to groups.
 - **Opt-in roles:** the opt-in roles and their header are logged
   (`INFO`), and a warning is logged if CORS is enabled but doesn't allow
-  the header (entries of `allow_headers` that are patterns are not
-  checked). This also runs without access control, as gateway plugins use
-  the roles, too. Validating the configuration already refuses a role of
-  `opt_in_roles` that is not a role of `group_mapping`, a rule of
-  `policies` that grants an opt-in role to a subject that isn't one (e.g.,
-  `[g, "user:alice", admin]`), as roles granted by rules always apply, and
-  an `opt_in_header` with `_` or equal to `auth.on_behalf_of_header`.
+  the header. This also runs without access control, as gateway plugins
+  use the roles, too. Invalid opt-in settings already fail validation of
+  the configuration (see [opt-in roles](../access-control.md#opt-in-roles)).
 - `keep_group_subjects` without `group_mapping` (no effect) and several
   trusted `issuers` (subjects are not scoped by issuer) are warned about,
   too, and so is the removal of stored configured rules if `policies` is

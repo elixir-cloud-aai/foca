@@ -1483,6 +1483,21 @@ class TestOptInRoles:
             assert get_active_opt_in_roles() == ["admin"]
         finally:
             ctx.pop()
+        # the default header is then ignored
+        ctx = self._context(helper_app, claims, [("X-Request-Roles", "admin")])
+        try:
+            assert get_active_opt_in_roles() == []
+        finally:
+            ctx.pop()
+
+    def test_resource_roles_refused(self, helper_app: Flask) -> None:
+        """Opt-in roles cannot be granted on resources."""
+        self._opt_in(helper_app)
+        with (
+            helper_app.app_context(),
+            pytest.raises(ValueError, match="opt-in role"),
+        ):
+            add_resource_role("alice", "admin", "/items/1")
 
     @pytest.mark.parametrize("asked", [False, True])
     def test_is_admin(self, helper_app: Flask, asked: bool) -> None:

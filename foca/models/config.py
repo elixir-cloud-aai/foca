@@ -804,11 +804,9 @@ class AccessControlConfig(FOCABaseConfig):
             so that admins act as regular users unless they opt in). Asking
             for a role grants nothing that the token's groups do not
             entitle to. Roles of service clients (`client_mapping`) always
-            apply. Rules must not grant opt-in roles (e.g., `[g,
-            "user:alice", admin]`), except to other opt-in roles, as roles
-            granted by rules always apply: configured rules of `policies`
-            are refused, as are such rules via the permissions API, and
-            stored ones are warned about. If empty (default), all mapped
+            apply, and rules must not grant opt-in roles (cf.
+            :py:func:`foca.security.access_control.enforcement.grants_opt_in_role`
+            and the guide on opt-in roles). If empty (default), all mapped
             roles always apply.
         opt_in_header: Request header in which requests ask for opt-in
             roles, as a comma-separated list (e.g., `X-Request-Roles:
@@ -1147,13 +1145,16 @@ class AccessControlConfig(FOCABaseConfig):
                 "'opt_in_roles' must be roles of 'group_mapping', as only "
                 f"roles from group claims can be opted in to: {', '.join(unmapped)}"
             )
-        opt_in = set(self.opt_in_roles)
+        # Imported here, as the access control package imports this module
+        from foca.security.access_control.enforcement import (  # noqa: PLC0415
+            grants_opt_in_role,
+        )
+
         for rule in self.policies or []:
             if (
                 len(rule) >= 3
                 and rule[0].startswith("g")
-                and rule[2] in opt_in
-                and rule[1] not in opt_in
+                and grants_opt_in_role(rule[1], rule[2], self.opt_in_roles)
             ):
                 raise ValueError(
                     f"Configured rules must not grant the opt-in role "

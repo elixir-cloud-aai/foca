@@ -440,6 +440,8 @@ def test_foca_relative_paths_without_file(
         (["Authorization", "x-request-roles"], False),
         (["Authorization", "X-.*"], False),
         (["Authorization"], True),
+        # names are no patterns
+        (["Authorization", "X-Request-Role", "X-"], True),
     ],
 )
 def test_foca_opt_in_roles(

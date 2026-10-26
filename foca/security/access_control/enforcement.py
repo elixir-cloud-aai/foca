@@ -4,7 +4,7 @@ import copy
 import inspect
 import logging
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Literal
@@ -370,28 +370,39 @@ def get_current_groups() -> list[str]:
     values = get_current_group_values()
     groups = []
     if conf.group_mapping is not None:
-        mapped = _get_mapped_roles()
-        requested = _get_requested_roles()
+        active = set(get_active_opt_in_roles())
         opt_in = set(conf.opt_in_roles)
-        groups = [role for role in mapped if role not in opt_in or role in requested]
+        groups = [
+            role for role in _get_mapped_roles() if role not in opt_in or role in active
+        ]
     if conf.group_mapping is None or conf.keep_group_subjects:
         groups.extend(_prefix_subject(value, "group") for value in values)
     return list(dict.fromkeys(groups))
 
 
-def grants_opt_in_role(subject: str, role: str) -> bool:
+def grants_opt_in_role(
+    subject: str, role: str, opt_in_roles: Iterable[str] | None = None
+) -> bool:
     """Check whether a role rule would grant an opt-in role without opt-in.
+
+    Role rules are those of policy types `g*` (e.g., `g`, `g2`), whose
+    first values are a subject and a role. Object groupings of other
+    models (e.g., `g2` of `default_model.conf`) are checked alike, so they
+    must not use names of opt-in roles.
 
     Args:
         subject: Subject of the rule (e.g., `user:alice` or a role).
         role: Role that the rule grants.
+        opt_in_roles: Opt-in roles; default to `access_control.opt_in_roles`
+            of the current app.
 
     Returns:
-        Whether `role` is an opt-in role (`access_control.opt_in_roles`)
-        and `subject` is not, so that the rule would let the subject have
-        the role without asking for it.
+        Whether `role` is an opt-in role and `subject` is not, so that the
+        rule would let the subject have the role without asking for it.
     """
-    opt_in = _get_access_control_config().opt_in_roles
+    if opt_in_roles is None:
+        opt_in_roles = _get_access_control_config().opt_in_roles
+    opt_in = set(opt_in_roles)
     return role in opt_in and subject not in opt_in
 
 
@@ -868,13 +879,20 @@ def _validate_grantable_role(role: str) -> None:
 
     Raises:
         ValueError: The role starts with `access_control.subject_prefix`,
-            `group:` or `client:`.
+            `group:` or `client:`, or it is an opt-in role
+            (`access_control.opt_in_roles`), which subjects would then
+            always have on the resource.
     """
     for prefix in [_get_subject_prefix("user"), *SUBJECT_TYPE_PREFIXES.values()]:
         if role.startswith(prefix):
             raise ValueError(
                 f"Roles must not start with '{prefix}', the prefix of subjects"
             )
+    if role in _get_access_control_config().opt_in_roles:
+        raise ValueError(
+            f"'{role}' is an opt-in role, which subjects would always have: "
+            "map groups to it instead"
+        )
 
 
 def add_resource_role(
@@ -919,7 +937,7 @@ def add_resource_role(
             subject is empty, the subject type is not supported, the role
             starts with `access_control.subject_prefix`, `group:` or
             `client:` (so that subjects cannot get the roles of other
-            subjects through it), or
+            subjects through it), the role is an opt-in role, or
             the prefixed subject, role or resource is not a valid value for
             policy rules (cf.
             :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`).

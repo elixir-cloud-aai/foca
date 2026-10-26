@@ -574,8 +574,10 @@ def get_me() -> dict:
 With opt-in roles, responses have the header in `Vary`, so that caches keep
 the responses of both modes apart. Browser apps on other origins need the
 header in [`security.cors.allow_headers`](configuration/cors.md) (allowed by
-default, `*`); FOCA warns on startup if it isn't allowed (entries that
-are patterns, e.g., `X-.*`, are not checked).
+default, `*`); FOCA warns on startup if it isn't allowed, matching
+header names ignoring case and patterns (e.g., `X-.*`) as flask-cors does.
+Object groupings of custom models (e.g., `g2 = _, _` for paths) must not
+use names of opt-in roles, as all `g*` rules are checked as role rules.
 
 ### Service clients
 

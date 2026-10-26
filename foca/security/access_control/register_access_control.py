@@ -264,20 +264,28 @@ def check_opt_in_roles(
         )
 
 
+# Characters that make entries of `allow_headers` patterns, as for flask-cors
+_REGEX_CHARS = frozenset("*\\]?$^[()")
+
+
 def _allows(entry: str, header: str) -> bool:
     """Check whether an entry of `security.cors.allow_headers` allows a header.
 
+    As flask-cors does, entries with characters of regular expressions are
+    patterns, and others are header names.
+
     Args:
-        entry: Entry: `*`, a header name or a pattern (regular expression),
-            as for flask-cors.
+        entry: Entry: `*`, a header name or a pattern (regular expression).
         header: Header name.
 
     Returns:
         Whether the entry is `*`, the header (ignoring case), or a pattern
-        matching it (ignoring case).
+        matching it (ignoring case; an invalid pattern matches nothing).
     """
     if entry == "*" or entry.lower() == header.lower():
         return True
+    if not set(entry) & _REGEX_CHARS:
+        return False
     try:
         return re.match(entry, header, re.IGNORECASE) is not None
     except re.error:
