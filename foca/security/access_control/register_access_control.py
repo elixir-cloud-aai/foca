@@ -81,14 +81,16 @@ def register_access_control(
     _check_group_config(access_control_config, auth_config)
     _check_admin_role(access_control_config, auth_config)
 
-    if len(auth_config.issuer_urls) > 1:
+    # Group claim values of several issuers could collide
+    if sum(map(bool, _get_group_claims(access_control_config, auth_config))) > 1:
         logger.warning(
-            "Several trusted token issuers are configured "
+            "Several trusted token issuers with group claims are configured "
             "('security.auth.issuers'): subjects are namespaced by issuer, "
             "but group claim values are not, so policy rules for a group "
             "(e.g., 'group:<value>') and group mappings apply to tokens of "
-            "all issuers. Only trust several issuers if they cannot issue "
-            "the same group claim values to different users."
+            "all these issuers. Only take groups from several issuers if "
+            "they cannot issue the same group claim values to different "
+            "users; otherwise set 'claim_groups: \"\"' for the others."
         )
 
     # Set default db attributes if config not present.

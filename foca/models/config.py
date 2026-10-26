@@ -1808,8 +1808,8 @@ class AuthConfig(FOCABaseConfig):
             issuer: Issuer.
 
         Returns:
-            The issuer's `audience`, or by default (also for untrusted
-            issuers) `audience`.
+            The issuer's `audience`, or `AuthConfig.audience` if unset or
+            the issuer is not trusted.
         """
         conf = self.get_issuer_configs().get(issuer)
         if conf is None or conf.audience is None:
@@ -1823,8 +1823,8 @@ class AuthConfig(FOCABaseConfig):
             issuer: Issuer.
 
         Returns:
-            The issuer's `userinfo_claims`, or by default (also for untrusted
-            issuers) `userinfo_claims`.
+            The issuer's `userinfo_claims`, or `AuthConfig.userinfo_claims` if unset or
+            the issuer is not trusted.
         """
         conf = self.get_issuer_configs().get(issuer)
         if conf is None or conf.userinfo_claims is None:

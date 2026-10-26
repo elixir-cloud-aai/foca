@@ -661,28 +661,52 @@ class TestRegisterAccessControlSetup:
         assert ("keep_group_subjects' has no effect" in caplog.text) is warned
 
     @pytest.mark.parametrize(
-        "issuers,warned",
+        "issuers,claim_groups,warned",
         [
-            (["https://a.example.org/"], False),
+            (["https://a.example.org/"], "groups", False),
             # duplicates are the same issuer
-            (["https://a.example.org/", "https://a.example.org/"], False),
-            (["https://a.example.org/", "https://b.example.org/"], True),
+            (["https://a.example.org/", "https://a.example.org/"], "groups", False),
+            (["https://a.example.org/", "https://b.example.org/"], "groups", True),
+            # no groups at all, or from one issuer only
+            (["https://a.example.org/", "https://b.example.org/"], None, False),
+            (
+                [
+                    "https://a.example.org/",
+                    {"issuer": "https://b.example.org/", "claim_groups": ""},
+                ],
+                "groups",
+                False,
+            ),
+            (
+                [
+                    {"issuer": "https://a.example.org/", "claim_groups": "roles"},
+                    "https://b.example.org/",
+                ],
+                None,
+                False,
+            ),
         ],
     )
     def test_several_issuers(
-        self, caplog: pytest.LogCaptureFixture, issuers: list[str], warned: bool
+        self,
+        caplog: pytest.LogCaptureFixture,
+        issuers: list[Any],
+        claim_groups: str | None,
+        warned: bool,
     ) -> None:
         """Group claim values of several issuers may collide (warned about)."""
         config = Config(
             security=SecurityConfig(
-                auth=AuthConfig(issuers=issuers, audience=["my-app"])
+                auth=AuthConfig.model_validate(
+                    {"issuers": issuers, "audience": ["my-app"]}
+                )
             )
         )
         with caplog.at_level(logging.WARNING):
             register_access_control(
                 cnx_app=create_connexion_app(config),
                 mongo_config=None,
-                access_control_config=AccessControlConfig(),
+                access_control_config=AccessControlConfig(claim_groups=claim_groups),
             )
         assert ("trusted token issuers" in caplog.text) is warned
         if warned:
