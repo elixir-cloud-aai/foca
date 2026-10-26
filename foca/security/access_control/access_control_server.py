@@ -21,6 +21,7 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.enforcement import (
     _get_current_policy_subjects,
+    grants_opt_in_role,
     is_permitted,
 )
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
@@ -92,7 +93,8 @@ def _get_rule() -> tuple[str, list[str]]:
             for the app's access control model (cf.
             :py:func:`validate_rule`), e.g., because the policy type is not
             defined in the model, the rule has keys other than `v0` to `v5`
-            or values are missing.
+            or values are missing, or it is a role rule that grants an
+            opt-in role (cf. :py:func:`grants_opt_in_role`).
     """
     request_json = request.get_json(silent=True)
     if not isinstance(request_json, dict) or not isinstance(
@@ -112,6 +114,16 @@ def _get_rule() -> tuple[str, list[str]]:
         model = Model()
         model.load_model(current_app.config["CASBIN_MODEL"])
         values = validate_rule(ptype, [rule[key] for key in keys], model)
+        if (
+            str(ptype).startswith("g")
+            and len(values) >= 2
+            and grants_opt_in_role(values[0], values[1])
+        ):
+            raise ValueError(
+                f"Role rules must not grant the opt-in role '{values[1]}', as "
+                "it would then apply without asking for it: map groups to it "
+                "instead"
+            )
     except ValueError as exc:
         logger.error("Invalid rule: %s", exc)
         raise BadRequest from exc

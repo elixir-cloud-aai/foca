@@ -53,6 +53,7 @@ dependencies = [
     "Flask-Cors>=6.0.5,<7",
     "idna>=3.15,<4",  # foca/utils/urls.py; 3.15 fixes CVE-2026-45409
     "jsonschema>=4.17.3,<5",
+    "packaging>=23",  # foca/plugins: version pins of plugins
     "pycasbin>=2.8,<2.9",  # uses Casbin internals (_append_rule, _update_policy, DomainManager)
     "pydantic>=2.7,<3; python_version < '3.15'",
     # Older versions need pydantic-core versions without Python 3.15 wheels
@@ -64,6 +65,7 @@ dependencies = [
     "PyYAML>=6.0.1,<7",
     "requests>=2.33.0,<3",  # 2.33.0 fixes CVE-2026-25645
     "swagger-ui-bundle>=1.1,<2",
+    "urllib3>=2.6,<3",  # foca/utils/http.py: guarded connections
     "Werkzeug>=3.1.9,<4",  # 3.1.9 fixes CVE-2026-27199, CVE-2026-102598
 ]
 
@@ -110,6 +112,7 @@ include = ["foca*"]
 
 [tool.setuptools.package-data]
 "foca" = ["py.typed"]
+"foca.plugins" = ["*.yaml"]
 "foca.utils" = ["*.yaml"]
 "foca.security.access_control.api" = ["*.yaml", "*.conf"]
 

@@ -35,6 +35,10 @@ configuration models, see [Configuration](configuration/index.md).
         - is_permitted
         - get_current_subject
         - get_current_groups
+        - get_available_opt_in_roles
+        - get_active_opt_in_roles
+        - get_claim_groups
+        - get_current_claims
         - get_current_group_values
         - get_current_client
         - get_on_behalf_of_user
@@ -81,6 +85,116 @@ configuration models, see [Configuration](configuration/index.md).
         - CasbinRule
         - validate_rule
         - validate_rule_value
+
+## Gateway plugins
+
+::: foca.plugins.base
+    options:
+      members:
+        - Plugin
+        - NotApplicable
+        - Rejected
+        - PluginError
+        - API_VERSION
+        - PHASES
+
+::: foca.plugins.model
+
+::: foca.plugins.context
+    options:
+      members:
+        - Context
+
+::: foca.plugins.engine
+    options:
+      members:
+        - PluginHost
+        - PipelineRun
+        - Attempt
+
+::: foca.plugins.outcomes
+    options:
+      members:
+        - NotAccepted
+        - OutcomeUnknown
+        - sanitize_error
+
+::: foca.plugins.records
+    options:
+      members:
+        - ResolvedPipeline
+        - ResolvedStep
+        - ResolvedAlternative
+        - Execution
+        - AttemptRecord
+
+::: foca.plugins.checks
+    options:
+      members:
+        - default_outbound
+
+::: foca.plugins.errors
+
+::: foca.plugins.selection
+    options:
+      members:
+        - parse_client_tags
+        - parse_client_pipeline
+        - apply_backend_selection
+        - BackendSelection
+        - ClientSelection
+
+::: foca.plugins.loader
+    options:
+      members:
+        - load_plugins
+        - check_legacy_keys
+        - LoadedPlugin
+
+::: foca.plugins.provenance
+
+::: foca.plugins.backends
+    options:
+      members:
+        - BackendList
+        - BackendListConfig
+        - ServiceEntry
+        - RegistryEntry
+        - ApiType
+        - RegistryError
+        - BasicCredentialsConfig
+        - LocationConfig
+        - RegistryCache
+        - select_services
+        - clear_caches
+        - API_TYPES
+
+::: foca.plugins.routing
+    options:
+      members:
+        - OrderedRouter
+        - RouterConfig
+        - RouterParams
+
+::: foca.plugins.tags
+
+::: foca.plugins.api
+
+::: foca.plugins.runtime
+    options:
+      members:
+        - GatewayApp
+        - get_host
+        - create_host
+        - configure
+        - get_backend_list
+        - reset
+
+::: foca.plugins.adapter
+
+::: foca.plugins.testing
+
+::: foca.plugins.pytest_plugin
 
 ## Errors
 
@@ -140,6 +254,8 @@ configuration models, see [Configuration](configuration/index.md).
         - URLScheme
         - HTTP_SCHEMES
         - SUPPORTED_SCHEMES
+
+::: foca.utils.http
 
 ::: foca.utils.logging
     options:

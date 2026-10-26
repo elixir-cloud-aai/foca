@@ -1,0 +1,206 @@
+openapi: 3.0.3
+info:
+  # apps list this file first, so that their own `info` wins
+  title: FOCA gateway plugin listing
+  version: 1.0.0
+paths:
+  /plugins:
+    get:
+      summary: List the plugins and presets that the caller may choose.
+      operationId: foca.plugins.api.listPlugins
+      tags:
+        - plugins
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Plugins, presets and constraints of per-request pipelines.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginListing'
+        '401':
+          description: The request is not authenticated.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The request is denied by the app's access-control policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /plugins/{plugin_id}:
+    get:
+      summary: Describe a plugin that the caller may choose.
+      operationId: foca.plugins.api.getPlugin
+      tags:
+        - plugins
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: plugin_id
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 255
+      responses:
+        '200':
+          description: Plugin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plugin'
+        '401':
+          description: The request is not authenticated.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The request is denied by the app's access-control policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The plugin is unknown or not available to the caller.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      x-bearerInfoFunc: foca.security.auth.validate_token
+  schemas:
+    Plugin:
+      type: object
+      required: [id, title, description, group, subgroup, phases, capabilities, maturity, distribution, version, data_transfers, params_schema]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        group:
+          type: string
+          nullable: true
+        subgroup:
+          type: string
+          nullable: true
+        phases:
+          type: array
+          items:
+            type: string
+            enum: [request, route, forward, response]
+        capabilities:
+          type: array
+          items:
+            type: string
+        maturity:
+          type: string
+          enum: [experimental, stable, deprecated]
+        distribution:
+          type: string
+          nullable: true
+        version:
+          type: string
+          nullable: true
+        data_transfers:
+          type: array
+          items:
+            type: string
+        params_schema:
+          type: object
+          description: JSON Schema of the plugin's parameters.
+          additionalProperties: true
+    Steps:
+      type: array
+      items:
+        type: object
+        required: [id, plugins]
+        properties:
+          id:
+            type: string
+          plugins:
+            type: array
+            items:
+              type: string
+    PluginListing:
+      type: object
+      required: [plugins, presets, default_pipeline, client_pipelines, client_backends, tag_prefix]
+      properties:
+        plugins:
+          type: array
+          items:
+            $ref: '#/components/schemas/Plugin'
+        presets:
+          type: array
+          items:
+            type: object
+            required: [name, steps]
+            properties:
+              name:
+                type: string
+              steps:
+                $ref: '#/components/schemas/Steps'
+        default_pipeline:
+          $ref: '#/components/schemas/Steps'
+        client_pipelines:
+          type: object
+          required: [enabled, allowed_for_caller, allowed, max_steps, max_alternatives, max_size, prepend, append]
+          properties:
+            enabled:
+              type: boolean
+            allowed_for_caller:
+              type: boolean
+              description: Whether the caller may choose pipelines.
+            allowed:
+              type: array
+              items:
+                type: string
+                enum: [presets, inline]
+            max_steps:
+              type: integer
+            max_alternatives:
+              type: integer
+            max_size:
+              type: integer
+              description: Maximum size of the pipeline tag, in bytes.
+            prepend:
+              type: array
+              description: Identifiers of the steps run before the client's.
+              items:
+                type: string
+            append:
+              type: array
+              description: Identifiers of the steps run after the client's.
+              items:
+                type: string
+        client_backends:
+          type: object
+          required: [enabled, max_items]
+          properties:
+            enabled:
+              type: boolean
+            max_items:
+              type: integer
+        tag_prefix:
+          type: string
+    Error:
+      type: object
+      additionalProperties: true
+      properties:
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string

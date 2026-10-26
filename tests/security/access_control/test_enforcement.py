@@ -38,10 +38,15 @@ from foca.models.config import (
     SecurityConfig,
     SpecConfig,
 )
+from foca.plugins import adapter as plugin_adapter
 from foca.security.access_control import (
     add_resource_role,
     enforce_access_control,
     enforcement,
+    get_active_opt_in_roles,
+    get_available_opt_in_roles,
+    get_claim_groups,
+    get_current_claims,
     get_current_group_values,
     get_current_groups,
     get_current_subject,
@@ -56,9 +61,12 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.enforcement import (
     SubjectType,
+    _get_current_policy_subjects,
     locked_enforcer,
+    register_opt_in_header,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.ownership import is_admin
 from foca.security.access_control.register_access_control import (
     register_permission_specs,
 )
@@ -70,6 +78,8 @@ COLLECTION_NAME = "policy_rules"
 ADMIN_ENTITLEMENT = "urn:example:group:admins"
 GROUP = "urn:geant:example.org:group:team#example.org"
 ISSUER = "https://login.example.org/oidc/"
+OTHER = "https://other.example.org/"
+NO_GROUPS = "https://social.example.org/"
 THIS_MODULE = __name__
 
 # Bearer tokens mapped to the claims of their (fake) validated JWTs
@@ -1217,11 +1227,90 @@ class TestCurrentSubject:
         finally:
             ctx.pop()
 
+    def test_current_claims(self, helper_app: Flask) -> None:
+        """Claims are returned as a copy."""
+        ctx = self._context(helper_app, TOKENS["carol"])
+        try:
+            claims = get_current_claims()
+            assert claims["sub"] == "carol"
+            claims["sub"] = "mallory"
+            assert get_current_claims()["sub"] == "carol"
+        finally:
+            ctx.pop()
+        assert get_current_claims() == {}
+
     def test_string_group_claim(self, helper_app: Flask) -> None:
         """Group claims may be single strings."""
         ctx = self._context(helper_app, {"sub": "x", "groups": ADMIN_ENTITLEMENT})
         try:
             assert get_current_groups() == ["admin"]
+        finally:
+            ctx.pop()
+
+    @pytest.mark.parametrize(
+        "claims,subject",
+        [
+            ({"iss": ISSUER, "sub": "carol"}, "carol"),
+            ({"iss": OTHER, "sub": "carol"}, "other|carol"),
+            ({"iss": ISSUER, "sub": "other|carol"}, None),
+            ({"iss": "https://x.example.org", "sub": "carol"}, None),
+            ({"sub": "carol"}, None),
+        ],
+    )
+    def test_namespaced_subject(
+        self, helper_app: Flask, claims: dict[str, Any], subject: str | None
+    ) -> None:
+        """Subjects are namespaced by issuer, if it has a namespace."""
+        get_app_config(helper_app).security.auth = AuthConfig.model_validate(
+            {
+                "issuers": [
+                    {"issuer": ISSUER, "namespace": ""},
+                    {"issuer": OTHER, "namespace": "other"},
+                ],
+                "audience": ["foca"],
+            }
+        )
+        ctx = self._context(helper_app, claims)
+        try:
+            assert get_current_subject() == subject
+            subjects = _get_current_policy_subjects()
+            assert subjects == ([] if subject is None else [f"user:{subject}"])
+        finally:
+            ctx.pop()
+
+    @pytest.mark.parametrize(
+        "issuer,claim,values",
+        [
+            (ISSUER, "roles", ["a"]),
+            # no groups from tokens of this issuer
+            (NO_GROUPS, None, []),
+            # falls back to `access_control.claim_groups`
+            (OTHER, "groups", ["b"]),
+            ("https://x.example.org", "groups", ["b"]),
+            (None, "groups", ["b"]),
+            (123, "groups", ["b"]),
+            (["x"], "groups", ["b"]),
+        ],
+    )
+    def test_issuer_group_claim(
+        self, helper_app: Flask, issuer: Any, claim: str | None, values: list[str]
+    ) -> None:
+        """Groups are taken from the group claim of the token's issuer."""
+        get_app_config(helper_app).security.auth = AuthConfig.model_validate(
+            {
+                "issuers": [
+                    {"issuer": ISSUER, "claim_groups": "roles"},
+                    {"issuer": OTHER, "namespace": "other"},
+                    {"issuer": NO_GROUPS, "claim_groups": ""},
+                ],
+                "audience": ["foca"],
+            }
+        )
+        claims = {"sub": "x", "roles": ["a"], "groups": ["b"], "iss": issuer}
+        ctx = self._context(helper_app, claims)
+        try:
+            assert get_claim_groups(issuer) == claim
+            assert get_current_group_values() == values
         finally:
             ctx.pop()
 
@@ -1380,6 +1469,203 @@ class TestCurrentSubject:
             assert get_current_group_values() == []
         finally:
             ctx.pop()
+
+
+class TestOptInRoles:
+    """Tests for roles that apply only to requests asking for them."""
+
+    def _context(
+        self,
+        app: Flask,
+        claims: dict[str, Any],
+        headers: list[tuple[str, str]] | None = None,
+    ) -> RequestContext:
+        ctx = app.test_request_context(headers=headers or [])
+        ctx.push()
+        request_ctx.connexion_context = {  # type: ignore[attr-defined]  # set by Connexion
+            "token_info": {"claims": claims}
+        }
+        return ctx
+
+    def _opt_in(self, app: Flask, **kwargs: Any) -> None:
+        app.config.foca.security.access_control = _access_control_config(  # type: ignore[attr-defined]  # dynamic attribute
+            opt_in_roles=["admin"], **kwargs
+        )
+
+    @pytest.mark.parametrize(
+        "headers,active",
+        [
+            ([], False),
+            ([("X-Request-Roles", "admin")], True),
+            ([("X-Request-Roles", " other , admin ")], True),
+            ([("X-Request-Roles", "other"), ("X-Request-Roles", "admin")], True),
+            ([("X-Request-Roles", "other,")], False),
+            ([("X-Request-Roles", "Admin")], False),
+        ],
+    )
+    def test_opt_in(
+        self, helper_app: Flask, headers: list[tuple[str, str]], active: bool
+    ) -> None:
+        """Opt-in roles apply only if the request asks for them."""
+        self._opt_in(helper_app)
+        claims = {"sub": "carol", "groups": [ADMIN_ENTITLEMENT]}
+        ctx = self._context(helper_app, claims, headers)
+        try:
+            assert get_available_opt_in_roles() == ["admin"]
+            assert get_active_opt_in_roles() == (["admin"] if active else [])
+            assert get_current_groups() == (["admin"] if active else [])
+        finally:
+            ctx.pop()
+
+    def test_asking_grants_nothing(self, helper_app: Flask) -> None:
+        """Asking for roles the groups do not entitle to has no effect."""
+        self._opt_in(helper_app, keep_group_subjects=True)
+        ctx = self._context(
+            helper_app, {"sub": "x", "groups": ["a"]}, [("X-Request-Roles", "admin")]
+        )
+        try:
+            assert get_available_opt_in_roles() == []
+            assert get_active_opt_in_roles() == []
+            assert get_current_groups() == ["group:a"]
+        finally:
+            ctx.pop()
+
+    def test_other_roles_apply(self, helper_app: Flask) -> None:
+        """Roles that are not opt-in always apply."""
+        mapping = {ADMIN_ENTITLEMENT: "admin", "ops": "operator"}
+        self._opt_in(helper_app, group_mapping=mapping)
+        claims = {"sub": "x", "groups": ["ops", ADMIN_ENTITLEMENT]}
+        ctx = self._context(helper_app, claims)
+        try:
+            assert get_current_groups() == ["operator"]
+        finally:
+            ctx.pop()
+
+    def test_custom_header(self, helper_app: Flask) -> None:
+        """The header is configurable."""
+        self._opt_in(helper_app, opt_in_header="Admin-Mode")
+        claims = {"sub": "x", "groups": [ADMIN_ENTITLEMENT]}
+        ctx = self._context(
+            helper_app,
+            claims,
+            [("X-Request-Roles", "admin"), ("admin-mode", "admin")],
+        )
+        try:
+            assert get_active_opt_in_roles() == ["admin"]
+        finally:
+            ctx.pop()
+        # the default header is then ignored
+        ctx = self._context(helper_app, claims, [("X-Request-Roles", "admin")])
+        try:
+            assert get_active_opt_in_roles() == []
+        finally:
+            ctx.pop()
+
+    def test_resource_roles_refused(self, helper_app: Flask) -> None:
+        """Opt-in roles cannot be granted on resources."""
+        self._opt_in(helper_app)
+        with (
+            helper_app.app_context(),
+            pytest.raises(ValueError, match="opt-in role"),
+        ):
+            add_resource_role("alice", "admin", "/items/1")
+
+    @pytest.mark.parametrize("asked", [False, True])
+    def test_is_admin(self, helper_app: Flask, asked: bool) -> None:
+        """Admins are admins only if they opt in."""
+        self._opt_in(helper_app)
+        claims = {"sub": "carol", "groups": [ADMIN_ENTITLEMENT]}
+        headers = [("X-Request-Roles", "admin")] if asked else []
+        ctx = self._context(helper_app, claims, headers)
+        try:
+            assert is_admin() is asked
+        finally:
+            ctx.pop()
+
+    def test_plugin_principal(self, helper_app: Flask) -> None:
+        """Gateway plugins get opt-in roles only if requests ask for them."""
+        self._opt_in(helper_app)
+        claims = {"sub": "carol", "groups": [ADMIN_ENTITLEMENT]}
+        for headers, groups in [([], ()), ([("X-Request-Roles", "admin")], ("admin",))]:
+            ctx = self._context(helper_app, claims, headers)
+            try:
+                assert plugin_adapter.current_principal().groups == groups
+            finally:
+                ctx.pop()
+
+    @pytest.mark.parametrize(
+        "ptype,rule,status",
+        [
+            ("g", {"v0": "user:dave", "v1": "admin"}, 400),
+            ("g", {"v0": "operator", "v1": "admin"}, 400),
+            ("g", {"v0": "admin", "v1": "admin"}, 400),
+            ("g2", {"v0": "user:dave", "v1": "admin", "v2": "/items/1"}, 400),
+            ("g", {"v0": "user:dave", "v1": "operator"}, 200),
+            ("g", {"v0": "admin", "v1": "operator"}, 200),
+        ],
+    )
+    def test_permissions_api(
+        self, tmp_path: Path, ptype: str, rule: dict[str, str], status: int
+    ) -> None:
+        """The permissions API refuses rules granting opt-in roles."""
+        app = _create_app(tmp_path, _access_control_config(opt_in_roles=["admin"]))
+        response = app.test_client().post(
+            "/admin/access-control/permissions",
+            json={"policy_type": ptype, "rule": rule},
+            headers={**_headers("carol"), "X-Request-Roles": "admin"},
+        )
+        assert response.status_code == status
+
+    def test_stored_grants_warned(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Stored rules granting opt-in roles are warned about."""
+        app = _create_app(tmp_path, _access_control_config(opt_in_roles=["admin"]))
+        adapter = app.config["casbin_adapter"]
+        adapter.save_policy_line("g", ["user:dave", "admin"])
+        adapter.save_policy_line("g", ["user:dave", "operator"])
+        adapter.save_policy_line("g2", ["user:bob", "admin", "/items/2"])
+        with _capture_logs(caplog):
+            app.test_client().get("/items/1", headers=_headers("dave"))
+        messages = [m for m in _messages(caplog) if "opt-in role" in m]
+        assert len(messages) == 2
+        assert "(g, 'user:dave', 'admin', ...)" in messages[0]
+        assert "(g2, 'user:bob', 'admin', ...)" in messages[1]
+
+    def test_default_unchanged(self, helper_app: Flask) -> None:
+        """Without opt-in roles, mapped roles always apply."""
+        claims = {"sub": "x", "groups": [ADMIN_ENTITLEMENT]}
+        ctx = self._context(helper_app, claims, [("X-Request-Roles", "other")])
+        try:
+            assert get_current_groups() == ["admin"]
+            assert get_available_opt_in_roles() == []
+            assert get_active_opt_in_roles() == []
+        finally:
+            ctx.pop()
+
+    def test_outside_request(self, helper_app: Flask) -> None:
+        """Outside requests, no roles are available or active."""
+        self._opt_in(helper_app)
+        with helper_app.app_context():
+            assert get_available_opt_in_roles() == []
+            assert get_active_opt_in_roles() == []
+
+    @pytest.mark.parametrize(
+        "headers,status",
+        [({}, 403), ({"X-Request-Roles": "admin"}, 200)],
+    )
+    def test_enforced(
+        self, tmp_path: Path, headers: dict[str, str], status: int
+    ) -> None:
+        """Admins act as regular users unless they opt in."""
+        app = _create_app(tmp_path, _access_control_config(opt_in_roles=["admin"]))
+        register_opt_in_header(app, "X-Request-Roles")
+        client = app.test_client()
+        response = client.delete("/items/2", headers={**_headers("carol"), **headers})
+        assert response.status_code == status
+        assert "X-Request-Roles" in response.headers["Vary"]
+        # regular permissions still apply
+        assert client.post("/items", headers=_headers("carol")).status_code == 200
 
 
 class TestEnforceAccessControlDecorator:

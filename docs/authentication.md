@@ -92,18 +92,81 @@ FOCA logs a warning on the first validation if no issuers are configured,
 audience validation is disabled without restricting `clients`, token type
 validation is disabled, or expired tokens are accepted.
 
-!!! note "Several trusted issuers"
-    Validated tokens of all trusted issuers are treated alike: their subjects
-    and other claims are not scoped by issuer. If you trust several issuers,
-    make sure that they cannot issue the same subject (`claim_identity`) to
-    different users, or check the `iss` claim in your controllers. This also
-    applies to [access control](access-control.md#identity-and-group-claims).
+### Several trusted issuers
+
+Different issuers may issue the same subject to different users. If
+several issuers are trusted, the subjects used for [access
+control](access-control.md#identity-and-group-claims) are therefore
+namespaced by issuer, as `<namespace>|<subject>`: by default, the namespace
+is the issuer (e.g., `https://login.example.org/oidc/|alice`, in rules
+`user:https://login.example.org/oidc/|alice`). With a single trusted
+issuer, subjects are bare (e.g., `alice`), as before. Set the `namespace` of
+an issuer to choose a shorter one, or set it to `""` to keep the subjects of
+that issuer bare (cf. [`security.auth`](configuration/auth.md)). Issuers
+must have different namespaces, and at most one issuer may keep its
+subjects bare; FOCA refuses to start otherwise. Bare subjects that contain
+`|` next to namespaced ones cannot be told apart from namespaced subjects:
+such users are not identified (`401` on enforced operations, and
+`get_current_subject()` returns `None`). Namespaces have at most 256
+characters; namespaced subjects that don't fit into policy rules (1024
+characters, with `user:`) are denied, as long subjects are without
+namespaces. Tokens of untrusted issuers are
+rejected anyway. Proxies that merge slashes in paths (e.g., nginx's
+`merge_slashes`) change subjects namespaced by issuer URLs in paths (e.g.,
+of the [endpoints for managing
+roles](access-control.md#endpoints-for-managing-roles)): set namespaces
+without slashes then.
+
+`get_current_subject()` returns the namespaced subject, and
+`get_on_behalf_of_user()` namespaces users named by a service client with
+the issuer of the service client. Name users of an issuer in rules, and when
+granting them roles (e.g., via `add_resource_role()`), in the same form,
+e.g., with `namespace_subject()` (in `foca.security.auth`). Other claims,
+e.g., group claim values (cf. [access
+control](access-control.md#identity-and-group-claims)) and client IDs
+(`clients`), are not namespaced: make sure that the issuers cannot issue the
+same values to different users or clients, or check the `iss` claim in your
+controllers. The subject returned by `validate_token()` (`user_id`) and the
+claims of the token are not namespaced either.
+
+!!! tip "Trusting a second issuer"
+    Adding a second issuer namespaces the subjects of the first issuer, too,
+    by default: rules, role grants and owners stored for its bare subjects
+    (e.g., `user:alice`) then no longer apply. To keep them, set
+    `namespace: ""` for the first issuer, so that its subjects stay bare,
+    and let the new issuer's subjects be namespaced (users of the first
+    issuer whose subjects contain `|` are then no longer identified;
+    check for such subjects first):
+
+    ```yaml
+    security:
+      auth:
+        issuers:
+          - issuer: https://login.example.org/oidc/  # stored rules stay valid
+            namespace: ""
+          - https://login.example.com/oidc/  # subjects namespaced by issuer
+    ```
+
+    Otherwise, rewrite the stored subjects of the first issuer to the
+    namespaced form, e.g., `user:alice` to
+    `user:https://login.example.org/oidc/|alice`, in rules (via the
+    permissions API) and in owner fields of documents (cf.
+    `set_owner_field()`). Also check configured `policies` that name users.
+    Removing all but one issuer again makes the subjects of the remaining
+    issuer bare, unless it has a `namespace`.
+
+Identity providers also differ in the audiences of their tokens, their
+group claims and the claims they release only via user info: issuers may
+have an `audience`, a `claim_groups` and `userinfo_claims` of their own,
+which replace `audience`, `access_control.claim_groups` and
+`userinfo_claims` for their tokens (cf.
+[`security.auth`](configuration/auth.md)).
 
 !!! warning "Audience required"
-    With trusted `issuers`, an `audience` is required; otherwise, FOCA
-    refuses to start. Register the app with the identity provider and set
-    its client ID (or the audience the provider adds to tokens for the app)
-    as `audience`. Only if the provider does not include the app in the
+    With trusted `issuers`, an `audience` is required (globally, or for each
+    issuer); otherwise, FOCA refuses to start. Register the app with the
+    identity provider and set its client ID (or the audience the provider
+    adds to tokens for the app) as `audience`. Only if the provider does not include the app in the
     `aud` claim of its tokens, set `verify_audience: false`: then any token
     issued by a trusted issuer is accepted, including tokens issued for
     other apps, unless you restrict the `clients` (below).
@@ -130,7 +193,8 @@ validation is disabled, or expired tokens are accepted.
     `401`. With `clients`, FOCA does not warn about disabled audience
     validation. Client IDs are matched for all trusted `issuers`: if you
     trust several, make sure that the listed IDs cannot be claimed by clients
-    of another issuer (cf. the note on several trusted issuers above).
+    of another issuer (cf. [several trusted
+    issuers](#several-trusted-issuers)).
 
 !!! warning "Access tokens only"
     Identity providers issue other JWTs than access tokens, e.g., ID tokens,

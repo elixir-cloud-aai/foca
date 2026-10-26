@@ -55,7 +55,39 @@ tokens](../authentication.md#service-tokens)). See
 [Authentication](../authentication.md) for how tokens are validated and how to
 require them for operations.
 
+Issuers are listed as URLs, or with settings of their own, e.g., to choose
+the namespace of their subjects (cf. [several trusted
+issuers](../authentication.md#several-trusted-issuers)). Identity providers
+differ, so issuers may also have an `audience`, a group claim
+(`claim_groups`, cf. [`security.access_control`](access-control.md)) and
+`userinfo_claims` of their own, which replace the global settings for their
+tokens; unset ones fall back to the global settings. An empty
+`userinfo_claims` adds no claims from the issuer's user info, and an empty
+`claim_groups` takes no groups from its tokens:
+
+```yaml
+security:
+  auth:
+    audience:
+      - my-app
+    issuers:
+      - issuer: https://login.example.org/oidc/
+        namespace: ""
+      - issuer: https://login.example.com/oidc/
+        namespace: example-com
+        audience:
+          - my-app-client-id
+        claim_groups: groups
+        userinfo_claims: []
+```
+
+With an `audience` for each issuer, the global `audience` is not required.
+
 ::: foca.models.config.AuthConfig
+    options:
+      members: false
+
+::: foca.models.config.IssuerConfig
     options:
       members: false
 

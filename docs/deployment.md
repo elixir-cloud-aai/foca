@@ -153,8 +153,10 @@ warnings, naming the setting to change, among others:
   without `claim_groups` (a non-empty one, and a group claim with
   surrounding whitespace, are errors),
   `group_mapping` without `keep_group_subjects`, `keep_group_subjects`
-  without `group_mapping`, several trusted issuers, and stored configured
-  rules removed as `policies` is not set;
+  without `group_mapping`, several trusted issuers with group claims (their
+  values are not namespaced by issuer), and stored configured rules removed as
+  `policies` is not set; opt-in roles that CORS doesn't
+  allow to ask for (also without access control);
 - [service info](configuration/service-info.md#placeholders): values in
   reserved example domains, as in templates;
 - [authentication](configuration/auth.md), on the first token validation

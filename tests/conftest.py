@@ -67,3 +67,6 @@ def log(
     caplog.set_level(logging.INFO)
     yield caplog
     logging.getLogger().removeHandler(caplog.handler)
+
+
+pytest_plugins = ["foca.plugins.pytest_plugin"]

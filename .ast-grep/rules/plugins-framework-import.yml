@@ -1,0 +1,21 @@
+id: plugins-framework-import
+language: python
+severity: error
+message: Web framework import in the plugin engine or HTTP client
+note: |
+  `foca.plugins` stays framework-neutral, so that plugins run unchanged when
+  FOCA moves from Connexion 2 / Flask to Connexion 3 / Starlette. Only
+  `foca/plugins/adapter.py` may use the web framework; pass plain data
+  (cf. `foca.plugins.model`) instead.
+files:
+  - foca/plugins/**
+  - foca/utils/http.py
+ignores:
+  - foca/plugins/adapter.py
+rule:
+  any:
+    - pattern: import $MOD
+    - pattern: from $MOD import $$$NAMES
+constraints:
+  MOD:
+    regex: ^(flask|werkzeug|connexion|starlette)(\.|$)

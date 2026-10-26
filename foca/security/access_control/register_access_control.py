@@ -1,6 +1,7 @@
 """Methods to manage permission management configuration."""
 
 import logging
+import re
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -20,9 +21,11 @@ from foca.database.register_mongodb import (
 from foca.models.config import (
     DEFAULT_ERROR_MEDIA_TYPE,
     AccessControlConfig,
+    AuthConfig,
     CollectionConfig,
     Config,
     ConnexionOptions,
+    CORSConfig,
     DBConfig,
     MongoConfig,
 )
@@ -74,17 +77,20 @@ def register_access_control(
             `access_control.require_admin` is set (cf.
             :py:func:`_check_admin_role`).
     """
-    _check_group_config(access_control_config)
-    _check_admin_role(access_control_config)
+    auth_config = get_app_config(cnx_app.app).security.auth
+    _check_group_config(access_control_config, auth_config)
+    _check_admin_role(access_control_config, auth_config)
 
-    if len(set(get_app_config(cnx_app.app).security.auth.issuers)) > 1:
+    # Group claim values of several issuers could collide
+    if sum(map(bool, _get_group_claims(access_control_config, auth_config))) > 1:
         logger.warning(
-            "Several trusted token issuers are configured "
-            "('security.auth.issuers'): subjects and group claim values are "
-            "not scoped by issuer, so policy rules for a subject (e.g., "
-            "'user:<sub>' or 'group:<value>') apply to tokens of all "
-            "issuers. Only trust several issuers if they cannot issue the "
-            "same subjects or group claim values to different users."
+            "Several trusted token issuers with group claims are configured "
+            "('security.auth.issuers'): subjects are namespaced by issuer, "
+            "but group claim values are not, so policy rules for a group "
+            "(e.g., 'group:<value>') and group mappings apply to tokens of "
+            "all these issuers. Only take groups from several issuers if "
+            "they cannot issue the same group claim values to different "
+            "users; otherwise set 'claim_groups: \"\"' for the others."
         )
 
     # Set default db attributes if config not present.
@@ -178,7 +184,35 @@ def register_access_control(
     return cnx_app
 
 
-def _check_group_config(access_control_config: AccessControlConfig) -> None:
+def _get_group_claims(
+    access_control_config: AccessControlConfig, auth_config: AuthConfig | None
+) -> list[str | None]:
+    """Get the group claims of the tokens of all trusted issuers.
+
+    Args:
+        access_control_config: Access control configuration.
+        auth_config: Authentication configuration; if `None`, without
+            settings of issuers.
+
+    Returns:
+        Group claim of each trusted issuer (its `claim_groups`, by default
+        `access_control.claim_groups`), or only `access_control.claim_groups`
+        if no issuers are trusted.
+    """
+    default = access_control_config.claim_groups
+    issuers = {} if auth_config is None else auth_config.get_issuer_configs()
+    if not issuers:
+        return [default]
+    return [
+        default if conf.claim_groups is None else conf.claim_groups
+        for conf in issuers.values()
+    ]
+
+
+def _check_group_config(
+    access_control_config: AccessControlConfig,
+    auth_config: AuthConfig | None = None,
+) -> None:
     """Check that groups and their roles can apply.
 
     Settings that keep all group mappings from applying make the app refuse
@@ -187,10 +221,13 @@ def _check_group_config(access_control_config: AccessControlConfig) -> None:
 
     Args:
         access_control_config: Access control configuration.
+        auth_config: Authentication configuration, for group claims of
+            issuers (`auth.issuers[].claim_groups`).
 
     Raises:
         ValueError: `claim_groups` has surrounding whitespace, or
-            `group_mapping` maps groups, but `claim_groups` is not set.
+            `group_mapping` maps groups, but no group claim is set, neither
+            `claim_groups` nor that of any trusted issuer.
     """
     conf = access_control_config
     if conf.keep_group_subjects and conf.group_mapping is None:
@@ -207,22 +244,26 @@ def _check_group_config(access_control_config: AccessControlConfig) -> None:
             f"whitespace ({claim_groups!r}), but is looked up as written, so "
             "users would have no groups: remove the whitespace."
         )
-    if conf.group_mapping and not claim_groups:
+    has_group_claim = any(_get_group_claims(conf, auth_config))
+    if conf.group_mapping and not has_group_claim:
         raise ValueError(
             "Groups are mapped to roles "
             "('security.access_control.group_mapping'), but no group claim "
             "is set, so no mapping would apply: set "
-            "'security.access_control.claim_groups' to the claim with the "
-            "groups of users (and add it to 'security.auth.userinfo_claims' "
-            "if the identity provider releases it via user info only), or "
-            "unset 'security.access_control.group_mapping'."
+            "'security.access_control.claim_groups' (or "
+            "'security.auth.issuers[].claim_groups') to the claim with the "
+            "groups of users (and add it to 'security.auth.userinfo_claims', "
+            "or those of the issuer, if the identity provider releases it via "
+            "user info only), or unset "
+            "'security.access_control.group_mapping'."
         )
     # An empty mapping without a group claim is allowed
-    elif conf.group_mapping is not None and not claim_groups:
+    elif conf.group_mapping is not None and not has_group_claim:
         logger.warning(
             "'security.access_control.group_mapping' is set (empty), but no "
-            "group claim is set ('security.access_control.claim_groups'), so "
-            "users have no groups."
+            "group claim is set ('security.access_control.claim_groups' or "
+            "'security.auth.issuers[].claim_groups'), so users have no "
+            "groups."
         )
     # Unmapped group claim values are dropped once a mapping is set, also an
     # empty one
@@ -236,7 +277,64 @@ def _check_group_config(access_control_config: AccessControlConfig) -> None:
         )
 
 
-def _check_admin_role(access_control_config: AccessControlConfig) -> None:
+def check_opt_in_roles(
+    access_control_config: AccessControlConfig, cors_config: CORSConfig
+) -> None:
+    """Log the opt-in roles, and warn if browsers cannot ask for them.
+
+    Run by `Foca.create_app()` also without access control, as gateway
+    plugins use the roles, too.
+
+    Args:
+        access_control_config: Access control configuration.
+        cors_config: CORS configuration.
+    """
+    conf = access_control_config
+    header = conf.opt_in_header
+    logger.info("Opt-in roles: %s (header '%s').", ", ".join(conf.opt_in_roles), header)
+    if not cors_config.enabled:
+        return
+    if not any(_allows(value, header) for value in cors_config.allow_headers):
+        logger.warning(
+            "The header of opt-in roles ('security.access_control.opt_in_header') "
+            "is not allowed in cross-origin requests: add it to "
+            "'security.cors.allow_headers', so that browser apps can ask for "
+            "opt-in roles."
+        )
+
+
+# Characters that make entries of `allow_headers` patterns, as for flask-cors
+_REGEX_CHARS = frozenset("*\\]?$^[()")
+
+
+def _allows(entry: str, header: str) -> bool:
+    """Check whether an entry of `security.cors.allow_headers` allows a header.
+
+    As flask-cors does, entries with characters of regular expressions are
+    patterns, and others are header names.
+
+    Args:
+        entry: Entry: `*`, a header name or a pattern (regular expression).
+        header: Header name.
+
+    Returns:
+        Whether the entry is `*`, the header (ignoring case), or a pattern
+        matching it (ignoring case; an invalid pattern matches nothing).
+    """
+    if entry == "*" or entry.lower() == header.lower():
+        return True
+    if not set(entry) & _REGEX_CHARS:
+        return False
+    try:
+        return re.match(entry, header, re.IGNORECASE) is not None
+    except re.error:
+        return False
+
+
+def _check_admin_role(
+    access_control_config: AccessControlConfig,
+    auth_config: AuthConfig | None = None,
+) -> None:
     """Check that groups, service clients or configured rules grant `admin`.
 
     The groups and service clients mapped to the role are logged. Expects
@@ -252,6 +350,8 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
 
     Args:
         access_control_config: Access control configuration.
+        auth_config: Authentication configuration, for group claims of
+            issuers (`auth.issuers[].claim_groups`).
 
     Raises:
         ValueError: No group (`group_mapping`) or service client
@@ -260,7 +360,7 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
             `require_admin` is set.
     """
     conf = access_control_config
-    keeps_group_subjects = bool(conf.claim_groups) and (
+    keeps_group_subjects = any(_get_group_claims(conf, auth_config)) and (
         conf.group_mapping is None or conf.keep_group_subjects
     )
     found = False
@@ -293,7 +393,8 @@ def _check_admin_role(access_control_config: AccessControlConfig) -> None:
     missing = (
         f"No group or service client is mapped to the role '{ADMIN_ROLE}' "
         "('security.access_control.group_mapping', with "
-        "'security.access_control.claim_groups' set, or "
+        "'security.access_control.claim_groups' or "
+        "'security.auth.issuers[].claim_groups' set, or "
         "'security.access_control.client_mapping') and no configured policy "
         "rule that applies grants it ('security.access_control.policies')"
     )

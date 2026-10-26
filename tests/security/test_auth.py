@@ -469,6 +469,29 @@ class TestValidateToken:
         res = validate(app, make_token(aud=[AUDIENCE, "more"]))
         assert res["user_id"] == SUBJECT
 
+    def test_issuer_audience(self, idp: MagicMock) -> None:
+        """Tokens are validated with the audience of their issuer."""
+        app = make_app(issuers=[{"issuer": ISSUER, "audience": ["own"]}], audience=None)
+        assert validate(app, make_token(aud="own"))["user_id"] == SUBJECT
+        with raises_unauthorized():
+            validate(app, make_token())
+        # falls back to the global audience
+        app = make_app(issuers=[{"issuer": ISSUER}])
+        assert validate(app, make_token())["user_id"] == SUBJECT
+
+    def test_issuer_audiences(self, idp: MagicMock) -> None:
+        """Audiences of other issuers do not apply."""
+        app = make_app(
+            issuers=[
+                {"issuer": OTHER_ISSUER, "audience": ["a"]},
+                {"issuer": ISSUER, "audience": ["b"]},
+            ],
+            audience=None,
+        )
+        assert validate(app, make_token(aud="b"))["user_id"] == SUBJECT
+        with raises_unauthorized():
+            validate(app, make_token(aud="a"))
+
     def test_audience_mismatch(self, idp: MagicMock) -> None:
         """Tokens for other audiences are rejected."""
         with raises_unauthorized():
@@ -679,6 +702,24 @@ class TestUserinfoClaims:
         assert call.kwargs["allow_redirects"] is False
         assert call.kwargs["headers"]["Authorization"].startswith("Bearer ")
 
+    def test_issuer_claims(self, idp: MagicMock) -> None:
+        """Claims are added as configured for the token's issuer."""
+        app = make_app(
+            issuers=[{"issuer": ISSUER, "userinfo_claims": ["email"]}],
+            userinfo_claims=["eduperson_entitlement"],
+        )
+        res = validate(app, make_token())
+        assert res["claims"]["email"] == "alice@example.org"
+        assert "eduperson_entitlement" not in res["claims"]
+        # an empty list adds none
+        auth._userinfo_cache.clear()
+        app = make_app(
+            issuers=[{"issuer": ISSUER, "userinfo_claims": []}],
+            userinfo_claims=["eduperson_entitlement"],
+        )
+        res = validate(app, make_token())
+        assert "eduperson_entitlement" not in res["claims"]
+
     def test_not_configured(self, idp: MagicMock) -> None:
         """User info is not requested by default."""
         res = validate(make_app(), make_token())
@@ -836,6 +877,62 @@ class TestAuthConfig:
         """Trusted issuers require an audience, unless opted out."""
         with pytest.raises(ValidationError, match="verify_audience"):
             AuthConfig(issuers=[ISSUER], audience=audience)
+
+    def test_issuer_audiences(self) -> None:
+        """Issuers with audiences of their own need no global audience."""
+        own = {"issuer": ISSUER, "audience": ["own"]}
+        conf = AuthConfig.model_validate({"issuers": [own]})
+        assert conf.get_audience(ISSUER) == ["own"]
+        assert conf.get_audience(OTHER_ISSUER) is None
+        with pytest.raises(ValidationError, match=f"{OTHER_ISSUER} have none"):
+            AuthConfig.model_validate({"issuers": [own, OTHER_ISSUER]})
+        # the global audience is not used then
+        conf = AuthConfig.model_validate({"issuers": [own], "audience": [" "]})
+        assert conf.get_audience(ISSUER) == ["own"]
+        conf = AuthConfig.model_validate(
+            {"issuers": [own, OTHER_ISSUER], "audience": [AUDIENCE]}
+        )
+        assert conf.get_audience(OTHER_ISSUER) == [AUDIENCE]
+
+    @pytest.mark.parametrize(
+        "settings,match",
+        [
+            ({"audience": []}, "at least 1 item"),
+            ({"audience": ["a", " "]}, "blank"),
+            ({"claim_groups": " groups"}, "whitespace"),
+            ({"userinfo_claims": ["azp"]}, "azp"),
+        ],
+    )
+    def test_issuer_settings_invalid(
+        self, settings: dict[str, Any], match: str
+    ) -> None:
+        """Invalid settings of issuers are rejected."""
+        with pytest.raises(ValidationError, match=match):
+            AuthConfig.model_validate(
+                {"issuers": [{"issuer": ISSUER, **settings}], "audience": ["a"]}
+            )
+
+    def test_issuer_listed_with_different_settings(self) -> None:
+        """Issuers listed twice must have the same settings."""
+        with pytest.raises(ValidationError, match="different settings"):
+            AuthConfig.model_validate(
+                {
+                    "issuers": [ISSUER, {"issuer": ISSUER, "audience": ["x"]}],
+                    "audience": [AUDIENCE],
+                }
+            )
+
+    def test_issuer_userinfo_claims(self) -> None:
+        """User info claims of issuers fall back to the global ones."""
+        conf = AuthConfig.model_validate(
+            {
+                "issuers": [{"issuer": ISSUER, "userinfo_claims": ["email"]}],
+                "audience": [AUDIENCE],
+                "userinfo_claims": ["groups"],
+            }
+        )
+        assert conf.get_userinfo_claims(ISSUER) == ["email"]
+        assert conf.get_userinfo_claims(OTHER_ISSUER) == ["groups"]
 
     def test_audience_opt_out(self) -> None:
         """Audience is not required if its validation is disabled."""
@@ -1112,11 +1209,68 @@ class TestServiceClients:
         res = auth.get_service_client(claims, conf)
         assert (None if res is None else res.client_id) == client
 
+    def test_get_client_issuer(self) -> None:
+        """The issuer of service clients is the only trusted one by default."""
+        client = ServiceClientConfig(client_id="conquest")
+        one = AuthConfig(issuers=[ISSUER], audience=[AUDIENCE])
+        two = AuthConfig(issuers=[ISSUER, OTHER_ISSUER], audience=[AUDIENCE])
+        assert auth.get_client_issuer(client, one) == ISSUER
+        assert auth.get_client_issuer(client, two) is None
+        other = ServiceClientConfig(client_id="conquest", issuer=OTHER_ISSUER)
+        assert auth.get_client_issuer(other, two) == OTHER_ISSUER
+
     def test_get_service_client_no_issuers(self) -> None:
         """Without trusted issuers, there are no service tokens."""
         conf = AuthConfig.model_validate({"service_clients": self.SERVICE_CLIENTS})
         claims = {"iss": ISSUER, "sub": "conquest", "client_id": "conquest"}
         assert auth.get_service_client(claims, conf) is None
+
+
+class TestNamespaceSubject:
+    """Tests for `namespace_subject()`."""
+
+    def test_one_issuer(self) -> None:
+        """Subjects of a single issuer are bare, as before."""
+        conf = AuthConfig(issuers=[ISSUER], audience=[AUDIENCE])
+        assert auth.namespace_subject("a|b", ISSUER, conf) == "a|b"
+        assert auth.namespace_subject("alice", None, conf) == "alice"
+        assert auth.namespace_subject("alice", "https://x", AuthConfig()) == "alice"
+
+    def test_several_issuers(self) -> None:
+        """Subjects of several issuers are namespaced by issuer by default."""
+        conf = AuthConfig(issuers=[ISSUER, OTHER_ISSUER], audience=[AUDIENCE])
+        assert auth.namespace_subject("alice", ISSUER, conf) == f"{ISSUER}|alice"
+        assert (
+            auth.namespace_subject("alice", OTHER_ISSUER, conf)
+            == f"{OTHER_ISSUER}|alice"
+        )
+        # untrusted or missing issuers
+        assert auth.namespace_subject("alice", "https://x", conf) is None
+        assert auth.namespace_subject("alice", None, conf) is None
+        assert auth.namespace_subject("alice", ["x"], conf) is None
+
+    def test_bare_issuer(self) -> None:
+        """Bare subjects next to namespaced ones must not contain `|`."""
+        conf = AuthConfig.model_validate(
+            {
+                "issuers": [
+                    {"issuer": ISSUER, "namespace": ""},
+                    {"issuer": OTHER_ISSUER, "namespace": "other"},
+                ],
+                "audience": [AUDIENCE],
+            }
+        )
+        assert auth.namespace_subject("alice", ISSUER, conf) == "alice"
+        assert auth.namespace_subject("other|alice", ISSUER, conf) is None
+        assert auth.namespace_subject("alice", OTHER_ISSUER, conf) == "other|alice"
+        # namespaced subjects may contain `|`
+        assert auth.namespace_subject("a|b", OTHER_ISSUER, conf) == "other|a|b"
+
+    def test_current_app(self) -> None:
+        """Settings default to those of the current app."""
+        app = make_app(issuers=[ISSUER, OTHER_ISSUER])
+        with app.app_context():
+            assert auth.namespace_subject("bob", ISSUER) == f"{ISSUER}|bob"
 
 
 class TestUnauthorized:

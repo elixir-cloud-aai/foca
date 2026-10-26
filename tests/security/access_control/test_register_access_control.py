@@ -206,7 +206,7 @@ def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
 NO_EFFECT = "'security.access_control.keep_group_subjects' has no effect"
 # Parts of the messages naming the setting to change
 SET_CLAIM = "set 'security.access_control.claim_groups'"
-NO_CLAIM = "no group claim is set ('security.access_control.claim_groups')"
+NO_CLAIM = "no group claim is set ('security.access_control.claim_groups' or"
 KEEP = "'security.access_control.keep_group_subjects' is not"
 
 
@@ -362,6 +362,64 @@ def test_check_admin_role_group_rules(
     with caplog.at_level(logging.WARNING):
         _check_admin_role(AccessControlConfig(policies=policies, **conf))
     assert (NO_ADMIN in caplog.text) is not admin
+
+
+def test_issuer_group_claims(caplog: pytest.LogCaptureFixture) -> None:
+    """Group claims of issuers count for the group checks."""
+    auth = AuthConfig.model_validate(
+        {
+            "issuers": [
+                {"issuer": "https://a.example.org", "claim_groups": "roles"},
+                "https://b.example.org",
+            ],
+            "audience": ["my-app"],
+        }
+    )
+    conf = AccessControlConfig(
+        group_mapping={"a": "user"},
+        keep_group_subjects=True,
+        policies=[["g", "group:admins", "admin"]],
+    )
+    with caplog.at_level(logging.WARNING):
+        _check_group_config(conf, auth)
+        _check_admin_role(conf, auth)
+    assert _warnings(caplog) == []
+    # without issuers, only the global group claim counts
+    with pytest.raises(ValueError, match="no group claim"):
+        _check_group_config(conf, AuthConfig())
+
+
+@pytest.mark.parametrize(
+    "claim_groups,warned",
+    [
+        # issuers' own claims count
+        ("roles", False),
+        # no group claim anywhere
+        (None, True),
+        ("", True),
+    ],
+)
+def test_issuer_group_claims_empty_mapping(
+    caplog: pytest.LogCaptureFixture, claim_groups: str | None, warned: bool
+) -> None:
+    """Empty group mappings without any group claim are warned about."""
+    issuer: dict[str, Any] = {"issuer": "https://a.example.org"}
+    if claim_groups is not None:
+        issuer["claim_groups"] = claim_groups
+    auth = AuthConfig.model_validate({"issuers": [issuer], "audience": ["my-app"]})
+    conf = AccessControlConfig(
+        group_mapping={},
+        keep_group_subjects=True,
+        policies=[["g", "group:admins", "admin"]],
+    )
+    with caplog.at_level(logging.WARNING):
+        _check_group_config(conf, auth)
+        _check_admin_role(conf, auth)
+    assert (EMPTY_MAPPING in caplog.text) is warned
+    # group subjects count for `admin` only with a group claim
+    assert (NO_ADMIN in caplog.text) is warned
+    # the message names group claims of issuers, too
+    assert ("'security.auth.issuers[].claim_groups' set" in caplog.text) is warned
 
 
 def test_check_admin_role_clients(caplog: pytest.LogCaptureFixture) -> None:
@@ -605,30 +663,57 @@ class TestRegisterAccessControlSetup:
         assert ("keep_group_subjects' has no effect" in caplog.text) is warned
 
     @pytest.mark.parametrize(
-        "issuers,warned",
+        "issuers,claim_groups,warned",
         [
-            (["https://a.example.org/"], False),
+            (["https://a.example.org/"], "groups", False),
             # duplicates are the same issuer
-            (["https://a.example.org/", "https://a.example.org/"], False),
-            (["https://a.example.org/", "https://b.example.org/"], True),
+            (["https://a.example.org/", "https://a.example.org/"], "groups", False),
+            (["https://a.example.org/", "https://b.example.org/"], "groups", True),
+            # no groups at all, or from one issuer only
+            (["https://a.example.org/", "https://b.example.org/"], None, False),
+            (
+                [
+                    "https://a.example.org/",
+                    {"issuer": "https://b.example.org/", "claim_groups": ""},
+                ],
+                "groups",
+                False,
+            ),
+            (
+                [
+                    {"issuer": "https://a.example.org/", "claim_groups": "roles"},
+                    "https://b.example.org/",
+                ],
+                None,
+                False,
+            ),
         ],
     )
     def test_several_issuers(
-        self, caplog: pytest.LogCaptureFixture, issuers: list[str], warned: bool
+        self,
+        caplog: pytest.LogCaptureFixture,
+        issuers: list[Any],
+        claim_groups: str | None,
+        warned: bool,
     ) -> None:
-        """Subjects of several issuers may collide, which is warned about."""
+        """Group claim values of several issuers may collide (warned about)."""
         config = Config(
             security=SecurityConfig(
-                auth=AuthConfig(issuers=issuers, audience=["my-app"])
+                auth=AuthConfig.model_validate(
+                    {"issuers": issuers, "audience": ["my-app"]}
+                )
             )
         )
         with caplog.at_level(logging.WARNING):
             register_access_control(
                 cnx_app=create_connexion_app(config),
                 mongo_config=None,
-                access_control_config=AccessControlConfig(),
+                access_control_config=AccessControlConfig(claim_groups=claim_groups),
             )
         assert ("trusted token issuers" in caplog.text) is warned
+        if warned:
+            assert "subjects are namespaced by issuer" in caplog.text
+            assert "group claim values are not" in caplog.text
 
     def test_require_admin(self) -> None:
         """Apps refuse to start without admins before registering anything."""

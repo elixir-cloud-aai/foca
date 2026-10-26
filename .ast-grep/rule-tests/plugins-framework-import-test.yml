@@ -1,0 +1,11 @@
+id: plugins-framework-import
+valid:
+  - import json
+  - from foca.plugins.model import Headers
+  - import flasky
+invalid:
+  - import flask
+  - from flask import request
+  - from werkzeug.datastructures import Headers
+  - import connexion.exceptions
+  - from starlette.requests import Request
