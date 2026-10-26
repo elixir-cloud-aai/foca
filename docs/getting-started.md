@@ -96,6 +96,11 @@ COPY ./ /app
 CMD ["python", "app.py"]
 ```
 
+`COPY ./ /app` copies the whole build context: keep local files such as
+`.env` files or config overlays out of the image with an allowlist
+`.dockerignore` (`*`, then `!app.py` etc. for the files the app needs), as
+in the examples.
+
 `python app.py` starts Flask's development server, which is meant for local
 development only. In production, run the app with a WSGI server such as
 Gunicorn (see [running in production](deployment.md#running-in-production)).
