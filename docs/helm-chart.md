@@ -808,7 +808,8 @@ git push origin chart-v0.1.0
 The [release workflow][release-chart] runs the chart checks and the kind
 installation of CI, checks that the tag is signed (with a signature that
 GitHub verifies), is on `dev` and matches the chart's version, and that the
-version has not been published yet; it then packages the chart, pushes it
+version has not been published yet. After a maintainer approved the tested
+chart in the `chart-release` environment, it packages the chart, pushes it
 to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`, and attests and
 signs it (see [verifying images and
 charts](deployment.md#verifying-images-and-charts)). Published versions
@@ -831,10 +832,13 @@ After the first release, an organization admin opens the package
   it.
 
 The organization may also need to allow members' Actions to create packages
-for the first release. Anyone who may push a signed `chart-v*` tag can
-release, so a tag ruleset of the repository restricts who may create
-`chart-v*` and `v*` tags (admins only) and blocks updates and deletions of
-these tags for everyone. To inspect a release, run:
+for the first release. A tag ruleset of the repository restricts who may
+create `chart-v*` and `v*` tags (admins only) and blocks updates and
+deletions of these tags for everyone. Publishing also needs an approval: the
+repository's environment `chart-release` has a required reviewer and allows
+deployments from `chart-v*` tags only; it must exist before the release
+workflow first runs, as GitHub would otherwise create it without protection
+rules. To inspect a release, run:
 
 ```bash
 helm show chart oci://ghcr.io/elixir-cloud-aai/charts/foca-common --version {{ chart_version }}

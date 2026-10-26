@@ -1,12 +1,14 @@
 # Release the library chart foca-common when a chart tag (`chart-vX.Y.Z`) is
 # pushed: lint, test and install the charts as CI does (`chart` and
-# `chart-install` jobs of `ci.yml`, with the same local actions), check that
-# the tag is signed, on `dev` and matches the chart's `version`, and that the
-# version was not published yet, then package the chart, push it as an OCI
-# artifact to `oci://ghcr.io/elixir-cloud-aai/charts`, and attest and sign
-# it (GitHub artifact attestation, Sigstore signature). Only final
-# versions (no pre-releases). Independent of FOCA's releases (`release.yml`,
-# tags `vX.Y.Z`). Chart releases come from `dev` on purpose, unlike FOCA's
+# `chart-install` jobs of `ci.yml`, with the same local actions); after a
+# maintainer approved the tested chart in the `chart-release` environment
+# (required reviewer, `chart-v*` tags only), check that the tag is signed,
+# on `dev` and matches the chart's `version`, and that the version was not
+# published yet, then package the chart, push it as an OCI artifact to
+# `oci://ghcr.io/elixir-cloud-aai/charts`, and attest and sign it (GitHub
+# artifact attestation, Sigstore signature). Only final versions (no
+# pre-releases). Independent of FOCA's releases (`release.yml`, tags
+# `vX.Y.Z`). Chart releases come from `dev` on purpose, unlike FOCA's
 # releases from `main`, so that app charts can use a chart change without
 # waiting for a FOCA release. See "Releases" in docs/helm-chart.md.
 
@@ -50,11 +52,18 @@ jobs:
       - name: Install chart
         uses: ./.github/actions/install-chart
 
+  # Waits for the approval in the `chart-release` environment, after the
+  # tests passed: its protection rules (required reviewer, `chart-v*` tags
+  # only) are what actually control publishing; the checks below guard
+  # against mistakes
   publish:
     name: Publish chart
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment:
+      name: chart-release
+      url: https://github.com/elixir-cloud-aai/foca/pkgs/container/charts%2Ffoca-common
     permissions:
       contents: read
       packages: write # push the chart, its attestation and signature to GHCR
