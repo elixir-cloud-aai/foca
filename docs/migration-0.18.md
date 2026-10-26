@@ -188,7 +188,8 @@ Apps that are no gateways are not affected.
   without the frame: with client pipelines enabled, list policy steps that
   must not be skipped in both `pipeline` and `prepend`; the app warns on
   startup about steps of `pipeline` that the frame lacks (cf. [per-request
-  choices](configuration/plugins.md#per-request-choices)).
+  choices](configuration/plugins.md#per-request-choices)). Both tags and
+  their settings are experimental: they may change in a later release.
 
 ## Other changes
 
