@@ -120,8 +120,9 @@ identifier; steps with the same plugin need explicit, unique `id`s.
     On startup, the app warns about steps of `pipeline` that the frame
     lacks: steps without the same alternatives (plugins and `params`) and
     `on_failure` in `prepend`, or in `append` without `if_missing_phase`
-    (which clients can drop by sending a step of that phase); only the
-    default route step without `params` is exempt.
+    (which clients can drop by sending a step of that phase), unless
+    clients may choose presets only and every preset has the step; only
+    the default route step without `params` is exempt.
 
 Authenticated clients choose presets or their own pipelines
 (`client_pipelines`) and backends (`client_backends`) in reserved tags (cf.

@@ -102,12 +102,9 @@ choices](configuration/plugins.md#per-request-choices)):
 
     A preset or client pipeline (even an empty one, `[]`) runs **instead
     of** `plugins.pipeline`, framed by `client_pipelines.prepend` and
-    `append`. Requests without the pipeline tag get `plugins.pipeline`
-    **without** the frame. With client pipelines enabled, policies that must
-    not be skipped therefore belong in **both** `plugins.pipeline` and
-    `prepend`; on startup, the app warns about steps of `plugins.pipeline`
-    that clients can skip (cf. [per-request
-    choices](configuration/plugins.md#per-request-choices)).
+    `append`, but requests without the pipeline tag get `plugins.pipeline`
+    **without** the frame: see [where policies
+    belong](configuration/plugins.md#per-request-choices).
 
 Before any plugin runs, the engine checks the choice and refuses it with
 `400` if the tags are no map or invalid, if per-request choices are disabled

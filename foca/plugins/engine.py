@@ -219,6 +219,23 @@ def _is_default_route_step(step: ResolvedStep) -> bool:
     )
 
 
+def _has_step(steps: Sequence[ResolvedStep], step: ResolvedStep) -> bool:
+    """Check whether steps have a step with the same effect as another.
+
+    Args:
+        steps: Resolved steps.
+        step: Resolved step.
+
+    Returns:
+        Whether a step has the same alternatives (plugins and params) and
+        `on_failure` (identifiers and timeouts may differ).
+    """
+    return any(
+        kept.alternatives == step.alternatives and kept.on_failure == step.on_failure
+        for kept in steps
+    )
+
+
 def _is_authenticated(principal: Principal) -> bool:
     """Check whether a caller is authenticated.
 
@@ -354,24 +371,24 @@ class PluginHost:
         step of it runs for clients' choices only if the frame has the same
         step: a step of `client_pipelines.prepend`, or of `append` without
         `if_missing_phase` (which clients can make it drop), with the same
-        alternatives (plugins and params) and `on_failure`. The default
-        route step without params is exempt, as `append` adds it if needed.
+        alternatives (plugins and params) and `on_failure`; or, if clients
+        may choose presets only, if every preset has it. The default route
+        step without params is exempt, as `append` adds it if needed.
         """
-        if not self.conf.client_pipelines.enabled:
+        conf = self.conf.client_pipelines
+        if not conf.enabled:
             return
         frame = [
             *self._prepend,
             *(step for phase, step in self._append if phase is None),
         ]
+        # what clients can choose instead of the default pipeline
+        choices = [()] if "inline" in conf.allowed else list(self.presets.values())
         skippable = [
             step.id
             for step in self.default_pipeline.steps
             if not _is_default_route_step(step)
-            and not any(
-                kept.alternatives == step.alternatives
-                and kept.on_failure == step.on_failure
-                for kept in frame
-            )
+            and any(not _has_step([*frame, *steps], step) for steps in choices)
         ]
         if skippable:
             logger.warning(
@@ -525,7 +542,7 @@ class PluginHost:
             LoopDetected: The request already passed this gateway.
             foca.plugins.selection.InvalidSelection: The tags are not a
                 mapping, or the client's choices are invalid or not allowed
-                (`400`).
+                (`400`), e.g., as the caller is not authenticated.
             TypeError: `tags` is not given for an API other than `tes`.
         """
         own = len(f", 1.1 {self.gateway_id}") if self.gateway_id is not None else 0
@@ -549,16 +566,11 @@ class PluginHost:
             pipelines_enabled=conf.client_pipelines.enabled,
             backends_enabled=conf.client_backends.enabled,
         )
-        if not _is_authenticated(principal):
-            if selection.pipeline is not None:
-                raise InvalidSelection(
-                    "Choosing pipelines needs an authenticated caller"
-                )
-            if selection.backends is not None:
-                raise InvalidSelection(
-                    "Choosing backends needs an authenticated caller",
-                    slug="invalid-backends",
-                )
+        if selection.backends is not None and not _is_authenticated(principal):
+            raise InvalidSelection(
+                "Choosing backends needs an authenticated caller",
+                slug="invalid-backends",
+            )
         return PipelineRun(
             self,
             pipeline=self.resolve(selection.pipeline, principal),
@@ -582,8 +594,9 @@ class PluginHost:
 
         Raises:
             foca.plugins.selection.InvalidSelection: The choice is invalid
-                or not allowed (whether choices are enabled at all is
-                checked when the tags are read, cf. :py:meth:`start`).
+                or not allowed, e.g., as the caller is not authenticated
+                (whether choices are enabled at all is checked when the tags
+                are read, cf. :py:meth:`start`).
                 Plugins that are unknown, not installed, disabled, not
                 selectable or not allowed for the caller get the same
                 message, as do presets that are unknown or need a role, so

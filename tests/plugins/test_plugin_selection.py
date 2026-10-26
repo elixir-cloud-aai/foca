@@ -735,3 +735,23 @@ def test_warns_about_skippable_steps(
             f"lacks: {skippable}; repeat steps that must run for every"
             " request (e.g., policies) in prepend"
         )
+
+
+@pytest.mark.parametrize(
+    ("presets", "warns"),
+    [
+        ({"p": ["test.tag"], "q": ["test.skip", "test.tag"]}, False),
+        ({"p": ["test.tag"], "q": ["test.skip"]}, True),
+    ],
+)
+def test_warns_about_presets_without_steps(
+    presets: dict[str, list[str]], warns: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    """With presets only, steps that all presets have cannot be skipped."""
+    with caplog.at_level(logging.WARNING, logger="foca.plugins.engine"):
+        make_host(
+            [{"plugin": "test.tag"}],
+            presets=presets,
+            client_pipelines={"enabled": True, "allowed": ["presets"]},
+        ).close()
+    assert ("lacks: test.tag;" in caplog.text) is warns
