@@ -445,10 +445,19 @@ app = foca.create_app()  # loads the plugins once, to fail fast
 - These callbacks (and the `build` function of `run.attempts()`) are
   trusted app code: they run in the request's thread, outside the plugin
   deadlines, so they must be fast and must not do I/O.
-- A process serves one gateway app: `Foca(...)` with other gateway settings
-  fails while the host of the first app is in use
-  (`foca.plugins.runtime.reset()` closes it, e.g., in tests). The host is
-  closed at exit.
+- A process serves one gateway app: every `Foca(gateway=...)` in the
+  process, e.g., also in a Celery worker module whose tasks use the host,
+  must pass the same `GatewayApp`, also before the host is created. Define
+  it once and import it: settings with other callables (e.g., a new
+  `lambda`) count as other settings and fail. `Foca(...)` without
+  `gateway=` leaves the settings alone.
+- Hosts and backend lists are built from the configuration of the first
+  `Foca(gateway=...)` of the process, not of the FOCA app created last, and
+  `create_app()` serves only that app: create the gateway app's `Foca(...)`
+  before importing modules that create others. `create_app()` of another
+  `Foca(gateway=...)` fails, e.g., when retried after a failed startup, or
+  in tests: there, `foca.plugins.runtime.reset()` closes the host and
+  forgets the settings. The host is closed at exit.
 - Configurations with keys of earlier middleware stacks (`middlewares`,
   `custom.middlewares`) are refused with a migration hint, before the app's
   custom model is validated.
