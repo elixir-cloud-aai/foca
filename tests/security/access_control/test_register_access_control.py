@@ -629,6 +629,9 @@ class TestRegisterAccessControlSetup:
                 access_control_config=AccessControlConfig(),
             )
         assert ("trusted token issuers" in caplog.text) is warned
+        if warned:
+            assert "subjects are namespaced by issuer" in caplog.text
+            assert "group claim values are not" in caplog.text
 
     def test_require_admin(self) -> None:
         """Apps refuse to start without admins before registering anything."""

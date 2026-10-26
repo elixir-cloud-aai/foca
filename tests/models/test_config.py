@@ -723,6 +723,8 @@ def test_AuthConfig_issuer_namespaces(
         ([{"issuer": A, "namespace": "a,b"}], "must not contain"),
         ([{"issuer": A, "namespace": "a\nb"}], "must not contain"),
         ([{"issuer": ""}], "at least 1 character"),
+        ([{"issuer": A, "namespace": "x" * 257}], "at most 256 characters"),
+        ([f"https://{'x' * 250}.org", B], "shorter"),
     ],
 )
 def test_AuthConfig_issuer_namespaces_invalid(issuers: list[Any], match: str) -> None:

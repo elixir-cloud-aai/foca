@@ -1340,6 +1340,10 @@ NAMESPACE_SEPARATOR = "|"
 
 _NAMESPACE_FORBIDDEN = frozenset(f"{NAMESPACE_SEPARATOR},\r\n")
 
+MAX_NAMESPACE_LENGTH = 256
+"""Maximum length of namespaces of issuers, so that namespaced subjects fit
+into policy rules (1024 characters per value)."""
+
 
 class IssuerConfig(FOCABaseConfig):
     """Model for configuring a trusted token issuer.
@@ -1357,7 +1361,9 @@ class IssuerConfig(FOCABaseConfig):
             An empty value keeps the issuer's subjects bare, e.g., for the
             first issuer of an app that trusts a second one later, so that
             its stored subjects stay valid. Must not contain `|`, commas or
-            line breaks.
+            line breaks, and must have at most 256 characters
+            (`MAX_NAMESPACE_LENGTH`), so that namespaced subjects fit into
+            policy rules.
 
     Attributes:
         issuer: Issuer.
@@ -1366,7 +1372,7 @@ class IssuerConfig(FOCABaseConfig):
     Raises:
         pydantic.ValidationError: The class was instantiated with an illegal
             data type, `issuer` is empty, or `namespace` contains `|`, a
-            comma or a line break.
+            comma or a line break, or is too long.
 
     Examples:
         >>> IssuerConfig(issuer="https://login.example.org/", namespace="ls")
@@ -1374,7 +1380,7 @@ class IssuerConfig(FOCABaseConfig):
     """
 
     issuer: str = Field(min_length=1)
-    namespace: str | None = None
+    namespace: str | None = Field(default=None, max_length=MAX_NAMESPACE_LENGTH)
 
     @field_validator("namespace")
     @classmethod
@@ -1707,7 +1713,8 @@ class AuthConfig(FOCABaseConfig):
         Raises:
             ValueError: An issuer is listed with different settings, an
                 issuer whose namespace defaults to the issuer contains `|`,
-                a comma or a line break, issuers share a namespace, or more
+                a comma or a line break, or is longer than
+                `MAX_NAMESPACE_LENGTH`, issuers share a namespace, or more
                 than one issuer keeps its subjects bare.
         """
         seen: dict[str | None, str] = {}
@@ -1717,6 +1724,12 @@ class AuthConfig(FOCABaseConfig):
                     f"Issuer '{issuer}' contains '|', a comma or a line break, "
                     "so it cannot be the namespace of its subjects: set "
                     "`security.auth.issuers[].namespace`"
+                )
+            if namespace == issuer and len(issuer) > MAX_NAMESPACE_LENGTH:
+                raise ValueError(
+                    f"Issuer '{issuer}' is longer than {MAX_NAMESPACE_LENGTH} "
+                    "characters, so it cannot be the namespace of its subjects: "
+                    "set a shorter `security.auth.issuers[].namespace`"
                 )
             if namespace in seen:
                 what = "bare subjects" if namespace is None else "namespace"

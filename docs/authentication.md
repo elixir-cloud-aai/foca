@@ -107,7 +107,10 @@ must have different namespaces, and at most one issuer may keep its
 subjects bare; FOCA refuses to start otherwise. Bare subjects that contain
 `|` next to namespaced ones cannot be told apart from namespaced subjects:
 such users are not identified (`401` on enforced operations, and
-`get_current_subject()` returns `None`). Tokens of untrusted issuers are
+`get_current_subject()` returns `None`). Namespaces have at most 256
+characters; namespaced subjects that don't fit into policy rules (1024
+characters, with `user:`) are denied, as long subjects are without
+namespaces. Tokens of untrusted issuers are
 rejected anyway. Proxies that merge slashes in paths (e.g., nginx's
 `merge_slashes`) change subjects namespaced by issuer URLs in paths (e.g.,
 of the [endpoints for managing
