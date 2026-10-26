@@ -60,6 +60,14 @@ class Foca:
             gateway: Settings of a gateway app (e.g., proTES) for its plugin
                 host (cf. :py:mod:`foca.plugins.runtime`); configurations
                 with keys of earlier middleware stacks are then refused.
+                A process serves one gateway app: all instances with
+                settings must pass the same ones, instances without them
+                leave them alone (cf.
+                :py:func:`foca.plugins.runtime.configure`).
+
+        Raises:
+            RuntimeError: Other gateway settings are configured in the
+                process (cf. :py:func:`foca.plugins.runtime.configure`).
 
         Attributes:
             config_file: Path(s) to application configuration file(s), as
@@ -98,7 +106,8 @@ class Foca:
         self.config_files: list[Path] = parser.config_files
         self.config_dir: Path = parser.config_dir
         self.gateway = gateway
-        runtime.configure(gateway)
+        if gateway is not None:
+            runtime.configure(gateway, self.conf)
         logger.info("Log formatting configured.")
         if not self.config_files:
             logger.info("Default app configuration used.")
@@ -146,7 +155,14 @@ class Foca:
                 group mappings from applying, or no admin is configured and
                 `security.access_control.require_admin` is set (cf.
                 :py:func:`foca.security.access_control.register_access_control.register_access_control`).
+            RuntimeError: Other gateway settings, or the gateway settings
+                of another FOCA app, are configured in the process (cf.
+                :py:func:`foca.plugins.runtime.configure`).
         """
+        # Serve only the gateway app whose configuration hosts are built from
+        if self.gateway is not None:
+            runtime.configure(self.gateway, self.conf, serve=True)
+
         cnx_app = self._create_base_app()
 
         # Enable cross-origin resource sharing
