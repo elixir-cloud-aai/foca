@@ -210,11 +210,12 @@ roles](access-control.md#opt-in-roles)). Apps that don't set
   mapped role then applies without asking for it.
 - The app refuses to start (the configuration fails to validate) if an
   opt-in role is a `resource_roles` role or starts with a prefix of
-  subjects, if `opt_in_header` is no valid header name or equals
-  `security.auth.on_behalf_of_header`, or if a configured rule of
-  `policies` grants an opt-in role (e.g., `[g, "user:alice", admin]`,
-  also resource-scoped `g2` rules and rules granting it to another opt-in
-  role), as the role would then apply without asking for it.
+  subjects, if `opt_in_header` is no valid header name or, with opt-in
+  roles set, equals `security.auth.on_behalf_of_header`, or if a
+  configured rule of `policies` grants an opt-in role (e.g., `[g,
+  "user:alice", admin]`, also resource-scoped `g2` rules and rules
+  granting it to another opt-in role), as the role would then apply
+  without asking for it.
 - The permissions API refuses such rules with `400`.
 - Rules stored earlier, e.g., `g, user:alice, admin` added before `admin`
   was made opt-in, are only warned about when policies are first loaded,
