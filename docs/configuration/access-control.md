@@ -89,9 +89,9 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   use the roles, too. Invalid opt-in settings already fail validation of
   the configuration (see [opt-in roles](../access-control.md#opt-in-roles)).
 - `keep_group_subjects` without `group_mapping` (no effect) and several
-  trusted `issuers` (subjects are not scoped by issuer) are warned about,
-  too, and so is the removal of stored configured rules if `policies` is
-  not set (see [configuring
+  trusted `issuers` (group claim values are not namespaced by issuer) are
+  warned about, too, and so is the removal of stored configured rules if
+  `policies` is not set (see [configuring
   policies](../access-control.md#configuring-policies)).
 
 Messages name the settings to change, and contain no claim values other

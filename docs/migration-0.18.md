@@ -6,7 +6,8 @@ the same with many rules as with few (cf. [scaling](access-control.md#scaling)).
 Most apps need no changes to run with FOCA 0.18.0; check the breaking
 changes below if your app uses access control and uses the enforcer
 directly, changes rules in the database directly or maps groups to roles,
-or if its clients or tests rely on the responses to invalid requests, and
+or if its clients or tests rely on the responses to invalid requests, if
+it trusts several token issuers, and
 the other changes if your app creates FOCA's Casbin adapter itself.
 Upgrading from 0.16 or earlier? Start with [Migrating to
 0.17.0](migration-0.17.md).
@@ -69,6 +70,42 @@ started, but no user got the roles of their groups. Set `claim_groups` to
 the claim with the groups of users, without whitespace, or unset
 `group_mapping`. An empty `group_mapping` without `claim_groups` is still
 allowed.
+
+### Subjects of several issuers
+
+If several token issuers are trusted (`security.auth.issuers`), subjects
+are now namespaced by issuer, as `<namespace>|<subject>`, so that equal
+subjects of different issuers are different users: by default, the
+namespace is the issuer (e.g., `https://login.example.org/oidc/|alice`, in
+rules `user:https://login.example.org/oidc/|alice`). This applies to
+`get_current_subject()`, policies, resource roles and owners, and to users
+named by service clients (`get_on_behalf_of_user()`), which are namespaced
+by the issuer of the service client. Before, users of different issuers
+with the same subject got each other's rights. Apps with a single trusted
+issuer are not affected.
+
+- **Stored subjects:** rules, role grants and owners stored for bare
+  subjects then no longer apply. To keep them for the users of one issuer
+  (e.g., the one trusted before), set its `namespace` to `""`, so that its
+  subjects stay bare; or rewrite them to the namespaced form (cf. [trusting
+  a second issuer](authentication.md#several-trusted-issuers)).
+- **Issuer settings:** issuers can be listed with settings of their own
+  (`issuer`, `namespace`) instead of as URLs. Issuers with the same
+  namespace, and several issuers with bare subjects, are refused on
+  startup.
+- **Type of `issuers`:** `security.auth.issuers` is therefore typed
+  `Sequence[str | IssuerConfig]` instead of `list[str]`; use `issuer_urls`
+  to get the trusted issuers as URLs.
+- **Naming users:** apps that name other users (e.g., in rules or when
+  granting roles) must name users of namespaced issuers in the namespaced
+  form, e.g., via `namespace_subject()` (in `foca.security.auth`).
+- **Paths:** namespaced subjects contain the issuer by default, i.e.,
+  slashes: give user path parameters of the [endpoints for managing
+  roles](access-control.md#endpoints-for-managing-roles) `format: path`,
+  and match them with `*` in rules (e.g.,
+  `/api/tasks/:id/permissions/users/*`), as for groups. Proxies that merge
+  slashes (e.g., nginx's `merge_slashes`) change such paths; set a
+  `namespace` without slashes then.
 
 ### Validation details by default
 

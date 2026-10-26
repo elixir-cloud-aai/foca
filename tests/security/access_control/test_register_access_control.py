@@ -616,7 +616,7 @@ class TestRegisterAccessControlSetup:
     def test_several_issuers(
         self, caplog: pytest.LogCaptureFixture, issuers: list[str], warned: bool
     ) -> None:
-        """Subjects of several issuers may collide, which is warned about."""
+        """Group claim values of several issuers may collide (warned about)."""
         config = Config(
             security=SecurityConfig(
                 auth=AuthConfig(issuers=issuers, audience=["my-app"])
@@ -629,6 +629,9 @@ class TestRegisterAccessControlSetup:
                 access_control_config=AccessControlConfig(),
             )
         assert ("trusted token issuers" in caplog.text) is warned
+        if warned:
+            assert "subjects are namespaced by issuer" in caplog.text
+            assert "group claim values are not" in caplog.text
 
     def test_require_admin(self) -> None:
         """Apps refuse to start without admins before registering anything."""

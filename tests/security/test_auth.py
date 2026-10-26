@@ -1112,11 +1112,68 @@ class TestServiceClients:
         res = auth.get_service_client(claims, conf)
         assert (None if res is None else res.client_id) == client
 
+    def test_get_client_issuer(self) -> None:
+        """The issuer of service clients is the only trusted one by default."""
+        client = ServiceClientConfig(client_id="conquest")
+        one = AuthConfig(issuers=[ISSUER], audience=[AUDIENCE])
+        two = AuthConfig(issuers=[ISSUER, OTHER_ISSUER], audience=[AUDIENCE])
+        assert auth.get_client_issuer(client, one) == ISSUER
+        assert auth.get_client_issuer(client, two) is None
+        other = ServiceClientConfig(client_id="conquest", issuer=OTHER_ISSUER)
+        assert auth.get_client_issuer(other, two) == OTHER_ISSUER
+
     def test_get_service_client_no_issuers(self) -> None:
         """Without trusted issuers, there are no service tokens."""
         conf = AuthConfig.model_validate({"service_clients": self.SERVICE_CLIENTS})
         claims = {"iss": ISSUER, "sub": "conquest", "client_id": "conquest"}
         assert auth.get_service_client(claims, conf) is None
+
+
+class TestNamespaceSubject:
+    """Tests for `namespace_subject()`."""
+
+    def test_one_issuer(self) -> None:
+        """Subjects of a single issuer are bare, as before."""
+        conf = AuthConfig(issuers=[ISSUER], audience=[AUDIENCE])
+        assert auth.namespace_subject("a|b", ISSUER, conf) == "a|b"
+        assert auth.namespace_subject("alice", None, conf) == "alice"
+        assert auth.namespace_subject("alice", "https://x", AuthConfig()) == "alice"
+
+    def test_several_issuers(self) -> None:
+        """Subjects of several issuers are namespaced by issuer by default."""
+        conf = AuthConfig(issuers=[ISSUER, OTHER_ISSUER], audience=[AUDIENCE])
+        assert auth.namespace_subject("alice", ISSUER, conf) == f"{ISSUER}|alice"
+        assert (
+            auth.namespace_subject("alice", OTHER_ISSUER, conf)
+            == f"{OTHER_ISSUER}|alice"
+        )
+        # untrusted or missing issuers
+        assert auth.namespace_subject("alice", "https://x", conf) is None
+        assert auth.namespace_subject("alice", None, conf) is None
+        assert auth.namespace_subject("alice", ["x"], conf) is None
+
+    def test_bare_issuer(self) -> None:
+        """Bare subjects next to namespaced ones must not contain `|`."""
+        conf = AuthConfig.model_validate(
+            {
+                "issuers": [
+                    {"issuer": ISSUER, "namespace": ""},
+                    {"issuer": OTHER_ISSUER, "namespace": "other"},
+                ],
+                "audience": [AUDIENCE],
+            }
+        )
+        assert auth.namespace_subject("alice", ISSUER, conf) == "alice"
+        assert auth.namespace_subject("other|alice", ISSUER, conf) is None
+        assert auth.namespace_subject("alice", OTHER_ISSUER, conf) == "other|alice"
+        # namespaced subjects may contain `|`
+        assert auth.namespace_subject("a|b", OTHER_ISSUER, conf) == "other|a|b"
+
+    def test_current_app(self) -> None:
+        """Settings default to those of the current app."""
+        app = make_app(issuers=[ISSUER, OTHER_ISSUER])
+        with app.app_context():
+            assert auth.namespace_subject("bob", ISSUER) == f"{ISSUER}|bob"
 
 
 class TestUnauthorized:

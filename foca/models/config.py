@@ -2,7 +2,7 @@
 
 import importlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from enum import Enum
 from importlib.resources import files
 from pathlib import Path
@@ -1335,6 +1335,77 @@ class ServiceClientConfig(FOCABaseConfig):
     on_behalf_of: bool = False
 
 
+NAMESPACE_SEPARATOR = "|"
+"""Separator of the namespace and the subject of namespaced subjects."""
+
+_NAMESPACE_FORBIDDEN = frozenset(f"{NAMESPACE_SEPARATOR},\r\n")
+
+MAX_NAMESPACE_LENGTH = 256
+"""Maximum length of namespaces of issuers, so that namespaced subjects fit
+into policy rules (1024 characters per value)."""
+
+
+class IssuerConfig(FOCABaseConfig):
+    """Model for configuring a trusted token issuer.
+
+    Plain URLs in `AuthConfig.issuers` stand for issuers with the default
+    settings.
+
+    Args:
+        issuer: Issuer, i.e., value of the `iss` claim of its tokens.
+        namespace: Namespace of the subjects of the issuer's tokens, as
+            `<namespace>|<subject>` (cf.
+            :py:func:`foca.security.auth.namespace_subject`), so that equal
+            subjects of different issuers are different users. If `None`
+            (default), the issuer if several issuers are trusted, else none.
+            An empty value keeps the issuer's subjects bare, e.g., for the
+            first issuer of an app that trusts a second one later, so that
+            its stored subjects stay valid. Must not contain `|`, commas or
+            line breaks, and must have at most 256 characters
+            (`MAX_NAMESPACE_LENGTH`), so that namespaced subjects fit into
+            policy rules.
+
+    Attributes:
+        issuer: Issuer.
+        namespace: Namespace of the subjects of the issuer's tokens.
+
+    Raises:
+        pydantic.ValidationError: The class was instantiated with an illegal
+            data type, `issuer` is empty, or `namespace` contains `|`, a
+            comma or a line break, or is too long.
+
+    Examples:
+        >>> IssuerConfig(issuer="https://login.example.org/", namespace="ls")
+        IssuerConfig(issuer='https://login.example.org/', namespace='ls')
+    """
+
+    issuer: str = Field(min_length=1)
+    namespace: str | None = Field(default=None, max_length=MAX_NAMESPACE_LENGTH)
+
+    @field_validator("namespace")
+    @classmethod
+    def validate_namespace(cls, v: str | None) -> str | None:
+        """Ensure that namespaced subjects cannot collide.
+
+        Args:
+            v: Namespace.
+
+        Returns:
+            Namespace.
+
+        Raises:
+            ValueError: The namespace contains `|`, the separator of
+                namespaced subjects, a comma or a line break, which policy
+                rules do not allow.
+        """
+        if v is not None and set(v) & _NAMESPACE_FORBIDDEN:
+            raise ValueError(
+                "Namespaces of issuers must not contain '|', commas or line "
+                f"breaks: {v!r}"
+            )
+        return v
+
+
 class AuthConfig(FOCABaseConfig):
     """Model for configuring JSON Web Token (JWT)-based authorization.
 
@@ -1349,8 +1420,12 @@ class AuthConfig(FOCABaseConfig):
 
     Args:
         issuers: Trusted token issuers, i.e., values of the `iss` claim of
-            accepted tokens. Tokens of other issuers are rejected without
-            contacting them. If empty, all tokens are rejected.
+            accepted tokens, as URLs or with settings of their own (cf.
+            :py:class:`IssuerConfig`). Tokens of other issuers are rejected
+            without contacting them. If empty, all tokens are rejected. With
+            several issuers, subjects are namespaced by issuer (cf.
+            `IssuerConfig.namespace`); issuers must have different
+            namespaces, and at most one may keep its subjects bare.
         add_key_to_claims: Whether to add the identity provider's public key
             that the token was verified with, in PEM format, to the claims.
         allow_expired: Allow/disallow expired JWTs. If ``False``, a ``401``
@@ -1451,8 +1526,9 @@ class AuthConfig(FOCABaseConfig):
             (or blank), client IDs of `service_clients` are not unique,
             service clients are not among the accepted `clients`, the
             issuer of a service client is not trusted or, with several
-            trusted `issuers`, not set, or `userinfo_claims` contain
-            `client_id` or `azp`.
+            trusted `issuers`, not set, `userinfo_claims` contain
+            `client_id` or `azp`, an issuer is listed with different
+            settings, or issuers have the same namespace (also none).
 
     Examples:
         >>> auth = AuthConfig(
@@ -1467,7 +1543,7 @@ class AuthConfig(FOCABaseConfig):
         ['at+jwt', 'application/at+jwt']
     """
 
-    issuers: list[str] = []
+    issuers: Sequence[str | IssuerConfig] = []
     add_key_to_claims: bool = True
     allow_expired: bool = False
     audience: list[str] | None = None
@@ -1582,6 +1658,89 @@ class AuthConfig(FOCABaseConfig):
             )
         return self
 
+    @property
+    def issuer_urls(self) -> list[str]:
+        """Trusted issuers, without duplicates, in the order of `issuers`."""
+        return list(
+            dict.fromkeys(
+                entry if isinstance(entry, str) else entry.issuer
+                for entry in self.issuers
+            )
+        )
+
+    def get_namespaces(self) -> dict[str, str | None]:
+        """Get the namespaces of the subjects of the trusted issuers.
+
+        Computed from `issuers` on each call (a few entries). Changes of
+        `issuers` after validation are not validated.
+
+        Returns:
+            Namespace of each trusted issuer, in the order of `issuers`: its
+            `namespace`, or by default the issuer if several issuers are
+            trusted; `None` if its subjects are bare (an empty or, with one
+            issuer, unset namespace).
+
+        Raises:
+            ValueError: An issuer is listed with different settings.
+        """
+        settings: dict[str, str | None] = {}
+        for entry in self.issuers:
+            issuer, namespace = (
+                (entry, None)
+                if isinstance(entry, str)
+                else (entry.issuer, entry.namespace)
+            )
+            if settings.setdefault(issuer, namespace) != namespace:
+                raise ValueError(
+                    f"Issuer '{issuer}' is listed with different settings "
+                    "(`security.auth.issuers`)"
+                )
+        several = len(settings) > 1
+        return {
+            issuer: (issuer if several else None)
+            if namespace is None
+            else (namespace or None)
+            for issuer, namespace in settings.items()
+        }
+
+    @model_validator(mode="after")
+    def validate_issuer_namespaces(self) -> Self:
+        """Ensure that subjects of different issuers cannot collide.
+
+        Returns:
+            Model instance.
+
+        Raises:
+            ValueError: An issuer is listed with different settings, an
+                issuer whose namespace defaults to the issuer contains `|`,
+                a comma or a line break, or is longer than
+                `MAX_NAMESPACE_LENGTH`, issuers share a namespace, or more
+                than one issuer keeps its subjects bare.
+        """
+        seen: dict[str | None, str] = {}
+        for issuer, namespace in self.get_namespaces().items():
+            if namespace == issuer and set(issuer) & _NAMESPACE_FORBIDDEN:
+                raise ValueError(
+                    f"Issuer '{issuer}' contains '|', a comma or a line break, "
+                    "so it cannot be the namespace of its subjects: set "
+                    "`security.auth.issuers[].namespace`"
+                )
+            if namespace == issuer and len(issuer) > MAX_NAMESPACE_LENGTH:
+                raise ValueError(
+                    f"Issuer '{issuer}' is longer than {MAX_NAMESPACE_LENGTH} "
+                    "characters, so it cannot be the namespace of its subjects: "
+                    "set a shorter `security.auth.issuers[].namespace`"
+                )
+            if namespace in seen:
+                what = "bare subjects" if namespace is None else "namespace"
+                raise ValueError(
+                    f"Issuers '{seen[namespace]}' and '{issuer}' have the same "
+                    f"{what}, so their subjects could collide: set different "
+                    "`security.auth.issuers[].namespace`"
+                )
+            seen[namespace] = issuer
+        return self
+
     @model_validator(mode="after")
     def validate_service_client_issuers(self) -> Self:
         """Require trusted issuers of service clients.
@@ -1594,7 +1753,8 @@ class AuthConfig(FOCABaseConfig):
                 issuer, or several issuers are trusted and the issuer of a
                 service client is not set.
         """
-        several_issuers = len(set(self.issuers)) > 1
+        issuers = self.issuer_urls
+        several_issuers = len(issuers) > 1
         for client in self.service_clients:
             if client.issuer is None:
                 if several_issuers:
@@ -1605,7 +1765,7 @@ class AuthConfig(FOCABaseConfig):
                         "of its service tokens, as client IDs are only unique "
                         "per issuer."
                     )
-            elif client.issuer not in self.issuers:
+            elif client.issuer not in issuers:
                 raise ValueError(
                     f"Issuer of service client '{client.client_id}' is not "
                     "trusted: set `security.auth.service_clients[].issuer` to "

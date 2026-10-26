@@ -471,16 +471,18 @@ if group settings keep groups from applying (see [startup
 checks](configuration/access-control.md#startup-checks)).
 
 !!! warning "Several trusted issuers"
-    Subjects and group claim values are not scoped by issuer: a rule for
-    `user:<sub>` or `group:<value>` applies to tokens of _all_ trusted
-    issuers (`security.auth.issuers`). If several issuers can issue the same
-    `sub` or group claim value to different users (e.g., if users can choose
-    their identifier or create groups at one of them), these users get each
-    other's rights, up to administrator rights. Only trust several issuers
-    together with access control if their subjects and group claim values
-    cannot collide, e.g., because they are assigned by the same identity
-    provider. FOCA logs a warning on startup if access control is enabled
-    with several trusted issuers.
+    With several trusted issuers (`security.auth.issuers`), subjects are
+    namespaced by issuer (e.g., `user:https://login.example.org/oidc/|alice`;
+    cf. [several trusted
+    issuers](authentication.md#several-trusted-issuers)), but group claim
+    values are not: a rule for `group:<value>`, and a `group_mapping` of
+    `<value>`, apply to tokens of _all_ trusted issuers. If several issuers
+    can issue the same group claim value to different users (e.g., if users
+    can create groups at one of them), these users get each other's rights,
+    up to administrator rights. Only trust several issuers together with
+    group claims if their group claim values cannot collide, e.g., because
+    they are assigned by the same identity provider. FOCA logs a warning on
+    startup if access control is enabled with several trusted issuers.
 
 To keep users, groups and roles apart, subjects are namespaced in rules:
 
@@ -500,7 +502,8 @@ must use these forms (e.g., `p, user:alice,
 identifiers do not match.
 
 In your controllers, use `get_current_subject()` and `get_current_groups()`
-to get the subject (without prefix) and roles of the current request, and
+to get the subject (without prefix; namespaced by issuer with several
+trusted issuers) and roles of the current request, and
 `get_current_group_values()` to get the values of its group claim as is
 (neither mapped nor prefixed); `get_current_claims()` returns a copy of all
 claims of its token:
@@ -1075,8 +1078,9 @@ in the resource's document instead, without policy rules per resource:
   `client`) and identifier of the subject the request is attributed to, as
   for `add_owner()`: the user that an allowed service client [acts
   for](#service-clients), otherwise the calling service client (by client
-  ID), otherwise the calling user (by `claim_identity`). Store the document
-  afterwards, so that the owner is written together with the resource.
+  ID), otherwise the calling user (by `claim_identity`, namespaced as
+  returned by `get_current_subject()`). Store the document afterwards, so
+  that the owner is written together with the resource.
   Users that service clients act for are assumed to be of the issuer of the
   client's token, as their issuer is not known.
 * `owner_filter()` returns a MongoDB filter for the documents the caller
@@ -1228,7 +1232,8 @@ paths:
   /tasks/{id}/permissions/users/{userId}:
     parameters:
       - {name: id, in: path, required: true, schema: {type: string}}
-      - {name: userId, in: path, required: true, schema: {type: string}}
+      # namespaced users (several trusted issuers) may contain slashes
+      - {name: userId, in: path, required: true, schema: {type: string, format: path}}
     put:
       operationId: foca.security.access_control.ownership_server.putUserRole
       requestBody:
@@ -1275,8 +1280,8 @@ security:
   access_control:
     policies:
       - [p, owner, "/api/tasks/:id/permissions", GET]
-      - [p, owner, "/api/tasks/:id/permissions/users/:user", "(PUT)|(DELETE)"]
-      # groups may contain slashes
+      # namespaced users and groups may contain slashes
+      - [p, owner, "/api/tasks/:id/permissions/users/*", "(PUT)|(DELETE)"]
       - [p, owner, "/api/tasks/:id/permissions/groups/*", "(PUT)|(DELETE)"]
 ```
 
