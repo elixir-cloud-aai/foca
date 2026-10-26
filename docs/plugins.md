@@ -451,12 +451,13 @@ app = foca.create_app()  # loads the plugins once, to fail fast
   it once and import it: settings with other callables (e.g., a new
   `lambda`) count as other settings and fail. `Foca(...)` without
   `gateway=` leaves the settings alone.
-- Hosts and backend lists are built from the configuration of the gateway
-  app, not of the FOCA app created last: the first `Foca(gateway=...)` binds
-  its configuration, and `create_app()` binds that of the app it creates;
-  this fails while the host of another configuration is in use.
-  `foca.plugins.runtime.reset()` closes the host and forgets the settings,
-  e.g., in tests. The host is closed at exit.
+- Hosts and backend lists are built from the configuration of the first
+  `Foca(gateway=...)` of the process, not of the FOCA app created last, and
+  `create_app()` serves only that app: create the gateway app's `Foca(...)`
+  before importing modules that create others. `create_app()` of another
+  `Foca(gateway=...)` fails, e.g., when retried after a failed startup, or
+  in tests: there, `foca.plugins.runtime.reset()` closes the host and
+  forgets the settings. The host is closed at exit.
 - Configurations with keys of earlier middleware stacks (`middlewares`,
   `custom.middlewares`) are refused with a migration hint, before the app's
   custom model is validated.

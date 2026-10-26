@@ -89,8 +89,9 @@ class _Runtime:
 
     def __init__(self) -> None:
         """Create an empty runtime."""
-        self.app: GatewayApp | None = None
-        self.config: Config | None = None
+        # settings and configuration, set together so that readers without
+        # the lock never see one without the other
+        self.binding: tuple[GatewayApp, Config] | None = None
         self.host: PluginHost | None = None
         self.lock = threading.Lock()
 
@@ -104,44 +105,42 @@ _runtime = _Runtime()
 os.register_at_fork(after_in_child=_runtime.forget)
 
 
-def configure(app: GatewayApp, config: Config, *, rebind: bool = False) -> None:
+def configure(app: GatewayApp, config: Config, *, serve: bool = False) -> None:
     """Bind gateway settings and their configuration to the process.
 
-    `Foca(gateway=...)` binds both if no settings are bound; later instances
+    The first `Foca(gateway=...)` of the process binds both; later instances
     must pass the same settings and keep the bound configuration, so that
     hosts never depend on which FOCA app was created last (e.g., a Celery
     worker module imported while the gateway app is created).
-    `Foca.create_app()` rebinds the configuration of the app it creates.
+    `Foca.create_app()` serves only the app whose configuration is bound.
 
     Args:
         app: Settings of the gateway app.
         config: Configuration of the FOCA app that the settings belong to.
-        rebind: Bind `config` also if another configuration is bound.
+        serve: Require `config` to be the bound configuration.
 
     Raises:
         RuntimeError: Other settings are bound (one gateway app per process;
             settings with other callables, e.g., a new `lambda`, are other
-            settings), or `rebind` is set and the host of another
-            configuration is in use (cf. :py:func:`reset`).
+            settings), or `serve` is set and the configuration of another
+            FOCA app is bound (cf. :py:func:`reset`).
     """
     with _runtime.lock:
-        if _runtime.app is None:
-            _runtime.app = app
-            _runtime.config = config
-            return
-        if app != _runtime.app:
+        if _runtime.binding is None:
+            _runtime.binding = (app, config)
+        bound_app, bound_config = _runtime.binding
+        if app != bound_app:
             raise RuntimeError(
                 "Other gateway settings are configured: a process serves one"
                 " gateway app, so pass the same GatewayApp to every"
                 " Foca(gateway=...)"
             )
-        if rebind and config is not _runtime.config:
-            if _runtime.host is not None:
-                raise RuntimeError(
-                    "The plugin host of another configuration is in use: a"
-                    " process serves one gateway app"
-                )
-            _runtime.config = config
+        if serve and config is not bound_config:
+            raise RuntimeError(
+                "The gateway settings are bound to the configuration of"
+                " another FOCA app: a process serves one gateway app, created"
+                " by the first Foca(gateway=...) of the process"
+            )
 
 
 def reset() -> None:
@@ -149,8 +148,7 @@ def reset() -> None:
     with _runtime.lock:
         if _runtime.host is not None:
             _runtime.host.close()
-        _runtime.app = None
-        _runtime.config = None
+        _runtime.binding = None
         _runtime.host = None
 
 
@@ -174,10 +172,10 @@ def _bound() -> tuple[GatewayApp, Config]:
     Raises:
         RuntimeError: No gateway app is configured.
     """
-    app, config = _runtime.app, _runtime.config
-    if app is None or config is None:
+    binding = _runtime.binding
+    if binding is None:
         raise RuntimeError("No gateway app configured: pass Foca(gateway=...)")
-    return app, config
+    return binding
 
 
 def create_host() -> PluginHost:

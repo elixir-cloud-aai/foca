@@ -155,10 +155,14 @@ class Foca:
                 group mappings from applying, or no admin is configured and
                 `security.access_control.require_admin` is set (cf.
                 :py:func:`foca.security.access_control.register_access_control.register_access_control`).
-            RuntimeError: Other gateway settings are configured in the
-                process, or the plugin host of another app's configuration is
-                in use (cf. :py:func:`foca.plugins.runtime.configure`).
+            RuntimeError: Other gateway settings, or the gateway settings
+                of another FOCA app, are configured in the process (cf.
+                :py:func:`foca.plugins.runtime.configure`).
         """
+        # Serve only the gateway app whose configuration hosts are built from
+        if self.gateway is not None:
+            runtime.configure(self.gateway, self.conf, serve=True)
+
         cnx_app = self._create_base_app()
 
         # Enable cross-origin resource sharing
@@ -203,7 +207,6 @@ class Foca:
         # each process creates its own host on first use (after forks), so
         # plugins are instantiated (`setup()`) once more there
         if self.gateway is not None:
-            runtime.configure(self.gateway, self.conf, rebind=True)
             runtime.create_host().close()
             if self.gateway.backends is not None:
                 # validates the backend list only; requests build their own
