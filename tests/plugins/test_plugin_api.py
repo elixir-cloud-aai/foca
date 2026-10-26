@@ -283,9 +283,9 @@ def test_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapter, "current_principal", lambda: ALICE)
     app = create_connexion_app(Config()).app
     with app.test_request_context():
-        assert "test.skip" not in [p["id"] for p in api.listPlugins()["plugins"]]
-        assert api.getPlugin("test.tag")["id"] == "test.tag"
-        response = api.getPlugin("test.skip")
+        assert "test.skip" not in [p["id"] for p in api.listFocaPlugins()["plugins"]]
+        assert api.getFocaPlugin("test.tag")["id"] == "test.tag"
+        response = api.getFocaPlugin("test.skip")
         assert response.status_code == 404
         body = response.get_json()
         assert body["status"] == 404
@@ -334,8 +334,8 @@ def test_spec() -> None:
         operation for path in spec["paths"].values() for operation in path.values()
     ]
     assert {operation["operationId"] for operation in operations} == {
-        "listPlugins",
-        "getPlugin",
+        "listFocaPlugins",
+        "getFocaPlugin",
     }
     for operation in operations:
         assert operation["x-openapi-router-controller"] == api.__name__
