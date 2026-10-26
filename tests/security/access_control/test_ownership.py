@@ -2,8 +2,6 @@
 
 import logging
 from collections.abc import Iterator
-from contextlib import contextmanager
-from importlib.resources import path as resource_path
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -12,13 +10,12 @@ import mongomock
 import pytest
 from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from flask import Flask
-from flask.globals import request_ctx
 from pydantic import ValidationError
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from werkzeug.exceptions import Conflict, NotFound
 
-from foca.models.config import AccessControlConfig, Config
+from foca.models.config import AccessControlConfig
 from foca.security.access_control import (
     LastOwner,
     ResourceRole,
@@ -38,25 +35,25 @@ from foca.security.access_control import (
     set_owner_field,
 )
 from foca.security.access_control.constants import (
-    ACCESS_CONTROL_BASE_PATH,
     DEFAULT_MODEL_FILE,
-    RESOURCE_ROLE_MODEL_FILE,
 )
 from foca.security.access_control.enforcement import locked_enforcer
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from tests.security.access_control.callers import (
+    ALICE,
+    BOB,
+    CAROL,
+    CONQUEST,
+    DAVE,
+    HEADER,
+    ISSUER,
+    NO_SUBJECT,
+    PROTES,
+    TASK,
+    as_caller,
+    create_app,
+)
 
-ISSUER = "https://login.example.org/oidc/"
-HEADER = "X-On-Behalf-Of"
-ADMINS = "urn:example:group:admins"
-TASK = "/tasks/1"
-# Claims of validated tokens
-ALICE = {"iss": ISSUER, "sub": "alice", "groups": ["devs"]}
-BOB = {"iss": ISSUER, "sub": "bob", "groups": ["ops/team"]}
-CAROL = {"iss": ISSUER, "sub": "carol", "groups": [ADMINS]}
-DAVE = {"iss": ISSUER, "sub": "dave"}
-CONQUEST = {"iss": ISSUER, "sub": "conquest", "client_id": "conquest"}
-PROTES = {"iss": ISSUER, "sub": "protes", "client_id": "protes"}
-NO_SUBJECT = {"iss": ISSUER}
 # Model with resource-scoped roles only
 MODEL_WITHOUT_GLOBAL_ROLES = """
 [request_definition]
@@ -76,52 +73,10 @@ m = g2(r.sub, p.sub, r.obj) && keyMatch2(r.obj, p.obj) && r.act == p.act
 """
 
 
-def _model_path(model_file: str = RESOURCE_ROLE_MODEL_FILE) -> str:
-    if Path(model_file).is_absolute():
-        return model_file
-    with resource_path(ACCESS_CONTROL_BASE_PATH, model_file) as model:
-        return str(model)
-
-
-def _create_app(
-    model_file: str = RESOURCE_ROLE_MODEL_FILE, **access_control: Any
-) -> Flask:
-    """Create app with service clients, groups and in-memory policies."""
-    app = Flask(__name__)
-    app.config.foca = Config.model_validate(  # type: ignore[attr-defined]  # dynamic attribute
-        {
-            "security": {
-                "auth": {
-                    "issuers": [ISSUER],
-                    "audience": ["foca"],
-                    "service_clients": [
-                        {"client_id": "conquest", "on_behalf_of": True},
-                        {"client_id": "protes"},
-                    ],
-                    "on_behalf_of_header": HEADER,
-                },
-                "access_control": {
-                    "enabled": True,
-                    "model": _model_path(model_file),
-                    "claim_groups": "groups",
-                    "group_mapping": {ADMINS: "admin"},
-                    "keep_group_subjects": True,
-                    **access_control,
-                },
-            }
-        }
-    )
-    app.config["CASBIN_MODEL"] = _model_path(model_file)
-    app.config["casbin_adapter"] = Adapter(
-        collection=mongomock.MongoClient()["access_control_db"]["policy_rules"]
-    )
-    return app
-
-
 @pytest.fixture
 def app() -> Flask:
     """App with service clients, groups and in-memory policies."""
-    return _create_app()
+    return create_app()
 
 
 @pytest.fixture(
@@ -144,20 +99,6 @@ def store_app(request: pytest.FixtureRequest, app: Flask) -> Iterator[Flask]:
     yield app
     client.drop_database(db_name)
     client.close()
-
-
-@contextmanager
-def as_caller(
-    app: Flask,
-    claims: dict[str, Any] | None,
-    headers: dict[str, str] | None = None,
-) -> Iterator[None]:
-    """Request context with token info as set by Connexion."""
-    with app.test_request_context("/tasks", headers=headers):
-        request_ctx.connexion_context = (  # type: ignore[attr-defined]  # set by Connexion
-            {} if claims is None else {"token_info": {"claims": claims}}
-        )
-        yield
 
 
 def _audit_logs(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -228,7 +169,7 @@ class TestIsAdmin:
 
     def test_client_mapping(self) -> None:
         """Service clients may be mapped to admins."""
-        app = _create_app(client_mapping={"protes": "admin"})
+        app = create_app(client_mapping={"protes": "admin"})
         with as_caller(app, PROTES):
             assert is_admin()
 
@@ -244,7 +185,7 @@ class TestIsAdmin:
         """Without global roles (`g`), only mapped admins are admins."""
         model = tmp_path / "model.conf"
         model.write_text(MODEL_WITHOUT_GLOBAL_ROLES)
-        app = _create_app(model_file=str(model))
+        app = create_app(model_file=str(model))
         with as_caller(app, ALICE):
             assert not is_admin()
         with as_caller(app, CAROL):
@@ -421,7 +362,7 @@ class TestGrantRole:
 
     def test_group_roles_not_applying(self) -> None:
         """Roles are not granted to groups if they would not apply."""
-        app = _create_app(keep_group_subjects=False)
+        app = create_app(keep_group_subjects=False)
         with as_caller(app, ALICE):
             add_owner(TASK)
             with pytest.raises(ValueError, match="keep_group_subjects"):
@@ -435,7 +376,7 @@ class TestGrantRole:
 
     def test_owners_not_applying(self) -> None:
         """Owners whose role does not apply do not count."""
-        app = _create_app(keep_group_subjects=False)
+        app = create_app(keep_group_subjects=False)
         with as_caller(app, ALICE):
             add_owner(TASK)
             add_resource_role("devs", "owner", TASK, subject_type="group")
@@ -461,7 +402,7 @@ class TestGrantRole:
 
     def test_custom_roles(self) -> None:
         """Configured roles are granted and replaced."""
-        app = _create_app(resource_roles=["owner", "viewer"])
+        app = create_app(resource_roles=["owner", "viewer"])
         with as_caller(app, ALICE):
             add_owner(TASK)
             grant_role(TASK, "bob", "viewer")
@@ -783,7 +724,7 @@ class TestListSubjectRoles:
 
     def test_group_subjects_not_kept(self) -> None:
         """Roles of groups only apply with group subjects."""
-        app = _create_app(keep_group_subjects=False)
+        app = create_app(keep_group_subjects=False)
         with as_caller(app, ALICE):
             add_resource_role("devs", "owner", TASK, subject_type="group")
             assert list_subject_roles("/tasks") == []
@@ -843,7 +784,7 @@ class TestResourceFilter:
 
     def test_admin_client_on_behalf_of_user(self) -> None:
         """Admin clients see everything, also when acting for users."""
-        app = _create_app(client_mapping={"conquest": "admin"})
+        app = create_app(client_mapping={"conquest": "admin"})
         with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
             assert resource_filter("/tasks") == {}
         # Named users are checked also for admins
@@ -904,7 +845,7 @@ class TestOwnerField:
 
     def test_identity_claim(self) -> None:
         """Users are identified by the configured identity claim."""
-        app = _create_app(claim_identity="email")
+        app = create_app(claim_identity="email")
         with as_caller(app, {**ALICE, "email": "alice@example.org"}):
             owner = set_owner_field({})
         assert owner == {"iss": ISSUER, "type": "user", "sub": "alice@example.org"}
@@ -924,7 +865,7 @@ class TestOwnerField:
 
     def test_client_by_client_id(self) -> None:
         """Service clients are identified by client ID, not by subject."""
-        app = _create_app()
+        app = create_app()
         app.config.foca.security.auth.service_clients[1].subject = "account-1"  # type: ignore[attr-defined]  # dynamic attribute
         with as_caller(app, {**PROTES, "sub": "account-1"}):
             assert set_owner_field({}) == {
@@ -1033,7 +974,7 @@ class TestOwnerField:
 
     def test_filter_admin_client(self) -> None:
         """Admin clients see everything, also when acting for users."""
-        app = _create_app(client_mapping={"conquest": "admin"})
+        app = create_app(client_mapping={"conquest": "admin"})
         with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
             assert owner_filter() == {}
         # Named users are checked also for admins
@@ -1064,6 +1005,6 @@ class TestOwnerField:
 
 def test_default_model() -> None:
     """Helpers need a model with resource-scoped roles."""
-    app = _create_app(model_file=DEFAULT_MODEL_FILE)
+    app = create_app(model_file=DEFAULT_MODEL_FILE)
     with as_caller(app, ALICE), pytest.raises(ValueError, match="resource-scoped"):
         add_owner(TASK)

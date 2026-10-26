@@ -367,7 +367,8 @@ def test_contract():
   (outcome, error type, annotations, changes) and `run` the whole run
   (e.g., `run.provenance()`). Other arguments of `PluginHost` pass through
   (e.g., the app's `validate`).
-- Builders give valid inputs: `make_principal()`, `make_inbound()`,
+- Builders give valid inputs: `make_principal()` (with `subject_type`
+  and `acting_for` for service clients), `make_inbound()`,
   `make_backend()`, `make_outbound()` and `make_response()`.
 - `ctx.http` is a `FakeHttp`: add responses (`http.add("GET", url,
   json=...)`, or `error=` one of `foca.utils.http`'s errors), pass it as
@@ -502,11 +503,32 @@ after `OutcomeUnknown` without raising, with `run.final_reason` set to
 
 `foca.plugins.adapter` is the only module that uses Connexion and Flask: it
 builds the plain request model (`inbound_from_request()`), the caller
-(`current_principal()`, with the claims and mapped roles that access
-control uses, so `roles` in the plugin configuration are access control
-roles), the request ID (`request_id()`: a safe `X-Request-ID` header of
-the client, or a new one), and problem responses for gateway errors
-(`problem()`).
+(`current_principal()`), the request ID (`request_id()`: a safe
+`X-Request-ID` header of the client, or a new one), and problem responses
+for gateway errors (`problem()`).
+
+The caller (`Principal`) is identified as by access control and its
+ownership helpers:
+
+- `subject` and `subject_type`: the client ID of a service client
+  (`client`), or else the user's subject (`user`), as stored with
+  resources: user subjects (also in `acting_for`) are namespaced by their
+  issuer if it has a namespace (`<namespace>|<subject>`, e.g., with
+  several trusted issuers; cf. [access control](access-control.md)); key
+  quotas or records on both fields, as a client and a user may have the
+  same identifier;
+- `acting_for`: the user that a service client acts for (header
+  `auth.on_behalf_of_header`), who owns the resources it creates (e.g.,
+  tasks); service clients that may not act for users get `403`, invalid
+  names `400` (the header of other callers is ignored here, but rejected
+  by the ownership helpers);
+- `groups`: the roles that access control applies
+  (`foca.security.access_control.get_current_roles()`): the role mapped
+  from the service client (`access_control.client_mapping`) and from group
+  claims, and roles granted via global role rules (`g`, e.g.,
+  `g, user:alice, admin`), also transitively; none for unidentified
+  callers. So `roles` in the plugin configuration are access control
+  roles.
 
 ## Provenance
 

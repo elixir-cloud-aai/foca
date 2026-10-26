@@ -30,7 +30,6 @@ from collections.abc import Callable, MutableMapping
 from contextlib import suppress
 from typing import Any, NamedTuple
 
-from casbin import Enforcer
 from werkzeug.exceptions import Conflict, NotFound, Unauthorized
 
 from foca.config.access import get_config
@@ -47,6 +46,7 @@ from foca.security.access_control.enforcement import (
     _get_current_policy_subjects,
     _get_role_rules,
     _get_subject_prefix,
+    _has_global_roles,
     _prefix_subject,
     _replace_resource_role,
     _resource_role_enforcer,
@@ -193,11 +193,6 @@ def _get_listing_subjects(
     if user is not None:
         return [("user", user)]
     return _get_current_subjects()
-
-
-def _has_global_roles(enforcer: Enforcer) -> bool:
-    """Check whether the model of an enforcer defines global roles (`g`)."""
-    return "g" in enforcer.get_model().model.get("g", {})
 
 
 def is_admin() -> bool:

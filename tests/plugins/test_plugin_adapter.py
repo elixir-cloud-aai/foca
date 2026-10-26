@@ -3,12 +3,26 @@
 import json
 
 import pytest
+from connexion.exceptions import Forbidden
 from flask import Flask
 
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
 from foca.plugins import Rejected, adapter
 from foca.plugins.engine import LoopDetected, PipelineRejected
+from foca.plugins.model import Principal
+from foca.security.access_control.enforcement import locked_enforcer
+from tests.security.access_control.callers import (
+    ADMINS,
+    ALICE,
+    CAROL,
+    CONQUEST,
+    DAVE,
+    HEADER,
+    PROTES,
+    as_caller,
+    create_app,
+)
 
 
 def test_request_id() -> None:
@@ -72,10 +86,13 @@ def test_current_principal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert adapter.current_principal() == adapter.Principal()
     monkeypatch.setattr(adapter, "get_current_claims", lambda: {"sub": "a", "iss": "i"})
     monkeypatch.setattr(adapter, "get_current_subject", lambda: "a")
-    monkeypatch.setattr(adapter, "get_current_groups", lambda: ["admin"])
+    monkeypatch.setattr(adapter, "get_current_roles", lambda: ["admin"])
+    monkeypatch.setattr(adapter, "get_current_client", lambda: None)
+    monkeypatch.setattr(adapter, "get_on_behalf_of_user", lambda: None)
     with app.test_request_context(headers={"Authorization": "Bearer tok"}):
         principal = adapter.current_principal()
     assert principal.subject == "a"
+    assert principal.subject_type == "user"
     assert principal.issuer == "i"
     assert principal.groups == ("admin",)
     assert principal.claims == {"sub": "a", "iss": "i"}
@@ -115,3 +132,65 @@ def test_problem() -> None:
         response = adapter.problem(rejection)
     assert response.status_code == 403
     assert json.loads(response.get_data())["title"] == "Image Not Allowed"
+
+
+class TestPrincipalIdentity:
+    """The principal matches the identity of access control (unmocked)."""
+
+    def test_user(self) -> None:
+        """Users are identified by their subject, with group roles."""
+        app = create_app()
+        with as_caller(app, ALICE):
+            principal = adapter.current_principal()
+        assert principal.subject == "alice"
+        assert principal.subject_type == "user"
+        assert principal.acting_for is None
+        assert principal.groups == ("group:devs",)
+
+    def test_client_mapping(self) -> None:
+        """Service clients get their client ID and mapped role."""
+        app = create_app(client_mapping={"protes": "admin"})
+        with as_caller(app, PROTES):
+            principal = adapter.current_principal()
+        assert principal.subject == "protes"
+        assert principal.subject_type == "client"
+        assert principal.groups == ("admin",)
+
+    def test_g_rules(self) -> None:
+        """Roles from global role rules count, also transitively."""
+        app = create_app()
+        with app.app_context(), locked_enforcer() as enforcer:
+            enforcer.add_grouping_policy("user:dave", "admin")
+            enforcer.add_grouping_policy("superusers", "admin")
+            enforcer.add_grouping_policy("group:devs", "superusers")
+        with as_caller(app, DAVE):
+            assert adapter.current_principal().groups == ("admin",)
+        with as_caller(app, ALICE):
+            groups = adapter.current_principal().groups
+        assert groups == ("group:devs", "superusers", "admin")
+
+    def test_on_behalf_of(self) -> None:
+        """Service clients acting for users name them."""
+        app = create_app()
+        with as_caller(app, CONQUEST, headers={HEADER: "alice"}):
+            principal = adapter.current_principal()
+        assert principal.subject == "conquest"
+        assert principal.subject_type == "client"
+        assert principal.acting_for == "alice"
+        with as_caller(app, PROTES, headers={HEADER: "bob"}), pytest.raises(Forbidden):
+            adapter.current_principal()
+        # ignored for users (ownership helpers reject it)
+        with as_caller(app, ALICE, headers={HEADER: "bob"}):
+            assert adapter.current_principal().acting_for is None
+
+    def test_without_access_control(self) -> None:
+        """Without access control, roles come from group claims only."""
+        app = create_app()
+        app.config.foca.security.access_control.enabled = False  # type: ignore[attr-defined]  # dynamic attribute
+        del app.config["CASBIN_MODEL"]
+        with as_caller(app, CAROL):
+            principal = adapter.current_principal()
+        assert principal.subject == "carol"
+        assert principal.groups == ("admin", f"group:{ADMINS}")
+        with as_caller(app, None):
+            assert adapter.current_principal() == Principal()

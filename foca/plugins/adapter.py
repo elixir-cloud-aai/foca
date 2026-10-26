@@ -21,8 +21,10 @@ from foca.plugins.engine import GatewayError
 from foca.plugins.model import CREDENTIAL_HEADERS, Headers, InboundRequest, Principal
 from foca.security.access_control.enforcement import (
     get_current_claims,
-    get_current_groups,
+    get_current_client,
+    get_current_roles,
     get_current_subject,
+    get_on_behalf_of_user,
 )
 
 # Request IDs taken from clients (`X-Request-ID`)
@@ -44,23 +46,33 @@ def current_principal() -> Principal:
     """Get the authenticated caller of the current request.
 
     Returns:
-        Subject, issuer and claims of the validated token (as used by
-        access control), roles from group claims (the mapped roles of
-        access control, cf.
-        :py:func:`foca.security.access_control.enforcement.get_current_groups`)
-        and the bearer token, only if a token was validated for the request
-        (i.e., there are claims); empty outside requests or without a
-        validated token.
+        Identity (the service client, or else the user), the user a service
+        client acts for, roles, issuer and claims of the validated token, as
+        access control uses them (cf. :py:class:`Principal`), and the
+        bearer token only if a token was validated for the request (i.e.,
+        there are claims); empty outside requests or without a validated
+        token.
+
+    Raises:
+        connexion.exceptions.BadRequestProblem: The user named by a service
+            client in `auth.on_behalf_of_header` is invalid (`400`).
+        connexion.exceptions.Forbidden: A service client names a user, but
+            is not allowed to act for users (`403`).
     """
     if not has_request_context():
         return Principal()
     claims = get_current_claims()
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     issuer = claims.get("iss")
+    client = get_current_client()
     return Principal(
-        subject=get_current_subject(),
+        subject=client if client is not None else get_current_subject(),
+        # users by default
+        subject_type="client" if client is not None else None,
+        # only service clients act for users; others' headers are ignored here
+        acting_for=None if client is None else get_on_behalf_of_user(),
         issuer=issuer if isinstance(issuer, str) else None,
-        groups=tuple(get_current_groups()),
+        groups=tuple(get_current_roles()),
         claims=dict(claims),
         token=(token.strip() or None)
         if claims and scheme.lower() == "bearer"

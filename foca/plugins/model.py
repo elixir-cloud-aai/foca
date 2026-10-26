@@ -215,22 +215,53 @@ class FrozenMapping(Mapping[str, Any]):
 class Principal:
     """Authenticated caller of a request.
 
+    The caller is identified as by access control and its ownership
+    helpers: `subject` and `subject_type` together are the identity, as
+    the same identifier may be a user and a service client.
+
     Attributes:
-        subject: Identity of the caller, as stored with resources (e.g., the
-            owner of a task).
+        subject: Identity of the caller: the user's subject (cf.
+            :py:func:`foca.security.access_control.get_current_subject`),
+            or the client ID of a service client (cf.
+            :py:func:`foca.security.access_control.get_current_client`).
+        subject_type: Type of the subject: `user` or `client`; `None` if
+            the caller is not identified. Defaults to `user` if there is a
+            subject.
+        acting_for: User that a service client acts for, as named in the
+            header `auth.on_behalf_of_header` (cf.
+            :py:func:`foca.security.access_control.get_on_behalf_of_user`);
+            resources created for the request belong to this user (e.g.,
+            the owner of a task).
         issuer: Issuer of the caller's token, if known.
-        groups: Roles of the caller from group claims (cf.
-            :py:func:`foca.security.access_control.enforcement.get_current_groups`).
+        groups: Roles of the caller, as access control applies them (cf.
+            :py:func:`foca.security.access_control.get_current_roles`):
+            mapped from the service client and from group claims, and
+            granted via global role rules.
         claims: Validated claims of the caller's token.
         token: The caller's bearer token, e.g., for token exchange or
             pass-through by a plugin; never forwarded by the engine itself.
     """
 
     subject: str | None = None
+    subject_type: Literal["user", "client"] | None = None
+    acting_for: str | None = None
     issuer: str | None = None
     groups: tuple[str, ...] = ()
     claims: Mapping[str, Any] = field(default_factory=dict, hash=False)
     token: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        """Default the type of a subject to `user`.
+
+        Raises:
+            ValueError: A subject type is given without a subject.
+        """
+        if self.subject is None:
+            if self.subject_type is not None:
+                raise ValueError("A subject type needs a subject")
+        elif self.subject_type is None:
+            # frozen dataclass
+            object.__setattr__(self, "subject_type", "user")
 
 
 @dataclass
