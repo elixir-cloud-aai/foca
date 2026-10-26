@@ -18,16 +18,20 @@ Controllers and Celery tasks then get the host of their process with
 in each process, i.e., after Gunicorn or Celery forked their workers, so
 that no worker inherits threads of its parent; it is closed at exit.
 
-A process serves one gateway app: FOCA refuses to configure another one
-while the host of the first one is in use (cf. :py:func:`configure`).
+A process serves one gateway app: the first `Foca(gateway=...)` binds its
+settings and configuration to the process, later ones must pass the same
+settings, and `Foca(...)` without `gateway=` (e.g., in a Celery worker module)
+leaves them alone (cf. :py:func:`configure`).
 """
+
+from __future__ import annotations
 
 import atexit
 import os
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from foca.plugins.backends import (
     BackendList,
@@ -40,6 +44,10 @@ from foca.plugins.config import PluginsConfig
 from foca.plugins.engine import PluginHost
 from foca.plugins.loader import find_plugin_classes
 from foca.plugins.model import OutboundRequest
+
+# Imported lazily at runtime: the config models import this module
+if TYPE_CHECKING:
+    from foca.models.config import Config
 
 BackendEntries = (
     Sequence[ServiceEntry | RegistryEntry | Mapping[str, Any]] | BackendListConfig
@@ -82,6 +90,7 @@ class _Runtime:
     def __init__(self) -> None:
         """Create an empty runtime."""
         self.app: GatewayApp | None = None
+        self.config: Config | None = None
         self.host: PluginHost | None = None
         self.lock = threading.Lock()
 
@@ -95,23 +104,32 @@ _runtime = _Runtime()
 os.register_at_fork(after_in_child=_runtime.forget)
 
 
-def configure(app: GatewayApp | None) -> None:
-    """Set the gateway settings of the process (done by `Foca(...)`).
+def configure(app: GatewayApp, config: Config) -> None:
+    """Bind gateway settings and their configuration to the process.
+
+    Done by `Foca(gateway=...)`. The first call binds both; later calls
+    must pass the same settings and keep the first configuration, so that
+    hosts never depend on which FOCA app was created last.
 
     Args:
-        app: Settings; `None` for apps that are no gateways.
+        app: Settings of the gateway app.
+        config: Configuration of the FOCA app that the settings belong to.
 
     Raises:
-        RuntimeError: The host of other settings is in use (one gateway app
-            per process; cf. :py:func:`reset`).
+        RuntimeError: Other settings are bound (one gateway app per process;
+            settings with other callables, e.g., a new `lambda`, are other
+            settings; cf. :py:func:`reset`).
     """
     with _runtime.lock:
-        if _runtime.host is not None and app != _runtime.app:
+        if _runtime.app is None:
+            _runtime.app = app
+            _runtime.config = config
+        elif app != _runtime.app:
             raise RuntimeError(
-                "The plugin host of another gateway app is in use: a process "
-                "serves one gateway app"
+                "Other gateway settings are configured: a process serves one"
+                " gateway app, so pass the same GatewayApp to every"
+                " Foca(gateway=...)"
             )
-        _runtime.app = app
 
 
 def reset() -> None:
@@ -120,6 +138,7 @@ def reset() -> None:
         if _runtime.host is not None:
             _runtime.host.close()
         _runtime.app = None
+        _runtime.config = None
         _runtime.host = None
 
 
@@ -134,25 +153,35 @@ def _close_at_exit() -> None:
 atexit.register(_close_at_exit)
 
 
+def _bound() -> tuple[GatewayApp, Config]:
+    """Get the gateway settings and configuration bound to the process.
+
+    Returns:
+        Settings and configuration.
+
+    Raises:
+        RuntimeError: No gateway app is configured.
+    """
+    app, config = _runtime.app, _runtime.config
+    if app is None or config is None:
+        raise RuntimeError("No gateway app configured: pass Foca(gateway=...)")
+    return app, config
+
+
 def create_host() -> PluginHost:
-    """Create a plugin host from the configuration of the current FOCA app.
+    """Create a plugin host from the configuration of the gateway app.
 
     Returns:
         New host; the caller closes it.
 
     Raises:
-        RuntimeError: No gateway app is configured (cf. :py:func:`configure`),
-            or no FOCA app has been created.
+        RuntimeError: No gateway app is configured (cf. :py:func:`configure`).
         ValueError: The plugins cannot be loaded (cf.
             :py:class:`foca.plugins.PluginHost`).
     """
-    from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
-
-    app = _runtime.app
-    if app is None:
-        raise RuntimeError("No gateway app configured: pass Foca(gateway=...)")
+    app, config = _bound()
     return PluginHost.from_config(
-        get_config(),
+        config,
         api=app.api,
         validate=app.validate,
         sanitize=app.sanitize,
@@ -172,8 +201,7 @@ def get_host() -> PluginHost:
         Host.
 
     Raises:
-        RuntimeError: No gateway app is configured, or no FOCA app has been
-            created.
+        RuntimeError: No gateway app is configured.
         ValueError: The plugins cannot be loaded.
     """
     host = _runtime.host
@@ -201,27 +229,22 @@ def plugin_classes() -> tuple[PluginsConfig, dict[str, type[Plugin[Any, Any]]]]:
     app is created), so that no plugin is set up in the parent process.
 
     Returns:
-        Plugin configuration of the current FOCA app (empty if not
-        configured) and the classes of its enabled plugins.
+        Plugin configuration of the gateway app (empty if not configured)
+        and the classes of its enabled plugins.
 
     Raises:
-        RuntimeError: No gateway app is configured, or no FOCA app has been
-            created.
+        RuntimeError: No gateway app is configured.
         ValueError: The plugins cannot be loaded.
     """
-    from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
-
-    app = _runtime.app
-    if app is None:
-        raise RuntimeError("No gateway app configured: pass Foca(gateway=...)")
-    conf = getattr(get_config(), "plugins", None) or PluginsConfig()
+    app, config = _bound()
+    conf = getattr(config, "plugins", None) or PluginsConfig()
     return conf, find_plugin_classes(conf, app.api)
 
 
 def get_backend_list() -> BackendList:
     """Get the backend list of the gateway app.
 
-    The list is built from the configuration of the current FOCA app with
+    The list is built from the configuration of the gateway app with
     the app's API and `server.public_url`; it is cheap to create, as the
     registry caches are shared per process.
 
@@ -229,21 +252,18 @@ def get_backend_list() -> BackendList:
         Backend list.
 
     Raises:
-        RuntimeError: No gateway app is configured, it has no `backends`
-            function, or no FOCA app has been created.
+        RuntimeError: No gateway app is configured, or it has no `backends`
+            function.
         ValueError: The entries are invalid (cf.
             :py:class:`foca.plugins.backends.BackendList`), or the list has
             registry entries but `server.public_url` is not set, which
             keeps the gateway from being one of its own backends.
     """
-    from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
-
-    app = _runtime.app
-    if app is None or app.backends is None:
+    app, config = _runtime.app, _runtime.config
+    if app is None or app.backends is None or config is None:
         raise RuntimeError(
             "No backend list configured: pass Foca(gateway=GatewayApp(backends=...))"
         )
-    config = get_config()
     backends = BackendList(
         app.backends(config), api=app.api, public_url=config.server.public_url
     )

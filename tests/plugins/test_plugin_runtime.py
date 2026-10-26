@@ -78,16 +78,64 @@ def test_gateway_app(tmp_path: Path, fake_plugins: None) -> None:
     current = runtime.get_host()
     assert current is not host
     host.close()
-    runtime.configure(GatewayApp(api="tes"))
+    Foca(config_file=config, gateway=GatewayApp(api="tes"))
     assert runtime.get_host() is current
     with pytest.raises(RuntimeError, match="one gateway app"):
-        runtime.configure(GatewayApp(api="wes"))
-    with pytest.raises(RuntimeError, match="one gateway app"):
-        Foca(config_file=config)
+        Foca(config_file=config, gateway=GatewayApp(api="wes"))
     runtime._close_at_exit()
     assert runtime._runtime.host is None
     runtime._close_at_exit()
-    runtime.configure(GatewayApp(api="wes"))
+
+
+def test_plain_foca_keeps_gateway(tmp_path: Path, fake_plugins: None) -> None:
+    """Apps without gateway settings leave those of the process alone.
+
+    E.g., a Celery worker module that creates a plain `Foca(...)` and is
+    imported while the gateway app is created.
+    """
+    gateway_dir = tmp_path / "gateway"
+    gateway_dir.mkdir()
+    config = write_config(
+        gateway_dir,
+        {
+            "plugins": {"available": {"test.tag": {}}, "pipeline": ["test.tag"]},
+            "custom": {
+                "backends": [{"type": "ga4gh-tes", "url": "https://tes.example.org"}]
+            },
+        },
+    )
+    gateway = Foca(
+        config_file=config,
+        gateway=GatewayApp(api="tes", backends=lambda conf: conf.custom["backends"]),
+    )
+    plain = Foca(config_file=write_config(tmp_path, {}))
+    assert plain.gateway is None
+    gateway.create_app()
+    plain.create_app()  # the most recent app, without plugins or backends
+    assert list(runtime.get_host().plugins) == ["test.tag", "foca.routing.ordered"]
+    backends = runtime.get_backend_list()
+    assert [backend.url for backend in backends.expand()] == ["https://tes.example.org"]
+    assert list(runtime.plugin_classes()[1]) == ["test.tag", "foca.routing.ordered"]
+
+
+def test_other_gateway_settings(tmp_path: Path, fake_plugins: None) -> None:
+    """A process serves one gateway app, also before its host is created."""
+    config = write_config(tmp_path, {})
+    gateway = GatewayApp(api="tes", backends=lambda conf: [])
+    first = Foca(config_file=config, gateway=gateway)
+    second = Foca(config_file=config, gateway=gateway)
+    first.create_app()
+    second.create_app()
+    assert runtime._runtime.host is None
+    assert runtime._runtime.config is first.conf
+    for other in (
+        GatewayApp(api="wes"),
+        GatewayApp(api="tes", backends=lambda conf: []),
+    ):
+        with pytest.raises(RuntimeError, match="one gateway app"):
+            Foca(config_file=config, gateway=other)
+    runtime.reset()
+    Foca(config_file=config, gateway=GatewayApp(api="wes")).create_app()
 
 
 def test_gateway_app_invalid_plugins(tmp_path: Path, fake_plugins: None) -> None:

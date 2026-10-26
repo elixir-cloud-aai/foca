@@ -60,6 +60,13 @@ class Foca:
             gateway: Settings of a gateway app (e.g., proTES) for its plugin
                 host (cf. :py:mod:`foca.plugins.runtime`); configurations
                 with keys of earlier middleware stacks are then refused.
+                The first instance with settings binds them and its
+                configuration to the process; later instances must pass the
+                same settings, instances without them leave them alone.
+
+        Raises:
+            RuntimeError: Other gateway settings are bound to the process
+                (cf. :py:func:`foca.plugins.runtime.configure`).
 
         Attributes:
             config_file: Path(s) to application configuration file(s), as
@@ -98,7 +105,8 @@ class Foca:
         self.config_files: list[Path] = parser.config_files
         self.config_dir: Path = parser.config_dir
         self.gateway = gateway
-        runtime.configure(gateway)
+        if gateway is not None:
+            runtime.configure(gateway, self.conf)
         logger.info("Log formatting configured.")
         if not self.config_files:
             logger.info("Default app configuration used.")
