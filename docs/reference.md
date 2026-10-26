@@ -37,6 +37,7 @@ configuration models, see [Configuration](configuration/index.md).
         - get_current_groups
         - get_available_opt_in_roles
         - get_active_opt_in_roles
+        - get_claim_groups
         - get_current_claims
         - get_current_group_values
         - get_current_client

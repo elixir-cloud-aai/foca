@@ -155,11 +155,18 @@ claims of the token are not namespaced either.
     Removing all but one issuer again makes the subjects of the remaining
     issuer bare, unless it has a `namespace`.
 
+Identity providers also differ in the audiences of their tokens, their
+group claims and the claims they release only via user info: issuers may
+have an `audience`, a `claim_groups` and `userinfo_claims` of their own,
+which replace `audience`, `access_control.claim_groups` and
+`userinfo_claims` for their tokens (cf.
+[`security.auth`](configuration/auth.md)).
+
 !!! warning "Audience required"
-    With trusted `issuers`, an `audience` is required; otherwise, FOCA
-    refuses to start. Register the app with the identity provider and set
-    its client ID (or the audience the provider adds to tokens for the app)
-    as `audience`. Only if the provider does not include the app in the
+    With trusted `issuers`, an `audience` is required (globally, or for each
+    issuer); otherwise, FOCA refuses to start. Register the app with the
+    identity provider and set its client ID (or the audience the provider
+    adds to tokens for the app) as `audience`. Only if the provider does not include the app in the
     `aud` claim of its tokens, set `verify_audience: false`: then any token
     issued by a trusted issuer is accepted, including tokens issued for
     other apps, unless you restrict the `clients` (below).

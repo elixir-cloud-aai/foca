@@ -45,6 +45,7 @@ from foca.security.access_control import (
     enforcement,
     get_active_opt_in_roles,
     get_available_opt_in_roles,
+    get_claim_groups,
     get_current_claims,
     get_current_group_values,
     get_current_groups,
@@ -78,6 +79,7 @@ ADMIN_ENTITLEMENT = "urn:example:group:admins"
 GROUP = "urn:geant:example.org:group:team#example.org"
 ISSUER = "https://login.example.org/oidc/"
 OTHER = "https://other.example.org/"
+NO_GROUPS = "https://social.example.org/"
 THIS_MODULE = __name__
 
 # Bearer tokens mapped to the claims of their (fake) validated JWTs
@@ -1273,6 +1275,42 @@ class TestCurrentSubject:
             assert get_current_subject() == subject
             subjects = _get_current_policy_subjects()
             assert subjects == ([] if subject is None else [f"user:{subject}"])
+        finally:
+            ctx.pop()
+
+    @pytest.mark.parametrize(
+        "issuer,claim,values",
+        [
+            (ISSUER, "roles", ["a"]),
+            # no groups from tokens of this issuer
+            (NO_GROUPS, None, []),
+            # falls back to `access_control.claim_groups`
+            (OTHER, "groups", ["b"]),
+            ("https://x.example.org", "groups", ["b"]),
+            (None, "groups", ["b"]),
+            (123, "groups", ["b"]),
+            (["x"], "groups", ["b"]),
+        ],
+    )
+    def test_issuer_group_claim(
+        self, helper_app: Flask, issuer: Any, claim: str | None, values: list[str]
+    ) -> None:
+        """Groups are taken from the group claim of the token's issuer."""
+        get_app_config(helper_app).security.auth = AuthConfig.model_validate(
+            {
+                "issuers": [
+                    {"issuer": ISSUER, "claim_groups": "roles"},
+                    {"issuer": OTHER, "namespace": "other"},
+                    {"issuer": NO_GROUPS, "claim_groups": ""},
+                ],
+                "audience": ["foca"],
+            }
+        )
+        claims = {"sub": "x", "roles": ["a"], "groups": ["b"], "iss": issuer}
+        ctx = self._context(helper_app, claims)
+        try:
+            assert get_claim_groups(issuer) == claim
+            assert get_current_group_values() == values
         finally:
             ctx.pop()
 

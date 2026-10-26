@@ -6,6 +6,7 @@ from foca.security.access_control.enforcement import (  # noqa: F401 (re-export)
     enforce_access_control,
     get_active_opt_in_roles,
     get_available_opt_in_roles,
+    get_claim_groups,
     get_current_claims,
     get_current_client,
     get_current_group_values,
