@@ -109,6 +109,15 @@ identifier; steps with the same plugin need explicit, unique `id`s.
 
 ## Per-request choices
 
+!!! warning "Experimental: per-request pipelines and backends"
+
+    The client-facing tags `gateway.pipeline` and `gateway.backends`, and
+    the settings `client_pipelines` and `client_backends` that control
+    them, are experimental: their shape and semantics may change in a later
+    release, with the design of federated backend selection (cf.
+    [#528](https://github.com/elixir-cloud-aai/foca/issues/528)). Client
+    pipelines are disabled by default.
+
 !!! warning "Policies that must always run belong in `pipeline` and `prepend`"
 
     A client's pipeline (or a preset) **replaces** the default pipeline
