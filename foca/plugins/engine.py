@@ -227,11 +227,13 @@ def _has_step(steps: Sequence[ResolvedStep], step: ResolvedStep) -> bool:
         step: Resolved step.
 
     Returns:
-        Whether a step has the same alternatives (plugins and params) and
-        `on_failure` (identifiers and timeouts may differ).
+        Whether a step has the same alternatives (plugins and params),
+        `on_failure` and `timeout` (identifiers may differ).
     """
     return any(
-        kept.alternatives == step.alternatives and kept.on_failure == step.on_failure
+        kept.alternatives == step.alternatives
+        and kept.on_failure == step.on_failure
+        and kept.timeout == step.timeout
         for kept in steps
     )
 
@@ -371,9 +373,10 @@ class PluginHost:
         step of it runs for clients' choices only if the frame has the same
         step: a step of `client_pipelines.prepend`, or of `append` without
         `if_missing_phase` (which clients can make it drop), with the same
-        alternatives (plugins and params) and `on_failure`; or, if clients
-        may choose presets only, if every preset has it. The default route
-        step without params is exempt, as `append` adds it if needed.
+        alternatives (plugins and params), `on_failure` and `timeout`; or,
+        if clients may choose presets only, if every preset has it. The
+        default route step without params is exempt, as it only reorders
+        the candidates (it filters none).
         """
         conf = self.conf.client_pipelines
         if not conf.enabled:

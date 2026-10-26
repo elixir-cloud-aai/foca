@@ -697,6 +697,11 @@ def test_resolve_needs_authenticated_caller() -> None:
             {"prepend": [{"plugin": "test.tag", "params": {"value": "b"}}]},
             "test.tag",
         ),
+        (  # other timeout
+            [{"plugin": "test.tag"}],
+            {"prepend": [{"plugin": "test.tag", "timeout": 1}]},
+            "test.tag",
+        ),
         (  # other failure handling
             [{"plugin": "test.tag"}],
             {"prepend": [{"plugin": "test.tag", "on_failure": "skip"}]},
