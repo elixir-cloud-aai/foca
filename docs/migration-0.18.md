@@ -178,15 +178,16 @@ Apps that are no gateways are not affected.
   settings.
 - **Client pipelines off by default:** clients may choose the pipeline of
   a request (tag `gateway.pipeline`) only if
-  `plugins.client_pipelines.enabled` is `true` (default: `false`), and
-  only when authenticated; backend
-  choices (`plugins.client_backends`) are on by default, as they only
-  narrow or reorder the candidates. A client pipeline or preset replaces
-  `plugins.pipeline`, framed by `client_pipelines.prepend` and `append`,
-  while requests without a choice get `plugins.pipeline` without the frame:
-  with client pipelines enabled, list policy steps that must not be
-  skipped in both `pipeline` and `prepend`; the app warns on startup about
-  steps of `pipeline` that the frame lacks (cf. [per-request
+  `plugins.client_pipelines.enabled` is `true` (default: `false`).
+  Backend choices (tag `gateway.backends`, `plugins.client_backends`) are
+  on by default, as they only narrow or reorder the candidates. Both are
+  accepted from authenticated callers only: requests of unidentified
+  callers with either tag are refused (`400`). A client pipeline or
+  preset replaces `plugins.pipeline`, framed by `client_pipelines.prepend`
+  and `append`, while requests without a choice get `plugins.pipeline`
+  without the frame: with client pipelines enabled, list policy steps that
+  must not be skipped in both `pipeline` and `prepend`; the app warns on
+  startup about steps of `pipeline` that the frame lacks (cf. [per-request
   choices](configuration/plugins.md#per-request-choices)).
 
 ## Other changes
