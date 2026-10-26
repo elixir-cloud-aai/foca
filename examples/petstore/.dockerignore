@@ -1,3 +1,10 @@
-/data
-# Helm chart of the example
-/chart
+# Allowlist: only the files the app needs go into the image, so that local
+# files (e.g., `.env` files or config overlays) stay out of it
+*
+!app.py
+!config.yaml
+!controllers.py
+!exceptions.py
+!petstore.yaml
+!worker.py
+!wsgi.py
