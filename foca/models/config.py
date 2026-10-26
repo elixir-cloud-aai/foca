@@ -1364,7 +1364,7 @@ class IssuerConfig(FOCABaseConfig):
         namespace: Namespace of the subjects of the issuer's tokens.
 
     Raises:
-        pydantic.ValidationError: The class was instantianted with an illegal
+        pydantic.ValidationError: The class was instantiated with an illegal
             data type, `issuer` is empty, or `namespace` contains `|`, a
             comma or a line break.
 
@@ -1665,8 +1665,8 @@ class AuthConfig(FOCABaseConfig):
     def get_namespaces(self) -> dict[str, str | None]:
         """Get the namespaces of the subjects of the trusted issuers.
 
-        Computed from `issuers` on each call (a few entries), so that
-        changes of `issuers` apply.
+        Computed from `issuers` on each call (a few entries). Changes of
+        `issuers` after validation are not validated.
 
         Returns:
             Namespace of each trusted issuer, in the order of `issuers`: its
@@ -1707,8 +1707,8 @@ class AuthConfig(FOCABaseConfig):
         Raises:
             ValueError: An issuer is listed with different settings, an
                 issuer whose namespace defaults to the issuer contains `|`,
-                a comma or a line break, or issuers have the same
-                namespace, or several issuers keep their subjects bare.
+                a comma or a line break, issuers share a namespace, or more
+                than one issuer keeps its subjects bare.
         """
         seen: dict[str | None, str] = {}
         for issuer, namespace in self.get_namespaces().items():

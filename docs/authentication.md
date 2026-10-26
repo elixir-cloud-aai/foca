@@ -108,7 +108,11 @@ subjects bare; FOCA refuses to start otherwise. Bare subjects that contain
 `|` next to namespaced ones cannot be told apart from namespaced subjects:
 such users are not identified (`401` on enforced operations, and
 `get_current_subject()` returns `None`). Tokens of untrusted issuers are
-rejected anyway.
+rejected anyway. Proxies that merge slashes in paths (e.g., nginx's
+`merge_slashes`) change subjects namespaced by issuer URLs in paths (e.g.,
+of the [endpoints for managing
+roles](access-control.md#endpoints-for-managing-roles)): set namespaces
+without slashes then.
 
 `get_current_subject()` returns the namespaced subject, and
 `get_on_behalf_of_user()` namespaces users named by a service client with
