@@ -805,22 +805,22 @@ git tag -s chart-v0.1.0 -m "foca-common 0.1.0"
 git push origin chart-v0.1.0
 ```
 
-The [release workflow][release-chart] runs the chart checks and the kind
-installation of CI, checks that the tag is signed (with a signature that
-GitHub verifies), is on `dev` and matches the chart's version, and that the
-version has not been published yet. After a maintainer approved the tested
-chart in the `chart-release` environment, it packages the chart, pushes it
-to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`, and attests and
-signs it (see [verifying images and
-charts](deployment.md#verifying-images-and-charts)). Published versions
-are never overwritten. If attesting or signing fails after the push, the
-version stays published without them (a re-run stops at the version check);
-release a new version. Tags cannot be deleted or moved (see below): if a
-release fails, re-run its workflow for the same tag, which passes the
-version check as long as the version has not been published; if the tagged
-commit itself is wrong, fix it, bump the chart's version and release a new
-tag. App charts then depend on the chart as shown in [Building an app
-chart](#building-an-app-chart).
+The [release workflow][release-chart] checks that the tag is signed (with a
+signature that GitHub verifies), is on `dev` and matches the chart's
+version, and runs the chart checks and the kind installation of CI. After a
+maintainer approved the tested chart in the `chart-release` environment, it
+checks that the version has not been published yet, packages the chart,
+pushes it to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`, and
+attests and signs it (see [verifying images and
+charts](deployment.md#verifying-images-and-charts)). Published versions are
+never overwritten. If attesting or signing fails after the push, the version
+stays published without them (a re-run stops at the version check); release
+a new version. Tags cannot be deleted or moved (see below): if a release
+fails, re-run its workflow for the same tag, which passes the version check
+as long as the version has not been published (a re-run of the publishing
+job needs a new approval); if the tagged commit itself is wrong, fix it,
+bump the chart's version and release a new tag. App charts then depend on
+the chart as shown in [Building an app chart](#building-an-app-chart).
 
 After the first release, an organization admin opens the package
 `charts/foca-common` in the organization's GitHub package settings and:

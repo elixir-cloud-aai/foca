@@ -1,9 +1,9 @@
 # Release the library chart foca-common when a chart tag (`chart-vX.Y.Z`) is
-# pushed: lint, test and install the charts as CI does (`chart` and
+# pushed: check that the tag is signed, on `dev` and matches the chart's
+# `version`, and lint, test and install the charts as CI does (`chart` and
 # `chart-install` jobs of `ci.yml`, with the same local actions); after a
 # maintainer approved the tested chart in the `chart-release` environment
-# (required reviewer, `chart-v*` tags only), check that the tag is signed,
-# on `dev` and matches the chart's `version`, and that the version was not
+# (required reviewer, `chart-v*` tags only), check that the version was not
 # published yet, then package the chart, push it as an OCI artifact to
 # `oci://ghcr.io/elixir-cloud-aai/charts`, and attest and sign it (GitHub
 # artifact attestation, Sigstore signature). Only final versions (no
@@ -34,53 +34,22 @@ env:
   CHART: charts/foca-common
 
 jobs:
-  # The checks of the `chart` and `chart-install` jobs of `ci.yml`, in one
-  # job
+  # Checks the tag, then runs the checks of the `chart` and `chart-install`
+  # jobs of `ci.yml`, in one job; all before the approval in `publish`
   test:
     name: Test chart release
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Full history with tags, for the version check
+          # Full history with tags, for the version checks and to check that
+          # the release commit is on `dev`
           fetch-depth: 0
-      - name: Test chart
-        uses: ./.github/actions/test-chart
-      - name: Install chart
-        uses: ./.github/actions/install-chart
-
-  # Waits for the approval in the `chart-release` environment, after the
-  # tests passed: its protection rules (required reviewer, `chart-v*` tags
-  # only) are what actually control publishing; the checks below guard
-  # against mistakes
-  publish:
-    name: Publish chart
-    needs: test
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment:
-      name: chart-release
-      url: https://github.com/elixir-cloud-aai/foca/pkgs/container/charts%2Ffoca-common
-    permissions:
-      contents: read
-      packages: write # push the chart, its attestation and signature to GHCR
-      id-token: write # Sigstore signing certificates
-      attestations: write # GitHub artifact attestations
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          # Full history, to check that the release commit is on `dev`
-          fetch-depth: 0
-      # Same Helm version as in `.github/actions/test-chart`
-      - name: Set up Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: v3.22.1
       - name: Check tag and version
         id: version
         env:
@@ -123,6 +92,40 @@ jobs:
               exit 1
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Test chart
+        uses: ./.github/actions/test-chart
+      - name: Install chart
+        uses: ./.github/actions/install-chart
+
+  # Waits for the approval in the `chart-release` environment (required
+  # reviewer, `chart-v*` tags only), as `pypi` in `release.yml`: the
+  # environment's protection rules are what actually control publishing;
+  # the checks in `test` guard against mistakes
+  publish:
+    name: Publish chart
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: chart-release
+      url: https://github.com/elixir-cloud-aai/foca/pkgs/container/charts%2Ffoca-common
+    permissions:
+      contents: read
+      packages: write # push the chart, its attestation and signature to GHCR
+      id-token: write # Sigstore signing certificates
+      attestations: write # GitHub artifact attestations
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history with tags, for the first-release check
+          fetch-depth: 0
+      # Same Helm version as in `.github/actions/test-chart`
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.22.1
       - name: Log in to GHCR
         env:
           ACTOR: ${{ github.actor }}
@@ -140,7 +143,7 @@ jobs:
       # chart's version and release a new tag.
       - name: Check that version is not published
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.test.outputs.version }}
           TAG: ${{ github.ref_name }}
         run: |
           if output="$(helm show chart "${REPOSITORY}/foca-common" --version "${VERSION}" 2>&1)"; then
@@ -161,7 +164,7 @@ jobs:
       - name: Package and push chart
         id: push
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.test.outputs.version }}
         run: |
           helm package "${CHART}" -d dist
           if ! output="$(helm push "dist/foca-common-${VERSION}.tgz" "${REPOSITORY}" 2>&1)"; then
