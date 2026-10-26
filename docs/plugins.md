@@ -511,8 +511,12 @@ The caller (`Principal`) is identified as by access control and its
 ownership helpers:
 
 - `subject` and `subject_type`: the client ID of a service client
-  (`client`), or else the user's subject (`user`); key quotas or records
-  on both, as a client and a user may have the same identifier;
+  (`client`), or else the user's subject (`user`), as stored with
+  resources: user subjects (also in `acting_for`) are namespaced by their
+  issuer if it has a namespace (`<namespace>|<subject>`, e.g., with
+  several trusted issuers; cf. [access control](access-control.md)); key
+  quotas or records on both fields, as a client and a user may have the
+  same identifier;
 - `acting_for`: the user that a service client acts for (header
   `auth.on_behalf_of_header`), who owns the resources it creates (e.g.,
   tasks); service clients that may not act for users get `403`, invalid
