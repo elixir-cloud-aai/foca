@@ -136,6 +136,16 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.plugins.errors
 
+!!! warning "Experimental: per-request pipelines and backends"
+
+    The client-facing tags `gateway.pipeline` and `gateway.backends`, and
+    the settings `client_pipelines` and `client_backends` that control
+    them, are experimental: their shape and semantics may change in a later
+    release, with the design of federated backend selection (cf.
+    [#528](https://github.com/elixir-cloud-aai/foca/issues/528)). Client
+    pipelines are disabled by default. The models and functions of
+    `foca.plugins.selection` follow these tags.
+
 ::: foca.plugins.selection
     options:
       members:

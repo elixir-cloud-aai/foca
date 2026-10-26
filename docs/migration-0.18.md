@@ -3,12 +3,15 @@
 FOCA 0.18.0 keeps one cached Casbin enforcer per app instance instead of
 loading all policy rules for each enforced request, so requests cost about
 the same with many rules as with few (cf. [scaling](access-control.md#scaling)).
-Most apps need no changes to run with FOCA 0.18.0; check the breaking
+It also adds a [plugin engine for gateway apps](plugins.md) such as proTES,
+opt-in roles (e.g., for an admin mode) and an HTTP client for untrusted
+URLs. Most apps need no changes to run with FOCA 0.18.0; check the breaking
 changes below if your app uses access control and uses the enforcer
 directly, changes rules in the database directly or maps groups to roles,
-or if its clients or tests rely on the responses to invalid requests, if
-it trusts several token issuers, and
-the other changes if your app creates FOCA's Casbin adapter itself.
+if its clients or tests rely on the responses to invalid requests, if it
+trusts several token issuers, if its configuration has a top-level
+`plugins` section, or if it is a gateway app with middlewares, and the
+other changes if your app creates FOCA's Casbin adapter itself.
 Upgrading from 0.16 or earlier? Start with [Migrating to
 0.17.0](migration-0.17.md).
 
@@ -69,7 +72,10 @@ checks](configuration/access-control.md#startup-checks)). Before, such apps
 started, but no user got the roles of their groups. Set `claim_groups` to
 the claim with the groups of users, without whitespace, or unset
 `group_mapping`. An empty `group_mapping` without `claim_groups` is still
-allowed.
+allowed. With [settings per issuer](#settings-per-issuer), the group claim
+of a trusted issuer (`security.auth.issuers[].claim_groups`) satisfies the
+check, too, so `claim_groups` may stay unset if each issuer whose users
+have groups sets its own.
 
 ### Subjects of several issuers
 
@@ -127,7 +133,114 @@ logs (Connexion's validation logger is filtered for the whole process, so
 its messages on rejected requests are only logged again if no app of the
 process has validation details on).
 
+### Section `plugins` validated
+
+The top-level `plugins` section of the configuration is now FOCA's
+configuration of [gateway plugins](configuration/plugins.md)
+(`PluginsConfig`), validated with unknown keys refused (`extra="forbid"`),
+also in apps that are no gateways. Before, it was an extra key, which FOCA
+kept as is. Configurations with another `plugins` section (e.g.,
+`plugins.my_app_plugin_dir`) fail to load with a `ValidationError`: move
+such settings into the [custom configuration](configuration/custom.md)
+(e.g., `custom.plugins`). Apps that are no gateways log a warning about a
+valid `plugins` section and load no plugins.
+
+### Gateway plugins
+
+Gateway apps (e.g., proTES) now process requests with installed, versioned
+[gateway plugins](plugins.md), configured in the [`plugins`
+section](configuration/plugins.md), instead of their own middleware stacks.
+Apps that are no gateways are not affected.
+
+- **Declaring the gateway:** gateway apps pass their API and payload checks
+  when creating the FOCA app, `Foca(..., gateway=GatewayApp(api=...,
+  validate=..., sanitize=...))` (from `foca.plugins.runtime`), so that
+  `create_app()` loads and checks the plugins on startup; controllers and
+  Celery tasks get the host of their process with
+  `foca.plugins.runtime.get_host()` (cf. [using the engine in
+  apps](plugins.md#using-the-engine-in-apps)).
+- **Middlewares refused:** configurations of gateway apps with keys of
+  earlier middleware stacks (`middlewares`, `custom.middlewares`) are
+  refused on startup (`ValueError`, with a migration hint), before the
+  app's custom model is validated. List the plugins in `plugins.available`
+  and the steps in `plugins.pipeline` instead (cf. [migrating from
+  middlewares](configuration/plugins.md#migrating-from-middlewares)).
+- **One gateway app per process:** every `Foca(gateway=...)` of a process
+  must pass the same `GatewayApp`, e.g., also a Celery worker module whose
+  tasks use the host: define it once and import it, as settings with other
+  callables (e.g., a new `lambda`) count as other settings and fail
+  (`RuntimeError`). `Foca(...)` without `gateway=` (e.g., a worker module
+  that doesn't use the host) leaves the settings alone. Hosts and backend
+  lists are built from the configuration of the first `Foca(gateway=...)`
+  of the process, and `create_app()` serves only that app: create the
+  gateway app's `Foca(...)` before importing modules that create others.
+  In tests, `foca.plugins.runtime.reset()` closes the host and forgets the
+  settings.
+- **Client pipelines off by default:** clients may choose the pipeline of
+  a request (tag `gateway.pipeline`) only if
+  `plugins.client_pipelines.enabled` is `true` (default: `false`).
+  Backend choices (tag `gateway.backends`, `plugins.client_backends`) are
+  on by default, as they only narrow or reorder the candidates. Both are
+  accepted from authenticated callers only: requests of unidentified
+  callers with either tag are refused (`400`). A client pipeline or
+  preset replaces `plugins.pipeline`, framed by `client_pipelines.prepend`
+  and `append`, while requests without a choice get `plugins.pipeline`
+  without the frame: with client pipelines enabled, list policy steps that
+  must not be skipped in both `pipeline` and `prepend`; the app warns on
+  startup about steps of `pipeline` that the frame lacks (cf. [per-request
+  choices](configuration/plugins.md#per-request-choices)). Both tags and
+  their settings are experimental: they may change in a later release.
+
 ## Other changes
+
+### Opt-in roles
+
+Roles mapped from group claims can now be opt-in
+(`security.access_control.opt_in_roles`): they then apply only to requests
+that ask for them in the header `opt_in_header` (default:
+`X-Request-Roles`), e.g., for an admin mode of a UI (cf. [opt-in
+roles](access-control.md#opt-in-roles)). Apps that don't set
+`opt_in_roles` behave as before.
+
+- The app refuses to start (the configuration fails to validate) if an
+  opt-in role is no role of `group_mapping`, if `opt_in_header` is no valid
+  header name or equals `security.auth.on_behalf_of_header`, or if a
+  configured rule of `policies` grants an opt-in role (e.g., `[g,
+  "user:alice", admin]`, also resource-scoped `g2` rules and rules granting
+  it to another opt-in role), as the role would then apply without asking
+  for it.
+- The permissions API refuses such rules with `400`.
+- Rules stored earlier, e.g., `g, user:alice, admin` added before `admin`
+  was made opt-in, are only warned about when policies are first loaded,
+  and still apply without the header: revoke them and map groups to the
+  roles instead.
+- With opt-in roles, responses have the header in `Vary`. Browser apps on
+  other origins need the header in `security.cors.allow_headers` (allowed
+  by default); FOCA warns on startup if it isn't allowed.
+
+### Guarded HTTP client and dependencies
+
+`GuardedClient` (in `foca.utils.http`) sends requests to untrusted URLs
+(e.g., from users or service registries) with guards against server-side
+request forgery: public addresses only, checked again after connecting,
+redirects returned, not followed, and limits on time and response size
+(cf. [sending requests to untrusted
+URLs](utilities.md#sending-requests-to-untrusted-urls)). Gateway plugins
+use it as `ctx.http`.
+
+FOCA now depends directly on `urllib3>=2.6,<3` (for the guarded
+connections; before, it came with `requests`, in any version that
+`requests` allows) and on `packaging>=23` (for version pins of plugins).
+Apps that pin older versions of either need to update them.
+
+### Image build contexts
+
+The `.dockerignore` files of the examples and of FOCA's base image are now
+allowlists: only the files that the images need are sent to the build, so
+that local files (e.g., `.env` files, config overlays or caches) stay out
+of the images. Apps whose images copy their whole build context (e.g.,
+`COPY ./ /app` on FOCA's image) should do likewise (cf.
+[Docker](getting-started.md#docker)).
 
 ### Python 3.15
 

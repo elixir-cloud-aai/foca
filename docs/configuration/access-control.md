@@ -74,10 +74,12 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   app needs admins, e.g., to manage resources of others. It defaults to
   `false` and requires `enabled: true`.
 - **Group claim:** the app refuses to start (`ValueError`) if
-  `group_mapping` maps groups, but `claim_groups` is not set, as no mapping
-  would then apply, and if `claim_groups` has surrounding whitespace, as the
-  claim is looked up as written. An empty `group_mapping` without
-  `claim_groups` is allowed, with a warning, as users then have no groups.
+  `group_mapping` maps groups, but no group claim is set, neither
+  `claim_groups` nor that of any trusted issuer
+  (`security.auth.issuers[].claim_groups`), as no mapping would then
+  apply, and if `claim_groups` has surrounding whitespace, as the claim is
+  looked up as written. An empty `group_mapping` without a group claim is
+  allowed, with a warning, as users then have no groups.
 - **Group subjects:** a warning is logged if `group_mapping` is set, but
   `keep_group_subjects` is not, as group claim values are then not used as
   group subjects (`group:<value>`): rules and [roles granted to

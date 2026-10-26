@@ -27,7 +27,7 @@ startup; get the host of the process with `foca.plugins.runtime.get_host()`
 in controllers and Celery tasks; and remove keys of earlier middleware
 stacks (`middlewares`, `custom.middlewares`), which are refused with a
 migration hint. Apps that are no gateways ignore the `plugins` section (with
-a warning).
+a warning), but it must still be valid, as it is validated for all apps.
 
 ## Phases
 
@@ -71,6 +71,15 @@ they cause later are their own. When all workers are busy, further calls
 fail at once, as timed out.
 
 ## Per-request pipelines and backends
+
+!!! warning "Experimental: per-request pipelines and backends"
+
+    The client-facing tags `gateway.pipeline` and `gateway.backends`, and
+    the settings `client_pipelines` and `client_backends` that control
+    them, are experimental: their shape and semantics may change in a later
+    release, with the design of federated backend selection (cf.
+    [#528](https://github.com/elixir-cloud-aai/foca/issues/528)). Client
+    pipelines are disabled by default.
 
 Authenticated clients choose the pipeline and the backends of a request in
 two reserved tags of the request (TES and WES `tags`, a string map:
