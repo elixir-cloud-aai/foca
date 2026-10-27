@@ -2,7 +2,8 @@
 # run the unit tests again with the lowest direct dependency versions; run
 # integration tests on the petstore example; lint and test the Helm charts
 # and install the petstore example's chart on a kind cluster; scan the Docker
-# images for known vulnerabilities; on pushes to `dev`, push the Docker
+# images for known vulnerabilities; check the curated release notes of a
+# release in preparation; on pushes to `dev`, push the Docker
 # images by digest, scan exactly those digests, then attest, sign and tag
 # them with dated tags (release images are built by `release.yml`). The gate
 # job `passed` ("CI passed") is the only required check of this workflow.
@@ -334,6 +335,66 @@ jobs:
       - name: Install chart
         uses: ./.github/actions/install-chart
 
+  # The release workflow's checks of the curated release notes, before the
+  # immutable tag exists: for the version in `CITATION.cff` (set before a
+  # release, see "Versioning and releases" in `docs/contributing.md`) while
+  # it has no tag, or its tag is on this commit. Not needed for publishing;
+  # on pull requests, findings are warnings (so that they don't fail the
+  # gate). On pushes, findings fail the run
+  readiness:
+    name: Release readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The script uses the standard library only
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Check release notes
+        env:
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          version="$(sed -En "s/^version:[[:space:]]*[\"']?([0-9A-Za-z.+-]+)[\"']?[[:space:]]*(#.*)?$/\1/p" CITATION.cff)"
+          if [[ -z "${version}" ]]; then
+              echo "No version in CITATION.cff: no release in preparation"
+              exit 0
+          fi
+          # The commit of the (annotated) tag, if any: later commits are
+          # skipped, but not the tagged commit itself (e.g., if it was
+          # tagged before this job ran)
+          tagged="$(git ls-remote origin "refs/tags/v${version}^{}" | cut -f1)"
+          if [[ -n "${tagged}" && "${tagged}" != "${SHA}" ]]; then
+              echo "v${version} is tagged: no release in preparation"
+              exit 0
+          fi
+          level=error
+          if [[ "${EVENT}" == "pull_request" ]]; then
+              level=warning
+          fi
+          status=0
+          notes="docs/releases/${version}.md"
+          # Curated notes are required for every release after the first
+          # one that had them
+          python scripts/release_notes.py require "${version}" 2> require.txt || status=1
+          sed "s/^::error::/::${level}::/" require.txt
+          if [[ -f "${notes}" ]]; then
+              if grep -n "TODO" "${notes}"; then
+                  echo "::${level}::${notes} contains TODO: finish the release notes before tagging v${version}"
+                  status=1
+              fi
+              python scripts/release_notes.py check "${notes}" 2> notes.txt || status=1
+              sed "s/^::error /::${level} /" notes.txt
+          fi
+          if [[ "${level}" == "error" ]]; then
+              exit "${status}"
+          fi
+
   # On pushes, builds each image once and pushes it by digest only (untagged,
   # with SBOM and provenance attestations, `mode=max`), for `scan` to scan and
   # `publish` to sign and tag, as in `release.yml`. The digest is passed on as
@@ -566,6 +627,7 @@ jobs:
       - integration
       - chart
       - chart-install
+      - readiness
       - push
       - scan
       - publish
