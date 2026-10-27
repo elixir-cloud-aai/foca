@@ -253,8 +253,8 @@ release") and refer to sections by anchor. `tests/test_version_mentions.py`
 fails if the current release version is mentioned as a release of FOCA (as
 a tag, image or package, or as "release" or "version" in prose; not, e.g.,
 as the version of a dependency) anywhere else than in `CITATION.cff`, the
-changelog, the migration guides (`docs/migration-*.md`), the tests of the
-release tooling, links to the notes and assets of a release, "Migrating to
+changelog, the migration guides (`docs/migration-*.md`), the curated
+release notes (`docs/releases/*.md`), the tests of the release tooling, links to the notes and assets of a release, "Migrating to
 X" links and headings, and statements like "From FOCA X on", which are about
 that release itself; versions of tools (the `rev` of pre-commit hooks and
 the comments of pinned actions) are not checked.
@@ -276,11 +276,14 @@ yet.
 Features and fixes are merged into `dev`. Branch `main` only ever moves
 forward to commits on `dev` that are released. First, shortly before the
 release, set its version and date in the citation metadata, which Zenodo
-archives with each release, and merge the change into `dev`; each version,
+archives with each release, add its curated [release notes](#release-notes)
+(`docs/releases/X.Y.Z.md`, also to the `nav` of `mkdocs.yml` and to the
+[changelog](changelog.md)), and merge the change into `dev`; each version,
 also each pre-release (e.g., `X.Y.Zrc1`), needs its own such change:
 
 ```bash
 python scripts/citation.py set X.Y.Z  # date: today (UTC), or --date YYYY-MM-DD
+python scripts/release_notes.py check docs/releases/X.Y.Z.md
 ```
 
 Then, to release version `X.Y.Z` from commit `<sha>` on `dev` (with that
@@ -296,13 +299,15 @@ git push origin vX.Y.Z
 
 Pushing the tag triggers the [release
 workflow](https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/release.yml),
-which checks that the tagged commit is on `main` and that its `CITATION.cff`
-has the release version and a date that is not in the future (UTC), pushes
+which checks that the tagged commit is on `main`, that its `CITATION.cff`
+has the release version and a date that is not in the future (UTC) and that
+its curated release notes are complete, pushes
 the Docker images by digest (untagged, before any approval) and scans them
 for vulnerabilities, publishes the distributions to PyPI (after approval in
 the `pypi` environment), attests and signs exactly the scanned images and
-tags them `X.Y.Z` and `latest`, and creates a GitHub release with generated
-notes (see [Image scan](#image-scan)). Tags of alpha,
+tags them `X.Y.Z` and `latest`, and creates a GitHub release with the
+curated notes followed by GitHub's generated ones (see [Image
+scan](#image-scan) and [Release notes](#release-notes)). Tags of alpha,
 beta and release candidate versions (e.g., `vX.Y.Zrc1`) do not update
 `latest`. These and, until 1.0.0, all other releases are GitHub pre-releases
 (never marked as the latest release).
@@ -312,15 +317,70 @@ blocks updates and deletions of these tags for everyone, and GitHub releases
 are immutable: once published, their assets can't be added, replaced or
 deleted. The release workflow therefore creates the GitHub release as a
 draft, uploads the distributions and publishes it last; a re-run finishes a
-draft left by an earlier attempt. If the release is already published (e.g.,
-by hand), a re-run uploads nothing and fails unless the release has exactly
-the distributions that the run built (`scripts/release_assets.py`); the
-error says what to do. If a release fails, re-run only its failed jobs
+draft left by an earlier attempt and replaces its notes (they are not added
+twice). If the release is already published (e.g., by hand), a re-run
+uploads nothing, leaves its notes as they are, and fails unless the release
+has exactly the distributions that the run built
+(`scripts/release_assets.py`); the error says what to do. If a release fails, re-run only its failed jobs
 ("Re-run failed jobs"), never all of them ("Re-run all jobs"). Builds are not
 reproducible, so the build jobs would build new distributions and images:
 the assets of the GitHub release would then differ from the files on PyPI,
 and the image tags would move to new images. If the tagged commit itself is
 wrong, release a new version.
+
+### Release notes
+
+Release notes follow the format agreed for all repositories of ELIXIR
+On-Cloud:
+
+1. An intro paragraph saying what the release brings, with a link to the
+   migration guide (`docs/migration-X.Y.md`) if there is one.
+2. Grouped sections, with empty ones left out, in this order:
+   `## Breaking changes`, `## Features`, `## Security`, `## Fixes`,
+   `## Documentation`, `## Maintenance`. They hold bullets only, and each
+   bullet ends with its issue and pull request numbers, e.g., `(#12, #34)`
+   (several pairs separated by semicolons, e.g., `(#12, #34; #56, #78)`),
+   without a period after them.
+3. `## Commits`: GitHub's generated notes, verbatim (including "New
+   Contributors"), without their `## What's Changed` header, as they credit
+   the authors.
+4. Last, GitHub's generated `**Full Changelog**: ...` line (no compare link
+   of our own).
+
+The curated notes in `docs/releases/X.Y.Z.md` (for pre-releases, e.g.,
+`X.Y.Zrc1.md`) hold parts 1 and 2, without a title (the release's title is
+its tag); add them in the pull request that sets the citation metadata of
+the release, to the `nav` of `mkdocs.yml` (under "Changelog"; the docs build
+fails otherwise) and to the list in the [changelog](changelog.md). The
+release workflow adds parts 3 and 4 from GitHub's
+[generate-notes](https://docs.github.com/en/rest/releases/releases#generate-release-notes-content-for-a-release)
+API, as `gh release create --generate-notes` would (since the previous
+release), and publishes the result as the release's notes, so they need no
+editing on GitHub afterwards. Generated notes in an unexpected format
+(without the `**Full Changelog**` line) are kept as they are, with a warning,
+as the distributions are published by then.
+
+Curated notes are required once any other release has notes (in this
+repository, for every release now, pre-releases included): the
+release workflow and the CI job "Release readiness" fail without them
+(`scripts/release_notes.py require`; only a repository without any notes in
+`docs/releases/` gets GitHub's generated notes alone). Curated notes are
+published as written, so the release workflow fails before anything is
+published if they contain `TODO` or are not in the agreed format
+(`scripts/release_notes.py check`): an intro paragraph, then only the
+sections above, bullets ending with their numbers, none of the parts that
+the workflow adds, and no links to versions that move (the latest docs,
+`/en/latest/` or `/en/stable/`, or branches such as `dev` and `main`), as the
+release's notes never change: link to the release's docs and files instead
+(e.g., `https://foca.readthedocs.io/en/vX.Y.Z/migration-X.Y/` or
+`blob/vX.Y.Z/`). Refer to pages of the docs by absolute links rather than by
+relative ones, which don't work in GitHub releases. The CI job "Release
+readiness" runs the same checks for the version in `CITATION.cff` while it is
+not tagged: on pull requests as warnings (so that a pull request that sets
+the citation metadata without notes still passes, but shows them), on pushes
+to `dev` as errors. Check the notes locally with `python
+scripts/release_notes.py check docs/releases/X.Y.Z.md`; the script is tested
+in `tests/test_release_notes.py`.
 
 The Helm library chart `foca-common` (`charts/foca-common`) is versioned and
 released separately, from signed tags `chart-vX.Y.Z`, and published after
