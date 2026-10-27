@@ -375,8 +375,8 @@ the workflow adds, and no links to versions that move (the root of the
 docs, `/en/latest/` or `/en/stable/`, or branches such as `dev` and `main`), as the
 release's notes never change: link to the release's docs and files instead
 (e.g., `https://foca.readthedocs.io/en/vX.Y.Z/migration-X.Y/` or
-`blob/vX.Y.Z/`). Refer to pages of the docs by absolute links rather than by
-relative ones, which don't work in GitHub releases. The CI job "Release
+`blob/vX.Y.Z/`). Relative links (e.g., to pages of the docs) are rejected
+too, as they don't resolve in GitHub releases. The CI job "Release
 readiness" runs the same checks for the version in `CITATION.cff` while it is
 not tagged: on pull requests as warnings (so that a pull request that sets
 the citation metadata without notes still passes, but shows them), on pushes

@@ -365,10 +365,15 @@ jobs:
               echo "No version in CITATION.cff: no release in preparation"
               exit 0
           fi
-          # The commit of the (annotated) tag, if any: later commits are
+          # The commit of the tag, if any (of an annotated tag its peeled
+          # ref, of a lightweight one the ref itself): later commits are
           # skipped, but not the tagged commit itself (e.g., if it was
           # tagged before this job ran)
-          tagged="$(git ls-remote origin "refs/tags/v${version}^{}" | cut -f1)"
+          refs="$(git ls-remote origin "refs/tags/v${version}" "refs/tags/v${version}^{}")"
+          tagged="$(awk '$2 ~ /\^\{\}$/ { print $1 }' <<< "${refs}")"
+          if [[ -z "${tagged}" ]]; then
+              tagged="$(cut -f1 <<< "${refs}")"
+          fi
           if [[ -n "${tagged}" && "${tagged}" != "${SHA}" ]]; then
               echo "v${version} is tagged: no release in preparation"
               exit 0

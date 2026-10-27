@@ -468,6 +468,46 @@ def test_check_versioned_links(link: str) -> None:
     assert release_notes.check(f"Intro, [docs]({link}).\n") == []
 
 
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "Intro, see [Migrating](migration-0.3.md).\n",
+        "Intro, see [the guide](../migration-0.3/#steps).\n",
+        "Intro, see [docs](/en/v0.3.0/).\n",
+        "Intro, see [section](#fixes).\n",
+        "Intro, see [docs](<docs/index.md>).\n",
+        "Intro, see ![logo](images/logo.svg).\n",
+        "Intro, see [docs][1].\n\n[1]: docs/index.md\n",
+    ],
+)
+def test_check_relative_links(markdown: str) -> None:
+    """Relative links, which don't resolve in GitHub releases, are rejected.
+
+    Args:
+        markdown: Curated release notes with a relative link.
+    """
+    assert [message for _, message in _messages(markdown)] == ["Relative link (e.g.,"]
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "Intro, see [docs](https://foca.readthedocs.io/en/v0.3.0/).\n",
+        "Intro, write to [us](mailto:x@example.org).\n",
+        "Intro, see [docs](<https://example.org/a b>).\n",
+        "Intro, see [docs][1].\n\n[1]: https://example.org/\n",
+        "Intro with brackets [x] (y) and `code`.\n",
+    ],
+)
+def test_check_absolute_links(markdown: str) -> None:
+    """Absolute links (with a scheme) and other brackets are accepted.
+
+    Args:
+        markdown: Curated release notes without a relative link.
+    """
+    assert release_notes.check(markdown) == []
+
+
 def test_body_splits_at_line_breaks_only() -> None:
     """Other line separators (e.g., U+2028) in generated notes start no line."""
     generated = "* x\u2028## Security by @a in u\n\n**Full Changelog**: c\n"

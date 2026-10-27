@@ -106,6 +106,20 @@ MOVING_LINK = (
     "Link to a version that moves (e.g., latest docs, branch dev): the release"
     " body never changes, so link the release's (/en/vX.Y.Z/, blob/vX.Y.Z/)"
 )
+# Relative links (inline, also of images, or link reference definitions):
+# destinations without a scheme (e.g., `https:`, `mailto:`), which GitHub
+# resolves against the release page, not the docs
+_NO_SCHEME = r"(?:<|(?!<))(?![a-z][a-z0-9+.-]*:)"
+RELATIVE = re.compile(
+    rf"\]\([ \t]*{_NO_SCHEME}[^)\s<>]"
+    rf"|^ {{0,3}}\[[^\]]+\]:[ \t]*{_NO_SCHEME}[^\s<>]",
+    re.ASCII | re.IGNORECASE,
+)
+RELATIVE_LINK = (
+    "Relative link (e.g., to a page of the docs): it doesn't resolve in the"
+    " GitHub release, so link the release's docs or files absolutely"
+    " (https://foca.readthedocs.io/en/vX.Y.Z/...)"
+)
 
 
 @dataclass(frozen=True)
@@ -363,15 +377,17 @@ def check(markdown: str) -> list[Finding]:
         empty), holding bullets only, each ending with its issue and pull
         request numbers, and none of the parts that the release workflow adds
         (`## Commits`, the `**Full Changelog**` line), and no links to
-        versions that move (`UNVERSIONED`). An HTML comment on a line of
-        its own counts as a blank line.
+        versions that move (`UNVERSIONED`) and no relative links
+        (`RELATIVE`). An HTML comment on a line of its own counts as a blank
+        line.
     """
     lines = markdown.removeprefix("\ufeff").splitlines()
-    findings = _Checker().run(lines) + [
-        Finding(number, MOVING_LINK)
-        for number, line in enumerate(lines, start=1)
-        if UNVERSIONED.search(line)
-    ]
+    findings = _Checker().run(lines)
+    for number, line in enumerate(lines, start=1):
+        if UNVERSIONED.search(line):
+            findings.append(Finding(number, MOVING_LINK))
+        if RELATIVE.search(line):
+            findings.append(Finding(number, RELATIVE_LINK))
     return sorted(findings, key=lambda finding: finding.line)
 
 
