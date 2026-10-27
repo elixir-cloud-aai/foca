@@ -382,14 +382,14 @@ jobs:
           # Curated notes are required for every release after the first
           # one that had them
           python scripts/release_notes.py require "${version}" 2> require.txt || status=1
-          sed "s/^::error::/::${level}::/" require.txt
+          sed -E "s/^::error( |::)/::${level}\1/" require.txt
           if [[ -f "${notes}" ]]; then
               if grep -n "TODO" "${notes}"; then
                   echo "::${level}::${notes} contains TODO: finish the release notes before tagging v${version}"
                   status=1
               fi
               python scripts/release_notes.py check "${notes}" 2> notes.txt || status=1
-              sed "s/^::error /::${level} /" notes.txt
+              sed -E "s/^::error( |::)/::${level}\1/" notes.txt
           fi
           if [[ "${level}" == "error" ]]; then
               exit "${status}"

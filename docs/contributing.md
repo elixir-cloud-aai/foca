@@ -254,8 +254,9 @@ fails if the current release version is mentioned as a release of FOCA (as
 a tag, image or package, or as "release" or "version" in prose; not, e.g.,
 as the version of a dependency) anywhere else than in `CITATION.cff`, the
 changelog, the migration guides (`docs/migration-*.md`), the curated
-release notes (`docs/releases/*.md`), the tests of the release tooling, links to the notes and assets of a release, "Migrating to
-X" links and headings, and statements like "From FOCA X on", which are about
+release notes (`docs/releases/*.md`), the tests of the release tooling,
+links to the notes and assets of a release, "Migrating to X" links and
+headings, and statements like "From FOCA X on", which are about
 that release itself; versions of tools (the `rev` of pre-commit hooks and
 the comments of pinned actions) are not checked.
 
@@ -321,8 +322,9 @@ draft left by an earlier attempt and replaces its notes (they are not added
 twice). If the release is already published (e.g., by hand), a re-run
 uploads nothing, leaves its notes as they are, and fails unless the release
 has exactly the distributions that the run built
-(`scripts/release_assets.py`); the error says what to do. If a release fails, re-run only its failed jobs
-("Re-run failed jobs"), never all of them ("Re-run all jobs"). Builds are not
+(`scripts/release_assets.py`); the error says what to do. If a release
+fails, re-run only its failed jobs ("Re-run failed jobs"), never all of them
+("Re-run all jobs"). Builds are not
 reproducible, so the build jobs would build new distributions and images:
 the assets of the GitHub release would then differ from the files on PyPI,
 and the image tags would move to new images. If the tagged commit itself is
@@ -369,8 +371,8 @@ published as written, so the release workflow fails before anything is
 published if they contain `TODO` or are not in the agreed format
 (`scripts/release_notes.py check`): an intro paragraph, then only the
 sections above, bullets ending with their numbers, none of the parts that
-the workflow adds, and no links to versions that move (the latest docs,
-`/en/latest/` or `/en/stable/`, or branches such as `dev` and `main`), as the
+the workflow adds, and no links to versions that move (the root of the
+docs, `/en/latest/` or `/en/stable/`, or branches such as `dev` and `main`), as the
 release's notes never change: link to the release's docs and files instead
 (e.g., `https://foca.readthedocs.io/en/vX.Y.Z/migration-X.Y/` or
 `blob/vX.Y.Z/`). Refer to pages of the docs by absolute links rather than by

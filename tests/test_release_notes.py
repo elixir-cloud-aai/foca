@@ -439,6 +439,11 @@ def test_script(tmp_path: Path) -> None:
         "https://github.com/elixir-cloud-aai/foca/tree/main/docs",
         "https://github.com/elixir-cloud-aai/foca/releases/latest",
         "https://raw.githubusercontent.com/elixir-cloud-aai/foca/dev/x",
+        # The root of the docs, which redirects to the default version
+        "https://foca.readthedocs.io",
+        "https://foca.readthedocs.io/",
+        "https://foca.readthedocs.io/en",
+        "https://foca.readthedocs.io/en/",
     ],
 )
 def test_check_moving_links(link: str) -> None:
@@ -451,6 +456,8 @@ def test_check_moving_links(link: str) -> None:
     "link",
     [
         "https://foca.readthedocs.io/en/v0.3.0/upgrading/",
+        "https://foca.readthedocs.io/en/v0.3.0/",
+        "https://foca.readthedocs.io.example.org/",
         "https://github.com/elixir-cloud-aai/foca/blob/v0.3.0/README.md",
         "https://github.com/elixir-cloud-aai/foca/tree/dev-notes/docs",
         "https://example.org/en/latest/",

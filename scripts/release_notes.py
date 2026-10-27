@@ -79,7 +79,7 @@ BULLETS_ONLY = "Sections hold bullets only, e.g., - <change> (#12, #34)"
 
 # Names of curated notes: `<version>.md`, for release versions as the
 # release workflow accepts them (`vX.Y.Z`, or `vX.Y.ZaN`, `vX.Y.ZbN`,
-# `vX.Y.ZrcN`; see "Check release tag and commit" there)
+# `vX.Y.ZrcN`; see "Check release tag and commit" in `release.yml`)
 NOTES_NAME = re.compile(
     r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
     r"(?:(?:a|b|rc)(?:0|[1-9][0-9]*))?\.md",
@@ -92,6 +92,8 @@ REPOSITORY = "elixir-cloud-aai/foca"
 _MOVING = r"(?![\w.-])"
 UNVERSIONED = re.compile(
     rf"{re.escape(DOCS_HOST)}/(?:en/)?(?:latest|stable){_MOVING}"
+    # The root of the docs, which redirects to the default version
+    rf"|{re.escape(DOCS_HOST)}(?:/(?:en/?)?)?(?![\w./-])"
     rf"|github\.com/{re.escape(REPOSITORY)}/"
     rf"(?:blob|tree|raw|edit|blame|commits)/(?:refs/heads/)?(?:dev|main|HEAD)"
     rf"{_MOVING}"
