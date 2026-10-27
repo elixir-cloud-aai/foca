@@ -581,10 +581,14 @@ def test_cache(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
     # failed reads keep the last good list, and are retried soon
     registry.error = HttpError("down")
     cache._next_read = 0
+    start = time.monotonic()
     with caplog.at_level(logging.WARNING):
         assert cache.urls() == ["https://tes-a.example.org"]
+    end = time.monotonic()
     assert "keeping 1 backends" in caplog.text
-    assert cache._next_read - cache._last_read == pytest.approx(backends.RETRY_INTERVAL)
+    # the retry counts from the end of the read, which lies between both clock reads
+    assert start + backends.RETRY_INTERVAL <= cache._next_read
+    assert cache._next_read <= end + backends.RETRY_INTERVAL
     # bugs are logged with the trace
     registry.error = RuntimeError("bug")
     cache._next_read = 0
