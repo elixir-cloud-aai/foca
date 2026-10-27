@@ -2,7 +2,13 @@
 # build the Docker images and push them by digest (untagged), scan exactly
 # those digests, publish the distributions to PyPI, attest, sign and tag the
 # scanned digests, and create the GitHub release. The version is derived
-# from the tag (via setuptools-scm). Uses PyPI trusted publishing (no API
+# from the tag (via setuptools-scm). Release notes are the curated
+# `docs/releases/<version>.md` followed by GitHub's generated notes if the
+# former exists (the run fails before anything is published if it is
+# missing although other releases have notes, contains `TODO` or is not in
+# the agreed format, see `scripts/release_notes.py`), otherwise the
+# generated notes alone; add curated notes to the `nav` of `mkdocs.yml` too
+# (the docs build fails otherwise). Uses PyPI trusted publishing (no API
 # token); the PyPI project trusts this workflow file in the `pypi`
 # environment. See "Versioning and releases" in docs/contributing.md.
 
@@ -86,6 +92,24 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: python scripts/citation.py check "${VERSION}"
+      # Curated release notes are published as written, so unfinished ones
+      # (with a `TODO`) must not be published, nor ones that are not in the
+      # agreed format (`scripts/release_notes.py`); they are required for
+      # every release after the first one that had them (`docs/releases/`).
+      # Checked here, before anything is published
+      - name: Check release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python scripts/release_notes.py require "${VERSION}"
+          notes="docs/releases/${VERSION}.md"
+          if [[ -f "${notes}" ]]; then
+              if grep -n "TODO" "${notes}"; then
+                  echo "::error::${notes} contains TODO: finish the release notes, then tag a new release"
+                  exit 1
+              fi
+              python scripts/release_notes.py check "${notes}"
+          fi
       - name: Install build tools
         run: pip install -r requirements/release.txt
       - name: Build distributions
@@ -351,7 +375,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      # For `scripts/release_assets.py` (standard library only)
+      # For `scripts/release_assets.py` and `scripts/release_notes.py`
+      # (standard library only), and the curated notes of the release commit
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -368,14 +393,16 @@ jobs:
       # Assets of a published immutable release can't be added, replaced or
       # deleted, so the release is created as a draft, gets the
       # distributions, and is published last. Re-runs finish a draft of an
-      # earlier attempt; a release that is already published (e.g., by hand)
-      # gets no uploads, but must have all distributions by name, or the step
-      # fails, saying what to do (see `scripts/release_assets.py`)
-      - name: Create release with generated notes
+      # earlier attempt, whose notes are replaced (not added to); a release
+      # that is already published (e.g., by hand) gets no uploads, but must
+      # have all distributions by name, or the step fails, saying what to do
+      # (see `scripts/release_assets.py`), and keeps its notes
+      - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           # All releases of the repository, drafts included, to find those of
@@ -389,16 +416,34 @@ jobs:
           if [[ "${state}" == "published" ]]; then
               exit 0
           fi
+          # With curated notes of the release commit, the body is the curated
+          # notes, then GitHub's generated ones (the agreed format, see
+          # `scripts/release_notes.py`); otherwise the generated ones alone.
+          # Generated as `gh release create --generate-notes` does (since the
+          # previous release), on every run, so that a draft of an earlier
+          # attempt gets the notes since the current previous release
+          curated="docs/releases/${VERSION}.md"
+          notes_file="$(mktemp)"
+          gh api "repos/${GH_REPO}/releases/generate-notes" \
+              -f "tag_name=${TAG}" --jq .body > "${notes_file}"
+          if [[ -f "${curated}" ]]; then
+              generated="${notes_file}"
+              notes_file="$(mktemp)"
+              python scripts/release_notes.py body "${curated}" "${generated}" \
+                  > "${notes_file}"
+          fi
           if [[ "${state}" == "none" ]]; then
               gh release create "${TAG}" \
                   --draft \
                   --verify-tag \
                   --title "${TAG}" \
-                  --generate-notes \
+                  --notes-file "${notes_file}" \
                   --prerelease="${PRERELEASE}"
           fi
           # Uploads to drafts may replace the assets of an earlier attempt
           gh release upload "${TAG}" dist/* --clobber
-          # Publishes the draft; GitHub never marks pre-releases as the
+          # Publishes the draft, with the notes of this run (replacing those
+          # of an earlier attempt); GitHub never marks pre-releases as the
           # latest release
-          gh release edit "${TAG}" --prerelease="${PRERELEASE}" --draft=false
+          gh release edit "${TAG}" --notes-file "${notes_file}" \
+              --prerelease="${PRERELEASE}" --draft=false

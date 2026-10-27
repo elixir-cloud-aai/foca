@@ -37,11 +37,16 @@ ALLOWED_FILES = (
     "tests/test_citation.py",
     "tests/test_docs_hooks.py",
     "tests/test_release_assets.py",
+    "tests/test_release_notes.py",
     "tests/test_version_mentions.py",
 )
-# Files that may name it by their path: the migration guides, which are
-# about their release (`docs/migration-X.Y.md`)
-ALLOWED_PATHS = re.compile(r"docs/migration-[0-9]+\.[0-9]+\.md")
+# Files that may name it by their path: the migration guides and the
+# curated release notes, which are about their release
+# (`docs/migration-X.Y.md`, `docs/releases/X.Y.Z.md`)
+ALLOWED_PATHS = re.compile(
+    r"docs/migration-[0-9]+\.[0-9]+\.md"
+    r"|docs/releases/[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?\.md"
+)
 # Mentions of the version that refer to a release of FOCA (`{version}` is the
 # escaped version, `{end}` the end of a version): the tag, the image and
 # package, the version in prose or in inline code. Other mentions of the same
@@ -248,10 +253,14 @@ def test_mentions_pre_release() -> None:
         ("docs/migration-1.2.md.bak", False),
         ("docs/migration-notes.md", False),
         ("docs/sub/docs/migration-1.2.md", False),
+        ("docs/releases/1.2.3.md", True),
+        ("docs/releases/1.2.3rc1.md", True),
+        ("docs/releases/README.md", False),
+        ("docs/releases/1.2.md", False),
     ],
 )
 def test_allowed_paths(name: str, allowed: bool) -> None:
-    """Only the migration guides themselves are allowed by their path.
+    """Only migration guides and release notes are allowed by their path.
 
     Args:
         name: Path of a file, relative to the repository root.

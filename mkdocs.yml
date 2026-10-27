@@ -97,6 +97,8 @@ validation:
   unrecognized_links: warn
   anchors: warn
 
+# Add the notes of each release (`docs/releases/<version>.md`, read by the
+# release workflow) to "Changelog"; the build fails for notes missing here
 nav:
   - Home: index.md
   - Getting started: getting-started.md
@@ -127,4 +129,6 @@ nav:
   - Migrating to 0.14.0: migration-0.14.md
   - Contributing: contributing.md
   - API reference: reference.md
-  - Changelog: changelog.md
+  - Changelog:
+      - changelog.md
+      - "0.18.0": releases/0.18.0.md
