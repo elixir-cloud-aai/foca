@@ -1,7 +1,7 @@
 # Vulnerabilities accepted in the Docker image (`docker/Dockerfile`), which the
-# scans in CI (`.github/actions/scan-image`) ignore: each with the reason
-# (`statement`) and an expiry date (`expired_at`), after which Trivy reports
-# it again, so that the decision is reviewed. Limit entries to the affected
+# scans in CI (shared action `scan-image` of `elixir-cloud-aai/.github`)
+# ignore: each with the reason (`statement`) and an expiry date
+# (`expired_at`), after which Trivy reports it again, so that the decision is reviewed. Limit entries to the affected
 # package versions (`purls`), so that other packages with the same
 # vulnerability are still reported. Example:
 #
