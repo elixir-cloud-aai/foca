@@ -7,9 +7,11 @@
 # Docker images by digest, scan exactly those digests, then attest, sign and
 # tag them with dated tags (release images are built by `release.yml`).
 # Forks, which have none of the secrets, run the same checks without these
-# side effects (as for pull requests), unless they set the repository
-# variable `DOCKERHUB_ORG` to publish to their own organization. The gate job
-# `passed` ("CI passed") is the only required check of this workflow.
+# side effects and without uploads to code scanning (as pull requests from
+# forks), unless they set the repository variable `DOCKERHUB_ORG` to publish
+# to their own organization. `github.repository_owner == 'elixir-cloud-aai'`
+# marks runs of the upstream repository. The gate job `passed` ("CI passed")
+# is the only required check of this workflow.
 
 name: CI
 
@@ -207,7 +209,9 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: test_unit
           files: ./coverage.xml
-          # Forks have no Codecov token: there, upload errors don't fail CI
+          # Outside the upstream repository (forks, which have no Codecov
+          # token), upload errors don't fail CI; pull requests from forks to
+          # upstream upload without a token and still fail on errors
           fail_ci_if_error: ${{ github.repository_owner == 'elixir-cloud-aai' }}
           verbose: true
 
@@ -483,8 +487,8 @@ jobs:
   # (`<image>@<digest>`; public, so pulling them needs no login), in a job
   # without credentials or signing permissions, as the Trivy action resolves
   # the Trivy binary from a mutable tag. The findings that have a fix are
-  # uploaded to code scanning (not in forks without `DOCKERHUB_ORG`, nor for
-  # pull requests from forks, whose token cannot write them), and the job
+  # uploaded to code scanning of the upstream repository (not in forks, nor
+  # for pull requests from forks, whose token cannot write them), and the job
   # fails on critical and high vulnerabilities that have a fix. Accepted
   # findings are listed, with a reason and an expiry date, in
   # `.trivyignore.yaml`. The release workflow scans the release images the
@@ -492,9 +496,10 @@ jobs:
   # scanned weekly (`scan.yml`)
   scan:
     name: Scan image (Python ${{ matrix.python-version }})
-    # For pull requests and in forks, `push` is skipped
+    # `push` is skipped (by its own `if:` only, as it needs no other job)
+    # where `PUBLISH` is "false"; a failed or cancelled push skips the scan
     needs: push
-    if: ${{ !cancelled() && (needs.push.result == 'success' || (needs.push.result == 'skipped' && !(github.event_name == 'push' && (github.repository_owner == 'elixir-cloud-aai' || vars.DOCKERHUB_ORG != '')))) }}
+    if: ${{ !cancelled() && contains(fromJSON('["success", "skipped"]'), needs.push.result) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -549,7 +554,7 @@ jobs:
         with:
           image: ${{ steps.image.outputs.image }}
           category: image-py${{ matrix.python-version }}
-          upload: ${{ (github.repository_owner == 'elixir-cloud-aai' || vars.DOCKERHUB_ORG != '') && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
+          upload: ${{ github.repository_owner == 'elixir-cloud-aai' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
 
   publish:
     name: Publish image (Python ${{ matrix.python-version }})
