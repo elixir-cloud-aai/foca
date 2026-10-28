@@ -447,7 +447,11 @@ class TestMongoBackend:
             client.close()
 
     def test_contention(self) -> None:
-        """Increments retry if entries change in between, up to a bound."""
+        """Increments retry if entries change in between, up to a bound.
+
+        The sequence of calls is deliberate: contention is hard to force on a
+        server.
+        """
         collection = MagicMock()
         collection.with_options.return_value = collection
         collection.find_one_and_update.return_value = None
@@ -462,7 +466,7 @@ class TestMongoBackend:
         assert collection.find_one_and_update.call_count == 5
 
     def test_lazy_indexes(self) -> None:
-        """Writes create the indexes until that succeeded once."""
+        """Writes create the indexes until that succeeded once (call counts)."""
         collection = MagicMock()
         collection.with_options.return_value = collection
         collection.create_index.side_effect = [
@@ -507,8 +511,8 @@ class TestMongoBackend:
             ):
                 call()
 
-    def test_invalid_documents(self) -> None:
-        """Documents without valid expiry count as expired."""
+    def test_unchecked_documents(self) -> None:
+        """`get` trusts the query's filter; `delete` checks the deleted expiry."""
         collection = MagicMock()
         collection.with_options.return_value = collection
         collection.find_one.return_value = {"_id": "x", "value": "1"}
@@ -516,6 +520,28 @@ class TestMongoBackend:
         store = make_store(MongoStoreBackend(collection), Clock())
         assert store.get("k") == 1  # the query filters by expiry
         assert store.delete("k") is False
+
+    @pytest.mark.parametrize(
+        "kind", ["mongomock", pytest.param("mongodb", marks=pytest.mark.mongodb)]
+    )
+    def test_without_expiry(self, request: pytest.FixtureRequest, kind: str) -> None:
+        """Entries without valid expiry count as absent, also for counters."""
+        backend: MongoStoreBackend
+        if kind == "mongomock":
+            collection: Any = mongomock.MongoClient()["db"][STORE_COLLECTION]
+            backend = MongoStoreBackend(collection)
+        else:
+            backend = request.getfixturevalue("mongo_backend")
+        for expiry in ({}, {"expires_at": "never"}):
+            backend.collection.replace_one(
+                {"_id": "ns\x1fc"},
+                {"ns": "ns", "key": "c", "n": 5, **expiry},
+                upsert=True,
+            )
+            store = make_store(backend)
+            assert store.get("c") is None
+            assert store.increment("c") == 1
+            assert store.get("c") == 1
 
     def test_naive_times(self) -> None:
         """Naive times from MongoDB are UTC."""

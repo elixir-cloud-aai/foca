@@ -563,6 +563,8 @@ class PluginHarness:
         plugin: Loaded plugin (one instance for all runs).
         host: Plugin host.
         http: Fake HTTP client of the calls.
+        store: Store of the plugin (a property), with the entries of
+            `ctx.store`.
     """
 
     @property

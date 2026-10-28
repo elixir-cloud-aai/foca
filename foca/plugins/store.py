@@ -353,7 +353,7 @@ class MemoryStoreBackend:
             if entry is not None and entry.count is None:
                 raise _counter_conflict(key)
             count = (entry.count or 0) if entry is not None else 0
-            if not -MAX_SAFE_INTEGER <= count + by <= limit:
+            if not _within(count + by, limit):
                 return None
             self._write(
                 ns,
@@ -568,6 +568,7 @@ class MongoStoreBackend:
                         "_id": ident,
                         "expires_at": live,
                         "value": {"$exists": False},
+                        # the bounds of `_within()`, for the new value
                         "n": {"$lte": limit - by, "$gte": -MAX_SAFE_INTEGER - by},
                     },
                     {"$inc": {"n": by}},
@@ -579,18 +580,19 @@ class MongoStoreBackend:
                 if current is not None:
                     if "value" in current:
                         raise _counter_conflict(key)
-                    if not -MAX_SAFE_INTEGER <= current.get("n", 0) + by <= limit:
+                    if not _within(current.get("n", 0) + by, limit):
                         return None
                     continue  # changed in between
-                if not -MAX_SAFE_INTEGER <= by <= limit:
+                if not _within(by, limit):
                     return None
                 counter = {"ns": ns, "key": key, "n": by, "expires_at": expires_at}
                 try:
                     self.collection.insert_one({"_id": ident, **counter})
                 except DuplicateKeyError:
-                    # an expired entry, or one created in between
+                    # an expired entry (also without valid expiry), or one
+                    # created in between
                     replaced = self.collection.replace_one(
-                        {"_id": ident, "expires_at": {"$lte": now}}, counter
+                        {"_id": ident, "expires_at": {"$not": live}}, counter
                     )
                     if not replaced.matched_count:
                         continue
@@ -861,9 +863,8 @@ class Store:
                 also the default; counters never go below -(2^53 - 1).
 
         Returns:
-            New value; `None` if it would exceed `limit` (or go below
-            -(2^53 - 1)), in which case the
-            counter is left unchanged.
+            New value; `None` if it would exceed `limit` or go below
+            -(2^53 - 1), in which case the counter is left unchanged.
 
         Raises:
             ValueError: The key, increment, limit or time to live is
@@ -932,6 +933,19 @@ def _mapping_keys(value: Any) -> list[Any]:
         elif isinstance(item, list | tuple):
             stack.extend(item)
     return keys
+
+
+def _within(value: int, limit: int) -> bool:
+    """Check that a counter value is within its bounds.
+
+    Args:
+        value: Value.
+        limit: Upper bound.
+
+    Returns:
+        Whether the value is at most `limit` and at least -(2^53 - 1).
+    """
+    return -MAX_SAFE_INTEGER <= value <= limit
 
 
 def _check_int(name: str, value: Any) -> None:

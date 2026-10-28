@@ -119,6 +119,8 @@ configuration models, see [Configuration](configuration/index.md).
         - STORE_COLLECTION
         - STORE_INDEXES
         - MIN_TTL
+        - MAX_KEY_LENGTH
+        - StoreMode
 
 ::: foca.plugins.engine
     options:
