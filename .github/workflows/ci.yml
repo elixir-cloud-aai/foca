@@ -351,8 +351,10 @@ jobs:
   # immutable tag exists: for the version in `CITATION.cff` (set before a
   # release, see "Versioning and releases" in `docs/contributing.md`) while
   # it has no tag, or its tag is on this commit. Not needed for publishing;
-  # on pull requests, findings are warnings (so that they don't fail the
-  # gate). On pushes, findings fail the run
+  # on pull requests and in forks (which often lack the upstream
+  # repository's later tags, so that released versions look unreleased),
+  # findings are warnings (so that they don't fail the gate). On pushes to
+  # the upstream repository, findings fail the run
   readiness:
     name: Release readiness
     runs-on: ubuntu-latest
@@ -371,6 +373,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           SHA: ${{ github.sha }}
+          UPSTREAM: ${{ github.repository_owner == 'elixir-cloud-aai' }}
         run: |
           version="$(sed -En "s/^version:[[:space:]]*[\"']?([0-9A-Za-z.+-]+)[\"']?[[:space:]]*(#.*)?$/\1/p" CITATION.cff)"
           if [[ -z "${version}" ]]; then
@@ -391,7 +394,7 @@ jobs:
               exit 0
           fi
           level=error
-          if [[ "${EVENT}" == "pull_request" ]]; then
+          if [[ "${EVENT}" == "pull_request" || "${UPSTREAM}" != "true" ]]; then
               level=warning
           fi
           status=0
@@ -659,9 +662,10 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          # Jobs that are skipped on purpose for this run
+          # Jobs that are skipped on purpose for this run (only if `PUBLISH`
+          # is exactly "false", so that the gate fails closed)
           skippable=()
-          if [[ "${PUBLISH}" != "true" ]]; then
+          if [[ "${PUBLISH}" == "false" ]]; then
             skippable=(push publish)
           fi
           # Fails the step if jq fails; no results at all fail the check

@@ -383,8 +383,9 @@ release's notes never change: link to the release's docs and files instead
 too, as they don't resolve in GitHub releases. The CI job "Release
 readiness" runs the same checks for the version in `CITATION.cff` while it is
 not tagged: on pull requests as warnings (so that a pull request that sets
-the citation metadata without notes still passes, but shows them), on pushes
-to `dev` as errors. Check the notes locally with `python
+the citation metadata without notes still passes, but shows them) and in
+forks (which often lack the upstream repository's later tags), on pushes to
+`dev` as errors. Check the notes locally with `python
 scripts/release_notes.py check docs/releases/X.Y.Z.md`; the script is tested
 in `tests/test_release_notes.py`.
 
