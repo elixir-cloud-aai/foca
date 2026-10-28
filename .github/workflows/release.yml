@@ -223,12 +223,12 @@ jobs:
           overwrite: true
 
   # Scans exactly the pushed images (`<image>@<digest>`) with Trivy
-  # (`.github/actions/scan-image`; fails on fixable critical and high
-  # vulnerabilities) before anything is published, in a job without
-  # credentials or signing permissions, as the Trivy action resolves the
-  # Trivy binary from a mutable tag; the images are public, so pulling them
-  # needs no login. See the `scan` job of `ci.yml`. No upload to code
-  # scanning
+  # (shared action `elixir-cloud-aai/.github/actions/scan-image`; fails on
+  # fixable critical and high vulnerabilities) before anything is
+  # published, in a job without credentials or signing permissions, as the
+  # Trivy action resolves the Trivy binary from a mutable tag; the images
+  # are public, so pulling them needs no login. See the `scan` job of
+  # `ci.yml`. No upload to code scanning
   scan:
     name: Scan release image (Python ${{ matrix.python-version }})
     needs: push
@@ -260,7 +260,7 @@ jobs:
           fi
           echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
       - name: Scan image
-        uses: ./.github/actions/scan-image
+        uses: elixir-cloud-aai/.github/actions/scan-image@10e83030dfeb3eb740ef7eccce50820d020264e6 # scan-image
         with:
           image: ${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.digest }}
           category: release-py${{ matrix.python-version }}
