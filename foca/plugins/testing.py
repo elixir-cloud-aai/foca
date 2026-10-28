@@ -45,6 +45,7 @@ from foca.plugins.model import (
     Principal,
 )
 from foca.plugins.records import Execution
+from foca.plugins.store import Store
 from foca.utils.http import (
     _METHOD,
     AddressNotAllowed,
@@ -554,13 +555,24 @@ class PluginHarness:
     starts a new run (also in `run`, per thread), runs the earlier phases
     first (e.g., `request` before `route`), and returns the output of its
     phase; the hook calls are in `executions`. Harnesses may be used from
-    several threads at once.
+    several threads at once. `ctx.store` keeps its entries in memory, for
+    all runs of the harness (unless `store_backend` is passed), and `store`
+    gives the tests the same entries.
 
     Attributes:
         plugin: Loaded plugin (one instance for all runs).
         host: Plugin host.
         http: Fake HTTP client of the calls.
     """
+
+    @property
+    def store(self) -> Store:
+        """Get the plugin's store, e.g., to add or check entries in tests.
+
+        Returns:
+            Store with the entries of `ctx.store`, without deadline.
+        """
+        return self.host.store(self.plugin.id)
 
     def __init__(
         self,

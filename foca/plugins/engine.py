@@ -56,6 +56,7 @@ from enum import Enum
 from typing import Any, Final
 from urllib.parse import urlsplit
 
+from packaging.utils import canonicalize_name
 from pydantic import ValidationError
 
 from foca.plugins.base import (
@@ -73,6 +74,7 @@ from foca.plugins.checks import (
     default_outbound,
 )
 from foca.plugins.config import (
+    BUILTIN_PLUGINS,
     DEFAULT_ROUTER,
     GATEWAY_ID_PATTERN,
     PRESET_PATTERN,
@@ -142,6 +144,15 @@ from foca.plugins.selection import (
     parse_client_pipeline,
     parse_client_tags,
 )
+from foca.plugins.store import (
+    STORE_COLLECTION,
+    MemoryStoreBackend,
+    MongoStoreBackend,
+    Store,
+    StoreBackend,
+    StoreMode,
+    StoreSettings,
+)
 from foca.plugins.tags import check_reserved_tags
 from foca.utils.http import GuardedClient
 
@@ -178,6 +189,89 @@ def _default_gateway_id(public_url: str | None) -> str | None:
         host = f"[{host}]"
     name = f"{host}:{port}" if port is not None else host
     return name if _GATEWAY_ID.fullmatch(name) else None
+
+
+def _store_namespace(plugin: LoadedPlugin) -> str:
+    """Get the namespace of a plugin's store entries.
+
+    Args:
+        plugin: Loaded plugin.
+
+    Returns:
+        `foca` for built-in plugins; otherwise the normalized name of the
+        plugin's distribution (PEP 503), shared by all plugins of the
+        distribution; without known distribution (e.g., in tests),
+        `plugin:` and the plugin identifier, which no distribution name
+        can be.
+    """
+    if plugin.id in BUILTIN_PLUGINS:
+        return "foca"
+    if plugin.distribution:
+        return canonicalize_name(plugin.distribution)
+    return f"plugin:{plugin.id}"
+
+
+def _store_settings(
+    plugins: Mapping[str, LoadedPlugin],
+    conf: PluginsConfig,
+    backend: StoreBackend,
+) -> dict[str, StoreSettings]:
+    """Get the store settings of the loaded plugins.
+
+    Args:
+        plugins: Loaded plugins, by identifier.
+        conf: Plugin configuration.
+        backend: Backend of the stores.
+
+    Returns:
+        Settings, by plugin identifier. Plugins whose store is turned off
+        share one memory backend.
+    """
+    memory = MemoryStoreBackend()
+    settings = {}
+    for plugin_id, plugin in plugins.items():
+        effective = plugin.available.store.apply(conf.defaults.store)
+        mode: StoreMode
+        plugin_backend: StoreBackend
+        if not effective.enabled:
+            mode, plugin_backend = "off", memory
+        else:
+            mode = "shared" if backend.shared else "local"
+            plugin_backend = backend
+        settings[plugin_id] = StoreSettings(
+            namespace=_store_namespace(plugin),
+            mode=mode,
+            backend=plugin_backend,
+            max_entry_size=effective.max_entry_size,
+            max_ttl=effective.max_ttl,
+        )
+    return settings
+
+
+def _mongo_store_backend(db: Any) -> MongoStoreBackend | None:
+    """Get the store backend of the app's database, if any.
+
+    Args:
+        db: `db` section of the FOCA configuration
+            (:py:class:`foca.models.config.MongoConfig`), if any.
+
+    Returns:
+        Backend with the collection `STORE_COLLECTION` of the first
+        database of `db.dbs`; `None` if no database is configured.
+    """
+    # imported here: the config models import the plugin modules
+    from foca.database.register_mongodb import (  # noqa: PLC0415
+        get_mongo_client,
+        get_mongo_db_name,
+    )
+
+    if db is None or not db.dbs:
+        return None
+    name, db_conf = next(iter(db.dbs.items()))
+    database = db_conf.client
+    if database is None:  # not registered (yet), e.g., in tests
+        database = get_mongo_client(db)[get_mongo_db_name(name)]
+    return MongoStoreBackend(database[STORE_COLLECTION])
 
 
 class _Default(Enum):
@@ -279,6 +373,7 @@ class PluginHost:
         plugins: Mapping[str, LoadedPlugin] | None = None,
         app_info: Mapping[str, str] | None = None,
         http_client: Callable[..., GuardedClient] = GuardedClient,
+        store_backend: StoreBackend | None = None,
     ) -> None:
         """Load the plugins and resolve the default pipeline.
 
@@ -317,6 +412,11 @@ class PluginHost:
                 with the keyword arguments of
                 :py:class:`foca.utils.http.GuardedClient` (e.g., a fake for
                 tests, cf. :py:class:`foca.plugins.testing.FakeHttp`).
+            store_backend: Backend of the plugins' stores (`ctx.store`),
+                e.g., :py:class:`foca.plugins.store.MongoStoreBackend`; by
+                default, each process keeps the entries in memory. Plugins
+                whose store is turned off (`store.enabled`) keep theirs in
+                memory anyway.
 
         Raises:
             ValueError: Plugins cannot be loaded (cf.
@@ -335,6 +435,8 @@ class PluginHost:
         self.plugins: dict[str, LoadedPlugin] = (
             dict(plugins) if plugins is not None else load_plugins(conf, api=api)
         )
+        self._store_backend: StoreBackend = store_backend or MemoryStoreBackend()
+        self._stores = _store_settings(self.plugins, conf, self._store_backend)
         self._executor = _Executor(conf.defaults.workers)
         try:
             self.default_pipeline = ResolvedPipeline(
@@ -424,7 +526,10 @@ class PluginHost:
             app_info: Name and version of the app (cf. :py:class:`PluginHost`).
 
         Returns:
-            Host with the plugins of `plugins` (none if not configured).
+            Host with the plugins of `plugins` (none if not configured); the
+            plugins' stores keep their entries in the collection
+            :py:data:`foca.plugins.store.STORE_COLLECTION` of the first
+            database of `db.dbs`, if any, otherwise in memory.
 
         Raises:
             ValueError: The configuration has keys of earlier middleware
@@ -441,7 +546,49 @@ class PluginHost:
             validate_outbound=validate_outbound,
             public_url=config.server.public_url,
             app_info=app_info,
+            store_backend=_mongo_store_backend(getattr(config, "db", None)),
         )
+
+    def store_settings(self, plugin_id: str) -> StoreSettings:
+        """Get the store settings of a loaded plugin.
+
+        Args:
+            plugin_id: Identifier of the plugin.
+
+        Returns:
+            Settings: namespace, mode, backend and limits.
+
+        Raises:
+            KeyError: The plugin is not loaded.
+        """
+        return self._stores[plugin_id]
+
+    def store(self, plugin_id: str, deadline: float | None = None) -> Store:
+        """Get the store of a loaded plugin, e.g., for tests and maintenance.
+
+        Args:
+            plugin_id: Identifier of the plugin.
+            deadline: `time.monotonic()` value by which calls must end, if
+                any.
+
+        Returns:
+            Store, as `ctx.store` of the plugin's hooks.
+
+        Raises:
+            KeyError: The plugin is not loaded.
+        """
+        return Store(self._stores[plugin_id], deadline=deadline)
+
+    def setup_store(self) -> None:
+        """Prepare the backend of the stores, e.g., create its indexes.
+
+        Called once at startup (cf. `Foca.create_app()`); idempotent.
+
+        Raises:
+            pymongo.errors.PyMongoError: The database cannot be reached, or
+                an index conflicts with an existing one.
+        """
+        self._store_backend.setup()
 
     def resolve_steps(
         self, steps: Sequence[StepConfig], origin: str
@@ -1477,6 +1624,7 @@ class PipelineRun:
                     timeout=step.timeout,
                     **self.host.conf.defaults.http.model_dump(),
                 ),
+                store=self.host.store(alternative.plugin, deadline=call_deadline),
             )
         except Exception as exc:
             execution.outcome = "error"

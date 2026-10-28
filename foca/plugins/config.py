@@ -218,6 +218,61 @@ def _default_route_step(**options: Any) -> "StepConfig":
     return StepConfig.model_validate({"plugin": DEFAULT_ROUTER, **options})
 
 
+class StoreConfig(_Model):
+    """Key-value store of plugins (`plugins.defaults.store`, cf. `ctx.store`).
+
+    Args:
+        enabled: Whether plugins keep their entries in the app's database
+            (shared by all processes), if one is configured; if `false`,
+            each process keeps them in memory, as without database.
+        max_entry_size: Maximum size of values, in bytes, as compact JSON.
+        max_ttl: Maximum time to live of entries, in seconds (default: 30
+            days); entries without a time to live get it.
+
+    Attributes:
+        enabled: Whether plugins keep their entries in the database.
+        max_entry_size: Maximum size of values, in bytes.
+        max_ttl: Maximum time to live of entries, in seconds.
+    """
+
+    enabled: bool = True
+    max_entry_size: PositiveInt = 4096
+    max_ttl: PositiveFloat = 2_592_000
+
+
+class StoreOverrideConfig(_Model):
+    """Store settings of one plugin (`plugins.available.<id>.store`).
+
+    Unset keys take the value of `plugins.defaults.store`.
+
+    Args:
+        enabled: Whether the plugin keeps its entries in the database.
+        max_entry_size: Maximum size of values, in bytes.
+        max_ttl: Maximum time to live of entries, in seconds.
+
+    Attributes:
+        enabled: Whether the plugin keeps its entries in the database, if
+            set.
+        max_entry_size: Maximum size of values, in bytes, if set.
+        max_ttl: Maximum time to live of entries, in seconds, if set.
+    """
+
+    enabled: bool | None = None
+    max_entry_size: PositiveInt | None = None
+    max_ttl: PositiveFloat | None = None
+
+    def apply(self, defaults: StoreConfig) -> StoreConfig:
+        """Get the effective settings of the plugin.
+
+        Args:
+            defaults: Defaults of all plugins.
+
+        Returns:
+            Defaults, with the keys set here replaced.
+        """
+        return defaults.model_copy(update=self.model_dump(exclude_none=True))
+
+
 class AvailablePluginConfig(_Model):
     """Entry of the allowlist of plugins (`plugins.available`).
 
@@ -233,6 +288,9 @@ class AvailablePluginConfig(_Model):
         enabled: Whether the plugin is loaded; if `false`, its alternatives
             are dropped from all pipelines (a kill switch that keeps the
             entry).
+        store: Store settings of the plugin, replacing those of
+            `plugins.defaults.store` (e.g., `enabled: false` to keep its
+            entries in the memory of each process, not in the database).
 
     Attributes:
         distribution: Pinned distribution, if any.
@@ -241,6 +299,7 @@ class AvailablePluginConfig(_Model):
         client_selectable: Whether clients may choose the plugin.
         roles: Roles that may choose the plugin.
         enabled: Whether the plugin is loaded.
+        store: Store settings of the plugin.
     """
 
     distribution: str | None = None
@@ -249,6 +308,7 @@ class AvailablePluginConfig(_Model):
     client_selectable: bool = True
     roles: list[str] = []
     enabled: bool = True
+    store: StoreOverrideConfig = StoreOverrideConfig()
 
     @field_validator("version")
     @classmethod
@@ -308,6 +368,7 @@ class PluginDefaultsConfig(_Model):
         workers: Threads that run hooks (per process); calls beyond fail
             at once, as timed out.
         http: Outbound HTTP of plugins (`ctx.http`).
+        store: Key-value store of plugins (`ctx.store`).
 
     Attributes:
         timeout: Seconds per alternative and call.
@@ -315,6 +376,7 @@ class PluginDefaultsConfig(_Model):
         forward_timeout: Seconds for all forwarding attempts.
         workers: Threads that run hooks.
         http: Outbound HTTP of plugins.
+        store: Key-value store of plugins.
     """
 
     timeout: PositiveFloat = 10
@@ -322,6 +384,7 @@ class PluginDefaultsConfig(_Model):
     forward_timeout: PositiveFloat = 60
     workers: PositiveInt = 8
     http: HttpConfig = HttpConfig()
+    store: StoreConfig = StoreConfig()
 
 
 class ClientPipelinesConfig(_Model):

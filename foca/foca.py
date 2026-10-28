@@ -158,6 +158,10 @@ class Foca:
             RuntimeError: Other gateway settings, or the gateway settings
                 of another FOCA app, are configured in the process (cf.
                 :py:func:`foca.plugins.runtime.configure`).
+            pymongo.errors.PyMongoError: The database of the plugins' store
+                (cf. :py:meth:`foca.plugins.PluginHost.setup_store`) cannot
+                be reached, or one of its indexes conflicts with an existing
+                one.
         """
         # Serve only the gateway app whose configuration hosts are built from
         if self.gateway is not None:
@@ -207,7 +211,12 @@ class Foca:
         # each process creates its own host on first use (after forks), so
         # plugins are instantiated (`setup()`) once more there
         if self.gateway is not None:
-            runtime.create_host().close()
+            host = runtime.create_host()
+            try:
+                # e.g., the indexes of the plugins' store
+                host.setup_store()
+            finally:
+                host.close()
             if self.gateway.backends is not None:
                 # validates the backend list only; requests build their own
                 runtime.get_backend_list()
