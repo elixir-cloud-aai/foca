@@ -106,6 +106,18 @@ configuration models, see [Configuration](configuration/index.md).
       members:
         - Context
 
+::: foca.plugins.store
+    options:
+      members:
+        - Store
+        - StoreError
+        - StoreSettings
+        - StoreBackend
+        - MemoryStoreBackend
+        - MongoStoreBackend
+        - STORE_COLLECTION
+        - STORE_INDEXES
+
 ::: foca.plugins.engine
     options:
       members:

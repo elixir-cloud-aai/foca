@@ -269,7 +269,7 @@ and each attempt.
 
 Built-in plugins (identifiers starting with `foca.`, which are reserved)
 need no entry in `plugins.available`; an entry sets only `enabled`,
-`roles`, `client_selectable` and `config` (no pins). With `enabled: false`,
+`roles`, `client_selectable`, `config` and `store` (no pins). With `enabled: false`,
 a default pipeline that still lists the router stops the app at startup.
 Other route plugins (e.g., distance routing) replace it in `pipeline` or
 presets.
@@ -320,8 +320,10 @@ Rules:
   (`Context`): the caller (`ctx.principal`, with claims and token), the
   validated parameters (`ctx.params`), the payload before any plugin
   (`ctx.original`), the deadline (`ctx.deadline`, `ctx.remaining()`), a
-  per-request state (`ctx.state`), a logger (`ctx.log`) and annotations for
-  records (`ctx.record()`, no personal data). Don't import the web framework
+  per-request state (`ctx.state`), a key-value store across requests
+  (`ctx.store`, cf. [plugin store](#plugin-store)), a logger (`ctx.log`)
+  and annotations for records (`ctx.record()`, no personal data). Don't
+  import the web framework
   (Flask, Werkzeug, Connexion, Starlette): plugins then run unchanged on
   FOCA 1.0.
 - Send HTTP requests with `ctx.http` (a `foca.utils.http.GuardedClient`
@@ -335,12 +337,69 @@ Rules:
   errors, which stop the app or fail the request); it runs when pipelines
   are resolved.
 - One instance serves all requests of a process, from several threads:
-  keep per-request data in `ctx.state`, not on `self`.
+  keep per-request data in `ctx.state`, and data across requests in
+  `ctx.store`, not on `self`.
 - `setup()` may run more than once per process, so it must be idempotent.
 - Identifiers of plugins outside FOCA's own repositories start with a
   prefix of their own (e.g., `org.example.`).
 - Hooks are plain functions (`def`); FOCA 1.0 will also accept `async def`
   with the same arguments.
+
+### Plugin store
+
+`ctx.store` keeps small JSON data across requests, e.g., a cache of
+lookups, or counters for a per-user budget of a third-party API:
+
+```python
+from foca.plugins import NotApplicable
+
+
+def on_route(self, candidates, ctx):
+    user = ctx.store.key_for(
+        "lookups", ctx.principal.subject_type, ctx.principal.subject
+    )
+    if ctx.store.increment(user, ttl=86400, limit=self.config.daily_lookups) is None:
+        raise NotApplicable("daily lookup budget used up")
+    location = ctx.store.get(f"geo:{host}")
+    if location is None:
+        location = self.lookup(host, ctx)
+        ctx.store.set(f"geo:{host}", location, ttl=3600)
+    ...
+```
+
+- `get(key, default=None)`, `set(key, value, *, ttl=None)`, `delete(key)`
+  (whether the key had a value) and `increment(key, by=1, *, ttl=None,
+  limit=None)`: increments atomically, across processes, and returns the
+  new value, or `None` without incrementing if it would exceed `limit`. A
+  counter gets its TTL when it is created (absent or expired); later
+  increments keep it, so `ttl=86400` counts per fixed day-long window.
+- Keys are strings of 1 to 256 characters; values are JSON data (I-JSON:
+  mappings with string keys, lists, strings, finite numbers, integers up to
+  2^53 - 1, booleans, `null`), at most `max_entry_size` bytes (default:
+  4 KiB) as compact JSON. `get()` returns a copy, and `null` values look
+  like absent keys. Values of `set()` are no counters (`increment()` on
+  them raises `StoreError`); `set()` replaces counters.
+- Every entry expires: after its `ttl` (seconds), at most after the
+  operator's `max_ttl` (default: 30 days), which is also the default.
+- Entries are in a namespace per distribution: plugins of one
+  distribution share them, plugins of others can't read them; FOCA's
+  built-in plugins use `foca`.
+- With a database, all processes and replicas share the entries
+  (`ctx.store.mode` is `shared`); without one, or if the operator turned the
+  store off for the plugin (`plugins.available.<id>.store.enabled: false`),
+  each process has its own (`local` or `off`): counters then hold per
+  process, so budgets are only approximate.
+- Calls are bounded by the deadline of the hook; database errors and
+  timeouts raise `foca.plugins.StoreError` (invalid arguments
+  `ValueError`), which fails the call like any other error: catch it
+  where the plugin can go on without the store (e.g., a cache).
+- Keys and values are data the operator stores: keep personal data out,
+  or pseudonymize it, e.g., user identifiers with
+  `ctx.store.key_for(*parts)` (a SHA-256 hash of the namespace and the
+  parts; identifiers can still be guessed, so the entries remain personal
+  data, kept at most `max_ttl`). Don't store request payloads or secrets.
+- Hooks that are abandoned at their deadline cannot use the store any
+  more, but a write in progress may still complete.
 
 ### Testing plugins
 
@@ -376,6 +435,10 @@ def test_contract():
   (outcome, error type, annotations, changes) and `run` the whole run
   (e.g., `run.provenance()`). Other arguments of `PluginHost` pass through
   (e.g., the app's `validate`).
+- `ctx.store` keeps its entries in memory, shared by the runs of the
+  harness; `harness.store` gives tests the same entries (e.g., to add a
+  cached value, or check a counter). Pass `store_backend=` (cf.
+  `foca.plugins.store`) to use another backend.
 - Builders give valid inputs: `make_principal()` (with `subject_type`
   and `acting_for` for service clients), `make_inbound()`,
   `make_backend()`, `make_outbound()` and `make_response()`.
