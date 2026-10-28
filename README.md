@@ -132,9 +132,9 @@ as APA or BibTeX.
 
 ## Contributing
 
-Contributions are welcome! See [`CONTRIBUTING.md`][contributing] and
-[Contributing][docs-contributing] in the documentation, and mind our [code of
-conduct][code-of-conduct].
+Contributions are welcome! See [Contributing][docs-contributing] in the
+documentation and the organisation's [contributing guide][contributing], and
+mind our [code of conduct][code-of-conduct].
 
 [badge-build-status]: <https://github.com/elixir-cloud-aai/foca/actions/workflows/ci.yml/badge.svg>
 [badge-coverage]: <https://codecov.io/gh/elixir-cloud-aai/foca/branch/dev/graph/badge.svg?branch=dev>
@@ -152,8 +152,8 @@ conduct][code-of-conduct].
 [badge-url-github-tag]: <https://github.com/elixir-cloud-aai/foca/releases>
 [badge-url-license]: <https://www.apache.org/licenses/LICENSE-2.0>
 [badge-url-pypi]: <https://pypi.org/project/foca/>
-[code-of-conduct]: <https://github.com/elixir-cloud-aai/foca/blob/dev/CODE_OF_CONDUCT.md>
-[contributing]: <https://github.com/elixir-cloud-aai/foca/blob/dev/CONTRIBUTING.md>
+[code-of-conduct]: <https://github.com/elixir-cloud-aai/.github/blob/main/CODE_OF_CONDUCT.md>
+[contributing]: <https://github.com/elixir-cloud-aai/.github/blob/main/CONTRIBUTING.md>
 [docs]: <https://foca.readthedocs.io/en/latest/>
 [docs-config]: <https://foca.readthedocs.io/en/latest/configuration/>
 [docs-contributing]: <https://foca.readthedocs.io/en/latest/contributing/>
