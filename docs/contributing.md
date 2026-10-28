@@ -175,22 +175,27 @@ separate environment to run it outside pre-commit.
 CI (`ci.yml`) builds the Docker images of all Python versions for every
 pull request and push and scans them with [Trivy](https://trivy.dev/)
 (`.github/actions/scan-image`), and a weekly workflow (`scan.yml`) scans the
-images of the latest release. For pushes to `dev` and for releases
-(`release.yml`, before anything is published), the workflows push each image
+images of the latest release. For pushes to `dev` (in forks only if they set
+`DOCKERHUB_ORG`, see below) and for releases (`release.yml`, before anything
+is published), the workflows push each image
 by digest, untagged, scan exactly that digest in a job without credentials or
 signing permissions, and only if the scan passes attest, sign and tag it, so
 that the published images are the scanned ones; a digest that fails the scan
 stays untagged and unsigned. The scans fail on critical and high
 vulnerabilities that have a fix, and upload the findings that have a fix (all
 severities) to code scanning (Security tab; not for pull requests from forks,
-nor in the release workflow); findings without a fix appear there once a fix
+in forks without `DOCKERHUB_ORG`, nor in the release workflow); findings without a fix appear there once a fix
 is released. The weekly scan also uploads a full report, findings without a
 fix included, as the workflow artifact `trivy-report-release-image-pyV` of
 each run (`trivy-report.json` and `trivy-report.txt`, a table; Actions tab,
 "Scan"); it is not uploaded to code scanning. Accepted findings
 are left out of all results. All workflows take the Docker Hub organization
 from the repository variable `DOCKERHUB_ORG` (by default `elixircloud`), which
-forks set to the organization they publish to. If a scan fails:
+forks set to the organization they publish to (with the secrets
+`DOCKERHUB_LOGIN` and `DOCKERHUB_TOKEN`). Forks without it publish nothing:
+their CI builds and scans the images locally, as for pull requests, and
+passes without the secrets; the Codecov upload doesn't fail CI there either.
+If a scan fails:
 
 1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
    in `pyproject.toml` or update the base image (Dependabot's PRs do both).
