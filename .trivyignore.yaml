@@ -45,3 +45,7 @@ vulnerabilities:
     purls: ["pkg:pypi/msgpack@1.1.2"]
     statement: Vendored by pip, not used by the app (pip only runs at build time)
     expired_at: 2027-01-31
+  - id: CVE-2026-114613
+    purls: ["pkg:pypi/msgpack@1.1.2"]
+    statement: Vendored by pip, not used by the app (memory leak in map deserialization; pip only runs at build time, on its own cache data). pip 26.2.2, the latest release on 2026-10-28, still vendors 1.1.2; pip's main branch has 1.2.3
+    expired_at: 2027-01-31
