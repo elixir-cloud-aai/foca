@@ -6,6 +6,7 @@ from pathlib import Path
 
 from celery import Celery
 from connexion import App
+from pymongo.errors import PyMongoError
 
 from foca.api.register_openapi import register_openapi
 from foca.api.service_info import check_service_info
@@ -158,10 +159,6 @@ class Foca:
             RuntimeError: Other gateway settings, or the gateway settings
                 of another FOCA app, are configured in the process (cf.
                 :py:func:`foca.plugins.runtime.configure`).
-            pymongo.errors.PyMongoError: The database of the plugins' store
-                (cf. :py:meth:`foca.plugins.PluginHost.setup_store`) cannot
-                be reached, or one of its indexes conflicts with an existing
-                one.
         """
         # Serve only the gateway app whose configuration hosts are built from
         if self.gateway is not None:
@@ -213,8 +210,15 @@ class Foca:
         if self.gateway is not None:
             host = runtime.create_host()
             try:
-                # e.g., the indexes of the plugins' store
+                # the indexes of the plugins' store; writes to the store
+                # create them too, so the app may start without them
                 host.setup_store()
+            except PyMongoError as exc:
+                logger.warning(
+                    "Indexes of the plugin store not created (%s); writes to"
+                    " the store fail until they can be created",
+                    type(exc).__name__,
+                )
             finally:
                 host.close()
             if self.gateway.backends is not None:

@@ -37,6 +37,7 @@ from tests.plugins.test_plugin_runtime import write_config
 
 MONGO_URI = "mongodb://localhost:12345"
 DB_NAME = "foca_test_plugin_store"
+# Arbitrary time
 START = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
 
 
@@ -48,8 +49,8 @@ class Clock:
     """
 
     def __init__(self) -> None:
-        """Start at `START`."""
-        self.now = START
+        """Start now, as mongomock removes entries by its TTL index in real time."""
+        self.now = datetime.now(UTC).replace(microsecond=0)
 
     def __call__(self) -> datetime:
         """Get the current time.
@@ -82,11 +83,23 @@ def mongo_backend() -> Iterator[MongoStoreBackend]:
     client.close()
 
 
-@pytest.fixture(params=["memory", pytest.param("mongodb", marks=pytest.mark.mongodb)])
+@pytest.fixture(
+    params=[
+        "memory",
+        "mongomock",
+        pytest.param("mongodb", marks=pytest.mark.mongodb),
+    ]
+)
 def backend(request: pytest.FixtureRequest) -> StoreBackend:
-    """Backend in memory, or in a MongoDB server (cf. `mongo_backend`)."""
+    """Backend in memory, in mongomock (as in apps' tests) or in a MongoDB server.
+
+    Cf. `mongo_backend` for the server.
+    """
     if request.param == "memory":
         return MemoryStoreBackend()
+    if request.param == "mongomock":
+        collection: Any = mongomock.MongoClient()["db"][STORE_COLLECTION]
+        return MongoStoreBackend(collection)
     backend: MongoStoreBackend = request.getfixturevalue("mongo_backend")
     return backend
 
@@ -170,9 +183,11 @@ class TestStore:
         store.set("short", 5, ttl=10)
         assert store.get("short") == 5
 
-    @pytest.mark.parametrize("ttl", [0, -1, float("inf"), float("nan"), True, "1"])
+    @pytest.mark.parametrize(
+        "ttl", [0, 0.0004, -1, float("inf"), float("nan"), True, "1"]
+    )
     def test_invalid_ttl(self, backend: StoreBackend, ttl: Any) -> None:
-        """TTLs are positive, finite numbers of seconds."""
+        """TTLs are finite numbers of at least a millisecond."""
         store = make_store(backend)
         with pytest.raises(ValueError, match="ttl"):
             store.set("k", 1, ttl=ttl)
@@ -223,6 +238,8 @@ class TestStore:
 
     def test_concurrent_increments(self, backend: StoreBackend) -> None:
         """Increments are atomic: a limit holds across threads."""
+        if isinstance(getattr(backend, "collection", None), mongomock.Collection):
+            pytest.skip("mongomock is not thread-safe")
         store = make_store(backend)
         results: list[int | None] = []
         lock = threading.Lock()
@@ -312,10 +329,14 @@ class TestStore:
             store.increment("k", by=by, limit=limit)
 
     def test_default_limit(self, backend: StoreBackend) -> None:
-        """Counters stay within 2^53 - 1 without limit."""
+        """Counters stay within ±(2^53 - 1), also without limit."""
         store = make_store(backend)
         assert store.increment("c", by=2**53 - 1) == 2**53 - 1
         assert store.increment("c") is None
+        assert store.increment("d", by=-(2**53 - 1)) == -(2**53 - 1)
+        assert store.increment("d", by=-1) is None
+        assert store.increment("e", by=-1, limit=-2) is None
+        assert store.get("d") == -(2**53 - 1)
 
     def test_deadline(self, backend: StoreBackend) -> None:
         """Calls after the deadline fail."""
@@ -394,20 +415,69 @@ class TestMongoBackend:
         assert "n" not in documents["ns\x1fv"]
         assert documents["ns\x1fc"]["n"] == 1
         assert "value" not in documents["ns\x1fc"]
-        assert _aware(documents["ns\x1fc"]["expires_at"]) == START + timedelta(
+        assert _aware(documents["ns\x1fc"]["expires_at"]) == clock.now + timedelta(
             seconds=60
         )
         assert set(documents["ns\x1fc"]) == {"_id", "ns", "key", "n", "expires_at"}
 
     @pytest.mark.mongodb
     def test_rejected_new_counter(self, mongo_backend: MongoStoreBackend) -> None:
-        """New counters beyond the limit leave an expired document only."""
+        """New counters beyond the limit leave no document."""
         store = make_store(mongo_backend, Clock())
         assert store.increment("c", by=5, limit=1) is None
-        document = mongo_backend.collection.find_one({"_id": "ns\x1fc"})
-        assert document is not None
-        assert _aware(document["expires_at"]) == START
-        assert "n" not in document
+        assert mongo_backend.collection.find_one({"_id": "ns\x1fc"}) is None
+
+    @pytest.mark.mongodb
+    def test_datetime_options(self) -> None:
+        """Results don't depend on the client's datetime options."""
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            MONGO_URI, serverSelectionTimeoutMS=5000, datetime_conversion="DATETIME_MS"
+        )
+        try:
+            client.drop_database(DB_NAME)
+            backend = MongoStoreBackend(client[DB_NAME][STORE_COLLECTION])
+            store = make_store(backend, Clock())
+            assert [store.increment("c", limit=2) for _ in range(3)] == [1, 2, None]
+            store.set("v", 1)
+            with pytest.raises(StoreError, match="no counter"):
+                store.increment("v")
+            assert store.delete("v") is True
+        finally:
+            client.drop_database(DB_NAME)
+            client.close()
+
+    def test_contention(self) -> None:
+        """Increments retry if entries change in between, up to a bound."""
+        collection = MagicMock()
+        collection.with_options.return_value = collection
+        collection.find_one_and_update.return_value = None
+        # a live counter within the bounds (changed after the update), then
+        # none, as created and removed by others
+        collection.find_one.side_effect = [{"n": 0}, *[None] * 4]
+        collection.insert_one.side_effect = DuplicateKeyError("dup")
+        collection.replace_one.return_value.matched_count = 0
+        store = make_store(MongoStoreBackend(collection))
+        with pytest.raises(StoreError, match="busy"):
+            store.increment("k")
+        assert collection.find_one_and_update.call_count == 5
+
+    def test_lazy_indexes(self) -> None:
+        """Writes create the indexes until that succeeded once."""
+        collection = MagicMock()
+        collection.with_options.return_value = collection
+        collection.create_index.side_effect = [
+            ServerSelectionTimeoutError("down"),
+            None,
+            None,
+        ]
+        collection.find_one_and_update.return_value = {"n": 1}
+        backend = MongoStoreBackend(collection)
+        with pytest.raises(ServerSelectionTimeoutError):
+            backend.setup()
+        store = make_store(backend)
+        store.set("k", 1)
+        store.increment("c")
+        assert collection.create_index.call_count == 3
 
     @pytest.mark.mongodb
     def test_timeout(self, mongo_backend: MongoStoreBackend) -> None:
@@ -419,6 +489,7 @@ class TestMongoBackend:
     def test_errors(self) -> None:
         """Database errors become `StoreError`s, without their messages."""
         collection = MagicMock()
+        collection.with_options.return_value = collection
         error = ServerSelectionTimeoutError("secret detail")
         collection.find_one.side_effect = error
         collection.replace_one.side_effect = error
@@ -439,13 +510,12 @@ class TestMongoBackend:
     def test_invalid_documents(self) -> None:
         """Documents without valid expiry count as expired."""
         collection = MagicMock()
+        collection.with_options.return_value = collection
         collection.find_one.return_value = {"_id": "x", "value": "1"}
         collection.find_one_and_delete.return_value = {"_id": "x"}
-        collection.find_one_and_update.return_value = {"_id": "x", "value": "1"}
         store = make_store(MongoStoreBackend(collection), Clock())
         assert store.get("k") == 1  # the query filters by expiry
         assert store.delete("k") is False
-        assert store.increment("k") == 1
 
     def test_naive_times(self) -> None:
         """Naive times from MongoDB are UTC."""
@@ -522,14 +592,13 @@ class TestEngine:
     def test_shared(self) -> None:
         """With a shared backend, hosts share the entries."""
         backend = MongoStoreBackend(mongomock.MongoClient()["db"][STORE_COLLECTION])
-        backend.increment = MagicMock(return_value=7)  # type: ignore[method-assign]
         harness = PluginHarness(CountingPlugin, store_backend=backend)
         harness.run_request(make_inbound({}))
         assert harness.executions[0].annotations["mode"] == "shared"
-        assert harness.executions[0].annotations["count"] == 7
+        assert harness.executions[0].annotations["count"] == 1
 
-    def test_off(self) -> None:
-        """Plugins whose store is off keep entries in memory."""
+    def test_off(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Plugins whose store is off keep entries in memory; splits are logged."""
         backend = MongoStoreBackend(MagicMock())
         conf = PluginsConfig.model_validate(
             {
@@ -556,6 +625,9 @@ class TestEngine:
             assert isinstance(off.backend, MemoryStoreBackend)
             assert (on.mode, on.max_entry_size, on.max_ttl) == ("shared", 10, 2592000)
             assert on.backend is backend
+            assert "namespace dist keep their store entries apart (off, shared)" in (
+                caplog.text
+            )
             store = host.store("test.off")
             store.set("k", 1)
             assert store.get("k") == 1
@@ -601,7 +673,14 @@ class TestConfig:
         )
 
     @pytest.mark.parametrize(
-        "store", [{"max_ttl": 0}, {"max_entry_size": -1}, {"unknown": 1}]
+        "store",
+        [
+            {"max_ttl": 0},
+            {"max_ttl": "inf"},
+            {"max_ttl": 1e12},
+            {"max_entry_size": -1},
+            {"unknown": 1},
+        ],
     )
     def test_invalid(self, store: dict[str, Any]) -> None:
         """Limits are positive; unknown keys are errors."""
@@ -674,5 +753,36 @@ class TestFromConfig:
             _, client = mongo_clients[0]
             indexes = client["mine"][STORE_COLLECTION].index_information()
             assert "expires_at_ttl" in indexes
+        finally:
+            runtime.reset()
+
+    def test_create_app_without_indexes(
+        self,
+        tmp_path: Path,
+        fake_plugin_entry_points: RegisterPlugins,
+        mongo_clients: list[Any],
+        log: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Apps start if the indexes can't be created, with a warning."""
+
+        def fail(self: MongoStoreBackend) -> None:
+            raise ServerSelectionTimeoutError("down")
+
+        monkeypatch.setattr(MongoStoreBackend, "setup", fail)
+        fake_plugin_entry_points({"test.count": CountingPlugin})
+        config = write_config(
+            tmp_path,
+            {
+                "db": {"dbs": {"mine": {}}},
+                "plugins": {
+                    "available": {"test.count": {}},
+                    "pipeline": ["test.count"],
+                },
+            },
+        )
+        try:
+            Foca(config_file=config, gateway=GatewayApp(api="tes")).create_app()
+            assert "Indexes of the plugin store not created" in log.text
         finally:
             runtime.reset()

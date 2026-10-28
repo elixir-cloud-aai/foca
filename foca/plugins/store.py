@@ -32,12 +32,14 @@ import hashlib
 import json
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Protocol
 
 import pymongo
+from bson.codec_options import CodecOptions, DatetimeConversion
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
@@ -57,6 +59,10 @@ STORE_INDEXES: list[dict[str, Any]] = [
     {"keys": [("ns", pymongo.ASCENDING)], "options": {"name": "ns"}},
 ]
 """Indexes of the collection of the store, as for `create_index()`."""
+
+MIN_TTL = 0.001
+"""Minimum time to live of entries, in seconds (times are stored in
+milliseconds)."""
 
 MAX_KEY_LENGTH = 256
 """Maximum length of keys, in characters."""
@@ -79,7 +85,7 @@ class StoreError(PluginError):
 
 
 @dataclass(frozen=True)
-class _Entry:
+class StoreEntry:
     """Entry as kept by a backend.
 
     Attributes:
@@ -109,7 +115,9 @@ class StoreBackend(Protocol):
     def setup(self) -> None:
         """Prepare the backend, e.g., create indexes, at startup."""
 
-    def get(self, ns: str, key: str, now: datetime, timeout: float) -> _Entry | None:
+    def get(
+        self, ns: str, key: str, now: datetime, timeout: float
+    ) -> StoreEntry | None:
         """Get an entry.
 
         Args:
@@ -212,14 +220,14 @@ class MemoryStoreBackend:
 
     def __init__(self) -> None:
         """Create an empty backend."""
-        self._entries: dict[tuple[str, str], _Entry] = {}
+        self._entries: dict[tuple[str, str], StoreEntry] = {}
         self._lock = threading.Lock()
         self._writes = 0
 
     def setup(self) -> None:
         """Do nothing: the backend needs no preparation."""
 
-    def _live(self, ns: str, key: str, now: datetime) -> _Entry | None:
+    def _live(self, ns: str, key: str, now: datetime) -> StoreEntry | None:
         """Get an entry that has not expired; call with the lock held.
 
         Args:
@@ -236,7 +244,7 @@ class MemoryStoreBackend:
             return None
         return entry
 
-    def _write(self, ns: str, key: str, entry: _Entry, now: datetime) -> None:
+    def _write(self, ns: str, key: str, entry: StoreEntry, now: datetime) -> None:
         """Write an entry, removing expired ones from time to time.
 
         Call with the lock held.
@@ -255,7 +263,9 @@ class MemoryStoreBackend:
             ]:
                 del self._entries[ident]
 
-    def get(self, ns: str, key: str, now: datetime, timeout: float) -> _Entry | None:
+    def get(
+        self, ns: str, key: str, now: datetime, timeout: float
+    ) -> StoreEntry | None:
         """Get an entry (cf. :py:class:`StoreBackend`).
 
         Args:
@@ -290,7 +300,7 @@ class MemoryStoreBackend:
             timeout: Seconds that the call may take (not used).
         """
         with self._lock:
-            self._write(ns, key, _Entry(value, None, expires_at), now)
+            self._write(ns, key, StoreEntry(value, None, expires_at), now)
 
     def delete(self, ns: str, key: str, now: datetime, timeout: float) -> bool:
         """Delete an entry (cf. :py:class:`StoreBackend`).
@@ -343,12 +353,12 @@ class MemoryStoreBackend:
             if entry is not None and entry.count is None:
                 raise _counter_conflict(key)
             count = (entry.count or 0) if entry is not None else 0
-            if count + by > limit:
+            if not -MAX_SAFE_INTEGER <= count + by <= limit:
                 return None
             self._write(
                 ns,
                 key,
-                _Entry(
+                StoreEntry(
                     None,
                     count + by,
                     entry.expires_at if entry is not None else expires_at,
@@ -386,6 +396,7 @@ class MongoStoreBackend:
     """
 
     shared = True
+    _ATTEMPTS = 5
 
     def __init__(self, collection: Collection[dict[str, Any]]) -> None:
         """Create the backend.
@@ -393,10 +404,21 @@ class MongoStoreBackend:
         Args:
             collection: Collection of the entries (cf. `STORE_COLLECTION`).
         """
-        self.collection = collection
+        # time zone aware UTC times whatever the client's options (e.g.,
+        # `datetime_conversion` in `MONGO_URI`), as results depend on them
+        self.collection: Collection[dict[str, Any]] = collection.with_options(
+            codec_options=CodecOptions(
+                tz_aware=True,
+                datetime_conversion=DatetimeConversion.DATETIME,
+            )
+        )
+        self._indexed = False
 
     def setup(self) -> None:
         """Create the indexes of the collection, if they don't exist yet.
+
+        Writes call it too, until it succeeded once in the process, so that
+        entries are never written without the TTL index.
 
         Raises:
             pymongo.errors.PyMongoError: The database cannot be reached, or
@@ -404,8 +426,20 @@ class MongoStoreBackend:
         """
         for index in STORE_INDEXES:
             self.collection.create_index(index["keys"], **index["options"])
+        self._indexed = True
 
-    def get(self, ns: str, key: str, now: datetime, timeout: float) -> _Entry | None:
+    def _ensure_indexes(self) -> None:
+        """Create the indexes unless done in this process already.
+
+        Raises:
+            pymongo.errors.PyMongoError: The indexes cannot be created.
+        """
+        if not self._indexed:
+            self.setup()
+
+    def get(
+        self, ns: str, key: str, now: datetime, timeout: float
+    ) -> StoreEntry | None:
         """Get an entry (cf. :py:class:`StoreBackend`).
 
         Args:
@@ -426,7 +460,7 @@ class MongoStoreBackend:
             )
         if document is None:
             return None
-        return _Entry(
+        return StoreEntry(
             document.get("value"),
             document.get("n"),
             _aware(document.get("expires_at")) or now,
@@ -457,6 +491,7 @@ class MongoStoreBackend:
         ident = _ident(ns, key)
         document = {"ns": ns, "key": key, "value": value, "expires_at": expires_at}
         with _guard(timeout):
+            self._ensure_indexes()
             _retry_upsert(
                 lambda: self.collection.replace_one(
                     {"_id": ident}, document, upsert=True
@@ -499,10 +534,11 @@ class MongoStoreBackend:
     ) -> int | None:
         """Increment a counter atomically (cf. :py:class:`StoreBackend`).
 
-        One update with an aggregation pipeline applies the increment only
-        if the counter stays within the limit, and creates the counter if it
-        is absent or expired; the result is derived from the document
-        before the update, with the same rules.
+        The server decides with conditional updates of one document, which
+        are atomic: first, a live counter is incremented if the new value
+        stays within the bounds; otherwise, an absent or expired entry is
+        replaced by a new counter. If a concurrent call creates the entry
+        in between, the steps are tried again.
 
         Args:
             ns: Namespace.
@@ -514,83 +550,52 @@ class MongoStoreBackend:
             timeout: Seconds that the call may take.
 
         Returns:
-            New value, or `None` if it would exceed `limit`.
+            New value, or `None` if it would exceed `limit` or go below
+            -(2^53 - 1).
 
         Raises:
-            StoreError: The key holds a value that is no counter, or the
-                database failed or was too slow.
+            StoreError: The key holds a value that is no counter, the
+                database failed or was too slow, or concurrent calls kept
+                the increment from applying.
         """
-        live = {"$gt": ["$expires_at", now]}
-        pipeline: list[dict[str, Any]] = [
-            {
-                "$set": {
-                    "_live": live,
-                    "_value": {"$ne": [{"$type": "$value"}, "missing"]},
-                }
-            },
-            {
-                "$set": {
-                    "_conflict": {"$and": ["$_live", "$_value"]},
-                    "_new": {
-                        "$add": [
-                            {"$cond": ["$_live", {"$ifNull": ["$n", 0]}, 0]},
-                            by,
-                        ]
-                    },
-                }
-            },
-            {
-                "$set": {
-                    "_ok": {
-                        "$and": [
-                            {"$not": ["$_conflict"]},
-                            {"$lte": ["$_new", limit]},
-                        ]
-                    }
-                }
-            },
-            {
-                "$set": {
-                    "ns": ns,
-                    "key": key,
-                    "n": {"$cond": ["$_ok", "$_new", "$n"]},
-                    "value": {"$cond": ["$_ok", "$$REMOVE", "$value"]},
-                    "expires_at": {
-                        "$cond": [
-                            "$_live",
-                            "$expires_at",
-                            {
-                                "$cond": [
-                                    "$_ok",
-                                    expires_at,
-                                    {"$ifNull": ["$expires_at", now]},
-                                ]
-                            },
-                        ]
-                    },
-                }
-            },
-            {"$unset": ["_live", "_value", "_conflict", "_new", "_ok"]},
-        ]
+        ident = _ident(ns, key)
+        live = {"$gt": now}
         with _guard(timeout):
-            before = _retry_upsert(
-                lambda: self.collection.find_one_and_update(
-                    {"_id": _ident(ns, key)},
-                    pipeline,
-                    upsert=True,
-                    return_document=pymongo.ReturnDocument.BEFORE,
+            self._ensure_indexes()
+            for _ in range(self._ATTEMPTS):
+                counter = self.collection.find_one_and_update(
+                    {
+                        "_id": ident,
+                        "expires_at": live,
+                        "value": {"$exists": False},
+                        "n": {"$lte": limit - by, "$gte": -MAX_SAFE_INTEGER - by},
+                    },
+                    {"$inc": {"n": by}},
+                    return_document=pymongo.ReturnDocument.AFTER,
                 )
-            )
-        before_expiry = _aware(before.get("expires_at")) if before else None
-        if before is None or before_expiry is None or before_expiry <= now:
-            count = 0
-        elif "value" in before:
-            raise _counter_conflict(key)
-        else:
-            count = before.get("n") or 0
-        if count + by > limit:
-            return None
-        return int(count + by)
+                if counter is not None:
+                    return int(counter["n"])
+                current = self.collection.find_one({"_id": ident, "expires_at": live})
+                if current is not None:
+                    if "value" in current:
+                        raise _counter_conflict(key)
+                    if not -MAX_SAFE_INTEGER <= current.get("n", 0) + by <= limit:
+                        return None
+                    continue  # changed in between
+                if not -MAX_SAFE_INTEGER <= by <= limit:
+                    return None
+                counter = {"ns": ns, "key": key, "n": by, "expires_at": expires_at}
+                try:
+                    self.collection.insert_one({"_id": ident, **counter})
+                except DuplicateKeyError:
+                    # an expired entry, or one created in between
+                    replaced = self.collection.replace_one(
+                        {"_id": ident, "expires_at": {"$lte": now}}, counter
+                    )
+                    if not replaced.matched_count:
+                        continue
+                return by
+        raise StoreError("Plugin store busy: increment not applied")
 
 
 def _ident(ns: str, key: str) -> str:
@@ -621,34 +626,24 @@ def _retry_upsert(operation: Callable[[], Any]) -> Any:
         return operation()
 
 
-class _guard:
-    """Bound database calls by a timeout and turn their errors into `StoreError`."""
+@contextmanager
+def _guard(timeout: float) -> Iterator[None]:
+    """Bound database calls by a timeout and turn their errors into `StoreError`.
 
-    def __init__(self, timeout: float) -> None:
-        """Create the guard.
+    Args:
+        timeout: Seconds that the calls may take together.
 
-        Args:
-            timeout: Seconds that the calls may take together.
-        """
-        self._timeout = pymongo.timeout(timeout)
+    Yields:
+        Nothing; the calls run in the context.
 
-    def __enter__(self) -> None:
-        """Start the timeout."""
-        self._timeout.__enter__()
-
-    def __exit__(self, exc_type: Any, exc: BaseException | None, tb: Any) -> None:
-        """End the timeout.
-
-        Args:
-            exc_type: Type of the exception, if any.
-            exc: Exception, if any.
-            tb: Traceback, if any.
-
-        Raises:
-            StoreError: The calls raised a PyMongo error (e.g., a timeout).
-        """
-        self._timeout.__exit__(exc_type, exc, tb)
-        if isinstance(exc, PyMongoError):
+    Raises:
+        StoreError: The calls raised a PyMongo error (e.g., a timeout); its
+            message is left out, as it may name hosts.
+    """
+    with pymongo.timeout(timeout):
+        try:
+            yield
+        except PyMongoError as exc:
             raise StoreError(f"Plugin store failed: {type(exc).__name__}") from exc
 
 
@@ -748,18 +743,21 @@ class Store:
             Time at which the entry expires.
 
         Raises:
-            ValueError: The time to live is no positive, finite number.
+            ValueError: The time to live is no finite number of at least
+                `MIN_TTL` seconds.
         """
         max_ttl = self._settings.max_ttl
         if ttl is not None:
             if (
                 isinstance(ttl, bool)
                 or not isinstance(ttl, int | float)
-                or not 0 < ttl < float("inf")
+                or not MIN_TTL <= ttl < float("inf")
             ):
-                raise ValueError("ttl must be a positive number of seconds")
+                raise ValueError(f"ttl must be a number of at least {MIN_TTL} seconds")
             max_ttl = min(ttl, max_ttl)
-        return now + timedelta(seconds=max_ttl)
+        expires_at = now + timedelta(seconds=max_ttl)
+        # as stored: millisecond precision
+        return expires_at.replace(microsecond=expires_at.microsecond // 1000 * 1000)
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get the value of a key.
@@ -860,10 +858,11 @@ class Store:
             ttl: Time to live of a new counter, in seconds; at most the
                 operator's `max_ttl`, which is also the default.
             limit: Maximum value of the counter; at most 2^53 - 1, which is
-                also the default.
+                also the default; counters never go below -(2^53 - 1).
 
         Returns:
-            New value; `None` if it would exceed `limit`, in which case the
+            New value; `None` if it would exceed `limit` (or go below
+            -(2^53 - 1)), in which case the
             counter is left unchanged.
 
         Raises:
@@ -873,15 +872,9 @@ class Store:
                 failed, or the deadline passed.
         """
         _check_key(key)
-        for name, number in (("by", by), ("limit", limit)):
-            if number is None and name == "limit":
-                continue
-            if (
-                isinstance(number, bool)
-                or not isinstance(number, int)
-                or abs(number) > MAX_SAFE_INTEGER
-            ):
-                raise ValueError(f"{name} must be an integer up to 2^53 - 1")
+        _check_int("by", by)
+        if limit is not None:
+            _check_int("limit", limit)
         now = self._clock()
         expires_at = self._expiry(ttl, now)
         return self._settings.backend.increment(
@@ -939,6 +932,25 @@ def _mapping_keys(value: Any) -> list[Any]:
         elif isinstance(item, list | tuple):
             stack.extend(item)
     return keys
+
+
+def _check_int(name: str, value: Any) -> None:
+    """Check an integer argument.
+
+    Args:
+        name: Name of the argument, for messages.
+        value: Value.
+
+    Raises:
+        ValueError: The value is no integer (booleans aren't either), or
+            beyond 2^53 - 1.
+    """
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or abs(value) > MAX_SAFE_INTEGER
+    ):
+        raise ValueError(f"{name} must be an integer up to 2^53 - 1")
 
 
 def _check_key(key: Any) -> None:

@@ -176,20 +176,25 @@ Plugins keep small data across requests in `ctx.store` (cf. [plugin
 store](../plugins.md#plugin-store)), e.g., caches and per-user counters.
 With a database configured (`db.dbs`), the entries are in the collection
 `plugin_store` of the **first** database, shared by all processes and
-replicas; gateway apps create its indexes at startup (a TTL index on
+replicas. Gateway apps create its indexes at startup (a TTL index on
 `expires_at`, and one on `ns`), so the database user needs the right to
-create indexes. Without database, each process keeps its entries in
-memory.
+create indexes; if that fails (e.g., the database is not reachable yet),
+the app logs a warning and starts anyway, and writes to the store create
+the indexes first, failing until they can. Without database, each process
+keeps its entries in memory.
 
 - `defaults.store.enabled: false`, or `available.<id>.store.enabled:
   false` for one plugin, keeps the entries in the memory of each process
   even with a database, e.g., when a plugin's data must not be stored
-  (counters and caches then hold per process only).
+  (counters and caches then hold per process only). Set it for all
+  plugins of a distribution: otherwise, they don't see each other's
+  entries (the app logs a warning).
 - `max_entry_size` limits each value (bytes of compact JSON); larger
   values fail the plugin call.
-- `max_ttl` limits how long entries live (default: 30 days); entries
-  without TTL get it, longer TTLs are cut to it. MongoDB removes expired
-  entries about once a minute; until then, they are no longer read.
+- `max_ttl` limits how long entries live (default: 30 days, at most 10
+  years); entries without TTL get it, longer TTLs are cut to it. MongoDB
+  removes expired entries about once a minute; until then, they are no
+  longer read.
 - Plugins of one distribution share a namespace; plugins of other
   distributions can't read it. Entries keyed by users are personal data:
   their retention is at most `max_ttl`.

@@ -1,7 +1,7 @@
 """Configuration models of gateway plugins (FOCA config section `plugins`)."""
 
 import re
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from pydantic import (
@@ -218,6 +218,12 @@ def _default_route_step(**options: Any) -> "StepConfig":
     return StepConfig.model_validate({"plugin": DEFAULT_ROUTER, **options})
 
 
+MAX_STORE_TTL = 10 * 365 * 86400
+"""Upper bound of `max_ttl` of the plugin store, in seconds (10 years)."""
+
+MaxTtl = Annotated[float, Field(ge=0.001, le=MAX_STORE_TTL, allow_inf_nan=False)]
+
+
 class StoreConfig(_Model):
     """Key-value store of plugins (`plugins.defaults.store`, cf. `ctx.store`).
 
@@ -237,7 +243,7 @@ class StoreConfig(_Model):
 
     enabled: bool = True
     max_entry_size: PositiveInt = 4096
-    max_ttl: PositiveFloat = 2_592_000
+    max_ttl: MaxTtl = 2_592_000
 
 
 class StoreOverrideConfig(_Model):
@@ -259,7 +265,7 @@ class StoreOverrideConfig(_Model):
 
     enabled: bool | None = None
     max_entry_size: PositiveInt | None = None
-    max_ttl: PositiveFloat | None = None
+    max_ttl: MaxTtl | None = None
 
     def apply(self, defaults: StoreConfig) -> StoreConfig:
         """Get the effective settings of the plugin.

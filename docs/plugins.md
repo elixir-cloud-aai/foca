@@ -269,10 +269,10 @@ and each attempt.
 
 Built-in plugins (identifiers starting with `foca.`, which are reserved)
 need no entry in `plugins.available`; an entry sets only `enabled`,
-`roles`, `client_selectable`, `config` and `store` (no pins). With `enabled: false`,
-a default pipeline that still lists the router stops the app at startup.
-Other route plugins (e.g., distance routing) replace it in `pipeline` or
-presets.
+`roles`, `client_selectable`, `config` and `store` (no pins). With
+`enabled: false`, a default pipeline that still lists the router stops the
+app at startup. Other route plugins (e.g., distance routing) replace it in
+`pipeline` or presets.
 
 ## Writing plugins
 
@@ -351,36 +351,43 @@ Rules:
 lookups, or counters for a per-user budget of a third-party API:
 
 ```python
-from foca.plugins import NotApplicable
+from foca.plugins import Context, NotApplicable, StoreError
 
 
-def on_route(self, candidates, ctx):
+def locate(self, host: str, ctx: Context) -> dict[str, float]:
+    try:
+        cached = ctx.store.get(f"geo:{host}")
+    except StoreError:  # go on without the cache
+        cached = None
+    if cached is not None:
+        return cached
     user = ctx.store.key_for(
         "lookups", ctx.principal.subject_type, ctx.principal.subject
     )
-    if ctx.store.increment(user, ttl=86400, limit=self.config.daily_lookups) is None:
+    budget = self.config.daily_lookups
+    if ctx.store.increment(user, ttl=86400, limit=budget) is None:
         raise NotApplicable("daily lookup budget used up")
-    location = ctx.store.get(f"geo:{host}")
-    if location is None:
-        location = self.lookup(host, ctx)
-        ctx.store.set(f"geo:{host}", location, ttl=3600)
-    ...
+    location = self.lookup(host, ctx)  # e.g., with ctx.http
+    ctx.store.set(f"geo:{host}", location, ttl=3600)
+    return location
 ```
 
 - `get(key, default=None)`, `set(key, value, *, ttl=None)`, `delete(key)`
   (whether the key had a value) and `increment(key, by=1, *, ttl=None,
   limit=None)`: increments atomically, across processes, and returns the
-  new value, or `None` without incrementing if it would exceed `limit`. A
-  counter gets its TTL when it is created (absent or expired); later
-  increments keep it, so `ttl=86400` counts per fixed day-long window.
+  new value, or `None` without incrementing if it would exceed `limit` (or
+  go below -(2^53 - 1)). A counter gets its TTL when it is created (absent
+  or expired); later increments keep it, so `ttl=86400` counts per fixed
+  day-long window. `get()` of a counter returns its value.
 - Keys are strings of 1 to 256 characters; values are JSON data (I-JSON:
   mappings with string keys, lists, strings, finite numbers, integers up to
   2^53 - 1, booleans, `null`), at most `max_entry_size` bytes (default:
   4 KiB) as compact JSON. `get()` returns a copy, and `null` values look
   like absent keys. Values of `set()` are no counters (`increment()` on
   them raises `StoreError`); `set()` replaces counters.
-- Every entry expires: after its `ttl` (seconds), at most after the
-  operator's `max_ttl` (default: 30 days), which is also the default.
+- Every entry expires: after its `ttl` (seconds, at least 0.001), at most
+  after the operator's `max_ttl` (default: 30 days), which is also the
+  default.
 - Entries are in a namespace per distribution: plugins of one
   distribution share them, plugins of others can't read them; FOCA's
   built-in plugins use `foca`.
@@ -388,7 +395,11 @@ def on_route(self, candidates, ctx):
   (`ctx.store.mode` is `shared`); without one, or if the operator turned the
   store off for the plugin (`plugins.available.<id>.store.enabled: false`),
   each process has its own (`local` or `off`): counters then hold per
-  process, so budgets are only approximate.
+  process, so budgets are only approximate. A plugin whose store is off
+  doesn't see the entries of the other plugins of its distribution (the
+  app logs a warning).
+- The store works with mongomock too (e.g., in apps' tests), which
+  removes entries by the TTL index in real time.
 - Calls are bounded by the deadline of the hook; database errors and
   timeouts raise `foca.plugins.StoreError` (invalid arguments
   `ValueError`), which fails the call like any other error: catch it

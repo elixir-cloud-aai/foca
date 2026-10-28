@@ -113,10 +113,12 @@ configuration models, see [Configuration](configuration/index.md).
         - StoreError
         - StoreSettings
         - StoreBackend
+        - StoreEntry
         - MemoryStoreBackend
         - MongoStoreBackend
         - STORE_COLLECTION
         - STORE_INDEXES
+        - MIN_TTL
 
 ::: foca.plugins.engine
     options:

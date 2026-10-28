@@ -53,7 +53,7 @@ import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from enum import Enum
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlsplit
 
 from packaging.utils import canonicalize_name
@@ -156,6 +156,10 @@ from foca.plugins.store import (
 from foca.plugins.tags import check_reserved_tags
 from foca.utils.http import GuardedClient
 
+# Imported for type checking only: the config models import this module
+if TYPE_CHECKING:
+    from foca.models.config import MongoConfig
+
 logger = logging.getLogger(__name__)
 
 MAX_VIA_LENGTH = 1024
@@ -245,10 +249,21 @@ def _store_settings(
             max_entry_size=effective.max_entry_size,
             max_ttl=effective.max_ttl,
         )
+    modes: dict[str, set[str]] = {}
+    for item in settings.values():
+        modes.setdefault(item.namespace, set()).add(item.mode)
+    for namespace, found in modes.items():
+        if len(found) > 1:
+            logger.warning(
+                "Plugins of namespace %s keep their store entries apart (%s):"
+                " turn the store on or off for all plugins of a distribution",
+                namespace,
+                ", ".join(sorted(found)),
+            )
     return settings
 
 
-def _mongo_store_backend(db: Any) -> MongoStoreBackend | None:
+def _mongo_store_backend(db: "MongoConfig | None") -> MongoStoreBackend | None:
     """Get the store backend of the app's database, if any.
 
     Args:
