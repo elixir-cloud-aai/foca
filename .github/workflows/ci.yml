@@ -553,7 +553,7 @@ jobs:
           fi
           echo "image=${IMAGE_NAME}@${digest}" >> "${GITHUB_OUTPUT}"
       - name: Scan image
-        uses: elixir-cloud-aai/.github/actions/scan-image@10e83030dfeb3eb740ef7eccce50820d020264e6 # scan-image
+        uses: elixir-cloud-aai/.github/actions/scan-image@743e82d290a53768454999e413756a924e383259 # v1.0.0
         with:
           image: ${{ steps.image.outputs.image }}
           category: image-py${{ matrix.python-version }}
@@ -659,7 +659,7 @@ jobs:
     permissions: {}
     steps:
       - name: Check results of all jobs
-        uses: elixir-cloud-aai/.github/actions/gate@10e83030dfeb3eb740ef7eccce50820d020264e6 # gate
+        uses: elixir-cloud-aai/.github/actions/gate@743e82d290a53768454999e413756a924e383259 # v1.0.0
         with:
           needs: ${{ toJSON(needs) }}
           # `push` and `publish` are skipped on purpose only if `PUBLISH` is
