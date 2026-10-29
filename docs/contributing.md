@@ -176,7 +176,7 @@ CI (`ci.yml`) builds the Docker images of all Python versions for every pull
 request and push and scans them with [Trivy](https://trivy.dev/)
 (the shared action
 [`scan-image`](https://github.com/elixir-cloud-aai/.github/tree/main/actions/scan-image)
-of the organisation, pinned to a commit), and a weekly workflow (`scan.yml`)
+of the organisation, pinned to the commit of a release), and a weekly workflow (`scan.yml`)
 scans the images of the latest release. For pushes to `dev` (in forks only if they set
 `DOCKERHUB_ORG`, see below) and for releases (`release.yml`, before anything
 is published), the workflows push each image by digest, untagged, scan exactly
@@ -210,7 +210,8 @@ don't fail CI. If a scan fails:
 
 The weekly scan uses the `.trivyignore.yaml` of `dev`, so that accepting a
 finding on `dev` also applies to the released images. Dependabot updates the
-actions, including the pins of the shared actions; the Trivy version is the
+actions, including the pins of the shared actions (`@<commit> # vX.Y.Z`), to
+new releases of `elixir-cloud-aai/.github`; the Trivy version is the
 default of the shared action's `trivy-version` input. The setup is the
 same as in [cloud-registry](https://github.com/elixir-cloud-aai/cloud-registry).
 
