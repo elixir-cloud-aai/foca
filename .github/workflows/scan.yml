@@ -68,7 +68,7 @@ jobs:
           echo "Scanning ${image}"
           echo "image=${image}" >> "${GITHUB_OUTPUT}"
       - name: Scan image
-        uses: elixir-cloud-aai/.github/actions/scan-image@10e83030dfeb3eb740ef7eccce50820d020264e6 # scan-image
+        uses: elixir-cloud-aai/.github/actions/scan-image@743e82d290a53768454999e413756a924e383259 # v1.0.0
         with:
           image: ${{ steps.image.outputs.image }}
           category: release-image-py${{ matrix.python-version }}
