@@ -240,7 +240,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Set up uv
-        uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.4"  # not bumped by Dependabot; update manually
           enable-cache: true
@@ -452,7 +452,7 @@ jobs:
           pip install -c requirements/release.txt setuptools-scm
           echo "version=$(python -m setuptools_scm)" >> "${GITHUB_OUTPUT}"
       - name: Log in to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ secrets.DOCKERHUB_LOGIN }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -484,17 +484,17 @@ jobs:
           # A re-run pushes a new digest, which replaces the earlier one
           overwrite: true
 
-  # Scans the images with Trivy (`.github/actions/scan-image`): for pull
-  # requests and pushes to forks (without `DOCKERHUB_ORG`) a local build,
-  # for other pushes exactly the digests pushed by `push`
-  # (`<image>@<digest>`; public, so pulling them needs no login), in a job
-  # without credentials or signing permissions, as the Trivy action resolves
-  # the Trivy binary from a mutable tag. The findings that have a fix are
-  # uploaded to code scanning of the upstream repository (not in forks, nor
-  # for pull requests from forks, whose token cannot write them), and the job
-  # fails on critical and high vulnerabilities that have a fix. Accepted
-  # findings are listed, with a reason and an expiry date, in
-  # `.trivyignore.yaml`. The release workflow scans the release images the
+  # Scans the images with Trivy (shared action
+  # `elixir-cloud-aai/.github/actions/scan-image`): for pull requests and
+  # pushes to forks (without `DOCKERHUB_ORG`) a local build, for other
+  # pushes exactly the digests pushed by `push` (`<image>@<digest>`; public,
+  # so pulling them needs no login), in a job without credentials or signing
+  # permissions, as the Trivy action resolves the Trivy binary from a mutable
+  # tag. The findings that have a fix are uploaded to code scanning of the
+  # upstream repository (not in forks, nor for pull requests from forks,
+  # whose token cannot write them), and the job fails on critical and high
+  # vulnerabilities that have a fix. Accepted findings are listed, with a
+  # reason and an expiry date, in `.trivyignore.yaml`. The release workflow scans the release images the
   # same way (`release.yml`), and the images of the latest release are
   # scanned weekly (`scan.yml`)
   scan:
@@ -553,7 +553,7 @@ jobs:
           fi
           echo "image=${IMAGE_NAME}@${digest}" >> "${GITHUB_OUTPUT}"
       - name: Scan image
-        uses: ./.github/actions/scan-image
+        uses: elixir-cloud-aai/.github/actions/scan-image@10e83030dfeb3eb740ef7eccce50820d020264e6 # scan-image
         with:
           image: ${{ steps.image.outputs.image }}
           category: image-py${{ matrix.python-version }}
@@ -594,7 +594,7 @@ jobs:
           fi
           echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
       - name: Log in to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ secrets.DOCKERHUB_LOGIN }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -659,30 +659,9 @@ jobs:
     permissions: {}
     steps:
       - name: Check results of all jobs
-        env:
-          NEEDS: ${{ toJSON(needs) }}
-        run: |
-          # Jobs that are skipped on purpose for this run (only if `PUBLISH`
-          # is exactly "false", so that the gate fails closed)
-          skippable=()
-          if [[ "${PUBLISH}" == "false" ]]; then
-            skippable=(push publish)
-          fi
-          # Fails the step if jq fails; no results at all fail the check
-          results="$(jq -r 'to_entries[] | [.key, .value.result] | @tsv' <<< "${NEEDS}")"
-          if [[ -z "${results}" ]]; then
-            echo "::error::No job results"
-            exit 1
-          fi
-          failed=0
-          while IFS=$'\t' read -r job result; do
-            if [[ "${result}" == "success" ]]; then
-              echo "${job}: ${result}"
-            elif [[ "${result}" == "skipped" && " ${skippable[*]} " == *" ${job} "* ]]; then
-              echo "${job}: skipped (runs only on pushes that publish images)"
-            else
-              echo "::error::Job ${job}: ${result}"
-              failed=1
-            fi
-          done <<< "${results}"
-          exit "${failed}"
+        uses: elixir-cloud-aai/.github/actions/gate@10e83030dfeb3eb740ef7eccce50820d020264e6 # gate
+        with:
+          needs: ${{ toJSON(needs) }}
+          # `push` and `publish` are skipped on purpose only if `PUBLISH` is
+          # exactly "false", so that the gate fails closed
+          allow-skipped: ${{ env.PUBLISH == 'false' && 'push publish' || '' }}
