@@ -136,6 +136,18 @@ class _BadTransferItem(_Hooked):
     data_transfers = (object(),)  # type: ignore[assignment]
 
 
+class _BadStored(_Hooked):
+    """Plugin with stored data that is no list of strings."""
+
+    data_stored = "geolocations"  # type: ignore[assignment]
+
+
+class _BadStoredItem(_Hooked):
+    """Plugin with stored data that is no string."""
+
+    data_stored = (1,)  # type: ignore[assignment]
+
+
 class _Opaque:
     """Type without JSON Schema."""
 
@@ -171,6 +183,8 @@ class _NoHook(Plugin[EmptyModel, EmptyModel]):
         (_BadTitle, "invalid title"),
         (_BadTransfers, "data_transfers"),
         (_BadTransferItem, "data_transfers"),
+        (_BadStored, "data_stored"),
+        (_BadStoredItem, "data_stored"),
         (_NoSchema, "JSON Schema"),
     ],
 )

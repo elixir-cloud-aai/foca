@@ -409,6 +409,11 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
   `ctx.store.key_for(*parts)` (a SHA-256 hash of the namespace and the
   parts; identifiers can still be guessed, so the entries remain personal
   data, kept at most `max_ttl`). Don't store request payloads or secrets.
+- Declare what the plugin stores in `data_stored`, e.g.,
+  `data_stored = ("geolocations of backend hosts", "daily lookup counts
+  per user (hashed)")`, as in `data_transfers` for third parties: the
+  [plugin listing](#plugin-listing) shows it to clients, with the
+  plugin's store mode (`storage`).
 - Hooks that are abandoned at their deadline cannot use the store any
   more, but a write in progress may still complete.
 
@@ -790,12 +795,15 @@ authenticated caller with its `roles`, `inline` allowed; then loaded,
 `client_selectable`, and allowed for one of the caller's roles), with
 title, description, group and subgroup (from identifiers
 `<group>.<subgroup>.<name>`), phases, capabilities, maturity, distribution,
-version, third-party data transfers and the JSON Schema of the parameters,
-never the admin settings; and the presets it may choose (`presets` allowed,
-and the roles of their plugins). It also holds the steps of the default
-pipeline, the limits of `client_pipelines` (with whether the caller has
-anything to choose, and the identifiers of the `prepend` and `append`
-steps) and `client_backends`, and the tag prefix. Callers without anything
+version, third-party data transfers (`data_transfers`), what the plugin
+keeps in its store (`data_stored`) and the store's mode (`storage`:
+`shared`, `local` or `off`, cf. [Plugin store](#plugin-store)), and the
+JSON Schema of the parameters, never the admin settings; and the presets
+it may choose (`presets` allowed, and the roles of their plugins). It
+also holds the steps of the default pipeline, the limits of
+`client_pipelines` (with whether the caller has anything to choose, and
+the identifiers of the `prepend` and `append` steps) and
+`client_backends`, and the tag prefix. Callers without anything
 to choose get no steps, as step identifiers default to plugin identifiers.
 Plugins that the caller may not use give `404` (`plugin-not-found`),
 whatever the reason.

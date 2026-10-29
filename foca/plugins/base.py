@@ -141,6 +141,9 @@ class Plugin(Generic[ConfigT, ParamsT]):
         description: Description for clients; defaults to the docstring.
         data_transfers: Third parties that the plugin sends request data to,
             e.g., `["geolocation service db-ip.com"]`, listed for clients.
+        data_stored: What the plugin keeps in its store (`ctx.store`),
+            e.g., `["geolocations of backend hosts", "daily lookup counts
+            per user (hashed)"]`, listed for clients.
         id: Identifier of the plugin (its entry point name).
         config: Validated admin settings.
     """
@@ -154,6 +157,7 @@ class Plugin(Generic[ConfigT, ParamsT]):
     title: ClassVar[str | None] = None
     description: ClassVar[str | None] = None
     data_transfers: ClassVar[tuple[str, ...]] = ()
+    data_stored: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, plugin_id: str, config: ConfigT) -> None:
         """Create the plugin instance of a process.
@@ -258,11 +262,12 @@ def check_plugin_class(cls: Any, plugin_id: str, api: str) -> type[Plugin[Any, A
     for name in ("title", "description"):
         if not isinstance(getattr(cls, name), str | None):
             raise ValueError(f"Plugin {plugin_id!r} has an invalid {name}")
-    transfers = cls.data_transfers
-    if not isinstance(transfers, tuple | list) or not all(
-        isinstance(transfer, str) for transfer in transfers
-    ):
-        raise ValueError(f"Plugin {plugin_id!r} has invalid data_transfers")
+    for name in ("data_transfers", "data_stored"):
+        items = getattr(cls, name)
+        if not isinstance(items, tuple | list) or not all(
+            isinstance(item, str) for item in items
+        ):
+            raise ValueError(f"Plugin {plugin_id!r} has invalid {name}")
     for model in (cls.Config, cls.Params):
         if not (isinstance(model, type) and issubclass(model, BaseModel)):
             raise ValueError(
