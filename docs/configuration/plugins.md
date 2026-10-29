@@ -178,10 +178,11 @@ With a database configured (`db.dbs`), the entries are in the collection
 `plugin_store` of the **first** database, shared by all processes and
 replicas. Gateway apps create its indexes at startup (a TTL index on
 `expires_at`, and one on `ns`), so the database user needs the right to
-create indexes; if that fails (e.g., the database is not reachable yet),
-the app logs a warning and starts anyway, and writes to the store create
-the indexes first, failing until they can. Without database, each process
-keeps its entries in memory.
+create indexes; if that fails (e.g., the database is not reachable within
+10 s), the app logs a warning and starts anyway, and writes to the store
+create the indexes first, failing until they can. Entries are always read
+from the primary of a replica set, also if the app's connection prefers
+secondaries. Without database, each process keeps its entries in memory.
 
 - `defaults.store.enabled: false`, or `available.<id>.store.enabled:
   false` for one plugin, keeps the entries in the memory of each process

@@ -450,7 +450,9 @@ class PluginHost:
         self.plugins: dict[str, LoadedPlugin] = (
             dict(plugins) if plugins is not None else load_plugins(conf, api=api)
         )
-        self._store_backend: StoreBackend = store_backend or MemoryStoreBackend()
+        self._store_backend: StoreBackend = (
+            MemoryStoreBackend() if store_backend is None else store_backend
+        )
         self._stores = _store_settings(self.plugins, conf, self._store_backend)
         self._executor = _Executor(conf.defaults.workers)
         try:

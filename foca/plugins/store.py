@@ -42,6 +42,7 @@ import pymongo
 from bson.codec_options import CodecOptions, DatetimeConversion
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, PyMongoError
+from pymongo.read_preferences import ReadPreference
 
 from foca.plugins.base import PluginError
 from foca.plugins.selection import MAX_SAFE_INTEGER, check_i_json
@@ -193,16 +194,16 @@ class StoreBackend(Protocol):
         """
 
 
-def _counter_conflict(key: str) -> StoreError:
+def _counter_conflict() -> StoreError:
     """Build the error for increments of values that are no counters.
 
-    Args:
-        key: Key.
+    The message leaves out the key, which may hold personal data (e.g., a
+    user identifier), as errors of plugins are logged.
 
     Returns:
         Error.
     """
-    return StoreError(f"Key {key!r} holds a value that is no counter")
+    return StoreError("The key holds a value that is no counter")
 
 
 class MemoryStoreBackend:
@@ -226,6 +227,26 @@ class MemoryStoreBackend:
 
     def setup(self) -> None:
         """Do nothing: the backend needs no preparation."""
+
+    @contextmanager
+    def _locked(self, timeout: float) -> Iterator[None]:
+        """Hold the lock, waiting for it at most until the timeout.
+
+        Args:
+            timeout: Seconds that the call may take.
+
+        Yields:
+            Nothing; the call runs with the lock held.
+
+        Raises:
+            StoreError: The lock was not acquired in time.
+        """
+        if not self._lock.acquire(timeout=max(timeout, 0.0)):
+            raise StoreError("Plugin store busy: lock not acquired in time")
+        try:
+            yield
+        finally:
+            self._lock.release()
 
     def _live(self, ns: str, key: str, now: datetime) -> StoreEntry | None:
         """Get an entry that has not expired; call with the lock held.
@@ -272,12 +293,12 @@ class MemoryStoreBackend:
             ns: Namespace.
             key: Key.
             now: Current time.
-            timeout: Seconds that the call may take (not used).
+            timeout: Seconds that the call may wait for the lock.
 
         Returns:
             Entry, unless absent or expired.
         """
-        with self._lock:
+        with self._locked(timeout):
             return self._live(ns, key, now)
 
     def set(
@@ -297,9 +318,9 @@ class MemoryStoreBackend:
             value: Value as compact JSON.
             now: Current time.
             expires_at: Time at which the entry expires.
-            timeout: Seconds that the call may take (not used).
+            timeout: Seconds that the call may wait for the lock.
         """
-        with self._lock:
+        with self._locked(timeout):
             self._write(ns, key, StoreEntry(value, None, expires_at), now)
 
     def delete(self, ns: str, key: str, now: datetime, timeout: float) -> bool:
@@ -309,12 +330,12 @@ class MemoryStoreBackend:
             ns: Namespace.
             key: Key.
             now: Current time.
-            timeout: Seconds that the call may take (not used).
+            timeout: Seconds that the call may wait for the lock.
 
         Returns:
             Whether an entry that had not expired was deleted.
         """
-        with self._lock:
+        with self._locked(timeout):
             entry = self._live(ns, key, now)
             if entry is None:
                 return False
@@ -340,7 +361,7 @@ class MemoryStoreBackend:
             limit: Maximum value of the counter.
             now: Current time.
             expires_at: Expiry of the counter, if it is created.
-            timeout: Seconds that the call may take (not used).
+            timeout: Seconds that the call may wait for the lock.
 
         Returns:
             New value, or `None` if it would exceed `limit`.
@@ -348,10 +369,10 @@ class MemoryStoreBackend:
         Raises:
             StoreError: The key holds a value that is no counter.
         """
-        with self._lock:
+        with self._locked(timeout):
             entry = self._live(ns, key, now)
             if entry is not None and entry.count is None:
-                raise _counter_conflict(key)
+                raise _counter_conflict()
             count = (entry.count or 0) if entry is not None else 0
             if not _within(count + by, limit):
                 return None
@@ -397,6 +418,7 @@ class MongoStoreBackend:
 
     shared = True
     _ATTEMPTS = 5
+    _SETUP_TIMEOUT = 10.0
 
     def __init__(self, collection: Collection[dict[str, Any]]) -> None:
         """Create the backend.
@@ -406,11 +428,13 @@ class MongoStoreBackend:
         """
         # time zone aware UTC times whatever the client's options (e.g.,
         # `datetime_conversion` in `MONGO_URI`), as results depend on them
+        # and reads from the primary, as increments read what they wrote
         self.collection: Collection[dict[str, Any]] = collection.with_options(
             codec_options=CodecOptions(
                 tz_aware=True,
                 datetime_conversion=DatetimeConversion.DATETIME,
-            )
+            ),
+            read_preference=ReadPreference.PRIMARY,
         )
         self._indexed = False
 
@@ -418,14 +442,17 @@ class MongoStoreBackend:
         """Create the indexes of the collection, if they don't exist yet.
 
         Writes call it too, until it succeeded once in the process, so that
-        entries are never written without the TTL index.
+        entries are never written without the TTL index. It takes at most
+        `_SETUP_TIMEOUT` seconds (less within a shorter timeout), so that an
+        unreachable database does not stall the startup.
 
         Raises:
-            pymongo.errors.PyMongoError: The database cannot be reached, or
-                an index conflicts with an existing one.
+            pymongo.errors.PyMongoError: The database cannot be reached in
+                time, or an index conflicts with an existing one.
         """
-        for index in STORE_INDEXES:
-            self.collection.create_index(index["keys"], **index["options"])
+        with pymongo.timeout(self._SETUP_TIMEOUT):
+            for index in STORE_INDEXES:
+                self.collection.create_index(index["keys"], **index["options"])
         self._indexed = True
 
     def _ensure_indexes(self) -> None:
@@ -579,7 +606,7 @@ class MongoStoreBackend:
                 current = self.collection.find_one({"_id": ident, "expires_at": live})
                 if current is not None:
                     if "value" in current:
-                        raise _counter_conflict(key)
+                        raise _counter_conflict()
                     if not _within(current.get("n", 0) + by, limit):
                         return None
                     continue  # changed in between
@@ -801,20 +828,25 @@ class Store:
             StoreError: The store failed, or the deadline passed.
         """
         _check_key(key)
+        invalid = "Values must be JSON data: {}"
         try:
             dumped = json.dumps(
                 value, separators=(",", ":"), ensure_ascii=False, allow_nan=False
             )
-            check_i_json(json.loads(dumped))
-            if any(not isinstance(item, str) for item in _mapping_keys(value)):
-                raise ValueError("Mappings need string keys")
+            size = len(dumped.encode())
         except (TypeError, ValueError, RecursionError) as exc:
-            raise ValueError(f"Values must be JSON data: {exc}") from None
-        size = len(dumped.encode())
+            raise ValueError(invalid.format(exc)) from None
+        # checked first, as the other checks take longer with the size
         if size > self._settings.max_entry_size:
             raise ValueError(
                 f"Value of {size} bytes exceeds {self._settings.max_entry_size} bytes"
             )
+        try:
+            check_i_json(json.loads(dumped))
+            if any(not isinstance(item, str) for item in _mapping_keys(value)):
+                raise ValueError("Mappings need string keys")
+        except (ValueError, RecursionError) as exc:
+            raise ValueError(invalid.format(exc)) from None
         now = self._clock()
         expires_at = self._expiry(ttl, now)
         self._settings.backend.set(

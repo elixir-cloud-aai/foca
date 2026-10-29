@@ -2,7 +2,7 @@
 
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -11,7 +11,12 @@ from unittest.mock import MagicMock
 import mongomock
 import pytest
 from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError, ServerSelectionTimeoutError
+from pymongo.errors import (
+    DuplicateKeyError,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+)
+from pymongo.read_preferences import ReadPreference
 
 from foca import Foca
 from foca.models.config import Config, DBConfig, MongoConfig
@@ -316,6 +321,17 @@ class TestStore:
             store.set("k", "üüüüü")  # 12 bytes in UTF-8
         assert store.get("k") == "12345678"
 
+    def test_size_first(
+        self, backend: StoreBackend, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Values that are too large are refused before the other checks."""
+        checks = MagicMock()
+        monkeypatch.setattr("foca.plugins.store.check_i_json", checks)
+        store = make_store(backend, max_entry_size=10)
+        with pytest.raises(ValueError, match="exceeds 10 bytes"):
+            store.set("k", ["x" * 100])
+        checks.assert_not_called()
+
     @pytest.mark.parametrize(
         ("by", "limit"),
         [(True, None), (1.0, None), (2**53, None), (1, 2**53), (1, "1")],
@@ -383,6 +399,21 @@ class TestMemoryBackend:
         clock.advance(1)
         store.set("c", 1)  # third write
         assert list(backend._entries) == [("ns", "c")]
+
+    def test_lock_timeout(self) -> None:
+        """Calls wait for the lock at most until the deadline."""
+        backend = MemoryStoreBackend()
+        calls: list[Callable[[Store], Any]] = [
+            lambda store: store.get("k"),
+            lambda store: store.set("k", 1),
+            lambda store: store.delete("k"),
+            lambda store: store.increment("k"),
+        ]
+        with backend._lock:
+            for call in calls:
+                store = make_store(backend, deadline=time.monotonic() + 0.02)
+                with pytest.raises(StoreError, match="lock not acquired"):
+                    call(store)
 
 
 class TestMongoBackend:
@@ -517,9 +548,38 @@ class TestMongoBackend:
         collection.with_options.return_value = collection
         collection.find_one.return_value = {"_id": "x", "value": "1"}
         collection.find_one_and_delete.return_value = {"_id": "x"}
-        store = make_store(MongoStoreBackend(collection), Clock())
-        assert store.get("k") == 1  # the query filters by expiry
+        clock = Clock()
+        store = make_store(MongoStoreBackend(collection), clock)
+        assert store.get("k") == 1
+        query = collection.find_one.call_args.args[0]
+        assert query == {"_id": "ns\x1fk", "expires_at": {"$gt": clock.now}}
         assert store.delete("k") is False
+
+    def test_primary_reads(self) -> None:
+        """Entries are read from the primary, whatever the client's options."""
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            MONGO_URI, readPreference="secondaryPreferred", connect=False
+        )
+        try:
+            backend = MongoStoreBackend(client["db"][STORE_COLLECTION])
+            assert backend.collection.read_preference == ReadPreference.PRIMARY
+        finally:
+            client.close()
+
+    def test_setup_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Setup gives up after `_SETUP_TIMEOUT`, e.g., at startup."""
+        monkeypatch.setattr(MongoStoreBackend, "_SETUP_TIMEOUT", 0.2)
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            "mongodb://127.0.0.1:1", serverSelectionTimeoutMS=60000, connect=False
+        )
+        try:
+            backend = MongoStoreBackend(client["db"][STORE_COLLECTION])
+            start = time.monotonic()
+            with pytest.raises(PyMongoError):
+                backend.setup()
+            assert time.monotonic() - start < 10
+        finally:
+            client.close()
 
     @pytest.mark.parametrize(
         "kind", ["mongomock", pytest.param("mongodb", marks=pytest.mark.mongodb)]
@@ -600,6 +660,18 @@ def loaded(plugin_id: str, distribution: str | None) -> LoadedPlugin:
     )
 
 
+class FalsyBackend(MemoryStoreBackend):
+    """Memory backend that is falsy."""
+
+    def __bool__(self) -> bool:
+        """Be falsy.
+
+        Returns:
+            `False`.
+        """
+        return False
+
+
 class TestEngine:
     """Stores of plugin calls."""
 
@@ -622,6 +694,16 @@ class TestEngine:
         harness.run_request(make_inbound({}))
         assert harness.executions[0].annotations["mode"] == "shared"
         assert harness.executions[0].annotations["count"] == 1
+        other = PluginHarness(CountingPlugin, store_backend=backend)
+        other.run_request(make_inbound({}))
+        assert other.executions[0].annotations["count"] == 2
+        assert harness.store.get("requests") == 2
+
+    def test_falsy_backend(self) -> None:
+        """Backends are used even if they are falsy (e.g., define `__len__`)."""
+        backend = FalsyBackend()
+        harness = PluginHarness(CountingPlugin, store_backend=backend)
+        assert harness.host.store_settings("test.plugin").backend is backend
 
     def test_off(self, caplog: pytest.LogCaptureFixture) -> None:
         """Plugins whose store is off keep entries in memory; splits are logged."""
@@ -746,10 +828,14 @@ class TestFromConfig:
         """Hosts from configurations with databases share entries."""
         config = Config.model_validate({"db": {"dbs": {"mine": {}}}})
         host = PluginHost.from_config(config, api="tes")
+        other = PluginHost.from_config(config, api="tes")
         try:
             assert host.store_settings("foca.routing.ordered").mode == "shared"
+            host.store("foca.routing.ordered").set("k", 1)
+            assert other.store("foca.routing.ordered").get("k") == 1
         finally:
             host.close()
+            other.close()
         host = PluginHost.from_config(Config(), api="tes")
         try:
             assert host.store_settings("foca.routing.ordered").mode == "local"
