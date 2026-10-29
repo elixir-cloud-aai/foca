@@ -85,7 +85,7 @@ components:
   schemas:
     Plugin:
       type: object
-      required: [id, title, description, group, subgroup, phases, capabilities, maturity, distribution, version, data_transfers, params_schema]
+      required: [id, title, description, group, subgroup, phases, capabilities, maturity, distribution, version, data_transfers, data_stored, storage, params_schema]
       properties:
         id:
           type: string
@@ -121,6 +121,19 @@ components:
           type: array
           items:
             type: string
+        data_stored:
+          type: array
+          description: What the plugin keeps in its store, as declared by the plugin.
+          items:
+            type: string
+        storage:
+          type: string
+          description: >-
+            Where the plugin's store keeps its entries: shared by all
+            processes (`shared`), in each process (`local`, without database),
+            or in each process as the operator turned the shared store off
+            (`off`).
+          enum: [shared, local, off]
         params_schema:
           type: object
           description: JSON Schema of the plugin's parameters.

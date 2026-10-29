@@ -113,8 +113,10 @@ def describe_plugin(host: PluginHost, plugin_id: str) -> dict[str, Any]:
     Returns:
         Identifier, title, description, group and subgroup (from identifiers
         `<group>.<subgroup>.<name>`), phases, capabilities, maturity,
-        distribution, version, third-party data transfers and the JSON
-        Schema of the parameters; never the admin settings.
+        distribution, version, third-party data transfers, the data that
+        the plugin stores and where (`storage`: `shared`, `local` or `off`;
+        cf. :py:data:`foca.plugins.store.StoreMode`), and the JSON Schema
+        of the parameters; never the admin settings.
     """
     loaded = host.plugins[plugin_id]
     cls = loaded.cls
@@ -132,6 +134,8 @@ def describe_plugin(host: PluginHost, plugin_id: str) -> dict[str, Any]:
         "distribution": loaded.distribution,
         "version": loaded.version,
         "data_transfers": list(cls.data_transfers),
+        "data_stored": list(cls.data_stored),
+        "storage": host.store_settings(plugin_id).mode,
         "params_schema": cls.Params.model_json_schema(),
     }
 

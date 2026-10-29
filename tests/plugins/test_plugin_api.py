@@ -6,6 +6,7 @@ from importlib.resources import path as resource_path
 from pathlib import Path
 from typing import Any
 
+import mongomock
 import pytest
 import yaml
 from casbin import Enforcer
@@ -17,6 +18,7 @@ from foca.plugins import InvalidSelection, Principal, adapter, api, runtime
 from foca.plugins.engine import PluginHost
 from foca.plugins.pytest_plugin import RegisterPlugins
 from foca.plugins.runtime import GatewayApp
+from foca.plugins.store import STORE_COLLECTION, MongoStoreBackend
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     RESOURCE_ROLE_MODEL_FILE,
@@ -201,17 +203,42 @@ def test_describe_plugin() -> None:
     assert plugin["capabilities"] == ["tagging"]
     assert plugin["maturity"] == "stable"
     assert set(plugin["params_schema"]["properties"]) == {"key", "value"}
+    assert plugin["data_stored"] == []
+    assert plugin["storage"] == "local"
     assert "config" not in plugin
     host.close()
+
+
+@pytest.mark.parametrize(
+    ("store", "storage"), [({}, "shared"), ({"enabled": False}, "off")]
+)
+def test_describe_storage(
+    monkeypatch: pytest.MonkeyPatch, store: dict[str, Any], storage: str
+) -> None:
+    """Descriptions list stored data and where the store keeps it."""
+    monkeypatch.setattr(FAKES["test.tag"], "data_stored", ("tags per user (hashed)",))
+    host = make_host(
+        ["test.tag"],
+        available={"test.tag": {"store": store}},
+        store_backend=MongoStoreBackend(
+            mongomock.MongoClient()["db"][STORE_COLLECTION]
+        ),
+    )
+    try:
+        plugin = api.describe_plugin(host, "test.tag")
+        assert plugin["data_stored"] == ["tags per user (hashed)"]
+        assert plugin["storage"] == storage
+    finally:
+        host.close()
 
 
 def test_group_and_subgroup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Identifiers `<group>.<subgroup>.<name>` give group and subgroup."""
     host = listing_host()
-    monkeypatch.setitem(
-        host.plugins, "org.example.tes.policy.images", host.plugins["test.tag"]
-    )
-    plugin = api.describe_plugin(host, "org.example.tes.policy.images")
+    alias = "org.example.tes.policy.images"
+    monkeypatch.setitem(host.plugins, alias, host.plugins["test.tag"])
+    monkeypatch.setitem(host._stores, alias, host.store_settings("test.tag"))
+    plugin = api.describe_plugin(host, alias)
     assert (plugin["group"], plugin["subgroup"]) == ("tes", "policy")
     host.close()
 
