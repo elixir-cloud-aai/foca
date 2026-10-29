@@ -799,10 +799,11 @@ version, third-party data transfers (`data_transfers`), what the plugin
 keeps in its store (`data_stored`) and the store's mode (`storage`:
 `shared`, `local` or `off`, cf. [Plugin store](#plugin-store)), and the
 JSON Schema of the parameters, never the admin settings; and the presets
-it may choose (`presets` allowed, and the roles of their plugins). It also holds the steps of the default
-pipeline, the limits of `client_pipelines` (with whether the caller has
-anything to choose, and the identifiers of the `prepend` and `append`
-steps) and `client_backends`, and the tag prefix. Callers without anything
+it may choose (`presets` allowed, and the roles of their plugins). It
+also holds the steps of the default pipeline, the limits of
+`client_pipelines` (with whether the caller has anything to choose, and
+the identifiers of the `prepend` and `append` steps) and
+`client_backends`, and the tag prefix. Callers without anything
 to choose get no steps, as step identifiers default to plugin identifiers.
 Plugins that the caller may not use give `404` (`plugin-not-found`),
 whatever the reason.
