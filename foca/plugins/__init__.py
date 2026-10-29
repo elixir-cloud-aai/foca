@@ -44,6 +44,7 @@ from foca.plugins.model import (
     Principal,
 )
 from foca.plugins.provenance import ProvenanceStore
+from foca.plugins.store import Store, StoreError
 
 __all__ = [
     "API_VERSION",
@@ -76,4 +77,6 @@ __all__ = [
     "Principal",
     "ProvenanceStore",
     "Rejected",
+    "Store",
+    "StoreError",
 ]
