@@ -29,6 +29,10 @@ vulnerabilities:
     purls: ["pkg:pypi/setuptools@70.3.0"]
     statement: Vendored by pip, not used by the app (MANIFEST.in exclusion bypass in sdist builds on macOS; pip vendors only pkg_resources)
     expired_at: 2027-01-31
+  - id: GHSA-xmj3-9gf7-h52w
+    purls: ["pkg:pypi/setuptools@70.3.0"]
+    statement: Vendored by pip, not used by the app (Windows path escape in legacy wheel installation; the image is Linux, and pip vendors only pkg_resources)
+    expired_at: 2027-01-31
   - id: CVE-2026-97687
     purls: ["pkg:pypi/urllib3@2.7.0"]
     statement: Vendored by pip, not used by the app (pip only runs at build time)
