@@ -6,6 +6,7 @@ from pathlib import Path
 
 from celery import Celery
 from connexion import App
+from pymongo.errors import PyMongoError
 
 from foca.api.register_openapi import register_openapi
 from foca.api.service_info import check_service_info
@@ -207,7 +208,19 @@ class Foca:
         # each process creates its own host on first use (after forks), so
         # plugins are instantiated (`setup()`) once more there
         if self.gateway is not None:
-            runtime.create_host().close()
+            host = runtime.create_host()
+            try:
+                # the indexes of the plugins' store; writes to the store
+                # create them too, so the app may start without them
+                host.setup_store()
+            except PyMongoError as exc:
+                logger.warning(
+                    "Indexes of the plugin store not created (%s); writes to"
+                    " the store fail until they can be created",
+                    type(exc).__name__,
+                )
+            finally:
+                host.close()
             if self.gateway.backends is not None:
                 # validates the backend list only; requests build their own
                 runtime.get_backend_list()

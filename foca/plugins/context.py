@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from foca.plugins.model import Principal
 from foca.plugins.selection import check_i_json
+from foca.plugins.store import Store
 from foca.utils.http import GuardedClient
 
 MAX_ANNOTATIONS_SIZE = 2048
@@ -60,6 +61,10 @@ class Context:
             (cf. :py:class:`foca.utils.http.GuardedClient` and
             `plugins.defaults.http`); `None` only in contexts built by
             hand.
+        store: Key-value store of the plugin, bounded by the deadline
+            (cf. :py:class:`foca.plugins.store.Store` and
+            `plugins.defaults.store`); `None` only in contexts built by
+            hand.
         annotations: Annotations recorded by the call (cf. `record()`).
     """
 
@@ -76,6 +81,7 @@ class Context:
         request_id: str | None = None,
         task_id: str | None = None,
         http: GuardedClient | None = None,
+        store: Store | None = None,
     ) -> None:
         """Create the context of a call.
 
@@ -90,6 +96,7 @@ class Context:
             request_id: Identifier of the request.
             task_id: Identifier of the gateway's resource, if created.
             http: Outbound HTTP client, if any.
+            store: Key-value store of the plugin, if any.
         """
         self.api = api
         self.request_id = request_id
@@ -99,6 +106,7 @@ class Context:
         self.deadline = deadline
         self.state = state
         self.http = http
+        self.store = store
         self.annotations: dict[str, Any] = {}
         self._original = original
         self.log = logging.LoggerAdapter(

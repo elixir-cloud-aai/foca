@@ -19,6 +19,7 @@ plugins:
       enabled: false                        # kill switch: loaded nowhere
       client_selectable: true               # clients may choose it (default)
       roles: []                             # roles that may choose it; any if empty
+      store: {enabled: false}               # its ctx.store in memory, per process
   defaults:
     timeout: 10            # seconds per alternative and call
     pipeline_timeout: 30   # seconds for the request and route phases
@@ -28,6 +29,10 @@ plugins:
       allow_private_addresses: false
       allow_http: false
       max_response_size: 16777216  # bytes
+    store:                 # ctx.store of plugins; per plugin: available.<id>.store
+      enabled: true        # in the database, if any; else memory per process
+      max_entry_size: 4096 # bytes per value, as compact JSON
+      max_ttl: 2592000     # seconds (30 days); also the default TTL
   # Default pipeline: steps, each with ordered alternatives (fallbacks);
   # default: [foca.routing.ordered]
   pipeline:
@@ -76,7 +81,7 @@ plugins:
 FOCA's built-in plugins (e.g., the default route step
 `foca.routing.ordered`, cf. [default routing](../plugins.md#default-routing))
 are always available; list them only to change `enabled`, `roles`,
-`client_selectable` or `config`.
+`client_selectable`, `config` or `store`.
 
 Plugins are Python classes registered under an entry point of the group
 `foca.plugins` by an installed distribution. Only entry points listed in
@@ -165,6 +170,36 @@ a TTL index (`foca.plugins.provenance.FAILURE_INDEXES`: 30 days; set the
 retention you need); it is off by default, so that no record of rejected
 input is kept (cf. [provenance](../plugins.md#provenance)).
 
+## Plugin store
+
+Plugins keep small data across requests in `ctx.store` (cf. [plugin
+store](../plugins.md#plugin-store)), e.g., caches and per-user counters.
+With a database configured (`db.dbs`), the entries are in the collection
+`plugin_store` of the **first** database, shared by all processes and
+replicas. Gateway apps create its indexes at startup (a TTL index on
+`expires_at`, and one on `ns`), so the database user needs the right to
+create indexes; if that fails (e.g., the database is not reachable within
+10 s), the app logs a warning and starts anyway, and writes to the store
+create the indexes first, failing until they can. Entries are always read
+from the primary of a replica set, also if the app's connection prefers
+secondaries. Without database, each process keeps its entries in memory.
+
+- `defaults.store.enabled: false`, or `available.<id>.store.enabled:
+  false` for one plugin, keeps the entries in the memory of each process
+  even with a database, e.g., when a plugin's data must not be stored
+  (counters and caches then hold per process only). Set it for all
+  plugins of a distribution: otherwise, they don't see each other's
+  entries (the app logs a warning).
+- `max_entry_size` limits each value (bytes of compact JSON); larger
+  values fail the plugin call.
+- `max_ttl` limits how long entries live (default: 30 days, at most 10
+  years); entries without TTL get it, longer TTLs are cut to it. MongoDB
+  removes expired entries about once a minute; until then, they are no
+  longer read.
+- Plugins of one distribution share a namespace; plugins of other
+  distributions can't read it. Entries keyed by users are personal data:
+  their retention is at most `max_ttl`.
+
 ## Migrating from middlewares
 
 Apps that had gateway middlewares (e.g., proTES's `custom.middlewares`)
@@ -192,6 +227,14 @@ in `available` and the steps in `pipeline`.
       members: false
 
 ::: foca.plugins.config.PluginDefaultsConfig
+    options:
+      members: false
+
+::: foca.plugins.config.StoreConfig
+    options:
+      members: false
+
+::: foca.plugins.config.StoreOverrideConfig
     options:
       members: false
 
