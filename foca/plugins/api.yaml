@@ -133,7 +133,7 @@ components:
             processes (`shared`), in each process (`local`, without database),
             or in each process as the operator turned the shared store off
             (`off`).
-          enum: [shared, local, off]
+          enum: ["shared", "local", "off"]
         params_schema:
           type: object
           description: JSON Schema of the plugin's parameters.

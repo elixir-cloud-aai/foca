@@ -4,7 +4,7 @@ import json
 import sys
 from importlib.resources import path as resource_path
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import mongomock
 import pytest
@@ -18,7 +18,7 @@ from foca.plugins import InvalidSelection, Principal, adapter, api, runtime
 from foca.plugins.engine import PluginHost
 from foca.plugins.pytest_plugin import RegisterPlugins
 from foca.plugins.runtime import GatewayApp
-from foca.plugins.store import STORE_COLLECTION, MongoStoreBackend
+from foca.plugins.store import STORE_COLLECTION, MongoStoreBackend, StoreMode
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     RESOURCE_ROLE_MODEL_FILE,
@@ -232,15 +232,24 @@ def test_describe_storage(
         host.close()
 
 
+def test_storage_schema() -> None:
+    """The specification lists the store modes of the code, as required fields."""
+    spec = yaml.safe_load(Path(api.SPEC_PATH).read_text())
+    schema = spec["components"]["schemas"]["Plugin"]
+    assert schema["properties"]["storage"]["enum"] == list(get_args(StoreMode))
+    assert {"data_stored", "storage"} <= set(schema["required"])
+
+
 def test_group_and_subgroup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Identifiers `<group>.<subgroup>.<name>` give group and subgroup."""
-    host = listing_host()
-    alias = "org.example.tes.policy.images"
-    monkeypatch.setitem(host.plugins, alias, host.plugins["test.tag"])
-    monkeypatch.setitem(host._stores, alias, host.store_settings("test.tag"))
-    plugin = api.describe_plugin(host, alias)
-    assert (plugin["group"], plugin["subgroup"]) == ("tes", "policy")
-    host.close()
+    plugin_id = "org.example.tes.policy.images"
+    monkeypatch.setitem(FAKES, plugin_id, FAKES["test.tag"])
+    host = make_host([plugin_id], available={plugin_id: {}})
+    try:
+        plugin = api.describe_plugin(host, plugin_id)
+        assert (plugin["group"], plugin["subgroup"]) == ("tes", "policy")
+    finally:
+        host.close()
 
 
 @pytest.mark.parametrize("plugin_id", ["test.skip", "test.fail", "test.reject", "x"])

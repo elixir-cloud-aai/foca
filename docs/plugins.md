@@ -796,12 +796,10 @@ authenticated caller with its `roles`, `inline` allowed; then loaded,
 title, description, group and subgroup (from identifiers
 `<group>.<subgroup>.<name>`), phases, capabilities, maturity, distribution,
 version, third-party data transfers (`data_transfers`), what the plugin
-keeps in its [store](#plugin-store) (`data_stored`) and where (`storage`:
-`shared` by all processes, in each process as there is no database
-(`local`), or in each process as the operator turned the shared store off
-for the plugin (`off`)), and the JSON Schema of the parameters, never the
-admin settings; and the presets it may choose (`presets` allowed,
-and the roles of their plugins). It also holds the steps of the default
+keeps in its store (`data_stored`) and the store's mode (`storage`:
+`shared`, `local` or `off`, cf. [Plugin store](#plugin-store)), and the
+JSON Schema of the parameters, never the admin settings; and the presets
+it may choose (`presets` allowed, and the roles of their plugins). It also holds the steps of the default
 pipeline, the limits of `client_pipelines` (with whether the caller has
 anything to choose, and the identifiers of the `prepend` and `append`
 steps) and `client_backends`, and the tag prefix. Callers without anything
