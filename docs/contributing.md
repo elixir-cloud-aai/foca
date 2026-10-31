@@ -312,7 +312,7 @@ has the release version and a date that is not in the future (UTC) and that
 its curated release notes are complete, pushes
 the Docker images by digest (untagged, before any approval) and scans them
 for vulnerabilities, publishes the distributions to PyPI (after approval in
-the `pypi` environment), attests and signs exactly the scanned images and
+the `release` environment), attests and signs exactly the scanned images and
 tags them `X.Y.Z` and `latest`, and creates a GitHub release with the
 curated notes followed by GitHub's generated ones (see [Image
 scan](#image-scan) and [Release notes](#release-notes)). Tags of alpha,
@@ -394,7 +394,7 @@ in `tests/test_release_notes.py`.
 
 The Helm library chart `foca-common` (`charts/foca-common`) is versioned and
 released separately, from signed tags `chart-vX.Y.Z`, and published after
-approval in the `chart-release` environment; see [releases of the library
+approval in the `release` environment; see [releases of the library
 chart](helm-chart.md#releases).
 
 ## Python guidelines

@@ -9,7 +9,7 @@
 # the agreed format, see `scripts/release_notes.py`), otherwise the
 # generated notes alone; add curated notes to the `nav` of `mkdocs.yml` too
 # (the docs build fails otherwise). Uses PyPI trusted publishing (no API
-# token); the PyPI project trusts this workflow file in the `pypi`
+# token); the PyPI project trusts this workflow file in the `release`
 # environment. See "Versioning and releases" in docs/contributing.md.
 
 name: Release
@@ -54,7 +54,7 @@ jobs:
       - name: Check release tag and commit
         id: version
         # Guards against accidental releases from unmerged commits. The
-        # `pypi` environment's protection rules (required reviewer, `v*`
+        # `release` environment's protection rules (required reviewer, release
         # tags only) are what actually control publishing.
         env:
           TAG: ${{ github.ref_name }}
@@ -137,7 +137,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
-      name: pypi
+      name: release
       url: https://pypi.org/project/foca/
     permissions:
       id-token: write
@@ -158,7 +158,7 @@ jobs:
   # and provenance attestations, `mode=max`), for `scan` to scan and
   # `publish-image` to sign and tag. The digest is passed on as an artifact
   # (`digest-pyV`), as all jobs of a matrix share one set of outputs. Runs
-  # before the approval in the `pypi` environment; digests of runs that fail
+  # before the approval in the `release` environment; digests of runs that fail
   # (or fail the scan) are never signed or tagged, but stay on Docker Hub,
   # untagged (pullable by digest only)
   push:

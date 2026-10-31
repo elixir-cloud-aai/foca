@@ -2,8 +2,8 @@
 # pushed: check that the tag is signed, on `dev` and matches the chart's
 # `version`, and lint, test and install the charts as CI does (`chart` and
 # `chart-install` jobs of `ci.yml`, with the same local actions); after a
-# maintainer approved the tested chart in the `chart-release` environment
-# (required reviewer, `chart-v*` tags only), check that the version was not
+# maintainer approved the tested chart in the `release` environment
+# (required reviewer, release tags only), check that the version was not
 # published yet, then package the chart, push it as an OCI artifact to
 # `oci://ghcr.io/elixir-cloud-aai/charts`, and attest and sign it (GitHub
 # artifact attestation, Sigstore signature). Only final versions (no
@@ -97,8 +97,8 @@ jobs:
       - name: Install chart
         uses: ./.github/actions/install-chart
 
-  # Waits for the approval in the `chart-release` environment (required
-  # reviewer, `chart-v*` tags only), as `pypi` in `release.yml`: the
+  # Waits for the approval in the `release` environment (required
+  # reviewer, release tags only), as the PyPI job of `release.yml`: the
   # environment's protection rules are what actually control publishing;
   # the checks in `test` guard against mistakes
   publish:
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
-      name: chart-release
+      name: release
       url: https://github.com/elixir-cloud-aai/foca/pkgs/container/charts%2Ffoca-common
     permissions:
       contents: read
