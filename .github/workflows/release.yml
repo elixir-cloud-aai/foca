@@ -1,7 +1,11 @@
 # Release when a version tag (`vX.Y.Z`) is pushed: build the distributions,
-# build the Docker images and push them by digest (untagged), scan exactly
-# those digests, publish the distributions to PyPI, attest, sign and tag the
-# scanned digests, and create the GitHub release. The version is derived
+# build the Docker images and push them by digest (untagged; `push`), scan
+# exactly those digests in jobs without the release credentials and signing
+# identity (`scan`), publish the distributions to PyPI (`pypi`), attest,
+# sign and only then tag the scanned digests (`publish-image`), and create
+# the GitHub release (`publish`). `push`, `pypi` and `publish-image` each
+# need approval in the `release` environment (required reviewer; one
+# approval covers all matrix jobs waiting for it). The version is derived
 # from the tag (via setuptools-scm). Release notes are the curated
 # `docs/releases/<version>.md` followed by GitHub's generated notes if the
 # former exists (the run fails before anything is published if it is
@@ -158,14 +162,17 @@ jobs:
   # and provenance attestations, `mode=max`), for `scan` to scan and
   # `publish-image` to sign and tag. The digest is passed on as an artifact
   # (`digest-pyV`), as all jobs of a matrix share one set of outputs. Runs
-  # before the approval in the `release` environment; digests of runs that fail
-  # (or fail the scan) are never signed or tagged, but stay on Docker Hub,
-  # untagged (pullable by digest only)
+  # only after approval in the `release` environment, so that nothing is
+  # pushed without it; digests of runs that fail (or fail the scan) are never
+  # signed or tagged, but stay on Docker Hub, untagged (pullable by digest
+  # only)
   push:
     name: Push release image (Python ${{ matrix.python-version }})
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Waits for approval (required reviewer)
+    environment: release
     permissions:
       contents: read
     strategy:
@@ -276,6 +283,8 @@ jobs:
     needs: [build, scan, pypi]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Waits for approval (required reviewer)
+    environment: release
     permissions:
       contents: read
       id-token: write # Sigstore signing certificates

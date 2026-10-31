@@ -310,15 +310,31 @@ workflow](https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/re
 which checks that the tagged commit is on `main`, that its `CITATION.cff`
 has the release version and a date that is not in the future (UTC) and that
 its curated release notes are complete, pushes
-the Docker images by digest (untagged, before any approval) and scans them
-for vulnerabilities, publishes the distributions to PyPI (after approval in
-the `release` environment), attests and signs exactly the scanned images and
-tags them `X.Y.Z` and `latest`, and creates a GitHub release with the
+the Docker images by digest (untagged) and scans them for vulnerabilities
+(in jobs without the Docker Hub credentials and signing identity), publishes
+the distributions to PyPI, attests and signs exactly the scanned images and
+only then tags them `X.Y.Z` and `latest`, and creates a GitHub release with the
 curated notes followed by GitHub's generated ones (see [Image
 scan](#image-scan) and [Release notes](#release-notes)). Tags of alpha,
 beta and release candidate versions (e.g., `vX.Y.Zrc1`) do not update
 `latest`. These and, until 1.0.0, all other releases are GitHub pre-releases
 (never marked as the latest release).
+
+The jobs that push the images, publish to PyPI and publish the images run in
+the `release` environment (required reviewer), so a release needs three
+approvals, in this order: pushing the images (nothing is pushed before it),
+publishing to PyPI (after the scan) and publishing the images; each approval
+covers all matrix jobs waiting for it. The CI jobs that push and publish the images of `dev`
+(`ci.yml`) run in the `dev-images` environment, which allows only the branch
+`dev` (CI runs only for pushes and pull requests to `dev`, so a tag trigger
+in `ci.yml` would be blocked). Both environments must exist with these rules
+before the workflows first use them (GitHub creates a missing environment
+without any rules); `release` also allows only the tags `v*` and `chart-v*`.
+The environments gate the jobs (approval, branch), not the Docker Hub
+secrets (`DOCKERHUB_LOGIN`, `DOCKERHUB_TOKEN`), which are organization
+secrets. Forks get `dev-images` on their first push to `dev` if they set
+`DOCKERHUB_ORG`, and `release` on their first release run, both without
+rules.
 
 A tag ruleset allows only admins to create `v*` and `chart-v*` tags and
 blocks updates and deletions of these tags for everyone, and GitHub releases
@@ -331,7 +347,8 @@ uploads nothing, leaves its notes as they are, and fails unless the release
 has exactly the distributions that the run built
 (`scripts/release_assets.py`); the error says what to do. If a release
 fails, re-run only its failed jobs ("Re-run failed jobs"), never all of them
-("Re-run all jobs"). Builds are not
+("Re-run all jobs"); re-runs of jobs in the `release` environment need a new
+approval. Builds are not
 reproducible, so the build jobs would build new distributions and images:
 the assets of the GitHub release would then differ from the files on PyPI,
 and the image tags would move to new images. If the tagged commit itself is
