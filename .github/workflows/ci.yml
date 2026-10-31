@@ -428,6 +428,8 @@ jobs:
     if: github.event_name == 'push' && (github.repository_owner == 'elixir-cloud-aai' || vars.DOCKERHUB_ORG != '')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The environment only allows branch `dev`
+    environment: dev-images
     permissions:
       contents: read
     strategy:
@@ -565,6 +567,8 @@ jobs:
     needs: [lint, test, test-lowest, integration, scan]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The environment only allows branch `dev`
+    environment: dev-images
     # Attests the build provenance of each scanned digest (GitHub artifact
     # attestation, also pushed to the registry), signs it (Sigstore keyless
     # signing) and only then tags exactly that digest, so that the published
