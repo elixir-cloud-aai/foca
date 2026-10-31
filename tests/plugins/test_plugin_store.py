@@ -22,7 +22,15 @@ from pymongo.read_preferences import ReadPreference
 
 from foca import Foca
 from foca.models.config import Config, DBConfig, MongoConfig
-from foca.plugins import Context, InboundRequest, Plugin, Store, StoreError, runtime
+from foca.plugins import (
+    Context,
+    InboundRequest,
+    Plugin,
+    Store,
+    StoreError,
+    engine,
+    runtime,
+)
 from foca.plugins.base import EmptyModel
 from foca.plugins.config import PluginsConfig, StoreConfig, StoreOverrideConfig
 from foca.plugins.engine import PluginHost, _mongo_store_backend, _store_namespace
@@ -862,6 +870,36 @@ class TestEngine:
         assert "code 13: denied" in records[0].getMessage()
         assert "namespace c" in records[1].getMessage()
         assert "db.internal" not in records[1].getMessage()
+
+    def test_cap_without_indexes(
+        self, log: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Capping is tried without indexes, within one deadline for all."""
+        calls: list[str] = []
+
+        class Backend(MemoryStoreBackend):
+            def setup(self) -> None:
+                raise OperationFailure("conflict", code=85)
+
+            def cap_expiry(self, ns: str, expires_at: datetime, timeout: float) -> None:
+                calls.append(ns)
+
+        conf = PluginsConfig.model_validate(
+            {"available": {"test.a": {}, "test.b": {}}, "pipeline": []}
+        )
+        plugins = {f"test.{ns}": loaded(f"test.{ns}", ns) for ns in "ab"}
+        for timeout, expected in ((10.0, ["a", "b"]), (0.0, [])):
+            calls.clear()
+            log.clear()
+            monkeypatch.setattr(engine, "_STORE_SETUP_TIMEOUT", timeout)
+            host = PluginHost(conf, api="tes", plugins=plugins, store_backend=Backend())
+            try:
+                host.setup_store()
+            finally:
+                host.close()
+            assert calls == expected
+            assert "code 85: conflict" in log.text
+            assert ("namespaces a, b not capped" in log.text) is (not expected)
 
     def test_namespaces(self) -> None:
         """Namespaces are normalized distributions; FOCA's are `foca`."""

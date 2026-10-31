@@ -673,7 +673,8 @@ class PluginHost:
         anyway (cf. `_store_setup_log`): if the indexes cannot be created
         (e.g., the database is down, an index conflicts with an existing
         one, or the database user may not create indexes), writes create
-        them first; capping fails per namespace.
+        them first; capping is tried anyway, and fails per namespace, within
+        one deadline for all (`_STORE_SETUP_TIMEOUT`).
         """
         local = sorted(
             plugin_id
@@ -697,7 +698,7 @@ class PluginHost:
                 level,
                 "Indexes of the plugin store not created at startup (%s):"
                 " writes to the store create them first, failing until they"
-                " can%s; entries keep their expiry even if max_ttl was lowered",
+                " can%s",
                 cause,
                 (
                     " (fix the cause, e.g., a conflicting index, the"
@@ -706,7 +707,8 @@ class PluginHost:
                     else ""
                 ),
             )
-            return
+        # also without indexes: the database may be writable (e.g., with a
+        # conflicting index)
         max_ttls: dict[str, float] = {}
         for settings in self._stores.values():
             if settings.backend is self._store_backend:
@@ -717,12 +719,22 @@ class PluginHost:
         # stall the startup for long
         deadline = time.monotonic() + _STORE_SETUP_TIMEOUT
         now = datetime.now(UTC)
-        for namespace, max_ttl in sorted(max_ttls.items()):
+        namespaces = sorted(max_ttls)
+        for index, namespace in enumerate(namespaces):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning(
+                    "Expiry of the plugin store entries of namespaces %s not"
+                    " capped at max_ttl (no time left): entries keep their"
+                    " expiry until a later start caps it",
+                    ", ".join(namespaces[index:]),
+                )
+                break
             try:
                 self._store_backend.cap_expiry(
                     namespace,
-                    now + timedelta(seconds=max_ttl),
-                    max(deadline - time.monotonic(), 0.001),
+                    now + timedelta(seconds=max_ttls[namespace]),
+                    remaining,
                 )
             except PyMongoError as exc:
                 level, cause = _store_setup_log(exc)

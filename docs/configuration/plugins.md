@@ -196,7 +196,9 @@ Without database, each process keeps its entries in memory: they are lost
 on restart, counters (e.g., budgets) hold per process (per Gunicorn worker
 and replica), and memory use is **unbounded**: it grows with the entries
 that plugins write within `max_ttl` (there is no size limit per
-namespace). Without database, configure a short `max_ttl` (e.g., an hour)
+namespace), plus expired entries until they are removed (when read, and
+all of them every 1024 writes). The same holds for plugins whose store is
+turned off. Without database, configure a short `max_ttl` (e.g., an hour)
 and a single worker per replica; apps log a warning once at startup if
 plugins that declare stored data (`data_stored`) keep it in memory.
 
