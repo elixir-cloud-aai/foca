@@ -832,7 +832,11 @@ class TestEngine:
 
     def test_cap_errors(self, log: pytest.LogCaptureFixture) -> None:
         """Errors of capping are logged per namespace; the others are capped."""
-        failures = {"a": OperationFailure("denied", code=13), "b": None}
+        failures: dict[str, PyMongoError | None] = {
+            "a": OperationFailure("denied", code=13),
+            "b": None,
+            "c": ServerSelectionTimeoutError("db.internal:27017"),
+        }
         calls: list[str] = []
 
         class Backend(MemoryStoreBackend):
@@ -843,22 +847,21 @@ class TestEngine:
                     raise error
 
         conf = PluginsConfig.model_validate(
-            {"available": {"test.a": {}, "test.b": {}}, "pipeline": []}
+            {"available": {f"test.{ns}": {} for ns in failures}, "pipeline": []}
         )
-        plugins = {
-            "test.a": loaded("test.a", "a"),
-            "test.b": loaded("test.b", "b"),
-        }
+        plugins = {f"test.{ns}": loaded(f"test.{ns}", ns) for ns in failures}
         host = PluginHost(conf, api="tes", plugins=plugins, store_backend=Backend())
         try:
             host.setup_store()
         finally:
             host.close()
-        assert calls == ["a", "b"]
+        assert calls == ["a", "b", "c"]
         records = [r for r in log.records if "not capped" in r.getMessage()]
-        assert [r.levelname for r in records] == ["ERROR"]
+        assert [r.levelname for r in records] == ["ERROR", "WARNING"]
         assert "namespace a" in records[0].getMessage()
         assert "code 13: denied" in records[0].getMessage()
+        assert "namespace c" in records[1].getMessage()
+        assert "db.internal" not in records[1].getMessage()
 
     def test_namespaces(self) -> None:
         """Namespaces are normalized distributions; FOCA's are `foca`."""
@@ -1152,6 +1155,9 @@ class TestFromConfig:
                 in record.getMessage()
             ]
             assert [record.levelname for record in records] == [level]
-            assert f"code {code}: the cause" in records[0].getMessage()
+            message = records[0].getMessage()
+            assert f"code {code}" in message
+            # server messages only for permanent errors; others may name hosts
+            assert ("the cause" in message) is (level == "ERROR")
         finally:
             runtime.reset()

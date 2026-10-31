@@ -168,7 +168,7 @@ _STORE_SETUP_TIMEOUT: Final = 10.0
 """Seconds that capping the expiry of the store's entries may take at
 startup, for all namespaces."""
 
-PERMANENT_STORE_ERRORS: Final = frozenset({13, 18, 85, 86})
+_PERMANENT_STORE_ERRORS: Final = frozenset({13, 18, 85, 86})
 """MongoDB error codes of the store's setup that last until the operator
 acts: `Unauthorized`, `AuthenticationFailed`, `IndexOptionsConflict` and
 `IndexKeySpecsConflict`."""
@@ -181,19 +181,19 @@ def _store_setup_log(exc: PyMongoError) -> tuple[int, str]:
         exc: Error.
 
     Returns:
-        Log level (`ERROR` for errors in `PERMANENT_STORE_ERRORS`, else
-        `WARNING`) and the cause:
-        the error type, with code and server message for errors of the
-        server; the messages of other errors are left out, as they may
-        name hosts (server messages of these codes don't).
+        Log level (`ERROR` for errors in `_PERMANENT_STORE_ERRORS`, else
+        `WARNING`) and the cause: the error type, with the code for errors
+        of the server, and the server message for permanent errors only;
+        other messages are left out, as they may name hosts (e.g., of
+        shards; the messages of the permanent errors don't).
     """
     if not isinstance(exc, OperationFailure):
         return logging.WARNING, type(exc).__name__
+    cause = f"{type(exc).__name__}, code {exc.code}"
+    if exc.code not in _PERMANENT_STORE_ERRORS:
+        return logging.WARNING, cause
     message = (exc.details or {}).get("errmsg", str(exc))
-    cause = f"{type(exc).__name__}, code {exc.code}: {message}"
-    if exc.code in PERMANENT_STORE_ERRORS:
-        return logging.ERROR, cause
-    return logging.WARNING, cause
+    return logging.ERROR, f"{cause}: {message}"
 
 
 MAX_VIA_LENGTH = 1024
@@ -700,7 +700,8 @@ class PluginHost:
                 " can%s; entries keep their expiry even if max_ttl was lowered",
                 cause,
                 (
-                    " (fix the cause, e.g., a conflicting index or missing rights)"
+                    " (fix the cause, e.g., a conflicting index, the"
+                    " credentials or missing rights)"
                     if level == logging.ERROR
                     else ""
                 ),
