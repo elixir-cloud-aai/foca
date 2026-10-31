@@ -6,7 +6,7 @@ APIs. Each distribution of plugins has a namespace of its own (FOCA's
 built-in plugins: `foca`), so plugins cannot read the data of other
 distributions.
 
-With a database (the first one of the app's `db.dbs`), all processes share
+With a database (the app's first one of `db.dbs`), all processes share
 the entries of the collection :py:data:`STORE_COLLECTION`; without one, or
 for plugins whose store the operator turned off
 (`plugins.available.<id>.store.enabled`), each process keeps its own
@@ -14,6 +14,8 @@ entries in memory. Every entry expires, after `max_ttl` seconds at the
 latest.
 
 ```python
+if ctx.principal.subject is None:  # anonymous: no per-user budget
+    raise NotApplicable("lookups need an authenticated caller")
 count = ctx.store.increment(
     ctx.store.key_for("lookups", ctx.principal.subject_type, ctx.principal.subject),
     ttl=86400,
@@ -34,7 +36,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Protocol
 
@@ -115,6 +117,18 @@ class StoreBackend(Protocol):
 
     def setup(self) -> None:
         """Prepare the backend, e.g., create indexes, at startup."""
+
+    def cap_expiry(self, ns: str, expires_at: datetime, timeout: float) -> None:
+        """Cut the expiry of a namespace's entries that expire later.
+
+        Called at startup, so that a lowered `max_ttl` applies to entries
+        written before.
+
+        Args:
+            ns: Namespace.
+            expires_at: Latest expiry.
+            timeout: Seconds that the call may take.
+        """
 
     def get(
         self, ns: str, key: str, now: datetime, timeout: float
@@ -227,6 +241,19 @@ class MemoryStoreBackend:
 
     def setup(self) -> None:
         """Do nothing: the backend needs no preparation."""
+
+    def cap_expiry(self, ns: str, expires_at: datetime, timeout: float) -> None:
+        """Cut the expiry of a namespace's entries (cf. :py:class:`StoreBackend`).
+
+        Args:
+            ns: Namespace.
+            expires_at: Latest expiry.
+            timeout: Seconds that the call may wait for the lock.
+        """
+        with self._locked(timeout):
+            for ident, entry in self._entries.items():
+                if ident[0] == ns and entry.expires_at > expires_at:
+                    self._entries[ident] = replace(entry, expires_at=expires_at)
 
     @contextmanager
     def _locked(self, timeout: float) -> Iterator[None]:
@@ -454,6 +481,26 @@ class MongoStoreBackend:
             for index in STORE_INDEXES:
                 self.collection.create_index(index["keys"], **index["options"])
         self._indexed = True
+
+    def cap_expiry(self, ns: str, expires_at: datetime, timeout: float) -> None:
+        """Cut the expiry of a namespace's entries (cf. :py:class:`StoreBackend`).
+
+        The TTL index then removes them at the new expiry.
+
+        Args:
+            ns: Namespace.
+            expires_at: Latest expiry.
+            timeout: Seconds that the call may take.
+
+        Raises:
+            pymongo.errors.PyMongoError: The database failed or was too
+                slow.
+        """
+        with pymongo.timeout(timeout):
+            self.collection.update_many(
+                {"ns": ns, "expires_at": {"$gt": expires_at}},
+                {"$set": {"expires_at": expires_at}},
+            )
 
     def _ensure_indexes(self) -> None:
         """Create the indexes unless done in this process already.
@@ -793,7 +840,8 @@ class Store:
 
         Args:
             key: Key.
-            default: Value to return if the key is absent or expired.
+            default: Value to return if the key is absent or expired (not
+                for stored `null`, which gives `None`).
 
         Returns:
             Value (a copy), the value of a counter, or `default`.

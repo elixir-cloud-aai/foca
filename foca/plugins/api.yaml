@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   # apps list this file first, so that their own `info` wins
   title: FOCA gateway plugin listing
-  version: 1.0.0
+  version: 1.1.0
 paths:
   /plugins:
     get:
