@@ -3,6 +3,7 @@
 import threading
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ import pytest
 from pymongo import MongoClient
 from pymongo.errors import (
     DuplicateKeyError,
+    OperationFailure,
     PyMongoError,
     ServerSelectionTimeoutError,
 )
@@ -20,7 +22,15 @@ from pymongo.read_preferences import ReadPreference
 
 from foca import Foca
 from foca.models.config import Config, DBConfig, MongoConfig
-from foca.plugins import Context, InboundRequest, Plugin, Store, StoreError, runtime
+from foca.plugins import (
+    Context,
+    InboundRequest,
+    Plugin,
+    Store,
+    StoreError,
+    engine,
+    runtime,
+)
 from foca.plugins.base import EmptyModel
 from foca.plugins.config import PluginsConfig, StoreConfig, StoreOverrideConfig
 from foca.plugins.engine import PluginHost, _mongo_store_backend, _store_namespace
@@ -187,6 +197,23 @@ class TestStore:
         assert store.delete("default") is False
         store.set("short", 5, ttl=10)
         assert store.get("short") == 5
+
+    def test_cap_expiry(self, backend: StoreBackend) -> None:
+        """Capping cuts the expiry of a namespace's longer-lived entries."""
+        clock = Clock()
+        store = make_store(backend, clock, max_ttl=3600)
+        other = make_store(backend, clock, namespace="other", max_ttl=3600)
+        store.set("value", 1)
+        store.increment("counter", by=5)
+        store.set("short", 2, ttl=10)
+        other.set("value", 3)
+        backend.cap_expiry("ns", clock.now + timedelta(seconds=60), timeout=10)
+        clock.advance(59)
+        assert (store.get("value"), store.get("counter")) == (1, 5)
+        assert store.get("short") is None
+        clock.advance(1)
+        assert (store.get("value"), store.get("counter")) == (None, None)
+        assert other.get("value") == 3
 
     @pytest.mark.parametrize(
         "ttl", [0, 0.0004, -1, float("inf"), float("nan"), True, "1"]
@@ -623,6 +650,8 @@ class TestMongoBackend:
 class CountingPlugin(Plugin[EmptyModel, EmptyModel]):
     """Count requests in the store."""
 
+    data_stored = ("request counts",)
+
     def on_request(self, request: InboundRequest, ctx: Context) -> None:
         """Count the request and remember the store.
 
@@ -635,6 +664,10 @@ class CountingPlugin(Plugin[EmptyModel, EmptyModel]):
         ctx.record("count", count)
         ctx.record("mode", ctx.store.mode)
         ctx.record("namespace", ctx.store.namespace)
+
+
+class QuietPlugin(Plugin[EmptyModel, EmptyModel]):
+    """Declare no stored data."""
 
 
 def loaded(plugin_id: str, distribution: str | None) -> LoadedPlugin:
@@ -744,6 +777,130 @@ class TestEngine:
         finally:
             host.close()
 
+    def test_local_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Setup warns once about plugins that store data without database."""
+        message = "keep their store entries in the memory of each process"
+        plugins = {"test.count": loaded("test.count", "dist")}
+        conf = PluginsConfig.model_validate(
+            {"available": {"test.count": {}}, "pipeline": []}
+        )
+        for backend, warned in (
+            (MemoryStoreBackend(), True),
+            (MongoStoreBackend(mongomock.MongoClient()["db"][STORE_COLLECTION]), False),
+        ):
+            caplog.clear()
+            host = PluginHost(conf, api="tes", plugins=plugins, store_backend=backend)
+            try:
+                host.setup_store()
+            finally:
+                host.close()
+            assert caplog.text.count(message) == (1 if warned else 0)
+        # plugins that declare no stored data
+        caplog.clear()
+        quiet = {"test.quiet": replace(loaded("test.quiet", "dist"), cls=QuietPlugin)}
+        host = PluginHost(conf, api="tes", plugins=quiet)
+        try:
+            host.setup_store()
+        finally:
+            host.close()
+        assert message not in caplog.text
+
+    def test_setup_caps_expiry(self) -> None:
+        """Setup cuts entries to the current `max_ttl` of their namespace."""
+        backend = MongoStoreBackend(mongomock.MongoClient()["db"][STORE_COLLECTION])
+        clock = Clock()
+        make_store(backend, clock, namespace="dist", max_ttl=3600).set("k", 1)
+        conf = PluginsConfig.model_validate(
+            {
+                "available": {
+                    "test.a": {"store": {"max_ttl": 60}},
+                    "test.b": {"store": {"max_ttl": 120}},
+                    "test.off": {"store": {"enabled": False, "max_ttl": 600}},
+                },
+                "pipeline": [],
+            }
+        )
+        plugins = {
+            plugin_id: replace(loaded(plugin_id, "dist"), available=entry)
+            for plugin_id, entry in conf.available.items()
+            if plugin_id.startswith("test.")
+        }
+        host = PluginHost(conf, api="tes", plugins=plugins, store_backend=backend)
+        try:
+            host.setup_store()
+        finally:
+            host.close()
+        document = backend.collection.find_one({"_id": "dist\x1fk"})
+        assert document is not None
+        # the longest `max_ttl` of the namespace's shared plugins
+        expires_at = _aware(document["expires_at"])
+        assert expires_at is not None
+        remaining = expires_at - datetime.now(UTC)
+        assert timedelta(seconds=110) < remaining <= timedelta(seconds=120)
+
+    def test_cap_errors(self, log: pytest.LogCaptureFixture) -> None:
+        """Errors of capping are logged per namespace; the others are capped."""
+        failures: dict[str, PyMongoError | None] = {
+            "a": OperationFailure("denied", code=13),
+            "b": None,
+            "c": ServerSelectionTimeoutError("db.internal:27017"),
+        }
+        calls: list[str] = []
+
+        class Backend(MemoryStoreBackend):
+            def cap_expiry(self, ns: str, expires_at: datetime, timeout: float) -> None:
+                calls.append(ns)
+                error = failures.get(ns)
+                if error is not None:
+                    raise error
+
+        conf = PluginsConfig.model_validate(
+            {"available": {f"test.{ns}": {} for ns in failures}, "pipeline": []}
+        )
+        plugins = {f"test.{ns}": loaded(f"test.{ns}", ns) for ns in failures}
+        host = PluginHost(conf, api="tes", plugins=plugins, store_backend=Backend())
+        try:
+            host.setup_store()
+        finally:
+            host.close()
+        assert calls == ["a", "b", "c"]
+        records = [r for r in log.records if "not capped" in r.getMessage()]
+        assert [r.levelname for r in records] == ["ERROR", "WARNING"]
+        assert "namespace a" in records[0].getMessage()
+        assert "code 13: denied" in records[0].getMessage()
+        assert "namespace c" in records[1].getMessage()
+        assert "db.internal" not in records[1].getMessage()
+
+    def test_cap_without_indexes(
+        self, log: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Capping is tried without indexes, within one deadline for all."""
+        calls: list[str] = []
+
+        class Backend(MemoryStoreBackend):
+            def setup(self) -> None:
+                raise OperationFailure("conflict", code=85)
+
+            def cap_expiry(self, ns: str, expires_at: datetime, timeout: float) -> None:
+                calls.append(ns)
+
+        conf = PluginsConfig.model_validate(
+            {"available": {"test.a": {}, "test.b": {}}, "pipeline": []}
+        )
+        plugins = {f"test.{ns}": loaded(f"test.{ns}", ns) for ns in "ab"}
+        for timeout, expected in ((10.0, ["a", "b"]), (0.0, [])):
+            calls.clear()
+            log.clear()
+            monkeypatch.setattr(engine, "_STORE_SETUP_TIMEOUT", timeout)
+            host = PluginHost(conf, api="tes", plugins=plugins, store_backend=Backend())
+            try:
+                host.setup_store()
+            finally:
+                host.close()
+            assert calls == expected
+            assert "code 85: conflict" in log.text
+            assert ("namespaces a, b not capped" in log.text) is (not expected)
+
     def test_namespaces(self) -> None:
         """Namespaces are normalized distributions; FOCA's are `foca`."""
         assert _store_namespace(loaded("test.x", "My_Plugins")) == "my-plugins"
@@ -806,6 +963,94 @@ class TestFromConfig:
         assert _mongo_store_backend(None) is None
         assert _mongo_store_backend(MongoConfig()) is None
         assert _mongo_store_backend(MongoConfig(dbs={})) is None
+
+    def test_skipped_databases(self) -> None:
+        """Databases that aren't the app's (e.g., access control's) are skipped."""
+        database: Any = mongomock.MongoClient()["mine"]
+        conf = MongoConfig(dbs={"policies": DBConfig(), "mine": DBConfig()})
+        conf.dbs["mine"].client = database  # type: ignore[index]
+        backend = _mongo_store_backend(conf, skip={"policies"})
+        assert backend is not None
+        assert backend.collection.database is database
+        assert _mongo_store_backend(conf, skip={"policies", "mine"}) is None
+
+    def test_app_policy_database(
+        self,
+        tmp_path: Path,
+        fake_plugin_entry_points: RegisterPlugins,
+        mongo_clients: list[Any],
+    ) -> None:
+        """An app database that also holds the policies holds the entries."""
+        fake_plugin_entry_points({"test.count": CountingPlugin})
+        data: dict[str, Any] = {
+            "db": {"dbs": {"access_control_db": {}}},
+            "security": {
+                "auth": {
+                    "issuers": ["https://login.example.org/oidc/"],
+                    "audience": ["my-app"],
+                },
+                "access_control": {"enabled": True},
+            },
+            "plugins": {"available": {"test.count": {}}, "pipeline": ["test.count"]},
+        }
+        foca = Foca(
+            config_file=write_config(tmp_path, data), gateway=GatewayApp(api="tes")
+        )
+        try:
+            foca.create_app()
+            assert foca.conf.security.access_control.added_database is None
+            _, client = mongo_clients[0]
+            assert STORE_COLLECTION in (
+                client["access_control_db"].list_collection_names()
+            )
+        finally:
+            runtime.reset()
+
+    @pytest.mark.parametrize("app_db", [False, True])
+    def test_access_control_database(
+        self,
+        tmp_path: Path,
+        fake_plugin_entry_points: RegisterPlugins,
+        mongo_clients: list[Any],
+        app_db: bool,
+    ) -> None:
+        """The policy database that access control adds holds no entries."""
+        fake_plugin_entry_points({"test.count": CountingPlugin})
+        data: dict[str, Any] = {
+            "security": {
+                "auth": {
+                    "issuers": ["https://login.example.org/oidc/"],
+                    "audience": ["my-app"],
+                },
+                "access_control": {"enabled": True},
+            },
+            "plugins": {"available": {"test.count": {}}, "pipeline": ["test.count"]},
+        }
+        if app_db:
+            data["db"] = {"dbs": {"mine": {}}}
+        foca = Foca(
+            config_file=write_config(tmp_path, data), gateway=GatewayApp(api="tes")
+        )
+        try:
+            foca.create_app()
+            assert foca.conf.db is not None
+            assert "access_control_db" in (foca.conf.db.dbs or {})
+            host = PluginHost.from_config(foca.conf, api="tes")
+            try:
+                assert host.store_settings("test.count").mode == (
+                    "shared" if app_db else "local"
+                )
+            finally:
+                host.close()
+            for _, client in mongo_clients:
+                assert STORE_COLLECTION not in (
+                    client["access_control_db"].list_collection_names()
+                )
+            if app_db:
+                _, client = mongo_clients[0]
+                assert STORE_COLLECTION in client["mine"].list_collection_names()
+        finally:
+            runtime.reset()
 
     def test_registered(self) -> None:
         """The collection is in the first registered database."""
@@ -895,6 +1140,62 @@ class TestFromConfig:
         )
         try:
             Foca(config_file=config, gateway=GatewayApp(api="tes")).create_app()
-            assert "Indexes of the plugin store not created" in log.text
+            assert "Indexes of the plugin store not created at startup" in log.text
+        finally:
+            runtime.reset()
+
+    @pytest.mark.parametrize(
+        ("code", "level"),
+        [
+            (13, "ERROR"),
+            (18, "ERROR"),
+            (85, "ERROR"),
+            (86, "ERROR"),
+            (11600, "WARNING"),
+        ],
+    )
+    def test_create_app_setup_error_levels(
+        self,
+        tmp_path: Path,
+        fake_plugin_entry_points: RegisterPlugins,
+        mongo_clients: list[Any],
+        log: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        code: int,
+        level: str,
+    ) -> None:
+        """Permanent setup errors are errors, others warnings, with their cause.
+
+        E.g., `InterruptedAtShutdown` (11600) is no permanent error.
+        """
+
+        def fail(self: MongoStoreBackend) -> None:
+            raise OperationFailure("the cause", code=code)
+
+        monkeypatch.setattr(MongoStoreBackend, "setup", fail)
+        fake_plugin_entry_points({"test.count": CountingPlugin})
+        config = write_config(
+            tmp_path,
+            {
+                "db": {"dbs": {"mine": {}}},
+                "plugins": {
+                    "available": {"test.count": {}},
+                    "pipeline": ["test.count"],
+                },
+            },
+        )
+        try:
+            Foca(config_file=config, gateway=GatewayApp(api="tes")).create_app()
+            records = [
+                record
+                for record in log.records
+                if "Indexes of the plugin store not created at startup"
+                in record.getMessage()
+            ]
+            assert [record.levelname for record in records] == [level]
+            message = records[0].getMessage()
+            assert f"code {code}" in message
+            # server messages only for permanent errors; others may name hosts
+            assert ("the cause" in message) is (level == "ERROR")
         finally:
             runtime.reset()

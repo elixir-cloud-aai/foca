@@ -238,6 +238,8 @@ def test_storage_schema() -> None:
     schema = spec["components"]["schemas"]["Plugin"]
     assert schema["properties"]["storage"]["enum"] == list(get_args(StoreMode))
     assert {"data_stored", "storage"} <= set(schema["required"])
+    # new required fields of FOCA 0.19
+    assert spec["info"]["version"] == "1.1.0"
 
 
 def test_group_and_subgroup(monkeypatch: pytest.MonkeyPatch) -> None:

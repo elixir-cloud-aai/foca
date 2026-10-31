@@ -1224,3 +1224,13 @@ def test_AccessControlConfig_unmapped_opt_in_roles(
         opt_in_roles=["admin", "ops"],
     )
     assert conf.opt_in_roles == ["admin", "ops"]
+
+
+def test_AccessControlConfig_added_database() -> None:
+    """The policy database counts as added only if registration added it."""
+    conf = AccessControlConfig()
+    assert conf.added_database is None  # not registered
+    conf._registered_collection = ("policies", "policy_rules", True)
+    assert conf.added_database == "policies"
+    conf._registered_collection = ("policies", "policy_rules", False)
+    assert conf.added_database is None  # an app database

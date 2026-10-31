@@ -30,7 +30,7 @@ plugins:
       allow_http: false
       max_response_size: 16777216  # bytes
     store:                 # ctx.store of plugins; per plugin: available.<id>.store
-      enabled: true        # in the database, if any; else memory per process
+      enabled: true        # in the app's database, if any; else memory per process
       max_entry_size: 4096 # bytes per value, as compact JSON
       max_ttl: 2592000     # seconds (30 days); also the default TTL
   # Default pipeline: steps, each with ordered alternatives (fallbacks);
@@ -175,14 +175,32 @@ input is kept (cf. [provenance](../plugins.md#provenance)).
 Plugins keep small data across requests in `ctx.store` (cf. [plugin
 store](../plugins.md#plugin-store)), e.g., caches and per-user counters.
 With a database configured (`db.dbs`), the entries are in the collection
-`plugin_store` of the **first** database, shared by all processes and
-replicas. Gateway apps create its indexes at startup (a TTL index on
+`plugin_store` of the app's **first** database, shared by all processes and
+replicas. The policy database that access control adds when the app has no
+database of that name (e.g., `access_control_db` without `db` section) is
+not the app's: without an app database, the store stays in memory. Gateway
+apps create the collection's indexes at startup (a TTL index on
 `expires_at`, and one on `ns`), so the database user needs the right to
-create indexes; if that fails (e.g., the database is not reachable within
-10 s), the app logs a warning and starts anyway, and writes to the store
-create the indexes first, failing until they can. Entries are always read
-from the primary of a replica set, also if the app's connection prefers
-secondaries. Without database, each process keeps its entries in memory.
+create indexes. If that fails because the database is down or slow (more
+than 10 s), the app logs a warning and starts anyway, and writes to the
+store create the indexes first, failing until they can. Errors that last
+until the operator acts (a conflicting index, failed authentication or a
+missing right: MongoDB codes 85, 86, 18 and 13) are logged as errors, with
+their cause; writes to the store fail until it is fixed. Startup then also
+cuts the expiry of entries to the current `max_ttl` (see below), within
+another 10 s for all namespaces; failures are logged per namespace, and
+the app starts anyway. Entries are always read from the primary of a
+replica set, also if the app's connection prefers secondaries.
+
+Without database, each process keeps its entries in memory: they are lost
+on restart, counters (e.g., budgets) hold per process (per Gunicorn worker
+and replica), and memory use is **unbounded**: it grows with the entries
+that plugins write within `max_ttl` (there is no size limit per
+namespace), plus expired entries until they are removed (when read, and
+all of them every 1024 writes). The same holds for plugins whose store is
+turned off. Without database, configure a short `max_ttl` (e.g., an hour)
+and a single worker per replica; apps log a warning once at startup if
+plugins that declare stored data (`data_stored`) keep it in memory.
 
 - `defaults.store.enabled: false`, or `available.<id>.store.enabled:
   false` for one plugin, keeps the entries in the memory of each process
@@ -195,7 +213,21 @@ secondaries. Without database, each process keeps its entries in memory.
 - `max_ttl` limits how long entries live (default: 30 days, at most 10
   years); entries without TTL get it, longer TTLs are cut to it. MongoDB
   removes expired entries about once a minute; until then, they are no
-  longer read.
+  longer read. A lowered `max_ttl` applies to existing entries when the app
+  starts: each process cuts the expiry of the entries of a namespace to at
+  most `max_ttl` from then (the longest `max_ttl` of the namespace's
+  plugins that use the database). Entries then live at most `max_ttl`
+  after the last start with the new setting, provided the cut succeeded
+  (the app logs it otherwise): during a rolling update, processes with the
+  old setting still write entries with the old `max_ttl`, so restart the
+  app once more after all processes have the new one.
+- Turning the store off for plugins keeps their entries in the database
+  until they expire (they are no longer read). To remove them earlier,
+  delete the namespace's entries, e.g., in `mongosh`:
+  `db.plugin_store.deleteMany({ns: "<namespace>"})`, with the namespace of
+  the plugins' distribution (cf. [plugin store](../plugins.md#plugin-store));
+  the same removes the entries of a distribution that is no longer
+  installed.
 - Plugins of one distribution share a namespace; plugins of other
   distributions can't read it. Entries keyed by users are personal data:
   their retention is at most `max_ttl`.
