@@ -1,4 +1,11 @@
-[![ELIXIR On-Cloud][logo]][org]
+<!-- markdownlint-disable MD033 MD041 -- logo first; <picture> for dark mode -->
+<a href="https://elixir-on.cloud/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo_elixir_on_cloud_night.png">
+    <img src="docs/images/logo_elixir_on_cloud.png" alt="ELIXIR On-Cloud">
+  </picture>
+</a>
+<!-- markdownlint-enable MD033 MD041 -->
 
 # FOCA
 
@@ -164,5 +171,3 @@ mind our [code of conduct][code-of-conduct].
 [docs-migration-0.16]: <https://foca.readthedocs.io/en/latest/migration-0.16/>
 [docs-migration-0.17]: <https://foca.readthedocs.io/en/latest/migration-0.17/>
 [example]: <https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore>
-[logo]: <https://raw.githubusercontent.com/elixir-cloud-aai/foca/dev/docs/images/logo_elixir_on_cloud.png>
-[org]: <https://elixir-on.cloud/>
