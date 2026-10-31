@@ -361,6 +361,8 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
         cached = None
     if cached is not None:
         return cached
+    if ctx.principal.subject is None:  # anonymous: no per-user budget
+        raise NotApplicable("lookups need an authenticated caller")
     user = ctx.store.key_for(
         "lookups", ctx.principal.subject_type, ctx.principal.subject
     )
@@ -382,12 +384,16 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
 - Keys are strings of 1 to 256 characters; values are JSON data (I-JSON:
   mappings with string keys, lists, strings, finite numbers, integers up to
   2^53 - 1, booleans, `null`), at most `max_entry_size` bytes (default:
-  4 KiB) as compact JSON. `get()` returns a copy, and `null` values look
-  like absent keys. Values of `set()` are no counters (`increment()` on
-  them raises `StoreError`); `set()` replaces counters.
+  4 KiB) as compact JSON. `get()` returns a copy; its `default` is only
+  for absent or expired keys, so a stored `null` reads as `None` even with
+  another `default` (store a sentinel such as `{}` to tell "known empty"
+  from "unknown" with the default `None`). Values of `set()` are no
+  counters (`increment()` on them raises `StoreError`); `set()` replaces
+  counters.
 - Every entry expires: after its `ttl` (seconds, at least 0.001), at most
   after the operator's `max_ttl` (default: 30 days), which is also the
-  default.
+  default. If the operator lowers `max_ttl`, existing entries expire at
+  most `max_ttl` after the next start.
 - Entries are in a namespace per distribution: plugins of one
   distribution share them, plugins of others can't read them; FOCA's
   built-in plugins use `foca`.
@@ -395,7 +401,8 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
   (`ctx.store.mode` is `shared`); without one, or if the operator turned the
   store off for the plugin (`plugins.available.<id>.store.enabled: false`),
   each process has its own (`local` or `off`): counters then hold per
-  process, so budgets are only approximate. A plugin whose store is off
+  process, so budgets are only approximate, and the entries' memory is not
+  bounded by size, only by `max_ttl`. A plugin whose store is off
   doesn't see the entries of the other plugins of its distribution (the
   app logs a warning).
 - The store works with mongomock too (e.g., in apps' tests), which
@@ -416,6 +423,8 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
   plugin's store mode (`storage`).
 - Hooks that are abandoned at their deadline cannot use the store any
   more, but a write in progress may still complete.
+- `ctx.store` and `data_stored` are new in FOCA 0.19: plugins that use
+  them require `foca>=0.19` (cf. [Releasing plugins](#releasing-plugins)).
 
 ### Testing plugins
 
@@ -503,6 +512,10 @@ def test_contract():
   description) one release before removing a plugin.
 - Run the contract check in the plugin's CI, against the oldest and the
   newest FOCA version it supports.
+- Declare the oldest FOCA version whose plugin API the plugin uses in
+  its dependencies, e.g., `foca>=0.19` for plugins that use `ctx.store` or
+  declare `data_stored`: older versions load such plugins, but their hooks
+  fail (`ctx` has no `store`) and listings don't show `data_stored`.
 
 ## Using the engine in apps
 
@@ -799,7 +812,9 @@ version, third-party data transfers (`data_transfers`), what the plugin
 keeps in its store (`data_stored`) and the store's mode (`storage`:
 `shared`, `local` or `off`, cf. [Plugin store](#plugin-store)), and the
 JSON Schema of the parameters, never the admin settings; and the presets
-it may choose (`presets` allowed, and the roles of their plugins). It
+it may choose (`presets` allowed, and the roles of their plugins).
+`data_stored` and `storage` are required fields from version 1.1.0 of the
+listing's specification on (`foca>=0.19`). It
 also holds the steps of the default pipeline, the limits of
 `client_pipelines` (with whether the caller has anything to choose, and
 the identifiers of the `prepend` and `append` steps) and

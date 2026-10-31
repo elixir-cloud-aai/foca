@@ -50,14 +50,16 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlsplit
 
 from packaging.utils import canonicalize_name
 from pydantic import ValidationError
+from pymongo.errors import OperationFailure, PyMongoError
 
 from foca.plugins.base import (
     API_VERSION,
@@ -162,6 +164,38 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_STORE_SETUP_TIMEOUT: Final = 10.0
+"""Seconds that capping the expiry of the store's entries may take at
+startup, for all namespaces."""
+
+_PERMANENT_STORE_ERRORS: Final = frozenset({13, 18, 85, 86})
+"""MongoDB error codes of the store's setup that last until the operator
+acts: `Unauthorized`, `AuthenticationFailed`, `IndexOptionsConflict` and
+`IndexKeySpecsConflict`."""
+
+
+def _store_setup_log(exc: PyMongoError) -> tuple[int, str]:
+    """Get how to log an error of the store's setup at startup.
+
+    Args:
+        exc: Error.
+
+    Returns:
+        Log level (`ERROR` for errors in `_PERMANENT_STORE_ERRORS`, else
+        `WARNING`) and the cause: the error type, with the code for errors
+        of the server, and the server message for permanent errors only;
+        other messages are left out, as they may name hosts (e.g., of
+        shards; the messages of the permanent errors don't).
+    """
+    if not isinstance(exc, OperationFailure):
+        return logging.WARNING, type(exc).__name__
+    cause = f"{type(exc).__name__}, code {exc.code}"
+    if exc.code not in _PERMANENT_STORE_ERRORS:
+        return logging.WARNING, cause
+    message = (exc.details or {}).get("errmsg", str(exc))
+    return logging.ERROR, f"{cause}: {message}"
+
+
 MAX_VIA_LENGTH = 1024
 """Maximum length of outbound `Via` headers (the inbound header plus this
 gateway's entry), in characters."""
@@ -263,16 +297,37 @@ def _store_settings(
     return settings
 
 
-def _mongo_store_backend(db: "MongoConfig | None") -> MongoStoreBackend | None:
+def _added_databases(config: Any) -> set[str]:
+    """Get the databases that FOCA added to `db.dbs`, not the app.
+
+    Args:
+        config: FOCA configuration (:py:class:`foca.models.config.Config`).
+
+    Returns:
+        Names of the databases: the policy database of access control, if
+        its registration added it (cf.
+        :py:attr:`foca.models.config.AccessControlConfig.added_database`).
+    """
+    security = getattr(config, "security", None)
+    access_control = getattr(security, "access_control", None)
+    added = getattr(access_control, "added_database", None)
+    return {added} if isinstance(added, str) else set()
+
+
+def _mongo_store_backend(
+    db: "MongoConfig | None", skip: Collection[str] = ()
+) -> MongoStoreBackend | None:
     """Get the store backend of the app's database, if any.
 
     Args:
         db: `db` section of the FOCA configuration
             (:py:class:`foca.models.config.MongoConfig`), if any.
+        skip: Databases of `db.dbs` that are not the app's own (cf.
+            `_added_databases()`).
 
     Returns:
         Backend with the collection `STORE_COLLECTION` of the first
-        database of `db.dbs`; `None` if no database is configured.
+        database of `db.dbs` that is not skipped; `None` if there is none.
     """
     # imported here: the config models import the plugin modules
     from foca.database.register_mongodb import (  # noqa: PLC0415
@@ -282,7 +337,10 @@ def _mongo_store_backend(db: "MongoConfig | None") -> MongoStoreBackend | None:
 
     if db is None or not db.dbs:
         return None
-    name, db_conf = next(iter(db.dbs.items()))
+    own = [(name, conf) for name, conf in db.dbs.items() if name not in skip]
+    if not own:
+        return None
+    name, db_conf = own[0]
     database = db_conf.client
     if database is None:  # not registered (yet), e.g., in tests
         database = get_mongo_client(db)[get_mongo_db_name(name)]
@@ -545,8 +603,10 @@ class PluginHost:
         Returns:
             Host with the plugins of `plugins` (none if not configured); the
             plugins' stores keep their entries in the collection
-            :py:data:`foca.plugins.store.STORE_COLLECTION` of the first
-            database of `db.dbs`, if any, otherwise in memory.
+            :py:data:`foca.plugins.store.STORE_COLLECTION` of the app's
+            first database of `db.dbs`, if any, otherwise in memory; the
+            policy database that access control adds without an app
+            database of its name is not the app's.
 
         Raises:
             ValueError: The configuration has keys of earlier middleware
@@ -563,7 +623,9 @@ class PluginHost:
             validate_outbound=validate_outbound,
             public_url=config.server.public_url,
             app_info=app_info,
-            store_backend=_mongo_store_backend(getattr(config, "db", None)),
+            store_backend=_mongo_store_backend(
+                getattr(config, "db", None), skip=_added_databases(config)
+            ),
         )
 
     def store_settings(self, plugin_id: str) -> StoreSettings:
@@ -597,15 +659,81 @@ class PluginHost:
         return Store(self._stores[plugin_id], deadline=deadline)
 
     def setup_store(self) -> None:
-        """Prepare the backend of the stores, e.g., create its indexes.
+        """Prepare the backend of the stores at startup.
 
-        Called once at startup (cf. `Foca.create_app()`); idempotent.
+        Called once at startup (cf. `Foca.create_app()`); idempotent. Logs a
+        warning if plugins that declare stored data (`data_stored`) keep it
+        in memory as no database is configured; creates the indexes of the
+        backend; and cuts the expiry of the entries of each namespace to the
+        current `max_ttl` (the longest of the namespace's plugins that
+        share the backend), so that a lowered `max_ttl` applies to entries
+        written before.
 
-        Raises:
-            pymongo.errors.PyMongoError: The database cannot be reached, or
-                an index conflicts with an existing one.
+        Database errors are logged, not raised, so that the app starts
+        anyway (cf. `_store_setup_log`): if the indexes cannot be created
+        (e.g., the database is down, an index conflicts with an existing
+        one, or the database user may not create indexes), writes create
+        them first; capping fails per namespace.
         """
-        self._store_backend.setup()
+        local = sorted(
+            plugin_id
+            for plugin_id, settings in self._stores.items()
+            if settings.mode == "local" and self.plugins[plugin_id].cls.data_stored
+        )
+        if local:
+            logger.warning(
+                "Plugins %s keep their store entries in the memory of each"
+                " process, as no database is configured: entries are lost on"
+                " restart, counters (e.g., budgets) hold per process (worker,"
+                " replica), and memory use grows with the entries; configure a"
+                " database (db.dbs) or a short plugins.defaults.store.max_ttl",
+                ", ".join(local),
+            )
+        try:
+            self._store_backend.setup()
+        except PyMongoError as exc:
+            level, cause = _store_setup_log(exc)
+            logger.log(
+                level,
+                "Indexes of the plugin store not created at startup (%s):"
+                " writes to the store create them first, failing until they"
+                " can%s; entries keep their expiry even if max_ttl was lowered",
+                cause,
+                (
+                    " (fix the cause, e.g., a conflicting index, the"
+                    " credentials or missing rights)"
+                    if level == logging.ERROR
+                    else ""
+                ),
+            )
+            return
+        max_ttls: dict[str, float] = {}
+        for settings in self._stores.values():
+            if settings.backend is self._store_backend:
+                max_ttls[settings.namespace] = max(
+                    settings.max_ttl, max_ttls.get(settings.namespace, 0.0)
+                )
+        # one deadline for all namespaces, so that a slow database does not
+        # stall the startup for long
+        deadline = time.monotonic() + _STORE_SETUP_TIMEOUT
+        now = datetime.now(UTC)
+        for namespace, max_ttl in sorted(max_ttls.items()):
+            try:
+                self._store_backend.cap_expiry(
+                    namespace,
+                    now + timedelta(seconds=max_ttl),
+                    max(deadline - time.monotonic(), 0.001),
+                )
+            except PyMongoError as exc:
+                level, cause = _store_setup_log(exc)
+                logger.log(
+                    level,
+                    "Expiry of the plugin store entries of namespace %s not"
+                    " capped at max_ttl (%s): entries keep their expiry until"
+                    " a later start caps it",
+                    namespace,
+                    cause,
+                )
 
     def resolve_steps(
         self, steps: Sequence[StepConfig], origin: str
