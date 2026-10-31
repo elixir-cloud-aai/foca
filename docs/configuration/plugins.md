@@ -184,9 +184,12 @@ apps create the collection's indexes at startup (a TTL index on
 create indexes. If that fails because the database is down or slow (more
 than 10 s), the app logs a warning and starts anyway, and writes to the
 store create the indexes first, failing until they can. Errors that last
-until the operator acts (a conflicting index, or a missing right: MongoDB
-codes 85, 86 and 13) are logged as errors, with their cause; writes to the
-store fail until it is fixed. Entries are always read from the primary of a
+until the operator acts (a conflicting index, failed authentication or a
+missing right: MongoDB codes 85, 86, 18 and 13) are logged as errors, with
+their cause; writes to the store fail until it is fixed. Startup then also
+cuts the expiry of entries to the current `max_ttl` (see below), within
+another 10 s for all namespaces; failures are logged per namespace, and
+the app starts anyway. Entries are always read from the primary of a
 replica set, also if the app's connection prefers secondaries.
 
 Without database, each process keeps its entries in memory: they are lost
@@ -211,8 +214,11 @@ plugins that declare stored data (`data_stored`) keep it in memory.
   longer read. A lowered `max_ttl` applies to existing entries when the app
   starts: each process cuts the expiry of the entries of a namespace to at
   most `max_ttl` from then (the longest `max_ttl` of the namespace's
-  plugins that use the database), so entries live at most `max_ttl` after
-  the change.
+  plugins that use the database). Entries then live at most `max_ttl`
+  after the last start with the new setting, provided the cut succeeded
+  (the app logs it otherwise): during a rolling update, processes with the
+  old setting still write entries with the old `max_ttl`, so restart the
+  app once more after all processes have the new one.
 - Turning the store off for plugins keeps their entries in the database
   until they expire (they are no longer read). To remove them earlier,
   delete the namespace's entries, e.g., in `mongosh`:

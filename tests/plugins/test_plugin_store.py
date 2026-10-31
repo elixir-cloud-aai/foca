@@ -3,6 +3,7 @@
 import threading
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -785,15 +786,10 @@ class TestEngine:
                 host.setup_store()
             finally:
                 host.close()
-            assert (message in caplog.text) is warned
-            assert caplog.text.count(message) <= 1
+            assert caplog.text.count(message) == (1 if warned else 0)
         # plugins that declare no stored data
         caplog.clear()
-        quiet = {
-            "test.quiet": LoadedPlugin(
-                **{**loaded("test.quiet", "dist").__dict__, "cls": QuietPlugin}
-            )
-        }
+        quiet = {"test.quiet": replace(loaded("test.quiet", "dist"), cls=QuietPlugin)}
         host = PluginHost(conf, api="tes", plugins=quiet)
         try:
             host.setup_store()
@@ -817,9 +813,7 @@ class TestEngine:
             }
         )
         plugins = {
-            plugin_id: LoadedPlugin(
-                **{**loaded(plugin_id, "dist").__dict__, "available": entry}
-            )
+            plugin_id: replace(loaded(plugin_id, "dist"), available=entry)
             for plugin_id, entry in conf.available.items()
             if plugin_id.startswith("test.")
         }
@@ -834,7 +828,37 @@ class TestEngine:
         expires_at = _aware(document["expires_at"])
         assert expires_at is not None
         remaining = expires_at - datetime.now(UTC)
-        assert timedelta(seconds=100) < remaining <= timedelta(seconds=120)
+        assert timedelta(seconds=110) < remaining <= timedelta(seconds=120)
+
+    def test_cap_errors(self, log: pytest.LogCaptureFixture) -> None:
+        """Errors of capping are logged per namespace; the others are capped."""
+        failures = {"a": OperationFailure("denied", code=13), "b": None}
+        calls: list[str] = []
+
+        class Backend(MemoryStoreBackend):
+            def cap_expiry(self, ns: str, expires_at: datetime, timeout: float) -> None:
+                calls.append(ns)
+                error = failures.get(ns)
+                if error is not None:
+                    raise error
+
+        conf = PluginsConfig.model_validate(
+            {"available": {"test.a": {}, "test.b": {}}, "pipeline": []}
+        )
+        plugins = {
+            "test.a": loaded("test.a", "a"),
+            "test.b": loaded("test.b", "b"),
+        }
+        host = PluginHost(conf, api="tes", plugins=plugins, store_backend=Backend())
+        try:
+            host.setup_store()
+        finally:
+            host.close()
+        assert calls == ["a", "b"]
+        records = [r for r in log.records if "not capped" in r.getMessage()]
+        assert [r.levelname for r in records] == ["ERROR"]
+        assert "namespace a" in records[0].getMessage()
+        assert "code 13: denied" in records[0].getMessage()
 
     def test_namespaces(self) -> None:
         """Namespaces are normalized distributions; FOCA's are `foca`."""
@@ -908,6 +932,38 @@ class TestFromConfig:
         assert backend is not None
         assert backend.collection.database is database
         assert _mongo_store_backend(conf, skip={"policies", "mine"}) is None
+
+    def test_app_policy_database(
+        self,
+        tmp_path: Path,
+        fake_plugin_entry_points: RegisterPlugins,
+        mongo_clients: list[Any],
+    ) -> None:
+        """An app database that also holds the policies holds the entries."""
+        fake_plugin_entry_points({"test.count": CountingPlugin})
+        data: dict[str, Any] = {
+            "db": {"dbs": {"access_control_db": {}}},
+            "security": {
+                "auth": {
+                    "issuers": ["https://login.example.org/oidc/"],
+                    "audience": ["my-app"],
+                },
+                "access_control": {"enabled": True},
+            },
+            "plugins": {"available": {"test.count": {}}, "pipeline": ["test.count"]},
+        }
+        foca = Foca(
+            config_file=write_config(tmp_path, data), gateway=GatewayApp(api="tes")
+        )
+        try:
+            foca.create_app()
+            assert foca.conf.security.access_control.added_database is None
+            _, client = mongo_clients[0]
+            assert STORE_COLLECTION in (
+                client["access_control_db"].list_collection_names()
+            )
+        finally:
+            runtime.reset()
 
     @pytest.mark.parametrize("app_db", [False, True])
     def test_access_control_database(
@@ -1043,15 +1099,21 @@ class TestFromConfig:
         )
         try:
             Foca(config_file=config, gateway=GatewayApp(api="tes")).create_app()
-            assert "Plugin store not set up at startup" in log.text
+            assert "Indexes of the plugin store not created at startup" in log.text
         finally:
             runtime.reset()
 
     @pytest.mark.parametrize(
         ("code", "level"),
-        [(13, "ERROR"), (85, "ERROR"), (86, "ERROR"), (11600, "WARNING")],
+        [
+            (13, "ERROR"),
+            (18, "ERROR"),
+            (85, "ERROR"),
+            (86, "ERROR"),
+            (11600, "WARNING"),
+        ],
     )
-    def test_create_app_with_index_conflict(
+    def test_create_app_setup_error_levels(
         self,
         tmp_path: Path,
         fake_plugin_entry_points: RegisterPlugins,
@@ -1061,9 +1123,9 @@ class TestFromConfig:
         code: int,
         level: str,
     ) -> None:
-        """Permanent setup errors are logged as errors, with their cause.
+        """Permanent setup errors are errors, others warnings, with their cause.
 
-        Others (e.g., `InterruptedAtShutdown`) are warnings, without it.
+        E.g., `InterruptedAtShutdown` (11600) is no permanent error.
         """
 
         def fail(self: MongoStoreBackend) -> None:
@@ -1086,11 +1148,10 @@ class TestFromConfig:
             records = [
                 record
                 for record in log.records
-                if "Plugin store not set up at startup" in record.getMessage()
+                if "Indexes of the plugin store not created at startup"
+                in record.getMessage()
             ]
             assert [record.levelname for record in records] == [level]
-            assert (f"code {code}: the cause" in records[0].getMessage()) is (
-                level == "ERROR"
-            )
+            assert f"code {code}: the cause" in records[0].getMessage()
         finally:
             runtime.reset()

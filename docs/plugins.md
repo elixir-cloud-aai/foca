@@ -810,11 +810,11 @@ title, description, group and subgroup (from identifiers
 `<group>.<subgroup>.<name>`), phases, capabilities, maturity, distribution,
 version, third-party data transfers (`data_transfers`), what the plugin
 keeps in its store (`data_stored`) and the store's mode (`storage`:
-`shared`, `local` or `off`, cf. [Plugin store](#plugin-store); both
-required since version 1.1.0 of the listing's specification, FOCA 0.19),
-and the
+`shared`, `local` or `off`, cf. [Plugin store](#plugin-store)), and the
 JSON Schema of the parameters, never the admin settings; and the presets
-it may choose (`presets` allowed, and the roles of their plugins). It
+it may choose (`presets` allowed, and the roles of their plugins).
+`data_stored` and `storage` are required fields from version 1.1.0 of the
+listing's specification on (`foca>=0.19`). It
 also holds the steps of the default pipeline, the limits of
 `client_pipelines` (with whether the caller has anything to choose, and
 the identifiers of the `prepend` and `append` steps) and

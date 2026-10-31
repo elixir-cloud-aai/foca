@@ -6,7 +6,6 @@ from pathlib import Path
 
 from celery import Celery
 from connexion import App
-from pymongo.errors import OperationFailure, PyMongoError
 
 from foca.api.register_openapi import register_openapi
 from foca.api.service_info import check_service_info
@@ -26,26 +25,6 @@ from foca.security.cors import enable_cors
 
 # Get logger instance
 logger = logging.getLogger(__name__)
-
-_PERMANENT_STORE_ERRORS = frozenset({13, 85, 86})
-"""MongoDB error codes of the plugin store's setup that persist until the
-operator acts: `Unauthorized`, `IndexOptionsConflict` and
-`IndexKeySpecsConflict`."""
-
-
-def _warn_store_setup(exc: PyMongoError) -> None:
-    """Log a warning that the plugin store was not set up, e.g., if down.
-
-    Args:
-        exc: Error of the setup; its message is left out, as it may name
-            hosts.
-    """
-    logger.warning(
-        "Plugin store not set up at startup (%s): writes to the store create"
-        " its indexes first, failing until they can; entries keep their"
-        " expiry even if max_ttl was lowered",
-        type(exc).__name__,
-    )
 
 
 class Foca:
@@ -232,25 +211,8 @@ class Foca:
             try:
                 # the plugins' store: its indexes (writes to the store
                 # create them too, so the app may start without them) and
-                # expiry capped at the current max_ttl
+                # expiry capped at the current max_ttl; errors are logged
                 host.setup_store()
-            except OperationFailure as exc:
-                if exc.code not in _PERMANENT_STORE_ERRORS:
-                    _warn_store_setup(exc)
-                else:
-                    # e.g., a conflicting index, or no right to create one:
-                    # writes fail until the operator fixes the cause
-                    logger.error(
-                        "Plugin store not set up at startup (%s, code %s: %s):"
-                        " writes to the store fail until the cause is fixed"
-                        " (e.g., a conflicting index, or no right to create"
-                        " indexes or update entries)",
-                        type(exc).__name__,
-                        exc.code,
-                        (exc.details or {}).get("errmsg", str(exc)),
-                    )
-            except PyMongoError as exc:
-                _warn_store_setup(exc)
             finally:
                 host.close()
             if self.gateway.backends is not None:

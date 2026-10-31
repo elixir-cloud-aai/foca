@@ -961,6 +961,20 @@ class AccessControlConfig(FOCABaseConfig):
     # Named rules, if `policies` was given as named rules
     _named_policies: dict[str, list[str]] | None = PrivateAttr(default=None)
 
+    @property
+    def added_database(self) -> str | None:
+        """Get the policy database that FOCA added to the app's databases.
+
+        Returns:
+            Name of the database (`db_name`), if registering access control
+            added it to `db.dbs` because the app has no database of that
+            name (e.g., without `db` section); otherwise `None`.
+        """
+        if self._registered_collection is None:
+            return None
+        db_name, _, added_db = self._registered_collection
+        return db_name if added_db else None
+
     @model_validator(mode="wrap")
     @classmethod
     def named_policies_to_list(
