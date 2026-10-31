@@ -6,6 +6,7 @@ which are published from the notes in `docs/releases/` where these exist,
 followed by GitHub's generated list of changes (see
 [Release notes](contributing.md#release-notes)):
 
+- [0.19.0](releases/0.19.0.md)
 - [0.18.0](releases/0.18.0.md)
 
 Breaking changes and how to adapt apps to them are described in
