@@ -638,8 +638,9 @@ class ProvenanceStore:
         """Store the record of a failed pipeline run, if configured.
 
         Never raises: errors of the collection are logged. Idempotent: the
-        record's `_id` is the request identifier (or the run's, cf.
-        `PipelineRun.run_id`), and storing again replaces it.
+        record's `_id` is `run-` and the run's random identifier (cf.
+        `PipelineRun.run_id`), never the client's request identifier,
+        which is kept as the field `request_id`; storing again replaces it.
 
         Args:
             run: Pipeline run.
@@ -660,7 +661,7 @@ class ProvenanceStore:
             "status": getattr(error, "code", None),
             "slug": getattr(error, "slug", None),
         }
-        record["_id"] = run.request_id or f"run-{run.run_id}"
+        record["_id"] = f"run-{run.run_id}"
         try:
             self.failures.replace_one({"_id": record["_id"]}, record, upsert=True)
         except Exception as exc:
