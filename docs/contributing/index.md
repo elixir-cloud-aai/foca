@@ -10,6 +10,9 @@ with.
 
 ## Commit messages and pull request titles
 
+CI checks the title of a pull request (job `PR title`) and rechecks it when
+you edit it.
+
 Use `feat`, `fix`, `perf`, `refactor` and `style` only for changes of what is
 released: the package (`foca/`), its Docker image (`docker/`) and the Helm
 library chart (`charts/foca-common/`, outside its tests).

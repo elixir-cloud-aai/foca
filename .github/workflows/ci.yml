@@ -1,17 +1,20 @@
-# Lint, type-check and test the package and build the docs and distributions;
-# run the unit tests again with the lowest direct dependency versions; run
-# integration tests on the petstore example; lint and test the Helm charts
-# and install the petstore example's chart on a kind cluster; scan the Docker
-# images for known vulnerabilities; check the curated release notes of a
-# release in preparation; on pushes to `dev` of this repository, push the
-# Docker images by digest, scan exactly those digests, then attest, sign and
-# tag them with dated tags (release images are built by `release.yml`).
+# Check the pull request title; lint, type-check and test the package and
+# build the docs and distributions; run the unit tests again with the lowest
+# direct dependency versions; run integration tests on the petstore example;
+# lint and test the Helm charts and install the petstore example's chart on
+# a kind cluster; scan the Docker images for known vulnerabilities; check
+# the curated release notes of a release in preparation; on pushes to `dev`
+# of this repository, push the Docker images by digest, scan exactly those
+# digests, then attest, sign and tag them with dated tags (release images
+# are built by `release.yml`).
 # Forks, which have none of the secrets, run the same checks without these
 # side effects and without uploads to code scanning (as pull requests from
 # forks), unless they set the repository variable `DOCKERHUB_ORG` to publish
 # to their own organization. `github.repository_owner == 'elixir-cloud-aai'`
-# marks runs of the upstream repository. The gate job `passed` ("CI passed")
-# is the only required check of this workflow.
+# marks runs of the upstream repository. Runs also when a pull request is
+# edited, so that the title check follows the title; all jobs run then. The
+# gate job `passed` ("CI passed") is the only required check of this
+# workflow.
 
 name: CI
 
@@ -19,6 +22,7 @@ on:
   push:
     branches: [dev]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches: [dev]
 
 permissions:
@@ -35,11 +39,40 @@ env:
   # can't read `env`, so they repeat the expression
   PUBLISH: ${{ github.event_name == 'push' && (github.repository_owner == 'elixir-cloud-aai' || vars.DOCKERHUB_ORG != '') }}
 
+# Cancel superseded runs of a pull request; runs for pushes get their own
+# group, so that runs for successive pushes are not dropped. Runs for edits
+# that leave the title unchanged (e.g. of the description, also by bots)
+# share a group of their own, so that they cancel each other but not the
+# run for the pull request's commit
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'push' && github.sha ||
+      github.event.action == 'edited' && !github.event.changes.title &&
+        format('{0}-edited', github.ref) ||
+      github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Pull request titles become the commit messages on `dev` (squash merges):
+  # Conventional Commits, at most 50 characters (shared action of
+  # elixir-cloud-aai/.github, pinned to the commit of a release). Skipped on
+  # pushes and for Dependabot, whose titles can't be configured to pass,
+  # unless someone else edits the title
+  title:
+    name: PR title
+    if: >-
+      github.event_name == 'pull_request' && (
+        github.event.pull_request.user.login != 'dependabot[bot]' ||
+        github.event.changes.title &&
+        github.event.sender.login != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check PR title
+        uses: elixir-cloud-aai/.github/actions/pr-title@743e82d290a53768454999e413756a924e383259 # v1.0.0
+
   # Static analysis, also of the docs (`mkdocs build --strict`, no job of its
   # own) and of the distributions
   lint:
@@ -641,13 +674,14 @@ jobs:
   # name independent of the jobs and their matrices. Runs always and needs
   # every other job; passes only if all of them passed. A failed or cancelled
   # job (or matrix entry) fails it, and so does a skipped job, except those
-  # skipped on purpose: `push` and `publish` on pull requests and in forks
-  # without `DOCKERHUB_ORG` (they run only if `PUBLISH` is "true"). Add new
-  # jobs to `needs`
+  # skipped on purpose: `title` on pushes and for Dependabot, `push` and
+  # `publish` on pull requests and in forks without `DOCKERHUB_ORG` (they
+  # run only if `PUBLISH` is "true"). Add new jobs to `needs`
   passed:
     name: CI passed
     if: always()
     needs:
+      - title
       - lint
       - test
       - test-lowest
@@ -668,4 +702,4 @@ jobs:
           needs: ${{ toJSON(needs) }}
           # `push` and `publish` are skipped on purpose only if `PUBLISH` is
           # exactly "false", so that the gate fails closed
-          allow-skipped: ${{ env.PUBLISH == 'false' && 'push publish' || '' }}
+          allow-skipped: ${{ env.PUBLISH == 'false' && 'title push publish' || 'title' }}
