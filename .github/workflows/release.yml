@@ -14,7 +14,7 @@
 # generated notes alone; add curated notes to the `nav` of `mkdocs.yml` too
 # (the docs build fails otherwise). Uses PyPI trusted publishing (no API
 # token); the PyPI project trusts this workflow file in the `release`
-# environment. See "Versioning and releases" in docs/contributing.md.
+# environment. See "Versioning and releases" in docs/contributing/index.md.
 
 name: Release
 
@@ -91,7 +91,7 @@ jobs:
           python-version: "3.13"
       # Zenodo archives the release with the citation metadata of the tagged
       # commit, so they must have the release version (see "Versioning and
-      # releases" in docs/contributing.md)
+      # releases" in docs/contributing/index.md)
       - name: Check citation metadata
         env:
           VERSION: ${{ steps.version.outputs.version }}

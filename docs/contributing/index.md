@@ -1,111 +1,21 @@
 # Contributing
 
-This project is a community effort and lives off your contributions, be it
-bug reports, feature requests, discussions, documentation or code. It follows
-the [contributor guide of ELIXIR
-On-Cloud](https://elixir-cloud-aai.github.io/contribute/), which also
-describes the project's values and what it offers regular contributors; this
-page sums up how it applies to FOCA, the framework that apps such as
+The general rules for contributing to FOCA (getting started, issues, branches
+and pull requests, commit messages and pull request titles with their types,
+pull requests prepared with AI agents) are in the [contributing guide of
+ELIXIR On-Cloud](https://github.com/elixir-cloud-aai/.github/blob/main/CONTRIBUTING.md).
+This page covers what is specific to FOCA, the framework that apps such as
 [Cloud Registry](https://github.com/elixir-cloud-aai/cloud-registry) are built
 with.
 
-Please follow the [code of
-conduct](https://github.com/elixir-cloud-aai/.github/blob/main/CODE_OF_CONDUCT.md)
-in all interactions with the community. To report a violation, email
-[cloud-service@elixir-europe.org](mailto:cloud-service@elixir-europe.org).
-
-Report vulnerabilities privately, not in issues, as described in the
-[security
-policy](https://github.com/elixir-cloud-aai/.github/blob/main/SECURITY.md).
-
-## Getting started
-
-1. Find an issue in the [issue
-   tracker](https://github.com/elixir-cloud-aai/foca/issues), or open one (see
-   [Issues](#issues)).
-2. Join the ELIXIR On-Cloud chat and introduce yourself in the open source
-   community channel: your skills and experience, your GitHub username and
-   the issues you are interested in (see the
-   [workflow](https://elixir-cloud-aai.github.io/contribute/workflow/); send
-   a direct message to a project lead instead if you don't want to share
-   these publicly). Once you are a member of the GitHub organization, you can
-   assign issues to yourself.
-3. Set up a development environment (see [Development](#development)) and
-   start coding.
-
-One-time contributors can skip the second step and open pull requests from
-forks; some checks may need a maintainer's approval to run for them.
-
-## Issues
-
-Use the issue tracker to propose features, report bugs and discuss existing
-issues; use the chat for questions and informal discussions. Write issues
-concisely, but with enough detail and context (links, logs, screenshots) for
-others to start working on them; bug reports need steps to reproduce, ideally
-a minimal app configuration. The maintainers add labels and milestones.
-
-**Always work on an issue:** before you change code, make sure there is an
-issue for it and that the maintainers agree with the approach, so that no work
-is in vain.
-
-## Branches and pull requests
-
-The project follows a variant of the GitHub flow: all changes reach the
-development branch `dev` through pull requests, which are reviewed and
-tested; `main` only moves forward to released commits (see [Versioning and
-releases](#versioning-and-releases)).
-
-1. Create a feature branch from an up-to-date `dev`, named after the type and
-   topic of the change, e.g., `fix/<topic>` or `docs/<topic>`.
-2. Commit your changes, push the branch and open a pull request against `dev`
-   that refers to the issue (`Resolves #<issue>`) and says what changes, why,
-   and how you tested it. Pull requests into `dev` don't close issues
-   automatically; the maintainers close them after the merge.
-3. Request a review: every change is reviewed by at least one other person.
-   Address the comments by pushing further commits (there may be several
-   rounds).
-4. Once the checks pass and all conversations are resolved, the maintainers
-   squash-merge the pull request into `dev`.
-
-Keep pull requests focused: if a change can't be summarized in a title of 50
-characters, split it into several pull requests. Feature branches are unstable:
-don't build on other people's branches without talking to them first.
-
 ## Commit messages and pull request titles
 
-Pull request titles, which become the commit messages on `dev`, follow the
-[Conventional Commits](https://www.conventionalcommits.org/) specification:
-
-```text
-<type>[(<scope>)][!]: <description>
-```
-
-- The whole title line has at most 50 characters. CI checks the title (job
-  `PR title`) and rechecks it when you edit it.
-- The description starts with a verb in the imperative mood (e.g., `add`,
-  `fix`) and has no trailing period.
-- `!` (and a `BREAKING CHANGE:` footer in the body) marks breaking changes.
-- The type names the predominant reason for the change:
-
-| Type | Changes |
-| --- | --- |
-| `feat` | new functionality |
-| `fix` | bug fixes |
-| `perf` | performance improvements |
-| `refactor` | code changes that neither add features nor fix bugs |
-| `style` | formatting, docstrings and type hints of the code |
-| `build` | build system, packaging and dependencies |
-| `ci` | CI and release workflows |
-| `docs` | documentation |
-| `test` | tests |
-| `chore` | other maintenance, e.g., `.gitignore` |
-| `revert` | reverts of earlier commits |
+CI checks the title of a pull request (job `PR title`) and rechecks it when
+you edit it.
 
 Use `feat`, `fix`, `perf`, `refactor` and `style` only for changes of what is
 released: the package (`foca/`), its Docker image (`docker/`) and the Helm
-library chart (`charts/foca-common/`, outside its tests). Commit messages on
-feature branches may follow the same format, which makes the history easier
-to review.
+library chart (`charts/foca-common/`, outside its tests).
 
 ## Development
 
@@ -158,7 +68,7 @@ separately (`pytest charts/foca-common/tests`); CI (the `chart` and
 `chart-install` jobs of `.github/workflows/ci.yml`) also installs the
 petstore example with its chart on a kind cluster and checks that changes of
 the library chart raise its version (see [Developing the library
-chart](helm-chart.md#developing-the-library-chart)).
+chart](../helm-chart.md#developing-the-library-chart)).
 
 Run `pre-commit` in the environment with the dev dependencies: the ast-grep
 hooks use the installed package. The first run sets up the other hooks, which
@@ -223,15 +133,10 @@ FOCA is cited with the metadata in
 ([Citation File Format](https://citation-file-format.github.io/)), which
 GitHub ("Cite this repository") and Zenodo use. Its `doi` is the Zenodo
 concept DOI, which stays the same for all versions (see
-[Citation](index.md#citation)). Its authors are the people
-who committed at least 100 lines (lines added) to `main`, the release
-branch, not counting bots, vendored or generated files and the reformatting
-commits in `.git-blame-ignore-revs`. They are ordered by lines, then by
-commits; equal contributors are listed alphabetically by family name and
-marked with an asterisk (*). Affiliations come from public ORCID records
-only. To add or correct your entry (e.g., your name, [ORCID
-iD](https://orcid.org/) or affiliation), open a pull request that changes
-only your entry; don't add e-mail addresses. CI validates the file
+[Citation](../index.md#citation)). Its authors follow the [citation metadata rule of the contributing
+guide](https://github.com/elixir-cloud-aai/.github/blob/main/CONTRIBUTING.md#citation-metadata)
+(not counting vendored files and the reformatting commits in
+.git-blame-ignore-revs). CI validates the file
 (`cffconvert --validate`). Before each release, `python scripts/citation.py
 set X.Y.Z` sets its `version` and `date-released`, and the release workflow
 fails if they don't match the release (`python scripts/citation.py check
@@ -268,7 +173,7 @@ headings, and statements like "From FOCA X on", which are about
 that release itself; versions of tools (the `rev` of pre-commit hooks and
 the comments of pinned actions) are not checked.
 
-The version of the [Helm library chart](helm-chart.md#releases) is
+The version of the [Helm library chart](../helm-chart.md#releases) is
 independent of FOCA's and has one source too: the `version` of
 `charts/foca-common/Chart.yaml`. The docs write it like the release version,
 but with `chart_version` inside the braces (`CHART_VARIABLE` in
@@ -287,7 +192,7 @@ forward to commits on `dev` that are released. First, shortly before the
 release, set its version and date in the citation metadata, which Zenodo
 archives with each release, add its curated [release notes](#release-notes)
 (`docs/releases/X.Y.Z.md`, also to the `nav` of `mkdocs.yml` and to the
-[changelog](changelog.md)), and merge the change into `dev`; each version,
+[changelog](../changelog.md)), and merge the change into `dev`; each version,
 also each pre-release (e.g., `X.Y.Zrc1`), needs its own such change:
 
 ```bash
@@ -378,7 +283,7 @@ The curated notes in `docs/releases/X.Y.Z.md` (for pre-releases, e.g.,
 `X.Y.Zrc1.md`) hold parts 1 and 2, without a title (the release's title is
 its tag); add them in the pull request that sets the citation metadata of
 the release, to the `nav` of `mkdocs.yml` (under "Changelog"; the docs build
-fails otherwise) and to the list in the [changelog](changelog.md). The
+fails otherwise) and to the list in the [changelog](../changelog.md). The
 release workflow adds parts 3 and 4 from GitHub's
 [generate-notes](https://docs.github.com/en/rest/releases/releases#generate-release-notes-content-for-a-release)
 API, as `gh release create --generate-notes` would (since the previous
@@ -413,7 +318,7 @@ in `tests/test_release_notes.py`.
 The Helm library chart `foca-common` (`charts/foca-common`) is versioned and
 released separately, from signed tags `chart-vX.Y.Z`, and published after
 approval in the `release` environment; see [releases of the library
-chart](helm-chart.md#releases).
+chart](../helm-chart.md#releases).
 
 ## Python guidelines
 
@@ -454,7 +359,7 @@ reviews.
   `Yields`), `Raises` and, for classes, `Attributes`; consider `Examples` and
   `Note`. Ruff's pydocstyle rules (Google convention) check those of public
   objects and their `Args`; reviews check the others. The [API
-  reference](reference.md) is generated from them.
+  reference](../reference.md) is generated from them.
 - **Type hints:** complete type hints for all functions and methods (also of
   the tests), including `*args` and `**kwargs`, and generic types with their
   parameters (e.g., `dict[str, Any]`, not `dict`); add hints to module-level
@@ -480,7 +385,7 @@ release (`docs/migration-<version>.md`).
 This documentation is built with [MkDocs](https://www.mkdocs.org/) and
 [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/), from
 `docs/` and `mkdocs.yml`, by Read the Docs and in CI; warnings, e.g., of
-broken links, fail the build. The [API reference](reference.md) is generated
+broken links, fail the build. The [API reference](../reference.md) is generated
 from the docstrings with [mkdocstrings](https://mkdocstrings.github.io/). To
 build it locally, or serve it with live reloading:
 

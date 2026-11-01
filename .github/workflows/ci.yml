@@ -382,7 +382,7 @@ jobs:
 
   # The release workflow's checks of the curated release notes, before the
   # immutable tag exists: for the version in `CITATION.cff` (set before a
-  # release, see "Versioning and releases" in `docs/contributing.md`) while
+  # release, see "Versioning and releases" in `docs/contributing/index.md`) while
   # it has no tag, or its tag is on this commit. Not needed for publishing;
   # on pull requests and in forks (which often lack the upstream
   # repository's later tags, so that released versions look unreleased),

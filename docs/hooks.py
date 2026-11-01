@@ -1,7 +1,7 @@
 """MkDocs hooks: the release version and the chart version in the docs.
 
 Versions are not hard-coded in many places of the docs, but written as
-placeholders (see "Versioning and releases" in `docs/contributing.md`),
+placeholders (see "Versioning and releases" in `docs/contributing/index.md`),
 which the hook replaces, also in code blocks:
 
 - `{{ version }}` (`VARIABLE`), e.g., in commands such as
