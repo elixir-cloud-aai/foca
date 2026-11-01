@@ -1,12 +1,13 @@
 # Migrating to 0.20.0
 
 FOCA 0.20.0 changes how gateway plugins key some of their stored data.
-Most apps need no changes; check the sections below if your gateway app
-records failed runs (`plugins.provenance.record_failed`).
+Most apps need no changes; check the breaking change below if your
+gateway app records failed runs (`plugins.provenance.record_failed`) and
+reads these records by their `_id`.
 Upgrading from 0.17 or earlier? Start with [Migrating to
-0.17.0](migration-0.17.md).
+0.18.0](migration-0.18.md).
 
-## Other changes
+## Breaking changes
 
 ### Failure records keyed by run ID
 
@@ -17,8 +18,11 @@ an earlier record or to collide with the records of other clients. They
 are now keyed by `run-` and the run's server-generated random ID; the
 request ID stays in the record as the field `request_id`, for correlation.
 
-Nothing needs to be changed in the app. Records written by FOCA 0.19.0
-keep their old keys until they expire (cf. the TTL index of the
-collection, `foca.plugins.provenance.FAILURE_INDEXES`); queries or
+Nothing needs to be changed in the app itself. Code, queries or
 dashboards that look up failure records by `_id` and a request ID need to
-query the field `request_id` instead.
+query the field `request_id` instead (add an index on it if you query
+often). Records written by FOCA 0.19.0 keep their old keys until they are
+deleted (e.g., by the TTL index of the collection, cf.
+`foca.plugins.provenance.FAILURE_INDEXES`; without one, never), so while
+they exist, lookups by request ID must cover both: `_id` (old records) and
+`request_id` (all records).
