@@ -62,5 +62,8 @@ spec:
   selector:
     matchLabels:
       {{- include "foca-common.selectorLabels" (dict "root" $root "component" "app") | nindent 6 }}
+  # Pods that are not ready (e.g., crash-looping after a bad upgrade) can
+  # always be evicted, so that they don't block node drains
+  unhealthyPodEvictionPolicy: AlwaysAllow
 {{ end -}}
 {{- end -}}

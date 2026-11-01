@@ -771,7 +771,10 @@ replica, no budget is rendered, as a budget cannot keep a single pod
 available during a drain: the drain evicts the pod (and the app is
 unavailable until it is replaced), and a budget that kept it (e.g.,
 `minAvailable: 1`) would block the drain instead; for the same reason,
-avoid `maxUnavailable: 0` or a `minAvailable` of all replicas.
+avoid `maxUnavailable: 0` or a `minAvailable` of all replicas. Pods that
+are not ready (e.g., crash-looping after a failed upgrade) can always be
+evicted (`unhealthyPodEvictionPolicy: AlwaysAllow`, Kubernetes 1.27 or
+later), so that they don't block drains.
 Kubernetes' scheduler spreads the pods of a Deployment across nodes and
 zones where it can (as a preference, not a rule), so check that they run
 on different nodes (`kubectl get pods -o wide`), as a node failure

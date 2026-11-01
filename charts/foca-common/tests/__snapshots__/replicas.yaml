@@ -49,6 +49,9 @@ spec:
       app.kubernetes.io/name: "petstore"
       app.kubernetes.io/instance: "petstore"
       app.kubernetes.io/component: "app"
+  # Pods that are not ready (e.g., crash-looping after a bad upgrade) can
+  # always be evicted, so that they don't block node drains
+  unhealthyPodEvictionPolicy: AlwaysAllow
 ---
 # Source: petstore/templates/configmap.yaml
 apiVersion: v1
