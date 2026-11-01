@@ -100,6 +100,11 @@ def absolute(path: str, base: str) -> str:
     return f"{base.rstrip('/')}/{normalized}"
 
 
+def _normalize(label: str) -> str:
+    """Normalize the label of a reference as CommonMark does (approximately)."""
+    return " ".join(label.split()).casefold()
+
+
 def _srcset(value: str, convert: Callable[[str], str]) -> str:
     """Convert the URLs of a `srcset` value (`url [descriptor], ...`).
 
@@ -156,15 +161,13 @@ def convert_images(text: str, convert: Callable[[str], str]) -> str:
         return _HTML_ATTRIBUTE.sub(attribute, match[0])
 
     def definition(match: re.Match[str]) -> str:
-        if match[2].strip().lower() not in labels:
+        if _normalize(match[2]) not in labels:
             return match[0]
         path = match[4] if match[4] is not None else match[5]
         return f"{match[1]}{match[3]}{convert(path)}"
 
     # Labels of reference-style images, normalized as in CommonMark
-    labels = {
-        (ref or alt).strip().lower() for alt, ref in _REFERENCE_IMAGE.findall(text)
-    }
+    labels = {_normalize(ref or alt) for alt, ref in _REFERENCE_IMAGE.findall(text)}
     text = _DEFINITION.sub(definition, text)
     return _HTML_TAG.sub(tag, _MARKDOWN_IMAGE.sub(markdown, text))
 

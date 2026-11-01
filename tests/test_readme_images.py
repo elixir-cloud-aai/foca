@@ -210,3 +210,11 @@ def test_main_not_utf8(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> No
     readme.write_bytes(b"\xff")
     assert readme_images.main(["check", str(readme)]) == 1
     assert "Cannot process" in capsys.readouterr().err
+
+
+def test_rewrite_reference_labels_are_normalized() -> None:
+    """Labels match regardless of case and whitespace runs."""
+    text = "![a][My  Logo]\n\n[my logo]: a.png\n"
+    assert readme_images.rewrite(text, BASE) == (
+        f"![a][My  Logo]\n\n[my logo]: {BASE}/a.png\n"
+    )
