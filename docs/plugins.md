@@ -413,9 +413,16 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
   where the plugin can go on without the store (e.g., a cache).
 - Keys and values are data the operator stores: keep personal data out,
   or pseudonymize it, e.g., user identifiers with
-  `ctx.store.key_for(*parts)` (a SHA-256 hash of the namespace and the
-  parts; identifiers can still be guessed, so the entries remain personal
-  data, kept at most `max_ttl`). Don't store request payloads or secrets.
+  `ctx.store.key_for(*parts)` (a hash of the namespace and the parts:
+  `hk:` and an HMAC-SHA256 if the operator set
+  [`plugins.defaults.store.key_secret`](configuration/plugins.md#plugin-store),
+  so that nobody without the secret can recompute it from a guessed
+  identifier; otherwise `h:` and a plain SHA-256, which anyone can
+  recompute from a guessed identifier. Either way, the entries remain
+  personal data, kept at most `max_ttl`). Keys change when the operator
+  changes, adds or removes the secret: earlier entries are then no longer
+  found (they expire), so don't rely on them surviving. Don't store request
+  payloads or secrets.
 - Declare what the plugin stores in `data_stored`, e.g.,
   `data_stored = ("geolocations of backend hosts", "daily lookup counts
   per user (hashed)")`, as in `data_transfers` for third parties: the

@@ -1,5 +1,8 @@
 """Tests of the key-value store of plugins (`foca.plugins.store`)."""
 
+import hashlib
+import hmac
+import json
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -11,6 +14,7 @@ from unittest.mock import MagicMock
 
 import mongomock
 import pytest
+from pydantic import ValidationError
 from pymongo import MongoClient
 from pymongo.errors import (
     DuplicateKeyError,
@@ -32,7 +36,12 @@ from foca.plugins import (
     runtime,
 )
 from foca.plugins.base import EmptyModel
-from foca.plugins.config import PluginsConfig, StoreConfig, StoreOverrideConfig
+from foca.plugins.config import (
+    STORE_KEY_SECRET_ENV,
+    PluginsConfig,
+    StoreConfig,
+    StoreOverrideConfig,
+)
 from foca.plugins.engine import PluginHost, _mongo_store_backend, _store_namespace
 from foca.plugins.loader import LoadedPlugin
 from foca.plugins.pytest_plugin import RegisterPlugins
@@ -126,6 +135,7 @@ def make_store(
     max_entry_size: int = 4096,
     max_ttl: float = 3600,
     deadline: float | None = None,
+    key_secret: bytes | None = None,
 ) -> Store:
     """Create a store.
 
@@ -136,6 +146,7 @@ def make_store(
         max_entry_size: Maximum size of values.
         max_ttl: Maximum time to live.
         deadline: Deadline, if any.
+        key_secret: Secret for `key_for()`, if any.
 
     Returns:
         Store.
@@ -146,6 +157,7 @@ def make_store(
         backend=backend,
         max_entry_size=max_entry_size,
         max_ttl=max_ttl,
+        key_secret=key_secret,
     )
     if clock is None:
         return Store(settings, deadline=deadline)
@@ -410,6 +422,47 @@ class TestStore:
         for parts in ((), ("x", 1)):
             with pytest.raises(ValueError, match="strings"):
                 store.key_for(*parts)
+
+    def test_key_for_secret(self, backend: StoreBackend) -> None:
+        """With a secret, keys are HMACs with their own prefix."""
+        plain = make_store(backend).key_for("budget", "user", "alice")
+        store = make_store(backend, key_secret=b"s1")
+        key = store.key_for("budget", "user", "alice")
+        message = json.dumps(["ns", "budget", "user", "alice"]).encode()
+        expected = hmac.new(b"s1", message, hashlib.sha256).hexdigest()
+        assert key == f"hk:{expected}"
+        assert plain.startswith("h:")
+        assert not key.startswith("h:")
+        assert key.removeprefix("hk:") != plain.removeprefix("h:")
+        assert key == store.key_for("budget", "user", "alice")
+        assert key != store.key_for("budget", "client", "alice")
+        assert key != make_store(backend, key_secret=b"s2").key_for(
+            "budget", "user", "alice"
+        )
+
+    def test_key_secret_rotation(self, backend: StoreBackend) -> None:
+        """Adding or changing the secret makes earlier entries unreachable."""
+        before = make_store(backend)
+        before.set(before.key_for("budget", "alice"), 1)
+        for secret in (b"s1", b"s2"):
+            store = make_store(backend, key_secret=secret)
+            assert store.get(store.key_for("budget", "alice")) is None
+            store.set(store.key_for("budget", "alice"), 2)
+        again = make_store(backend, key_secret=b"s1")
+        assert again.get(again.key_for("budget", "alice")) == 2
+        assert before.get(before.key_for("budget", "alice")) == 1
+
+    def test_settings_repr_hides_secret(self) -> None:
+        """The secret is not shown in the representation of the settings."""
+        settings = StoreSettings(
+            namespace="ns",
+            mode="local",
+            backend=MemoryStoreBackend(),
+            max_entry_size=1,
+            max_ttl=1,
+            key_secret=b"topsecret",
+        )
+        assert "topsecret" not in repr(settings)
 
 
 class TestMemoryBackend:
@@ -804,6 +857,103 @@ class TestEngine:
         finally:
             host.close()
         assert message not in caplog.text
+
+    @pytest.mark.parametrize(
+        ("conf_secret", "env_secret", "expected"),
+        [
+            (None, None, None),
+            (None, "", None),
+            ("", None, None),
+            ("", "from-env", b"from-env"),
+            (None, "from-env", b"from-env"),
+            ("from-conf", "from-env", b"from-conf"),
+        ],
+    )
+    def test_key_secret(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        conf_secret: str | None,
+        env_secret: str | None,
+        expected: bytes | None,
+    ) -> None:
+        """The key secret is from the configuration, else the environment."""
+        if env_secret is not None:
+            monkeypatch.setenv(STORE_KEY_SECRET_ENV, env_secret)
+        else:
+            monkeypatch.delenv(STORE_KEY_SECRET_ENV, raising=False)
+        store: dict[str, Any] = {}
+        if conf_secret is not None:
+            store["key_secret"] = conf_secret
+        conf = PluginsConfig.model_validate(
+            {
+                "available": {"test.count": {}},
+                "defaults": {"store": store},
+                "pipeline": [],
+            }
+        )
+        plugins = {"test.count": loaded("test.count", "dist")}
+        host = PluginHost(conf, api="tes", plugins=plugins)
+        try:
+            settings = host.store_settings("test.count")
+            assert settings.key_secret == expected
+            key = host.store("test.count").key_for("a")
+            assert key.startswith("hk:" if expected else "h:")
+        finally:
+            host.close()
+
+    def test_key_secret_warning(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Setup warns once if database-backed stores have no key secret."""
+        monkeypatch.delenv(STORE_KEY_SECRET_ENV, raising=False)
+        message = "plugins.defaults.store.key_secret"
+        plugins = {"test.count": loaded("test.count", "dist")}
+        mongo = MongoStoreBackend(mongomock.MongoClient()["db"][STORE_COLLECTION])
+        cases: list[tuple[StoreBackend, dict[str, Any], int]] = [
+            (mongo, {}, 1),
+            (mongo, {"key_secret": "s3cr3t-value"}, 0),
+            (MemoryStoreBackend(), {}, 0),  # no database
+            (mongo, {"enabled": False}, 0),  # entries in memory
+        ]
+        for backend, store, count in cases:
+            caplog.clear()
+            conf = PluginsConfig.model_validate(
+                {
+                    "available": {"test.count": {}},
+                    "defaults": {"store": store},
+                    "pipeline": [],
+                }
+            )
+            host = PluginHost(conf, api="tes", plugins=plugins, store_backend=backend)
+            try:
+                host.setup_store()
+            finally:
+                host.close()
+            assert caplog.text.count(message) == count
+            assert "s3cr3t-value" not in caplog.text
+
+    def test_key_secret_not_exposed(self) -> None:
+        """The secret is masked in the configuration and in its errors."""
+        conf = PluginsConfig.model_validate(
+            {"defaults": {"store": {"key_secret": "s3cr3t-value"}}}
+        )
+        assert "s3cr3t-value" not in repr(conf)
+        assert "s3cr3t-value" not in str(conf.defaults.store)
+        assert "s3cr3t-value" not in conf.model_dump_json()
+        numeric = PluginsConfig.model_validate(
+            {"defaults": {"store": {"key_secret": 12345678}}}
+        )
+        assert numeric.defaults.store.key_secret is not None
+        assert numeric.defaults.store.key_secret.get_secret_value() == "12345678"
+        for bad in (True, ["x"]):
+            with pytest.raises(ValidationError):
+                PluginsConfig.model_validate(
+                    {"defaults": {"store": {"key_secret": bad}}}
+                )
+        with pytest.raises(ValidationError):  # not per plugin
+            PluginsConfig.model_validate(
+                {"available": {"a.b": {"store": {"key_secret": "x"}}}}
+            )
 
     def test_setup_caps_expiry(self) -> None:
         """Setup cuts entries to the current `max_ttl` of their namespace."""
