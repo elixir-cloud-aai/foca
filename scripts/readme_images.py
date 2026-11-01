@@ -18,7 +18,7 @@ attributes of HTML `<img>` and `<source>` tags (as used for the logo, which
 has a dark mode variant). Reference-style images (`![alt][ref]`) are
 handled through their definitions (`[ref]: path`). Paths with a scheme
 (`https:`, `data:`), protocol-relative ones (`//host/...`) and fragments are
-kept; paths that leave the repository (`../`) are an error.
+kept; paths that leave the repository (`../`) or start with a slash are an error.
 
 Only the stdlib is used, so the workflow runs it without installing the
 package. See "Versioning and releases" in `docs/contributing/index.md`.
@@ -37,14 +37,16 @@ _ABSOLUTE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.\-]*:|//|#)")
 _MARKDOWN_IMAGE = re.compile(r"(!\[[^\]]*\]\(\s*)(<?)(?:(?<=<)([^>]+)|([^)\s>]+))")
 # `![alt][ref]` (or `![ref][]`), whose path is in a definition (`[ref]: path`);
 # the label is group 1 or 2
-_REFERENCE_IMAGE = re.compile(r"!\[([^\]]*)\]\[([^\]]*)\]")
+_REFERENCE_IMAGE = re.compile(r"!\[([^\]]*)\](?:\[([^\]]*)\])?(?!\()")
 # `[ref]: path "title"` or `[ref]: <path>`; the label is group 2, the path
 # group 4 or 5
 _DEFINITION = re.compile(
     r"^( {0,3}\[([^\]]+)\]:[ \t]*)(<?)(?:(?<=<)([^>]+)|(\S+))", re.MULTILINE
 )
 # `<img ...>` and `<source ...>`
-_HTML_TAG = re.compile(r"<(?:img|source)\b[^>]*>", re.IGNORECASE)
+_HTML_TAG = re.compile(
+    r"""<(?:img|source)\b(?:"[^"]*"|'[^']*'|[^>"'])*>""", re.IGNORECASE
+)
 # `src="..."`, `srcset='...'` or `src=a.png` (not `data-src`); the value is
 # group 3, 4 or 5
 _HTML_ATTRIBUTE = re.compile(
@@ -82,27 +84,48 @@ def absolute(path: str, base: str) -> str:
         The URL: `path` itself unless it is relative.
 
     Raises:
-        ImagePathError: If the path leaves the repository (`../`).
+        ImagePathError: If the path leaves the repository (`../`) or
+            starts with a slash.
     """
     if not is_relative(path):
         return path
-    normalized = posixpath.normpath(path.lstrip("/"))
+    if path.startswith("/"):
+        raise ImagePathError(
+            f"Image path '{path}' starts with a slash: use a path relative to the"
+            " README"
+        )
+    normalized = posixpath.normpath(path)
     if normalized == ".." or normalized.startswith("../"):
         raise ImagePathError(f"Image path '{path}' leaves the repository")
     return f"{base.rstrip('/')}/{normalized}"
 
 
 def _srcset(value: str, convert: Callable[[str], str]) -> str:
-    """Convert the URLs of a `srcset` value (`url [descriptor], ...`)."""
+    """Convert the URLs of a `srcset` value (`url [descriptor], ...`).
+
+    A candidate is a URL (without whitespace, so it may contain commas, as
+    `data:` URLs do; trailing commas end the candidate), then descriptors up
+    to the next comma.
+    """
     candidates = []
-    # Candidates are separated by a comma and whitespace (or end the value);
-    # commas inside URLs (`data:image/png;base64,...`) are kept
-    for candidate in re.split(r",\s+|,$", value.strip()):
-        parts = candidate.split()
-        if not parts:
-            continue
-        parts[0] = convert(parts[0])
-        candidates.append(" ".join(parts))
+    position = 0
+    while True:
+        match = re.compile(r"[\s,]*(\S+)").match(value, position)
+        if not match:
+            break
+        url = match[1]
+        position = match.end()
+        if url.endswith(","):
+            url = url.rstrip(",")
+            descriptor = ""
+            if not url:
+                continue
+        else:
+            end = value.find(",", position)
+            end = len(value) if end < 0 else end
+            descriptor = value[position:end].strip()
+            position = end
+        candidates.append(f"{convert(url)} {descriptor}".strip())
     return ", ".join(candidates)
 
 
@@ -208,7 +231,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.file.write_text(rewrite(text, args.base), encoding="utf-8")
             return 0
         remaining = relative_paths(text)
-    except (OSError, ImagePathError) as error:
+    except (OSError, UnicodeDecodeError, ImagePathError) as error:
         print(f"::error::Cannot process {args.file}: {error}", file=sys.stderr)
         return 1
     for path in remaining:

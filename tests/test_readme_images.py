@@ -41,7 +41,6 @@ def test_is_relative(path: str, expected: bool) -> None:
     [
         ("docs/logo.png", f"{BASE}/docs/logo.png"),
         ("./docs/logo.png", f"{BASE}/docs/logo.png"),
-        ("/docs/logo.png", f"{BASE}/docs/logo.png"),
         ("docs/../logo.png", f"{BASE}/logo.png"),
         ("https://example.org/logo.png", "https://example.org/logo.png"),
     ],
@@ -74,7 +73,7 @@ def test_rewrite_html() -> None:
     text = (
         "<picture>\n"
         '  <source media="(prefers-color-scheme: dark)" srcset="docs/night.png">\n'
-        '  <img src=\'docs/day.png\' alt="x" srcset="a.png 1x, /b.png 2x, '
+        '  <img src=\'docs/day.png\' alt="x" srcset="a.png 1x, b.png 2x, '
         'https://x/c.png 3x">\n'
         "</picture>"
     )
@@ -175,3 +174,39 @@ def test_reference_style_images() -> None:
     )
     assert readme_images.relative_paths(text) == ["docs/a.png", "docs/o.png"]
     assert readme_images.relative_paths(rewritten) == []
+
+
+def test_rewrite_srcset_without_space_after_comma() -> None:
+    """Candidates may be separated by a comma alone, or end with one."""
+    assert readme_images.rewrite('<img srcset="a.png 1x,b.png 2x,c.png,">', BASE) == (
+        f'<img srcset="{BASE}/a.png 1x, {BASE}/b.png 2x, {BASE}/c.png">'
+    )
+
+
+def test_rewrite_tag_with_gt_in_attribute() -> None:
+    """A `>` inside a quoted attribute value does not end the tag."""
+    assert readme_images.rewrite('<img alt="a > b" src="a.png">', BASE) == (
+        f'<img alt="a > b" src="{BASE}/a.png">'
+    )
+
+
+def test_absolute_with_leading_slash() -> None:
+    """Paths with a leading slash are an error (not relative to the README)."""
+    with pytest.raises(readme_images.ImagePathError, match="starts with a slash"):
+        readme_images.absolute("/docs/logo.png", BASE)
+
+
+def test_rewrite_shortcut_reference_image() -> None:
+    """`![logo]` with a definition `[logo]: path` is an image."""
+    text = "![logo]\n\n[logo]: docs/a.png\n"
+    assert (
+        readme_images.rewrite(text, BASE) == f"![logo]\n\n[logo]: {BASE}/docs/a.png\n"
+    )
+
+
+def test_main_not_utf8(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A README that is not UTF-8 is an error, not a traceback."""
+    readme = tmp_path / "README.md"
+    readme.write_bytes(b"\xff")
+    assert readme_images.main(["check", str(readme)]) == 1
+    assert "Cannot process" in capsys.readouterr().err
