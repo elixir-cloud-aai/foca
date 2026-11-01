@@ -9,7 +9,8 @@ chart: its values, a few settings and one line per resource. It renders:
 - the app's `Deployment` (non-root security contexts, read-only root file
   system with a writable `/tmp`, probes, a `preStop` delay,
   `enableServiceLinks: false`, optional [Gunicorn](https://gunicorn.org/)
-  settings);
+  settings), with one or [several replicas](#several-replicas) and, with
+  several, a `PodDisruptionBudget`;
 - a `ConfigMap` with the config overlay, rendered from the `config` value and
   mounted via `FOCA_CONFIG_OVERLAY`; the pods are rolled when it changes;
 - the app's `Service`, and a Gateway API `HTTPRoute` (optionally with a
@@ -119,6 +120,7 @@ and the settings (`settings`), one per file:
 | --- | --- |
 | `foca-common.configMap` | `ConfigMap` with the config overlay; also checks the values, so every app chart must include it |
 | `foca-common.deployment` | the app's `Deployment` |
+| `foca-common.podDisruptionBudget` | the app's `PodDisruptionBudget`, if `<valuesKey>.replicas` is more than 1, unless `<valuesKey>.podDisruptionBudget.enabled` is false (new in 0.3.0; see [Several replicas](#several-replicas)) |
 | `foca-common.service` | the app's `Service` (port 8080) |
 | `foca-common.ingress` | `Ingress`, if `<valuesKey>.ingress.enabled` |
 | `foca-common.httpRoute` | Gateway API `HTTPRoute`, if `<valuesKey>.httpRoute.enabled` |
@@ -164,7 +166,7 @@ your app's `valuesKey`:
 | `nameOverride`, `fullnameOverride` | Resource names: `<release>-<chart>` (or `<release>` if it contains the chart name) for the app, the same with the suffixes `-mongodb`, `-worker` and `-broker` for MongoDB, the worker and the broker |
 | `hostName` | Public host name of the Ingress, HTTPRoute or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
-| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `probePath`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
+| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `persistence` (`volumeSize`, its size up to 0.1.0, is a deprecated alias of `persistence.size`), `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
 | `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `persistence`, `dataSizeLimit`, `tmpSizeLimit` |
@@ -749,6 +751,63 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
   disable it (as in the petstore example); otherwise, pass
   `--no-control-socket` in the image or via `extraArgs`, as Gunicorn 25.1
   or later logs a control server error at startup.
+
+### Several replicas
+
+`<valuesKey>.replicas` (1 if not set) sets the number of the app's pods.
+With several, the app stays available while one of them is restarted,
+evicted or replaced, e.g., on node drains, crashes and upgrades: rolling
+updates (`maxSurge` and `maxUnavailable` 25%, i.e., with two replicas, one
+new pod at a time, and no old pod removed before a new one is ready)
+replace the pods one by one.
+
+With more than one replica, the chart renders a `PodDisruptionBudget`, so
+that voluntary disruptions (e.g., `kubectl drain`, cluster autoscaling)
+evict at most `<valuesKey>.podDisruptionBudget.maxUnavailable` pods at once
+(1 if neither it nor `minAvailable` is set), or keep at least
+`minAvailable` (a number or a percentage, e.g., `50%`; set at most one of
+them). Set `podDisruptionBudget.enabled: false` to render none. With one
+replica, no budget is rendered, as it would block node drains; for the same
+reason, avoid `maxUnavailable: 0` or a `minAvailable` of all replicas. App
+charts need a template file with `foca-common.podDisruptionBudget` (see the
+petstore example); without it, there is no budget. Kubernetes' scheduler
+spreads the pods of a Deployment across nodes and zones where it can (as a
+preference, not a rule), so check that they run on different nodes
+(`kubectl get pods -o wide`), as a node failure otherwise takes down all of
+them.
+
+FOCA apps run correctly with several replicas, as each Gunicorn worker is
+already an instance of its own, and rolling updates run old and new pods
+side by side. The app's state is kept in MongoDB, and FOCA's startup tasks
+(e.g., storing the configured policies of access control) are safe to run
+in several pods at once. Rules of [access control](access-control.md)
+granted or revoked via FOCA (the permissions API, the resource role and
+ownership helpers) apply from the next request of every replica (see
+[Scaling](access-control.md#scaling)). Keep in mind:
+
+- **Rules changed in the database directly** (e.g., with `mongosh`) are
+  only noticed after `mark_changed()` or a restart of all pods (`kubectl
+  rollout restart deployment/my-app`), as with several workers.
+- **Each pod keeps its own caches and memory**: every pod loads all rules
+  of access control into memory, and caches the token issuers' keys and
+  userinfo responses (for `security.auth.cache_ttl`) by itself; raise
+  memory limits per pod, not in total. Without an app database, the
+  [plugin store](configuration/plugins.md#plugin-store) is kept in each
+  process's memory, so counters (e.g., budgets) hold per pod.
+- **Startup tasks of the app** (e.g., migrations of stored data) run in
+  each pod, also at the same time; apps must make them safe for that, as
+  FOCA's are.
+- **The bundled MongoDB and broker have one pod each**: while MongoDB's pod
+  is replaced (e.g., when its node is drained), the app cannot reach its
+  database, whatever the number of app replicas. For a highly available
+  app, use an external, replicated MongoDB (`mongodb.enabled: false`) and
+  an external broker (see [Deployment notes](#deployment-notes)).
+- **Upgrades that need the app stopped** (e.g., per the app's upgrade
+  notes): scale it to 0 (`kubectl scale deployment/my-app --replicas=0`);
+  `helm upgrade` then sets the number of pods to `replicas` again.
+
+The Celery worker's number of pods is set separately (`worker.replicas`),
+without a budget.
 
 ## Developing the library chart
 

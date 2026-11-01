@@ -43,6 +43,21 @@ petstore:
   # OpenAPI spec (no authentication or database access, and lighter than
   # the Swagger UI, `/ui/`)
   probePath: /openapi.json
+  # Number of the app's pods; with more than one, the app stays available
+  # while a pod is restarted or evicted (e.g., on node drains). FOCA apps
+  # support several pods (see the chart docs for the caveats,
+  # https://foca.readthedocs.io/en/latest/helm-chart/#several-replicas)
+  replicas: 1
+  # PodDisruptionBudget of the app's pods, so that voluntary disruptions
+  # (e.g., node drains) evict at most `maxUnavailable` pods at once (1 if
+  # neither it nor `minAvailable` is set), or keep at least `minAvailable`
+  # (a number or a percentage, e.g., `50%`; set at most one of them). Only
+  # rendered with more than one replica, as it would block node drains
+  # otherwise
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: null
+    maxUnavailable: null
   # The app is exposed for `hostName` via one of: an Ingress (`ingress`), a
   # Gateway API HTTPRoute (`httpRoute`; disable the Ingress to enable it) or,
   # if neither is enabled and the cluster serves Routes, an OpenShift Route
