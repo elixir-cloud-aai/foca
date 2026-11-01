@@ -775,11 +775,12 @@ zones where it can (as a preference, not a rule), so check that they run
 on different nodes (`kubectl get pods -o wide`), as a node failure
 otherwise takes down all of them.
 
-App charts moving to foca-common 0.3.0 copy `app-values.schema.json` again
-(see [Values](#values)), add `replicas` and `podDisruptionBudget` to their
-values, and add a template file with `foca-common.podDisruptionBudget`
-(see the petstore example); without it, there is no budget. Values of
-older app charts without `replicas` keep one pod.
+App charts written for versions before foca-common 0.3.0 copy
+`app-values.schema.json` again (see [Values](#values)), add `replicas` and
+`podDisruptionBudget` to their values, and add a template file with
+`foca-common.podDisruptionBudget` (see the petstore example); without it,
+there is no budget. Values of older app charts without `replicas` keep one
+pod.
 
 FOCA apps run correctly with several replicas: each Gunicorn worker is
 already an instance of its own, rolling updates run old and new pods side
