@@ -1,6 +1,5 @@
-# Release when a version tag (`vX.Y.Z`) is pushed: check the release, that CI
-# passed for its commit, and build
-# the distributions (`prepare`), build the Docker images and push them by
+# Release when a version tag (`vX.Y.Z`) is pushed: check the release and that
+# CI passed for its commit, and build the distributions (`prepare`), build the Docker images and push them by
 # digest (untagged; `push`), scan exactly those digests in jobs without the
 # release credentials and signing identity (`scan`), release the
 # distributions to PyPI (`pypi`), attest, sign and only then tag the scanned
@@ -94,8 +93,8 @@ jobs:
           fi
       # The checks here don't run the tests: require a successful run of the
       # CI workflow for a push of the release commit (to `dev`); runs for pull
-      # requests test merge commits, not the commit itself. Re-runs that
-      # succeeded count
+      # requests test merge commits, not the commit itself. A successful
+      # re-run of CI counts; the step also fails while CI is still running
       - name: Check that CI passed for the release commit
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,6 +1,7 @@
 # Release the library chart foca-common when a chart tag (`chart-vX.Y.Z`) is
 # pushed: check that the tag is signed, on `dev` and matches the chart's
-# `version`, that CI passed for its commit, and lint, test and install the charts as CI does (`chart` and
+# `version`, and that CI passed for its commit, and lint, test and install the
+# charts as CI does (`chart` and
 # `chart-install` jobs of `ci.yml`, with the same local actions); after a
 # maintainer approved the tested chart in the `release` environment
 # (required reviewer, release tags only), check that the version was not
@@ -97,8 +98,8 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
       # The checks here don't run the tests: require a successful run of the
       # CI workflow for a push of the release commit (to `dev`); runs for pull
-      # requests test merge commits, not the commit itself. Re-runs that
-      # succeeded count
+      # requests test merge commits, not the commit itself. A successful
+      # re-run of CI counts; the step also fails while CI is still running
       - name: Check that CI passed for the release commit
         env:
           GH_TOKEN: ${{ github.token }}
