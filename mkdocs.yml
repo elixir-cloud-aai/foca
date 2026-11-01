@@ -122,6 +122,7 @@ nav:
   - Deployment: deployment.md
   - Helm library chart: helm-chart.md
   - Utilities: utilities.md
+  - Migrating to 0.20.0: migration-0.20.md
   - Migrating to 0.18.0: migration-0.18.md
   - Migrating to 0.17.0: migration-0.17.md
   - Migrating to 0.16.0: migration-0.16.md

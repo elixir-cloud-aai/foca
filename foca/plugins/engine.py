@@ -1242,8 +1242,8 @@ class PipelineRun:
         inbound: Inbound request; after `request()`, the committed one.
         principal: Authenticated caller.
         request_id: Identifier of the request.
-        run_id: Random identifier of the run, e.g., for records of failed
-            runs without a request identifier.
+        run_id: Random identifier of the run, the key of the record of a
+            failed run.
         task_id: Identifier of the gateway's resource, once created; set by
             the app, passed to hooks of later phases.
         original: Payload of the inbound request before any plugin ran.
