@@ -1122,6 +1122,10 @@ def test_pod_disruption_budget_without_values(chart: Path, tmp_path: Path) -> No
             ("--set-string", "petstore.podDisruptionBudget.enabled=false"),
             "podDisruptionBudget.enabled must be true or false",
         ),
+        (
+            ("--set-json", "petstore.podDisruptionBudget=true"),
+            "podDisruptionBudget must be a map",
+        ),
     ],
 )
 def test_replicas_invalid_without_schema(

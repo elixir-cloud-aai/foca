@@ -12,7 +12,13 @@ Call with the context dict.
 {{- $root := .root -}}
 {{- $key := .settings.valuesKey -}}
 {{- $budget := (index $root.Values $key).podDisruptionBudget | default dict -}}
-{{- $enabled := dig "enabled" true $budget -}}
+{{- if not (kindIs "map" $budget) -}}
+{{- fail (printf "%s.podDisruptionBudget must be a map" $key) -}}
+{{- end -}}
+{{- $enabled := $budget.enabled -}}
+{{- if kindIs "invalid" $enabled -}}
+{{- $enabled = true -}}
+{{- end -}}
 {{- if not (kindIs "bool" $enabled) -}}
 {{- fail (printf "%s.podDisruptionBudget.enabled must be true or false" $key) -}}
 {{- end -}}
