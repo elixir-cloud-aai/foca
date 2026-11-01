@@ -393,7 +393,7 @@ Images are scanned for known vulnerabilities with [Trivy](https://trivy.dev/):
 CI scans the images it builds for every pull request and push, the release
 workflow the release images before anything is published (both fail on fixable
 critical and high vulnerabilities), and a weekly workflow the published images
-of the latest release (see [Image scan](contributing.md#image-scan)). The
+of the latest release (see [Image scan](contributing/index.md#image-scan)). The
 repository's code scanning alerts show the findings that have a fix, which the
 maintainers can act on; findings without a fix (often OS packages of the base
 image) appear there once a fix is released. The weekly workflow also keeps a

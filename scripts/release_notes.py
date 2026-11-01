@@ -1,7 +1,7 @@
 """Check curated release notes and build the body of a GitHub release.
 
 Release notes follow the format agreed for all repositories of the
-organization (see "Release notes" in `docs/contributing.md`):
+organization (see "Release notes" in `docs/contributing/index.md`):
 
 1. An intro paragraph saying what the release brings, with a link to the
    upgrade or migration guide if there is one.
