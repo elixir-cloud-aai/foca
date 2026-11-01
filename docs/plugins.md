@@ -225,7 +225,7 @@ entries into the candidates of a request, in order:
   candidate, without credentials, e.g., for the service info.
 
 Registries are the trust anchor: only services that the registry lists as
-verified (`GET /verifications`, an extension of the ELIXIR Cloud Registry)
+verified (`GET /verifications`, an extension of the Cloud Registry)
 with their current URL and API type are used, if their version and
 environment are accepted, their URLs are `https` and their hosts have public
 addresses only (unless `allow_private_addresses`); malformed items are
