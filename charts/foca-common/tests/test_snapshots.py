@@ -59,6 +59,10 @@ CASES: dict[str, tuple[str, ...]] = {
         'petstore.networkPolicy.ingressFrom=[{"namespaceSelector": {"matchLabels": '
         '{"kubernetes.io/metadata.name": "envoy-gateway-system"}}}]',
     ),
+    "replicas": (
+        "--set",
+        "petstore.replicas=2",
+    ),
     "celery": (
         "--set",
         "worker.enabled=true",

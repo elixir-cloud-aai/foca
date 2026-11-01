@@ -144,6 +144,25 @@ true
 {{- end -}}
 
 {{/*
+Number of the app's pods: `<valuesKey>.replicas`, 1 if not set; fails
+unless it is a whole number of at least 1 (also for app charts with an
+older schema). Call with the context dict.
+*/}}
+{{- define "foca-common.replicas" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $replicas := (index .root.Values $key).replicas -}}
+{{- if kindIs "invalid" $replicas -}}
+1
+{{- else -}}
+{{- $integer := or (kindIs "int" $replicas) (kindIs "int64" $replicas) (and (kindIs "float64" $replicas) (eq $replicas (floor $replicas))) -}}
+{{- if not (and $integer (ge (int $replicas) 1)) -}}
+{{- fail (printf "%s.replicas must be a whole number of at least 1" $key) -}}
+{{- end -}}
+{{- int $replicas -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Whether the Celery worker is deployed ("true") or not (empty):
 `worker.enabled`, false if not set (also without a `worker` map).
 */}}

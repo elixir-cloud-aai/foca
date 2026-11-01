@@ -1,14 +1,14 @@
 apiVersion: v2
 name: foca-common
 description: >-
-  Library chart for FOCA apps by ELIXIR On-Cloud: the app's Deployment,
-  config overlay, Service, Ingress, Gateway API HTTPRoute or OpenShift Route
-  and NetworkPolicy, an optional MongoDB, and an optional Celery worker and
-  broker (RabbitMQ)
+  Library chart for FOCA apps by ELIXIR On-Cloud: the app's Deployment and
+  PodDisruptionBudget, config overlay, Service, Ingress, Gateway API
+  HTTPRoute or OpenShift Route and NetworkPolicy, an optional MongoDB, and
+  an optional Celery worker and broker (RabbitMQ)
 type: library
 # Independent of FOCA's version; bump it with every change, following
 # semantic versioning (see docs/helm-chart.md)
-version: 0.2.0
+version: 0.3.0
 home: https://foca.readthedocs.io/en/latest/helm-chart/
 icon: https://raw.githubusercontent.com/elixir-cloud-aai/foca/dev/docs/images/foca_logo_round.svg
 sources:
