@@ -1,10 +1,10 @@
-# Release when a version tag (`vX.Y.Z`) is pushed: build the distributions,
-# build the Docker images and push them by digest (untagged; `push`), scan
-# exactly those digests in jobs without the release credentials and signing
-# identity (`scan`), publish the distributions to PyPI (`pypi`), attest,
-# sign and only then tag the scanned digests (`publish-image`), and create
-# the GitHub release (`publish`). `push`, `pypi` and `publish-image` each
-# need approval in the `release` environment (required reviewer; one
+# Release when a version tag (`vX.Y.Z`) is pushed: check the release and build
+# the distributions (`prepare`), build the Docker images and push them by
+# digest (untagged; `push`), scan exactly those digests in jobs without the
+# release credentials and signing identity (`scan`), release the
+# distributions to PyPI (`pypi`), attest, sign and only then tag the scanned
+# digests (`release-image`), and create the GitHub release (`publish`).
+# `push`, `pypi` and `release-image` each need approval in the `release` environment (required reviewer; one
 # approval covers all matrix jobs waiting for it). The version is derived
 # from the tag (via setuptools-scm). Release notes are the curated
 # `docs/releases/<version>.md` followed by GitHub's generated notes if the
@@ -39,8 +39,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build distributions
+  # Checks the tag, the release commit, the citation metadata and the release
+  # notes, and builds the distributions, before anything is published
+  prepare:
+    name: Prepare release
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -116,10 +118,24 @@ jobs:
           fi
       - name: Install build tools
         run: pip install -r requirements/release.txt
+      # PyPI can't resolve the relative image paths of the README (the logo):
+      # they become absolute URLs pinned to the release tag, so the long
+      # description of the package shows the images (`scripts/readme_images.py`)
+      - name: Make README image paths absolute
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          python scripts/readme_images.py rewrite \
+              "https://raw.githubusercontent.com/${REPOSITORY}/${TAG}"
+          python scripts/readme_images.py check
       - name: Build distributions
         env:
           # Pins the build requirements in the isolated build environment
           PIP_CONSTRAINT: ${{ github.workspace }}/requirements/release.txt
+          # The rewritten README makes the work tree dirty, which would
+          # change the version derived from the tag (setuptools-scm)
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ steps.version.outputs.version }}
         run: python -m build
       - name: Check that distributions have the release version
         env:
@@ -135,9 +151,9 @@ jobs:
           if-no-files-found: error
 
   pypi:
-    name: Publish to PyPI
+    name: Release package
     # Only once the images passed the scan, as PyPI files are immutable
-    needs: [build, scan]
+    needs: [prepare, scan]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -160,7 +176,7 @@ jobs:
 
   # Builds each image once and pushes it by digest only (untagged, with SBOM
   # and provenance attestations, `mode=max`), for `scan` to scan and
-  # `publish-image` to sign and tag. The digest is passed on as an artifact
+  # `release-image` to sign and tag. The digest is passed on as an artifact
   # (`digest-pyV`), as all jobs of a matrix share one set of outputs. Runs
   # only after approval in the `release` environment, so that nothing is
   # pushed without it; digests of runs that fail (or fail the scan) are never
@@ -168,7 +184,7 @@ jobs:
   # only)
   push:
     name: Push release image (Python ${{ matrix.python-version }})
-    needs: build
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Waits for approval (required reviewer)
@@ -200,7 +216,7 @@ jobs:
           file: docker/Dockerfile
           build-args: |
             PY_IMAGE=${{ matrix.python-version }}-slim-trixie
-            FOCA_VERSION=${{ needs.build.outputs.version }}
+            FOCA_VERSION=${{ needs.prepare.outputs.version }}
             FOCA_REVISION=${{ github.sha }}
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           sbom: true
@@ -208,7 +224,7 @@ jobs:
       - name: Check FOCA version of image
         env:
           IMAGE: ${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           actual="$(docker run --rm "${IMAGE}" \
               python -c "from importlib.metadata import version; print(version('foca'))")"
@@ -278,9 +294,9 @@ jobs:
   # signing, via the workflow's OIDC token) and only then tags exactly that
   # digest, so that the published images are the scanned ones; see
   # "Verifying images and charts" in docs/deployment.md
-  publish-image:
-    name: Publish release image (Python ${{ matrix.python-version }})
-    needs: [build, scan, pypi]
+  release-image:
+    name: Release image (Python ${{ matrix.python-version }})
+    needs: [prepare, scan, pypi]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Waits for approval (required reviewer)
@@ -347,8 +363,8 @@ jobs:
           DIGEST: ${{ steps.digest.outputs.digest }}
           PY_VERSION: ${{ matrix.python-version }}
           DEFAULT: ${{ matrix.default }}
-          VERSION: ${{ needs.build.outputs.version }}
-          STABLE: ${{ needs.build.outputs.stable }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          STABLE: ${{ needs.prepare.outputs.stable }}
         run: |
           tags=("${IMAGE_NAME}:${VERSION}-py${PY_VERSION}")
           if [[ "${DEFAULT}" == "true" ]]; then
@@ -378,7 +394,7 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [build, pypi, publish-image]
+    needs: [prepare, pypi, release-image]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -411,8 +427,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-          VERSION: ${{ needs.build.outputs.version }}
-          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
           # All releases of the repository, drafts included, to find those of
           # the tag
