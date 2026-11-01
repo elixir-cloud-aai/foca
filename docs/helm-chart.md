@@ -767,9 +767,11 @@ evict at most `<valuesKey>.podDisruptionBudget.maxUnavailable` pods at once
 (1 if neither it nor `minAvailable` is set), or keep at least
 `minAvailable` (a number or a percentage, e.g., `50%`; set at most one of
 them). Set `podDisruptionBudget.enabled: false` to render none. With one
-replica, no budget is rendered: no budget keeps a single pod available
-during a drain, and one with `minAvailable` would block the drain; for the
-same reason, avoid `maxUnavailable: 0` or a `minAvailable` of all replicas.
+replica, no budget is rendered, as a budget cannot keep a single pod
+available during a drain: the drain evicts the pod (and the app is
+unavailable until it is replaced), and a budget that kept it (e.g.,
+`minAvailable: 1`) would block the drain instead; for the same reason,
+avoid `maxUnavailable: 0` or a `minAvailable` of all replicas.
 Kubernetes' scheduler spreads the pods of a Deployment across nodes and
 zones where it can (as a preference, not a rule), so check that they run
 on different nodes (`kubectl get pods -o wide`), as a node failure

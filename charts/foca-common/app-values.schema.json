@@ -114,8 +114,8 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean",
-              "description": "Create a PodDisruptionBudget of the app's pods if there is more than one (replicas)"
+              "type": ["boolean", "null"],
+              "description": "Create a PodDisruptionBudget of the app's pods if there is more than one (replicas); true if null"
             },
             "minAvailable": {
               "type": ["integer", "string", "null"],

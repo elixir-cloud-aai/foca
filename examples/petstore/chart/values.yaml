@@ -52,8 +52,8 @@ petstore:
   # (e.g., node drains) evict at most `maxUnavailable` pods at once (1 if
   # neither it nor `minAvailable` is set), or keep at least `minAvailable`
   # (a number or a percentage, e.g., `50%`; set at most one of them). Only
-  # rendered with more than one replica, as no budget keeps a single pod
-  # available during node drains
+  # rendered with more than one replica: a single pod is evicted on node
+  # drains anyway, as a budget keeping it would block the drain
   podDisruptionBudget:
     enabled: true
     minAvailable: null

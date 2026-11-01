@@ -1126,6 +1126,30 @@ def test_pod_disruption_budget_without_values(chart: Path, tmp_path: Path) -> No
             ("--set-json", "petstore.podDisruptionBudget=true"),
             "podDisruptionBudget must be a map",
         ),
+        (
+            ("--set-json", "petstore.podDisruptionBudget=false"),
+            "podDisruptionBudget must be a map",
+        ),
+        (
+            (*REPLICAS, "--set", "petstore.podDisruptionBudget.maxUnavailable=half"),
+            "podDisruptionBudget.maxUnavailable must be a whole number",
+        ),
+        (
+            (*REPLICAS, "--set", "petstore.podDisruptionBudget.minAvailable=150%"),
+            "podDisruptionBudget.minAvailable must be a whole number",
+        ),
+        (
+            (*REPLICAS, "--set", "petstore.podDisruptionBudget.minAvailable=-1"),
+            "podDisruptionBudget.minAvailable must be a whole number",
+        ),
+        (
+            (
+                *REPLICAS,
+                "--set-json",
+                "petstore.podDisruptionBudget.maxUnavailable=1.5",
+            ),
+            "podDisruptionBudget.maxUnavailable must be a whole number",
+        ),
     ],
 )
 def test_replicas_invalid_without_schema(
