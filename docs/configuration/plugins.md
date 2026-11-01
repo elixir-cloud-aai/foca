@@ -33,6 +33,8 @@ plugins:
       enabled: true        # in the app's database, if any; else memory per process
       max_entry_size: 4096 # bytes per value, as compact JSON
       max_ttl: 2592000     # seconds (30 days); also the default TTL
+      # key_secret: ...    # HMAC secret for ctx.store.key_for(); don't commit it,
+      #                    # use FOCA_PLUGINS_STORE_KEY_SECRET (see Plugin store)
   # Default pipeline: steps, each with ordered alternatives (fallbacks);
   # default: [foca.routing.ordered]
   pipeline:
@@ -231,6 +233,33 @@ plugins that declare stored data (`data_stored`) keep it in memory.
 - Plugins of one distribution share a namespace; plugins of other
   distributions can't read it. Entries keyed by users are personal data:
   their retention is at most `max_ttl`.
+- `key_secret` turns the keys that plugins derive with
+  `ctx.store.key_for()` (e.g., from user identifiers) into HMAC-SHA256
+  keys, with the prefix `hk:`. Without it, the keys are plain SHA-256
+  hashes (prefix `h:`): anyone with access to the database or a backup who
+  knows an identifier (e.g., an LS Login `sub`, which is in tokens, logs
+  and other services) can hash it again and find that user's entries, so
+  set the secret whenever the store is in the database. FOCA logs a
+  warning at startup if plugins keep their entries in the database without
+  a secret. It applies to all plugins (not per plugin).
+    - **Never commit it.** Don't write it in the configuration file; set the
+      environment variable `FOCA_PLUGINS_STORE_KEY_SECRET` (used if
+      `key_secret` is not set and the variable is not empty), e.g., from a
+      Kubernetes Secret with `valueFrom.secretKeyRef`, or merge a file that
+      only holds the setting and is mounted from a secret (cf.
+      [environment-specific configuration](index.md#environment-specific-configuration)).
+      A number (e.g., unquoted in YAML) is taken as a string. The secret
+      isn't shown in logs, error messages, `repr()` or the plugin listing;
+      use a long random value (e.g., `openssl rand -base64 32`).
+    - **All processes and replicas must have the same secret**, or they
+      don't find each other's entries (budgets and caches then reset
+      for the callers they would apply to).
+    - **Changing, adding or removing the secret** changes all derived keys:
+      existing entries are no longer found (e.g., per-user budgets start
+      anew) and expire after at most `max_ttl`; delete them earlier as
+      described above if needed. During a rolling update, processes with the
+      old and the new secret don't see each other's entries either. Rotate
+      the secret in quiet times, and restart all replicas after changing it.
 
 ## Migrating from middlewares
 

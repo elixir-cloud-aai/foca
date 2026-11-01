@@ -10,6 +10,7 @@ from pydantic import (
     Field,
     PositiveFloat,
     PositiveInt,
+    SecretStr,
     field_validator,
     model_validator,
 )
@@ -221,6 +222,10 @@ def _default_route_step(**options: Any) -> "StepConfig":
 MAX_STORE_TTL = 10 * 365 * 86400
 """Upper bound of `max_ttl` of the plugin store, in seconds (10 years)."""
 
+STORE_KEY_SECRET_ENV = "FOCA_PLUGINS_STORE_KEY_SECRET"  # noqa: S105
+"""Environment variable with the key secret of the plugin store, if
+`plugins.defaults.store.key_secret` is not set."""
+
 MaxTtl = Annotated[float, Field(ge=0.001, le=MAX_STORE_TTL, allow_inf_nan=False)]
 
 
@@ -234,16 +239,40 @@ class StoreConfig(_Model):
         max_entry_size: Maximum size of values, in bytes, as compact JSON.
         max_ttl: Maximum time to live of entries, in seconds (default: 30
             days); entries without a time to live get it.
+        key_secret: Secret for the keys that plugins derive with
+            `ctx.store.key_for()` (HMAC-SHA256 instead of plain SHA-256);
+            never commit it. If unset, the environment variable
+            `FOCA_PLUGINS_STORE_KEY_SECRET` is used, if set and not empty.
+            Applies to all plugins (not per plugin); must be the same in
+            all processes and replicas.
 
     Attributes:
         enabled: Whether plugins keep their entries in the database.
         max_entry_size: Maximum size of values, in bytes.
         max_ttl: Maximum time to live of entries, in seconds.
+        key_secret: Secret for derived keys, if set (masked in `repr()`,
+            logs and dumps).
     """
 
     enabled: bool = True
     max_entry_size: PositiveInt = 4096
     max_ttl: MaxTtl = 2_592_000
+    key_secret: SecretStr | None = Field(default=None, min_length=1)
+
+    @field_validator("key_secret", mode="before")
+    @classmethod
+    def _secret_from_int(cls, value: Any) -> Any:
+        """Accept numeric secrets (e.g., unquoted in YAML) as strings.
+
+        Args:
+            value: Value of the setting.
+
+        Returns:
+            The value as string if it is an integer; else unchanged.
+        """
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        return value
 
 
 class StoreOverrideConfig(_Model):
