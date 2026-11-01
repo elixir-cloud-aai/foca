@@ -24,7 +24,7 @@ backends:
 :py:class:`BackendList` expands the entries, in order, into the candidates
 of a request (:py:class:`foca.plugins.Backend`). Registry entries yield the
 backends of the app's API that the registry lists as **verified** (`GET
-/verifications`, an extension of the ELIXIR Cloud Registry) with their
+/verifications`, an extension of the Cloud Registry) with their
 current URL and API type, of an accepted version and environment, with
 `https` URLs whose hosts have public addresses only (unless allowed). The
 registry is the trust anchor, configured by the deployment: it is read
