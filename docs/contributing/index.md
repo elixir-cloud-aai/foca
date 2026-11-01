@@ -215,22 +215,28 @@ Pushing the tag triggers the [release
 workflow](https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/release.yml),
 which checks that the tagged commit is on `main`, that its `CITATION.cff`
 has the release version and a date that is not in the future (UTC) and that
-its curated release notes are complete, pushes
-the Docker images by digest (untagged) and scans them for vulnerabilities
-(in jobs without the Docker Hub credentials and signing identity), publishes
-the distributions to PyPI, attests and signs exactly the scanned images and
-only then tags them `X.Y.Z` and `latest`, and creates a GitHub release with the
+its curated release notes are complete, and builds the distributions
+(job `prepare`, "Prepare release"; the image paths of the README, e.g., the
+logo, are rewritten to absolute URLs pinned to the release tag first, as PyPI
+can't resolve relative ones, see `scripts/readme_images.py`), pushes
+the Docker images by digest (untagged; `push`, "Push release image") and
+scans them for vulnerabilities (`scan`, "Scan release image"; in jobs
+without the Docker Hub credentials and signing identity), releases
+the distributions to PyPI (`pypi`, "Release package"), attests and signs
+exactly the scanned images and only then tags them `X.Y.Z` and `latest`
+(`release-image`, "Release image"), and creates a GitHub release
+(`publish`, "Publish release") with the
 curated notes followed by GitHub's generated ones (see [Image
 scan](#image-scan) and [Release notes](#release-notes)). Tags of alpha,
 beta and release candidate versions (e.g., `vX.Y.Zrc1`) do not update
 `latest`. These and, until 1.0.0, all other releases are GitHub pre-releases
 (never marked as the latest release).
 
-The jobs that push the images, publish to PyPI and publish the images run in
-the `release` environment (required reviewer), so a release needs three
+The jobs that push the images, release the package and release the images
+run in the `release` environment (required reviewer), so a release needs three
 approvals, in this order: pushing the images (nothing is pushed before it),
-publishing to PyPI (after the scan) and publishing the images; each approval
-covers all matrix jobs waiting for it. The CI jobs that push and publish the images of `dev`
+releasing the package to PyPI (after the scan) and releasing the images;
+each approval covers all matrix jobs waiting for it. The CI jobs that push and publish the images of `dev`
 (`ci.yml`) run in the `dev-images` environment, which allows only the branch
 `dev` (CI runs only for pushes and pull requests to `dev`, so a tag trigger
 in `ci.yml` would be blocked). Both environments must exist with these rules
