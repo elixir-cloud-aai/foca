@@ -80,7 +80,8 @@ Pull request titles, which become the commit messages on `dev`, follow the
 <type>[(<scope>)][!]: <description>
 ```
 
-- The whole title line has at most 50 characters.
+- The whole title line has at most 50 characters. CI checks the title (job
+  `PR title`) and rechecks it when you edit it.
 - The description starts with a verb in the imperative mood (e.g., `add`,
   `fix`) and has no trailing period.
 - `!` (and a `BREAKING CHANGE:` footer in the body) marks breaking changes.
