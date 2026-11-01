@@ -269,8 +269,8 @@ def _store_settings(
     """
     memory = MemoryStoreBackend()
     secret = conf.defaults.store.key_secret
-    key_secret = (
-        secret.get_secret_value() if secret else os.environ.get(STORE_KEY_SECRET_ENV)
+    key_secret = (secret.get_secret_value() if secret else "") or os.environ.get(
+        STORE_KEY_SECRET_ENV
     )
     key_secret_bytes = key_secret.encode() if key_secret else None
     settings = {}

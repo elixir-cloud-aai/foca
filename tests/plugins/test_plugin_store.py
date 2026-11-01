@@ -863,6 +863,8 @@ class TestEngine:
         [
             (None, None, None),
             (None, "", None),
+            ("", None, None),
+            ("", "from-env", b"from-env"),
             (None, "from-env", b"from-env"),
             ("from-conf", "from-env", b"from-conf"),
         ],
@@ -880,7 +882,7 @@ class TestEngine:
         else:
             monkeypatch.delenv(STORE_KEY_SECRET_ENV, raising=False)
         store: dict[str, Any] = {}
-        if conf_secret:
+        if conf_secret is not None:
             store["key_secret"] = conf_secret
         conf = PluginsConfig.model_validate(
             {
@@ -943,7 +945,7 @@ class TestEngine:
         )
         assert numeric.defaults.store.key_secret is not None
         assert numeric.defaults.store.key_secret.get_secret_value() == "12345678"
-        for bad in ("", True):
+        for bad in (True, ["x"]):
             with pytest.raises(ValidationError):
                 PluginsConfig.model_validate(
                     {"defaults": {"store": {"key_secret": bad}}}

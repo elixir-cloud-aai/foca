@@ -241,7 +241,7 @@ class StoreConfig(_Model):
             days); entries without a time to live get it.
         key_secret: Secret for the keys that plugins derive with
             `ctx.store.key_for()` (HMAC-SHA256 instead of plain SHA-256);
-            never commit it. If unset, the environment variable
+            never commit it. If unset or empty, the environment variable
             `FOCA_PLUGINS_STORE_KEY_SECRET` is used, if set and not empty.
             Applies to all plugins (not per plugin); must be the same in
             all processes and replicas.
@@ -257,7 +257,7 @@ class StoreConfig(_Model):
     enabled: bool = True
     max_entry_size: PositiveInt = 4096
     max_ttl: MaxTtl = 2_592_000
-    key_secret: SecretStr | None = Field(default=None, min_length=1)
+    key_secret: SecretStr | None = None
 
     @field_validator("key_secret", mode="before")
     @classmethod
