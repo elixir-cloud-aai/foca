@@ -1,6 +1,7 @@
 # Release the library chart foca-common when a chart tag (`chart-vX.Y.Z`) is
 # pushed: check that the tag is signed, on `dev` and matches the chart's
-# `version`, and lint, test and install the charts as CI does (`chart` and
+# `version`, and that CI passed for its commit, and lint, test and install the
+# charts as CI does (`chart` and
 # `chart-install` jobs of `ci.yml`, with the same local actions); after a
 # maintainer approved the tested chart in the `release` environment
 # (required reviewer, release tags only), check that the version was not
@@ -40,6 +41,9 @@ jobs:
     name: Test chart release
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read # read the CI runs of the release commit
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -92,6 +96,21 @@ jobs:
               exit 1
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      # The checks here don't run the tests: require a successful run of the
+      # CI workflow for a push of the release commit (to `dev`); runs for pull
+      # requests test merge commits, not the commit itself. A successful
+      # re-run of CI counts; the step also fails while CI is still running
+      - name: Check that CI passed for the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          runs="$(gh api "repos/${REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&event=push&status=success&per_page=1" \
+              --jq .total_count)"
+          if [[ ! "${runs}" =~ ^[0-9]+$ || "${runs}" -lt 1 ]]; then
+              echo "::error::No successful run of the CI workflow (ci.yml) for a push of ${GITHUB_SHA}; once CI passed for it, re-run this workflow"
+              exit 1
+          fi
       - name: Test chart
         uses: ./.github/actions/test-chart
       - name: Install chart

@@ -1,5 +1,5 @@
-# Release when a version tag (`vX.Y.Z`) is pushed: check the release and build
-# the distributions (`prepare`), build the Docker images and push them by
+# Release when a version tag (`vX.Y.Z`) is pushed: check the release and that
+# CI passed for its commit, and build the distributions (`prepare`), build the Docker images and push them by
 # digest (untagged; `push`), scan exactly those digests in jobs without the
 # release credentials and signing identity (`scan`), release the
 # distributions to PyPI (`pypi`), attest, sign and only then tag the scanned
@@ -46,6 +46,9 @@ jobs:
     name: Prepare release
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read # read the CI runs of the release commit
     outputs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
@@ -87,6 +90,21 @@ jobs:
               echo "prerelease=true" >> "${GITHUB_OUTPUT}"
           else
               echo "prerelease=false" >> "${GITHUB_OUTPUT}"
+          fi
+      # The checks here don't run the tests: require a successful run of the
+      # CI workflow for a push of the release commit (to `dev`); runs for pull
+      # requests test merge commits, not the commit itself. A successful
+      # re-run of CI counts; the step also fails while CI is still running
+      - name: Check that CI passed for the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          runs="$(gh api "repos/${REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&event=push&status=success&per_page=1" \
+              --jq .total_count)"
+          if [[ ! "${runs}" =~ ^[0-9]+$ || "${runs}" -lt 1 ]]; then
+              echo "::error::No successful run of the CI workflow (ci.yml) for a push of ${GITHUB_SHA}; once CI passed for it, re-run this workflow"
+              exit 1
           fi
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
