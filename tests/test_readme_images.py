@@ -127,7 +127,7 @@ def test_main_default_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     (tmp_path / "README.md").write_text("![a](a.png)", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     assert readme_images.main(["rewrite", BASE]) == 0
-    assert (tmp_path / "README.md").read_text() == f"![a]({BASE}/a.png)"
+    assert (tmp_path / "README.md").read_text(encoding="utf-8") == f"![a]({BASE}/a.png)"
 
 
 def test_main_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -144,3 +144,34 @@ def test_rewrite_srcset_with_empty_candidate() -> None:
     assert readme_images.rewrite('<img srcset="a.png 1x, ,">', BASE) == (
         f'<img srcset="{BASE}/a.png 1x">'
     )
+
+
+def test_rewrite_unquoted_and_data_attributes() -> None:
+    """Unquoted attributes are rewritten; `data-src` and data URIs are not."""
+    text = '<img src=a.png data-src="b.png" srcset="data:image/png;base64,AAAA 1x">'
+    assert readme_images.rewrite(text, BASE) == (
+        f'<img src={BASE}/a.png data-src="b.png"'
+        ' srcset="data:image/png;base64,AAAA 1x">'
+    )
+
+
+def test_rewrite_angle_bracket_path_with_space() -> None:
+    """A path in angle brackets may contain spaces."""
+    assert readme_images.rewrite("![a](<my file.png>)", BASE) == (
+        f"![a](<{BASE}/my file.png>)"
+    )
+
+
+def test_reference_style_images() -> None:
+    """Definitions of reference-style images are rewritten, others are not."""
+    text = (
+        "![a][ref] ![Other][] [![b][badge]][link]\n\n"
+        '[ref]: docs/a.png "A"\n[other]: <docs/o.png>\n'
+        "[badge]: https://x/b.svg\n[link]: docs/index.md\n"
+    )
+    rewritten = readme_images.rewrite(text, BASE)
+    assert rewritten == text.replace("docs/a.png", f"{BASE}/docs/a.png").replace(
+        "docs/o.png", f"{BASE}/docs/o.png"
+    )
+    assert readme_images.relative_paths(text) == ["docs/a.png", "docs/o.png"]
+    assert readme_images.relative_paths(rewritten) == []

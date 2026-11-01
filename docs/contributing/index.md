@@ -227,18 +227,16 @@ exactly the scanned images and only then tags them `X.Y.Z` and `latest`
 (`release-image`, "Release image"), and creates a GitHub release
 (`publish`, "Publish release") with the
 curated notes followed by GitHub's generated ones (see [Image
-scan](#image-scan) and [Release notes](#release-notes)). The job IDs and
-names are the same in the other repositories of the organisation that
-release the same way, where they do the same things. Tags of alpha,
+scan](#image-scan) and [Release notes](#release-notes)). Tags of alpha,
 beta and release candidate versions (e.g., `vX.Y.Zrc1`) do not update
 `latest`. These and, until 1.0.0, all other releases are GitHub pre-releases
 (never marked as the latest release).
 
-The jobs that push the images, release the package and release the images run in
-the `release` environment (required reviewer), so a release needs three
+The jobs that push the images, release the package and release the images
+run in the `release` environment (required reviewer), so a release needs three
 approvals, in this order: pushing the images (nothing is pushed before it),
-releasing the package to PyPI (after the scan) and releasing the images; each approval
-covers all matrix jobs waiting for it. The CI jobs that push and publish the images of `dev`
+releasing the package to PyPI (after the scan) and releasing the images;
+each approval covers all matrix jobs waiting for it. The CI jobs that push and publish the images of `dev`
 (`ci.yml`) run in the `dev-images` environment, which allows only the branch
 `dev` (CI runs only for pushes and pull requests to `dev`, so a tag trigger
 in `ci.yml` would be blocked). Both environments must exist with these rules

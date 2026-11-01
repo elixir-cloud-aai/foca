@@ -4,8 +4,9 @@
 # release credentials and signing identity (`scan`), release the
 # distributions to PyPI (`pypi`), attest, sign and only then tag the scanned
 # digests (`release-image`), and create the GitHub release (`publish`).
-# `push`, `pypi` and `release-image` each need approval in the `release` environment (required reviewer; one
-# approval covers all matrix jobs waiting for it). The version is derived
+# `push`, `pypi` and `release-image` each need approval in the `release`
+# environment (required reviewer; one approval covers all matrix jobs waiting
+# for it). The version is derived
 # from the tag (via setuptools-scm). Release notes are the curated
 # `docs/releases/<version>.md` followed by GitHub's generated notes if the
 # former exists (the run fails before anything is published if it is
@@ -167,7 +168,7 @@ jobs:
         with:
           name: dist
           path: dist/
-      - name: Publish to PyPI
+      - name: Upload to PyPI
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           # PyPI files are immutable; skip those already uploaded, so that

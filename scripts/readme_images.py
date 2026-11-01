@@ -15,10 +15,10 @@ Commands:
 
 Images are Markdown images (`![alt](path)`) and the `src` and `srcset`
 attributes of HTML `<img>` and `<source>` tags (as used for the logo, which
-has a dark mode variant). Reference-style images (`![alt][ref]`) are not
-supported. Paths with a scheme (`https:`, `data:`), protocol-relative ones
-(`//host/...`) and fragments are kept; paths that leave the repository
-(`../`) are an error.
+has a dark mode variant). Reference-style images (`![alt][ref]`) are
+handled through their definitions (`[ref]: path`). Paths with a scheme
+(`https:`, `data:`), protocol-relative ones (`//host/...`) and fragments are
+kept; paths that leave the repository (`../`) are an error.
 
 Only the stdlib is used, so the workflow runs it without installing the
 package. See "Versioning and releases" in `docs/contributing/index.md`.
@@ -34,12 +34,22 @@ from pathlib import Path
 # Paths with a scheme (`https:`, `data:`), `//host/...` and `#fragment`
 _ABSOLUTE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.\-]*:|//|#)")
 # `![alt](path "title")` or `![alt](<path>)`; the path is group 3
-_MARKDOWN_IMAGE = re.compile(r"(!\[[^\]]*\]\(\s*)(<?)([^)\s>]+)")
+_MARKDOWN_IMAGE = re.compile(r"(!\[[^\]]*\]\(\s*)(<?)(?:(?<=<)([^>]+)|([^)\s>]+))")
+# `![alt][ref]` (or `![ref][]`), whose path is in a definition (`[ref]: path`);
+# the label is group 1 or 2
+_REFERENCE_IMAGE = re.compile(r"!\[([^\]]*)\]\[([^\]]*)\]")
+# `[ref]: path "title"` or `[ref]: <path>`; the label is group 2, the path
+# group 4 or 5
+_DEFINITION = re.compile(
+    r"^( {0,3}\[([^\]]+)\]:[ \t]*)(<?)(?:(?<=<)([^>]+)|(\S+))", re.MULTILINE
+)
 # `<img ...>` and `<source ...>`
 _HTML_TAG = re.compile(r"<(?:img|source)\b[^>]*>", re.IGNORECASE)
-# `src="..."` or `srcset='...'`; the value is group 3 or 4
+# `src="..."`, `srcset='...'` or `src=a.png` (not `data-src`); the value is
+# group 3, 4 or 5
 _HTML_ATTRIBUTE = re.compile(
-    r"""(\b(src|srcset)\s*=\s*)(?:"([^"]*)"|'([^']*)')""", re.IGNORECASE
+    r"""((?<![\w-])(src|srcset)\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""",
+    re.IGNORECASE,
 )
 
 
@@ -85,7 +95,9 @@ def absolute(path: str, base: str) -> str:
 def _srcset(value: str, convert: Callable[[str], str]) -> str:
     """Convert the URLs of a `srcset` value (`url [descriptor], ...`)."""
     candidates = []
-    for candidate in value.split(","):
+    # Candidates are separated by a comma and whitespace (or end the value);
+    # commas inside URLs (`data:image/png;base64,...`) are kept
+    for candidate in re.split(r",\s+|,$", value.strip()):
         parts = candidate.split()
         if not parts:
             continue
@@ -106,19 +118,31 @@ def convert_images(text: str, convert: Callable[[str], str]) -> str:
     """
 
     def markdown(match: re.Match[str]) -> str:
-        return f"{match[1]}{match[2]}{convert(match[3])}"
+        path = match[3] if match[3] is not None else match[4]
+        return f"{match[1]}{match[2]}{convert(path)}"
 
     def attribute(match: re.Match[str]) -> str:
-        value = match[3] if match[3] is not None else match[4]
+        value = next(group for group in match.groups()[2:] if group is not None)
         value = (
             _srcset(value, convert) if match[2].lower() == "srcset" else convert(value)
         )
-        quote = '"' if match[3] is not None else "'"
+        quote = "'" if match[4] is not None else '"' if match[3] is not None else ""
         return f"{match[1]}{quote}{value}{quote}"
 
     def tag(match: re.Match[str]) -> str:
         return _HTML_ATTRIBUTE.sub(attribute, match[0])
 
+    def definition(match: re.Match[str]) -> str:
+        if match[2].strip().lower() not in labels:
+            return match[0]
+        path = match[4] if match[4] is not None else match[5]
+        return f"{match[1]}{match[3]}{convert(path)}"
+
+    # Labels of reference-style images, normalized as in CommonMark
+    labels = {
+        (ref or alt).strip().lower() for alt, ref in _REFERENCE_IMAGE.findall(text)
+    }
+    text = _DEFINITION.sub(definition, text)
     return _HTML_TAG.sub(tag, _MARKDOWN_IMAGE.sub(markdown, text))
 
 
