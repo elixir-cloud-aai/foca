@@ -10,6 +10,7 @@ followed by GitHub's generated list of changes (see
 - [0.18.0](releases/0.18.0.md)
 
 Breaking changes and how to adapt apps to them are described in
+[Migrating to 0.20.0](migration-0.20.md),
 [Migrating to 0.18.0](migration-0.18.md),
 [Migrating to 0.17.0](migration-0.17.md),
 [Migrating to 0.16.0](migration-0.16.md),
