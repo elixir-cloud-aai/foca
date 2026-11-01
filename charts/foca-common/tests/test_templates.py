@@ -1039,7 +1039,7 @@ def test_pod_disruption_budget_disabled(render: Callable[..., Docs]) -> None:
 
 
 def test_pod_disruption_budget_needs_replicas(render: Callable[..., Docs]) -> None:
-    """No PodDisruptionBudget with one pod, as it would block node drains."""
+    """No PodDisruptionBudget with one pod, which no budget keeps available."""
     docs = render("--set", "petstore.podDisruptionBudget.enabled=true")
     assert ("PodDisruptionBudget", APP) not in docs
 
@@ -1051,6 +1051,7 @@ def test_pod_disruption_budget_needs_replicas(render: Callable[..., Docs]) -> No
         ("--set", "petstore.replicas=1.5"),
         ("--set", "petstore.podDisruptionBudget.minAvailable=-1"),
         ("--set", "petstore.podDisruptionBudget.maxUnavailable=half"),
+        ("--set", "petstore.podDisruptionBudget.minAvailable=150%"),
         ("--set", "petstore.podDisruptionBudget.other=1"),
         (
             "--set",
@@ -1083,23 +1084,52 @@ def test_pod_disruption_budget_both_fail_without_schema(
 
 
 def test_replicas_without_values(chart: Path, tmp_path: Path) -> None:
-    """App charts without the values (e.g., of 0.2.0) keep one pod."""
-    chart_copy = _chart_without_schema(chart, tmp_path)
-    unset = ("--set-json", "petstore.replicas=null")
+    """Without `replicas` (e.g., values of 0.2.0), there is one pod."""
     docs = index(
-        template(chart_copy, *unset, "--set-json", "petstore.podDisruptionBudget=null")
+        template(
+            _chart_without_schema(chart, tmp_path),
+            "--set-json",
+            "petstore.replicas=null",
+            "--set-json",
+            "petstore.podDisruptionBudget=null",
+        )
     )
     assert docs[("Deployment", APP)]["spec"]["replicas"] == 1
     assert ("PodDisruptionBudget", APP) not in docs
+
+
+def test_pod_disruption_budget_without_values(chart: Path, tmp_path: Path) -> None:
+    """Without `podDisruptionBudget`, several pods get the default budget."""
     docs = index(
         template(
-            chart_copy,
+            _chart_without_schema(chart, tmp_path),
             *REPLICAS,
             "--set-json",
             "petstore.podDisruptionBudget=null",
         )
     )
     assert docs[("PodDisruptionBudget", APP)]["spec"]["maxUnavailable"] == 1
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (("--set", "petstore.replicas=0"), "replicas must be a whole number"),
+        (("--set", "petstore.replicas=-1"), "replicas must be a whole number"),
+        (("--set-string", "petstore.replicas=abc"), "replicas must be a whole number"),
+        (("--set-json", "petstore.replicas=1.5"), "replicas must be a whole number"),
+        (
+            ("--set-string", "petstore.podDisruptionBudget.enabled=false"),
+            "podDisruptionBudget.enabled must be true or false",
+        ),
+    ],
+)
+def test_replicas_invalid_without_schema(
+    chart: Path, tmp_path: Path, args: tuple[str, ...], message: str
+) -> None:
+    """Invalid values fail to render also without the schema."""
+    error = template_error(_chart_without_schema(chart, tmp_path), *args)
+    assert message in error
 
 
 # Ingress and Route
