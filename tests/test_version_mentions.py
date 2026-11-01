@@ -1,7 +1,7 @@
 """Tests that the current release version is not hard-coded (drift guard).
 
 The release version has one source (see "Versioning and releases" in
-`docs/contributing.md`): the release tag and, on `dev`, the `version` of
+`docs/contributing/index.md`): the release tag and, on `dev`, the `version` of
 `CITATION.cff`. The docs write it as `{{ version }}` (replaced by
 `docs/hooks.py`); comments, templates and tests use placeholders (e.g.,
 `1.2.3`) and refer to sections by anchor. So the current release version may

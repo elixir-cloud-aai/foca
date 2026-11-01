@@ -5,7 +5,7 @@ creates the release as a draft, uploads the assets and publishes it last:
 assets of a published immutable release can't be added, replaced or
 deleted. Prints a `GITHUB_OUTPUT` line (`state=<state>`) to standard
 output, and errors and warnings as GitHub annotations to standard error.
-See "Versioning and releases" in `docs/contributing.md`.
+See "Versioning and releases" in `docs/contributing/index.md`.
 
 Command:
     `state <tag> --releases <file> <asset>...`: the state of the release of
