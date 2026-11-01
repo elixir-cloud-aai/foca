@@ -606,8 +606,8 @@ def test_save_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     assert store.save(run) == {"request_id": "r1", "error": "internal", "stored": False}
 
 
-def test_save_failure_by_request_id() -> None:
-    """Failure records are keyed by the request identifier."""
+def test_save_failure_by_run_id() -> None:
+    """Failure records are keyed by the run ID; the request ID is a field."""
     store, db = stores(record_failed=True)
     host = make_host([{"plugin": "test.reject"}], provenance={"record_failed": True})
     run = host.start(inbound(), PRINCIPAL, request_id="r1")
@@ -615,7 +615,23 @@ def test_save_failure_by_request_id() -> None:
         run.request()
     assert store.save_failure(run, info.value)
     assert store.save_failure(run, info.value)
-    assert [doc["_id"] for doc in db.failures.find()] == ["r1"]
+    docs = list(db.failures.find())
+    assert [doc["_id"] for doc in docs] == [f"run-{run.run_id}"]
+    assert docs[0]["request_id"] == "r1"
+
+
+def test_save_failure_reused_request_id() -> None:
+    """Runs that reuse a request ID do not overwrite each other's records."""
+    store, db = stores(record_failed=True)
+    host = make_host([{"plugin": "test.reject"}], provenance={"record_failed": True})
+    for _ in range(2):
+        run = host.start(inbound(), PRINCIPAL, request_id="r1")
+        with pytest.raises(Exception) as info:
+            run.request()
+        assert store.save_failure(run, info.value)
+    docs = list(db.failures.find())
+    assert len({doc["_id"] for doc in docs}) == 2
+    assert {doc["request_id"] for doc in docs} == {"r1"}
 
 
 def test_set_cookie_not_hashed() -> None:
