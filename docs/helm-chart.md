@@ -873,7 +873,9 @@ git push origin chart-v0.1.0
 
 The [release workflow][release-chart] checks that the tag is signed (with a
 signature that GitHub verifies), is on `dev` and matches the chart's
-version, and runs the chart checks and the kind installation of CI. After a
+version, that CI passed for the tagged commit (a successful run of `ci.yml` for
+a push of the commit; if there is none, it fails and says to re-run the
+workflow once CI passed), and runs the chart checks and the kind installation of CI. After a
 maintainer approved the tested chart in the `release` environment, it
 checks that the version has not been published yet, packages the chart,
 pushes it to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`, and

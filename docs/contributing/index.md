@@ -213,7 +213,9 @@ git push origin vX.Y.Z
 
 Pushing the tag triggers the [release
 workflow](https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/release.yml),
-which checks that the tagged commit is on `main`, that its `CITATION.cff`
+which checks that the tagged commit is on `main`, that CI passed for it (a
+successful run of `ci.yml` for a push of the commit; re-run the workflow once
+CI passed), that its `CITATION.cff`
 has the release version and a date that is not in the future (UTC) and that
 its curated release notes are complete, and builds the distributions
 (job `prepare`, "Prepare release"; the image paths of the README, e.g., the
