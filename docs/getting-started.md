@@ -171,16 +171,20 @@ COPY ./ /app
 - `requirements.txt` is mounted from the build context (in the allowlist of
   `.dockerignore`), so the step needs no copy of it.
 
-Install the app itself from its wheel, built in a build stage of its own
-(e.g., `build`, with the wheel in `/tmp/dist`), without an index and without
+Install the app itself from its wheel, built in a build stage of your own
+(here `build`, with the wheel in `/tmp/dist`), without an index and without
 its dependencies, which the step above installed; a freshly built wheel has
-no known hash, so without `--require-hashes`:
+no known hash, so without `--require-hashes`. `uv pip check` then also
+covers the app's dependencies:
 
 ```dockerfile
+USER root
 RUN --network=none --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=from=build,source=/tmp/dist,target=/tmp/dist \
     UV_NO_CACHE=1 uv pip install --system --no-index --no-deps \
-        --compile-bytecode /tmp/dist/*.whl
+        --compile-bytecode /tmp/dist/*.whl \
+    && uv pip check --system
+USER 1000
 ```
 
 This also applies to images that add [plugins](plugins.md) to an app's
@@ -191,9 +195,7 @@ Build stages may use pip, e.g., in a virtual environment (`python -m venv`,
 which installs the pip that the image's Python bundles), as long as the
 final stage doesn't. The [petstore
 example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore)
-installs Gunicorn this way, and
-[cloud-registry](https://github.com/elixir-cloud-aai/cloud-registry) is a
-complete example of an app image.
+installs Gunicorn with uv as above.
 
 !!! warning "Debug mode"
     Flask's debug mode (`server.debug`) includes an interactive debugger

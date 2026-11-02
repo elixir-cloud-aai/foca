@@ -46,8 +46,9 @@ USER 1000
    --system`, as above; `requirements.txt` lists all packages that the image
    adds to the FOCA image, with their hashes (e.g., `uv export` from a lock
    file, without FOCA and its dependencies). Install the app's own wheel
-   with `--no-index --no-deps` and without `--require-hashes` (see the
-   link above). Build stages may keep pip (e.g., in a virtual environment
+   with `--no-index --no-deps` and without `--require-hashes` (see
+   [installing Python
+   packages](getting-started.md#installing-python-packages)). Build stages may keep pip (e.g., in a virtual environment
    created with `python -m venv`).
 3. Remove the entries for packages vendored by pip from `.trivyignore.yaml`
    (in FOCA 0.19.0: setuptools 70.3.0, urllib3 2.7.0 and msgpack 1.1.2).

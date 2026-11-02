@@ -24,7 +24,8 @@ LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 ## compiled to bytecode, as pip would (the root file system may be read-only
 ## at runtime); then check that the dependencies of all installed packages
 ## are satisfied (`uv pip check`), as `--no-deps` doesn't. The requirements
-## file is mounted for this step (and copied with the app files below)
+## file is mounted for this step; it also lands in `/app`, as the whole
+## directory is copied below, which is harmless
 USER root
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \

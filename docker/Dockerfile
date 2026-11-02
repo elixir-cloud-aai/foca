@@ -49,10 +49,10 @@ RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FOCA="${FOCA_VERSION}" pip install . \
 # only at build time; images built from this one install their packages with
 # uv instead, from a stage of their own, without copying it into the image
 # (see "Installing Python packages" in `docs/getting-started.md`); the
-# integration and scan jobs of CI check that (`scripts/check-no-pip.sh`). The
-# pip wheel that `ensurepip`
-# bundles stays (image scans don't report it), so that `python -m venv` keeps
-# working, e.g., in build stages of images built from this one
+# integration and scan jobs of CI check that (`scripts/check-no-pip.sh`).
+# The pip wheel that `ensurepip` bundles stays (image scans don't report
+# it), so that `python -m venv` keeps working, e.g., in build stages of
+# images built from this one
 FROM base
 RUN pip uninstall --yes --no-cache-dir pip
 
