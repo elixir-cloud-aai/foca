@@ -111,6 +111,12 @@ don't fail CI. If a scan fails:
 
 1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
    in `pyproject.toml` or update the base image (Dependabot's PRs do both).
+   The image has no pip, so it has no advisories of packages vendored by
+   pip; CI fails if pip is back (`scripts/check-no-pip.sh`). The
+   petstore example's image installs the packages of
+   `examples/petstore/requirements.txt` with uv; Dependabot updates the
+   versions and hashes there and the uv image (tag and digest) in its
+   `Dockerfile` (by hand: `uv pip compile --no-deps --generate-hashes`).
 2. Otherwise (e.g., no fixed version yet, or a vulnerability that does not
    affect FOCA), accept it in `.trivyignore.yaml` with the affected package
    versions (`purls`), the reason (`statement`) and an expiry date

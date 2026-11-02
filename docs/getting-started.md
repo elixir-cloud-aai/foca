@@ -146,7 +146,8 @@ USER root
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
     UV_NO_CACHE=1 uv pip install --system --require-hashes --only-binary :all: \
-        --no-deps --compile-bytecode -r /tmp/requirements.txt
+        --no-deps --compile-bytecode -r /tmp/requirements.txt \
+    && uv pip check --system
 USER 1000
 COPY ./ /app
 ```
@@ -164,16 +165,27 @@ COPY ./ /app
 - `--compile-bytecode` compiles the packages to bytecode, as pip does, as
   Python can't write the bytecode at runtime if the root file system is
   read-only (as in the [Helm chart](helm-chart.md)).
+- `uv pip check` fails the build if a dependency of an installed package
+  is missing or doesn't fit, which `--no-deps` doesn't check.
 - `UV_NO_CACHE=1` keeps uv's cache out of the image.
 - `requirements.txt` is mounted from the build context (in the allowlist of
-  `.dockerignore`), not copied into the image.
+  `.dockerignore`), so the step needs no copy of it.
 
-Install the app itself (e.g., its wheel, built in a build stage of its own)
-the same way, without an index (`--no-index`) and without its dependencies
-(`--no-deps`), which the step above installed. This also applies to images
-that add [plugins](plugins.md) to an app's image: list the plugin
-distributions and their dependencies that the app's image doesn't have, with
-their hashes, and install them as above.
+Install the app itself from its wheel, built in a build stage of its own
+(e.g., `build`, with the wheel in `/tmp/dist`), without an index and without
+its dependencies, which the step above installed; a freshly built wheel has
+no known hash, so without `--require-hashes`:
+
+```dockerfile
+RUN --network=none --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    --mount=from=build,source=/tmp/dist,target=/tmp/dist \
+    UV_NO_CACHE=1 uv pip install --system --no-index --no-deps \
+        --compile-bytecode /tmp/dist/*.whl
+```
+
+This also applies to images that add [plugins](plugins.md) to an app's
+image: list the plugin distributions and their dependencies that the app's
+image doesn't have, with their hashes, and install them as above.
 
 Build stages may use pip, e.g., in a virtual environment (`python -m venv`,
 which installs the pip that the image's Python bundles), as long as the

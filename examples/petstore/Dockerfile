@@ -22,12 +22,15 @@ LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 ## checked against their hashes, as wheels only, without their dependencies
 ## (`--no-deps`, so that the packages of the FOCA image stay as they are), and
 ## compiled to bytecode, as pip would (the root file system may be read-only
-## at runtime); the requirements file is mounted, not copied
+## at runtime); then check that the dependencies of all installed packages
+## are satisfied (`uv pip check`), as `--no-deps` doesn't. The requirements
+## file is mounted for this step (and copied with the app files below)
 USER root
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
     UV_NO_CACHE=1 uv pip install --system --require-hashes --only-binary :all: \
-        --no-deps --compile-bytecode -r /tmp/requirements.txt
+        --no-deps --compile-bytecode -r /tmp/requirements.txt \
+    && uv pip check --system
 USER 1000
 
 ## Set working directory

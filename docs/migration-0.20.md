@@ -4,10 +4,11 @@ FOCA 0.20.0 removes pip from the FOCA image, changes how gateway plugins
 key some of their stored data and lets operators key the plugin store's
 hashes with a secret.
 Apps whose images install packages on top of the FOCA image (e.g., with
-`pip install` in their `Dockerfile`) need to install them with uv instead;
-check the other breaking change if your gateway app records failed runs
-(`plugins.provenance.record_failed`) and reads these records by their
-`_id`, and the other change if it keeps the plugin store in a database.
+`pip install` in their `Dockerfile`) need to install them with uv instead
+(first breaking change below). Gateway apps that record failed runs
+(`plugins.provenance.record_failed`) and read these records by their `_id`
+need the second breaking change, and gateway apps that keep the plugin
+store in a database the secret for its keys (under other changes).
 Upgrading from 0.17 or earlier? Start with [Migrating to
 0.18.0](migration-0.18.md).
 
@@ -34,7 +35,8 @@ USER root
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
     UV_NO_CACHE=1 uv pip install --system --require-hashes --only-binary :all: \
-        --no-deps --compile-bytecode -r /tmp/requirements.txt
+        --no-deps --compile-bytecode -r /tmp/requirements.txt \
+    && uv pip check --system
 USER 1000
 ```
 
@@ -43,9 +45,10 @@ USER 1000
 2. Replace each `pip install` of the final stage with `uv pip install
    --system`, as above; `requirements.txt` lists all packages that the image
    adds to the FOCA image, with their hashes (e.g., `uv export` from a lock
-   file, without FOCA and its dependencies). Install the app's own wheel the
-   same way, with `--no-index --no-deps`. Build stages may keep pip (e.g.,
-   in a virtual environment created with `python -m venv`).
+   file, without FOCA and its dependencies). Install the app's own wheel
+   with `--no-index --no-deps` and without `--require-hashes` (see the
+   link above). Build stages may keep pip (e.g., in a virtual environment
+   created with `python -m venv`).
 3. Remove the entries for packages vendored by pip from `.trivyignore.yaml`
    (in FOCA 0.19.0: setuptools 70.3.0, urllib3 2.7.0 and msgpack 1.1.2).
 4. Images that add plugins to an app's image install them the same way.

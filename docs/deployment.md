@@ -68,7 +68,8 @@ USER root
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
     UV_NO_CACHE=1 uv pip install --system --require-hashes --only-binary :all: \
-        --no-deps --compile-bytecode -r /tmp/requirements.txt
+        --no-deps --compile-bytecode -r /tmp/requirements.txt \
+    && uv pip check --system
 USER 1000
 COPY ./ /app
 CMD ["gunicorn", "--config", "python:foca.gunicorn_config", "wsgi:create_app()"]

@@ -156,12 +156,16 @@ of the following:
 * [API specification][app-specs]
 * [Endpoint controller module][app-controllers]
 * [Registered exceptions][app-exceptions]
-* [`Dockerfile`][app-dockerfile]
+* [`Dockerfile`][app-dockerfile], which installs the packages of
+  [`requirements.txt`][app-requirements] (with their hashes) with uv, as the
+  FOCA image has no pip (see [installing Python
+  packages](https://foca.readthedocs.io/en/latest/getting-started/#installing-python-packages))
 * [`docker-compose` configuration][app-docker-compose]
 
 [app-config]: config.yaml
 [app-controllers]: controllers.py
 [app-dockerfile]: Dockerfile
+[app-requirements]: requirements.txt
 [app-docker-compose]: docker-compose.yaml
 [app-exceptions]: exceptions.py
 [app-entrypoint]: app.py
