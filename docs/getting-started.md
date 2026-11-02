@@ -127,14 +127,61 @@ The image contains no build tools and runs as non-root user `foca` (UID
 `1000`, group `0`); `/app` and the home directory are writable by group `0`,
 so that the image also runs under arbitrary user IDs (e.g., on OpenShift).
 To install system or Python packages in derived images, switch to `root` and
-back:
+back.
 
-```dockerfile
+### Installing Python packages
+
+The image has no pip (since FOCA 0.20.0): pip vendors copies of other
+packages (e.g., urllib3, msgpack and setuptools), which image scans report,
+in every image built on FOCA, although only pip uses them, and only at build
+time. Install Python packages with [uv](https://docs.astral.sh/uv/) instead,
+from a stage of its own that is pinned by digest, and mount it into the
+step that installs them, so that the image doesn't contain it:
+
+```dockerfile title="Dockerfile"
+FROM ghcr.io/astral-sh/uv:<version>@sha256:<digest> AS uv
+
+FROM elixircloud/foca:<version>-py3.13@sha256:<digest>
 USER root
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
+    UV_NO_CACHE=1 uv pip install --system --require-hashes --only-binary :all: \
+        --no-deps --compile-bytecode -r /tmp/requirements.txt
 USER 1000
+COPY ./ /app
 ```
+
+- `--system` installs into the image's Python (`/usr/local`), where FOCA
+  is, not into a virtual environment.
+- `--require-hashes` installs only packages whose hashes are in
+  `requirements.txt` (e.g., exported from a lock file with `uv export` or
+  written by `uv pip compile --generate-hashes`), `--only-binary :all:`
+  only wheels, so that nothing is built.
+- `--no-deps` installs nothing that is not listed, so `requirements.txt`
+  must list all packages that the image needs on top of the FOCA image,
+  dependencies included, and leave out those of the FOCA image (FOCA and
+  its dependencies), so that these stay as they are.
+- `--compile-bytecode` compiles the packages to bytecode, as pip does, as
+  Python can't write the bytecode at runtime if the root file system is
+  read-only (as in the [Helm chart](helm-chart.md)).
+- `UV_NO_CACHE=1` keeps uv's cache out of the image.
+- `requirements.txt` is mounted from the build context (in the allowlist of
+  `.dockerignore`), not copied into the image.
+
+Install the app itself (e.g., its wheel, built in a build stage of its own)
+the same way, without an index (`--no-index`) and without its dependencies
+(`--no-deps`), which the step above installed. This also applies to images
+that add [plugins](plugins.md) to an app's image: list the plugin
+distributions and their dependencies that the app's image doesn't have, with
+their hashes, and install them as above.
+
+Build stages may use pip, e.g., in a virtual environment (`python -m venv`,
+which installs the pip that the image's Python bundles), as long as the
+final stage doesn't. The [petstore
+example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore)
+installs Gunicorn this way, and
+[cloud-registry](https://github.com/elixir-cloud-aai/cloud-registry) is a
+complete example of an app image.
 
 !!! warning "Debug mode"
     Flask's debug mode (`server.debug`) includes an interactive debugger
