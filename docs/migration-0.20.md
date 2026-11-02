@@ -1,15 +1,62 @@
 # Migrating to 0.20.0
 
-FOCA 0.20.0 changes how gateway plugins key some of their stored data and
-lets operators key the plugin store's hashes with a secret.
-Most apps need no changes; check the breaking change below if your
-gateway app records failed runs (`plugins.provenance.record_failed`) and
-reads these records by their `_id`, and the other change if it keeps the
-plugin store in a database.
+FOCA 0.20.0 removes pip from the FOCA image, changes how gateway plugins
+key some of their stored data and lets operators key the plugin store's
+hashes with a secret.
+Apps whose images install packages on top of the FOCA image (e.g., with
+`pip install` in their `Dockerfile`) need to install them with uv instead
+(first breaking change below). Gateway apps that record failed runs
+(`plugins.provenance.record_failed`) and read these records by their `_id`
+need the second breaking change, and gateway apps that keep the plugin
+store in a database the secret for its keys (under other changes).
 Upgrading from 0.17 or earlier? Start with [Migrating to
 0.18.0](migration-0.18.md).
 
 ## Breaking changes
+
+### No pip in the FOCA image
+
+The FOCA image (`elixircloud/foca`) no longer contains pip: pip vendors
+copies of other packages (urllib3, msgpack and setuptools), which image
+scans report in every image built on FOCA, although only pip uses them, and
+only at build time; apps had to accept them in their `.trivyignore.yaml`.
+`pip install` in a `Dockerfile` based on the FOCA image now fails (`pip: not
+found`).
+
+Install packages with [uv](https://docs.astral.sh/uv/) instead, from a stage
+pinned by digest, without copying uv into the image (see [installing Python
+packages](getting-started.md#installing-python-packages)):
+
+```dockerfile title="Dockerfile"
+FROM ghcr.io/astral-sh/uv:<version>@sha256:<digest> AS uv
+
+FROM elixircloud/foca:0.20.0-py3.13@sha256:<digest>
+USER root
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
+    UV_NO_CACHE=1 uv pip install --system --require-hashes --only-binary :all: \
+        --no-deps --compile-bytecode -r /tmp/requirements.txt \
+    && uv pip check --system
+USER 1000
+```
+
+1. Add the uv stage (Dependabot's `docker` ecosystem updates its tag and
+   digest together).
+2. Replace each `pip install` of the final stage with `uv pip install
+   --system`, as above; `requirements.txt` lists all packages that the image
+   adds to the FOCA image, with their hashes (e.g., `uv export` from a lock
+   file, without FOCA and its dependencies). Install the app's own wheel
+   with `--no-index --no-deps` and without `--require-hashes` (see
+   [installing Python
+   packages](getting-started.md#installing-python-packages)). Build stages may keep pip (e.g., in a virtual environment
+   created with `python -m venv`).
+3. Remove the entries for packages vendored by pip from `.trivyignore.yaml`
+   (in FOCA 0.19.0: setuptools 70.3.0, urllib3 2.7.0 and msgpack 1.1.2).
+4. Images that add plugins to an app's image install them the same way.
+
+Packages installed with uv record `uv` as their installer, and their
+`RECORD` files differ from pip's: the `RECORD` digests in [plugin
+provenance](plugins.md) change once, although the plugin versions don't.
 
 ### Failure records keyed by run ID
 

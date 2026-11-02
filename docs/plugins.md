@@ -513,7 +513,8 @@ def test_contract():
 - Publish the distribution (e.g., on PyPI) with its entry points; admins
   pin it in `plugins.available.<id>` (`distribution`, `version`), and
   provenance records the version, the `RECORD` digest and the image
-  digest.
+  digest. The `RECORD` file depends on the installer (e.g., pip or uv) and
+  the install location, so the same version can have different digests.
 - Raise `api_version` only for a new major version of the plugin API;
   set `maturity = "deprecated"` (and say what replaces the plugin in its
   description) one release before removing a plugin.

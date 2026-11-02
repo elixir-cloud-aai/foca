@@ -111,6 +111,8 @@ don't fail CI. If a scan fails:
 
 1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
    in `pyproject.toml` or update the base image (Dependabot's PRs do both).
+   The image has no pip, so scans don't report packages vendored by pip;
+   CI fails if pip is back (`scripts/check-no-pip.sh`).
 2. Otherwise (e.g., no fixed version yet, or a vulnerability that does not
    affect FOCA), accept it in `.trivyignore.yaml` with the affected package
    versions (`purls`), the reason (`statement`) and an expiry date
@@ -118,6 +120,12 @@ don't fail CI. If a scan fails:
    reviewed. Trivy also scans for secrets (critical and high ones fail the
    scans too); accept those under `secrets:` in the same file.
 3. For a released image, release a patch version once the fix is on `dev`.
+
+The petstore example's image installs the packages of
+`examples/petstore/requirements.txt` with uv. Dependabot updates their
+versions and hashes, and the uv image (tag and digest) in the example's
+`Dockerfile`; to update the requirements by hand, regenerate the hashes,
+e.g., with `uv pip compile --no-deps --generate-hashes`.
 
 The weekly scan uses the `.trivyignore.yaml` of `dev`, so that accepting a
 finding on `dev` also applies to the released images. Dependabot updates the

@@ -54,15 +54,22 @@ gunicorn --config python:foca.gunicorn_config "wsgi:create_app()"
 
 The [FOCA image](getting-started.md#docker) does not include a WSGI server,
 and FOCA does not depend on Gunicorn; install it in your app's image, e.g.,
-from a requirements file that pins its version (`gunicorn==X.Y.Z`; the
-settings are tested with Gunicorn 26). The image's working directory is
-`/app`:
+from a requirements file that pins its version and hashes
+(`gunicorn==X.Y.Z --hash=sha256:...`; the settings are tested with Gunicorn
+26), with uv, as the image has no pip (see [installing Python
+packages](getting-started.md#installing-python-packages)). The image's
+working directory is `/app`:
 
 ```dockerfile title="Dockerfile"
-FROM elixircloud/foca:latest
+FROM ghcr.io/astral-sh/uv:<version>@sha256:<digest> AS uv
+
+FROM elixircloud/foca:<version>-py3.13@sha256:<digest>
 USER root
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
+    UV_NO_CACHE=1 uv pip install --system --require-hashes --only-binary :all: \
+        --no-deps --compile-bytecode -r /tmp/requirements.txt \
+    && uv pip check --system
 USER 1000
 COPY ./ /app
 CMD ["gunicorn", "--config", "python:foca.gunicorn_config", "wsgi:create_app()"]

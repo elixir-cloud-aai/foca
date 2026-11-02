@@ -15,18 +15,16 @@ LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 
 # Images of Python 3.11 ship setuptools and wheel (later ones do not), with
 # known vulnerabilities; FOCA needs neither, as pip builds packages in
-# isolated environments, so remove them for the same contents on all versions.
-# Images of Python 3.11 and 3.12 also ship an old pip (24.0 and 25.0.1) with
-# known vulnerabilities (fixed by 26.2: CVE-2025-8869, CVE-2026-1703,
-# CVE-2026-3219, CVE-2026-6357, CVE-2026-8643, CVE-2026-13346); pip stays in
-# the image, as images built from this one install their packages with it, so
-# upgrade it to the latest release (a no-op where the image already ships
-# that one)
-RUN pip uninstall --yes --no-cache-dir setuptools wheel && \
-    pip install --no-cache-dir --upgrade "pip>=26.2"
+# isolated environments, so remove them for the same contents on all versions
+RUN pip uninstall --yes --no-cache-dir setuptools wheel
 
-# Build image
+# Build image: installs FOCA with the pip of the Python image, which is
+# upgraded first, as images of Python 3.11 and 3.12 ship an old pip (24.0 and
+# 25.0.1) with known vulnerabilities (fixed by 26.2: CVE-2025-8869,
+# CVE-2026-1703, CVE-2026-3219, CVE-2026-6357, CVE-2026-8643,
+# CVE-2026-13346); a no-op where the image already ships the latest release
 FROM base AS builder
+RUN pip install --no-cache-dir --upgrade "pip>=26.2"
 
 # Install general dependencies
 ENV PACKAGES="openssl git build-essential python3-dev curl jq"
@@ -45,8 +43,18 @@ RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FOCA="${FOCA_VERSION}" pip install . \
         --no-warn-script-location \
         --prefix="/install"
 
-# Final image: runtime only, no build tools
+# Final image: runtime only, no build tools and no installer. pip is
+# removed, with its vendored copies of other packages (e.g., urllib3, msgpack
+# and setuptools), which image scans report although only pip uses them, and
+# only at build time; images built from this one install their packages with
+# uv instead, from a stage of their own, without copying it into the image
+# (see "Installing Python packages" in `docs/getting-started.md`); the
+# integration and scan jobs of CI check that (`scripts/check-no-pip.sh`).
+# The pip wheel that `ensurepip` bundles stays (image scans don't report
+# it), so that `python -m venv` keeps working, e.g., in build stages of
+# images built from this one
 FROM base
+RUN pip uninstall --yes --no-cache-dir pip
 
 # Copy Python packages
 COPY --from=builder /install /usr/local

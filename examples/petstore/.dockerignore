@@ -6,5 +6,6 @@
 !controllers.py
 !exceptions.py
 !petstore.yaml
+!requirements.txt
 !worker.py
 !wsgi.py

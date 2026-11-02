@@ -335,6 +335,18 @@ jobs:
             echo "Image contains build tools" >&2
             exit 1
           fi
+          # No pip (nor its vendored packages, which image scans report):
+          # images built from this one install their packages with uv
+          scripts/check-no-pip.sh --venv "${image}"
+      - name: Check petstore app image
+        # Installs its packages with uv, from a stage of its own, so that
+        # neither uv nor pip is in the image; compiled to bytecode, for read-only
+        # root file systems
+        run: |
+          image=elixircloud/foca-petstore-root:latest
+          scripts/check-no-pip.sh "${image}"
+          docker run --rm "${image}" sh -c \
+              'gunicorn --version && ls /usr/local/lib/python3.*/site-packages/gunicorn/__pycache__/__init__.*.pyc'
       - name: Wait for petstore app
         run: |
           for _ in $(seq 1 30); do
@@ -587,6 +599,11 @@ jobs:
             exit 1
           fi
           echo "image=${IMAGE_NAME}@${digest}" >> "${GITHUB_OUTPUT}"
+      - name: Check image for installers
+        # As in the integration job, for every Python version
+        run: scripts/check-no-pip.sh --venv "${IMAGE}"
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
       - name: Scan image
         uses: elixir-cloud-aai/.github/actions/scan-image@743e82d290a53768454999e413756a924e383259 # v1.0.0
         with:

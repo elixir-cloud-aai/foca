@@ -1,9 +1,9 @@
 # Vulnerabilities accepted in the Docker image (`docker/Dockerfile`), which the
 # scans in CI (shared action `scan-image` of `elixir-cloud-aai/.github`)
 # ignore: each with the reason (`statement`) and an expiry date
-# (`expired_at`), after which Trivy reports it again, so that the decision is reviewed. Limit entries to the affected
-# package versions (`purls`), so that other packages with the same
-# vulnerability are still reported. Example:
+# (`expired_at`), after which Trivy reports it again, so that the decision is
+# reviewed. Limit entries to the affected package versions (`purls`), so that
+# other packages with the same vulnerability are still reported. Example:
 #
 #   vulnerabilities:
 #     - id: CVE-2026-12345
@@ -12,44 +12,4 @@
 #       expired_at: 2027-01-31
 #
 # See https://trivy.dev/latest/docs/configuration/filtering/#trivyignoreyaml
-vulnerabilities:
-  # Copies vendored by pip (listed in its SBOM, `pip/_vendor/bom.cdx.json`),
-  # which the Dockerfile upgrades to the latest release on all Python
-  # versions, used only when pip runs (to install the app's dependencies at
-  # build time), not by the app; the installed packages are separate (urllib3
-  # 2.8.0 on 2026-10-23). pip 26.2.2, the latest release on 2026-10-23, still
-  # vendors these versions. Trivy reports the vendored copies without a path,
-  # so the entries can't be limited with `paths`; they would also hide these
-  # versions if installed normally
-  - id: CVE-2025-47273
-    purls: ["pkg:pypi/setuptools@70.3.0"]
-    statement: Vendored by pip, not used by the app (path traversal in PackageIndex, which pip doesn't use)
-    expired_at: 2027-01-31
-  - id: CVE-2026-59890
-    purls: ["pkg:pypi/setuptools@70.3.0"]
-    statement: Vendored by pip, not used by the app (MANIFEST.in exclusion bypass in sdist builds on macOS; pip vendors only pkg_resources)
-    expired_at: 2027-01-31
-  - id: GHSA-xmj3-9gf7-h52w
-    purls: ["pkg:pypi/setuptools@70.3.0"]
-    statement: Vendored by pip, not used by the app (Windows path escape in legacy wheel installation; the image is Linux, and pip vendors only pkg_resources)
-    expired_at: 2027-01-31
-  - id: CVE-2026-97687
-    purls: ["pkg:pypi/urllib3@2.7.0"]
-    statement: Vendored by pip, not used by the app (pip only runs at build time)
-    expired_at: 2027-01-31
-  - id: CVE-2026-97688
-    purls: ["pkg:pypi/urllib3@2.7.0"]
-    statement: Vendored by pip, not used by the app (infinite loop on malicious chunked deflate responses; pip only runs at build time, against the configured index, where at worst the build hangs)
-    expired_at: 2027-01-31
-  - id: CVE-2026-97689
-    purls: ["pkg:pypi/urllib3@2.7.0"]
-    statement: Vendored by pip, not used by the app (pip only runs at build time)
-    expired_at: 2027-01-31
-  - id: GHSA-6v7p-g79w-8964
-    purls: ["pkg:pypi/msgpack@1.1.2"]
-    statement: Vendored by pip, not used by the app (pip only runs at build time)
-    expired_at: 2027-01-31
-  - id: CVE-2026-114613
-    purls: ["pkg:pypi/msgpack@1.1.2"]
-    statement: Vendored by pip, not used by the app (memory leak in map deserialization; pip only runs at build time, on its own cache data). pip 26.2.2, the latest release on 2026-10-28, still vendors 1.1.2; pip's main branch has 1.2.3
-    expired_at: 2027-01-31
+vulnerabilities: []
