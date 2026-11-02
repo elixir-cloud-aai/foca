@@ -42,7 +42,10 @@ class _Model(BaseModel):
 
     Unknown keys are errors. Messages of validation errors don't show the
     input, as it may contain secrets (e.g., `defaults.store.key_secret`),
-    which are masked only once validated.
+    which are masked only once validated. Pydantic applies the setting of
+    the outermost model only (FOCA's `Config` sets it, too): models that
+    embed these must set `hide_input_in_errors` themselves; `errors()` and
+    `json()` of the errors still contain the input.
     """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
