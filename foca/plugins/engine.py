@@ -670,13 +670,14 @@ class PluginHost:
         """Check whether the keys of the shared stores are keyed.
 
         Returns:
-            `False` only if some plugin keeps its entries in the database
-            (mode `shared`) and the operator set no key secret.
+            `False` only if some plugin that declares stored data
+            (`data_stored`) keeps its entries in the database (mode
+            `shared`) and the operator set no key secret.
         """
         return all(
             settings.key_secret
-            for settings in self._stores.values()
-            if settings.mode == "shared"
+            for plugin_id, settings in self._stores.items()
+            if settings.mode == "shared" and self.plugins[plugin_id].cls.data_stored
         )
 
     def setup_store(self) -> None:
@@ -684,7 +685,8 @@ class PluginHost:
 
         Called once at startup (cf. `Foca.create_app()`); idempotent. Logs a
         warning if plugins that declare stored data (`data_stored`) keep it
-        in memory as no database is configured; creates the indexes of the
+        in memory as no database is configured, and one if they keep it in
+        the database without a key secret; creates the indexes of the
         backend; and cuts the expiry of the entries of each namespace to the
         current `max_ttl` (the longest of the namespace's plugins that
         share the backend), so that a lowered `max_ttl` applies to entries

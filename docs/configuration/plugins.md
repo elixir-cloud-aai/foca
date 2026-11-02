@@ -240,8 +240,8 @@ plugins that declare stored data (`data_stored`) keep it in memory.
   knows an identifier (e.g., an LS Login `sub`, which is in tokens, logs
   and other services) can hash it again and find that user's entries, so
   set the secret whenever the store is in the database. FOCA logs a
-  warning at startup if plugins keep their entries in the database without
-  a secret. It applies to all plugins (not per plugin).
+  warning at startup if plugins that declare stored data (`data_stored`)
+  keep their entries in the database without a secret. It applies to all plugins (not per plugin).
     - **Never commit it.** Don't write it in the configuration file; set the
       environment variable `FOCA_PLUGINS_STORE_KEY_SECRET` (used if
       `key_secret` is unset or empty, and the variable is not empty), e.g.,

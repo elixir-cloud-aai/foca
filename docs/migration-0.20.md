@@ -44,8 +44,8 @@ store](configuration/plugins.md#plugin-store) for how to set it, and how
 to rotate it.
 
 - Without the secret, nothing changes, except that gateway apps whose
-  plugins keep their store entries in the database log a warning at
-  startup.
+  plugins declare stored data (`data_stored`) and keep their store entries
+  in the database log a warning at startup.
 - **Setting the secret makes existing entries that plugins keyed with
   `key_for()` unreachable** (e.g., per-user budgets start anew), as their
   keys change; they expire after at most `max_ttl` (default: 30 days). The

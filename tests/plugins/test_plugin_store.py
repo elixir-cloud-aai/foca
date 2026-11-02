@@ -904,18 +904,25 @@ class TestEngine:
     def test_key_secret_warning(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Setup warns once if database-backed stores have no key secret."""
+        """Setup warns once if database-backed stores have no key secret.
+
+        Only plugins that declare stored data (`data_stored`) count, as for
+        the warning about stores in memory.
+        """
         monkeypatch.delenv(STORE_KEY_SECRET_ENV, raising=False)
         message = "plugins.defaults.store.key_secret"
-        plugins = {"test.count": loaded("test.count", "dist")}
+        counting = loaded("test.count", "dist")
+        quiet = replace(counting, cls=QuietPlugin)
         mongo = MongoStoreBackend(mongomock.MongoClient()["db"][STORE_COLLECTION])
-        cases: list[tuple[StoreBackend, dict[str, Any], int]] = [
-            (mongo, {}, 1),
-            (mongo, {"key_secret": "s3cr3t-value"}, 0),
-            (MemoryStoreBackend(), {}, 0),  # no database
-            (mongo, {"enabled": False}, 0),  # entries in memory
+        cases: list[tuple[StoreBackend, dict[str, Any], LoadedPlugin, int]] = [
+            (mongo, {}, counting, 1),
+            (mongo, {"key_secret": "s3cr3t-value"}, counting, 0),
+            (MemoryStoreBackend(), {}, counting, 0),  # no database
+            (mongo, {"enabled": False}, counting, 0),  # entries in memory
+            (mongo, {}, quiet, 0),  # no stored data declared
         ]
-        for backend, store, count in cases:
+        for backend, store, plugin, count in cases:
+            plugins = {"test.count": plugin}
             caplog.clear()
             conf = PluginsConfig.model_validate(
                 {
