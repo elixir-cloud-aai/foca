@@ -335,6 +335,29 @@ jobs:
             echo "Image contains build tools" >&2
             exit 1
           fi
+          # No pip (nor its vendored packages, which image scans report):
+          # images built from this one install their packages with uv. The
+          # wheel bundled with `ensurepip` (`pip-*.whl`) is no installed
+          # package and stays, for `python -m venv`. As root, to search all
+          # directories
+          if docker run --rm --user 0 "${image}" sh -c \
+              'command -v pip || command -v pip3 ||
+                python -c "import pip" 2>/dev/null ||
+                find / -xdev -name "pip-*.dist-info" | grep .'; then
+            echo "Image contains pip" >&2
+            exit 1
+          fi
+      - name: Check petstore image
+        # Installs its packages with uv, from a stage of its own, so that
+        # neither uv nor pip is in the image
+        run: |
+          image=elixircloud/foca-petstore-root:latest
+          if docker run --rm "${image}" sh -c \
+              'command -v uv || command -v pip || command -v pip3'; then
+            echo "Image contains an installer" >&2
+            exit 1
+          fi
+          docker run --rm "${image}" gunicorn --version
       - name: Wait for petstore app
         run: |
           for _ in $(seq 1 30); do
