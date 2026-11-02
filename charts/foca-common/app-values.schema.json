@@ -104,6 +104,49 @@
           "type": "string",
           "description": "App image tag; defaults to the chart's appVersion"
         },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of the app's pods"
+        },
+        "podDisruptionBudget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": ["boolean", "null"],
+              "description": "Create a PodDisruptionBudget of the app's pods if there is more than one (replicas); true if null"
+            },
+            "minAvailable": {
+              "type": ["integer", "string", "null"],
+              "minimum": 0,
+              "pattern": "^(100|[1-9]?[0-9])%$",
+              "description": "Pods that voluntary disruptions (e.g., node drains) keep available: a number or a percentage (e.g., 50%); not set if null"
+            },
+            "maxUnavailable": {
+              "type": ["integer", "string", "null"],
+              "minimum": 0,
+              "pattern": "^(100|[1-9]?[0-9])%$",
+              "description": "Pods that voluntary disruptions (e.g., node drains) may evict at once: a number or a percentage (e.g., 50%); 1 if neither it nor minAvailable is set"
+            }
+          },
+          "not": {
+            "$comment": "Rejects setting both minAvailable and maxUnavailable (null counts as not set)",
+            "properties": {
+              "minAvailable": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "maxUnavailable": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "required": ["minAvailable", "maxUnavailable"]
+          }
+        },
         "probePath": {
           "type": "string",
           "pattern": "^/",

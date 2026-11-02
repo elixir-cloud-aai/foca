@@ -285,6 +285,10 @@ Things to keep in mind:
   i.e., they refer to files in the image.
 - **Missing overlays fail fast:** FOCA raises an error on startup if a file
   listed in `FOCA_CONFIG_OVERLAY` does not exist.
+- **Several replicas** keep the app available during node drains,
+  crashes and upgrades; FOCA apps support them (see [Several
+  replicas](helm-chart.md#several-replicas) for the Helm chart's
+  `replicas` and PodDisruptionBudget, and the caveats).
 - **Rolling updates mix configurations:** while new pods replace old ones,
   requests are served by pods with the old and the new configuration. Keep
   configuration changes backward compatible, or use the `Recreate` deployment

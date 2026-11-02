@@ -1,8 +1,11 @@
 # Installation with FOCA's access control, in CI: the bundled MongoDB's init
 # script also grants the app user access to the access-control database
 # (`access_control_db`, FOCA's default), whose configured policies FOCA
-# stores on startup
+# stores on startup. Two replicas, which store the configured policies
+# concurrently on startup, with a PodDisruptionBudget
 hostName: petstore-access-control.example.org
+petstore:
+  replicas: 2
 mongodb:
   auth:
     existingSecret: mongodb

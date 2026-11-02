@@ -975,6 +975,193 @@ def test_mongodb_values_required(
     assert "mongodb and mongodb.auth must be maps" in error
 
 
+# Replicas and PodDisruptionBudget
+
+REPLICAS = ("--set", "petstore.replicas=3")
+
+
+def test_single_replica_by_default(render: Callable[..., Docs]) -> None:
+    """One pod by default, without a PodDisruptionBudget."""
+    docs = render()
+    assert docs[("Deployment", APP)]["spec"]["replicas"] == 1
+    assert ("PodDisruptionBudget", APP) not in docs
+
+
+def test_replicas(render: Callable[..., Docs]) -> None:
+    """Several pods get a PodDisruptionBudget evicting one at a time."""
+    docs = render(*REPLICAS)
+    deployment = docs[("Deployment", APP)]
+    assert deployment["spec"]["replicas"] == 3
+    budget = docs[("PodDisruptionBudget", APP)]
+    assert budget["apiVersion"] == "policy/v1"
+    assert budget["metadata"]["labels"] == deployment["metadata"]["labels"]
+    assert budget["spec"] == {
+        "maxUnavailable": 1,
+        "selector": deployment["spec"]["selector"],
+        "unhealthyPodEvictionPolicy": "AlwaysAllow",
+    }
+
+
+@pytest.mark.parametrize(
+    ("args", "spec"),
+    [
+        (("--set", "petstore.podDisruptionBudget.minAvailable=2"), {"minAvailable": 2}),
+        (
+            ("--set", "petstore.podDisruptionBudget.minAvailable=50%"),
+            {"minAvailable": "50%"},
+        ),
+        (
+            ("--set", "petstore.podDisruptionBudget.maxUnavailable=2"),
+            {"maxUnavailable": 2},
+        ),
+        (
+            ("--set", "petstore.podDisruptionBudget.maxUnavailable=0"),
+            {"maxUnavailable": 0},
+        ),
+        (
+            ("--set", "petstore.podDisruptionBudget.maxUnavailable=25%"),
+            {"maxUnavailable": "25%"},
+        ),
+    ],
+)
+def test_pod_disruption_budget_settings(
+    render: Callable[..., Docs], args: tuple[str, ...], spec: dict[str, Any]
+) -> None:
+    """`minAvailable` or `maxUnavailable` set the budget."""
+    budget = render(*REPLICAS, *args)[("PodDisruptionBudget", APP)]["spec"]
+    bounds = {"minAvailable", "maxUnavailable"}
+    assert {key: value for key, value in budget.items() if key in bounds} == spec
+
+
+def test_pod_disruption_budget_disabled(render: Callable[..., Docs]) -> None:
+    """No PodDisruptionBudget if disabled, also with several pods."""
+    docs = render(*REPLICAS, "--set", "petstore.podDisruptionBudget.enabled=false")
+    assert docs[("Deployment", APP)]["spec"]["replicas"] == 3
+    assert ("PodDisruptionBudget", APP) not in docs
+
+
+def test_pod_disruption_budget_needs_replicas(render: Callable[..., Docs]) -> None:
+    """No PodDisruptionBudget with one pod, which no budget keeps available."""
+    docs = render("--set", "petstore.podDisruptionBudget.enabled=true")
+    assert ("PodDisruptionBudget", APP) not in docs
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--set", "petstore.replicas=0"),
+        ("--set", "petstore.replicas=1.5"),
+        ("--set", "petstore.podDisruptionBudget.minAvailable=-1"),
+        ("--set", "petstore.podDisruptionBudget.maxUnavailable=half"),
+        ("--set", "petstore.podDisruptionBudget.minAvailable=150%"),
+        ("--set", "petstore.podDisruptionBudget.other=1"),
+        (
+            "--set",
+            "petstore.podDisruptionBudget.minAvailable=1",
+            "--set",
+            "petstore.podDisruptionBudget.maxUnavailable=1",
+        ),
+    ],
+)
+def test_replicas_schema(
+    render_error: Callable[..., str], args: tuple[str, ...]
+) -> None:
+    """The schema rejects invalid replicas and budgets."""
+    assert "schema" in render_error(*REPLICAS, *args)
+
+
+def test_pod_disruption_budget_both_fail_without_schema(
+    chart: Path, tmp_path: Path
+) -> None:
+    """Setting both `minAvailable` and `maxUnavailable` fails to render."""
+    error = template_error(
+        _chart_without_schema(chart, tmp_path),
+        *REPLICAS,
+        "--set",
+        "petstore.podDisruptionBudget.minAvailable=1",
+        "--set",
+        "petstore.podDisruptionBudget.maxUnavailable=1",
+    )
+    assert "set either minAvailable or maxUnavailable, not both" in error
+
+
+def test_replicas_without_values(chart: Path, tmp_path: Path) -> None:
+    """Without `replicas` (e.g., values of 0.2.0), there is one pod."""
+    docs = index(
+        template(
+            _chart_without_schema(chart, tmp_path),
+            "--set-json",
+            "petstore.replicas=null",
+            "--set-json",
+            "petstore.podDisruptionBudget=null",
+        )
+    )
+    assert docs[("Deployment", APP)]["spec"]["replicas"] == 1
+    assert ("PodDisruptionBudget", APP) not in docs
+
+
+def test_pod_disruption_budget_without_values(chart: Path, tmp_path: Path) -> None:
+    """Without `podDisruptionBudget`, several pods get the default budget."""
+    docs = index(
+        template(
+            _chart_without_schema(chart, tmp_path),
+            *REPLICAS,
+            "--set-json",
+            "petstore.podDisruptionBudget=null",
+        )
+    )
+    assert docs[("PodDisruptionBudget", APP)]["spec"]["maxUnavailable"] == 1
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (("--set", "petstore.replicas=0"), "replicas must be a whole number"),
+        (("--set", "petstore.replicas=-1"), "replicas must be a whole number"),
+        (("--set-string", "petstore.replicas=abc"), "replicas must be a whole number"),
+        (("--set-json", "petstore.replicas=1.5"), "replicas must be a whole number"),
+        (
+            ("--set-string", "petstore.podDisruptionBudget.enabled=false"),
+            "podDisruptionBudget.enabled must be true or false",
+        ),
+        (
+            ("--set-json", "petstore.podDisruptionBudget=true"),
+            "podDisruptionBudget must be a map",
+        ),
+        (
+            ("--set-json", "petstore.podDisruptionBudget=false"),
+            "podDisruptionBudget must be a map",
+        ),
+        (
+            (*REPLICAS, "--set", "petstore.podDisruptionBudget.maxUnavailable=half"),
+            "podDisruptionBudget.maxUnavailable must be a whole number",
+        ),
+        (
+            (*REPLICAS, "--set", "petstore.podDisruptionBudget.minAvailable=150%"),
+            "podDisruptionBudget.minAvailable must be a whole number",
+        ),
+        (
+            (*REPLICAS, "--set", "petstore.podDisruptionBudget.minAvailable=-1"),
+            "podDisruptionBudget.minAvailable must be a whole number",
+        ),
+        (
+            (
+                *REPLICAS,
+                "--set-json",
+                "petstore.podDisruptionBudget.maxUnavailable=1.5",
+            ),
+            "podDisruptionBudget.maxUnavailable must be a whole number",
+        ),
+    ],
+)
+def test_replicas_invalid_without_schema(
+    chart: Path, tmp_path: Path, args: tuple[str, ...], message: str
+) -> None:
+    """Invalid values fail to render also without the schema."""
+    error = template_error(_chart_without_schema(chart, tmp_path), *args)
+    assert message in error
+
+
 # Ingress and Route
 
 

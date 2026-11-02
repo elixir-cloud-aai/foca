@@ -1,0 +1,463 @@
+---
+# Source: petstore/templates/mongodb-networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "petstore-mongodb"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "mongodb"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: "petstore"
+      app.kubernetes.io/instance: "petstore"
+      app.kubernetes.io/component: "mongodb"
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: "petstore"
+          app.kubernetes.io/instance: "petstore"
+          app.kubernetes.io/component: "app"
+    ports:
+    - port: 27017
+      protocol: TCP
+---
+# Source: petstore/templates/poddisruptionbudget.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: "petstore"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "app"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "petstore"
+      app.kubernetes.io/instance: "petstore"
+      app.kubernetes.io/component: "app"
+  # Pods that are not ready (e.g., crash-looping after a bad upgrade) can
+  # always be evicted, so that they don't block node drains
+  unhealthyPodEvictionPolicy: AlwaysAllow
+---
+# Source: petstore/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "petstore-config"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "app"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+data:
+  overlay.yaml: |
+    db:
+      host: petstore-mongodb
+---
+# Source: petstore/templates/mongodb-init-script.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "petstore-mongodb-init-script"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "mongodb"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+data:
+  create-app-user.js: |
+    // Create the app user with access to the app's databases only; FOCA puts
+    // the first database in the connection string, so the app authenticates
+    // against it.
+    db.getSiblingDB('petstore').createUser({
+      user: process.env.MONGO_APP_USERNAME,
+      pwd: process.env.MONGO_APP_PASSWORD,
+      roles: [{ role: 'readWrite', db: 'petstore' }],
+    });
+---
+# Source: petstore/templates/mongodb-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: "petstore-mongodb"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "mongodb"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Source: petstore/templates/mongodb-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: "petstore-mongodb"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "mongodb"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ports:
+  - name: mongodb
+    port: 27017
+    protocol: TCP
+    targetPort: mongodb
+  selector:
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "mongodb"
+  sessionAffinity: None
+  type: ClusterIP
+---
+# Source: petstore/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: "petstore"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "app"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "app"
+  sessionAffinity: None
+  type: ClusterIP
+---
+# Source: petstore/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "petstore"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "app"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "petstore"
+      app.kubernetes.io/instance: "petstore"
+      app.kubernetes.io/component: "app"
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        # Roll the pods when the config changes
+        checksum/config: f50d55f2479cd3b18a4aaef0c0f0e1ae5c81c79927a1a53f7c4b684636d5f41c
+      labels:
+        app.kubernetes.io/name: "petstore"
+        app.kubernetes.io/instance: "petstore"
+        app.kubernetes.io/component: "app"
+    spec:
+      # The pod doesn't call the Kubernetes API
+      automountServiceAccountToken: false
+      # No `<SERVICE>_PORT` etc. variables of the Services in the namespace:
+      # FOCA reads some as configuration (e.g., `MONGO_PORT` of a Service
+      # `mongo`, which isn't a port)
+      enableServiceLinks: false
+      containers:
+      - image: "foca-petstore:latest"
+        imagePullPolicy: IfNotPresent
+        name: petstore
+        env:
+        - name: FOCA_CONFIG_OVERLAY
+          value: /etc/petstore/overlay.yaml
+        # Settings of Gunicorn (the image's command), overriding the image's
+        # defaults; options are split like shell words, so `extraArgs` are
+        # quoted
+        - name: GUNICORN_CMD_ARGS
+          value: "--workers 1 --threads 4 --timeout 30 --graceful-timeout 20 --keep-alive 100"
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: "mongodb-credentials"
+              key: password
+        - name: MONGO_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: "mongodb-credentials"
+              key: username
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        # Probes request `petstore.probePath`, e.g., the Swagger UI
+        # (no authentication, no database access)
+        # Up to 5 minutes are allowed for the start before liveness checks
+        startupProbe:
+          httpGet:
+            path: "/openapi.json"
+            port: 8080
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          httpGet:
+            path: "/openapi.json"
+            port: 8080
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: "/openapi.json"
+            port: 8080
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # Keep serving until the ingress controller and Service have removed
+        # the pod from their endpoints, as Gunicorn stops accepting
+        # connections on SIGTERM (Python, as the image need not have `sleep`)
+        lifecycle:
+          preStop:
+            exec:
+              command: ["python", "-c", "import time; time.sleep(5)"]
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/petstore
+          name: config
+          readOnly: true
+        # Writable, as the root file system is read-only by default (e.g., for
+        # temporary files of uploads), up to `petstore.tmpSizeLimit`
+        - mountPath: /tmp
+          name: tmp
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 35
+      volumes:
+      - configMap:
+          name: "petstore-config"
+        name: config
+      - name: tmp
+        emptyDir:
+          sizeLimit: "64Mi"
+---
+# Source: petstore/templates/mongodb-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "petstore-mongodb"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "mongodb"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  # Longer than the startup window (see `startupProbe`)
+  progressDeadlineSeconds: 2400
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "petstore"
+      app.kubernetes.io/instance: "petstore"
+      app.kubernetes.io/component: "mongodb"
+  # The data volume can only be used by one pod at a time
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: "petstore"
+        app.kubernetes.io/instance: "petstore"
+        app.kubernetes.io/component: "mongodb"
+    spec:
+      # The pod doesn't call the Kubernetes API
+      automountServiceAccountToken: false
+      # No `<SERVICE>_PORT` etc. variables of the Services in the namespace
+      enableServiceLinks: false
+      containers:
+      - image: docker.io/library/mongo:7.0.45
+        imagePullPolicy: IfNotPresent
+        name: mongodb
+        env:
+        - name: MONGO_APP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: "mongodb-credentials"
+              key: password
+        - name: MONGO_APP_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: "mongodb-credentials"
+              key: username
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: "mongodb-credentials"
+              key: root-password
+        - name: MONGO_INITDB_ROOT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: "mongodb-credentials"
+              key: root-username
+        # TCP checks are cheaper than starting `mongosh` within the CPU limit.
+        # MongoDB listens on localhost only while initializing an empty data
+        # directory, and recovery after an unclean shutdown can take a while,
+        # so allow up to 30 minutes before liveness checks start, as
+        # interrupting the initialization skips it on the next start
+        startupProbe:
+          tcpSocket:
+            port: 27017
+          periodSeconds: 10
+          failureThreshold: 180
+        readinessProbe:
+          tcpSocket:
+            port: 27017
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 27017
+          periodSeconds: 20
+        ports:
+        - name: mongodb
+          containerPort: 27017
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 200m
+            memory: 512Mi
+          requests:
+            cpu: 200m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data/db
+          name: mongodb
+        # Writable, as the root file system is read-only by default: the
+        # socket and the files of the entrypoint's first start (`/tmp`) and
+        # the config database directory declared by the image
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /data/configdb
+          name: configdb
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: mongodb
+        persistentVolumeClaim:
+          claimName: "petstore-mongodb"
+      - name: tmp
+        emptyDir:
+          sizeLimit: "64Mi"
+      - name: configdb
+        emptyDir: {}
+      - name: init-script
+        configMap:
+          name: "petstore-mongodb-init-script"
+---
+# Source: petstore/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: "petstore"
+  labels:
+    helm.sh/chart: petstore-0.1.0
+    app.kubernetes.io/name: "petstore"
+    app.kubernetes.io/instance: "petstore"
+    app.kubernetes.io/component: "app"
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  rules:
+  - host: "petstore.example.org"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: "petstore"
+            port:
+              name: http
