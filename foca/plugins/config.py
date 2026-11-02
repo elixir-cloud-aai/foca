@@ -38,9 +38,14 @@ GATEWAY_ID_PATTERN = (
 
 
 class _Model(BaseModel):
-    """Base of the plugin configuration models; unknown keys are errors."""
+    """Base of the plugin configuration models.
 
-    model_config = ConfigDict(extra="forbid")
+    Unknown keys are errors. Messages of validation errors don't show the
+    input, as it may contain secrets (e.g., `defaults.store.key_secret`),
+    which are masked only once validated.
+    """
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
 
 def check_plugin_id(plugin_id: str) -> str:

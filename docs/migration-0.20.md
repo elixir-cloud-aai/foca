@@ -55,6 +55,9 @@ to rotate it.
   never in a committed configuration file. Roll all replicas at once or
   accept that, during the update, processes with the old and the new secret
   don't see each other's entries.
+- Validation errors of the configuration no longer show the invalid input
+  (`input_value`), as it may contain the secret; the error still names the
+  setting and the reason.
 - **Helm charts** based on foca-common 0.4.0 or later pass the secret from
   an existing Secret (key `store-key-secret`) to the app and the worker:
   set `plugins.existingSecret` to its name (see [deployment

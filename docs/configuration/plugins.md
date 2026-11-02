@@ -244,15 +244,17 @@ plugins that declare stored data (`data_stored`) keep it in memory.
   a secret. It applies to all plugins (not per plugin).
     - **Never commit it.** Don't write it in the configuration file; set the
       environment variable `FOCA_PLUGINS_STORE_KEY_SECRET` (used if
-      `key_secret` is not set or empty and the variable is not empty), e.g., from a
-      Kubernetes Secret with `valueFrom.secretKeyRef` (with FOCA's [Helm
-      library chart](../helm-chart.md#deployment-notes), via the value
-      `plugins.existingSecret`), or merge a file that
-      only holds the setting and is mounted from a secret (cf.
-      [environment-specific configuration](index.md#environment-specific-configuration)).
-      Quote numeric secrets: an unquoted number is taken as a string of its YAML value (e.g., `0123` is 83). The secret
-      isn't shown in logs, error messages, `repr()` or the plugin listing;
-      use a long random value (e.g., `openssl rand -base64 32`).
+      `key_secret` is unset or empty, and the variable is not empty), e.g.,
+      from a Kubernetes Secret with `valueFrom.secretKeyRef` (with FOCA's
+      [Helm library chart](../helm-chart.md#deployment-notes), via the value
+      `plugins.existingSecret`), or merge a file that only holds the setting
+      and is mounted from a secret (cf. [environment-specific
+      configuration](index.md#environment-specific-configuration)). Quote
+      numeric secrets: an unquoted number is taken as a string of its YAML
+      value (e.g., `0123` is 83). The secret isn't shown in logs, error
+      messages (validation errors of the configuration don't show its
+      input), `repr()` or the plugin listing; use a long random value (e.g.,
+      `openssl rand -base64 32`).
     - **All processes and replicas must have the same secret**, or they
       don't find each other's entries (budgets and caches then reset
       for the callers they would apply to).

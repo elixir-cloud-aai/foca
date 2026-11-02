@@ -955,6 +955,27 @@ class TestEngine:
                 {"available": {"a.b": {"store": {"key_secret": "x"}}}}
             )
 
+    @pytest.mark.parametrize(
+        "plugins",
+        [
+            # a model-level check fails; the secret is last in the input
+            {
+                "pipeline": [{"plugin": "nope.notallowed"}],
+                "defaults": {"store": {"key_secret": "Zq9xK2mP4vB7nR1t"}},
+            },
+            # the secret itself is invalid
+            {"defaults": {"store": {"key_secret": ["Zq9xK2mP4vB7nR1t"]}}},
+        ],
+    )
+    def test_key_secret_not_in_errors(self, plugins: dict[str, Any]) -> None:
+        """Messages of validation errors don't show the secret."""
+        with pytest.raises(ValidationError) as plugins_error:
+            PluginsConfig.model_validate(plugins)
+        with pytest.raises(ValidationError) as config_error:
+            Config.model_validate({"plugins": plugins})
+        for error in (plugins_error, config_error):
+            assert "Zq9xK2mP4vB7nR1t" not in str(error.value)
+
     def test_setup_caps_expiry(self) -> None:
         """Setup cuts entries to the current `max_ttl` of their namespace."""
         backend = MongoStoreBackend(mongomock.MongoClient()["db"][STORE_COLLECTION])
