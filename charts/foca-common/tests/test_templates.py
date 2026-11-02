@@ -2179,3 +2179,80 @@ def test_schema_rejects_invalid_celery_values(
     )
     assert "schema" in render_error("--set", "broker.persistence.unknown=true")
     assert "schema" in render_error("--set", "broker.persistence.resourcePolicy=no")
+
+
+# Plugin store
+
+STORE_KEY_SECRET_ENV = {
+    "FOCA_PLUGINS_STORE_KEY_SECRET": {
+        "secretKeyRef": {"name": "plugins", "key": "store-key-secret"}
+    }
+}
+PLUGINS_SECRET = ("--set", "plugins.existingSecret=plugins")
+
+
+def _store_key_secret_env(container: dict[str, Any]) -> dict[str, Any]:
+    return {
+        name: value
+        for name, value in _env(container).items()
+        if name == "FOCA_PLUGINS_STORE_KEY_SECRET"
+    }
+
+
+def test_store_key_secret_not_set_by_default(render: Callable[..., Docs]) -> None:
+    """Without `plugins.existingSecret`, the app gets no key secret."""
+    assert _store_key_secret_env(_container(render())) == {}
+
+
+def test_store_key_secret(render: Callable[..., Docs]) -> None:
+    """The app and the worker get the key secret from the Secret."""
+    docs = render(*PLUGINS_SECRET, *CELERY)
+    for name in (APP, WORKER):
+        assert _store_key_secret_env(_container(docs, name)) == STORE_KEY_SECRET_ENV
+    assert "FOCA_PLUGINS_STORE_KEY_SECRET" not in _env(_container(docs, BROKER))
+
+
+def test_store_key_secret_without_values(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """App charts without `plugins` values render as before."""
+    chart = chart_with_settings("valuesKey: petstore\nmongodb: {databases: [p]}")
+    values = yaml.safe_load((chart / "values.yaml").read_text())
+    del values["plugins"]
+    (chart / "values.yaml").write_text(yaml.safe_dump(values))
+    assert _store_key_secret_env(_container(index(template(chart)))) == {}
+
+
+@pytest.mark.parametrize("secret", ["s3cr3t", "12345"])
+def test_store_key_secret_in_overlay_fails(
+    render_error: Callable[..., str], secret: str
+) -> None:
+    """A key secret in the config overlay (a ConfigMap) fails to render."""
+    error = render_error("--set", f"config.plugins.defaults.store.key_secret={secret}")
+    assert "plugins.existingSecret" in error
+    assert secret not in error
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--set", "config.plugins.defaults.store.key_secret="),
+        ("--set-json", "config.plugins.defaults.store.key_secret=null"),
+        ("--set-json", "config.plugins.defaults.store=null"),
+        ("--set-json", "config.plugins=null"),
+    ],
+)
+def test_store_key_secret_empty_in_overlay(
+    render: Callable[..., Docs], args: tuple[str, ...]
+) -> None:
+    """An empty key secret in the overlay renders (FOCA uses the variable)."""
+    docs = render(*PLUGINS_SECRET, *args)
+    assert _store_key_secret_env(_container(docs)) == STORE_KEY_SECRET_ENV
+
+
+def test_schema_rejects_invalid_plugins_values(
+    render_error: Callable[..., str],
+) -> None:
+    """The schema rejects invalid plugin values."""
+    assert "schema" in render_error("--set-json", "plugins.existingSecret=1")
+    assert "schema" in render_error("--set", "plugins.unknown=true")
