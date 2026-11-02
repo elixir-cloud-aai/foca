@@ -65,6 +65,9 @@ spec:
         {{- with include "foca-common.celeryEnv" $root | trim }}
         {{- . | nindent 8 }}
         {{- end }}
+        {{- with include "foca-common.pluginsEnv" $root | trim }}
+        {{- . | nindent 8 }}
+        {{- end }}
         ports:
         - name: http
           containerPort: 8080

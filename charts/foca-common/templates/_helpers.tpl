@@ -217,6 +217,45 @@ take precedence over the `jobs` config. Call with the root context.
 {{- end -}}
 
 {{/*
+Environment variable of the app and the worker with the key secret of the
+plugin store (`plugins.defaults.store.key_secret` of FOCA), if
+`plugins.existingSecret` is set: `FOCA_PLUGINS_STORE_KEY_SECRET` (key
+`store-key-secret`, which the Secret must have). Call with the root context.
+*/}}
+{{- define "foca-common.pluginsEnv" -}}
+{{- with dig "existingSecret" "" (.Values.plugins | default dict) }}
+- name: FOCA_PLUGINS_STORE_KEY_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ . | quote }}
+      key: store-key-secret
+{{- end }}
+{{- end -}}
+
+{{/*
+Refuse to render the key secret of the plugin store
+(`plugins.defaults.store.key_secret`) into the config overlay, a ConfigMap;
+an empty or null one passes (FOCA then reads `FOCA_PLUGINS_STORE_KEY_SECRET`),
+any other value fails. The secret's value is not shown. The levels are
+walked by hand, as `dig` fails if one is null or no map. Call with a dict of
+the overlay (`config`; see `foca-common.configOverlay`).
+*/}}
+{{- define "foca-common.checkStoreKeySecret" -}}
+{{- $store := dict -}}
+{{- $plugins := get .config "plugins" -}}
+{{- if kindIs "map" $plugins -}}
+{{- $defaults := get $plugins "defaults" -}}
+{{- if and (kindIs "map" $defaults) (kindIs "map" (get $defaults "store")) -}}
+{{- $store = get $defaults "store" -}}
+{{- end -}}
+{{- end -}}
+{{- $secret := get $store "key_secret" -}}
+{{- if not (or (kindIs "invalid" $secret) (and (kindIs "string" $secret) (eq $secret ""))) -}}
+{{- fail "config.plugins.defaults.store.key_secret must not be set, as the config overlay is a ConfigMap: put the secret in the key store-key-secret of an existing Secret and set plugins.existingSecret to its name" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Whether an OpenShift Route is created ("true") or not (empty): unless
 `<valuesKey>.route.enabled` is false (it is true if not set, as in values
 written for foca-common 0.1.0), without an Ingress or HTTPRoute, if the
@@ -269,6 +308,7 @@ ConfigMap template, which every app chart renders.
 {{- if .settings.requireAudience -}}
 {{- include "foca-common.checkAudience" (dict "config" $config) -}}
 {{- end -}}
+{{- include "foca-common.checkStoreKeySecret" (dict "config" $config) -}}
 {{- end -}}
 
 {{/*

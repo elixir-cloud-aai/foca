@@ -31,12 +31,13 @@ if location is None:
 """
 
 import hashlib
+import hmac
 import json
 import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Protocol
 
@@ -733,6 +734,8 @@ class StoreSettings:
         backend: Backend that keeps the entries.
         max_entry_size: Maximum size of values, in bytes, as compact JSON.
         max_ttl: Maximum time to live of entries, in seconds.
+        key_secret: Secret for :py:meth:`Store.key_for`, if configured
+            (`plugins.defaults.store.key_secret`); not shown in `repr()`.
     """
 
     namespace: str
@@ -740,6 +743,7 @@ class StoreSettings:
     backend: StoreBackend
     max_entry_size: int
     max_ttl: float
+    key_secret: bytes | None = field(default=None, repr=False)
 
 
 def _utc_now() -> datetime:
@@ -972,26 +976,34 @@ class Store:
         """Derive a key from parts that may be personal data.
 
         E.g., `ctx.store.key_for("budget", ctx.principal.subject_type,
-        ctx.principal.subject)` for per-user counters. The key is a SHA-256
-        hash of the namespace and the parts: it pseudonymizes the parts in
-        the store, but doesn't anonymize them (identifiers can be guessed
-        and hashed again), so the entries remain personal data.
+        ctx.principal.subject)` for per-user counters. The key is a hash of
+        the namespace and the parts. With the operator's secret
+        (`plugins.defaults.store.key_secret`), it is an HMAC-SHA256, so that
+        nobody without the secret (e.g., with access to the database or a
+        backup) can recompute it from a guessed identifier; without, it is
+        a plain SHA-256, which only pseudonymizes the parts (identifiers
+        can be guessed and hashed again). Either way, the entries remain
+        personal data. Changing, adding or removing the secret changes all
+        keys: earlier entries are no longer found, and expire (after at
+        most `max_ttl`).
 
         Args:
             parts: Parts, e.g., a purpose and an identifier.
 
         Returns:
-            Key: `h:` and the hexadecimal hash.
+            Key: `hk:` and the hexadecimal HMAC with the operator's
+            secret, otherwise `h:` and the hexadecimal hash.
 
         Raises:
             ValueError: A part is no string, or no part is given.
         """
         if not parts or not all(isinstance(part, str) for part in parts):
             raise ValueError("key_for() needs one or more strings")
-        digest = hashlib.sha256(
-            json.dumps([self.namespace, *parts]).encode()
-        ).hexdigest()
-        return f"h:{digest}"
+        message = json.dumps([self.namespace, *parts]).encode()
+        secret = self._settings.key_secret
+        if secret:
+            return f"hk:{hmac.new(secret, message, hashlib.sha256).hexdigest()}"
+        return f"h:{hashlib.sha256(message).hexdigest()}"
 
 
 def _mapping_keys(value: Any) -> list[Any]:

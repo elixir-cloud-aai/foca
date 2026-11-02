@@ -2678,4 +2678,7 @@ class Config(FOCABaseConfig):
     log: LogConfig = LogConfig()
     service_info: ServiceInfoConfig | None = None
     plugins: PluginsConfig | None = None
-    model_config = ConfigDict(extra="allow")
+    # Messages of validation errors don't show the input, which may contain
+    # secrets (e.g., `plugins.defaults.store.key_secret`) that are masked
+    # only once validated; the outermost model's setting applies
+    model_config = ConfigDict(extra="allow", hide_input_in_errors=True)

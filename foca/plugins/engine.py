@@ -47,6 +47,7 @@ Semantics:
 import copy
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -80,6 +81,7 @@ from foca.plugins.config import (
     DEFAULT_ROUTER,
     GATEWAY_ID_PATTERN,
     PRESET_PATTERN,
+    STORE_KEY_SECRET_ENV,
     PluginsConfig,
     StepConfig,
     check_pipeline,
@@ -266,6 +268,11 @@ def _store_settings(
         share one memory backend.
     """
     memory = MemoryStoreBackend()
+    secret = conf.defaults.store.key_secret
+    key_secret = (secret.get_secret_value() if secret else "") or os.environ.get(
+        STORE_KEY_SECRET_ENV
+    )
+    key_secret_bytes = key_secret.encode() if key_secret else None
     settings = {}
     for plugin_id, plugin in plugins.items():
         effective = plugin.available.store.apply(conf.defaults.store)
@@ -282,6 +289,7 @@ def _store_settings(
             backend=plugin_backend,
             max_entry_size=effective.max_entry_size,
             max_ttl=effective.max_ttl,
+            key_secret=key_secret_bytes,
         )
     modes: dict[str, set[str]] = {}
     for item in settings.values():
@@ -658,12 +666,27 @@ class PluginHost:
         """
         return Store(self._stores[plugin_id], deadline=deadline)
 
+    def _key_secret_set(self) -> bool:
+        """Check whether the keys of the shared stores are keyed.
+
+        Returns:
+            `False` only if some plugin that declares stored data
+            (`data_stored`) keeps its entries in the database (mode
+            `shared`) and the operator set no key secret.
+        """
+        return all(
+            settings.key_secret
+            for plugin_id, settings in self._stores.items()
+            if settings.mode == "shared" and self.plugins[plugin_id].cls.data_stored
+        )
+
     def setup_store(self) -> None:
         """Prepare the backend of the stores at startup.
 
         Called once at startup (cf. `Foca.create_app()`); idempotent. Logs a
         warning if plugins that declare stored data (`data_stored`) keep it
-        in memory as no database is configured; creates the indexes of the
+        in memory as no database is configured, and one if they keep it in
+        the database without a key secret; creates the indexes of the
         backend; and cuts the expiry of the entries of each namespace to the
         current `max_ttl` (the longest of the namespace's plugins that
         share the backend), so that a lowered `max_ttl` applies to entries
@@ -689,6 +712,15 @@ class PluginHost:
                 " replica), and memory use grows with the entries; configure a"
                 " database (db.dbs) or a short plugins.defaults.store.max_ttl",
                 ", ".join(local),
+            )
+        if not self._key_secret_set():
+            logger.warning(
+                "Plugins keep store entries in the database, and their keys"
+                " (ctx.store.key_for()) are plain SHA-256 hashes that can be"
+                " recomputed from guessed identifiers: set"
+                " plugins.defaults.store.key_secret (or the environment"
+                " variable FOCA_PLUGINS_STORE_KEY_SECRET) to key them with a"
+                " secret",
             )
         try:
             self._store_backend.setup()

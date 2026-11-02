@@ -166,6 +166,7 @@ your app's `valuesKey`:
 | `nameOverride`, `fullnameOverride` | Resource names: `<release>-<chart>` (or `<release>` if it contains the chart name) for the app, the same with the suffixes `-mongodb`, `-worker` and `-broker` for MongoDB, the worker and the broker |
 | `hostName` | Public host name of the Ingress, HTTPRoute or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
+| `plugins` | Secrets of gateway plugins: `existingSecret` (the key secret of the plugin store; none if empty) |
 | `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `persistence` (`volumeSize`, its size up to 0.1.0, is a deprecated alias of `persistence.size`), `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
@@ -726,6 +727,29 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
     `<app name>-broker-config`); for an external RabbitMQ, set
     `deprecated_features.permit.transient_nonexcl_queues = true`, or the
     worker fails to start.
+- **Key secret of the plugin store:** gateway apps whose plugins keep their
+  [store](configuration/plugins.md#plugin-store) in the database should key
+  the hashes of `ctx.store.key_for()` with a secret (FOCA 0.20.0 or later).
+  Put it in an existing Secret with the key `store-key-secret` and set
+  `plugins.existingSecret` to its name: the chart passes it to the app and
+  the worker as `FOCA_PLUGINS_STORE_KEY_SECRET`, which FOCA uses unless
+  `plugins.defaults.store.key_secret` is set. The config overlay is a
+  ConfigMap, so rendering fails if `config.plugins.defaults.store.key_secret`
+  is set (and not empty). For an app `my-app`:
+
+    ```bash
+    kubectl create secret generic my-app-plugins \
+        --from-literal=store-key-secret="$(openssl rand -base64 32)"
+    ```
+
+    Changing, adding or removing the secret makes the entries keyed with
+    `key_for()` unreachable (e.g., per-user budgets start anew); roll all of
+    the app's and the worker's pods after changing it (see [plugin
+    store](configuration/plugins.md#plugin-store)). Values of app charts
+    written for versions before foca-common 0.4.0 have no `plugins` map
+    and render as before; copy `app-values.schema.json` again (see
+    [Values](#values)) and add `plugins.existingSecret: ""` to the values to
+    use it.
 - **Network policies:** MongoDB's NetworkPolicy, enabled by default, admits
   only the app's pods of the release (and the worker's, if enabled); the
   broker's admits only the app's and the worker's pods. The app's

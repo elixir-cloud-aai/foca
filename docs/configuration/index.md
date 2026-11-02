@@ -140,6 +140,7 @@ the app and its deployments, e.g., with Helm on Kubernetes.
 | `FOCA_CONFIG_OVERLAY` | Config files merged into the configuration ([above](#environment-specific-configuration)). |
 | `MONGO_URI`, `MONGO_HOST`, `MONGO_PORT`, `MONGO_USERNAME`, `MONGO_PASSWORD`, `MONGO_DBNAME` | MongoDB connection ([`db`](db.md#environment-variables)). |
 | `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` | Celery broker and result backend ([`jobs`](jobs.md)). |
+| `FOCA_PLUGINS_STORE_KEY_SECRET` | Key secret of the plugin store, if `plugins.defaults.store.key_secret` is not set or empty ([`plugins`](plugins.md#plugin-store)). |
 
 ## Accessing the configuration
 

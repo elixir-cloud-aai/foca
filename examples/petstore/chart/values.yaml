@@ -26,6 +26,16 @@ config: {}
 #       console:
 #         level: 20
 
+# Gateway plugins (for gateway apps; the petstore is none): settings kept in
+# Secrets, which `config` must not contain
+plugins:
+  # Name of an existing Secret with the key `store-key-secret`, the key
+  # secret of the plugin store (FOCA's `plugins.defaults.store.key_secret`),
+  # passed to the app and the worker as `FOCA_PLUGINS_STORE_KEY_SECRET`; none
+  # if empty. Set it if plugins keep their store in the database; changing it
+  # makes existing entries keyed with `ctx.store.key_for()` unreachable
+  existingSecret: ""
+
 petstore:
   # Image repository; may include a tag or digest instead of setting `tag`.
   # The example's image is not published; it serves the app with Gunicorn.
