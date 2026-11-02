@@ -717,8 +717,8 @@ class PluginHost:
                 " (ctx.store.key_for()) are plain SHA-256 hashes that can be"
                 " recomputed from guessed identifiers: set"
                 " plugins.defaults.store.key_secret (or the environment"
-                " variable %s) to key them with a secret",
-                STORE_KEY_SECRET_ENV,
+                " variable FOCA_PLUGINS_STORE_KEY_SECRET) to key them with a"
+                " secret",
             )
         try:
             self._store_backend.setup()

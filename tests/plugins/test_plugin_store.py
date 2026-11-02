@@ -930,6 +930,7 @@ class TestEngine:
             finally:
                 host.close()
             assert caplog.text.count(message) == count
+            assert caplog.text.count(STORE_KEY_SECRET_ENV) == count
             assert "s3cr3t-value" not in caplog.text
 
     def test_key_secret_not_exposed(self) -> None:
