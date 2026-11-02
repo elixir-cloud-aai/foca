@@ -11,4 +11,4 @@ ast-grep-cli==0.51.0
 mypy==2.4.0
 ruff==0.17.2
 types-PyYAML==6.0.12.20261030
-types-requests==2.33.0.20261006
+types-requests==2.33.0.20261030
