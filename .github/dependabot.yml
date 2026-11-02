@@ -12,8 +12,10 @@ registries:
     replaces-base: true
 
 updates:
+  # Python packages: FOCA's, those of the tools (`requirements/`) and those
+  # that the petstore example's image installs (`examples/petstore`)
   - package-ecosystem: pip
-    directories: ["/", "/requirements"]
+    directories: ["/", "/requirements", "/examples/petstore"]
     target-branch: dev
     schedule:
       interval: weekly
@@ -21,6 +23,10 @@ updates:
     ignore:
       # Connexion 3 requires a migration (see #188)
       - dependency-name: connexion
+        update-types: ["version-update:semver-major"]
+      # FOCA's Gunicorn settings are tested with Gunicorn 26 (`gunicorn<27`
+      # in `pyproject.toml`, the version of the petstore image)
+      - dependency-name: gunicorn
         update-types: ["version-update:semver-major"]
     groups:
       # setuptools-scm requires a matching vcs-versioning
@@ -56,6 +62,16 @@ updates:
     registries: [dockerhub]
     schedule:
       interval: weekly
+
+  # uv in the petstore example's image (`ghcr.io`, tag and digest); its base
+  # image is the FOCA image built locally
+  - package-ecosystem: docker
+    directory: /examples/petstore
+    target-branch: dev
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: foca-petstore-root
 
   # Images in the values of the petstore example's chart, which app charts
   # copy: patch updates only, as minor versions are chosen deliberately (e.g.,

@@ -1,3 +1,9 @@
+### TOOLS ###
+## uv, to install the app's packages: the FOCA image has no pip. Mounted into
+## the step that installs them only, so that the image doesn't contain it;
+## pinned by digest (Dependabot updates the tag and digest together)
+FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
+
 ### BASE IMAGE ###
 FROM foca-petstore-root:latest
 
@@ -11,11 +17,17 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.authors="ELIXIR On-Cloud <cloud-service@elixir-europe.org>"
 LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 
-## Install the WSGI server for deployments (e.g., with the Helm chart in
-## `chart/`); Docker Compose runs the development server instead. Pinned,
-## but not updated by Dependabot: bump it manually
+## Install the packages of `requirements.txt` (the WSGI server for
+## deployments), into the image's Python (`--system`), at the listed versions,
+## checked against their hashes, as wheels only, without their dependencies
+## (`--no-deps`, so that the packages of the FOCA image stay as they are), and
+## compiled to bytecode, as pip would (the root file system may be read-only
+## at runtime); the requirements file is mounted, not copied
 USER root
-RUN pip install --no-cache-dir gunicorn==26.2.0
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
+    UV_NO_CACHE=1 uv pip install --system --require-hashes --only-binary :all: \
+        --no-deps --compile-bytecode -r /tmp/requirements.txt
 USER 1000
 
 ## Set working directory
