@@ -2192,6 +2192,7 @@ PLUGINS_SECRET = ("--set", "plugins.existingSecret=plugins")
 
 
 def _store_key_secret_env(container: dict[str, Any]) -> dict[str, Any]:
+    """The container's variable with the key secret of the plugin store."""
     return {
         name: value
         for name, value in _env(container).items()
@@ -2223,14 +2224,24 @@ def test_store_key_secret_without_values(
     assert _store_key_secret_env(_container(index(template(chart)))) == {}
 
 
-@pytest.mark.parametrize("secret", ["s3cr3t", "12345"])
+@pytest.mark.parametrize(
+    ("flag", "secret"),
+    [
+        ("--set", "s3cr3t"),
+        ("--set", "12345"),
+        ("--set-json", "false"),
+        ("--set-json", "0"),
+        ("--set-json", '{"a": "s3cr3t"}'),
+        ("--set-json", '["s3cr3t"]'),
+    ],
+)
 def test_store_key_secret_in_overlay_fails(
-    render_error: Callable[..., str], secret: str
+    render_error: Callable[..., str], flag: str, secret: str
 ) -> None:
-    """A key secret in the config overlay (a ConfigMap) fails to render."""
-    error = render_error("--set", f"config.plugins.defaults.store.key_secret={secret}")
+    """Any non-empty key secret in the config overlay (a ConfigMap) fails."""
+    error = render_error(flag, f"config.plugins.defaults.store.key_secret={secret}")
     assert "plugins.existingSecret" in error
-    assert secret not in error
+    assert "s3cr3t" not in error
 
 
 @pytest.mark.parametrize(

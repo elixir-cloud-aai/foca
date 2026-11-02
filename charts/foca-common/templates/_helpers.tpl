@@ -235,9 +235,10 @@ plugin store (`plugins.defaults.store.key_secret` of FOCA), if
 {{/*
 Refuse to render the key secret of the plugin store
 (`plugins.defaults.store.key_secret`) into the config overlay, a ConfigMap;
-an empty or null one passes (FOCA then reads `FOCA_PLUGINS_STORE_KEY_SECRET`).
-The secret's value is not shown. Call with a dict of the overlay (`config`;
-see `foca-common.configOverlay`).
+an empty or null one passes (FOCA then reads `FOCA_PLUGINS_STORE_KEY_SECRET`),
+any other value fails. The secret's value is not shown. The levels are
+walked by hand, as `dig` fails if one is null or no map. Call with a dict of
+the overlay (`config`; see `foca-common.configOverlay`).
 */}}
 {{- define "foca-common.checkStoreKeySecret" -}}
 {{- $store := dict -}}
