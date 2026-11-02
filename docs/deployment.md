@@ -8,7 +8,7 @@ configuration is split into layers, each owned by whoever knows its values:
 | --- | --- | --- | --- |
 | Base configuration | Everything the app needs to run, e.g., API specs, databases, collections and indexes, exception mapping, and defaults for local development | App developers | App repository, baked into the image |
 | Overlay | Only what differs in a deployment, e.g., trusted issuers and audiences, public host name, log levels, settings in the `custom` section | Whoever deploys the app | Deployment repository or values file, mounted into the container |
-| Secrets | Credentials, e.g., for MongoDB or the Celery broker | Whoever deploys the app | Secret store, passed as environment variables |
+| Secrets | Credentials, e.g., for MongoDB or the Celery broker, and the key secret of the plugin store | Whoever deploys the app | Secret store, passed as environment variables |
 
 The base configuration is complete and runs as is (e.g., with `docker compose
 up`), so that developers do not need any extra files. A deployment overrides
@@ -17,7 +17,8 @@ configuration on startup. List the overlay in the environment variable
 `FOCA_CONFIG_OVERLAY` (see [environment-specific
 configuration](configuration/index.md#environment-specific-configuration)).
 Secrets never go into configuration files; FOCA reads database and broker
-credentials from [environment variables](configuration/index.md#environment-variables).
+credentials and the key secret of the plugin store from [environment
+variables](configuration/index.md#environment-variables).
 
 This way, the configuration of a particular deployment is kept with that
 deployment, not in the app repository, and every value has exactly one place

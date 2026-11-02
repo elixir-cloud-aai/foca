@@ -245,7 +245,9 @@ plugins that declare stored data (`data_stored`) keep it in memory.
     - **Never commit it.** Don't write it in the configuration file; set the
       environment variable `FOCA_PLUGINS_STORE_KEY_SECRET` (used if
       `key_secret` is not set or empty and the variable is not empty), e.g., from a
-      Kubernetes Secret with `valueFrom.secretKeyRef`, or merge a file that
+      Kubernetes Secret with `valueFrom.secretKeyRef` (with FOCA's [Helm
+      library chart](../helm-chart.md#deployment-notes), via the value
+      `plugins.existingSecret`), or merge a file that
       only holds the setting and is mounted from a secret (cf.
       [environment-specific configuration](index.md#environment-specific-configuration)).
       Quote numeric secrets: an unquoted number is taken as a string of its YAML value (e.g., `0123` is 83). The secret

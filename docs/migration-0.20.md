@@ -55,3 +55,11 @@ to rotate it.
   never in a committed configuration file. Roll all replicas at once or
   accept that, during the update, processes with the old and the new secret
   don't see each other's entries.
+- **Helm charts** based on foca-common 0.4.0 or later pass the secret from
+  an existing Secret (key `store-key-secret`) to the app and the worker:
+  set `plugins.existingSecret` to its name (see [deployment
+  notes](helm-chart.md#deployment-notes)). App charts update their
+  dependency on foca-common to 0.4.0, copy `app-values.schema.json` again
+  and add `plugins.existingSecret: ""` to their values. Rendering fails if
+  the config overlay sets `config.plugins.defaults.store.key_secret`, as
+  it is a ConfigMap.
