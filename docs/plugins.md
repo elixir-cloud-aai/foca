@@ -841,7 +841,9 @@ earlier ones). Its operations set their own `x-openapi-router-controller`, so
 a controller that the app adds to all operations with `add_operation_fields`
 does not apply to them. Their operation IDs (`listFocaPlugins`,
 `getFocaPlugin`) are taken in the merged specification, where operation IDs
-must be unique:
+must be unique. FOCA declares the media type of the app's error responses
+(`exceptions.media_type`) for the errors of these operations when it registers
+the specification:
 
 ```python
 from pathlib import Path

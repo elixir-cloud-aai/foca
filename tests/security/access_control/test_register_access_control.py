@@ -12,6 +12,7 @@ import pytest
 import yaml
 from connexion import App
 from pymongo.database import Database
+from pymongo.errors import PyMongoError
 
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -29,6 +30,7 @@ from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
 )
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
     _check_admin_role,
     _check_collection_clash,
@@ -195,6 +197,7 @@ NO_ADMIN = "No group or service client is mapped to the role 'admin'"
 WHITESPACE = "'security.access_control.claim_groups' has surrounding whitespace"
 NO_GROUP_CLAIM = "Groups are mapped to roles"
 NO_GROUP_SUBJECTS = "'security.access_control.group_mapping' is set, but"
+STORED_GROUP_SUBJECTS = "Stored policy rules have groups as their subjects"
 EMPTY_MAPPING = "'security.access_control.group_mapping' is set (empty)"
 
 
@@ -215,12 +218,42 @@ KEEP = "'security.access_control.keep_group_subjects' is not"
     [
         ({}, []),
         ({"claim_groups": "groups"}, []),
+        # nothing is lost without group subjects if no rule uses them
+        ({"claim_groups": "groups", "group_mapping": {"a": "admin"}}, []),
         (
-            {"claim_groups": "groups", "group_mapping": {"a": "admin"}},
+            {
+                "claim_groups": "groups",
+                "group_mapping": {"a": "admin"},
+                "policies": [["g", "user:alice", "admin"], ["p", "admin", "/*", "GET"]],
+            },
+            [],
+        ),
+        (
+            {
+                "claim_groups": "groups",
+                "group_mapping": {"a": "admin"},
+                "policies": [["g", "group:a", "admin"]],
+            },
+            [(NO_GROUP_SUBJECTS, KEEP)],
+        ),
+        (
+            {
+                "claim_groups": "groups",
+                "group_mapping": {"a": "admin"},
+                "policies": [["p", "group:a", "/*", "GET"]],
+            },
             [(NO_GROUP_SUBJECTS, KEEP)],
         ),
         # also an empty mapping drops group claim values
-        ({"claim_groups": "groups", "group_mapping": {}}, [(NO_GROUP_SUBJECTS, KEEP)]),
+        ({"claim_groups": "groups", "group_mapping": {}}, []),
+        (
+            {
+                "claim_groups": "groups",
+                "group_mapping": {},
+                "policies": [["g", "group:a", "admin"]],
+            },
+            [(NO_GROUP_SUBJECTS, KEEP)],
+        ),
         (
             {
                 "claim_groups": "groups",
@@ -234,10 +267,7 @@ KEEP = "'security.access_control.keep_group_subjects' is not"
             {"group_mapping": {}, "keep_group_subjects": True},
             [(EMPTY_MAPPING, NO_CLAIM)],
         ),
-        (
-            {"claim_groups": "", "group_mapping": {}},
-            [(EMPTY_MAPPING, NO_CLAIM), (NO_GROUP_SUBJECTS, KEEP)],
-        ),
+        ({"claim_groups": "", "group_mapping": {}}, [(EMPTY_MAPPING, NO_CLAIM)]),
         (
             {"claim_groups": "groups", "keep_group_subjects": True},
             [(NO_EFFECT, "without 'security.access_control.group_mapping'")],
@@ -260,6 +290,28 @@ def test_check_group_config(
     for warning, (start, part) in zip(warnings, expected, strict=True):
         assert warning.startswith(start)
         assert part in warning
+
+
+@pytest.mark.parametrize(
+    "mapping,logged",
+    [(None, False), ({"a": "admin"}, True), ({}, True)],
+)
+def test_check_group_config_logs_dropped_group_subjects(
+    caplog: pytest.LogCaptureFixture,
+    mapping: dict[str, str] | None,
+    logged: bool,
+) -> None:
+    """Dropped group subjects are logged at `INFO` if no rule uses them."""
+    with caplog.at_level(logging.INFO):
+        _check_group_config(
+            AccessControlConfig(claim_groups="groups", group_mapping=mapping)
+        )
+    infos = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.INFO and r.getMessage().startswith(NO_GROUP_SUBJECTS)
+    ]
+    assert bool(infos) is logged
 
 
 @pytest.mark.parametrize(
@@ -755,10 +807,76 @@ class TestRegisterAccessControlSetup:
     def test_startup_checks(self, caplog: pytest.LogCaptureFixture) -> None:
         """Group settings and admins are checked on registration."""
         with caplog.at_level(logging.WARNING):
-            self._register(None, claim_groups="groups", group_mapping={"a": "user"})
+            self._register(
+                None,
+                claim_groups="groups",
+                group_mapping={"a": "user"},
+                policies=[["g", "group:a", "user"]],
+            )
         warnings = _warnings(caplog)
         assert any(warning.startswith(NO_ADMIN) for warning in warnings)
         assert any(warning.startswith(NO_GROUP_SUBJECTS) for warning in warnings)
+
+    @pytest.mark.parametrize(
+        "conf,warned",
+        [
+            ({"claim_groups": "groups", "group_mapping": {"a": "user"}}, True),
+            # the mapping doesn't drop them
+            ({"claim_groups": "groups"}, False),
+            (
+                {
+                    "claim_groups": "groups",
+                    "group_mapping": {"a": "user"},
+                    "keep_group_subjects": True,
+                },
+                False,
+            ),
+            # warned about once, for the configured rule
+            (
+                {
+                    "claim_groups": "groups",
+                    "group_mapping": {"a": "user"},
+                    "policies": [["g", "group:b", "user"]],
+                },
+                False,
+            ),
+        ],
+    )
+    def test_stored_group_subjects(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        conf: dict[str, Any],
+        warned: bool,
+    ) -> None:
+        """Stored rules for groups that won't apply are warned about."""
+        monkeypatch.setattr(Adapter, "has_stored_group_subjects", lambda self: True)
+        with caplog.at_level(logging.WARNING):
+            self._register(None, **conf)
+        warnings = [w for w in _warnings(caplog) if w.startswith(STORED_GROUP_SUBJECTS)]
+        assert bool(warnings) is warned
+
+    def test_stored_group_subjects_none(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Without stored rules for groups, there is no warning."""
+        with caplog.at_level(logging.WARNING):
+            self._register(None, claim_groups="groups", group_mapping={"a": "user"})
+        assert not [w for w in _warnings(caplog) if w.startswith(STORED_GROUP_SUBJECTS)]
+
+    def test_stored_group_subjects_unknown(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Startup continues if stored rules cannot be checked."""
+
+        def fail(self: Adapter) -> bool:
+            raise PyMongoError("unavailable")
+
+        monkeypatch.setattr(Adapter, "has_stored_group_subjects", fail)
+        with caplog.at_level(logging.WARNING):
+            self._register(None, claim_groups="groups", group_mapping={"a": "user"})
+        assert any(
+            w.startswith("Could not check for stored policy rules")
+            for w in _warnings(caplog)
+        )
 
     def test_logs(self, caplog: pytest.LogCaptureFixture) -> None:
         """Successful registration steps are logged."""
