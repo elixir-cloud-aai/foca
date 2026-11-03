@@ -264,6 +264,63 @@ def test_all_settings(chart_with_settings: Callable[[str], Path]) -> None:
         {"security": {"auth": {"verify_audience": None}}},
         {"security": {"auth": None}},
         {"security": None},
+        # issuers without audiences of their own
+        {"security": {"auth": {"issuers": ["https://a.example.org"]}}},
+        {"security": {"auth": {"issuers": [{"issuer": "https://a.example.org"}]}}},
+        {
+            "security": {
+                "auth": {
+                    "issuers": [
+                        {"issuer": "https://a.example.org", "audience": ["a"]},
+                        {"issuer": "https://b.example.org"},
+                    ]
+                }
+            }
+        },
+        {
+            "security": {
+                "auth": {
+                    "issuers": [
+                        {"issuer": "https://a.example.org", "audience": ["a"]},
+                        "https://b.example.org",
+                    ]
+                }
+            }
+        },
+        # blank or empty audiences of issuers, which FOCA refuses
+        {
+            "security": {
+                "auth": {
+                    "issuers": [{"issuer": "https://a.example.org", "audience": []}]
+                }
+            }
+        },
+        {
+            "security": {
+                "auth": {
+                    "audience": ["petstore"],
+                    "issuers": [{"issuer": "https://a.example.org", "audience": [" "]}],
+                }
+            }
+        },
+        {
+            "security": {
+                "auth": {
+                    "issuers": [
+                        {"issuer": "https://a.example.org", "audience": "a"},
+                    ]
+                }
+            }
+        },
+        # blank global audience, even if no issuer needs it
+        {
+            "security": {
+                "auth": {
+                    "audience": [" "],
+                    "issuers": [{"issuer": "https://a.example.org", "audience": ["a"]}],
+                }
+            }
+        },
     ],
 )
 def test_audience_required(
@@ -277,7 +334,78 @@ def test_audience_required(
     values = tmp_path / "values.yaml"
     values.write_text(yaml.safe_dump({"config": config}))
     error = template_error(chart, "-f", str(values))
-    assert "audience must list" in error
+    assert "must list" in error
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        {"audience": ["petstore"]},
+        {"audience": ["petstore"], "issuers": ["https://a.example.org"]},
+        # the global audience applies to issuers without their own
+        {
+            "audience": ["petstore"],
+            "issuers": [
+                {"issuer": "https://a.example.org", "audience": ["a"]},
+                {"issuer": "https://b.example.org"},
+                {"issuer": "https://c.example.org", "audience": None},
+            ],
+        },
+        # issuers with audiences of their own need no global one
+        {
+            "issuers": [
+                {"issuer": "https://a.example.org", "audience": ["a"]},
+                {"issuer": "https://b.example.org", "audience": ["b", "c"]},
+            ]
+        },
+        {
+            "audience": [],
+            "issuers": [{"issuer": "https://a.example.org", "audience": ["a"]}],
+        },
+        {
+            "audience": None,
+            "issuers": [{"issuer": "https://a.example.org", "audience": ["a"]}],
+        },
+        # removes the issuers of the base config
+        {"issuers": []},
+    ],
+)
+def test_audience_accepted(
+    chart_with_settings: Callable[[str], Path],
+    tmp_path: Path,
+    auth: dict[str, Any],
+) -> None:
+    """A global audience or audiences of all issuers are enough."""
+    chart = chart_with_settings(FULL_SETTINGS)
+    values = tmp_path / "values.yaml"
+    values.write_text(yaml.safe_dump({"config": {"security": {"auth": auth}}}))
+    template(chart, "-f", str(values))
+
+
+@pytest.mark.parametrize("audience", [[], [" "], "a"])
+def test_issuer_audience_invalid_also_without_validation(
+    chart_with_settings: Callable[[str], Path], tmp_path: Path, audience: Any
+) -> None:
+    """Audiences of issuers must be valid, as FOCA checks them in any case."""
+    chart = chart_with_settings(FULL_SETTINGS)
+    values = tmp_path / "values.yaml"
+    auth = {
+        "verify_audience": False,
+        "issuers": [{"issuer": "https://a.example.org", "audience": audience}],
+    }
+    values.write_text(yaml.safe_dump({"config": {"security": {"auth": auth}}}))
+    assert "must list non-blank client IDs" in template_error(chart, "-f", str(values))
+
+
+def test_audience_validation_disabled_with_issuers(
+    chart_with_settings: Callable[[str], Path], tmp_path: Path
+) -> None:
+    """Disabling the audience validation also covers issuers."""
+    chart = chart_with_settings(FULL_SETTINGS)
+    values = tmp_path / "values.yaml"
+    auth = {"verify_audience": False, "issuers": ["https://a.example.org"]}
+    values.write_text(yaml.safe_dump({"config": {"security": {"auth": auth}}}))
+    template(chart, "-f", str(values))
 
 
 @pytest.mark.parametrize("probe", ["startupProbe", "readinessProbe", "livenessProbe"])
