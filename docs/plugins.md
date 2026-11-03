@@ -335,7 +335,9 @@ Rules:
 - `check_params(params)` may refuse parameters that the admin settings
   don't allow (raise `foca.plugins.InvalidParams`; other errors are plugin
   errors, which stop the app or fail the request); it runs when pipelines
-  are resolved.
+  are resolved. Its message is shown to whoever set the parameters, as are
+  those of validators of `Config` and `Params` (FOCA hides a whole value that
+  it finds in them, not parts of it), so name what is wrong, not the value.
 - One instance serves all requests of a process, from several threads:
   keep per-request data in `ctx.state`, and data across requests in
   `ctx.store`, not on `self`.

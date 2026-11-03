@@ -1,10 +1,144 @@
 """Tests for miscellaneous utility functions."""
 
 import string
+from typing import Annotated, Literal
+from uuid import UUID
 
 import pytest
+from pydantic import (
+    Base64Bytes,
+    BaseModel,
+    BeforeValidator,
+    ByteSize,
+    ConfigDict,
+    Field,
+    ImportString,
+    ValidationError,
+    model_validator,
+)
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
-from foca.utils.misc import generate_id
+from foca.utils.misc import describe_validation_error, generate_id
+
+
+class _Settings(BaseModel):
+    """Settings for tests of `describe_validation_error()`.
+
+    Attributes:
+        required: Required field.
+        limit: Limit.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    required: str
+    limit: int = 1
+
+
+class _Refusing(BaseModel):
+    """Model with an error that has no location."""
+
+    @model_validator(mode="after")
+    def refuse(self) -> "_Refusing":
+        """Refuse all values.
+
+        Raises:
+            ValueError: Always.
+        """
+        raise ValueError("refused")
+
+
+def test_describe_validation_error() -> None:
+    """Locations and messages are described, inputs are not."""
+    with pytest.raises(ValidationError) as info:
+        _Settings.model_validate({"apikey": "s3cr3t", "limit": "s3cr3t"})
+    text = describe_validation_error(info.value)
+    assert "required: Field required" in text
+    assert "apikey: Extra inputs are not permitted" in text
+    assert "limit: " in text
+    assert "s3cr3t" not in text
+
+
+class _Kind(BaseModel):
+    """A member of a discriminated union.
+
+    Attributes:
+        kind: Discriminator.
+    """
+
+    kind: Literal["a"]
+
+
+class _OtherKind(BaseModel):
+    """Another member of a discriminated union.
+
+    Attributes:
+        kind: Discriminator.
+    """
+
+    kind: Literal["b"]
+
+
+class _Quoting(BaseModel):
+    """Model with errors whose messages of pydantic quote the input.
+
+    Attributes:
+        union: Discriminated union.
+        path: Python path.
+        size: Size in bytes.
+        uuid: UUID.
+        encoded: Encoded bytes.
+        number: Number converted by a validator.
+    """
+
+    union: Annotated[_Kind | _OtherKind, Field(discriminator="kind")] | None = None
+    path: ImportString[object] | None = None
+    size: ByteSize | None = None
+    uuid: UUID | None = None
+    encoded: Base64Bytes | None = None
+    number: Annotated[float, BeforeValidator(float)] | None = None
+
+
+@pytest.mark.parametrize(
+    ("data", "location"),
+    [
+        ({"union": {"kind": "s3cr3t"}}, "union"),
+        ({"path": "s3cr3t"}, "path"),
+        ({"size": "5 s3cr3t"}, "size"),
+        ({"uuid": "s3cr3t"}, "uuid"),
+        ({"encoded": "s3cr3t%"}, "encoded"),
+        ({"number": "s3cr3t"}, "number"),
+    ],
+)
+def test_describe_validation_error_quoted_input(
+    data: dict[str, object], location: str
+) -> None:
+    """Messages of pydantic that quote the input are not passed on."""
+    with pytest.raises(ValidationError) as info:
+        _Quoting.model_validate(data)
+    text = describe_validation_error(info.value)
+    assert text.startswith(f"{location}")
+    assert "s3cr3t" not in text
+
+
+def test_describe_validation_error_time_zone() -> None:
+    """Errors of time zones, which older versions of pydantic lack."""
+    error = PydanticCustomError("zoneinfo_str", "invalid timezone: s3cr3t")
+    details = InitErrorDetails(type=error, loc=("zone",), input=1)
+    exc = ValidationError.from_exception_data("Model", [details])
+    assert describe_validation_error(exc) == "zone: invalid value (zoneinfo_str)"
+
+
+def test_describe_validation_error_other_errors() -> None:
+    """Other errors are described by their type, as they may show the input."""
+    assert describe_validation_error(KeyError("s3cr3t")) == "KeyError"
+
+
+def test_describe_validation_error_without_location() -> None:
+    """Errors of whole models have only their message."""
+    with pytest.raises(ValidationError) as info:
+        _Refusing.model_validate({})
+    assert describe_validation_error(info.value) == "Value error, refused"
 
 
 class TestGenerateId:

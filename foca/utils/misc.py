@@ -4,6 +4,23 @@ import re
 import string
 from secrets import choice
 
+from pydantic import ValidationError
+
+# Types of errors of pydantic whose messages quote parts of the input (also
+# caught if they quote all of it, see `describe_validation_error()`)
+_INPUT_IN_MESSAGE = frozenset(
+    {
+        "byte_size_unit",
+        "bytes_invalid_encoding",
+        "import_error",
+        "union_tag_invalid",
+        "uuid_parsing",
+        "zoneinfo_str",
+    }
+)
+# Shorter strings often are in messages by chance, and are hardly secrets
+_MIN_QUOTED_INPUT = 4
+
 # Matches references to constants of the `string` module (e.g.,
 # `string.digits`), as used in charset expressions that were evaluated by
 # previous versions of `generate_id()`
@@ -24,6 +41,48 @@ _STRING_EXPRESSION = re.compile(
     )
     + r")\b"
 )
+
+
+def describe_validation_error(exc: Exception) -> str:
+    """Describe an error of validating settings, without the invalid input.
+
+    The message of a :py:class:`pydantic.ValidationError` shows the input
+    unless the model sets `hide_input_in_errors`, which models of plugins and
+    apps need not do, and a missing field or a mistyped key may sit next to,
+    or be, a secret that isn't masked yet. Callers that pass the description
+    on should also not chain `exc`, as tracebacks show the messages of
+    chained errors.
+
+    Names of keys are shown (e.g., of unknown ones), as they tell what to
+    correct, and so are messages of validators written for a model, unless
+    they contain the input as a whole.
+
+    Args:
+        exc: Error raised by validating. Others than validation errors (e.g.,
+            bugs of validators) are described by their type only.
+
+    Returns:
+        Locations and messages of the errors, e.g.,
+        `api_key: Field required; limit: Input should be a valid integer`.
+    """
+    if not isinstance(exc, ValidationError):
+        return type(exc).__name__
+    parts = []
+    for error in exc.errors(include_url=False, include_context=False):
+        value = error["input"]
+        quoted = (
+            isinstance(value, str)
+            and len(value) >= _MIN_QUOTED_INPUT
+            and value in error["msg"]
+        )
+        message = (
+            f"invalid value ({error['type']})"
+            if quoted or error["type"] in _INPUT_IN_MESSAGE
+            else error["msg"]
+        )
+        location = ".".join(str(part) for part in error["loc"])
+        parts.append(f"{location}: {message}" if location else message)
+    return "; ".join(parts)
 
 
 def generate_id(

@@ -86,6 +86,13 @@ they exist, lookups by request ID must cover both: `_id` (old records) and
 
 ## Other changes
 
+### Dependencies
+
+FOCA now requires `urllib3>=2.8` (fixes CVE-2026-97688 and CVE-2026-97689,
+which defeat the deadline and size limit of `GuardedClient` against hostile
+servers) and `pymongo>=4.18.3` (fixes CVE-2026-106435). Apps that pin older
+versions need to update them.
+
 ### Errors of `GuardedClient`
 
 `foca.utils.http.GuardedClient` now decides by whether sending a request has
@@ -138,7 +145,16 @@ to rotate it.
   don't see each other's entries.
 - Validation errors of the configuration no longer show the invalid input
   (`input_value`), as it may contain the secret; the error still names the
-  setting and the reason.
+  setting and the reason. This includes the plugins' `config` and step
+  `params`, whatever their models set, and the custom configuration. Errors
+  of the plugins' settings read `<setting>: <reason>`, without the original
+  error in their chain. The custom configuration's message stays as it was,
+  and its `__cause__` is no longer the `ValidationError`, but a plain
+  `ValueError` with `<setting>: <reason>`: code and tests that check for the
+  type or call `.errors()` need to use `str(__cause__)` instead. Errors other
+  than validation errors show their type only. Names of keys and the messages
+  of a model's own validators are still shown, unless they contain the value
+  as a whole, so they must not contain secrets.
 - **Helm charts** based on foca-common 0.4.0 or later pass the secret from
   an existing Secret (key `store-key-secret`) to the app and the worker:
   set `pluginStore.existingSecret` to its name (see [deployment
