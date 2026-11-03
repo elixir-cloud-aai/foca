@@ -57,6 +57,7 @@ from foca.utils.http import (
     RequestNotSent,
     ResponseTooLarge,
     _check_json_body,
+    _check_response_hooks,
     _redact,
     _split,
     is_public_address,
@@ -439,7 +440,9 @@ class FakeHttp(GuardedClient):
             headers: Headers.
             json: Body to send as JSON.
             data: Body to send as is.
-            auth: Authentication (ignored).
+            auth: Authentication (not used, but refused as by
+                :py:class:`foca.utils.http.GuardedClient` if it adds response
+                hooks).
 
         Returns:
             A copy of the canned response.
@@ -447,8 +450,9 @@ class FakeHttp(GuardedClient):
         Raises:
             InvalidRequestURL: The URL or method is invalid, or the scheme
                 is not allowed.
-            InvalidRequest: `json` is no JSON (`invalid_request`), or a
-                header is invalid (`invalid_header`).
+            InvalidRequest: `json` is no JSON (`invalid_request`), a header
+                is invalid (`invalid_header`), or `auth` adds response hooks
+                (`invalid_request`).
             AddressNotAllowed: The host is an IP address that is not
                 public.
             DeadlineExceeded: The deadline passed, also while waiting for
@@ -483,6 +487,9 @@ class FakeHttp(GuardedClient):
             ) from exc
         except (requests.RequestException, ValueError) as exc:
             raise InvalidRequestURL(f"Invalid URL: {type(exc).__name__}") from exc
+        if auth is not None:
+            prepared = requests.Request(method, url, auth=auth).prepare()
+            _check_response_hooks(prepared.hooks)
         with self._state.lock:
             # checked again, in case waiting for other clients took long
             remaining = self.remaining()

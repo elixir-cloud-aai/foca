@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import requests.auth
 from pydantic import BaseModel, ConfigDict
 
 from foca.plugins import (
@@ -302,6 +303,18 @@ def test_fake_http() -> None:
         with pytest.raises(AddressNotAllowed):
             http.get(url)
     assert [call.method for call in http.calls] == ["GET"] * 4 + ["POST"]
+
+
+def test_fake_http_response_hooks() -> None:
+    """Fake clients refuse what real ones refuse, whatever is canned."""
+    http = FakeHttp()
+    http.add("GET", "https://example.org/", content=b"1")
+    with pytest.raises(InvalidRequest):
+        http.get("https://example.org/", auth=requests.auth.HTTPDigestAuth("a", "b"))
+    assert http.calls == []
+    assert http.get("https://example.org/", auth=("a", "b")).content == b"1"
+    with pytest.raises(InvalidRequestURL):
+        http.get("https://", auth=("a", "b"))
 
 
 def test_fake_http_guards() -> None:

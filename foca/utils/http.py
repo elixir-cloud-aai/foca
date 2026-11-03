@@ -10,16 +10,17 @@ forgery (SSRF) vectors and can hang or read without bounds. The
   checked, and the connection goes to a checked address (whose peer address
   is checked again before any data is sent), so that DNS rebinding cannot
   direct it to an internal host;
-- never follows redirects (they are returned as responses);
+- never follows redirects (they are returned as responses, within the same
+  limits as other responses);
 - ignores proxy settings and `.netrc` files of the environment;
 - uses `https` only, with TLS verification always on, unless `http` is
   allowed explicitly;
 - bounds each request as a whole by a deadline (name resolution,
   connecting, sending and reading, also of servers that send slowly; the
   connect timeout is capped) and the size of each response;
-- tells errors before sending (:py:class:`RequestNotSent`) from errors
-  after (:py:class:`RequestMaybeSent`), so that gateways know whether a
-  backend may have received a request.
+- tells errors before any byte of the request was sent
+  (:py:class:`RequestNotSent`) from errors after (:py:class:`RequestMaybeSent`),
+  so that gateways know whether a backend may have received a request.
 
 Built on requests and urllib3; independent of the web framework.
 """
@@ -319,6 +320,7 @@ class _Guard:
             allowed.
         end: `time.monotonic()` value by which the request must end.
         expired: Whether the request was stopped at its end.
+        sent: Whether sending the request started on an open connection.
     """
 
     def __init__(
@@ -334,6 +336,7 @@ class _Guard:
         self.allow_private_addresses = allow_private_addresses
         self.end = float("inf")
         self.expired = False
+        self.sent = False
         self._conns: list[Any] = []
         self._lock = lock or threading.Lock()
         self._timer: threading.Timer | None = None
@@ -573,6 +576,21 @@ class _GuardedConnectionMixin:
         guard.track(conn, sock)
         return sock
 
+    def send(self, data: Any) -> None:
+        """Send data, noting first that the server may get the request.
+
+        Errors of connecting (which `http.client` otherwise does here for
+        new `http` connections) thus still mean that nothing was sent.
+
+        Args:
+            data: Data to send.
+        """
+        conn: Any = self
+        if conn.sock is None:
+            conn.connect()
+        self.guards.current().sent = True
+        super().send(data)  # type: ignore[misc]
+
 
 class _GuardedPoolMixin:
     """Track reused connections in the guard of their new request."""
@@ -639,6 +657,60 @@ class _GuardedAdapter(HTTPAdapter):
         }
 
 
+def _check_response_hooks(hooks: Mapping[str, Any] | None) -> None:
+    """Refuse a prepared request with response hooks.
+
+    Args:
+        hooks: Hooks of the prepared request.
+
+    Raises:
+        InvalidRequest: There are hooks, e.g., of an authentication handler.
+    """
+    if any((hooks or {}).values()):
+        raise InvalidRequest(
+            "Response hooks (e.g., of HTTPDigestAuth) are not supported, as "
+            "they read responses without limit"
+        )
+
+
+class _GuardedSession(requests.Session):
+    """Session that returns responses as they are, unread.
+
+    With `allow_redirects=False`, sessions of requests still prepare the next
+    request of a redirect (for `Response.next`, thus always `None` here). To do
+    so, they read the whole body of the redirect, without limit, before the
+    response is returned, and raise errors for invalid URLs in its `Location`
+    header. Response hooks, which authentication handlers such as
+    `HTTPDigestAuth` install, read bodies without limit and send further
+    requests, so they are refused. `test_redirect_bodies_limited` fails should
+    requests change how it handles redirects.
+    """
+
+    def get_redirect_target(self, resp: requests.Response) -> None:
+        """Get the target of a redirect: there is none.
+
+        Args:
+            resp: Response.
+        """
+
+    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> Any:
+        """Send a request, unless it has response hooks.
+
+        Args:
+            request: Prepared request.
+            kwargs: Other arguments of `Session.send()`.
+
+        Returns:
+            Response.
+
+        Raises:
+            InvalidRequest: The request has response hooks, e.g., of its
+                authentication handler or the session.
+        """
+        _check_response_hooks(request.hooks)
+        return super().send(request, **kwargs)
+
+
 @dataclass
 class HttpResponse:
     """Response to a guarded request.
@@ -701,20 +773,33 @@ def _caused_by(exc: BaseException, types: tuple[type[BaseException], ...]) -> bo
     return False
 
 
-def _classify(exc: requests.RequestException, url: str) -> HttpError:
+def _classify(exc: requests.RequestException, url: str, sent: bool) -> HttpError:
     """Map an error of requests onto a guarded error.
+
+    Whether the request was sent is not told from the error, as the same
+    errors occur before and after sending (e.g., TLS errors in the handshake
+    and while waiting for the response, connections reset in both).
 
     Args:
         exc: Error.
         url: URL of the request.
+        sent: Whether sending the request started.
 
     Returns:
-        :py:class:`RequestNotSent` for errors before the request was sent
-        (connection refused or timed out, host not resolved, certificate not
-        accepted, request not prepared), :py:class:`RequestMaybeSent`
-        otherwise.
+        :py:class:`RequestMaybeSent` (with the reason `read_timeout` or
+        `connection_lost`) if sending started, otherwise
+        :py:class:`RequestNotSent` (with the reason `dns_error`, `tls_error`
+        or `connect_error`).
     """
     name = type(exc).__name__
+    if sent:
+        if isinstance(exc, requests.exceptions.ReadTimeout) or _caused_by(
+            exc, (urllib3.exceptions.ReadTimeoutError,)
+        ):
+            return RequestMaybeSent(
+                f"{_redact(url)} timed out: {name}", reason="read_timeout"
+            )
+        return RequestMaybeSent(f"{_redact(url)} failed: {name}")
     if _caused_by(exc, (urllib3.exceptions.NameResolutionError,)):
         return HostNotResolved(f"Host of {_redact(url)} not resolved")
     if isinstance(exc, requests.exceptions.SSLError) or _caused_by(
@@ -723,16 +808,7 @@ def _classify(exc: requests.RequestException, url: str) -> HttpError:
         return RequestNotSent(
             f"TLS error for {_redact(url)}: {name}", reason="tls_error"
         )
-    if isinstance(exc, requests.exceptions.ConnectTimeout) or _caused_by(
-        exc, (urllib3.exceptions.ConnectTimeoutError,)
-    ):
-        # `NewConnectionError` (e.g., connection refused) is a subclass
-        return RequestNotSent(f"{_redact(url)} not reached: {name}")
-    if isinstance(exc, requests.exceptions.ReadTimeout):
-        return RequestMaybeSent(
-            f"{_redact(url)} timed out: {name}", reason="read_timeout"
-        )
-    return RequestMaybeSent(f"{_redact(url)} failed: {name}")
+    return RequestNotSent(f"{_redact(url)} not reached: {name}")
 
 
 def _check_json_body(body: Any, url: str) -> None:
@@ -812,7 +888,7 @@ class GuardedClient:
         """
         with self._session_lock:
             if self._session is None:
-                session = requests.Session()
+                session = _GuardedSession()
                 session.trust_env = False
                 session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=[]))
                 adapter = _GuardedAdapter(self._guards)
@@ -877,7 +953,8 @@ class GuardedClient:
             json: Body to send as JSON.
             data: Body to send as is.
             auth: Authentication of requests (e.g., a `(user, password)`
-                tuple).
+                tuple); handlers that add response hooks (e.g.,
+                `HTTPDigestAuth`) are refused.
 
         Returns:
             Response, with the whole body.
@@ -889,14 +966,18 @@ class GuardedClient:
             InvalidRequestURL: The URL or method is invalid, or the scheme
                 is not allowed.
             InvalidRequest: `json` is no JSON (e.g., `NaN`, a set;
-                `invalid_request`), or a header is invalid (e.g., with a
-                line break; `invalid_header`).
+                `invalid_request`), a header is invalid (e.g., with a line
+                break; `invalid_header`), or `auth` adds response hooks
+                (`invalid_request`).
             DeadlineExceeded: The deadline passed before sending.
-            RequestNotSent: The request certainly did not reach the server
-                (e.g., :py:class:`AddressNotAllowed`).
-            RequestMaybeSent: The server may have received the request
-                (e.g., read timeout, :py:class:`ResponseTooLarge`, deadline
-                passed while reading).
+            RequestNotSent: The request certainly did not reach the server,
+                as no byte of it was sent (e.g.,
+                :py:class:`AddressNotAllowed`, TLS handshake failed, connection
+                lost while connecting).
+            RequestMaybeSent: The server may have received the request, as
+                sending it started (e.g., read timeout, TLS error or connection
+                lost while waiting for the response,
+                :py:class:`ResponseTooLarge`, deadline passed while reading).
         """
         scheme, _, _ = _split(url)
         allowed = ("https", "http") if self.allow_http else ("https",)
@@ -927,19 +1008,8 @@ class GuardedClient:
                 )
             except (AddressNotAllowed, DeadlineExceeded):
                 raise
-            except requests.exceptions.InvalidHeader as exc:
-                raise InvalidRequest(
-                    f"Invalid header for {_redact(url)}", reason="invalid_header"
-                ) from exc
-            except (requests.exceptions.InvalidURL, ValueError) as exc:
-                if guard.expired:
-                    raise self._expired(url) from exc
-                raise InvalidRequestURL(f"Invalid URL: {type(exc).__name__}") from exc
-            except requests.RequestException as exc:
-                error = _classify(exc, url)
-                if guard.expired and isinstance(error, RequestMaybeSent):
-                    raise self._expired(url) from exc
-                raise error from exc
+            except (requests.RequestException, ValueError) as exc:
+                raise self._error(exc, url, guard) from exc
             try:
                 content = self._read(response, url, guard)
             finally:
@@ -950,6 +1020,39 @@ class GuardedClient:
             headers={name.lower(): value for name, value in response.headers.items()},
             content=content,
         )
+
+    @classmethod
+    def _error(cls, exc: Exception, url: str, guard: _Guard) -> HttpError:
+        """Describe an error of sending a request.
+
+        Args:
+            exc: Error (of requests, or a `ValueError`).
+            url: URL of the request.
+            guard: Guard of the request.
+
+        Returns:
+            In this order: if the deadline passed,
+            :py:class:`RequestMaybeSent` if sending started, otherwise
+            :py:class:`DeadlineExceeded`; if sending did not start,
+            :py:class:`InvalidRequest` or :py:class:`InvalidRequestURL` for
+            invalid requests, otherwise :py:class:`RequestNotSent` (cf.
+            :py:func:`_classify`); if sending started,
+            :py:class:`RequestMaybeSent`.
+        """
+        if guard.expired:
+            if guard.sent:
+                return cls._expired(url)
+            return DeadlineExceeded(f"{_redact(url)}: deadline passed before sending")
+        if not guard.sent:
+            if isinstance(exc, requests.exceptions.InvalidHeader):
+                return InvalidRequest(
+                    f"Invalid header for {_redact(url)}", reason="invalid_header"
+                )
+            if isinstance(exc, ValueError):  # also `InvalidURL`
+                return InvalidRequestURL(f"Invalid URL: {type(exc).__name__}")
+        if isinstance(exc, requests.RequestException):
+            return _classify(exc, url, sent=guard.sent)
+        return RequestMaybeSent(f"{_redact(url)} failed: {type(exc).__name__}")
 
     @staticmethod
     def _expired(url: str) -> RequestMaybeSent:
@@ -996,7 +1099,7 @@ class GuardedClient:
         except requests.RequestException as exc:
             if guard.expired:
                 raise self._expired(url) from exc
-            raise _classify(exc, url) from exc
+            raise _classify(exc, url, sent=True) from exc
         if guard.expired:
             raise self._expired(url)
         return bytes(content)

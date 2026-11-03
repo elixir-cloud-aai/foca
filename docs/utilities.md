@@ -196,10 +196,13 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
   is checked again before sending, so DNS rebinding cannot redirect a
   request to an internal host; `allow_private_addresses=True` turns the
   checks off (e.g., for private deployments and tests).
-- Redirects are returned, never followed; proxies and `.netrc` files of the
+- Redirects are returned, never followed, with their bodies read within the
+  same limits as other responses; proxies and `.netrc` files of the
   environment are ignored; only `https` is allowed (unless
   `allow_http=True`), and TLS certificates are always verified. Cookies
-  are not kept, so requests do not share state.
+  are not kept, so requests do not share state. Authentication handlers
+  with response hooks (e.g., `HTTPDigestAuth`) are refused, as they read
+  bodies without limit.
 - Each request ends by the deadline as a whole (resolving, connecting,
   sending and reading, also from servers that send slowly; connections
   within 10 s at most), and bodies are limited to `max_response_size`
@@ -208,8 +211,12 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
   `connect_error`, `tls_error`, `not_public`, `invalid_request` (a body
   that is no JSON), `invalid_header`, `read_timeout`,
   `connection_lost`), and tell requests that certainly did not reach the
-  server (`RequestNotSent`) from those that may have
-  (`RequestMaybeSent`). Their messages name URLs without user info, query
+  server, as no byte of them was sent (`RequestNotSent`), from those that
+  may have, as sending started (`RequestMaybeSent`). What counts is the
+  point at which the error occurs, not its kind: a connection reset or TLS
+  error while connecting is `RequestNotSent` (`connect_error`, `tls_error`),
+  while waiting for or reading the response `RequestMaybeSent`
+  (`connection_lost`). Their messages name URLs without user info, query
   and fragment, with control characters escaped.
 - Network-specific NAT64 prefixes (RFC 6052) cannot be told from other
   IPv6 addresses: only the well-known prefix `64:ff9b::/96` is checked for
