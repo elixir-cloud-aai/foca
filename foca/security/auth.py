@@ -309,8 +309,8 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
     for issuer in conf.issuer_urls:
         if _reached_without_tls(issuer):
             logger.warning(
-                "Token issuer %s is reached without TLS: anyone on the network "
-                "can change its signing keys, and so forge tokens.",
+                "Trusted issuer %s is reached without TLS: anyone on the network "
+                "can change its signing keys, and so forge what it signs.",
                 escape_log_value(issuer),
             )
     if not conf.verify_audience and conf.clients is None:
