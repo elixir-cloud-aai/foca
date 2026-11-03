@@ -164,12 +164,14 @@ def _set_error_media_type(operation: dict[str, Any], media_type: str) -> None:
         operation: OpenAPI 3.x Operation Object; changed in place.
         media_type: Media type of error responses, instead of
             `application/problem+json` for all `4xx` and `5xx` responses
-            (defined in the operation, not referenced via `$ref`).
+            (defined in the operation, not referenced via `$ref`); keeps an
+            entry for this media type, if any.
     """
     for status, response in operation.get("responses", {}).items():
         content = response.get("content", {})
         if str(status)[0] in "45" and DEFAULT_ERROR_MEDIA_TYPE in content:
-            content[media_type] = content.pop(DEFAULT_ERROR_MEDIA_TYPE)
+            schema = content.pop(DEFAULT_ERROR_MEDIA_TYPE)
+            content.setdefault(media_type, schema)
 
 
 def _add_operation_fields(spec: dict[str, Any], fields: dict[str, Any]) -> None:
@@ -430,18 +432,18 @@ def register_openapi(
         spec_parsed: dict[str, Any] = ConfigParser.merge_yaml(*list_specs)
         logger.debug("Parsed spec: %s", list_specs)
 
+        # Add/replace root objects
+        if spec.append is not None:
+            for item in spec.append:
+                spec_parsed.update(item)
+            logger.debug("Appended spec: %s", spec.append)
+
         # Declare the media type that the plugin listing's errors have; the
         # app's patches may still change it
         media_type = _get_error_media_type(app)
         for operation_object in _iter_operations(spec_parsed):
             if operation_object.get("operationId") in _PLUGIN_LISTING_OPERATIONS:
                 _set_error_media_type(operation_object, media_type)
-
-        # Add/replace root objects
-        if spec.append is not None:
-            for item in spec.append:
-                spec_parsed.update(item)
-            logger.debug("Appended spec: %s", spec.append)
 
         # Apply patches
         label = (
