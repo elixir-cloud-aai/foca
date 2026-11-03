@@ -1044,7 +1044,9 @@ class GuardedClient:
                 return cls._expired(url)
             return DeadlineExceeded(f"{_redact(url)}: deadline passed before sending")
         if not guard.sent:
-            if isinstance(exc, requests.exceptions.InvalidHeader):
+            # Names and values of headers that can't be encoded when sending,
+            # and credentials (also of the URL) when building `Authorization`
+            if isinstance(exc, requests.exceptions.InvalidHeader | UnicodeEncodeError):
                 return InvalidRequest(
                     f"Invalid header for {_redact(url)}", reason="invalid_header"
                 )

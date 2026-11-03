@@ -676,6 +676,9 @@ def test_malformed_urls(url: str) -> None:
         ({"json": [object()]}, "invalid_request"),
         ({"headers": {"X": "a\r\nB: c"}}, "invalid_header"),
         ({"headers": {"X": " leading"}}, "invalid_header"),
+        ({"headers": {"X": "euro \u20ac"}}, "invalid_header"),
+        ({"headers": {"X-\u00e9": "a"}}, "invalid_header"),
+        ({"auth": ("\u20ac", "password")}, "invalid_header"),
     ],
 )
 def test_invalid_requests(kwargs: dict[str, Any], reason: str) -> None:

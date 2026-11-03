@@ -1,4 +1,9 @@
-"""Casbin rule adapter."""
+"""Casbin rule adapter.
+
+Originally derived from casbin-pymongo-adapter
+(https://github.com/pycasbin/pymongo-adapter), Apache License 2.0, and since
+then largely rewritten.
+"""
 
 import logging
 import re

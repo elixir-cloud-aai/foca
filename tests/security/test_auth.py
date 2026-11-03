@@ -1005,6 +1005,64 @@ class TestLogAuthConfigWarnings:
         assert "verify_token_type" in caplog.text
         assert "Expired" in caplog.text
 
+    @pytest.mark.parametrize(
+        "issuer",
+        [
+            "http://login.example.org/",
+            "HTTP://login.example.org/",
+            "http://localhost.example.org/",
+            "http://10.0.0.1/",
+        ],
+    )
+    def test_issuer_without_tls(
+        self, caplog: pytest.LogCaptureFixture, issuer: str
+    ) -> None:
+        """Issuers reached without TLS are warned about."""
+        conf = AuthConfig(issuers=[issuer], audience=[AUDIENCE])
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert "without TLS" in caplog.text
+        assert issuer.lower() in caplog.text
+
+    def test_invalid_issuer_without_tls(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An issuer that can't be parsed is warned about, too."""
+        conf = AuthConfig(issuers=["http://[invalid/"], audience=[AUDIENCE])
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert "(invalid URL) is reached without TLS" in caplog.text
+
+    def test_issuer_without_tls_redacted(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The warning leaves out credentials and query of the issuer."""
+        conf = AuthConfig(
+            issuers=["http://me:hunter2@login.example.org/realm?key=abc123"],
+            audience=[AUDIENCE],
+        )
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert "http://login.example.org/realm is reached" in caplog.text
+        assert "hunter2" not in caplog.text
+        assert "abc123" not in caplog.text
+
+    @pytest.mark.parametrize(
+        "issuer",
+        [
+            "https://login.example.org/",
+            "http://localhost:8080/",
+            "http://127.0.0.1:8080/realms/test",
+            "http://[::1]:8080/",
+        ],
+    )
+    def test_issuer_with_tls_or_loopback(
+        self, caplog: pytest.LogCaptureFixture, issuer: str
+    ) -> None:
+        """Issuers with TLS or on the loopback interface are not warned about."""
+        conf = AuthConfig(issuers=[issuer], audience=[AUDIENCE])
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert "without TLS" not in caplog.text
+
     def test_no_warnings(self, caplog: pytest.LogCaptureFixture) -> None:
         """Complete and secure settings are not warned about."""
         conf = AuthConfig(issuers=[ISSUER], audience=[AUDIENCE])
