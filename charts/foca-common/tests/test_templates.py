@@ -2348,7 +2348,7 @@ STORE_KEY_SECRET_ENV = {
         "secretKeyRef": {"name": "plugins", "key": "store-key-secret"}
     }
 }
-PLUGINS_SECRET = ("--set", "plugins.existingSecret=plugins")
+PLUGINS_SECRET = ("--set", "pluginStore.existingSecret=plugins")
 
 
 def _store_key_secret_env(container: dict[str, Any]) -> dict[str, Any]:
@@ -2361,7 +2361,7 @@ def _store_key_secret_env(container: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_store_key_secret_not_set_by_default(render: Callable[..., Docs]) -> None:
-    """Without `plugins.existingSecret`, the app gets no key secret."""
+    """Without `pluginStore.existingSecret`, the app gets no key secret."""
     assert _store_key_secret_env(_container(render())) == {}
 
 
@@ -2376,12 +2376,18 @@ def test_store_key_secret(render: Callable[..., Docs]) -> None:
 def test_store_key_secret_without_values(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
-    """App charts without `plugins` values render as before."""
+    """App charts without `pluginStore` values render as before."""
     chart = chart_with_settings("valuesKey: petstore\nmongodb: {databases: [p]}")
     values = yaml.safe_load((chart / "values.yaml").read_text())
-    del values["plugins"]
+    del values["pluginStore"]
     (chart / "values.yaml").write_text(yaml.safe_dump(values))
     assert _store_key_secret_env(_container(index(template(chart)))) == {}
+
+
+def test_store_key_secret_not_read_from_plugins(render: Callable[..., Docs]) -> None:
+    """Top-level `plugins` values belong to the app chart, e.g., proTES's."""
+    docs = render("--set", "plugins.existingSecret=plugins")
+    assert _store_key_secret_env(_container(docs)) == {}
 
 
 @pytest.mark.parametrize(
@@ -2400,7 +2406,7 @@ def test_store_key_secret_in_overlay_fails(
 ) -> None:
     """Any non-empty key secret in the config overlay (a ConfigMap) fails."""
     error = render_error(flag, f"config.plugins.defaults.store.key_secret={secret}")
-    assert "plugins.existingSecret" in error
+    assert "pluginStore.existingSecret" in error
     assert "s3cr3t" not in error
 
 
@@ -2421,9 +2427,9 @@ def test_store_key_secret_empty_in_overlay(
     assert _store_key_secret_env(_container(docs)) == STORE_KEY_SECRET_ENV
 
 
-def test_schema_rejects_invalid_plugins_values(
+def test_schema_rejects_invalid_plugin_store_values(
     render_error: Callable[..., str],
 ) -> None:
-    """The schema rejects invalid plugin values."""
-    assert "schema" in render_error("--set-json", "plugins.existingSecret=1")
-    assert "schema" in render_error("--set", "plugins.unknown=true")
+    """The schema rejects invalid plugin store values."""
+    assert "schema" in render_error("--set-json", "pluginStore.existingSecret=1")
+    assert "schema" in render_error("--set", "pluginStore.unknown=true")

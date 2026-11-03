@@ -209,7 +209,8 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
   bytes (16 MiB by default).
 - Errors carry a reason code (`reason`, e.g., `dns_error`,
   `connect_error`, `tls_error`, `not_public`, `invalid_request` (a body
-  that is no JSON), `invalid_header`, `read_timeout`,
+  that is no JSON), `invalid_header` (also for names, values and credentials
+  that can't be encoded), `read_timeout`,
   `connection_lost`), and tell requests that certainly did not reach the
   server, as no byte of them was sent (`RequestNotSent`), from those that
   may have, as sending started (`RequestMaybeSent`). What counts is the

@@ -219,11 +219,11 @@ take precedence over the `jobs` config. Call with the root context.
 {{/*
 Environment variable of the app and the worker with the key secret of the
 plugin store (`plugins.defaults.store.key_secret` of FOCA), if
-`plugins.existingSecret` is set: `FOCA_PLUGINS_STORE_KEY_SECRET` (key
+`pluginStore.existingSecret` is set: `FOCA_PLUGINS_STORE_KEY_SECRET` (key
 `store-key-secret`, which the Secret must have). Call with the root context.
 */}}
 {{- define "foca-common.pluginsEnv" -}}
-{{- with dig "existingSecret" "" (.Values.plugins | default dict) }}
+{{- with dig "existingSecret" "" (.Values.pluginStore | default dict) }}
 - name: FOCA_PLUGINS_STORE_KEY_SECRET
   valueFrom:
     secretKeyRef:
@@ -251,7 +251,7 @@ the overlay (`config`; see `foca-common.configOverlay`).
 {{- end -}}
 {{- $secret := get $store "key_secret" -}}
 {{- if not (or (kindIs "invalid" $secret) (and (kindIs "string" $secret) (eq $secret ""))) -}}
-{{- fail "config.plugins.defaults.store.key_secret must not be set, as the config overlay is a ConfigMap: put the secret in the key store-key-secret of an existing Secret and set plugins.existingSecret to its name" -}}
+{{- fail "config.plugins.defaults.store.key_secret must not be set, as the config overlay is a ConfigMap: put the secret in the key store-key-secret of an existing Secret and set pluginStore.existingSecret to its name" -}}
 {{- end -}}
 {{- end -}}
 

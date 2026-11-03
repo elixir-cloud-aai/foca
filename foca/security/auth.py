@@ -2,10 +2,12 @@
 
 import copy
 import hashlib
+import ipaddress
 import logging
 import threading
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import jwt
 import requests
@@ -22,6 +24,7 @@ from foca.models.config import (
     AuthConfig,
     ServiceClientConfig,
 )
+from foca.utils.http import _redact
 from foca.utils.logging import escape_log_value
 
 # Get logger instance
@@ -273,6 +276,26 @@ def namespace_subject(
     return f"{namespace}{NAMESPACE_SEPARATOR}{subject}"
 
 
+def _reached_without_tls(issuer: str) -> bool:
+    """Check whether an issuer is reached without TLS, outside the host.
+
+    Args:
+        issuer: Issuer.
+
+    Returns:
+        Whether it is an `http` URL of a host other than the loopback
+        interface; URLs that can't be parsed count as such.
+    """
+    try:
+        parts = urlsplit(issuer)
+        if parts.scheme.lower() != "http":
+            return False
+        host = parts.hostname
+        return host != "localhost" and not ipaddress.ip_address(host or "").is_loopback
+    except ValueError:  # host names and invalid URLs
+        return True
+
+
 def log_auth_config_warnings(conf: AuthConfig) -> None:
     """Log warnings about incomplete or insecure authentication settings.
 
@@ -284,6 +307,13 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
             "No trusted token issuers configured "
             "(`security.auth.issuers`): all bearer tokens will be rejected."
         )
+    for issuer in conf.issuer_urls:
+        if _reached_without_tls(issuer):
+            logger.warning(
+                "Trusted issuer %s is reached without TLS: anyone on the network "
+                "can change its signing keys, and so forge what it signs.",
+                _redact(issuer),
+            )
     if not conf.verify_audience and conf.clients is None:
         logger.warning(
             "Token audience validation is disabled "

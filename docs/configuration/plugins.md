@@ -247,7 +247,7 @@ plugins that declare stored data (`data_stored`) keep it in memory.
       `key_secret` is unset or empty, and the variable is not empty), e.g.,
       from a Kubernetes Secret with `valueFrom.secretKeyRef` (with FOCA's
       [Helm library chart](../helm-chart.md#deployment-notes), via the value
-      `plugins.existingSecret`), or merge a file that only holds the setting
+      `pluginStore.existingSecret`), or merge a file that only holds the setting
       and is mounted from a secret (cf. [environment-specific
       configuration](index.md#environment-specific-configuration)). Quote
       numeric secrets: an unquoted number is taken as a string of its YAML
