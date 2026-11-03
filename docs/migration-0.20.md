@@ -48,11 +48,19 @@ USER 1000
    file, without FOCA and its dependencies). Install the app's own wheel
    with `--no-index --no-deps` and without `--require-hashes` (see
    [installing Python
-   packages](getting-started.md#installing-python-packages)). Build stages may keep pip (e.g., in a virtual environment
-   created with `python -m venv`).
+   packages](getting-started.md#installing-python-packages)). Build stages
+   may keep pip (e.g., in a virtual environment created with `python -m
+   venv`); on Python 3.11 and 3.12, this installs an old pip with known
+   vulnerabilities, so upgrade it first (`pip install --upgrade "pip>=26.2"`)
+   or use `uv pip install --python <environment>`.
 3. Remove the entries for packages vendored by pip from `.trivyignore.yaml`
    (in FOCA 0.19.0: setuptools 70.3.0, urllib3 2.7.0 and msgpack 1.1.2).
 4. Images that add plugins to an app's image install them the same way.
+   Recipes that run pip in a running container of the image (e.g., an init
+   script) fail too, and need uv in the image or another way to add the
+   packages. The plugins of foca-plugins allow FOCA 0.20 only from their
+   first release after it: until then, installing them with FOCA 0.20 fails
+   when resolving the dependencies.
 
 Packages installed with uv record `uv` as their installer, and their
 `RECORD` files differ from pip's: the `RECORD` digests in [plugin
@@ -88,8 +96,11 @@ other errors than before:
 - A TLS error while waiting for or reading a response: `RequestMaybeSent`
   (`connection_lost`), previously `RequestNotSent` (`tls_error`). Don't retry
   such requests elsewhere.
-- A connection lost or a timeout during the TLS handshake: `RequestNotSent`
-  (`connect_error`), previously `RequestMaybeSent`.
+- A connection lost during the TLS handshake: `RequestNotSent`
+  (`connect_error` if it is reset, `tls_error` if the server closes it),
+  previously `RequestMaybeSent`.
+- A handshake that doesn't end by the deadline: `DeadlineExceeded`, previously
+  `RequestMaybeSent`.
 - A deadline that passes before sending: `DeadlineExceeded`.
 - A redirect with a body above `max_response_size`: `ResponseTooLarge`, without
   reading the whole body first.

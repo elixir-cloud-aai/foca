@@ -14,6 +14,21 @@ ADDRESSES = {"cloud-service@elixir-europe.org", "ga4gh-discovery-networks@ga4gh.
 DOMAINS = re.compile(r"(?:.+\.)?example\.(?:com|net|org)|xn--a\.org", re.IGNORECASE)
 
 
+def test_newest_migration_guide_linked() -> None:
+    """The README and the docs index link to the newest migration guide."""
+    newest = max(
+        (
+            path.stem.removeprefix("migration-")
+            for path in ROOT.glob("docs/migration-*")
+        ),
+        key=lambda version: [int(part) for part in version.split(".")],
+    )
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    index = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    assert f"/latest/migration-{newest}/>" in readme.split("[docs-migration]:")[1]
+    assert f"(migration-{newest}.md)" in index
+
+
 def test_email_pattern() -> None:
     """Addresses are found also with internationalized domain names."""
     text = "a@x.example.org, b@bücher.example.org, c@-x.org, d@x-.org"
