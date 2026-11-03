@@ -1,6 +1,7 @@
 """Tests for config_parser.py."""
 
 import os
+import traceback
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -139,6 +140,26 @@ def test_parse_custom_config_invalid() -> None:
     conf = ConfigParser(config_file=Path(TEST_FILE_CUSTOM_INVALID))
     with pytest.raises(ValueError):
         conf.parse_custom_config(model=TEST_CONFIG_MODEL)
+
+
+def test_parse_custom_config_invalid_hides_input() -> None:
+    """Errors of the custom configuration name the setting, not its value."""
+    conf = ConfigParser(config_file=Path(TEST_FILE))
+    conf.config.custom = {"param": ["SUPERSECRET-123"]}
+    with pytest.raises(ValueError, match="param") as info:
+        conf.parse_custom_config(model=TEST_CONFIG_MODEL)
+    text = "".join(traceback.format_exception(info.value))
+    assert "SUPERSECRET-123" not in text
+    assert "input_value" not in text
+
+
+def test_parse_custom_config_failure_hides_message(tmp_path: Path) -> None:
+    """Other errors of the model class are named by their type only."""
+    conf = ConfigParser(config_file=Path(TEST_FILE))
+    conf.config.custom = {"param": "SUPERSECRET-123"}
+    with pytest.raises(ValueError, match="TypeError") as info:
+        conf.parse_custom_config(model="tests.test_files.model_valid.FailingConfig")
+    assert "SUPERSECRET-123" not in "".join(traceback.format_exception(info.value))
 
 
 @pytest.mark.parametrize(

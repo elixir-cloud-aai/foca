@@ -4,6 +4,8 @@ import re
 import string
 from secrets import choice
 
+from pydantic import ValidationError
+
 # Matches references to constants of the `string` module (e.g.,
 # `string.digits`), as used in charset expressions that were evaluated by
 # previous versions of `generate_id()`
@@ -24,6 +26,33 @@ _STRING_EXPRESSION = re.compile(
     )
     + r")\b"
 )
+
+
+def describe_validation_error(exc: ValidationError) -> str:
+    """Describe a validation error without the invalid input.
+
+    The message of a :py:class:`pydantic.ValidationError` shows the input
+    unless the model sets `hide_input_in_errors`, which models of plugins and
+    apps need not do, and a missing field or a mistyped key may sit next to,
+    or be, a secret that isn't masked yet. Callers that pass the description
+    on should also not chain `exc` (`raise ... from None`), as tracebacks show
+    the message of a chained error.
+
+    Args:
+        exc: Validation error.
+
+    Returns:
+        Locations and messages of the errors, e.g.,
+        `api_key: Field required; limit: Input should be a valid integer`.
+    """
+    return "; ".join(
+        f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+        if error["loc"]
+        else error["msg"]
+        for error in exc.errors(
+            include_url=False, include_context=False, include_input=False
+        )
+    )
 
 
 def generate_id(

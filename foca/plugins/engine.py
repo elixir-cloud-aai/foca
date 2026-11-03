@@ -159,6 +159,7 @@ from foca.plugins.store import (
 )
 from foca.plugins.tags import check_reserved_tags
 from foca.utils.http import GuardedClient
+from foca.utils.misc import describe_validation_error
 
 # Imported for type checking only: the config models import this module
 if TYPE_CHECKING:
@@ -816,7 +817,9 @@ class PluginHost:
                 try:
                     params = loaded.cls.Params.model_validate(alternative.params)
                 except ValidationError as exc:
-                    raise ValueError(f"{invalid}: {exc}") from exc
+                    raise ValueError(
+                        f"{invalid}: {describe_validation_error(exc)}"
+                    ) from None
                 try:
                     loaded.instance.check_params(params)
                 except InvalidParams as exc:

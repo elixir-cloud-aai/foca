@@ -127,7 +127,9 @@ to rotate it.
   don't see each other's entries.
 - Validation errors of the configuration no longer show the invalid input
   (`input_value`), as it may contain the secret; the error still names the
-  setting and the reason.
+  setting and the reason. This includes the plugins' `config` and step
+  `params`, whatever their models set, and the custom configuration; only
+  messages of a model's own validators are passed on as they are.
 - **Helm charts** based on foca-common 0.4.0 or later pass the secret from
   an existing Secret (key `store-key-secret`) to the app and the worker:
   set `plugins.existingSecret` to its name (see [deployment

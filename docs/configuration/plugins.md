@@ -252,9 +252,9 @@ plugins that declare stored data (`data_stored`) keep it in memory.
       configuration](index.md#environment-specific-configuration)). Quote
       numeric secrets: an unquoted number is taken as a string of its YAML
       value (e.g., `0123` is 83). The secret isn't shown in logs, error
-      messages (validation errors of the configuration don't show its
-      input), `repr()` or the plugin listing; use a long random value (e.g.,
-      `openssl rand -base64 32`).
+      messages (validation errors of the configuration, the plugins' `config`
+      and step `params` don't show their input), `repr()` or the plugin
+      listing; use a long random value (e.g., `openssl rand -base64 32`).
     - **All processes and replicas must have the same secret**, or they
       don't find each other's entries (budgets and caches then reset
       for the callers they would apply to).

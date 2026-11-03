@@ -29,6 +29,7 @@ from foca.plugins.config import (
     AvailablePluginConfig,
     PluginsConfig,
 )
+from foca.utils.misc import describe_validation_error
 
 logger = logging.getLogger(__name__)
 
@@ -370,8 +371,9 @@ def load_plugins(
                 config = cls.Config.model_validate(available.config)
             except ValidationError as exc:
                 raise ValueError(
-                    f"Invalid config of plugin {plugin_id!r}: {exc}"
-                ) from exc
+                    f"Invalid config of plugin {plugin_id!r}: "
+                    f"{describe_validation_error(exc)}"
+                ) from None
             loaded[plugin_id] = LoadedPlugin(
                 id=plugin_id,
                 cls=cls,

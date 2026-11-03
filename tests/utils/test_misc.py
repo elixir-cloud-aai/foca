@@ -3,8 +3,54 @@
 import string
 
 import pytest
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
-from foca.utils.misc import generate_id
+from foca.utils.misc import describe_validation_error, generate_id
+
+
+class _Settings(BaseModel):
+    """Settings for tests of `describe_validation_error()`.
+
+    Attributes:
+        required: Required field.
+        limit: Limit.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    required: str
+    limit: int = 1
+
+
+class _Refusing(BaseModel):
+    """Model with an error that has no location."""
+
+    @model_validator(mode="after")
+    def refuse(self) -> "_Refusing":
+        """Refuse all values.
+
+        Raises:
+            ValueError: Always.
+        """
+        raise ValueError("refused")
+
+
+def test_describe_validation_error() -> None:
+    """Locations and messages are described, inputs are not."""
+    with pytest.raises(ValidationError) as info:
+        _Settings.model_validate({"apikey": "s3cr3t", "limit": "s3cr3t"})
+    text = describe_validation_error(info.value)
+    assert "required: Field required" in text
+    assert "apikey: Extra inputs are not permitted" in text
+    assert "limit: " in text
+    assert "s3cr3t" not in text
+
+
+def test_describe_validation_error_without_location() -> None:
+    """Errors of whole models have only their message."""
+    with pytest.raises(ValidationError) as info:
+        _Refusing.model_validate({})
+    assert describe_validation_error(info.value) == "Value error, refused"
 
 
 class TestGenerateId:
