@@ -172,7 +172,8 @@ warnings, naming the setting to change, among others:
 - [plugin store](configuration/plugins.md#plugin-store) of gateway apps:
   plugins that keep stored data in the memory of each process, as no database
   is configured, or in the database without a secret for their keys, and
-  indexes that could not be created;
+  indexes that could not be created (an error if that needs an operator,
+  e.g., for conflicting indexes or missing rights);
 - [authentication](configuration/auth.md), on the first token validation
   rather than on startup: no trusted `issuers`, disabled audience or token
   type validation, accepted expired tokens, and an `on_behalf_of_header`

@@ -25,8 +25,9 @@ def test_newest_migration_guide_linked() -> None:
     )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     index = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    assert "][docs-migration]" in readme
     assert f"/latest/migration-{newest}/>" in readme.split("[docs-migration]:")[1]
-    assert f"(migration-{newest}.md)" in index
+    assert re.search(rf"\[[^\]]+\]\(migration-{re.escape(newest)}\.md\)", index)
 
 
 def test_email_pattern() -> None:

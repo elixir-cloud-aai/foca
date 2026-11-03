@@ -52,7 +52,7 @@ USER 1000
    may keep pip (e.g., in a virtual environment created with `python -m
    venv`); on Python 3.11 and 3.12, this installs an old pip with known
    vulnerabilities, so upgrade it first (`pip install --upgrade "pip>=26.2"`)
-   or use `uv pip install --python <environment>`.
+   or use uv (`uv pip install --python <environment> <packages>`).
 3. Remove the entries for packages vendored by pip from `.trivyignore.yaml`
    (in FOCA 0.19.0: setuptools 70.3.0, urllib3 2.7.0 and msgpack 1.1.2).
 4. Images that add plugins to an app's image install them the same way.

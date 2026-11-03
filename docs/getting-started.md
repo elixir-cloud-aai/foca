@@ -195,7 +195,7 @@ Build stages may use pip, e.g., in a virtual environment (`python -m venv`,
 which installs the pip that the image's Python bundles), as long as the
 final stage doesn't. On Python 3.11 and 3.12, the bundled pip is old and has
 known vulnerabilities, so upgrade it first (`pip install --upgrade
-"pip>=26.2"`) or use `uv pip install --python <environment>`. The [petstore
+"pip>=26.2"`) or use uv (`uv pip install --python <environment> <packages>`). The [petstore
 example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore)
 installs Gunicorn with uv as above.
 
