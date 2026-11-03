@@ -321,8 +321,6 @@ def test_all_settings(chart_with_settings: Callable[[str], Path]) -> None:
                 }
             }
         },
-        # no issuers: nothing has an audience
-        {"security": {"auth": {"issuers": []}}},
     ],
 )
 def test_audience_required(
@@ -336,7 +334,7 @@ def test_audience_required(
     values = tmp_path / "values.yaml"
     values.write_text(yaml.safe_dump({"config": config}))
     error = template_error(chart, "-f", str(values))
-    assert "audience must list" in error
+    assert "must list" in error
 
 
 @pytest.mark.parametrize(
@@ -368,6 +366,8 @@ def test_audience_required(
             "audience": None,
             "issuers": [{"issuer": "https://a.example.org", "audience": ["a"]}],
         },
+        # removes the issuers of the base config
+        {"issuers": []},
     ],
 )
 def test_audience_accepted(
@@ -380,6 +380,21 @@ def test_audience_accepted(
     values = tmp_path / "values.yaml"
     values.write_text(yaml.safe_dump({"config": {"security": {"auth": auth}}}))
     template(chart, "-f", str(values))
+
+
+@pytest.mark.parametrize("audience", [[], [" "], "a"])
+def test_issuer_audience_invalid_also_without_validation(
+    chart_with_settings: Callable[[str], Path], tmp_path: Path, audience: Any
+) -> None:
+    """Audiences of issuers must be valid, as FOCA checks them in any case."""
+    chart = chart_with_settings(FULL_SETTINGS)
+    values = tmp_path / "values.yaml"
+    auth = {
+        "verify_audience": False,
+        "issuers": [{"issuer": "https://a.example.org", "audience": audience}],
+    }
+    values.write_text(yaml.safe_dump({"config": {"security": {"auth": auth}}}))
+    assert "must list non-blank client IDs" in template_error(chart, "-f", str(values))
 
 
 def test_audience_validation_disabled_with_issuers(

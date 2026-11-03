@@ -332,9 +332,10 @@ validation is explicitly disabled: with a value that pydantic parses as false
 (e.g., `false` or "False"; the strings are those of pydantic 2.14,
 pydantic-core 2.50). `null` doesn't disable it (FOCA refuses it). Each issuer
 of `security.auth.issuers` needs an audience of its own or the global one, so
-the global one is optional if all issuers have their own; without any issuers
-it is required, as the overlay may not list those of the app's base config.
-Audiences that are set must be valid, also if no issuer uses them. Only the
+the global one is optional if all issuers have their own; without `issuers`
+it is required, as the app's base config may list them, but an empty list
+removes them. Audiences that are set must be valid, also if no issuer uses
+them. Only the
 overlay is checked, so the app's settings opt in (`requireAudience`) if the
 app needs token issuers. Call with a dict of the overlay (`config`; see
 `foca-common.configOverlay`).
@@ -361,15 +362,17 @@ app needs token issuers. Call with a dict of the overlay (`config`; see
 {{- $unset := or (kindIs "invalid" $audience) (and (kindIs "slice" $audience) (not $audience)) -}}
 {{- $valid := or $hasAudience $unset -}}
 {{- $issuers := index $auth "issuers" -}}
+{{- /* An empty list removes the issuers of the base config */ -}}
+{{- $needsGlobal := not (kindIs "slice" $issuers) -}}
 {{- $issuers = ternary $issuers (list) (kindIs "slice" $issuers) -}}
-{{- $needsGlobal := not $issuers -}}
 {{- range $issuer := $issuers -}}
 {{- /* Plain URLs have no settings of their own */ -}}
 {{- $own := index (ternary $issuer (dict) (kindIs "map" $issuer)) "audience" -}}
 {{- if kindIs "invalid" $own -}}
 {{- $needsGlobal = true -}}
 {{- else if not (include "foca-common.isAudience" $own) -}}
-{{- $valid = false -}}
+{{- /* FOCA refuses these whatever verify_audience says */ -}}
+{{- fail "the audience of each of config.security.auth.issuers must list non-blank client IDs, if set" -}}
 {{- end -}}
 {{- end -}}
 {{- if and $verifyAudience (or (not $valid) (and $needsGlobal (not $hasAudience))) -}}
