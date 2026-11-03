@@ -132,6 +132,7 @@ def _tls(certificate: tuple[Path, Path], connection: socket.socket) -> ssl.SSLSo
         TLS connection.
     """
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(*certificate)
     return context.wrap_socket(connection, server_side=True)
 
