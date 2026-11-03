@@ -21,7 +21,6 @@ from typing import Any
 
 from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
-from pydantic import ValidationError
 
 from foca.plugins.base import Plugin, check_plugin_class
 from foca.plugins.config import (
@@ -369,7 +368,7 @@ def load_plugins(
         ):
             try:
                 config = cls.Config.model_validate(available.config)
-            except ValidationError as exc:
+            except Exception as exc:  # validators of plugins may raise anything
                 raise ValueError(
                     f"Invalid config of plugin {plugin_id!r}: "
                     f"{describe_validation_error(exc)}"

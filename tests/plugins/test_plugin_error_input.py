@@ -4,7 +4,7 @@ import traceback
 from typing import Any
 
 import pytest
-from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic import BaseModel, ConfigDict, SecretStr, field_validator
 
 from foca.plugins import Plugin
 from foca.plugins.config import PluginsConfig
@@ -71,7 +71,49 @@ class RequiredPlugin(Plugin[RequiredSettings, RequiredSettings]):
         """
 
 
-PLUGINS = {"test.secret": SecretPlugin, "test.required": RequiredPlugin}
+class FailingSettings(BaseModel):
+    """Settings whose validator fails with an error that shows the input.
+
+    Attributes:
+        name: Name.
+    """
+
+    name: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def look_up(cls, value: str) -> str:
+        """Look up a value, as a validator with a bug might.
+
+        Args:
+            value: Value.
+
+        Raises:
+            KeyError: Always, showing the value.
+        """
+        raise KeyError(value)
+
+
+class FailingPlugin(Plugin[FailingSettings, FailingSettings]):
+    """Plugin whose config and params fail with other errors."""
+
+    Config = FailingSettings
+    Params = FailingSettings
+
+    def on_request(self, request: Any, ctx: Any) -> None:
+        """Do nothing.
+
+        Args:
+            request: Inbound request.
+            ctx: Context.
+        """
+
+
+PLUGINS = {
+    "test.secret": SecretPlugin,
+    "test.required": RequiredPlugin,
+    "test.failing": FailingPlugin,
+}
 
 
 def _assert_hidden(error: BaseException) -> None:
@@ -80,8 +122,9 @@ def _assert_hidden(error: BaseException) -> None:
     Args:
         error: Error.
     """
-    assert LEAK not in "".join(traceback.format_exception(error))
-    assert "input_value" not in "".join(traceback.format_exception(error))
+    formatted = "".join(traceback.format_exception(error))
+    assert LEAK not in formatted
+    assert "input_value" not in formatted
 
 
 @pytest.mark.parametrize(
@@ -91,6 +134,7 @@ def _assert_hidden(error: BaseException) -> None:
         ("test.secret", {"api_key": {"nested": LEAK}}, "api_key"),
         ("test.secret", {"limit": LEAK}, "limit"),
         ("test.required", {"api_key": LEAK}, "required"),
+        ("test.failing", {"name": LEAK}, "KeyError"),
     ],
 )
 def test_plugin_config_errors_hide_input(
@@ -111,6 +155,7 @@ def test_plugin_config_errors_hide_input(
     [
         ("test.secret", {"apikey": LEAK}, "apikey"),
         ("test.secret", {"limit": LEAK}, "limit"),
+        ("test.failing", {"name": LEAK}, "KeyError"),
     ],
 )
 def test_plugin_params_errors_hide_input(

@@ -1,9 +1,17 @@
 """Tests for miscellaneous utility functions."""
 
 import string
+from typing import Annotated, Literal
 
 import pytest
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ImportString,
+    ValidationError,
+    model_validator,
+)
 
 from foca.utils.misc import describe_validation_error, generate_id
 
@@ -44,6 +52,62 @@ def test_describe_validation_error() -> None:
     assert "apikey: Extra inputs are not permitted" in text
     assert "limit: " in text
     assert "s3cr3t" not in text
+
+
+class _Kind(BaseModel):
+    """A member of a discriminated union.
+
+    Attributes:
+        kind: Discriminator.
+    """
+
+    kind: Literal["a"]
+
+
+class _OtherKind(BaseModel):
+    """Another member of a discriminated union.
+
+    Attributes:
+        kind: Discriminator.
+    """
+
+    kind: Literal["b"]
+
+
+class _Quoting(BaseModel):
+    """Model with errors whose messages of pydantic quote the input.
+
+    Attributes:
+        union: Discriminated union.
+        path: Python path.
+    """
+
+    union: Annotated[_Kind | _OtherKind, Field(discriminator="kind")] | None = None
+    path: ImportString[object] | None = None
+
+
+@pytest.mark.parametrize(
+    ("data", "location"),
+    [
+        ({"union": {"kind": "s3cr3t"}}, "union"),
+        ({"path": "s3cr3t"}, "path"),
+    ],
+)
+def test_describe_validation_error_quoted_input(
+    data: dict[str, object], location: str
+) -> None:
+    """Messages of pydantic that quote the input are not passed on."""
+    with pytest.raises(ValidationError) as info:
+        _Quoting.model_validate(data)
+    assert "s3cr3t" in str(info.value.errors())
+    text = describe_validation_error(info.value)
+    assert text.startswith(f"{location}")
+    assert "s3cr3t" not in text
+
+
+def test_describe_validation_error_other_errors() -> None:
+    """Other errors are described by their type, as they may show the input."""
+    assert describe_validation_error(KeyError("s3cr3t")) == "KeyError"
 
 
 def test_describe_validation_error_without_location() -> None:

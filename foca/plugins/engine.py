@@ -59,7 +59,6 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlsplit
 
 from packaging.utils import canonicalize_name
-from pydantic import ValidationError
 from pymongo.errors import OperationFailure, PyMongoError
 
 from foca.plugins.base import (
@@ -816,7 +815,7 @@ class PluginHost:
                 )
                 try:
                     params = loaded.cls.Params.model_validate(alternative.params)
-                except ValidationError as exc:
+                except Exception as exc:  # validators may raise anything
                     raise ValueError(
                         f"{invalid}: {describe_validation_error(exc)}"
                     ) from None

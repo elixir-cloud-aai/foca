@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 from addict import Dict as Addict
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from foca.models.config import Config, LogConfig
 from foca.utils.misc import describe_validation_error
@@ -331,14 +331,10 @@ class ConfigParser:
         try:
             custom_config = model_class(**custom)
         except Exception as exc:
-            # Not chained, as tracebacks would show the input
-            reason = (
-                describe_validation_error(exc)
-                if isinstance(exc, ValidationError)
-                else type(exc).__name__
-            )
+            # The cause tells what to correct; `exc` itself would show the
+            # input in tracebacks
             raise ValueError(
                 "failed validating custom configuration: provided custom "
-                f"configuration does not match model class in '{model}': {reason}"
-            ) from None
+                f"configuration does not match model class in '{model}'"
+            ) from ValueError(describe_validation_error(exc))
         return custom_config
