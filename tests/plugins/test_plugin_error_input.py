@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ConfigDict, SecretStr, field_validator
 
-from foca.plugins import Plugin
+from foca.plugins import Plugin, PluginError
 from foca.plugins.config import PluginsConfig
 from foca.plugins.engine import PluginHost
 from foca.plugins.loader import load_plugins
@@ -155,7 +155,6 @@ def test_plugin_config_errors_hide_input(
     [
         ("test.secret", {"apikey": LEAK}, "apikey"),
         ("test.secret", {"limit": LEAK}, "limit"),
-        ("test.failing", {"name": LEAK}, "KeyError"),
     ],
 )
 def test_plugin_params_errors_hide_input(
@@ -175,6 +174,24 @@ def test_plugin_params_errors_hide_input(
         PluginHost(conf, api="tes", plugins=plugins)
     assert named in str(info.value)
     _assert_hidden(info.value)
+
+
+def test_plugin_params_failure_hides_input(caplog: pytest.LogCaptureFixture) -> None:
+    """Bugs of validators are errors of the plugin, logged without the input."""
+    conf = PluginsConfig.model_validate(
+        {
+            "available": {"test.failing": {}},
+            "pipeline": [{"plugin": "test.failing", "params": {"name": LEAK}}],
+        }
+    )
+    plugins = load_plugins(
+        conf, api="tes", find_entry_points=fake_entry_points(PLUGINS)
+    )
+    with pytest.raises(PluginError, match="KeyError") as info:
+        PluginHost(conf, api="tes", plugins=plugins)
+    _assert_hidden(info.value)
+    assert "failed to validate params" in caplog.text
+    assert LEAK not in caplog.text
 
 
 def test_plugin_required_params_errors_hide_input() -> None:

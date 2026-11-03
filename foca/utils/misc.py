@@ -6,8 +6,20 @@ from secrets import choice
 
 from pydantic import ValidationError
 
-# Types of errors of pydantic whose messages quote parts of the input
-_INPUT_IN_MESSAGE = frozenset({"import_error", "union_tag_invalid"})
+# Types of errors of pydantic whose messages quote parts of the input (also
+# caught if they quote all of it, see `describe_validation_error()`)
+_INPUT_IN_MESSAGE = frozenset(
+    {
+        "byte_size_unit",
+        "bytes_invalid_encoding",
+        "import_error",
+        "union_tag_invalid",
+        "uuid_parsing",
+        "zoneinfo_str",
+    }
+)
+# Shorter strings often are in messages by chance, and are hardly secrets
+_MIN_QUOTED_INPUT = 4
 
 # Matches references to constants of the `string` module (e.g.,
 # `string.digits`), as used in charset expressions that were evaluated by
@@ -42,7 +54,8 @@ def describe_validation_error(exc: Exception) -> str:
     chained errors.
 
     Names of keys are shown (e.g., of unknown ones), as they tell what to
-    correct, and so are messages of validators written for a model.
+    correct, and so are messages of validators written for a model, unless
+    they contain the input as a whole.
 
     Args:
         exc: Error raised by validating. Others than validation errors (e.g.,
@@ -55,12 +68,16 @@ def describe_validation_error(exc: Exception) -> str:
     if not isinstance(exc, ValidationError):
         return type(exc).__name__
     parts = []
-    for error in exc.errors(
-        include_url=False, include_context=False, include_input=False
-    ):
+    for error in exc.errors(include_url=False, include_context=False):
+        value = error["input"]
+        quoted = (
+            isinstance(value, str)
+            and len(value) >= _MIN_QUOTED_INPUT
+            and value in error["msg"]
+        )
         message = (
             f"invalid value ({error['type']})"
-            if error["type"] in _INPUT_IN_MESSAGE
+            if quoted or error["type"] in _INPUT_IN_MESSAGE
             else error["msg"]
         )
         location = ".".join(str(part) for part in error["loc"])

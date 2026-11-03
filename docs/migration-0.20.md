@@ -136,11 +136,14 @@ to rotate it.
   (`input_value`), as it may contain the secret; the error still names the
   setting and the reason. This includes the plugins' `config` and step
   `params`, whatever their models set, and the custom configuration. Errors
-  of these now read `<setting>: <reason>`, without the original error in
-  their chain (the custom configuration's has it as `__cause__`, a plain
-  `ValueError`); errors other than validation errors show their type only.
-  Names of keys and the messages of a model's own validators are still
-  shown, so they must not contain secrets.
+  of the plugins' settings read `<setting>: <reason>`, without the original
+  error in their chain. The custom configuration's message stays as it was,
+  and its `__cause__` is no longer the `ValidationError`, but a plain
+  `ValueError` with `<setting>: <reason>`: code and tests that check for the
+  type or call `.errors()` need to use `str(__cause__)` instead. Errors other
+  than validation errors show their type only. Names of keys and the messages
+  of a model's own validators are still shown, unless they contain the value
+  as a whole, so they must not contain secrets.
 - **Helm charts** based on foca-common 0.4.0 or later pass the secret from
   an existing Secret (key `store-key-secret`) to the app and the worker:
   set `plugins.existingSecret` to its name (see [deployment

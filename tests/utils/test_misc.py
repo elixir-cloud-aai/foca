@@ -2,16 +2,21 @@
 
 import string
 from typing import Annotated, Literal
+from uuid import UUID
 
 import pytest
 from pydantic import (
+    Base64Bytes,
     BaseModel,
+    BeforeValidator,
+    ByteSize,
     ConfigDict,
     Field,
     ImportString,
     ValidationError,
     model_validator,
 )
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from foca.utils.misc import describe_validation_error, generate_id
 
@@ -80,10 +85,18 @@ class _Quoting(BaseModel):
     Attributes:
         union: Discriminated union.
         path: Python path.
+        size: Size in bytes.
+        uuid: UUID.
+        encoded: Encoded bytes.
+        number: Number converted by a validator.
     """
 
     union: Annotated[_Kind | _OtherKind, Field(discriminator="kind")] | None = None
     path: ImportString[object] | None = None
+    size: ByteSize | None = None
+    uuid: UUID | None = None
+    encoded: Base64Bytes | None = None
+    number: Annotated[float, BeforeValidator(float)] | None = None
 
 
 @pytest.mark.parametrize(
@@ -91,6 +104,10 @@ class _Quoting(BaseModel):
     [
         ({"union": {"kind": "s3cr3t"}}, "union"),
         ({"path": "s3cr3t"}, "path"),
+        ({"size": "5 s3cr3t"}, "size"),
+        ({"uuid": "s3cr3t"}, "uuid"),
+        ({"encoded": "s3cr3t%"}, "encoded"),
+        ({"number": "s3cr3t"}, "number"),
     ],
 )
 def test_describe_validation_error_quoted_input(
@@ -99,10 +116,17 @@ def test_describe_validation_error_quoted_input(
     """Messages of pydantic that quote the input are not passed on."""
     with pytest.raises(ValidationError) as info:
         _Quoting.model_validate(data)
-    assert "s3cr3t" in str(info.value.errors())
     text = describe_validation_error(info.value)
     assert text.startswith(f"{location}")
     assert "s3cr3t" not in text
+
+
+def test_describe_validation_error_time_zone() -> None:
+    """Errors of time zones, which older versions of pydantic lack."""
+    error = PydanticCustomError("zoneinfo_str", "invalid timezone: s3cr3t")
+    details = InitErrorDetails(type=error, loc=("zone",), input=1)
+    exc = ValidationError.from_exception_data("Model", [details])
+    assert describe_validation_error(exc) == "zone: invalid value (zoneinfo_str)"
 
 
 def test_describe_validation_error_other_errors() -> None:
