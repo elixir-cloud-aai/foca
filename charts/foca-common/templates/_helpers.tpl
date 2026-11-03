@@ -312,11 +312,30 @@ ConfigMap template, which every app chart renders.
 {{- end -}}
 
 {{/*
+"true" if a value is an audience setting that FOCA accepts: a non-empty list
+of non-blank client IDs; otherwise empty.
+*/}}
+{{- define "foca-common.isAudience" -}}
+{{- $valid := and (kindIs "slice" .) (gt (len .) 0) -}}
+{{- range $client := (ternary . (list) $valid) -}}
+{{- if not (and (kindIs "string" $client) (trim $client)) -}}
+{{- $valid = false -}}
+{{- end -}}
+{{- end -}}
+{{- if $valid -}}true{{- end -}}
+{{- end -}}
+
+{{/*
 As FOCA on startup, refuse to render without an audience (a list of
 non-blank client IDs) for the trusted token issuers, unless audience
 validation is explicitly disabled: with a value that pydantic parses as false
 (e.g., `false` or "False"; the strings are those of pydantic 2.14,
-pydantic-core 2.50). `null` doesn't disable it (FOCA refuses it). Only the
+pydantic-core 2.50). `null` doesn't disable it (FOCA refuses it). Each issuer
+of `security.auth.issuers` needs an audience of its own or the global one, so
+the global one is optional if all issuers have their own; without `issuers`
+it is required, as the app's base config may list them, but an empty list
+removes them. Audiences that are set must be valid, also if no issuer uses
+them. Only the
 overlay is checked, so the app's settings opt in (`requireAudience`) if the
 app needs token issuers. Call with a dict of the overlay (`config`; see
 `foca-common.configOverlay`).
@@ -336,15 +355,28 @@ app needs token issuers. Call with a dict of the overlay (`config`; see
 {{- else if kindIs "string" $verifyAudience -}}
 {{- $verifyAudience = not (has (lower $verifyAudience) (list "0" "off" "f" "false" "n" "no")) -}}
 {{- end -}}
-{{- $audience := get $auth "audience" -}}
-{{- $hasAudience := and (kindIs "slice" $audience) (gt (len $audience) 0) -}}
-{{- range $client := (ternary $audience (list) $hasAudience) -}}
-{{- if not (and (kindIs "string" $client) (trim $client)) -}}
-{{- $hasAudience = false -}}
+{{- /* `index`, as `get` gives an empty string for missing keys */ -}}
+{{- $audience := index $auth "audience" -}}
+{{- $hasAudience := include "foca-common.isAudience" $audience -}}
+{{- /* Unset or empty: fine if all issuers have audiences of their own */ -}}
+{{- $unset := or (kindIs "invalid" $audience) (and (kindIs "slice" $audience) (not $audience)) -}}
+{{- $valid := or $hasAudience $unset -}}
+{{- $issuers := index $auth "issuers" -}}
+{{- /* An empty list removes the issuers of the base config */ -}}
+{{- $needsGlobal := not (kindIs "slice" $issuers) -}}
+{{- $issuers = ternary $issuers (list) (kindIs "slice" $issuers) -}}
+{{- range $issuer := $issuers -}}
+{{- /* Plain URLs have no settings of their own */ -}}
+{{- $own := index (ternary $issuer (dict) (kindIs "map" $issuer)) "audience" -}}
+{{- if kindIs "invalid" $own -}}
+{{- $needsGlobal = true -}}
+{{- else if not (include "foca-common.isAudience" $own) -}}
+{{- /* FOCA refuses these whatever verify_audience says */ -}}
+{{- fail "the audience of each of config.security.auth.issuers must list non-blank client IDs, if set" -}}
 {{- end -}}
 {{- end -}}
-{{- if and $verifyAudience (not $hasAudience) -}}
-{{- fail "config.security.auth.audience must list the client IDs of the apps calling this app (e.g., its front end), whose tokens are accepted; or set config.security.auth.verify_audience to false to accept tokens for any audience (not recommended)" -}}
+{{- if and $verifyAudience (or (not $valid) (and $needsGlobal (not $hasAudience))) -}}
+{{- fail "config.security.auth.audience must list the client IDs of the apps calling this app (e.g., its front end), whose tokens are accepted, unless each of config.security.auth.issuers has an audience of its own; or set config.security.auth.verify_audience to false to accept tokens for any audience (not recommended)" -}}
 {{- end -}}
 {{- end -}}
 

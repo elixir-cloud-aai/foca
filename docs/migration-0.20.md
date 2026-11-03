@@ -136,3 +136,10 @@ to rotate it.
   and add `plugins.existingSecret: ""` to their values. Rendering fails if
   the config overlay sets `config.plugins.defaults.store.key_secret`, as
   it is a ConfigMap.
+
+### Audiences of issuers in Helm charts
+
+With foca-common 0.4.0 or later, `requireAudience` accepts configurations in
+which each of `config.security.auth.issuers` has an `audience` of its own,
+without `config.security.auth.audience`, as FOCA does. Apps that computed
+`requireAudience` to get around the refusal can set it to `true`.

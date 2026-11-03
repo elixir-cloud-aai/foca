@@ -73,29 +73,42 @@ spec:
           containerPort: 8080
           protocol: TCP
         # Probes request `{{ .settings.valuesKey }}.probePath`, e.g., the Swagger UI
-        # (no authentication, no database access)
+        # (no authentication, no database access), unless replaced
+        # (`{{ .settings.valuesKey }}.startupProbe`, `readinessProbe`, `livenessProbe`)
         # Up to 5 minutes are allowed for the start before liveness checks
         startupProbe:
+        {{- with $values.startupProbe }}
+          {{- toYaml . | nindent 10 }}
+        {{- else }}
           httpGet:
             path: {{ $values.probePath | quote }}
             port: 8080
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 30
+        {{- end }}
         readinessProbe:
+        {{- with $values.readinessProbe }}
+          {{- toYaml . | nindent 10 }}
+        {{- else }}
           httpGet:
             path: {{ $values.probePath | quote }}
             port: 8080
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
+        {{- end }}
         livenessProbe:
+        {{- with $values.livenessProbe }}
+          {{- toYaml . | nindent 10 }}
+        {{- else }}
           httpGet:
             path: {{ $values.probePath | quote }}
             port: 8080
           periodSeconds: 20
           timeoutSeconds: 5
           failureThreshold: 3
+        {{- end }}
         {{- with int ($values.preStopSleepSeconds | default 0) }}
         # Keep serving until the ingress controller and Service have removed
         # the pod from their endpoints, as Gunicorn stops accepting
