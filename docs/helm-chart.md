@@ -727,9 +727,9 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
     `<app name>-broker-config`); for an external RabbitMQ, set
     `deprecated_features.permit.transient_nonexcl_queues = true`, or the
     worker fails to start.
-- **Key secret of the plugin store:** gateway apps whose plugins keep their
-  [store](configuration/plugins.md#plugin-store) in the database should key
-  the hashes of `ctx.store.key_for()` with a secret (FOCA 0.20.0 or later).
+- **Key secret of the plugin store:** From FOCA 0.20.0 on, gateway apps whose
+  plugins keep their [store](configuration/plugins.md#plugin-store) in the
+  database should key the hashes of `ctx.store.key_for()` with a secret.
   Put it in an existing Secret with the key `store-key-secret` and set
   `pluginStore.existingSecret` to its name: the chart passes it to the app and
   the worker as `FOCA_PLUGINS_STORE_KEY_SECRET`, which FOCA uses unless
