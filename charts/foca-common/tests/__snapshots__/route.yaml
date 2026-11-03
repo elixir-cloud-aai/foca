@@ -210,7 +210,8 @@ spec:
           containerPort: 8080
           protocol: TCP
         # Probes request `petstore.probePath`, e.g., the Swagger UI
-        # (no authentication, no database access)
+        # (no authentication, no database access), unless replaced
+        # (`petstore.startupProbe`, `readinessProbe`, `livenessProbe`)
         # Up to 5 minutes are allowed for the start before liveness checks
         startupProbe:
           httpGet:

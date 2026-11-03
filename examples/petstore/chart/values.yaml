@@ -53,6 +53,11 @@ petstore:
   # OpenAPI spec (no authentication or database access, and lighter than
   # the Swagger UI, `/ui/`)
   probePath: /openapi.json
+  # Probes of the app's container (Kubernetes probe specs); if set, one
+  # replaces the default on `probePath` entirely
+  startupProbe: {}
+  readinessProbe: {}
+  livenessProbe: {}
   # Number of the app's pods; with more than one, the app stays available
   # while a pod is restarted or evicted (e.g., on node drains). FOCA apps
   # support several pods (see the chart docs for the caveats,

@@ -167,7 +167,7 @@ your app's `valuesKey`:
 | `hostName` | Public host name of the Ingress, HTTPRoute or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
 | `plugins` | Secrets of gateway plugins: `existingSecret` (the key secret of the plugin store; none if empty) |
-| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
+| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `startupProbe`, `readinessProbe`, `livenessProbe`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `persistence` (`volumeSize`, its size up to 0.1.0, is a deprecated alias of `persistence.size`), `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
 | `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `persistence`, `dataSizeLimit`, `tmpSizeLimit` |
@@ -775,6 +775,41 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
   disable it (as in the petstore example); otherwise, pass
   `--no-control-socket` in the image or via `extraArgs`, as Gunicorn 25.1
   or later logs a control server error at startup.
+
+### Probes
+
+The app's container has a startup, a readiness and a liveness probe, all
+requesting `<valuesKey>.probePath`. Override one with `startupProbe`,
+`readinessProbe` or `livenessProbe` to tune its timings or check something
+else. A probe that is set replaces the default entirely, so it has to name
+the check as well; an empty map keeps the default. For example, for an app that
+takes up to 10 minutes to start and answers slowly under load:
+
+```yaml title="values.yaml"
+myApp:
+  startupProbe:
+    httpGet:
+      path: /openapi.json
+      port: 8080
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 60
+  livenessProbe:
+    httpGet:
+      path: /openapi.json
+      port: 8080
+    periodSeconds: 30
+    timeoutSeconds: 15
+    failureThreshold: 5
+```
+
+So setting only `failureThreshold`, without `httpGet`, fails when the
+Deployment is applied. Helm merges values files, also these maps: to switch the
+kind of check over a probe set in another values file, set the probe to `null`
+in a file in between.
+
+FOCA has no health endpoints yet, so choose a path that needs no
+authentication and no database, as `probePath` does.
 
 ### Several replicas
 
