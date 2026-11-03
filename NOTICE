@@ -1,0 +1,8 @@
+FOCA
+
+This product includes software derived from casbin-pymongo-adapter
+(https://github.com/pycasbin/pymongo-adapter), licensed under the Apache
+License, Version 2.0:
+
+- foca/security/access_control/foca_casbin_adapter/adapter.py, since then
+  largely rewritten
