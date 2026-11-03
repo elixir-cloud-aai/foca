@@ -43,7 +43,7 @@ Celery's defaults.
 
 On `SIGTERM`, a worker shuts down warmly: it stops taking new tasks, waits for
 the running tasks to finish, and then exits. Messages it has fetched but not
-started go back to the queue. If the running tasks take longer than the
+acknowledged go back to the queue. If the running tasks take longer than the
 platform allows (on Kubernetes, `terminationGracePeriodSeconds`), the worker
 gets a `SIGKILL`.
 
@@ -53,7 +53,7 @@ change that:
 
 | Setting | Default | Effect |
 |---|---|---|
-| `task_acks_late` | `False` | Acknowledge after the task ran, so that the broker delivers it again if the worker's connection is lost before |
+| `task_acks_late` | `False` | Acknowledge after the task ran, so that the broker delivers it again if the worker's connection is lost before the acknowledgment |
 | `task_reject_on_worker_lost` | `False` | With `task_acks_late`, put the task back on the queue if the process running it dies (by default, it is acknowledged and marked as failed) |
 | `worker_prefetch_multiplier` | `4` | Messages each worker process fetches ahead; `1` suits long tasks, as fewer tasks then wait behind a running one |
 
@@ -80,8 +80,8 @@ With these settings, tasks run **at least once** instead of at most once, so:
 - **A task that kills its worker runs again and again.** With
   `task_reject_on_worker_lost`, a task that runs out of memory, for example,
   goes back to the queue each time. Bound this, e.g., with a [delivery
-  limit](https://www.rabbitmq.com/docs/quorum-queues#poison-message-handling)
-  on the queue.
+  limit](https://www.rabbitmq.com/docs/quorum-queues#poison-message-handling),
+  which needs a quorum queue; Celery declares classic queues by default.
 - **Long tasks need a longer broker timeout.** RabbitMQ closes the channel of
   a consumer that hasn't acknowledged a message for 30 minutes by default
   ([`consumer_timeout`](https://www.rabbitmq.com/docs/consumers#acknowledgement-timeout)),
