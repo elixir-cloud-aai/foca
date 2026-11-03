@@ -78,6 +78,20 @@ they exist, lookups by request ID must cover both: `_id` (old records) and
 
 ## Other changes
 
+### Errors of `GuardedClient`
+
+`foca.utils.http.GuardedClient` now decides by whether sending a request has
+started if an error is `RequestNotSent` or `RequestMaybeSent`, rather than by
+the kind of error. Apps that catch these classes need no change, but they
+may see other ones: a TLS error while waiting for or reading a response is
+now `RequestMaybeSent` (`connection_lost`, previously `RequestNotSent`,
+`tls_error`), so don't retry such requests elsewhere; a connection lost or a
+timeout during the TLS handshake is now `RequestNotSent` (`connect_error`,
+previously `RequestMaybeSent`), and a deadline that passes before sending is
+`DeadlineExceeded`. Redirects with bodies above `max_response_size` give
+`ResponseTooLarge` without reading the whole body, and redirects to invalid
+URLs are returned like others (previously `InvalidRequestURL`).
+
 ### Secret for the keys of the plugin store
 
 `ctx.store.key_for()` hashes parts that may be personal data (e.g., a

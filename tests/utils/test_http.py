@@ -3,6 +3,7 @@
 Requests go to a local server only (loopback), never to the network.
 """
 
+import contextlib
 import ipaddress
 import socket
 import ssl
@@ -34,6 +35,13 @@ from foca.utils.http import (
     is_public_address,
 )
 
+# Paths of the local test server that redirect, and where to
+REDIRECTS = {
+    "/redirect": "http://127.0.0.1:1/",
+    "/redirect-endless": "http://127.0.0.1:1/",
+    "/redirect-invalid": "http://[invalid/",
+}
+
 
 class Handler(BaseHTTPRequestHandler):
     """Handler of the local test server."""
@@ -48,10 +56,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Answer by path."""
-        if self.path == "/redirect":
+        if self.path in REDIRECTS:
             self.send_response(302)
-            self.send_header("Location", "http://127.0.0.1:1/")
+            self.send_header("Location", REDIRECTS[self.path])
             self.end_headers()
+            with contextlib.suppress(OSError):
+                while self.path == "/redirect-endless":
+                    self.wfile.write(b"x" * 65536)
+                    self.wfile.flush()
+                    time.sleep(0.001)
+            return
+        if self.path == "/no-answer":
+            self.close_connection = True
             return
         if self.path == "/slow":
             self.send_response(200)
@@ -214,6 +230,19 @@ def test_redirects_not_followed(server: str) -> None:
     assert response.headers["location"] == "http://127.0.0.1:1/"
 
 
+def test_redirect_bodies_limited(server: str) -> None:
+    """The bodies of redirects are read within the size limit."""
+    with pytest.raises(ResponseTooLarge):
+        local(max_response_size=1024, timeout=2).get(f"{server}/redirect-endless")
+
+
+def test_redirect_to_invalid_url_returned(server: str) -> None:
+    """Redirects are returned, whatever URL they point to."""
+    response = local().get(f"{server}/redirect-invalid")
+    assert response.status == 302
+    assert response.headers["location"] == "http://[invalid/"
+
+
 def test_schemes() -> None:
     """Only `https` is allowed by default."""
     with pytest.raises(InvalidRequestURL, match="http"):
@@ -265,6 +294,9 @@ def test_connection_refused() -> None:
             "dns_error",
         ),
         (requests.exceptions.SSLError("bad"), RequestNotSent, "tls_error"),
+        (requests.ConnectionError("reset"), RequestNotSent, "connect_error"),
+        # e.g., a timeout during the TLS handshake
+        (requests.exceptions.ReadTimeout(), RequestNotSent, "connect_error"),
         (
             requests.ConnectionError(
                 urllib3.exceptions.MaxRetryError(
@@ -277,30 +309,132 @@ def test_connection_refused() -> None:
             "tls_error",
         ),
         (requests.exceptions.ConnectTimeout(), RequestNotSent, "connect_error"),
-        (requests.exceptions.ReadTimeout(), RequestMaybeSent, "read_timeout"),
-        (requests.ConnectionError("reset"), RequestMaybeSent, "connection_lost"),
     ],
 )
-def test_classify(error: Exception, kind: type[HttpError], reason: str) -> None:
-    """Errors of requests are classified as sent or not."""
-    result = http._classify(error, "https://example.org")  # type: ignore[arg-type]
+def test_classify_not_sent(
+    error: Exception, kind: type[HttpError], reason: str
+) -> None:
+    """Errors before sending are classified by their cause."""
+    result = http._classify(error, "https://example.org", sent=False)  # type: ignore[arg-type]
     assert type(result) is kind
     assert result.reason == reason
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (requests.exceptions.ReadTimeout(), "read_timeout"),
+        (
+            requests.ConnectionError(
+                urllib3.exceptions.ReadTimeoutError(None, "/", "timed out")  # type: ignore[arg-type]
+            ),
+            "read_timeout",
+        ),
+        (requests.ConnectionError("reset"), "connection_lost"),
+        # may look like errors before sending, but aren't
+        (requests.exceptions.SSLError("bad"), "connection_lost"),
+        (requests.exceptions.ConnectTimeout(), "connection_lost"),
+    ],
+)
+def test_classify_sent(error: Exception, reason: str) -> None:
+    """Errors after sending may always have reached the server."""
+    result = http._classify(error, "https://example.org", sent=True)  # type: ignore[arg-type]
+    assert type(result) is RequestMaybeSent
+    assert result.reason == reason
+
+
+def test_error_reasons_tell_sent_from_not_sent() -> None:
+    """A reason code means either sent or not sent, never both."""
+    url = "https://example.org"
+    errors = [
+        requests.exceptions.SSLError("bad"),
+        requests.exceptions.ReadTimeout(),
+        requests.ConnectionError("reset"),
+        requests.exceptions.ConnectTimeout(),
+    ]
+    not_sent = {http._classify(error, url, sent=False).reason for error in errors}
+    maybe_sent = {http._classify(error, url, sent=True).reason for error in errors}
+    assert not_sent.isdisjoint(maybe_sent)
+
+
+def test_tls_error_after_sending(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A TLS error while waiting for the response isn't "not sent"."""
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise ssl.SSLError("bad record mac")
+
+    monkeypatch.setattr(urllib3.connection.HTTPConnection, "getresponse", fail)
+    with pytest.raises(RequestMaybeSent):
+        local().post(f"{server}/", json={})
+
+
+def test_value_error_after_sending(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Other errors after sending aren't taken for invalid URLs."""
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise ValueError("unexpected")
+
+    monkeypatch.setattr(urllib3.connection.HTTPConnection, "getresponse", fail)
+    with pytest.raises(RequestMaybeSent):
+        local().post(f"{server}/", json={})
+
+
+def test_connection_lost_before_sending(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A connection lost before sending (e.g., during the handshake) isn't sent."""
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise ConnectionResetError("reset")
+
+    monkeypatch.setattr(urllib3.connection.HTTPSConnection, "connect", fail)
+    with pytest.raises(RequestNotSent) as info:
+        local().post("https://127.0.0.1:1/", json={})
+    assert info.value.reason == "connect_error"
+
+
+def test_connection_lost_after_sending(server: str) -> None:
+    """A server that closes without answering may have got the request."""
+    with pytest.raises(RequestMaybeSent) as info:
+        local().get(f"{server}/no-answer")
+    assert info.value.reason == "connection_lost"
+
+
+@pytest.mark.parametrize("error", [ConnectionResetError("reset"), ValueError("bad")])
+def test_deadline_before_sending(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    """A deadline passing before anything was sent is not "maybe sent"."""
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        time.sleep(0.2)
+        raise error
+
+    monkeypatch.setattr(urllib3.connection.HTTPSConnection, "connect", fail)
+    with pytest.raises(DeadlineExceeded):
+        local(timeout=0.05).post("https://127.0.0.1:1/", json={})
 
 
 def test_classify_cycles() -> None:
     """Cyclic exception chains end."""
     error = requests.ConnectionError("x")
     error.__context__ = error
-    assert http._classify(error, "u").reason == "connection_lost"
+    assert http._classify(error, "u", sent=True).reason == "connection_lost"
 
 
-def test_read_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Errors while reading are classified."""
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ChunkedEncodingError("lost"),
+        requests.exceptions.SSLError("bad record mac"),
+    ],
+)
+def test_read_errors(error: Exception) -> None:
+    """Errors while reading mean that the request was sent."""
 
     class Response:
         def iter_content(self, chunk_size: int) -> Iterator[bytes]:
-            raise requests.exceptions.ChunkedEncodingError("lost")
+            raise error
 
     with pytest.raises(RequestMaybeSent):
         GuardedClient()._read(
@@ -775,7 +909,9 @@ def test_expired_errors(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def fail(error: Exception) -> Any:
         def request(*args: Any, **kwargs: Any) -> None:
-            client._guards.current().expired = True
+            guard = client._guards.current()
+            guard.sent = True
+            guard.expired = True
             raise error
 
         return request
