@@ -313,6 +313,8 @@ def test_fake_http_response_hooks() -> None:
         http.get("https://example.org/", auth=requests.auth.HTTPDigestAuth("a", "b"))
     assert http.calls == []
     assert http.get("https://example.org/", auth=("a", "b")).content == b"1"
+    with pytest.raises(InvalidRequestURL):
+        http.get("https://", auth=("a", "b"))
 
 
 def test_fake_http_guards() -> None:

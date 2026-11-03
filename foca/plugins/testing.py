@@ -468,10 +468,6 @@ class FakeHttp(GuardedClient):
             raise InvalidRequestURL("Invalid HTTP method")
         if json is not None:
             _check_json_body(json, url)
-        if auth is not None:
-            _check_response_hooks(
-                requests.Request(method, url, auth=auth).prepare().hooks
-            )
         if not self.allow_private_addresses:
             try:
                 address = ipaddress.ip_address(host)
@@ -491,6 +487,9 @@ class FakeHttp(GuardedClient):
             ) from exc
         except (requests.RequestException, ValueError) as exc:
             raise InvalidRequestURL(f"Invalid URL: {type(exc).__name__}") from exc
+        if auth is not None:
+            prepared = requests.Request(method, url, auth=auth).prepare()
+            _check_response_hooks(prepared.hooks)
         with self._state.lock:
             # checked again, in case waiting for other clients took long
             remaining = self.remaining()
