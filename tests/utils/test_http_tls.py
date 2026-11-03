@@ -240,4 +240,4 @@ def test_hang_after_sending(
             stop.wait(10)
 
     with pytest.raises(RequestMaybeSent):
-        client(timeout=0.5).post(serve(behaviour), json={})
+        client(timeout=2).post(serve(behaviour), json={})

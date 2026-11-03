@@ -24,6 +24,7 @@ from foca.models.config import (
     AuthConfig,
     ServiceClientConfig,
 )
+from foca.utils.http import _redact
 from foca.utils.logging import escape_log_value
 
 # Get logger instance
@@ -311,7 +312,7 @@ def log_auth_config_warnings(conf: AuthConfig) -> None:
             logger.warning(
                 "Trusted issuer %s is reached without TLS: anyone on the network "
                 "can change its signing keys, and so forge what it signs.",
-                escape_log_value(issuer),
+                _redact(issuer),
             )
     if not conf.verify_audience and conf.clients is None:
         logger.warning(

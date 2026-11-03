@@ -399,6 +399,22 @@ def test_fake_http_requests() -> None:
         with pytest.raises(InvalidRequest) as info:
             http.post("https://x.example.org/", **kwargs)
         assert info.value.reason == "invalid_header"
+
+    def non_latin1_auth(prepared: Any) -> Any:
+        """Add a header that can't be encoded.
+
+        Args:
+            prepared: Prepared request.
+
+        Returns:
+            The request.
+        """
+        prepared.headers["X-Key"] = "euro \u20ac"
+        return prepared
+
+    with pytest.raises(InvalidRequest) as info:
+        http.post("https://x.example.org/", auth=non_latin1_auth)
+    assert info.value.reason == "invalid_header"
     assert len(http.calls) == 1
 
 

@@ -1012,7 +1012,6 @@ class TestLogAuthConfigWarnings:
             "HTTP://login.example.org/",
             "http://localhost.example.org/",
             "http://10.0.0.1/",
-            "http://[invalid/",
         ],
     )
     def test_issuer_without_tls(
@@ -1023,7 +1022,28 @@ class TestLogAuthConfigWarnings:
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
         assert "without TLS" in caplog.text
-        assert issuer in caplog.text
+        assert issuer.lower() in caplog.text
+
+    def test_invalid_issuer_without_tls(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An issuer that can't be parsed is warned about, too."""
+        conf = AuthConfig(issuers=["http://[invalid/"], audience=[AUDIENCE])
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert "(invalid URL) is reached without TLS" in caplog.text
+
+    def test_issuer_without_tls_redacted(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The warning leaves out credentials and query of the issuer."""
+        conf = AuthConfig(
+            issuers=["http://me:hunter2@login.example.org/realm?key=abc123"],
+            audience=[AUDIENCE],
+        )
+        with caplog.at_level(logging.WARNING):
+            log_auth_config_warnings(conf)
+        assert "http://login.example.org/realm is reached" in caplog.text
+        assert "hunter2" not in caplog.text
+        assert "abc123" not in caplog.text
 
     @pytest.mark.parametrize(
         "issuer",

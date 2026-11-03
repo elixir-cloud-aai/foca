@@ -484,6 +484,7 @@ class FakeHttp(GuardedClient):
             if auth is not None:
                 prepared = requests.Request(method, url, auth=auth).prepare()
                 _check_response_hooks(prepared.hooks)
+                _check_header_encoding(prepared)
         except (requests.exceptions.InvalidHeader, UnicodeEncodeError) as exc:
             raise InvalidRequest(
                 f"Invalid header for {_redact(url)}", reason="invalid_header"
@@ -550,11 +551,23 @@ def _prepared_url(
     prepared = requests.Request(
         method.upper(), url, params=params, headers=dict(headers or {})
     ).prepare()
+    _check_header_encoding(prepared)
+    return str(prepared.url)
+
+
+def _check_header_encoding(prepared: requests.PreparedRequest) -> None:
+    """Check that headers can be encoded, as when `http.client` sends them.
+
+    Args:
+        prepared: Prepared request.
+
+    Raises:
+        UnicodeEncodeError: A header can't be encoded.
+    """
     for name, value in prepared.headers.items():
         name.encode("ascii")
         if isinstance(value, str):
             value.encode("latin-1")
-    return str(prepared.url)
 
 
 # Harness
