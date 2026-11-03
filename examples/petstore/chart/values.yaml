@@ -26,9 +26,9 @@ config: {}
 #       console:
 #         level: 20
 
-# Gateway plugins (for gateway apps; the petstore is none): settings kept in
-# Secrets, which `config` must not contain
-plugins:
+# Plugin store of gateway plugins (for gateway apps; the petstore is none):
+# settings kept in Secrets, which `config` must not contain
+pluginStore:
   # Name of an existing Secret with the key `store-key-secret`, the key
   # secret of the plugin store (FOCA's `plugins.defaults.store.key_secret`),
   # passed to the app and the worker as `FOCA_PLUGINS_STORE_KEY_SECRET`; none
