@@ -333,8 +333,8 @@ def _check_stored_group_subjects(
             "Stored policy rules have groups as their subjects "
             "('group:<value>'), but 'security.access_control.group_mapping' "
             "is set and 'security.access_control.keep_group_subjects' is not, "
-            "so they don't apply: set 'keep_group_subjects: true', or remove "
-            "the rules."
+            "so they don't apply to users via their group claims: set "
+            "'keep_group_subjects: true' if they should."
         )
 
 
