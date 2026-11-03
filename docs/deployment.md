@@ -170,7 +170,8 @@ warnings, naming the setting to change, among others:
 - [service info](configuration/service-info.md#placeholders): values in
   reserved example domains, as in templates;
 - [authentication](configuration/auth.md), on the first token validation
-  rather than on startup: no trusted `issuers`, disabled audience or token
+  rather than on startup: no trusted `issuers`, `issuers` reached without
+  TLS (`http`, except on the loopback interface), disabled audience or token
   type validation, accepted expired tokens, and an `on_behalf_of_header`
   without service clients acting for users.
 

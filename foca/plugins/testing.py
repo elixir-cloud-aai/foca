@@ -543,11 +543,20 @@ def _prepared_url(
 
     Raises:
         requests.RequestException: `requests` cannot prepare the URL, or
-            a header is invalid (`requests.exceptions.InvalidHeader`).
+            a header is invalid (`requests.exceptions.InvalidHeader`, also for
+            values that `http.client` can't encode when sending).
     """
     prepared = requests.Request(
         method.upper(), url, params=params, headers=dict(headers or {})
     ).prepare()
+    for name, value in prepared.headers.items():
+        if isinstance(value, str):
+            try:
+                value.encode("latin-1")
+            except UnicodeEncodeError as exc:
+                raise requests.exceptions.InvalidHeader(
+                    f"Value of header {name} is not Latin-1"
+                ) from exc
     return str(prepared.url)
 
 
