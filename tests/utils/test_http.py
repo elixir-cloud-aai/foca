@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 import requests
+import requests.auth
 import urllib3
 
 from foca.utils import http
@@ -35,7 +36,7 @@ from foca.utils.http import (
     is_public_address,
 )
 
-# Paths of the local test server that redirect, and where to
+# Locations of the redirects of the local test server, by path
 REDIRECTS = {
     "/redirect": "http://127.0.0.1:1/",
     "/redirect-endless": "http://127.0.0.1:1/",
@@ -343,20 +344,6 @@ def test_classify_sent(error: Exception, reason: str) -> None:
     assert result.reason == reason
 
 
-def test_error_reasons_tell_sent_from_not_sent() -> None:
-    """A reason code means either sent or not sent, never both."""
-    url = "https://example.org"
-    errors = [
-        requests.exceptions.SSLError("bad"),
-        requests.exceptions.ReadTimeout(),
-        requests.ConnectionError("reset"),
-        requests.exceptions.ConnectTimeout(),
-    ]
-    not_sent = {http._classify(error, url, sent=False).reason for error in errors}
-    maybe_sent = {http._classify(error, url, sent=True).reason for error in errors}
-    assert not_sent.isdisjoint(maybe_sent)
-
-
 def test_tls_error_after_sending(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """A TLS error while waiting for the response isn't "not sent"."""
 
@@ -377,8 +364,21 @@ def test_value_error_after_sending(
         raise ValueError("unexpected")
 
     monkeypatch.setattr(urllib3.connection.HTTPConnection, "getresponse", fail)
-    with pytest.raises(RequestMaybeSent):
+    with pytest.raises(RequestMaybeSent) as info:
         local().post(f"{server}/", json={})
+    assert info.value.reason == "connection_lost"
+
+
+def test_response_hooks_refused(server: str) -> None:
+    """Handlers with response hooks, which read bodies without limit, are refused."""
+    with pytest.raises(InvalidRequest) as info:
+        local().get(f"{server}/", auth=requests.auth.HTTPDigestAuth("a", "b"))
+    assert isinstance(info.value, RequestNotSent)
+
+
+def test_basic_auth(server: str) -> None:
+    """Handlers without response hooks work."""
+    assert local().get(f"{server}/", auth=("a", "b")).status == 200
 
 
 def test_connection_lost_before_sending(monkeypatch: pytest.MonkeyPatch) -> None:

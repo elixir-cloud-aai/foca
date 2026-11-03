@@ -658,12 +658,16 @@ class _GuardedAdapter(HTTPAdapter):
 
 
 class _GuardedSession(requests.Session):
-    """Session that knows no redirects.
+    """Session that returns responses as they are, unread.
 
     With `allow_redirects=False`, sessions of requests still prepare the next
-    request of a redirect (for `Response.next`). To do so, they read the whole
-    body of the redirect, without limit, before the response is returned, and
-    raise errors for invalid URLs in its `Location` header.
+    request of a redirect (for `Response.next`, thus always `None` here). To do
+    so, they read the whole body of the redirect, without limit, before the
+    response is returned, and raise errors for invalid URLs in its `Location`
+    header. Response hooks, which authentication handlers such as
+    `HTTPDigestAuth` install, read bodies without limit and send further
+    requests, so they are refused. `test_redirect_bodies_limited` fails should
+    requests change how it handles redirects.
     """
 
     def get_redirect_target(self, resp: requests.Response) -> None:
@@ -672,6 +676,27 @@ class _GuardedSession(requests.Session):
         Args:
             resp: Response.
         """
+
+    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> Any:
+        """Send a request, unless it has response hooks.
+
+        Args:
+            request: Prepared request.
+            kwargs: Other arguments of `Session.send()`.
+
+        Returns:
+            Response.
+
+        Raises:
+            InvalidRequest: The request has response hooks, e.g., of its
+                authentication handler.
+        """
+        if any((request.hooks or {}).values()):
+            raise InvalidRequest(
+                "Authentication handlers with response hooks (e.g., "
+                "HTTPDigestAuth) are not supported"
+            )
+        return super().send(request, **kwargs)
 
 
 @dataclass
@@ -916,7 +941,8 @@ class GuardedClient:
             json: Body to send as JSON.
             data: Body to send as is.
             auth: Authentication of requests (e.g., a `(user, password)`
-                tuple).
+                tuple); handlers that add response hooks (e.g.,
+                `HTTPDigestAuth`) are refused.
 
         Returns:
             Response, with the whole body.
@@ -928,8 +954,9 @@ class GuardedClient:
             InvalidRequestURL: The URL or method is invalid, or the scheme
                 is not allowed.
             InvalidRequest: `json` is no JSON (e.g., `NaN`, a set;
-                `invalid_request`), or a header is invalid (e.g., with a
-                line break; `invalid_header`).
+                `invalid_request`), a header is invalid (e.g., with a line
+                break; `invalid_header`), or `auth` adds response hooks
+                (`invalid_request`).
             DeadlineExceeded: The deadline passed before sending.
             RequestNotSent: The request certainly did not reach the server,
                 as no byte of it was sent (e.g.,
@@ -992,7 +1019,13 @@ class GuardedClient:
             guard: Guard of the request.
 
         Returns:
-            Error: all errors tell by their type whether sending started.
+            In this order: if the deadline passed,
+            :py:class:`RequestMaybeSent` if sending started, otherwise
+            :py:class:`DeadlineExceeded`; if sending did not start,
+            :py:class:`InvalidRequest` or :py:class:`InvalidRequestURL` for
+            invalid requests, otherwise :py:class:`RequestNotSent` (cf.
+            :py:func:`_classify`); if sending started,
+            :py:class:`RequestMaybeSent`.
         """
         if guard.expired:
             if guard.sent:

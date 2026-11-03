@@ -200,7 +200,9 @@ except RequestMaybeSent as exc:  # may have been received: don't retry
   same limits as other responses; proxies and `.netrc` files of the
   environment are ignored; only `https` is allowed (unless
   `allow_http=True`), and TLS certificates are always verified. Cookies
-  are not kept, so requests do not share state.
+  are not kept, so requests do not share state. Authentication handlers
+  with response hooks (e.g., `HTTPDigestAuth`) are refused, as they read
+  bodies without limit.
 - Each request ends by the deadline as a whole (resolving, connecting,
   sending and reading, also from servers that send slowly; connections
   within 10 s at most), and bodies are limited to `max_response_size`
