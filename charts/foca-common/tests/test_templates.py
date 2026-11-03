@@ -280,6 +280,38 @@ def test_audience_required(
     assert "audience must list" in error
 
 
+@pytest.mark.parametrize("probe", ["startupProbe", "readinessProbe", "livenessProbe"])
+def test_app_probes_default(render: Callable[..., Docs], probe: str) -> None:
+    """By default, probes request the probe path."""
+    container = _container(render())
+    assert container[probe]["httpGet"] == {"path": "/openapi.json", "port": 8080}
+
+
+@pytest.mark.parametrize("probe", ["startupProbe", "readinessProbe", "livenessProbe"])
+def test_app_probe_override(render: Callable[..., Docs], probe: str) -> None:
+    """A probe that is set replaces the default entirely, the others stay."""
+    defaults = _container(render())
+    override = {"tcpSocket": {"port": 8080}, "periodSeconds": 7}
+    container = _container(
+        render(
+            "--set-json",
+            f"petstore.{probe}={json.dumps(override)}",
+            "--set",
+            "petstore.probePath=/health",
+        )
+    )
+    assert container[probe] == override
+    for other in {"startupProbe", "readinessProbe", "livenessProbe"} - {probe}:
+        expected = {**defaults[other], "httpGet": {"path": "/health", "port": 8080}}
+        assert container[other] == expected
+
+
+def test_app_probe_empty_keeps_default(render: Callable[..., Docs]) -> None:
+    """An empty map keeps the default probe."""
+    container = _container(render("--set-json", "petstore.livenessProbe={}"))
+    assert container["livenessProbe"]["periodSeconds"] == 20
+
+
 @pytest.mark.parametrize("value", ["false", '"False"', '"off"', '"0"'])
 def test_audience_validation_disabled(
     chart_with_settings: Callable[[str], Path], value: str
