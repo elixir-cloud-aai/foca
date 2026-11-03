@@ -34,6 +34,66 @@ from foca import Foca
 celery_app = Foca(config_file="my_app/config.yaml").create_celery_app()
 ```
 
+## Worker shutdown
+
+Workers get a `SIGTERM` when they are stopped, e.g., on every rollout of a
+Deployment. Without further settings, this can lose tasks, so decide what
+your tasks need before you run them in production. FOCA changes none of
+Celery's defaults.
+
+On `SIGTERM`, a worker shuts down warmly: it stops taking new tasks, waits for
+the running tasks to finish, and then exits. Messages it has fetched but not
+acknowledged go back to the queue. If the running tasks take longer than the
+platform allows (on Kubernetes, `terminationGracePeriodSeconds`), the worker
+gets a `SIGKILL`.
+
+By default, Celery acknowledges a task just before running it, so a task
+that is killed is lost: the broker won't deliver it again. These settings
+change that:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `task_acks_late` | `False` | Acknowledge after the task ran, so that the broker delivers it again if the worker's connection is lost before the acknowledgment |
+| `task_reject_on_worker_lost` | `False` | With `task_acks_late`, put the task back on the queue if the process running it dies (by default, it is acknowledged and marked as failed) |
+| `worker_prefetch_multiplier` | `4` | Messages each worker process fetches ahead; `1` suits long tasks, as fewer tasks then wait behind a running one |
+
+`jobs` has no field for these settings. Set them on the app that
+`Foca.create_celery_app()` returns, in your worker entry point:
+
+```python
+from foca import Foca
+
+celery_app = Foca(config_file="my_app/config.yaml").create_celery_app()
+celery_app.conf.update(
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    worker_prefetch_multiplier=1,
+)
+```
+
+With these settings, tasks run **at least once** instead of at most once, so:
+
+- **Tasks must be idempotent.** A task that was killed halfway runs again from
+  the start, possibly after it had already done part of its work. Tasks that
+  aren't safe to repeat (e.g., that charge for or submit something) should
+  stay with the defaults, or record their progress and check it first.
+- **A task that kills its worker runs again and again.** With
+  `task_reject_on_worker_lost`, a task that runs out of memory, for example,
+  goes back to the queue each time. Bound this, e.g., with a [delivery
+  limit](https://www.rabbitmq.com/docs/quorum-queues#poison-message-handling),
+  which needs a quorum queue; Celery declares classic queues by default.
+- **Long tasks need a longer broker timeout.** RabbitMQ closes the channel of
+  a consumer that hasn't acknowledged a message for 30 minutes by default
+  ([`consumer_timeout`](https://www.rabbitmq.com/docs/consumers#acknowledgement-timeout)),
+  which delivers the task again. Raise it above your longest task.
+
+Set the grace period above the time your longest task takes, or accept that
+such tasks are killed on rollouts. With the [Helm library
+chart](../helm-chart.md), it is `worker.terminationGracePeriodSeconds`
+(default: 30 seconds). A worker must get the signal itself: start it directly
+(e.g., `command: [celery, --app, my_app.worker:celery_app, worker]`), not through a
+shell that doesn't pass signals on.
+
 ::: foca.models.config.JobsConfig
     options:
       members: false
