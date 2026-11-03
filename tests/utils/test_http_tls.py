@@ -27,7 +27,7 @@ from foca.utils.http import (
     RequestNotSent,
 )
 
-Behaviour = Callable[[socket.socket, "threading.Event"], None]
+Behaviour = Callable[[socket.socket, threading.Event], None]
 
 
 @pytest.fixture(scope="module")
@@ -172,7 +172,11 @@ def test_close_in_handshake(serve: Callable[[Behaviour], str]) -> None:
 
 def test_hang_in_handshake(serve: Callable[[Behaviour], str]) -> None:
     """A deadline passing during the handshake is before sending."""
-    url = serve(lambda connection, stop: stop.wait(10) and None)
+
+    def behaviour(connection: socket.socket, stop: threading.Event) -> None:
+        stop.wait(10)
+
+    url = serve(behaviour)
     with pytest.raises(DeadlineExceeded):
         client(timeout=0.3).post(url, json={})
 
