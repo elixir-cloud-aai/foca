@@ -43,10 +43,10 @@ _OPERATION_OBJECT_FIELDS = frozenset(
 )
 
 
-# Controllers of the operations of the plugin listing
-# (`foca.plugins.api.SPEC_PATH`), which apps merge into their specifications;
-# named here, as importing the plugin system would import it for all apps
-_PLUGIN_LISTING_CONTROLLER = "foca.plugins.api"
+# Operations of the plugin listing (`foca.plugins.api.SPEC_PATH`), which apps
+# merge into their specifications; named here, as importing the plugin system
+# would import it for all apps
+_PLUGIN_LISTING_OPERATIONS = frozenset({"listFocaPlugins", "getFocaPlugin"})
 
 # Options passed to Connexion 2 via the `options` argument of `add_api()`:
 # fields of `ConnexionOptions` and the names of Connexion's options
@@ -434,10 +434,7 @@ def register_openapi(
         # app's patches may still change it
         media_type = _get_error_media_type(app)
         for operation_object in _iter_operations(spec_parsed):
-            if (
-                operation_object.get("x-openapi-router-controller")
-                == _PLUGIN_LISTING_CONTROLLER
-            ):
+            if operation_object.get("operationId") in _PLUGIN_LISTING_OPERATIONS:
                 _set_error_media_type(operation_object, media_type)
 
         # Add/replace root objects

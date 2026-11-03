@@ -1,6 +1,7 @@
 """Casbin rule adapter."""
 
 import logging
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -25,6 +26,7 @@ from foca.security.access_control.constants import (
     DEFAULT_ID_LENGTH,
     GENERATION_MARKER_ID,
     GRANTED_FIELD,
+    GROUP_PREFIX,
     ID_ATTEMPTS,
     LEGACY_GENERATION,
     LOAD_POLICY_ATTEMPTS,
@@ -744,6 +746,20 @@ class Adapter(persist.Adapter):
             generations that never became active.
         """
         query = {CONFIGURED_FIELD: True}
+        return self._collection.count_documents(query, limit=1) > 0
+
+    def has_stored_group_subjects(self) -> bool:
+        """Check whether a rule that is not configured has a group as subject.
+
+        Returns:
+            Whether a stored rule that is not configured (cf.
+            :py:meth:`set_configured_policies`), e.g., written via the
+            permissions API, has a subject with the group prefix.
+        """
+        query = {
+            CONFIGURED_FIELD: {"$ne": True},
+            "v0": {"$regex": f"^{re.escape(GROUP_PREFIX)}"},
+        }
         return self._collection.count_documents(query, limit=1) > 0
 
     def get_filtered_rules(

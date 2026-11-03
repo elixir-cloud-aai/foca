@@ -272,18 +272,69 @@ def _check_group_config(
     # Unmapped group claim values are dropped once a mapping is set, also an
     # empty one; that is a problem only if rules rely on group subjects
     if conf.group_mapping is not None and not conf.keep_group_subjects:
-        uses_group_subjects = any(
-            subject.startswith(GROUP_PREFIX)
-            for rule in conf.policies or []
-            for subject in rule[1:2]
-        )
         logger.log(
-            logging.WARNING if uses_group_subjects else logging.INFO,
+            logging.WARNING if _has_group_subject(conf) else logging.INFO,
             "'security.access_control.group_mapping' is set, but "
             "'security.access_control.keep_group_subjects' is not, so group "
             "claim values are not used as group subjects: policy rules and "
             "roles on resources granted to groups ('group:<value>') don't "
             "apply, and the resource ownership helpers refuse to grant them.",
+        )
+
+
+def _has_group_subject(access_control_config: AccessControlConfig) -> bool:
+    """Check whether a configured policy rule has a group as its subject.
+
+    Args:
+        access_control_config: Access control configuration.
+
+    Returns:
+        Whether the subject of a rule of `policies`, which follows the policy
+        type (empty rules fail validation later), has the group prefix.
+    """
+    return any(
+        subject.startswith(GROUP_PREFIX)
+        for rule in access_control_config.policies or []
+        for subject in rule[1:2]
+    )
+
+
+def _check_stored_group_subjects(
+    adapter: Adapter, access_control_config: AccessControlConfig
+) -> None:
+    """Warn of stored rules for groups that group settings keep from applying.
+
+    Covers rules that are not configured, e.g., written via the permissions
+    API or stored before `group_mapping` was set; configured ones are checked
+    by :py:func:`_check_group_config`, which warns once of both. Only gives a
+    hint, so startup continues if the check fails.
+
+    Args:
+        adapter: Casbin adapter of the app.
+        access_control_config: Access control configuration.
+    """
+    conf = access_control_config
+    if (
+        conf.group_mapping is None
+        or conf.keep_group_subjects
+        or _has_group_subject(conf)
+    ):
+        return
+    try:
+        with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
+            stored = adapter.has_stored_group_subjects()
+    except PyMongoError as exc:
+        logger.warning(
+            "Could not check for stored policy rules with group subjects: %s", exc
+        )
+        return
+    if stored:
+        logger.warning(
+            "Stored policy rules have groups as their subjects "
+            "('group:<value>'), but 'security.access_control.group_mapping' "
+            "is set and 'security.access_control.keep_group_subjects' is not, "
+            "so they don't apply: set 'keep_group_subjects: true', or remove "
+            "the rules."
         )
 
 
@@ -602,6 +653,7 @@ def register_casbin_enforcer(
         )
     else:
         _remove_policies(adapter=adapter)
+    _check_stored_group_subjects(adapter, access_control_config)
     logger.info("Casbin enforcer registered.")
 
     return app

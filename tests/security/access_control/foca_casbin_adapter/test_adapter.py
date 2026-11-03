@@ -1449,3 +1449,14 @@ class TestPolicyChanges:
             ["a", "b"],
             ["d", "b"],
         ]
+
+
+def test_has_stored_group_subjects(mock_adapter: Adapter) -> None:
+    """Only stored rules that are not configured count as stored."""
+    assert not mock_adapter.has_stored_group_subjects()
+    mock_adapter.set_configured_policies([["g", "group:a", "admin"]])
+    assert not mock_adapter.has_stored_group_subjects()
+    mock_adapter.add_policy("p", "p", ["user:a", "/x", "GET"])
+    assert not mock_adapter.has_stored_group_subjects()
+    mock_adapter.add_policy("p", "p", ["group:a", "/x", "GET"])
+    assert mock_adapter.has_stored_group_subjects()

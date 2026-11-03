@@ -12,6 +12,7 @@ import yaml
 from casbin import Enforcer
 
 from foca import Foca
+from foca.api.register_openapi import _PLUGIN_LISTING_OPERATIONS
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
 from foca.plugins import InvalidSelection, Principal, adapter, api, runtime
@@ -391,6 +392,9 @@ def test_spec() -> None:
     for operation in operations:
         assert operation["x-openapi-router-controller"] == api.__name__
         assert callable(getattr(api, operation["operationId"]))
+    assert {
+        operation["operationId"] for operation in operations
+    } == _PLUGIN_LISTING_OPERATIONS
 
 
 def test_spec_served() -> None:

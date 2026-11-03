@@ -85,10 +85,10 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   (`group:<value>`): rules and [roles granted to
   groups](../access-control.md#granting-roles-to-groups) don't apply, and
   the resource ownership helpers refuse to grant them. This is logged as a
-  warning if a rule of `policies` has a group as its subject, otherwise at
-  `INFO`, as apps that only map groups to roles lose nothing (rules stored
-  by earlier versions of the configuration aren't checked). Set
-  `keep_group_subjects: true` if the app grants roles to groups.
+  warning if a rule has a group as its subject, in `policies` or stored
+  (e.g., written via the permissions API), otherwise at `INFO`, as apps that
+  only map groups to roles lose nothing. Set `keep_group_subjects: true` if
+  the app grants roles to groups.
 - **Opt-in roles:** the opt-in roles and their header are logged
   (`INFO`), and a warning is logged for opt-in roles that no group is
   mapped to (no user can opt in to them), and if CORS is enabled but

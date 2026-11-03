@@ -12,6 +12,7 @@ import pytest
 import yaml
 from connexion import App
 from pymongo.database import Database
+from pymongo.errors import PyMongoError
 
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -29,6 +30,7 @@ from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
 )
+from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
     _check_admin_role,
     _check_collection_clash,
@@ -195,6 +197,7 @@ NO_ADMIN = "No group or service client is mapped to the role 'admin'"
 WHITESPACE = "'security.access_control.claim_groups' has surrounding whitespace"
 NO_GROUP_CLAIM = "Groups are mapped to roles"
 NO_GROUP_SUBJECTS = "'security.access_control.group_mapping' is set, but"
+STORED_GROUP_SUBJECTS = "Stored policy rules have groups as their subjects"
 EMPTY_MAPPING = "'security.access_control.group_mapping' is set (empty)"
 
 
@@ -813,6 +816,67 @@ class TestRegisterAccessControlSetup:
         warnings = _warnings(caplog)
         assert any(warning.startswith(NO_ADMIN) for warning in warnings)
         assert any(warning.startswith(NO_GROUP_SUBJECTS) for warning in warnings)
+
+    @pytest.mark.parametrize(
+        "conf,warned",
+        [
+            ({"claim_groups": "groups", "group_mapping": {"a": "user"}}, True),
+            # the mapping doesn't drop them
+            ({"claim_groups": "groups"}, False),
+            (
+                {
+                    "claim_groups": "groups",
+                    "group_mapping": {"a": "user"},
+                    "keep_group_subjects": True,
+                },
+                False,
+            ),
+            # warned about once, for the configured rule
+            (
+                {
+                    "claim_groups": "groups",
+                    "group_mapping": {"a": "user"},
+                    "policies": [["g", "group:b", "user"]],
+                },
+                False,
+            ),
+        ],
+    )
+    def test_stored_group_subjects(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        conf: dict[str, Any],
+        warned: bool,
+    ) -> None:
+        """Stored rules for groups that won't apply are warned about."""
+        monkeypatch.setattr(Adapter, "has_stored_group_subjects", lambda self: True)
+        with caplog.at_level(logging.WARNING):
+            self._register(None, **conf)
+        warnings = [w for w in _warnings(caplog) if w.startswith(STORED_GROUP_SUBJECTS)]
+        assert bool(warnings) is warned
+
+    def test_stored_group_subjects_none(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Without stored rules for groups, there is no warning."""
+        with caplog.at_level(logging.WARNING):
+            self._register(None, claim_groups="groups", group_mapping={"a": "user"})
+        assert not [w for w in _warnings(caplog) if w.startswith(STORED_GROUP_SUBJECTS)]
+
+    def test_stored_group_subjects_unknown(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Startup continues if stored rules cannot be checked."""
+
+        def fail(self: Adapter) -> bool:
+            raise PyMongoError("unavailable")
+
+        monkeypatch.setattr(Adapter, "has_stored_group_subjects", fail)
+        with caplog.at_level(logging.WARNING):
+            self._register(None, claim_groups="groups", group_mapping={"a": "user"})
+        assert any(
+            w.startswith("Could not check for stored policy rules")
+            for w in _warnings(caplog)
+        )
 
     def test_logs(self, caplog: pytest.LogCaptureFixture) -> None:
         """Successful registration steps are logged."""
