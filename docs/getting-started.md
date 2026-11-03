@@ -131,7 +131,7 @@ back.
 
 ### Installing Python packages
 
-The image has no pip (since FOCA 0.20.0): pip vendors copies of other
+From FOCA 0.20.0 on, the image has no pip: pip vendors copies of other
 packages (e.g., urllib3, msgpack and setuptools), which image scans report,
 in every image built on FOCA, although only pip uses them, and only at build
 time. Install Python packages with [uv](https://docs.astral.sh/uv/) instead,
