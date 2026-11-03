@@ -160,8 +160,8 @@ warnings, naming the setting to change, among others:
   `admin` (an error with `require_admin: true`), an empty `group_mapping`
   without `claim_groups` (a non-empty one, and a group claim with
   surrounding whitespace, are errors),
-  `group_mapping` without `keep_group_subjects`, `keep_group_subjects`
-  without `group_mapping`, several trusted issuers with group claims (their
+  `group_mapping` without `keep_group_subjects` if a rule of `policies`
+  has a group as its subject, `keep_group_subjects` without `group_mapping`, several trusted issuers with group claims (their
   values are not namespaced by issuer), and stored configured rules removed as
   `policies` is not set; opt-in roles that no group is mapped to, and
   opt-in roles that CORS doesn't allow to ask for (also without access

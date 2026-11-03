@@ -215,12 +215,42 @@ KEEP = "'security.access_control.keep_group_subjects' is not"
     [
         ({}, []),
         ({"claim_groups": "groups"}, []),
+        # nothing is lost without group subjects if no rule uses them
+        ({"claim_groups": "groups", "group_mapping": {"a": "admin"}}, []),
         (
-            {"claim_groups": "groups", "group_mapping": {"a": "admin"}},
+            {
+                "claim_groups": "groups",
+                "group_mapping": {"a": "admin"},
+                "policies": [["g", "user:alice", "admin"], ["p", "admin", "/*", "GET"]],
+            },
+            [],
+        ),
+        (
+            {
+                "claim_groups": "groups",
+                "group_mapping": {"a": "admin"},
+                "policies": [["g", "group:a", "admin"]],
+            },
+            [(NO_GROUP_SUBJECTS, KEEP)],
+        ),
+        (
+            {
+                "claim_groups": "groups",
+                "group_mapping": {"a": "admin"},
+                "policies": [["p", "group:a", "/*", "GET"]],
+            },
             [(NO_GROUP_SUBJECTS, KEEP)],
         ),
         # also an empty mapping drops group claim values
-        ({"claim_groups": "groups", "group_mapping": {}}, [(NO_GROUP_SUBJECTS, KEEP)]),
+        ({"claim_groups": "groups", "group_mapping": {}}, []),
+        (
+            {
+                "claim_groups": "groups",
+                "group_mapping": {},
+                "policies": [["g", "group:a", "admin"]],
+            },
+            [(NO_GROUP_SUBJECTS, KEEP)],
+        ),
         (
             {
                 "claim_groups": "groups",
@@ -234,10 +264,7 @@ KEEP = "'security.access_control.keep_group_subjects' is not"
             {"group_mapping": {}, "keep_group_subjects": True},
             [(EMPTY_MAPPING, NO_CLAIM)],
         ),
-        (
-            {"claim_groups": "", "group_mapping": {}},
-            [(EMPTY_MAPPING, NO_CLAIM), (NO_GROUP_SUBJECTS, KEEP)],
-        ),
+        ({"claim_groups": "", "group_mapping": {}}, [(EMPTY_MAPPING, NO_CLAIM)]),
         (
             {"claim_groups": "groups", "keep_group_subjects": True},
             [(NO_EFFECT, "without 'security.access_control.group_mapping'")],
@@ -260,6 +287,28 @@ def test_check_group_config(
     for warning, (start, part) in zip(warnings, expected, strict=True):
         assert warning.startswith(start)
         assert part in warning
+
+
+@pytest.mark.parametrize(
+    "mapping,logged",
+    [(None, False), ({"a": "admin"}, True), ({}, True)],
+)
+def test_check_group_config_logs_dropped_group_subjects(
+    caplog: pytest.LogCaptureFixture,
+    mapping: dict[str, str] | None,
+    logged: bool,
+) -> None:
+    """Dropped group subjects are logged at `INFO` if no rule uses them."""
+    with caplog.at_level(logging.INFO):
+        _check_group_config(
+            AccessControlConfig(claim_groups="groups", group_mapping=mapping)
+        )
+    infos = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.INFO and r.getMessage().startswith(NO_GROUP_SUBJECTS)
+    ]
+    assert bool(infos) is logged
 
 
 @pytest.mark.parametrize(
@@ -755,7 +804,12 @@ class TestRegisterAccessControlSetup:
     def test_startup_checks(self, caplog: pytest.LogCaptureFixture) -> None:
         """Group settings and admins are checked on registration."""
         with caplog.at_level(logging.WARNING):
-            self._register(None, claim_groups="groups", group_mapping={"a": "user"})
+            self._register(
+                None,
+                claim_groups="groups",
+                group_mapping={"a": "user"},
+                policies=[["g", "group:a", "user"]],
+            )
         warnings = _warnings(caplog)
         assert any(warning.startswith(NO_ADMIN) for warning in warnings)
         assert any(warning.startswith(NO_GROUP_SUBJECTS) for warning in warnings)

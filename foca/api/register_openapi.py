@@ -12,7 +12,12 @@ from connexion import App
 from connexion.exceptions import InvalidSpecification
 
 from foca.config.config_parser import ConfigParser, deep_merge
-from foca.models.config import ConnexionOptions, SpecConfig
+from foca.models.config import (
+    DEFAULT_ERROR_MEDIA_TYPE,
+    Config,
+    ConnexionOptions,
+    SpecConfig,
+)
 from foca.security.access_control.enforcement import (
     AccessControlResolver,
     _requires_authentication,
@@ -37,6 +42,11 @@ _OPERATION_OBJECT_FIELDS = frozenset(
     }
 )
 
+
+# Controllers of the operations of the plugin listing
+# (`foca.plugins.api.SPEC_PATH`), which apps merge into their specifications;
+# named here, as importing the plugin system would import it for all apps
+_PLUGIN_LISTING_CONTROLLER = "foca.plugins.api"
 
 # Options passed to Connexion 2 via the `options` argument of `add_api()`:
 # fields of `ConnexionOptions` and the names of Connexion's options
@@ -129,6 +139,37 @@ def _iter_operations(spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """
     for _, _, operation_object in _iter_routes(spec):
         yield operation_object
+
+
+def _get_error_media_type(app: App) -> str:
+    """Get the media type of an app's error responses.
+
+    Args:
+        app: Connexion application instance.
+
+    Returns:
+        Configured media type (`exceptions.media_type`); the default one for
+        apps without FOCA configuration.
+    """
+    config = getattr(app.app.config, "foca", None)
+    if isinstance(config, Config):
+        return config.exceptions.media_type
+    return DEFAULT_ERROR_MEDIA_TYPE
+
+
+def _set_error_media_type(operation: dict[str, Any], media_type: str) -> None:
+    """Declare another media type for the error responses of an operation.
+
+    Args:
+        operation: OpenAPI 3.x Operation Object; changed in place.
+        media_type: Media type of error responses, instead of
+            `application/problem+json` for all `4xx` and `5xx` responses
+            (defined in the operation, not referenced via `$ref`).
+    """
+    for status, response in operation.get("responses", {}).items():
+        content = response.get("content", {})
+        if str(status)[0] in "45" and DEFAULT_ERROR_MEDIA_TYPE in content:
+            content[media_type] = content.pop(DEFAULT_ERROR_MEDIA_TYPE)
 
 
 def _add_operation_fields(spec: dict[str, Any], fields: dict[str, Any]) -> None:
@@ -388,6 +429,16 @@ def register_openapi(
         list_specs = [spec.path] if isinstance(spec.path, Path) else spec.path
         spec_parsed: dict[str, Any] = ConfigParser.merge_yaml(*list_specs)
         logger.debug("Parsed spec: %s", list_specs)
+
+        # Declare the media type that the plugin listing's errors have; the
+        # app's patches may still change it
+        media_type = _get_error_media_type(app)
+        for operation_object in _iter_operations(spec_parsed):
+            if (
+                operation_object.get("x-openapi-router-controller")
+                == _PLUGIN_LISTING_CONTROLLER
+            ):
+                _set_error_media_type(operation_object, media_type)
 
         # Add/replace root objects
         if spec.append is not None:

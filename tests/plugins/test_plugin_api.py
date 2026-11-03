@@ -436,6 +436,53 @@ def test_spec_merged(tmp_path: Path, fake_plugin_entry_points: RegisterPlugins) 
     runtime.reset()
 
 
+@pytest.mark.parametrize("media_type", ["application/json", "application/problem+json"])
+def test_spec_merged_error_media_type(
+    tmp_path: Path, fake_plugin_entry_points: RegisterPlugins, media_type: str
+) -> None:
+    """The served listing declares the media type of error responses."""
+    fake_plugin_entry_points(FAKES)
+    petstore = Path(__file__).parents[1] / "test_files/openapi_3_petstore.original.yaml"
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "api": {
+                    "specs": [
+                        {
+                            "path": str(petstore),
+                            "connexion": {"resolver_error": 501},
+                        }
+                    ]
+                },
+                "exceptions": {"media_type": media_type},
+                "plugins": {"available": {"test.tag": {}}, "pipeline": ["test.tag"]},
+            }
+        )
+    )
+    foca = Foca(config_file=config, gateway=GatewayApp(api="tes"))
+    spec = foca.conf.api.specs[0]
+    files = spec.path if isinstance(spec.path, list) else [spec.path]
+    spec.path = [Path(api.SPEC_PATH), *files]
+    try:
+        client = foca.create_app().app.test_client()
+        response = client.get("/v2/plugins")
+        served = client.get("/v2/openapi.json").get_json()
+    finally:
+        runtime.reset()
+    assert response.status_code == 401
+    assert response.content_type == media_type
+    listing = served["paths"]["/plugins"]["get"]["responses"]
+    assert set(listing["200"]["content"]) == {"application/json"}
+    for status in ("401", "403"):
+        assert set(listing[status]["content"]) == {media_type}
+    plugin = served["paths"]["/plugins/{plugin_id}"]["get"]["responses"]
+    assert set(plugin["404"]["content"]) == {media_type}
+    # other operations stay as the app declares them
+    app_operation = served["paths"]["/pets"]["get"]["responses"]["default"]
+    assert set(app_operation["content"]) == {"application/json"}
+
+
 def test_spec_merged_with_app_controller(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

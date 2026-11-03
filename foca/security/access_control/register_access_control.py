@@ -11,7 +11,12 @@ import yaml
 from connexion import App
 from pymongo.errors import PyMongoError
 
-from foca.api.register_openapi import _connexion_add_api_kwargs
+from foca.api.register_openapi import (
+    _connexion_add_api_kwargs,
+    _get_error_media_type,
+    _iter_operations,
+    _set_error_media_type,
+)
 from foca.config.access import get_app_config
 from foca.database.register_mongodb import (
     _register_database,
@@ -23,7 +28,6 @@ from foca.models.config import (
     AccessControlConfig,
     AuthConfig,
     CollectionConfig,
-    Config,
     ConnexionOptions,
     CORSConfig,
     DBConfig,
@@ -266,14 +270,20 @@ def _check_group_config(
             "groups."
         )
     # Unmapped group claim values are dropped once a mapping is set, also an
-    # empty one
+    # empty one; that is a problem only if rules rely on group subjects
     if conf.group_mapping is not None and not conf.keep_group_subjects:
-        logger.warning(
+        uses_group_subjects = any(
+            subject.startswith(GROUP_PREFIX)
+            for rule in conf.policies or []
+            for subject in rule[1:2]
+        )
+        logger.log(
+            logging.WARNING if uses_group_subjects else logging.INFO,
             "'security.access_control.group_mapping' is set, but "
             "'security.access_control.keep_group_subjects' is not, so group "
             "claim values are not used as group subjects: policy rules and "
             "roles on resources granted to groups ('group:<value>') don't "
-            "apply, and the resource ownership helpers refuse to grant them."
+            "apply, and the resource ownership helpers refuse to grant them.",
         )
 
 
@@ -490,13 +500,7 @@ def register_permission_specs(
     if access_control_config.api_specs is None:
         spec_path = str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH))
         specification = Path(spec_path)
-        # apps without FOCA configuration use the default media type
-        config = getattr(app.app.config, "foca", None)
-        media_type = (
-            config.exceptions.media_type
-            if isinstance(config, Config)
-            else DEFAULT_ERROR_MEDIA_TYPE
-        )
+        media_type = _get_error_media_type(app)
         # as a dictionary only if needed, keeping Connexion's handling of
         # specification files otherwise
         if media_type != DEFAULT_ERROR_MEDIA_TYPE:
@@ -528,12 +532,6 @@ def register_permission_specs(
     return app
 
 
-# Fields of OpenAPI 3.x Path Item Objects holding Operation Objects
-_HTTP_METHODS = frozenset(
-    ("get", "put", "post", "delete", "options", "head", "patch", "trace")
-)
-
-
 def _with_error_media_type(spec_path: Path, media_type: str) -> dict[str, Any]:
     """Load an API specification with another error response media type.
 
@@ -549,17 +547,8 @@ def _with_error_media_type(spec_path: Path, media_type: str) -> dict[str, Any]:
     """
     with spec_path.open(encoding="utf-8") as spec_file:
         spec = yaml.safe_load(spec_file)
-    operations = (
-        operation
-        for path_item in spec["paths"].values()
-        for method, operation in path_item.items()
-        if method in _HTTP_METHODS
-    )
-    for operation in operations:
-        for status, response in operation.get("responses", {}).items():
-            content = response.get("content", {})
-            if str(status)[0] in "45" and DEFAULT_ERROR_MEDIA_TYPE in content:
-                content[media_type] = content.pop(DEFAULT_ERROR_MEDIA_TYPE)
+    for operation in _iter_operations(spec):
+        _set_error_media_type(operation, media_type)
     return spec
 
 

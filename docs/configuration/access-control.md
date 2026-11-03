@@ -80,11 +80,14 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   apply, and if `claim_groups` has surrounding whitespace, as the claim is
   looked up as written. An empty `group_mapping` without a group claim is
   allowed, with a warning, as users then have no groups.
-- **Group subjects:** a warning is logged if `group_mapping` is set, but
-  `keep_group_subjects` is not, as group claim values are then not used as
-  group subjects (`group:<value>`): rules and [roles granted to
+- **Group subjects:** if `group_mapping` is set, but `keep_group_subjects`
+  is not, group claim values are not used as group subjects
+  (`group:<value>`): rules and [roles granted to
   groups](../access-control.md#granting-roles-to-groups) don't apply, and
-  the resource ownership helpers refuse to grant them. Set
+  the resource ownership helpers refuse to grant them. This is logged as a
+  warning if a rule of `policies` has a group as its subject, otherwise at
+  `INFO`, as apps that only map groups to roles lose nothing (rules stored
+  by earlier versions of the configuration aren't checked). Set
   `keep_group_subjects: true` if the app grants roles to groups.
 - **Opt-in roles:** the opt-in roles and their header are logged
   (`INFO`), and a warning is logged for opt-in roles that no group is
