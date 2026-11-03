@@ -134,7 +134,6 @@ def _assert_hidden(error: BaseException) -> None:
         ("test.secret", {"api_key": {"nested": LEAK}}, "api_key"),
         ("test.secret", {"limit": LEAK}, "limit"),
         ("test.required", {"api_key": LEAK}, "required"),
-        ("test.failing", {"name": LEAK}, "KeyError"),
     ],
 )
 def test_plugin_config_errors_hide_input(
@@ -148,6 +147,19 @@ def test_plugin_config_errors_hide_input(
         load_plugins(conf, api="tes", find_entry_points=fake_entry_points(PLUGINS))
     assert named in str(info.value)
     _assert_hidden(info.value)
+
+
+def test_plugin_config_failure_hides_input(caplog: pytest.LogCaptureFixture) -> None:
+    """Bugs of validators are told apart from invalid settings, and logged."""
+    conf = PluginsConfig.model_validate(
+        {"available": {"test.failing": {"config": {"name": LEAK}}}, "pipeline": []}
+    )
+    with pytest.raises(ValueError, match="failed to validate its config") as info:
+        load_plugins(conf, api="tes", find_entry_points=fake_entry_points(PLUGINS))
+    assert "KeyError" in str(info.value)
+    _assert_hidden(info.value)
+    assert "failed to validate its config: KeyError" in caplog.text
+    assert LEAK not in caplog.text
 
 
 @pytest.mark.parametrize(
