@@ -169,6 +169,11 @@ warnings, naming the setting to change, among others:
   control);
 - [service info](configuration/service-info.md#placeholders): values in
   reserved example domains, as in templates;
+- [plugin store](configuration/plugins.md#plugin-store) of gateway apps:
+  plugins that keep stored data in the memory of each process, as no database
+  is configured, or in the database without a secret for their keys, and
+  indexes that could not be created (an error if that needs an operator,
+  e.g., for conflicting indexes or missing rights);
 - [authentication](configuration/auth.md), on the first token validation
   rather than on startup: no trusted `issuers`, `issuers` reached without
   TLS (`http`, except on the loopback interface), disabled audience or token

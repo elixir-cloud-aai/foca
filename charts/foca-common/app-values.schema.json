@@ -426,7 +426,7 @@
         }
       }
     },
-    "plugins": {
+    "pluginStore": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -435,7 +435,7 @@
           "description": "Secret with the key secret of the plugin store (key store-key-secret), passed to the app and the worker as FOCA_PLUGINS_STORE_KEY_SECRET; none if empty"
         }
       },
-      "description": "Settings of the app's gateway plugins that are kept in Secrets (the other settings are in config.plugins)"
+      "description": "Secret of the plugin store of gateway apps (the other settings are in config.plugins)"
     },
     "mongodb": {
       "type": "object",
