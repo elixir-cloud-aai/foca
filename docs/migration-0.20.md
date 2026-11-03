@@ -130,10 +130,10 @@ to rotate it.
   setting and the reason.
 - **Helm charts** based on foca-common 0.4.0 or later pass the secret from
   an existing Secret (key `store-key-secret`) to the app and the worker:
-  set `plugins.existingSecret` to its name (see [deployment
+  set `pluginStore.existingSecret` to its name (see [deployment
   notes](helm-chart.md#deployment-notes)). App charts update their
   dependency on foca-common to 0.4.0, copy `app-values.schema.json` again
-  and add `plugins.existingSecret: ""` to their values. Rendering fails if
+  and add `pluginStore.existingSecret: ""` to their values. Rendering fails if
   the config overlay sets `config.plugins.defaults.store.key_secret`, as
   it is a ConfigMap.
 
@@ -143,3 +143,22 @@ With foca-common 0.4.0 or later, `requireAudience` accepts configurations in
 which each of `config.security.auth.issuers` has an `audience` of its own,
 without `config.security.auth.audience`, as FOCA does. Apps that computed
 `requireAudience` to get around the refusal can set it to `true`.
+
+### Helm charts from foca-common 0.2.0 to 0.4.0
+
+The library chart has its own versions and release tags, and FOCA 0.20.0
+comes with foca-common 0.4.0. New values are optional, and charts that don't
+set them render as before. To update an app chart:
+
+1. Raise the dependency on foca-common to 0.4.0 and copy
+   `app-values.schema.json` again (see [Values](helm-chart.md#values)).
+2. To run several replicas: add `replicas` and `podDisruptionBudget` to the
+   app's values, and a template file with `foca-common.podDisruptionBudget`
+   (see [Several replicas](helm-chart.md#several-replicas) and the petstore
+   example). **Without that file, `replicas: 2` renders two pods and no
+   budget, without a warning.**
+3. To tune probes: add `startupProbe`, `readinessProbe` and `livenessProbe`
+   (see [Probes](helm-chart.md#probes)).
+4. For gateway apps: add `pluginStore.existingSecret` (see above). Top-level
+   `plugins` values stay the app chart's own, as the library chart doesn't
+   read them.

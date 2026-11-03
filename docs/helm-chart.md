@@ -166,7 +166,7 @@ your app's `valuesKey`:
 | `nameOverride`, `fullnameOverride` | Resource names: `<release>-<chart>` (or `<release>` if it contains the chart name) for the app, the same with the suffixes `-mongodb`, `-worker` and `-broker` for MongoDB, the worker and the broker |
 | `hostName` | Public host name of the Ingress, HTTPRoute or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
-| `plugins` | Secrets of gateway plugins: `existingSecret` (the key secret of the plugin store; none if empty) |
+| `pluginStore` | Secrets of the plugin store of gateway apps: `existingSecret` (its key secret; none if empty) |
 | `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `startupProbe`, `readinessProbe`, `livenessProbe`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `persistence` (`volumeSize`, its size up to 0.1.0, is a deprecated alias of `persistence.size`), `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
@@ -731,7 +731,7 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
   [store](configuration/plugins.md#plugin-store) in the database should key
   the hashes of `ctx.store.key_for()` with a secret (FOCA 0.20.0 or later).
   Put it in an existing Secret with the key `store-key-secret` and set
-  `plugins.existingSecret` to its name: the chart passes it to the app and
+  `pluginStore.existingSecret` to its name: the chart passes it to the app and
   the worker as `FOCA_PLUGINS_STORE_KEY_SECRET`, which FOCA uses unless
   `plugins.defaults.store.key_secret` is set. The config overlay is a
   ConfigMap, so rendering fails if `config.plugins.defaults.store.key_secret`
@@ -746,10 +746,11 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
     `key_for()` unreachable (e.g., per-user budgets start anew); roll all of
     the app's and the worker's pods after changing it (see [plugin
     store](configuration/plugins.md#plugin-store)). Values of app charts
-    written for versions before foca-common 0.4.0 have no `plugins` map
-    and render as before; copy `app-values.schema.json` again (see
-    [Values](#values)) and add `plugins.existingSecret: ""` to the values to
-    use it.
+    written for versions before foca-common 0.4.0 have no `pluginStore`
+    map and render as before; copy `app-values.schema.json` again (see
+    [Values](#values)) and add `pluginStore.existingSecret: ""` to the
+    values to use it. The library chart doesn't read top-level `plugins`
+    values, so app charts can keep their own settings there.
 - **Network policies:** MongoDB's NetworkPolicy, enabled by default, admits
   only the app's pods of the release (and the worker's, if enabled); the
   broker's admits only the app's and the worker's pods. The app's
@@ -855,6 +856,12 @@ safe to run in several pods at once. Keep in mind:
   every worker of every pod, but rules changed in the database directly
   only after `mark_changed()` or a restart of all pods (see
   [Scaling](access-control.md#scaling)).
+- **Configured access control rules during a rollout:** the app instance
+  that starts last sets the configured rules (`policies`), whatever its
+  configuration, so a worker of an old pod that respawns late in a rollout
+  can bring back a rule that the new configuration revoked. After a rollout
+  that tightens the rules, restart the pods once all old ones are gone
+  (`kubectl rollout restart deployment/my-app`).
 - **Each worker process of each pod has its own caches and memory**, e.g.,
   all rules of access control (see [Scaling](access-control.md#scaling)),
   and, without an app database, the entries of the [plugin
