@@ -657,6 +657,22 @@ class _GuardedAdapter(HTTPAdapter):
         }
 
 
+def _check_response_hooks(hooks: Mapping[str, Any] | None) -> None:
+    """Refuse a prepared request with response hooks.
+
+    Args:
+        hooks: Hooks of the prepared request.
+
+    Raises:
+        InvalidRequest: There are hooks, e.g., of an authentication handler.
+    """
+    if any((hooks or {}).values()):
+        raise InvalidRequest(
+            "Response hooks (e.g., of HTTPDigestAuth) are not supported, as "
+            "they read responses without limit"
+        )
+
+
 class _GuardedSession(requests.Session):
     """Session that returns responses as they are, unread.
 
@@ -689,13 +705,9 @@ class _GuardedSession(requests.Session):
 
         Raises:
             InvalidRequest: The request has response hooks, e.g., of its
-                authentication handler.
+                authentication handler or the session.
         """
-        if any((request.hooks or {}).values()):
-            raise InvalidRequest(
-                "Authentication handlers with response hooks (e.g., "
-                "HTTPDigestAuth) are not supported"
-            )
+        _check_response_hooks(request.hooks)
         return super().send(request, **kwargs)
 
 

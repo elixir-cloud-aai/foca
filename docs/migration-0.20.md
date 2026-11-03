@@ -97,9 +97,9 @@ other errors than before:
   `InvalidRequestURL`.
 - A redirect whose body can't be decoded: `RequestMaybeSent`, as for other
   responses, previously returned without its body.
-- `auth` with response hooks (e.g., `HTTPDigestAuth`): `InvalidRequest`, as
-  they read bodies without limit. Use a `(user, password)` tuple or a handler
-  that only sets headers.
+- `auth` with response hooks (e.g., `HTTPDigestAuth`) or hooks on the session:
+  `InvalidRequest`, as they read bodies without limit. Use a
+  `(user, password)` tuple or a handler that only sets headers.
 
 ### Secret for the keys of the plugin store
 

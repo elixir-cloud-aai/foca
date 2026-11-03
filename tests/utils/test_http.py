@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 import requests
+import requests.adapters
 import requests.auth
 import urllib3
 
@@ -369,8 +370,16 @@ def test_value_error_after_sending(
     assert info.value.reason == "connection_lost"
 
 
-def test_response_hooks_refused(server: str) -> None:
-    """Handlers with response hooks, which read bodies without limit, are refused."""
+def test_response_hooks_refused(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Handlers with response hooks, which read bodies without limit, are refused.
+
+    Nothing is sent.
+    """
+
+    def send(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("sent")
+
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", send)
     with pytest.raises(InvalidRequest) as info:
         local().get(f"{server}/", auth=requests.auth.HTTPDigestAuth("a", "b"))
     assert isinstance(info.value, RequestNotSent)
