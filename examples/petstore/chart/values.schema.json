@@ -153,15 +153,15 @@
           "description": "Path of the app's probes"
         },
         "startupProbe": {
-          "type": "object",
+          "type": ["object", "null"],
           "description": "Replaces the default startup probe of the app's container, if not empty"
         },
         "readinessProbe": {
-          "type": "object",
+          "type": ["object", "null"],
           "description": "Replaces the default readiness probe of the app's container, if not empty"
         },
         "livenessProbe": {
-          "type": "object",
+          "type": ["object", "null"],
           "description": "Replaces the default liveness probe of the app's container, if not empty"
         },
         "ingress": {
