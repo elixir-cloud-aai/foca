@@ -145,7 +145,7 @@ def test_parse_custom_config_invalid() -> None:
 def test_parse_custom_config_invalid_hides_input() -> None:
     """Errors of the custom configuration name the setting, not its value."""
     conf = ConfigParser(config_file=Path(TEST_FILE))
-    conf.config.custom = {"param": ["SUPERSECRET-123"]}
+    conf.config.custom = {"param": ["SUPERSECRET-123"]}  # type: ignore[attr-defined]  # extra field
     with pytest.raises(ValueError, match="custom configuration") as info:
         conf.parse_custom_config(model=TEST_CONFIG_MODEL)
     assert "param: " in str(info.value.__cause__)
@@ -157,7 +157,7 @@ def test_parse_custom_config_invalid_hides_input() -> None:
 def test_parse_custom_config_failure_hides_message() -> None:
     """Other errors of the model class are named by their type only."""
     conf = ConfigParser(config_file=Path(TEST_FILE))
-    conf.config.custom = {"param": "SUPERSECRET-123"}
+    conf.config.custom = {"param": "SUPERSECRET-123"}  # type: ignore[attr-defined]  # extra field
     with pytest.raises(ValueError, match="custom configuration") as info:
         conf.parse_custom_config(model="tests.test_files.model_valid.FailingConfig")
     assert str(info.value.__cause__) == "TypeError"
