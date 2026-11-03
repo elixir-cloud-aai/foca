@@ -167,7 +167,8 @@ def test_close_in_handshake(serve: Callable[[Behaviour], str]) -> None:
     url = serve(lambda connection, stop: None)
     with pytest.raises(RequestNotSent) as info:
         client().post(url, json={})
-    assert info.value.reason == "tls_error"
+    # A reset instead of a clean close, if the server was slower than the client
+    assert info.value.reason in {"tls_error", "connect_error"}
 
 
 def test_hang_in_handshake(serve: Callable[[Behaviour], str]) -> None:

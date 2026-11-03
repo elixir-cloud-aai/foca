@@ -481,15 +481,15 @@ class FakeHttp(GuardedClient):
             raise DeadlineExceeded(f"No time left for {_redact(url)}")
         try:
             url = _prepared_url(method, url, params, headers)
-        except requests.exceptions.InvalidHeader as exc:
+            if auth is not None:
+                prepared = requests.Request(method, url, auth=auth).prepare()
+                _check_response_hooks(prepared.hooks)
+        except (requests.exceptions.InvalidHeader, UnicodeEncodeError) as exc:
             raise InvalidRequest(
                 f"Invalid header for {_redact(url)}", reason="invalid_header"
             ) from exc
         except (requests.RequestException, ValueError) as exc:
             raise InvalidRequestURL(f"Invalid URL: {type(exc).__name__}") from exc
-        if auth is not None:
-            prepared = requests.Request(method, url, auth=auth).prepare()
-            _check_response_hooks(prepared.hooks)
         with self._state.lock:
             # checked again, in case waiting for other clients took long
             remaining = self.remaining()
@@ -543,20 +543,17 @@ def _prepared_url(
 
     Raises:
         requests.RequestException: `requests` cannot prepare the URL, or
-            a header is invalid (`requests.exceptions.InvalidHeader`, also for
-            values that `http.client` can't encode when sending).
+            a header is invalid (`requests.exceptions.InvalidHeader`).
+        UnicodeEncodeError: Credentials in the URL, or the name or value of a
+            header, can't be encoded, as when `http.client` sends them.
     """
     prepared = requests.Request(
         method.upper(), url, params=params, headers=dict(headers or {})
     ).prepare()
     for name, value in prepared.headers.items():
+        name.encode("ascii")
         if isinstance(value, str):
-            try:
-                value.encode("latin-1")
-            except UnicodeEncodeError as exc:
-                raise requests.exceptions.InvalidHeader(
-                    f"Value of header {name} is not Latin-1"
-                ) from exc
+            value.encode("latin-1")
     return str(prepared.url)
 
 

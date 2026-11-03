@@ -391,9 +391,14 @@ def test_fake_http_requests() -> None:
     with pytest.raises(InvalidRequest) as info:
         http.post("https://x.example.org/", headers={"X-A": "1\r\nX-B: 2"})
     assert info.value.reason == "invalid_header"
-    with pytest.raises(InvalidRequest) as info:
-        http.post("https://x.example.org/", headers={"X-A": "euro \u20ac"})
-    assert info.value.reason == "invalid_header"
+    for kwargs in (
+        {"headers": {"X-A": "euro \u20ac"}},
+        {"headers": {"X-\u00e9": "a"}},
+        {"headers": {"X-A": b"bytes"}, "auth": ("\u20ac", "password")},
+    ):
+        with pytest.raises(InvalidRequest) as info:
+            http.post("https://x.example.org/", **kwargs)
+        assert info.value.reason == "invalid_header"
     assert len(http.calls) == 1
 
 
