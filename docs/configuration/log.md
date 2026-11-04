@@ -25,7 +25,8 @@ log:
 ```
 
 Besides what is shown here, `formatters` can have `datefmt` and `defaults` (values of
-fields that a record may lack), and handlers can have `filters`.
+fields that a record may lack; Python's logging ignores them before Python 3.12), and
+handlers can have `filters`.
 
 ## Loggers and filters
 

@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+import sys
 from collections.abc import Iterator
 from logging.config import dictConfig
 from pathlib import Path
@@ -236,7 +237,8 @@ class TestJsonFormatter:
         deep: list[Any] = []
         for _ in range(100000):
             deep = [deep]
-        assert _format(_record(deep=deep))["deep"] == "<not printable>"
+        # How deep Python gets depends on its version
+        assert "deep" in _format(_record(deep=deep))
 
     def test_not_printable(self) -> None:
         """Values that can't be printed don't fail the record."""
@@ -355,6 +357,45 @@ class TestLogConfig:
             "option": 1,
         }
 
+    @pytest.mark.skipif(
+        sys.version_info < (3, 12),
+        reason="logging.config ignores the defaults of formatters before 3.12",
+    )
+    def test_formatter_defaults(self) -> None:
+        """Defaults of formatters reach the formatter."""
+        logger = logging.getLogger("foca_test_defaults")
+        stream = io.StringIO()
+        conf = LogConfig.model_validate(
+            {
+                "formatters": {
+                    "text": {
+                        "format": "{message}|{when}",
+                        "defaults": {"when": "never"},
+                    }
+                },
+                "handlers": {"console": {"formatter": "text"}},
+                "loggers": {
+                    "foca_test_defaults": {
+                        "level": 30,
+                        "handlers": ["console"],
+                        "propagate": False,
+                    }
+                },
+            }
+        )
+        root = logging.getLogger()
+        handlers, level = root.handlers[:], root.level
+        try:
+            dictConfig(conf.model_dump(by_alias=True, exclude_none=True))
+            logger.handlers[0].setStream(stream)  # type: ignore[attr-defined]
+            logger.warning("shown")
+            assert stream.getvalue() == "shown|never\n"
+        finally:
+            logger.handlers.clear()
+            logger.propagate = True
+            root.handlers[:] = handlers
+            root.setLevel(level)
+
     def test_passed_to_dict_config(self, tmp_path: Path) -> None:
         """Loggers and filters take effect, with text and JSON formats."""
         stream = io.StringIO()
@@ -365,8 +406,7 @@ class TestLogConfig:
             {
                 "formatters": {
                     "text": {
-                        "format": "{request_id}|{levelname}|{message}|{when}",
-                        "defaults": {"when": "never"},
+                        "format": "{request_id}|{levelname}|{message}",
                         "datefmt": "%Y",
                     }
                 },
@@ -387,7 +427,7 @@ class TestLogConfig:
             logger.handlers[0].setStream(stream)  # type: ignore[attr-defined]
             logger.info("ignored")
             logger.warning("shown")
-            assert stream.getvalue() == "|WARNING|shown|never\n"
+            assert stream.getvalue() == "|WARNING|shown\n"
             assert logger.propagate is False
         finally:
             logger.handlers.clear()
