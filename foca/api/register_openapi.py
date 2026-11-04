@@ -574,7 +574,8 @@ def register_openapi(
             api.base_path,
             _iter_resolved_operations(spec_parsed),
             name=spec.name,
-            specification=api.specification.raw,
+            # What Connexion serves
+            specification=api.specification.with_base_path(api.base_path).raw,
         )
         logger.info("API endpoints added from spec: %s", label)
 

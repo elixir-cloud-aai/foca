@@ -743,7 +743,8 @@ def register_casbin_enforcer(
     """Method to add casbin permission enforcer.
 
     Unless `access_control.sync_policies_on_startup` is unset, the stored configured
-    policy rules are replaced (cf. :py:func:`sync_policies`).
+    policy rules are replaced (cf. :py:func:`sync_policies`); otherwise, the
+    configured ones are only checked (cf. :py:func:`check_policies`).
 
     Args:
         app: Connexion app.
@@ -776,12 +777,61 @@ def register_casbin_enforcer(
     app.app.config["casbin_adapter"] = adapter
     if access_control_config.sync_policies_on_startup:
         sync_policies(app.app, access_control_config)
+    else:
+        check_policies(app.app, access_control_config)
     logger.info("Casbin enforcer registered.")
 
     return app
 
 
-def sync_policies(app: Flask, access_control_config: AccessControlConfig) -> None:
+def _get_policy_options(
+    app: Flask, access_control_config: AccessControlConfig
+) -> dict[str, Any]:
+    """Get what configured policy rules are expanded and checked with.
+
+    Args:
+        app: Flask app, with its APIs registered.
+        access_control_config: Access control configuration, with policy rules.
+
+    Returns:
+        Arguments `names`, `base_paths` and `protected_paths` of
+        :py:func:`_expand_policies`.
+    """
+    named = access_control_config.named_policies
+    return {
+        "names": None if named is None else list(named),
+        "base_paths": _get_api_base_paths(app),
+        "protected_paths": [
+            f"{api.base_path}{path}"
+            for api in _get_apis(app)
+            if not api.is_app_api
+            for path in api.paths
+        ],
+    }
+
+
+def check_policies(app: Flask, access_control_config: AccessControlConfig) -> None:
+    """Check the configured policy rules, without accessing the database.
+
+    Args:
+        app: Flask app, with access control registered.
+        access_control_config:
+            :py:class:`foca.models.config.AccessControlConfig` instance of the app.
+
+    Raises:
+        ValueError: A rule is invalid (cf. :py:func:`_expand_policies`).
+    """
+    if access_control_config.policies is None:
+        return
+    _warn_default_base_path(access_control_config)
+    _expand_policies(
+        app.config["casbin_adapter"].model,
+        access_control_config.policies,
+        **_get_policy_options(app, access_control_config),
+    )
+
+
+def sync_policies(app: Flask, access_control_config: AccessControlConfig) -> bool:
     """Replace the stored configured policy rules with the configured ones.
 
     The stored configured policy rules are replaced with those of
@@ -794,32 +844,29 @@ def sync_policies(app: Flask, access_control_config: AccessControlConfig) -> Non
         app: Flask app, with access control registered.
         access_control_config:
             :py:class:`foca.models.config.AccessControlConfig` instance of the app.
+
+    Returns:
+        `False` if the stored rules stay, as their revision is newer (cf.
+        `access_control.policies_revision`), otherwise `True`.
     """
     adapter = app.config["casbin_adapter"]
     if access_control_config.policies is not None:
-        named = access_control_config.named_policies
         _warn_default_base_path(access_control_config)
-        _add_policies(
+        applied = _add_policies(
             adapter=adapter,
             policies=access_control_config.policies,
             revision=access_control_config.policies_revision,
             force=access_control_config.policies_force,
-            names=None if named is None else list(named),
-            base_paths=_get_api_base_paths(app),
-            protected_paths=[
-                f"{api.base_path}{path}"
-                for api in _get_apis(app)
-                if not api.is_app_api
-                for path in api.paths
-            ],
+            **_get_policy_options(app, access_control_config),
         )
     else:
-        _remove_policies(
+        applied = _remove_policies(
             adapter=adapter,
             revision=access_control_config.policies_revision,
             force=access_control_config.policies_force,
         )
     _check_stored_group_subjects(adapter, access_control_config)
+    return applied
 
 
 def _warn_default_base_path(access_control_config: AccessControlConfig) -> None:
@@ -854,7 +901,7 @@ def _warn_default_base_path(access_control_config: AccessControlConfig) -> None:
 
 def _remove_policies(
     adapter: Adapter, revision: int | None = None, force: bool = False
-) -> None:
+) -> bool:
     """Remove stored configured policy rules, if any.
 
     Apps refuse to start if stored configured rules cannot be checked for or
@@ -869,6 +916,9 @@ def _remove_policies(
         revision: Revision of the configuration, if any (cf.
             :py:meth:`Adapter.set_configured_policies`).
         force: Remove the rules also if their revision is newer.
+
+    Returns:
+        `False` if the rules stay, as their revision is newer, otherwise `True`.
 
     Raises:
         pymongo.errors.PyMongoError: Checking for or removing stored
@@ -889,6 +939,7 @@ def _remove_policies(
                 "Removed stored configured policy rules, as "
                 "'security.access_control.policies' is not set."
             )
+        return applied or not (configured or force)
     except PyMongoError as exc:
         logger.error(
             "Could not check for or remove stored configured policy rules, "
@@ -908,7 +959,7 @@ def _add_policies(
     names: list[str] | None = None,
     base_paths: list[str] | None = None,
     protected_paths: list[str] | None = None,
-) -> None:
+) -> bool:
     """Replace the stored configured policy rules with the configured ones.
 
     All rules are validated before any stored rule is changed, so that
@@ -928,8 +979,45 @@ def _add_policies(
         protected_paths: Paths that rules with the placeholder must not match
             (cf. :py:func:`_expand_base_path`).
 
+    Returns:
+        Whether the rules were replaced, i.e., unless their revision is newer.
+
     Raises:
-        ValueError: A rule is invalid for the adapter's model (cf.
+        ValueError: A rule is invalid (cf. :py:func:`_expand_policies`).
+    """
+    expanded = _expand_policies(
+        adapter.model, policies, names, base_paths, protected_paths
+    )
+    applied = adapter.set_configured_policies(expanded, revision, force)
+    if applied and names is not None:
+        logger.info("Named policy rules applied: %s", ", ".join(names) or "none")
+    return applied
+
+
+def _expand_policies(
+    model: Any,
+    policies: list[list[str]],
+    names: list[str] | None = None,
+    base_paths: list[str] | None = None,
+    protected_paths: list[str] | None = None,
+) -> list[list[str]]:
+    """Expand and validate configured policy rules.
+
+    Args:
+        model: Casbin model.
+        policies: Policy rules, each given as its policy type followed by its
+            values.
+        names: Names of the rules, if given as named rules; used in errors.
+        base_paths: Base paths of the app's APIs, for rules with the
+            placeholder `{base_path}` (cf. :py:func:`_expand_base_path`).
+        protected_paths: Paths that rules with the placeholder must not match
+            (cf. :py:func:`_expand_base_path`).
+
+    Returns:
+        The rules, with one rule per base path for those with the placeholder.
+
+    Raises:
+        ValueError: A rule is invalid for the model (cf.
             :py:func:`validate_rule`), or has the placeholder `{base_path}`
             and the app has no API, or it matches a protected path.
     """
@@ -938,15 +1026,13 @@ def _add_policies(
         try:
             rules = _expand_base_path(rule, base_paths or [], protected_paths or [])
             for _rule in rules:
-                validate_rule(_rule[0] if _rule else None, _rule[1:], adapter.model)
+                validate_rule(_rule[0] if _rule else None, _rule[1:], model)
         except ValueError as exc:
             if names is None:
                 raise
             raise ValueError(f"Invalid policy rule '{names[index]}': {exc}") from exc
         expanded.extend(rules)
-    applied = adapter.set_configured_policies(expanded, revision, force)
-    if applied and names is not None:
-        logger.info("Named policy rules applied: %s", ", ".join(names) or "none")
+    return expanded
 
 
 _PATH_PARAMETER = re.compile(r"\{([^{}]+)\}")

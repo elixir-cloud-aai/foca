@@ -26,8 +26,12 @@ if __name__ == "__main__":
     foca.create_app().run()
 ```
 
-The module must not create the app when it's imported, or what the app does on startup
-happens before the command runs, as far as the [switches](#startup-switches) allow.
+The attribute must lead to a `Foca` instance: a function returning the app, as in
+[the example of the deployment guide](deployment.md), is refused. Instances created
+while the module is loaded don't write to the database on startup, also if the module
+creates the app when it's imported, or the function does before refusal. What the module
+writes to the standard output goes to the standard error, so that the output of the
+commands stays clean.
 
 `foca --help` and, e.g., `foca export-spec --help` tell the options.
 
@@ -46,32 +50,32 @@ Loads and validates the configuration and runs the startup checks of the app and
 without writing to the database, so it's fit as a CI or Helm test step. Checks that your
 app's functions run on startup (e.g., [fields of the service info computed at
 runtime](configuration/service-info.md)) run too, and what they need must be available.
-The startup steps that the [switches](#startup-switches) cover aren't run, so this
-doesn't find conflicting indexes or stored documents.
+Configured policy rules are checked. The startup steps that the
+[switches](#startup-switches) cover aren't run, so this doesn't find conflicting indexes
+or stored documents, nor stored rules of a newer revision.
 
 ### `create-indexes`
 
 Creates the indexes of `db.dbs`, as on startup, and sets up the store of gateway
-plugins, whose database errors are logged rather than failing. It fails if no databases
-are configured.
+plugins. Unlike on startup, database errors of the store fail the command. It fails if no
+databases are configured. The policy collection has no configured indexes: its adapter
+creates what it needs on its first write.
 
 ### `sync-policies`
 
 Replaces the stored configured policy rules with those of
 `security.access_control.policies`, as on startup, or removes them if it isn't set. It
-honors `policies_revision` and `policies_force`. It fails if access control isn't
-enabled.
+honors `policies_revision` and `policies_force`: if the stored rules stay, as their
+revision is newer, it fails. It also fails if access control isn't enabled.
 
 ### `export-spec`
 
 Writes a merged API specification to the standard output, as the app serves it, with
-what FOCA and your configuration add. `--format` is `yaml` (default) or `json`. If the
+what FOCA and your configuration add. So `servers` of OpenAPI 3 has the base path of
+the API, without the hosts of the file. `--format` is `yaml` (default) or `json`. If the
 app has several specifications, `--spec` selects one, by its name in `api.specs` or its
 base path. The permissions API isn't exported.
 
-Logs go where the [log configuration](configuration/log.md) sends them, by default to
-the standard error. If yours writes to the standard output, it mixes with the
-specification.
 
 ## Startup switches
 
@@ -89,11 +93,12 @@ security:
   `Foca.create_celery_app()` don't create the indexes of `db.dbs`, and apps with gateway
   plugins don't set up the store on startup, so lowered `max_ttl`s apply to entries
   written before only once `create-indexes` runs. Writes to the store still create its
-  indexes.
+  indexes, and warnings of its settings stay.
 - **`security.access_control.sync_policies_on_startup`:** with `false`, stored
   configured rules stay as they are until `sync-policies` runs, which also keeps
   replicas of different versions in a rolling upgrade from replacing each other's rules.
-  The check for stored rules that group settings keep from applying moves there, too.
+  Configured rules are still checked on startup, but the check for stored rules that
+  group settings keep from applying moves to the command.
 
 Run the commands before you start the new version, e.g., in a Helm `pre-upgrade` hook or
 an init container of a single replica, as without them, the indexes that queries rely on

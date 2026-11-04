@@ -1,7 +1,9 @@
 """Class for setting up and initializing a FOCA-based microservice."""
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from celery import Celery
@@ -26,6 +28,26 @@ from foca.security.cors import enable_cors
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+_no_startup_writes: ContextVar[bool] = ContextVar(
+    "foca_no_startup_writes", default=False
+)
+
+
+@contextmanager
+def no_startup_writes() -> Iterator[None]:
+    """Keep `Foca` instances created in the context from writing on startup.
+
+    For tools that load the module of an app, which may create the app.
+
+    Yields:
+        Nothing.
+    """
+    token = _no_startup_writes.set(True)
+    try:
+        yield
+    finally:
+        _no_startup_writes.reset(token)
 
 
 class Foca:
@@ -112,6 +134,8 @@ class Foca:
         logger.info("Log formatting configured.")
         if not self.config_files:
             logger.info("Default app configuration used.")
+        if _no_startup_writes.get():
+            self.disable_startup_writes()
 
     def _create_base_app(self) -> App:
         """Create Connexion app with error handler and databases.
@@ -224,6 +248,8 @@ class Foca:
                 # expiry capped at the current max_ttl; errors are logged
                 if create_indexes:
                     host.setup_store()
+                else:
+                    host.warn_store_settings()
             finally:
                 host.close()
             if self.gateway.backends is not None:
@@ -257,9 +283,15 @@ class Foca:
             runtime.configure(self.gateway, self.conf, serve=True)
             host = runtime.create_host()
             try:
-                host.setup_store()
+                host.setup_store(strict=True)
             finally:
                 host.close()
+
+    def disable_startup_writes(self) -> None:
+        """Turn off the steps of startup that write to the database."""
+        if self.conf.db is not None:
+            self.conf.db.create_indexes_on_startup = False
+        self.conf.security.access_control.sync_policies_on_startup = False
 
     def _check_worker_config(self) -> None:
         """Run the checks of the configuration that apps run on startup.

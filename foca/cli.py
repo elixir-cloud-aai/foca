@@ -6,8 +6,11 @@ configuration or the task, and 2 on errors of usage.
 """
 
 import argparse
+import contextlib
 import importlib
+import inspect
 import json
+import logging
 import os
 import sys
 from collections.abc import Sequence
@@ -15,11 +18,13 @@ from typing import Any
 
 import yaml
 
-from foca.foca import Foca
+from foca.foca import Foca, no_startup_writes
 from foca.security.access_control.register_access_control import sync_policies
 from foca.utils.urls import _get_apis, _RegisteredApi
 
 APP_ENV_VAR = "FOCA_APP"
+
+logger = logging.getLogger(__name__)
 
 
 class _UsageError(Exception):
@@ -42,9 +47,12 @@ def _load_app(app: str) -> Foca:
             function returning one.
     """
     module_name, separator, attribute = app.partition(":")
-    if not (module_name and separator and attribute):
+    if not (module_name and separator and attribute) or (
+        module_name.startswith(".") or "/" in module_name
+    ):
         raise _UsageError(f"'{app}' is not of the form 'module:attribute'")
-    sys.path.insert(0, os.getcwd())
+    if os.getcwd() not in sys.path:
+        sys.path.insert(0, os.getcwd())
     try:
         module = importlib.import_module(module_name)
     except ModuleNotFoundError as exc:
@@ -55,7 +63,8 @@ def _load_app(app: str) -> Foca:
     if not hasattr(module, attribute):
         raise _UsageError(f"module '{module_name}' has no attribute '{attribute}'")
     value = getattr(module, attribute)
-    if callable(value) and not isinstance(value, Foca):
+    # Not any callable: classes, and apps of the web framework, aren't factories
+    if inspect.isroutine(value):
         value = value()
     if not isinstance(value, Foca):
         raise _UsageError(f"'{app}' is neither a Foca instance nor returns one")
@@ -71,52 +80,64 @@ def _create_app_without_writes(foca: Foca) -> Any:
     Returns:
         Connexion app.
     """
-    if foca.conf.db is not None:
-        foca.conf.db.create_indexes_on_startup = False
-    foca.conf.security.access_control.sync_policies_on_startup = False
+    foca.disable_startup_writes()
     return foca.create_app()
 
 
-def _check_config(foca: Foca, _args: argparse.Namespace) -> None:
+def _check_config(foca: Foca, _args: argparse.Namespace) -> str:
     """Run the startup checks of the app and, if it has jobs, of its workers.
 
     Args:
         foca: `Foca` instance.
         _args: Arguments of the command.
+
+    Returns:
+        Output.
     """
     _create_app_without_writes(foca)
     if foca.conf.jobs:
         foca.create_celery_app()
-    sys.stdout.write("Configuration is valid.\n")
+    return "Configuration is valid.\n"
 
 
-def _create_indexes(foca: Foca, _args: argparse.Namespace) -> None:
+def _create_indexes(foca: Foca, _args: argparse.Namespace) -> str:
     """Create the configured indexes.
 
     Args:
         foca: `Foca` instance.
         _args: Arguments of the command.
+
+    Returns:
+        Output.
     """
     foca.create_indexes()
-    sys.stdout.write("Indexes created.\n")
+    return "Indexes created.\n"
 
 
-def _sync_policies(foca: Foca, _args: argparse.Namespace) -> None:
+def _sync_policies(foca: Foca, _args: argparse.Namespace) -> str:
     """Replace the stored configured policy rules with the configured ones.
 
     Args:
         foca: `Foca` instance.
         _args: Arguments of the command.
 
+    Returns:
+        Output.
+
     Raises:
-        ValueError: Access control isn't enabled.
+        ValueError: Access control isn't enabled, or the stored rules stay, as their
+            revision is newer.
     """
     access_control = foca.conf.security.access_control
     if not access_control.enabled:
         raise ValueError("Access control is not enabled")
     app = _create_app_without_writes(foca)
-    sync_policies(app.app, access_control)
-    sys.stdout.write("Policies synchronized.\n")
+    if not sync_policies(app.app, access_control):
+        raise ValueError(
+            "Stored policy rules not replaced, as their revision is newer: raise "
+            "'policies_revision', or set 'policies_force' for a rollback"
+        )
+    return "Policies synchronized.\n"
 
 
 def _select_spec(apis: list[_RegisteredApi], name: str | None) -> _RegisteredApi:
@@ -148,21 +169,23 @@ def _select_spec(apis: list[_RegisteredApi], name: str | None) -> _RegisteredApi
     raise ValueError(f"The app has no specification '{name}', but: {names}")
 
 
-def _export_spec(foca: Foca, args: argparse.Namespace) -> None:
-    """Write a merged API specification, as served, to the standard output.
+def _export_spec(foca: Foca, args: argparse.Namespace) -> str:
+    """Get a merged API specification, as served.
 
     Args:
         foca: `Foca` instance.
         args: Arguments of the command.
+
+    Returns:
+        Output: the specification.
     """
     app = _create_app_without_writes(foca)
     apis = [api for api in _get_apis(app.app) if api.is_app_api]
     # Keeps it in the types of JSON, also for YAML, e.g., for status codes
     text = json.dumps(_select_spec(apis, args.spec).specification, default=str)
     if args.format == "json":
-        sys.stdout.write(f"{text}\n")
-    else:
-        sys.stdout.write(yaml.safe_dump(json.loads(text), sort_keys=False))
+        return f"{text}\n"
+    return yaml.safe_dump(json.loads(text), sort_keys=False)
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -202,20 +225,20 @@ def _create_parser() -> argparse.ArgumentParser:
     ):
         command = commands.add_parser(name, help=description, description=description)
         command.set_defaults(function=function)
-        if name == "export-spec":
-            command.add_argument(
-                "--format",
-                choices=["yaml", "json"],
-                default="yaml",
-                help="Format of the output (default: %(default)s)",
-            )
-            command.add_argument(
-                "--spec",
-                help=(
-                    "Name in 'api.specs', or base path, of the specification; "
-                    "required if the app has several"
-                ),
-            )
+    # The last one
+    command.add_argument(
+        "--format",
+        choices=["yaml", "json"],
+        default="yaml",
+        help="Format of the output (default: %(default)s)",
+    )
+    command.add_argument(
+        "--spec",
+        help=(
+            "Name in 'api.specs', or base path, of the specification; "
+            "required if the app has several"
+        ),
+    )
     return parser
 
 
@@ -234,13 +257,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     app = args.app or os.environ.get(APP_ENV_VAR)
     if not app:
         parser.error(f"--app or the environment variable {APP_ENV_VAR} is required")
-    try:
-        args.function(_load_app(app), args)
-    except _UsageError as exc:
-        parser.error(str(exc))
-    # What goes wrong is for the operator to fix, so no traceback; whatever the app's
-    # code and the startup checks raise, e.g., errors of the database
-    except Exception as exc:
-        sys.stderr.write(f"Error: {exc}\n")
-        return 1
+    # Only the output of the command goes to the standard output, not what the app's
+    # code prints or logs there
+    with contextlib.redirect_stdout(sys.stderr):
+        try:
+            with no_startup_writes():
+                foca = _load_app(app)
+            output = args.function(foca, args)
+        except _UsageError as exc:
+            parser.error(str(exc))
+        # What goes wrong is for the operator to fix, so no traceback by default;
+        # whatever the app's code and the startup checks raise, e.g., database errors
+        except Exception as exc:
+            logger.debug("Command failed", exc_info=True)
+            sys.stderr.write(f"Error: {exc}\n")
+            return 1
+    sys.stdout.write(output)
     return 0

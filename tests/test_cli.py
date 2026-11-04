@@ -10,17 +10,19 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 from unittest import mock
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
 import yaml
 from pymongo import MongoClient
+from pymongo.errors import OperationFailure
 
 from foca import Foca
 from foca.cli import main
 from foca.database.register_mongodb import register_mongodb
 from foca.models.config import MongoConfig
+from foca.plugins.engine import PluginHost
 from foca.security.access_control.register_access_control import sync_policies
 
 FILES = Path(__file__).parent / "test_files"
@@ -31,6 +33,7 @@ RULE = ["p", "alice", "/data", "GET"]
 MODULE = """
 from foca import Foca
 
+print("printed by the module")
 foca = Foca(config_file="config.yaml")
 not_foca = 1
 
@@ -45,6 +48,10 @@ def wrong_factory():
 
 def failing_factory():
     raise ValueError("factory failed")
+
+
+def app_factory():
+    return Foca(config_file="config.yaml").create_app()
 """
 
 
@@ -186,7 +193,10 @@ class TestUsage:
         monkeypatch.delenv("FOCA_APP", raising=False)
         assert "FOCA_APP" in _usage_error(["check-config"], capsys)
 
-    @pytest.mark.parametrize("app", ["no_colon", ":attribute", "module:"])
+    @pytest.mark.parametrize(
+        "app",
+        ["no_colon", ":attribute", "module:", "./module.py:foca", ".module:foca"],
+    )
     def test_invalid_form(self, app: str, capsys: pytest.CaptureFixture[str]) -> None:
         """Apps must be given as `module:attribute`."""
         message = _usage_error(["--app", app, "check-config"], capsys)
@@ -205,6 +215,7 @@ class TestUsage:
             ("missing", "no attribute"),
             ("not_foca", "neither"),
             ("wrong_factory", "neither"),
+            ("Foca", "neither"),
         ],
     )
     def test_invalid_attribute(
@@ -339,6 +350,41 @@ class TestCheckConfig:
         """Apps with valid jobs pass."""
         conf = {"jobs": {"host": "rabbitmq"}}
         assert main(["--app", f"{app_module(conf)}:foca", "check-config"]) == 0
+
+    def test_invalid_policies(
+        self, app_module: AppFactory, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Configured rules that keep the app from starting are found."""
+        conf = {
+            "security": {
+                "auth": AUTH,
+                "access_control": {"enabled": True, "policies": [["p", "alice"]]},
+            }
+        }
+        assert main(["--app", f"{app_module(conf)}:foca", "check-config"]) == 1
+        assert "Error:" in capsys.readouterr().err
+
+    def test_factory_of_web_app_writes_nothing(
+        self,
+        app_module: AppFactory,
+        mongodb: MongoClient[dict[str, Any]],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Functions returning the app are refused, without writes on startup."""
+        conf = {
+            **CONF_INDEXES,
+            "security": {"auth": AUTH, "access_control": ACCESS_CONTROL},
+        }
+        argv = ["--app", f"{app_module(conf)}:app_factory", "check-config"]
+        assert "neither" in _usage_error(argv, capsys)
+        assert mongodb.list_database_names() == []
+
+    def test_app_failure_shows_debug_traceback(self, app_module: AppFactory) -> None:
+        """The cause of failures is logged on level `DEBUG`."""
+        name = app_module({})
+        with patch("foca.cli.logger") as logger:
+            assert main(["--app", f"{name}:failing_factory", "check-config"]) == 1
+        logger.debug.assert_called_once_with("Command failed", exc_info=True)
 
     def test_writes_nothing(
         self,
@@ -487,6 +533,41 @@ class TestSyncPolicies:
         assert "synchronized" in capsys.readouterr().out
         assert self._stored(database) == [RULE]
 
+    def test_newer_revision_stays(
+        self,
+        app_module: AppFactory,
+        database: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The command fails if the stored rules stay."""
+        newer = self._conf(database, policies_revision=5)
+        assert main(["--app", f"{app_module(newer)}:foca", "sync-policies"]) == 0
+        older = self._conf(
+            database, policies_revision=3, policies=[["p", "bob", "/data", "GET"]]
+        )
+        capsys.readouterr()
+        assert main(["--app", f"{app_module(older)}:foca", "sync-policies"]) == 1
+        assert "revision is newer" in capsys.readouterr().err
+        assert self._stored(database) == [RULE]
+        forced = self._conf(
+            database,
+            policies_revision=3,
+            policies=None,
+            policies_force=True,
+        )
+        assert main(["--app", f"{app_module(forced)}:foca", "sync-policies"]) == 0
+        assert self._stored(database) == []
+
+    def test_removal_with_newer_revision_stays(
+        self, app_module: AppFactory, database: str
+    ) -> None:
+        """The command fails if the rules to remove stay."""
+        newer = self._conf(database, policies_revision=5)
+        assert main(["--app", f"{app_module(newer)}:foca", "sync-policies"]) == 0
+        older = self._conf(database, policies_revision=3, policies=None)
+        assert main(["--app", f"{app_module(older)}:foca", "sync-policies"]) == 1
+        assert self._stored(database) == [RULE]
+
     def test_removes_without_policies(
         self, app_module: AppFactory, database: str
     ) -> None:
@@ -531,10 +612,29 @@ class TestExportSpec:
         foca = sys.modules[name].foca
         served = foca.create_app().app.test_client().get("/v2/openapi.json")
         assert served.status_code == 200
-        assert exported["paths"].keys() == served.json["paths"].keys()
-        assert exported["info"] == served.json["info"]
+        assert exported == served.json
         operation = exported["paths"]["/pets"]["get"]
         assert operation["x-openapi-router-controller"] == "controllers"
+
+    def test_swagger_as_served(
+        self, app_module: AppFactory, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The same holds for specifications of Swagger 2."""
+        conf = {
+            "api": {
+                "specs": [
+                    _spec_entry(path=str(FILES / "openapi_2_petstore.original.yaml"))
+                ]
+            }
+        }
+        name = app_module(conf)
+        argv = ["--app", f"{name}:foca", "export-spec", "--format", "json"]
+        assert main(argv) == 0
+        exported = json.loads(capsys.readouterr().out)
+        app = sys.modules[name].foca.create_app().app
+        served = app.test_client().get(f"{exported['basePath']}/swagger.json")
+        assert served.status_code == 200
+        assert exported == served.json
 
     def test_status_codes_as_strings(
         self, app_module: AppFactory, capsys: pytest.CaptureFixture[str]
@@ -712,7 +812,9 @@ class TestSwitches:
         foca.gateway = MagicMock(backends=None)
         with mock.patch("foca.foca.runtime") as runtime:
             foca.create_app()
-        runtime.create_host.return_value.setup_store.assert_not_called()
+        host = runtime.create_host.return_value
+        host.setup_store.assert_not_called()
+        host.warn_store_settings.assert_called_once_with()
         runtime.create_host.return_value.close.assert_called_once_with()
 
     def test_create_indexes_of_gateway(
@@ -725,9 +827,47 @@ class TestSwitches:
         with mock.patch("foca.foca.runtime") as runtime:
             foca.create_indexes()
         host = runtime.create_host.return_value
-        host.setup_store.assert_called_once_with()
+        host.setup_store.assert_called_once_with(strict=True)
         host.close.assert_called_once_with()
         assert "name_1" in mongodb["cli-db"]["items"].index_information()
+
+
+class TestStoreSetup:
+    """Tests for setting up the store of gateway plugins."""
+
+    @staticmethod
+    def _host(backend: MagicMock) -> MagicMock:
+        """Create a stand-in for a plugin host.
+
+        Args:
+            backend: Backend of the store.
+
+        Returns:
+            Stand-in with a store in a namespace.
+        """
+        settings = MagicMock(backend=backend, namespace="ns", max_ttl=1.0)
+        return MagicMock(_stores={"plugin": settings}, _store_backend=backend)
+
+    def test_strict_index_error(self) -> None:
+        """Errors of creating indexes are raised, if strict."""
+        backend = MagicMock()
+        backend.setup.side_effect = OperationFailure("conflict", code=85)
+        with pytest.raises(OperationFailure):
+            PluginHost.setup_store(self._host(backend), strict=True)
+
+    def test_strict_expiry_error(self) -> None:
+        """Errors of capping the expiry are raised, if strict."""
+        backend = MagicMock()
+        backend.cap_expiry.side_effect = OperationFailure("denied", code=13)
+        with pytest.raises(OperationFailure):
+            PluginHost.setup_store(self._host(backend), strict=True)
+
+    def test_errors_logged_by_default(self) -> None:
+        """Errors are logged by default, so that the app starts."""
+        backend = MagicMock()
+        backend.setup.side_effect = OperationFailure("conflict", code=85)
+        backend.cap_expiry.side_effect = OperationFailure("denied", code=13)
+        PluginHost.setup_store(self._host(backend))
 
 
 class TestProcess:
@@ -743,7 +883,7 @@ class TestProcess:
         Returns:
             Result of the process.
         """
-        return subprocess.run(
+        return subprocess.run(  # noqa: S603 (fixed arguments, no shell)
             [
                 sys.executable,
                 "-c",
@@ -770,6 +910,7 @@ class TestProcess:
         result = self._run("--app", f"{name}:foca", "export-spec", "--format", "json")
         assert result.returncode == 0
         assert "/pets" in json.loads(result.stdout)["paths"]
+        assert "printed by the module" in result.stderr
 
     @pytest.mark.parametrize(
         ("conf", "argv", "code"),
