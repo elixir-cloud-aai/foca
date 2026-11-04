@@ -400,6 +400,7 @@ jobs:
         run: |
           for _ in $(seq 1 60); do
             if curl -sf -o /dev/null http://localhost:8081/openapi.json \
+                && curl -sf -o /dev/null http://localhost:8082/openapi.json \
                 && docker compose logs worker | grep -q ' ready\.$'; then
               exit 0
             fi

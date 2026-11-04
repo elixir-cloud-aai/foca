@@ -67,7 +67,9 @@ The petstore has no plugins, so CI also tests the plugin path of gateway apps
 in real containers, with the [gateway
 example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/gateway):
 a plugin installed as a distribution runs in the app and in a Celery worker,
-with MongoDB, RabbitMQ and the plugin store's key secret. Locally:
+with MongoDB, RabbitMQ and the plugin store's key secret. It also checks request
+identifiers through Gunicorn, with a second app that doesn't trust those of clients.
+Locally:
 
 ```bash
 cd examples/gateway
@@ -76,6 +78,7 @@ docker compose up -d --build
 cd ../..
 # Wait until the app accepts requests and the worker is ready
 until curl -sf -o /dev/null http://localhost:8081/openapi.json; do sleep 2; done
+until curl -sf -o /dev/null http://localhost:8082/openapi.json; do sleep 2; done
 until docker compose -f examples/gateway/docker-compose.yaml logs worker | grep -q ' ready\.$'; do sleep 2; done
 pytest tests/integration_gateway_tests.py
 ```

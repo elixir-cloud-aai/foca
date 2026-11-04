@@ -1,0 +1,4 @@
+# Overlay of the service `app-no-trust` of `docker-compose.yaml`
+server:
+    request_id:
+        trust_incoming: False

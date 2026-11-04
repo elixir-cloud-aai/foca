@@ -18,7 +18,9 @@ requests without authentication, so don't expose it.
   the pipeline in the app, `POST /messages/worker` in the Celery worker.
 - `tasks.py`, `worker.py`: the worker.
 - `docker-compose.yaml`: app, worker, MongoDB and RabbitMQ, with the app on
-  port 8081. Its credentials and key secret are for this example only.
+  port 8081. On port 8082, it runs the app again with the overlay
+  `no-trust.yaml`, for the test of `server.request_id.trust_incoming`. Its
+  credentials and key secret are for this example only.
 - `chart/`: a thin chart over the library chart `foca-common`, with only what
   CI needs. It sets `pluginStore.existingSecret`, and its `helm test` sends
   messages through the app and the worker.
