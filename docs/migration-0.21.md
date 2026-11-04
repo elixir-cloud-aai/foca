@@ -37,3 +37,11 @@ The same holds for workers started in the process of an app (e.g., with
 `celery.contrib.testing.worker.start_worker` in tests): what the app keeps from
 its client, including FOCA's access control, can't be used afterwards. Create
 the app after the worker has started, or run the worker in a process of its own.
+
+## App charts
+
+foca-common 0.5.0 has autoscaling and topology spread constraints of the app's
+pods. Copy `app-values.schema.json` again so that their values are checked.
+Autoscaling also needs a template file with `foca-common.hpa`; without it,
+enabling it leaves the app with one pod (see [Several replicas](helm-chart.md#several-replicas)). Nothing changes
+otherwise.
