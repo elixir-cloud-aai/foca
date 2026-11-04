@@ -628,8 +628,7 @@ def test_revocation_without_services(
     cache._next_read = 0
     with caplog.at_level(logging.WARNING):
         assert cache.urls() == ["https://tes-a.example.org"]
-    assert "no longer verified" in caplog.text
-    assert "https://tes-b.example.org" in caplog.text
+    assert "not used any more: https://tes-b.example.org\n" in caplog.text
     assert "keeping 1 backends" in caplog.text
     # it isn't a good read: its time and the limit of the staleness stay
     assert cache.read_at == read_at
