@@ -1295,3 +1295,18 @@ def test_ServiceInfoConfig_locked_fields() -> None:
 def test_ServiceInfoConfig_no_locked_fields() -> None:
     """No fields are locked by default."""
     assert ServiceInfoConfig(service=SERVICE).locked_fields == []
+
+
+@pytest.mark.parametrize("options", [{"api_enabled": False}, {"api_base_path": "/acl"}])
+def test_api_settings_need_access_control(options: dict[str, Any]) -> None:
+    """Settings of the permissions API are refused without access control."""
+    with pytest.raises(ValidationError, match=r"require 'access_control\.enabled'"):
+        SecurityConfig(access_control=AccessControlConfig(**options))
+
+
+def test_swagger_ui_of_disabled_api() -> None:
+    """Without the permissions API, its other settings don't matter."""
+    conf = AccessControlConfig(
+        api_enabled=False, api_swagger_ui=True, api_serve_spec=False
+    )
+    assert conf.api_enabled is False
