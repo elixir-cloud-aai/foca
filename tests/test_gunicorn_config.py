@@ -4,6 +4,7 @@ import inspect
 import json
 import os
 import re
+import runpy
 import shlex
 import sys
 from pathlib import Path
@@ -13,7 +14,7 @@ from gunicorn.app.wsgiapp import WSGIApplication
 from gunicorn.config import Config
 
 from foca import gunicorn_config
-from foca.gunicorn_config import _worker_tmp_dir
+from foca.gunicorn_config import _get_port, _worker_tmp_dir
 
 ROOT = Path(__file__).resolve().parents[1]
 PETSTORE_DOCKERFILE = ROOT / "examples" / "petstore" / "Dockerfile"
@@ -219,3 +220,33 @@ def test_worker_tmp_dir_file(tmp_path: Path) -> None:
     shm = tmp_path / "shm"
     shm.touch()
     assert _worker_tmp_dir(shm) is None
+
+
+class TestPort:
+    """Tests for the port from environment variable `PORT`."""
+
+    def test_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without `PORT`, the port of the Helm chart is used."""
+        monkeypatch.delenv("PORT", raising=False)
+        assert _get_port() == 8080
+
+    @pytest.mark.parametrize("value", ["1", "8081", "65535"])
+    def test_valid(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+        """Valid ports are used."""
+        monkeypatch.setenv("PORT", value)
+        assert _get_port() == int(value)
+
+    @pytest.mark.parametrize(
+        "value", ["", "0", "65536", "-1", "+80", " 80", "80a", "http", "8.5", "٨٠"]
+    )
+    def test_invalid(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+        """Other values are errors that name the variable."""
+        monkeypatch.setenv("PORT", value)
+        with pytest.raises(ValueError, match="PORT must be an integer"):
+            _get_port()
+
+    def test_bind(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The module binds to the port when Gunicorn loads it."""
+        monkeypatch.setenv("PORT", "9000")
+        namespace = runpy.run_path(gunicorn_config.__file__)
+        assert namespace["bind"] == ["0.0.0.0:9000"]
