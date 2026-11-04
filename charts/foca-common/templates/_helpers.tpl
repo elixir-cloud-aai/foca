@@ -243,8 +243,8 @@ with the context dict.
 {{- define "foca-common.extraEnv" -}}
 {{- $key := .settings.valuesKey -}}
 {{- $values := index .root.Values $key -}}
-{{- $extraEnv := $values.extraEnv | default list -}}
-{{- if not (kindIs "slice" $extraEnv) -}}
+{{- $extraEnv := $values.extraEnv -}}
+{{- if not (or (kindIs "invalid" $extraEnv) (kindIs "slice" $extraEnv)) -}}
 {{- fail (printf "%s.extraEnv must be a list of EnvVar" $key) -}}
 {{- end -}}
 {{- $reserved := include "foca-common.reservedEnv" . | splitList " " -}}
@@ -290,8 +290,8 @@ list (for app charts without the schema). Call with the context dict.
 */}}
 {{- define "foca-common.extraEnvFrom" -}}
 {{- $key := .settings.valuesKey -}}
-{{- $extraEnvFrom := (index .root.Values $key).extraEnvFrom | default list -}}
-{{- if not (kindIs "slice" $extraEnvFrom) -}}
+{{- $extraEnvFrom := (index .root.Values $key).extraEnvFrom -}}
+{{- if not (or (kindIs "invalid" $extraEnvFrom) (kindIs "slice" $extraEnvFrom)) -}}
 {{- fail (printf "%s.extraEnvFrom must be a list of EnvFromSource" $key) -}}
 {{- end -}}
 {{- range $extraEnvFrom -}}
@@ -335,8 +335,8 @@ read from a cluster. Call with the context dict.
 {{- define "foca-common.rolloutChecksum" -}}
 {{- $root := .root -}}
 {{- $key := .settings.valuesKey -}}
-{{- $names := (index $root.Values $key).rolloutOnSecrets | default list -}}
-{{- if not (kindIs "slice" $names) -}}
+{{- $names := (index $root.Values $key).rolloutOnSecrets -}}
+{{- if not (or (kindIs "invalid" $names) (kindIs "slice" $names)) -}}
 {{- fail (printf "%s.rolloutOnSecrets must be a list of names of Secrets" $key) -}}
 {{- end -}}
 {{- $data := dict -}}

@@ -1933,7 +1933,9 @@ def test_worker(render: Callable[..., Docs]) -> None:
     env = _env(worker)
     assert {name: env[name] for name in CELERY_ENV} == CELERY_ENV
     assert env == {
-        name: value for name, value in _env(app).items() if name != "GUNICORN_CMD_ARGS"
+        name: value
+        for name, value in _env(app).items()
+        if name not in ("GUNICORN_CMD_ARGS", "PORT")
     }
     spec = _pod_spec(docs, WORKER)
     assert spec["securityContext"] == _pod_spec(docs)["securityContext"]
@@ -2470,6 +2472,11 @@ def test_extra_env_default(render: Callable[..., Docs]) -> None:
         assert "OTHER" not in _env(container)
 
 
+def test_port_set(render: Callable[..., Docs]) -> None:
+    """The app's port is set, so `extraEnvFrom` can't change it."""
+    assert _env(_container(render()))["PORT"] == "8080"
+
+
 def test_extra_env(render: Callable[..., Docs]) -> None:
     """Extra settings apply to the app and the worker, not to other containers."""
     docs = render(
@@ -2635,6 +2642,12 @@ def test_extra_env_duplicate(render_error: Callable[..., str]) -> None:
     ("key", "value", "message"),
     [
         ("extraEnv", {"a": {"name": "B"}}, "extraEnv must be a list"),
+        ("extraEnv", False, "extraEnv must be a list"),
+        ("extraEnv", {}, "extraEnv must be a list"),
+        ("extraEnvFrom", 0, "extraEnvFrom must be a list"),
+        ("extraEnvFrom", "", "extraEnvFrom must be a list"),
+        ("rolloutOnSecrets", False, "rolloutOnSecrets must be a list"),
+        ("rolloutOnSecrets", {}, "rolloutOnSecrets must be a list"),
         ("extraEnv", [{}], "extraEnv must be a list"),
         ("extraEnv", ["x"], "extraEnv must be a list"),
         ("extraEnvFrom", {"secretRef": {"name": "x"}}, "extraEnvFrom must be a list"),

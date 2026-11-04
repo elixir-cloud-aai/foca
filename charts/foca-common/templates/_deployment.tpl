@@ -53,6 +53,9 @@ spec:
         env:
         - name: FOCA_CONFIG_OVERLAY
           value: {{ printf "%s/overlay.yaml" $configDir }}
+        # The port of the Service and the probes, also over `extraEnvFrom`
+        - name: PORT
+          value: "8080"
         {{- if $values.gunicorn }}
         # Settings of Gunicorn (the image's command), overriding the image's
         # defaults; options are split like shell words, so `extraArgs` are

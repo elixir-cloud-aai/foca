@@ -796,7 +796,8 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
   upgrade after a change rolls them. Helm's `lookup` reads the Secrets at that
   time, so the user running Helm must be allowed to read them, nothing happens
   until the next upgrade, and Secrets not found are ignored (deleting one rolls
-  the pods as well). The annotation is an unsalted hash of the data, which those
+  the pods as well). As `lookup` reads them before Helm applies anything, a change
+  of a Secret in the same release only counts on the next upgrade. The annotation is an unsalted hash of the data, which those
   who can read Deployments can test guesses against, so use it for Secrets with
   long random values, not for weak passwords. `helm template` and
   Argo CD don't read from the cluster, so they render no annotation, without an
