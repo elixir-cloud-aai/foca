@@ -389,6 +389,12 @@ jobs:
           exit 1
       - name: Run gateway integration tests
         run: pytest tests/integration_gateway_tests.py
+      - name: Check worker for MongoDB clients opened before fork
+        working-directory: examples/gateway
+        run: |
+          if docker compose logs worker | grep 'opened before fork'; then
+            exit 1
+          fi
       - name: Show gateway logs
         if: failure()
         working-directory: examples/gateway

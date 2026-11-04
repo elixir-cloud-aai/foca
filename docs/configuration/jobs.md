@@ -34,6 +34,21 @@ from foca import Foca
 celery_app = Foca(config_file="my_app/config.yaml").create_celery_app()
 ```
 
+## MongoDB in workers
+
+PyMongo clients [must not be used across
+forks](https://dochub.mongodb.org/core/pymongo-fork-deadlock), and a worker
+forks its pool processes after `Foca.create_celery_app()` has created the
+client and the configured indexes. So with Celery's default `prefork` pool, FOCA
+replaces the client just before the worker starts its pool, and again in each
+pool process when it starts. The new clients connect on first use.
+
+Get collections when you need them, e.g., with
+[`get_collection()`](index.md#accessing-the-configuration) in a task. Objects
+taken from a client before the worker started (e.g., a collection kept in a
+module-level variable) belong to a closed client, and using them raises
+`pymongo.errors.InvalidOperation`.
+
 ## Worker shutdown
 
 Workers get a `SIGTERM` when they are stopped, e.g., on every rollout of a

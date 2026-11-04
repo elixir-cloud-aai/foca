@@ -37,7 +37,42 @@ def register_mongodb(conf: MongoConfig) -> MongoConfig:
     return conf
 
 
-def get_mongo_client(conf: MongoConfig) -> MongoClient[dict[str, Any]]:
+def reopen_mongodb(conf: MongoConfig) -> None:
+    """Replace the MongoDB client of an app, for processes that fork.
+
+    A client's threads don't survive a fork, and a client used across one may
+    hang (cf. https://dochub.mongodb.org/core/pymongo-fork-deadlock). The
+    current client is closed, and databases and collections are set to a new
+    client, which only connects on first use, so that this doesn't block and
+    forked processes can inherit the new client safely until it is used.
+    Nothing is done if no client was created yet.
+
+    Objects taken from the previous client (e.g., a collection kept in a
+    variable) can't be used afterwards.
+
+    Args:
+        conf: :py:class:`foca.models.config.MongoConfig` instance whose
+            clients of databases and collections are replaced.
+    """
+    previous = conf._client
+    if previous is None:
+        return
+    conf._client = None
+    client = get_mongo_client(conf, connect=False)
+    for db_conf in (conf.dbs or {}).values():
+        if db_conf.client is None:
+            continue
+        db_conf.client = client[db_conf.client.name]
+        for coll_conf in (db_conf.collections or {}).values():
+            if coll_conf.client is not None:
+                coll_conf.client = db_conf.client[coll_conf.client.name]
+    previous.close()
+    logger.debug("Reopened MongoDB client.")
+
+
+def get_mongo_client(
+    conf: MongoConfig, connect: bool = True
+) -> MongoClient[dict[str, Any]]:
     """Get the MongoDB client of an app, creating it on first use.
 
     If credentials are configured via environment variables, the client
@@ -48,6 +83,8 @@ def get_mongo_client(conf: MongoConfig) -> MongoClient[dict[str, Any]]:
     Args:
         conf: :py:class:`foca.models.config.MongoConfig` instance describing
             the MongoDB server and databases.
+        connect: Whether a client created here connects in the background
+            right away, rather than on first use.
 
     Returns:
         MongoDB client, shared by all databases of `conf`.
@@ -57,6 +94,7 @@ def get_mongo_client(conf: MongoConfig) -> MongoClient[dict[str, Any]]:
             host=conf.host,
             port=conf.port,
             db=next(iter(conf.dbs or {}), None),
+            connect=connect,
         )
     return conf._client
 
@@ -65,6 +103,7 @@ def create_mongo_client(
     host: str = "mongodb",
     port: int = 27017,
     db: str | None = None,
+    connect: bool = True,
 ) -> MongoClient[dict[str, Any]]:
     """Create MongoDB client.
 
@@ -77,12 +116,14 @@ def create_mongo_client(
         port: Port at which MongoDB is exposed.
         db: Name of the database named in the connection string, i.e., the
             database to authenticate against, if credentials are given.
+        connect: Whether the client connects in the background right away,
+            rather than on first use.
 
     Returns:
         MongoDB client.
     """
     uri = get_mongo_uri(host=host, port=port, db=db or "")
-    client: MongoClient[dict[str, Any]] = MongoClient(uri)
+    client: MongoClient[dict[str, Any]] = MongoClient(uri, connect=connect)
     logger.info("Created MongoDB client for '%s'.", _redact_uri(uri))
     return client
 
