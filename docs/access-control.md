@@ -1184,7 +1184,8 @@ revoke (also for subjects that cannot have roles). Owners whose role does
 not apply (e.g., groups granted the role before `keep_group_subjects` was
 unset) do not count as owners for the last-owner rule. Every role change is
 logged on level `INFO`, naming the resource, the subject, the caller and the
-previous roles, for auditing.
+previous roles, and each change of a rule goes to the
+[audit log](configuration/log.md#audit-log).
 
 In `resource_role_model.conf`, admins may do everything. For apps where
 operators must not see all user data, use the model `foca:granted_rights_model.conf`

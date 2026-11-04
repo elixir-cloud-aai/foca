@@ -317,12 +317,16 @@ class _RegisteredApi(NamedTuple):
         is_app_api: Whether the API is one of the app's specifications
             (`api.specs`), rather than one that FOCA adds (the permissions
             API).
+        name: Name of the specification in `api.specs`, if it has one.
+        specification: Specification, as served; only known for the app's.
     """
 
     base_path: str
     operation_ids: frozenset[str]
     is_app_api: bool
     paths: tuple[str, ...] = ()
+    name: str | None = None
+    specification: Any = None
 
 
 # Key of the app's extensions holding the APIs registered with it
@@ -354,6 +358,8 @@ def _register_api(
     *,
     is_app_api: bool = True,
     paths: Iterable[str] = (),
+    name: str | None = None,
+    specification: Any = None,
 ) -> None:
     """Remember an API of an app, for the helpers for paths.
 
@@ -363,6 +369,8 @@ def _register_api(
         operations: Operation Objects of the API.
         is_app_api: Whether the API is one of the app's specifications.
         paths: Paths of the API, relative to its base path.
+        name: Name of the specification in `api.specs`, if it has one.
+        specification: Specification, as served.
     """
     operations = list(operations)
     app.extensions.setdefault(_OPERATIONS_EXTENSION, {}).update(
@@ -382,6 +390,8 @@ def _register_api(
             ),
             is_app_api=is_app_api,
             paths=tuple(paths),
+            name=name,
+            specification=specification,
         )
     )
 

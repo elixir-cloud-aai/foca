@@ -78,6 +78,12 @@ policies](../access-control.md#configuring-policies)). See [Access
 control](../access-control.md) for how policies, roles and the permissions API
 work.
 
+## Syncing rules outside of startup
+
+Stored configured rules are replaced on startup, unless
+`sync_policies_on_startup: false`, for which run
+[`foca sync-policies`](../cli.md#sync-policies) as a step of your deployment.
+
 ## Startup checks
 
 Some settings keep the app from working as intended. When access control

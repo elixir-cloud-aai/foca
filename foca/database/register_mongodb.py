@@ -28,7 +28,9 @@ DEFAULT_CLIENT_OPTIONS = {
 }
 
 
-def register_mongodb(conf: MongoConfig) -> MongoConfig:
+def register_mongodb(
+    conf: MongoConfig, create_indexes: bool | None = None
+) -> MongoConfig:
     """Register MongoDB databases and collections.
 
     All databases share the app's MongoDB client (cf.
@@ -38,15 +40,20 @@ def register_mongodb(conf: MongoConfig) -> MongoConfig:
     Args:
         conf: :py:class:`foca.models.config.MongoConfig` instance describing
             databases and collections to be registered.
+        create_indexes: Whether to create the configured indexes; if `None`,
+            as set via `db.create_indexes_on_startup`.
 
     Returns:
         `conf`, with clients of databases and collections set.
     """
+    if create_indexes is None:
+        create_indexes = conf.create_indexes_on_startup
     for db_name, db_conf in (conf.dbs or {}).items():
         _register_database(
             client=get_mongo_client(conf),
             db_name=db_name,
             db_conf=db_conf,
+            create_indexes=create_indexes,
         )
     return conf
 
@@ -237,6 +244,7 @@ def _register_database(
     client: MongoClient[dict[str, Any]],
     db_name: str,
     db_conf: DBConfig,
+    create_indexes: bool = True,
 ) -> None:
     """Register a database, its collections and their indexes.
 
@@ -247,6 +255,7 @@ def _register_database(
         db_conf: :py:class:`foca.models.config.DBConfig` instance describing
             the database; clients of the database and its collections are
             set.
+        create_indexes: Whether to create the configured indexes.
 
     Raises:
         IndexConflictError: A configured index conflicts with an existing
@@ -260,6 +269,8 @@ def _register_database(
     for coll_name, coll_conf in (db_conf.collections or {}).items():
         coll_conf.client = db_conf.client[coll_name]
         logger.info("Added database collection '%s'.", coll_name)
+        if not create_indexes:
+            continue
         for index in coll_conf.indexes or []:
             if index.keys is None:
                 continue

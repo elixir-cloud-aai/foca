@@ -181,7 +181,8 @@ With a database configured (`db.dbs`), the entries are in the collection
 replicas. The policy database that access control adds when the app has no
 database of that name (e.g., `access_control_db` without `db` section) is
 not the app's: without an app database, the store stays in memory. Gateway
-apps create the collection's indexes at startup (a TTL index on
+apps create the collection's indexes at startup, unless
+[`db.create_indexes_on_startup`](../cli.md#startup-switches) is off (a TTL index on
 `expires_at`, and one on `ns`), so the database user needs the right to
 create indexes. If that fails because the database is down or slow (more
 than 10 s), the app logs a warning and starts anyway, and writes to the

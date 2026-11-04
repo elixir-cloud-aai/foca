@@ -142,3 +142,85 @@ bodies by default.
 ::: foca.models.config.LogLoggerConfig
     options:
       members: false
+
+## Audit log
+
+Changes of access rights are logged on level `INFO` to the logger `foca.audit`, with
+who made them: rules changed via the [permissions
+API](../access-control.md#securing-the-permissions-api) and roles changed with the
+helpers for resource roles (`add_resource_role()`, `remove_resource_role()`,
+`remove_resource()`, and the operations on owners, which use them). Roles rolled back
+or restored are logged, too.
+
+| `action` | Further fields |
+|----------|----------------|
+| `permission.create` | `ptype`, `rule` |
+| `permission.update` | `ptype`, `rule`, `previous` (its `ptype` and `rule`) |
+| `permission.delete` | `ptype`, `rule`, unless the rule was stored only just before |
+| `resource_role.grant` | `subject`, `subject_type`, `role`, `ptype`; for `grant_role()`, also `replacing` (the roles it replaces, as the subject held them just before) and `already_granted` |
+| `resource_role.revoke` | `subject`, `subject_type`, `role`, `ptype` |
+| `resource_role.revoke_all` | `rules` (with their prefixed subjects), `ptype`, `swept` (whether rules that grant no role were removed, e.g., invalid ones or stored copies of configured ones, or rules stored meanwhile), `part` and `parts` (the rules come in events of up to 50), `incomplete` (whether removing failed, so the rest may remain), `uncertain` (the rule being removed when that happened, which may be gone) |
+
+Each event also has:
+
+| Field | Value |
+|-------|-------|
+| `action` | What was done |
+| `target` | What it was done to: the identifier of the rule, or the path of the resource |
+| `actor` | `subject` and `client` of the validated token, and the user that a service client names in the header [`auth.on_behalf_of_header`](auth.md) (`on_behalf_of`); `null` where not available, e.g., for changes outside of requests |
+| `request_id` | [Identifier of the request](server.md#request-ids) or Celery task, or `null`; with `trust_incoming`, clients choose it |
+
+These are in the `audit` field of the record, so that the [formatter `json`](#json-logs)
+writes them as an object. The message has them as `name=value`, with values as JSON,
+so that they can't forge fields or lines in text logs:
+
+```text
+action="resource_role.grant" target="/tasks/1" actor={"subject": "alice", "client": null, "on_behalf_of": null} request_id="f3a9" subject="bob" subject_type="user" role="owner" ptype="g2"
+```
+
+To write them somewhere of their own, give the logger its own handler:
+
+```yaml
+log:
+  handlers:
+    console: {}
+    audit:
+      class: logging.StreamHandler
+      level: 20
+      formatter: json
+      stream: ext://sys.stdout
+  loggers:
+    foca.audit:
+      level: 20
+      handlers: [audit]
+      propagate: false
+```
+
+Without `propagate: false`, events also go to the handlers of the root logger. If a
+handler or filter of the logger raises, the operation still succeeds, and the failure is
+logged to the logger `foca.audit_failures`. Handlers of Python's `logging` don't raise:
+they write failures, such as a full disk, to the standard error, and the event is lost.
+In Celery workers, the level of the root logger may be
+too high for `INFO`, as they [set up logging themselves](#context-of-log-records).
+
+Apps can log events of their own, which then have the same fields:
+
+```python
+from foca import audit
+
+audit.log("task.cancel", task_id, reason=reason)
+```
+
+Fields named `action`, `target`, `actor` or `request_id` are left out, so that values
+can't replace the actual ones. Don't pass secrets as fields.
+
+The audit log isn't a transaction log: events are written after the change, so if the
+database fails right after a change (the request then fails), there may be no event,
+and with concurrent changes, their order may differ from that of the changes, and a
+grant may be logged whose role a concurrent `grant_role()` replaced at once. Direct
+use of the Casbin enforcer and configured rules changed on startup aren't logged here.
+
+!!! warning "Personal data"
+    The actor, and the subjects of roles and rules, are personal data. Under the GDPR,
+    you need a legal basis for keeping them, a retention period for the audit log, and
+    access to it limited to those who need it.
