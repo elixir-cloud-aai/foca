@@ -33,9 +33,12 @@ from foca.security.access_control.constants import (
     DEFAULT_ID_CHARSET,
     DEFAULT_ID_LENGTH,
     DEFAULT_MODEL_FILE,
+    GRANTED_RIGHTS_MODEL_FILE,
     MAINTAINER_ROLE,
     MIN_ID_SPACE,
     OWNER_ROLE,
+    PACKAGED_MODEL_PREFIX,
+    RESOURCE_ROLE_MODEL_FILE,
     SUBJECT_TYPE_PREFIXES,
 )
 from foca.utils.misc import generate_id
@@ -930,6 +933,12 @@ class AccessControlConfig(FOCABaseConfig):
             roles, as a comma-separated list (e.g., `X-Request-Roles:
             admin`). Must be a valid header name without `_` (which servers
             such as Gunicorn drop), other than `auth.on_behalf_of_header`.
+        require_enforced: Refuse to start (`ValidationError`) if `enforce` isn't
+            set, for apps that must not run without enforcing access control.
+        required_roles: Roles that must exist: refuse to start (`ValueError`)
+            if one isn't the role of `group_mapping` or `client_mapping`, of
+            `resource_roles`, or granted by a rule of `policies`. Roles granted
+            via stored policy rules aren't checked.
         require_admin: Refuse to start (`ValueError`) if no group (via
             `group_mapping`, with `claim_groups` set) or service client (via
             `client_mapping`) is mapped to the role `admin` and no rule of
@@ -942,6 +951,11 @@ class AccessControlConfig(FOCABaseConfig):
             the role of the client, if mapped. Clients that are not service
             clients cannot be mapped. Roles are restricted as for
             `group_mapping`.
+        resource_roles_cover_custom_methods: Whether resource-scoped roles also
+            apply to custom methods of their resources (AIP-136), e.g., to
+            `/tasks/1:cancel` for a role on `/tasks/1`. Don't use it if
+            identifiers of resources may contain `:`, as `/tasks/1:2` would
+            then count as a custom method of `/tasks/1`.
         resource_roles_cover_subpaths: Whether resource-scoped roles (role
             definitions with three fields, e.g., `g2 = _, _, _`) granted on
             a resource path also apply to its sub-paths (e.g., a role on
@@ -985,6 +999,14 @@ class AccessControlConfig(FOCABaseConfig):
             or remove single rules (cf.
             :py:class:`foca.config.config_parser.ConfigParser`); `None`
             values remove rules.
+        policies_revision: Revision of `policies`, a number that grows with each
+            release that changes them. If set, app instances with an older
+            revision than the stored one, or none, don't change the stored rules
+            on startup (with a warning), so that old instances restarting
+            during a rolling upgrade don't bring back old rules. Without it,
+            and if none is stored, the last instance to start wins.
+        policies_force: Change the stored rules also if their revision is newer,
+            for rollbacks; `policies_revision` becomes the stored revision.
         log_traffic: Whether requests to the permissions API and their
             responses are logged (cf.
             :py:func:`foca.utils.logging.log_traffic`).
@@ -1013,6 +1035,10 @@ class AccessControlConfig(FOCABaseConfig):
             requests that ask for them.
         opt_in_header: Request header in which requests ask for opt-in
             roles.
+        require_enforced: Refuse to start if `enforce` isn't set.
+        required_roles: Roles that must exist.
+        resource_roles_cover_custom_methods: Whether resource-scoped roles apply
+            to custom methods of their resources.
         require_admin: Refuse to start if no group, service client or
             configured policy rule is granted the role `admin`.
         client_mapping: Mapping of service clients to roles.
@@ -1027,6 +1053,8 @@ class AccessControlConfig(FOCABaseConfig):
         policies: Policy rules the app relies on, managed on startup, as a
             list (names of named rules are kept in `named_policies`). If not
             set, stored configured rules are removed on startup.
+        policies_revision: Revision of `policies`.
+        policies_force: Change the stored rules also if their revision is newer.
         log_traffic: Whether requests to the permissions API and their
             responses are logged.
 
@@ -1063,6 +1091,9 @@ class AccessControlConfig(FOCABaseConfig):
     keep_group_subjects: bool = False
     opt_in_roles: list[str] = []
     opt_in_header: str = "X-Request-Roles"
+    require_enforced: bool = False
+    required_roles: list[str] = Field(default_factory=list)
+    resource_roles_cover_custom_methods: bool = False
     require_admin: bool = False
     client_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
@@ -1073,6 +1104,9 @@ class AccessControlConfig(FOCABaseConfig):
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
     self_service: bool = False
     policies: list[list[str]] | None = None
+    # In the range of MongoDB's integers; not `true` for 1
+    policies_revision: int | None = Field(default=None, ge=0, le=2**63 - 1, strict=True)
+    policies_force: bool = False
     log_traffic: bool = True
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
@@ -1206,6 +1240,24 @@ class AccessControlConfig(FOCABaseConfig):
                     f"subjects could otherwise collide with {subject_type}s"
                 )
         return v
+
+    @model_validator(mode="after")
+    def validate_require_enforced(self) -> Self:
+        """Ensure that access control is enforced if that is required.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: `require_enforced` is set, but `enforce` isn't.
+        """
+        if self.require_enforced and not self.enforce:
+            raise ValueError(
+                "'security.access_control.require_enforced' is set, but "
+                "'security.access_control.enforce' isn't: this app must not run "
+                "without enforcing access control"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_swagger_ui(self) -> Self:
@@ -1428,10 +1480,27 @@ class AccessControlConfig(FOCABaseConfig):
             Absolute model path as string; relative paths are resolved
             against the directory of the base config file, if available,
             otherwise against the current working directory. If no path is
-            provided, return default model path.
+            provided, return default model path. `foca:<file>` is one of the
+            models that FOCA ships.
+
+        Raises:
+            ValueError: `foca:<file>` names no model that FOCA ships.
         """
         if v is None:
             return str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE))
+        if isinstance(v, str) and v.startswith(PACKAGED_MODEL_PREFIX):
+            name = v.removeprefix(PACKAGED_MODEL_PREFIX)
+            packaged = (
+                DEFAULT_MODEL_FILE,
+                RESOURCE_ROLE_MODEL_FILE,
+                GRANTED_RIGHTS_MODEL_FILE,
+            )
+            if name not in packaged:
+                raise ValueError(
+                    f"'security.access_control.model': FOCA ships {packaged}, "
+                    f"not '{name}'"
+                )
+            return str(files(ACCESS_CONTROL_BASE_PATH).joinpath(name))
         return str(_resolve_path(v, info))
 
     @field_validator("api_specs")
@@ -2312,8 +2381,16 @@ class SecurityConfig(FOCABaseConfig):
                         != AccessControlConfig.model_fields["api_base_path"].default,
                     ),
                     ("policies", access_control.policies),
+                    ("policies_revision", access_control.policies_revision is not None),
+                    ("policies_force", access_control.policies_force),
                     ("client_mapping", access_control.client_mapping),
                     ("require_admin", access_control.require_admin),
+                    ("require_enforced", access_control.require_enforced),
+                    ("required_roles", access_control.required_roles),
+                    (
+                        "resource_roles_cover_custom_methods",
+                        access_control.resource_roles_cover_custom_methods,
+                    ),
                 ]
                 if value
             ]
