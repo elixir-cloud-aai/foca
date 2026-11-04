@@ -156,10 +156,10 @@ or restored are logged, too.
 |----------|----------------|
 | `permission.create` | `ptype`, `rule` |
 | `permission.update` | `ptype`, `rule`, `previous` (its `ptype` and `rule`) |
-| `permission.delete` | `ptype`, `rule` |
+| `permission.delete` | `ptype`, `rule`, unless the rule was stored only just before |
 | `resource_role.grant` | `subject`, `subject_type`, `role`, `ptype`; for `grant_role()`, also `replacing` (roles it replaces, if the subject has them) and `already_granted` |
 | `resource_role.revoke` | `subject`, `subject_type`, `role`, `ptype` |
-| `resource_role.revoke_all` | `rules` (with their prefixed subjects), `ptype`, `swept` (whether other rules were removed, e.g., stored meanwhile or invalid) |
+| `resource_role.revoke_all` | `rules` (with their prefixed subjects), `ptype`, `swept` (whether rules that grant no role were removed, e.g., invalid ones or stored copies of configured ones, or rules stored meanwhile) |
 
 Each event also has:
 
@@ -197,8 +197,10 @@ log:
 ```
 
 Without `propagate: false`, events also go to the handlers of the root logger. If a
-handler of the logger fails, the operation still succeeds, and the failure is logged to
-the logger `foca.audit_failures`. In Celery workers, the level of the root logger may be
+handler or filter of the logger raises, the operation still succeeds, and the failure is
+logged to the logger `foca.audit_failures`. Handlers of Python's `logging` don't raise:
+they write failures, such as a full disk, to the standard error, and the event is lost.
+In Celery workers, the level of the root logger may be
 too high for `INFO`, as they [set up logging themselves](#context-of-log-records).
 
 Apps can log events of their own, which then have the same fields:
@@ -214,7 +216,8 @@ can't replace the actual ones. Don't pass secrets as fields.
 
 The audit log isn't a transaction log: events are written after the change, so if the
 database fails right after a change (the request then fails), there may be no event,
-and with concurrent changes, their order may differ from that of the changes. Direct
+and with concurrent changes, their order may differ from that of the changes, and a
+grant may be logged whose role a concurrent `grant_role()` replaced at once. Direct
 use of the Casbin enforcer and configured rules changed on startup aren't logged here.
 
 !!! warning "Personal data"

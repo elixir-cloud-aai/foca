@@ -17,6 +17,7 @@ from werkzeug.exceptions import BadRequest, Conflict, NotFound
 from foca.audit import log as audit_log
 from foca.config.access import get_collection, get_config
 from foca.security.access_control.constants import (
+    CONFIGURED_FIELD,
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
@@ -25,6 +26,7 @@ from foca.security.access_control.enforcement import (
     grants_opt_in_role,
     is_permitted,
 )
+from foca.security.access_control.foca_casbin_adapter.adapter import _rule_values
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
     validate_rule,
@@ -67,20 +69,16 @@ def _get_stored_rule(id: str) -> dict[str, Any] | None:
         id: Identifier of the rule.
 
     Returns:
-        Policy type (`ptype`) and values (`rule`) of the rule, or `None` if no rule
-        with the identifier is stored.
+        Policy type (`ptype`) and values (`rule`) of the rule, as stored, or `None`
+        if no rule with the identifier is stored, other than configured ones, which
+        the API doesn't change.
     """
-    document = _get_permissions_collection().find_one({"id": id})
+    document = _get_permissions_collection().find_one(
+        {"id": id, CONFIGURED_FIELD: {"$ne": True}}
+    )
     if document is None:
         return None
-    return {
-        "ptype": document.get("ptype"),
-        "rule": [
-            document[f"v{index}"]
-            for index in range(MAX_RULE_VALUES)
-            if isinstance(document.get(f"v{index}"), str)
-        ],
-    }
+    return {"ptype": document.get("ptype"), "rule": _rule_values(document)}
 
 
 def _get_visibility_filter() -> dict[str, Any]:

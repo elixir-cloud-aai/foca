@@ -115,8 +115,9 @@ def log(action: str, target: object, /, **fields: Any) -> None:
     replaced with their text.
 
     This never fails, as what it logs has happened: not if the actor can't be
-    determined, and not if a handler fails, which is logged to the logger
-    `foca.audit_failures`.
+    determined, and not if a handler or filter raises, which is logged to the logger
+    `foca.audit_failures`. Handlers of Python's `logging` don't raise, but report
+    failures themselves (cf. `logging.raiseExceptions`).
 
     Args:
         action: What was done, e.g., `permission.create`.

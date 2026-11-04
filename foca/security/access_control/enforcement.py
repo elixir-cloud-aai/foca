@@ -1430,17 +1430,19 @@ def remove_resource(
             # if it granted a role: unmarked copies of configured rules still
             # apply, and invalid rules are not loaded. Configured copies are
             # kept by the adapter; the section (first argument) is not used.
-            if (
-                adapter.remove_policy(ptype[0], ptype, rule)
-                and rule not in configured
-                and _is_valid_rule(ptype, rule, model)
-            ):
-                revoked.append(rule)
+            if adapter.remove_policy(ptype[0], ptype, rule):
+                if rule not in configured and _is_valid_rule(ptype, rule, model):
+                    revoked.append(rule)
+                else:
+                    swept = True
         # Remove rules that could not be removed one by one (e.g., with values
         # that are not strings) or that were stored concurrently; the section
         # (first argument) is not used by the adapter
-        swept = adapter.remove_filtered_policy(
-            ptype[0], ptype, 2, resource, keep_configured=True
+        swept = (
+            adapter.remove_filtered_policy(
+                ptype[0], ptype, 2, resource, keep_configured=True
+            )
+            or swept
         )
     finally:
         if revoked or swept:

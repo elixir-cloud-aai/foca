@@ -525,6 +525,42 @@ class TestPermissionsApi:
             unwrap(postPermission)()
         assert _events(caplog) == []
 
+    def test_values_keep_positions(
+        self,
+        permissions_app: Flask,
+        collection: Collection[dict[str, Any]],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Stored values are logged as they are, also odd ones."""
+        collection.insert_one(
+            {"id": MOCK_ID, "ptype": "p", "v0": 5, "v1": "bob", "v2": "/x"}
+        )
+        with permissions_app.app_context():
+            unwrap(deletePermission)(id=MOCK_ID)
+        assert _events(caplog)[0]["rule"][:3] == [5, "bob", "/x"]
+
+    def test_configured_duplicate_not_logged(
+        self,
+        permissions_app: Flask,
+        collection: Collection[dict[str, Any]],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The rule logged is the one changed, not a configured one of that name."""
+        collection.insert_one(
+            {
+                "id": MOCK_ID,
+                "ptype": "p",
+                "v0": "configured",
+                "configured": True,
+                "generations": ["0" * 24],
+            }
+        )
+        collection.insert_one({"id": MOCK_ID, "ptype": "p", "v0": "real"})
+        permissions_app.config["casbin_adapter"].set_configured_policies([])
+        with permissions_app.app_context():
+            unwrap(deletePermission)(id=MOCK_ID)
+        assert _events(caplog)[0]["rule"][0] == "real"
+
 
 class TestResourceRoles:
     """Tests for the events of the helpers for resource roles."""
@@ -614,6 +650,21 @@ class TestResourceRoles:
                 return_value=True,
             ),
         ):
+            assert remove_resource(TASK) is False
+        events = _events(caplog)
+        assert len(events) == 1
+        assert events[0]["rules"] == []
+        assert events[0]["swept"] is True
+
+    def test_remove_resource_invalid_rule(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Invalid rules, which grant no role, leave a trace when removed."""
+        adapter = app.config["casbin_adapter"]
+        adapter._collection.insert_one(
+            {"ptype": "g2", "v0": "user:bob", "v1": "owner", "v2": TASK, "v3": "x"}
+        )
+        with as_caller(app, ALICE):
             assert remove_resource(TASK) is False
         events = _events(caplog)
         assert len(events) == 1
