@@ -630,6 +630,26 @@ class TestResponseValidation:
         assert path.lstrip("/") in message
         assert BODY_VALUE not in message
         assert BODY_VALUE not in caplog.text
+        assert "secret" not in message
+        assert "secret" not in caplog.text
+        assert "\n" not in message
+
+    def test_log_escaped(
+        self,
+        conf: ExceptionConfig,
+        logged: list[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Line breaks, e.g., in the path of a schema, are escaped."""
+        monkeypatch.setattr(
+            exceptions_module,
+            "_response_validation_error",
+            lambda _: "a\nforged line",
+        )
+        response = self._client(conf).get("/get_invalid_body")
+        assert response.status_code == 500
+        (message,) = logged
+        assert "a\\nforged line" in message
         assert "\n" not in message
 
     def test_required_names_missing(self) -> None:
