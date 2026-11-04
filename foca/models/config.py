@@ -15,7 +15,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    NonNegativeInt,
     PositiveInt,
     PrivateAttr,
     ValidationInfo,
@@ -968,7 +967,8 @@ class AccessControlConfig(FOCABaseConfig):
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
     self_service: bool = False
     policies: list[list[str]] | None = None
-    policies_revision: NonNegativeInt | None = None
+    # In the range of MongoDB's integers; not `true` for 1
+    policies_revision: int | None = Field(default=None, ge=0, le=2**63 - 1, strict=True)
     policies_force: bool = False
     log_traffic: bool = True
     # Database and collection names of the policy collection added by FOCA,

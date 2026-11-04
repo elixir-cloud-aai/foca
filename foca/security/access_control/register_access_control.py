@@ -718,8 +718,12 @@ def _remove_policies(
         # default)
         with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
             configured = adapter.has_configured_policies()
-        # E.g., set via a config overlay that was removed since
-        if configured and adapter.set_configured_policies([], revision, force):
+        # E.g., set via a config overlay that was removed since; if forced, also
+        # without rules, for the revision
+        applied = (configured or force) and adapter.set_configured_policies(
+            [], revision, force
+        )
+        if configured and applied:
             logger.warning(
                 "Removed stored configured policy rules, as "
                 "'security.access_control.policies' is not set."

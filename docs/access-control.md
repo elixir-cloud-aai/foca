@@ -264,7 +264,11 @@ then, rules of the previous generation are removed. Only the configured
 rules of the active generation are loaded and listed by the permissions API,
 which changes no configured rules of any generation. If instances with different rules start
 concurrently, the rules of the instance that activates its generation last
-are kept. Rules of generations that never became active (e.g., because an
+are kept, unless they have a newer revision (`policies_revision`, cf. [Configured
+policies in rolling
+upgrades](deployment.md#configured-policies-in-rolling-upgrades)), which also keeps
+older instances from replacing them later on, or removing them. Rules of generations
+that never became active (e.g., because an
 instance failed while storing them) are removed on a later startup, once
 older than an hour (by the clocks of the instances, which must be
 synchronized), as are rules of generations not created by FOCA. Configured
@@ -285,7 +289,8 @@ a later version replaces them.
 !!! warning "Apps sharing a policy collection"
     All apps using the same policy collection must configure the same rules:
     each startup replaces the configured rules of the others, also if
-    `policies` is not set. By default, all FOCA apps on the same MongoDB
+    `policies` is not set. A revision (`policies_revision`) applies to the
+    collection, too, so it would block the others. By default, all FOCA apps on the same MongoDB
     server use the same policy collection (`access_control_db.policy_rules`):
     apps on a shared external MongoDB must set their own `db_name`.
 

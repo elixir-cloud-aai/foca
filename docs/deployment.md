@@ -201,14 +201,34 @@ security:
     policies_revision: 3
 ```
 
-A pod with an older revision than the stored one leaves the rules as they are, and
-logs a warning. A pod with the same or a newer revision writes its rules, which is
-also how the first pod with a revision takes over. Once a revision is stored, pods
-without one count as older, and apply to removing all rules, too.
+A pod with an older revision than the stored one leaves the stored rules as they
+are, and logs a warning. Like all pods, it enforces the stored rules, not those in
+its configuration, so it enforces the newer rules. A pod with the same or a newer
+revision writes its rules, so change the revision whenever the rules change: pods
+with the same revision race as before. The first pod with a revision takes over from
+stored rules without one. Once a revision is stored, pods without one count as older,
+also when they would remove all rules, as `policies` isn't set.
 
-To roll back, deliberately, set `policies_force: true` for the old version: its
-pods then write their rules and their revision whatever is stored. Remove it again
-afterwards, as forcing pods keep overwriting newer ones.
+A revision takes effect with the first pod that starts, before it's ready, and stays.
+So rollbacks don't restore the rules anymore, neither `helm rollback` nor `kubectl
+rollout undo` nor `helm upgrade --atomic`: the pods of the old version keep enforcing
+the newer rules, with a warning in their logs. To roll back the rules, deliberately,
+set `policies_force: true` for the old version: its pods then write their rules and
+their revision whatever is stored. Remove it again afterwards, as forcing pods keep
+overwriting newer ones.
+
+!!! warning "Before all pods have this version of FOCA"
+    Pods with FOCA versions before 0.21.0 know no revisions: they overwrite the
+    rules, whatever is stored, and leave the stored revision as it is. So the
+    protection starts once all pods have this version. Restart them after the first
+    upgrade to it, so that the rules of the new version are in effect. Versions
+    without these settings also refuse to start with them, so remove them from
+    overlays if you roll back that far.
+
+!!! warning "Apps sharing a policy collection"
+    The stored revision applies to the whole policy collection. Apps sharing one
+    (cf. [Configuring policies](access-control.md#configuring-policies)) need to use
+    the same revisions, or none.
 
 ## Kubernetes and Helm
 

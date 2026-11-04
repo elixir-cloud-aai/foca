@@ -475,6 +475,16 @@ class TestPoliciesRevision:
         assert self._start(collection, None, revision=1, force=True) == set()
         assert "Removed stored" in caplog.text
 
+    def test_forced_without_rules(self) -> None:
+        """Forcing also stores the revision if there are no rules to remove."""
+        collection: Collection[dict[str, Any]] = (
+            mongomock.MongoClient().db.revisions_empty
+        )
+        self._start(collection, [], revision=3)
+        assert self._start(collection, None, revision=1, force=True) == set()
+        rules = [["p", "new", "/a", "GET"]]
+        assert self._start(collection, rules, revision=2) == {"new"}
+
     def test_rollback(self) -> None:
         """Forced rules are written."""
         collection: Collection[dict[str, Any]] = (
@@ -489,5 +499,6 @@ class TestPoliciesRevision:
         conf = AccessControlConfig()
         assert conf.policies_revision is None
         assert conf.policies_force is False
-        with pytest.raises(ValidationError):
-            AccessControlConfig(policies_revision=-1)
+        for value in (-1, 2**63, True):
+            with pytest.raises(ValidationError):
+                AccessControlConfig(policies_revision=value)
