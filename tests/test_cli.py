@@ -379,8 +379,16 @@ class TestCheckConfig:
         assert "neither" in _usage_error(argv, capsys)
         assert mongodb.list_database_names() == []
 
+    def test_access_control_without_db_writes_nothing(
+        self, app_module: AppFactory, mongodb: MongoClient[dict[str, Any]]
+    ) -> None:
+        """The database that access control adds isn't written to either."""
+        conf = {"security": {"auth": AUTH, "access_control": ACCESS_CONTROL}}
+        assert main(["--app", f"{app_module(conf)}:foca", "check-config"]) == 0
+        assert mongodb.list_database_names() == []
+
     def test_instances_created_while_running_write_nothing(
-        self, app_module: AppFactory
+        self, app_module: AppFactory, mongodb: MongoClient[dict[str, Any]]
     ) -> None:
         """Instances of modules that the command imports don't write either."""
         created: list[Foca] = []
@@ -395,6 +403,7 @@ class TestCheckConfig:
                 Connexion app.
             """
             created.append(Foca(config_file="config.yaml"))
+            created[0].create_app()
             return foca.create_app()
 
         name = app_module(CONF_INDEXES)
@@ -402,6 +411,7 @@ class TestCheckConfig:
             assert main(["--app", f"{name}:foca", "check-config"]) == 0
         assert created[0].conf.db is not None
         assert created[0].conf.db.create_indexes_on_startup is False
+        assert mongodb.list_database_names() == []
 
     def test_app_failure_shows_debug_traceback(self, app_module: AppFactory) -> None:
         """The cause of failures is logged on level `DEBUG`."""
