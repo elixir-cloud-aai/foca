@@ -737,6 +737,22 @@ def test_malformed_verifications_without_services(
     assert caplog.text.count("Skipped 1 verifications") == 1
 
 
+def test_same_url_without_services(registry: Registry) -> None:
+    """Of services with the same URL, the verification of the listed one decides."""
+    url = "https://tes-a.example.org/ga4gh/tes/v1"
+    registry.services = [service("s1", url), service("s2", url)]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    cache = backends.get_cache(entry, "tes")
+    assert cache.urls() == ["https://tes-a.example.org"]
+    registry.services_error = HttpError("down")
+    registry.verifications = [verification("s2", url)]
+    cache._next_read = 0
+    assert cache.urls() == []
+    registry.services_error = None
+    cache._next_read = 0
+    assert cache.urls() == ["https://tes-a.example.org"]
+
+
 def test_verified_again(registry: Registry, two_backends: Any) -> None:
     """Revoked backends come back with the next good read, not before."""
     cache = two_backends
@@ -879,10 +895,12 @@ def test_local_registry_revocation() -> None:
         )
         cache = backends.get_cache(entry, "tes")
         assert cache.urls() == ["https://tes.example.org"]
+        read_at = cache.read_at
+        # requests from now on are answered by the other handler
         httpd.RequestHandlerClass = Handler
         cache._next_read = 0
         assert cache.urls() == []
-        assert cache.read_at is not None
+        assert cache.read_at == read_at
     finally:
         backends.clear_caches()
         httpd.shutdown()
