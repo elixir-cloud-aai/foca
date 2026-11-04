@@ -51,7 +51,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
 )
 from foca.security.access_control.ownership_server import _check_routes_enforced
 from foca.utils.logging import escape_log_value
-from foca.utils.urls import _get_api_base_paths, _register_api
+from foca.utils.urls import _get_api_base_paths, _get_apis, _register_api
 
 logger = logging.getLogger(__name__)
 
@@ -588,6 +588,7 @@ def register_permission_specs(
         api.base_path,
         _iter_resolved_operations(api.specification.raw),
         is_app_api=False,
+        paths=list(api.specification.raw.get("paths", {})),
     )
     logger.info("Permission management API registered from '%s'.", spec_path)
     return app
@@ -663,9 +664,10 @@ def register_casbin_enforcer(
             names=None if named is None else list(named),
             base_paths=_get_api_base_paths(app.app),
             protected_paths=[
-                f"{base_path}{path}"
-                for base_path in _get_api_base_paths(app.app, is_app_api=False)
-                for path in ("/permissions", "/permissions/id")
+                f"{api.base_path}{path}"
+                for api in _get_apis(app.app)
+                if not api.is_app_api
+                for path in api.paths
             ],
         )
     else:
@@ -760,6 +762,9 @@ def _add_policies(
         logger.info("Named policy rules applied: %s", ", ".join(names) or "none")
 
 
+_PATH_PARAMETER = re.compile(r"\{([^{}]+)\}")
+
+
 def _expand_base_path(
     rule: list[str], base_paths: list[str], protected_paths: list[str]
 ) -> list[list[str]]:
@@ -769,13 +774,15 @@ def _expand_base_path(
     `{base_path}/*` then matches all paths of the app. Rules with the
     placeholder are meant for the app's APIs, so they must not match the
     permissions API that way: moving an API to the root must not silently
-    open up who may manage policies.
+    open up who may manage policies. The check uses `keyMatch2`, as the default
+    model does; custom models that match paths differently aren't covered.
 
     Args:
         rule: Policy rule: its policy type, followed by its values.
         base_paths: Base paths of the app's APIs.
         protected_paths: Paths that the rule must not match, i.e., those of
-            the permissions API.
+            the permissions API, as in its specification (e.g.,
+            `/permissions/{id}`).
 
     Returns:
         The rule if it has no placeholder; otherwise, a rule for each base
@@ -801,10 +808,17 @@ def _expand_base_path(
         for base in base_paths
     ]
     for path in protected_paths:
+        # Any value of a path parameter: the rule may cover all of them (the
+        # sample), or one of them (the pattern)
+        sample = _PATH_PARAMETER.sub("id", path)
+        pattern = _PATH_PARAMETER.sub(r":\1", path)
         for base in base_paths:
             for value in rule[1:]:
-                if BASE_PATH_PLACEHOLDER in value and key_match2(
-                    path, value.replace(BASE_PATH_PLACEHOLDER, base)
+                if BASE_PATH_PLACEHOLDER not in value:
+                    continue
+                expanded_value = value.replace(BASE_PATH_PLACEHOLDER, base)
+                if key_match2(sample, expanded_value) or key_match2(
+                    expanded_value, pattern
                 ):
                     raise ValueError(
                         f"Policy rule {rule!r} has the placeholder "

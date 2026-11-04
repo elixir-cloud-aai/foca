@@ -829,8 +829,8 @@ def is_permitted_for(path: str, method: str = "GET") -> bool:
     public operations, those that set `x-foca-access-control: false` and
     self-service ones), the caller is permitted. This is a decision of
     policies only: operations that don't enforce policies may still require
-    a token, and controllers may check more. `OPTIONS` requests, which Flask
-    answers itself, are not decided this way.
+    a token, and controllers may check more. `OPTIONS` requests that Flask
+    answers itself are permitted, as no policy applies to them.
 
     The caller is who the current operation validated: on public operations
     (`security: []`), tokens aren't validated, so callers count as anonymous;
@@ -870,7 +870,9 @@ def is_permitted_for(path: str, method: str = "GET") -> bool:
     # no operation, it only responds with `404`
     if rule.rule.endswith(_CATCH_ALL_RULE_SUFFIX):
         return False
-    if not _enforces_access_control(current_app.view_functions[rule.endpoint]):
+    if (method == "OPTIONS" and getattr(rule, "provide_automatic_options", False)) or (
+        not _enforces_access_control(current_app.view_functions[rule.endpoint])
+    ):
         return True
     client = _get_current_service_client()
     subject = get_current_subject() if client is None else client.client_id

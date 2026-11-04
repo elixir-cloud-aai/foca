@@ -337,8 +337,10 @@ API at the root, the base path is empty (a value of only `{base_path}` becomes
 `/`). The permissions API isn't one of the app's APIs, so rules with the
 placeholder aren't meant for it: if one matches it anyway (e.g., `{base_path}/*`
 for an API at the root), the app refuses to start (`ValueError`), so that moving
-an API doesn't open up who may manage policies. If the app has no API, rules
-with the placeholder make it refuse to start, too.
+an API doesn't open up who may manage policies. The check matches paths as the
+default model does (`keyMatch2`), so review such rules yourself if your model
+matches paths differently. If the app has no API, rules with the placeholder make
+it refuse to start, too.
 
 Rules that depend on the app's data, such as roles on resources, are better
 managed by the app (cf. [resource-scoped roles](#resource-scoped-roles)).

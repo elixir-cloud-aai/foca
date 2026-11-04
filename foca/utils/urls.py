@@ -310,6 +310,8 @@ class _RegisteredApi(NamedTuple):
         base_path: Base path of the API, empty for an API at the root.
         operation_ids: Identifiers of the operations of the API, as in its
             specification.
+        paths: Paths of the API, relative to its base path, as in its
+            specification; only known for the permissions API.
         is_app_api: Whether the API is one of the app's specifications
             (`api.specs`), rather than one that FOCA adds (the permissions
             API).
@@ -318,6 +320,7 @@ class _RegisteredApi(NamedTuple):
     base_path: str
     operation_ids: frozenset[str]
     is_app_api: bool
+    paths: tuple[str, ...] = ()
 
 
 # Key of the app's extensions holding the APIs registered with it
@@ -330,6 +333,7 @@ def _register_api(
     operations: Iterable[dict[str, Any]],
     *,
     is_app_api: bool = True,
+    paths: Iterable[str] = (),
 ) -> None:
     """Remember an API of an app, for the helpers for paths.
 
@@ -338,6 +342,7 @@ def _register_api(
         base_path: Base path of the API.
         operations: Operation Objects of the API.
         is_app_api: Whether the API is one of the app's specifications.
+        paths: Paths of the API, relative to its base path.
     """
     app.extensions.setdefault(_APIS_EXTENSION, []).append(
         _RegisteredApi(
@@ -348,6 +353,7 @@ def _register_api(
                 if isinstance(operation.get("operationId"), str)
             ),
             is_app_api=is_app_api,
+            paths=tuple(paths),
         )
     )
 
@@ -383,7 +389,8 @@ def get_api_base_path(operation_id: str | None = None) -> str:
 
     Works during requests and on startup, when there is no request; must be
     called in an app context. The API is the one with the operation, if
-    given; otherwise, the API handling the current request, or the only API
+    given (of several with the operation, the one handling the current
+    request); otherwise, the API handling the current request, or the only API
     of the app's specifications (`api.specs`).
 
     Args:
@@ -396,27 +403,39 @@ def get_api_base_path(operation_id: str | None = None) -> str:
         for an API at the root, so that paths can be appended.
 
     Raises:
-        LookupError: No API has the operation.
+        LookupError: No API has the operation. Operations in Path Item Objects
+            in other files (`$ref`) aren't known.
         RuntimeError: There is no operation and no request handled by an API,
-            and the app has no or several APIs.
+            and the app has no or several APIs, or several APIs have the
+            operation and no request is handled by one of them.
     """
     # Flask only here, so that the other functions work without it (e.g.,
     # in `foca.plugins`)
     from flask import current_app, has_request_context, request  # noqa: PLC0415
 
     apis = _get_apis(current_app)
-    if operation_id is not None:
-        for api in apis:
-            if operation_id in api.operation_ids:
-                return api.base_path
-        raise LookupError(f"No API of the app has the operation '{operation_id}'")
+    prefix = None
     if has_request_context() and request.blueprint is not None:
         # Connexion registers each API as a blueprint with its base path as
         # URL prefix
         blueprint = current_app.blueprints[request.blueprint]
         prefix = (blueprint.url_prefix or "").rstrip("/")
-        if any(api.base_path == prefix for api in apis):
-            return prefix
+    if operation_id is not None:
+        base_paths = [
+            api.base_path for api in apis if operation_id in api.operation_ids
+        ]
+        if not base_paths:
+            raise LookupError(f"No API of the app has the operation '{operation_id}'")
+        if prefix in base_paths:
+            return str(prefix)
+        if len(set(base_paths)) > 1:
+            raise RuntimeError(
+                f"Several APIs of the app have the operation '{operation_id}', "
+                "and no request is handled by one of them"
+            )
+        return base_paths[0]
+    if prefix is not None and any(api.base_path == prefix for api in apis):
+        return prefix
     base_paths = _get_api_base_paths(current_app)
     if not base_paths:
         raise RuntimeError("The app has no API to get the base path of")

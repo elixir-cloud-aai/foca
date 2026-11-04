@@ -31,6 +31,7 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
+    _expand_base_path,
     register_access_control,
 )
 from foca.security.auth import _unauthorized
@@ -329,14 +330,28 @@ class TestIsPermittedFor:
     ) -> None:
         """No request was denied, so denials aren't logged as for requests."""
         logger = "foca.security.access_control.enforcement"
-        with caplog.at_level(logging.INFO, logger=logger):
+        with caplog.at_level(logging.DEBUG, logger=logger):
             result = _request(app, "bob", lambda: is_permitted_for("/api/v1/pets/1"))
         assert result is False
-        assert "Access denied" not in caplog.text
+        levels = {
+            record.levelno
+            for record in caplog.records
+            if record.name == logger and "bob" in record.getMessage()
+        }
+        assert levels == {logging.DEBUG}
+
+    def test_automatic_options_permitted(self, app: Flask) -> None:
+        """Flask answers these itself, so no policy applies."""
+        assert (
+            _request(app, "bob", lambda: is_permitted_for("/api/v1/pets/1", "OPTIONS"))
+            is True
+        )
 
     def test_default_method(self, app: Flask) -> None:
         """The method defaults to `GET`."""
-        assert _request(app, "alice", lambda: is_permitted_for("/api/v1/pets/1"))
+        assert (
+            _request(app, "alice", lambda: is_permitted_for("/api/v1/pets/1")) is True
+        )
 
     def test_no_request(self, app: Flask) -> None:
         """Without a request, there is no caller."""
@@ -418,6 +433,32 @@ class TestGetApiBasePath:
         app = _create_app(tmp_path, [PETS_SPEC, spec])
         with app.app_context():
             assert get_api_base_path(f"{THIS_MODULE}.get_ref") == "/ref/v1"
+
+    def test_operation_of_several_apis(self, tmp_path: Path) -> None:
+        """An operation of several APIs needs a request to one of them."""
+        operation = f"{THIS_MODULE}.get_other"
+        second = _spec(
+            "/second/v3",
+            (
+                "/others",
+                "get",
+                _operation(
+                    "get_other", **{"x-foca-access-control": False}, security=[]
+                ),
+            ),
+        )
+        app = _create_app(tmp_path, [OTHER_SPEC, second, PETS_SPEC])
+
+        def check() -> str:
+            try:
+                return get_api_base_path(operation)
+            except RuntimeError as exc:
+                return str(exc)
+
+        with app.app_context():
+            assert "Several APIs" in check()
+        assert _request(app, None, check, path="/second/v3/others") == "/second/v3"
+        assert "Several APIs" in _request(app, None, check)
 
     def test_unknown_operation(self, tmp_path: Path) -> None:
         """Unknown operations are errors."""
@@ -525,7 +566,7 @@ class TestGetResourcePath:
         path = _request(app, "alice", lambda: get_resource_path("pets", "1"))
         assert path == "/api/v1/pets/1"
         with app.app_context():
-            assert is_permitted_for(get_resource_path("public"))
+            assert is_permitted_for(get_resource_path("public")) is True
 
     @pytest.mark.parametrize(
         "segments",
@@ -569,7 +610,9 @@ class TestBasePathPlaceholder:
             ["g2", "user:bob", "owner", "/api/v1/pets/1"],
             ["p", "user:alice", "/api/v1/pets/*", "GET"],
         ]
-        assert _request(app, "alice", lambda: is_permitted_for("/api/v1/pets/1"))
+        assert (
+            _request(app, "alice", lambda: is_permitted_for("/api/v1/pets/1")) is True
+        )
 
     def test_each_api(self, tmp_path: Path) -> None:
         """Rules with the placeholder apply to each API of the app."""
@@ -591,9 +634,16 @@ class TestBasePathPlaceholder:
             [PETS_SPEC],
             policies=[["p", "user:alice", "{base_path}/*", "GET"]],
         )
-        assert _request(app, "alice", lambda: is_permitted_for("/api/v1/pets/1"))
-        assert not _request(
-            app, "alice", lambda: is_permitted_for("/admin/access-control/permissions")
+        assert (
+            _request(app, "alice", lambda: is_permitted_for("/api/v1/pets/1")) is True
+        )
+        assert (
+            _request(
+                app,
+                "alice",
+                lambda: is_permitted_for("/admin/access-control/permissions"),
+            )
+            is False
         )
 
     def test_no_api(self, tmp_path: Path) -> None:
@@ -621,6 +671,21 @@ class TestBasePathPlaceholder:
                 [spec],
                 policies=[["p", "*", "{base_path}/*", "(GET)|(POST)"]],
             )
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "{base_path}/mgmt/*",
+            "{base_path}/mgmt/:a",
+            "{base_path}/mgmt/abc",
+            "{base_path}/mgmt",
+            "{base_path}/*",
+        ],
+    )
+    def test_protected_paths_of_spec(self, value: str) -> None:
+        """All paths of the permissions API are protected, and each item."""
+        with pytest.raises(ValueError, match=r"permissions API \('/mgmt"):
+            _expand_base_path(["p", "*", value, "GET"], [""], ["/mgmt", "/mgmt/{item}"])
 
     def test_root_api_specific_rule(self, tmp_path: Path) -> None:
         """Rules for paths of an API at the root are fine."""
