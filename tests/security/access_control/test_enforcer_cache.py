@@ -668,7 +668,7 @@ class TestEnforcerCache:
         cache.get_enforcer()
         loads = _count_loads(monkeypatch, cache)
 
-        def failing_activation(generation: str) -> str:
+        def failing_activation(*_args: Any) -> str:
             raise RuntimeError("interrupted")
 
         monkeypatch.setattr(other_adapter, "_activate_generation", failing_activation)

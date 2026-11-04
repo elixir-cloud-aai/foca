@@ -235,9 +235,9 @@ class ConfigParser:
     def _configure_logging(self) -> None:
         """Configure logging."""
         try:
-            dictConfig(self.config.log.model_dump(by_alias=True))
+            dictConfig(self.config.log.model_dump(by_alias=True, exclude_none=True))
         except Exception as e:
-            dictConfig(LogConfig().model_dump(by_alias=True))
+            dictConfig(LogConfig().model_dump(by_alias=True, exclude_none=True))
             logger.warning(
                 "Failed to configure logging. Falling back to default "
                 "settings. Original error: %s: %s",

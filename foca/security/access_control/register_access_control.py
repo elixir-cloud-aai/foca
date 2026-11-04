@@ -88,11 +88,14 @@ def register_access_control(
             mappings from applying (cf. :py:func:`_check_group_config`), or
             no group or configured policy rule grants the role `admin` and
             `access_control.require_admin` is set (cf.
-            :py:func:`_check_admin_role`).
+            :py:func:`_check_admin_role`), or a role of
+            `access_control.required_roles` doesn't exist (cf.
+            :py:func:`_check_required_roles`).
     """
     auth_config = get_app_config(cnx_app.app).security.auth
     _check_group_config(access_control_config, auth_config)
     _check_admin_role(access_control_config, auth_config)
+    _check_required_roles(access_control_config)
 
     # Group claim values of several issuers could collide
     if sum(map(bool, _get_group_claims(access_control_config, auth_config))) > 1:
@@ -414,6 +417,39 @@ def _allows(entry: str, header: str) -> bool:
         return False
 
 
+def _check_required_roles(access_control_config: AccessControlConfig) -> None:
+    """Check that the required roles exist.
+
+    Only the configuration is checked, as the database may not be available yet.
+
+    Args:
+        access_control_config: Access control configuration.
+
+    Raises:
+        ValueError: A role of `required_roles` is neither the role of
+            `group_mapping` or `client_mapping`, nor one of `resource_roles`,
+            nor granted by a rule of `policies`.
+    """
+    conf = access_control_config
+    existing = {
+        *(conf.group_mapping or {}).values(),
+        *(conf.client_mapping or {}).values(),
+        *conf.resource_roles,
+        *(
+            rule[2]
+            for rule in conf.policies or []
+            if len(rule) > 2 and rule[0] in ("g", "g2")
+        ),
+    }
+    missing = sorted(set(conf.required_roles) - existing)
+    if missing:
+        raise ValueError(
+            f"The roles {missing} of 'security.access_control.required_roles' "
+            "don't exist: add them to 'security.access_control.group_mapping', "
+            "'client_mapping' or 'resource_roles', or grant them in 'policies'."
+        )
+
+
 def _check_admin_role(
     access_control_config: AccessControlConfig,
     auth_config: AuthConfig | None = None,
@@ -726,6 +762,8 @@ def register_casbin_enforcer(
         _add_policies(
             adapter=adapter,
             policies=access_control_config.policies,
+            revision=access_control_config.policies_revision,
+            force=access_control_config.policies_force,
             names=None if named is None else list(named),
             base_paths=_get_api_base_paths(app.app),
             protected_paths=[
@@ -736,7 +774,11 @@ def register_casbin_enforcer(
             ],
         )
     else:
-        _remove_policies(adapter=adapter)
+        _remove_policies(
+            adapter=adapter,
+            revision=access_control_config.policies_revision,
+            force=access_control_config.policies_force,
+        )
     _check_stored_group_subjects(adapter, access_control_config)
     logger.info("Casbin enforcer registered.")
 
@@ -773,7 +815,9 @@ def _warn_default_base_path(access_control_config: AccessControlConfig) -> None:
             )
 
 
-def _remove_policies(adapter: Adapter) -> None:
+def _remove_policies(
+    adapter: Adapter, revision: int | None = None, force: bool = False
+) -> None:
     """Remove stored configured policy rules, if any.
 
     Apps refuse to start if stored configured rules cannot be checked for or
@@ -785,6 +829,9 @@ def _remove_policies(adapter: Adapter) -> None:
 
     Args:
         adapter: Casbin adapter of the app.
+        revision: Revision of the configuration, if any (cf.
+            :py:meth:`Adapter.set_configured_policies`).
+        force: Remove the rules also if their revision is newer.
 
     Raises:
         pymongo.errors.PyMongoError: Checking for or removing stored
@@ -795,13 +842,16 @@ def _remove_policies(adapter: Adapter) -> None:
         # default)
         with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
             configured = adapter.has_configured_policies()
-        if configured:
-            # E.g., set via a config overlay that was removed since
+        # E.g., set via a config overlay that was removed since; if forced, also
+        # without rules, for the revision
+        applied = (configured or force) and adapter.set_configured_policies(
+            [], revision, force
+        )
+        if configured and applied:
             logger.warning(
-                "Removing stored configured policy rules, as "
+                "Removed stored configured policy rules, as "
                 "'security.access_control.policies' is not set."
             )
-            adapter.set_configured_policies([])
     except PyMongoError as exc:
         logger.error(
             "Could not check for or remove stored configured policy rules, "
@@ -816,6 +866,8 @@ def _remove_policies(adapter: Adapter) -> None:
 def _add_policies(
     adapter: Adapter,
     policies: list[list[str]],
+    revision: int | None = None,
+    force: bool = False,
     names: list[str] | None = None,
     base_paths: list[str] | None = None,
     protected_paths: list[str] | None = None,
@@ -829,6 +881,9 @@ def _add_policies(
         adapter: Casbin adapter of the app.
         policies: Policy rules, each given as its policy type followed by its
             values.
+        revision: Revision of the configuration, if any (cf.
+            :py:meth:`Adapter.set_configured_policies`).
+        force: Replace the rules also if their revision is newer.
         names: Names of the rules, if given as named rules; used in errors
             and logged.
         base_paths: Base paths of the app's APIs, for rules with the
@@ -852,8 +907,8 @@ def _add_policies(
                 raise
             raise ValueError(f"Invalid policy rule '{names[index]}': {exc}") from exc
         expanded.extend(rules)
-    adapter.set_configured_policies(expanded)
-    if names is not None:
+    applied = adapter.set_configured_policies(expanded, revision, force)
+    if applied and names is not None:
         logger.info("Named policy rules applied: %s", ", ".join(names) or "none")
 
 

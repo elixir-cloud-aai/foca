@@ -49,6 +49,18 @@ format checks apply to responses with `validate_responses`, which then fail with
 `datetime.isoformat()`. Check what your specifications declare and what your clients
 send. Other formats are checked as before.
 
+## Request IDs
+
+Responses now have the header `X-Request-ID`, and [log
+records](configuration/log.md#context-of-log-records) the identifier of their
+request. Check this if a proxy in front of the app sets the header itself, or if your
+log format used a field of that name from `extra`, which now wins over `extra`. The
+formatter `standard` stays the default, so log lines look the same.
+
+The `request_id()` of `foca.plugins.adapter` follows
+[`server.request_id`](configuration/server.md#request-ids), rather than always
+reading `X-Request-ID`.
+
 ## Changed defaults
 
 ### Shorter MongoDB timeouts
@@ -68,3 +80,11 @@ pods. Copy `app-values.schema.json` again so that their values are checked.
 Autoscaling also needs a template file with `foca-common.hpa`; without it,
 enabling it leaves the app with one pod (see [Several replicas](helm-chart.md#several-replicas)). Nothing changes
 otherwise.
+
+## Building the FOCA image
+
+`docker/Dockerfile` now pins its base images by digest and installs from hashed
+requirements (see [Updating dependencies of the
+image](contributing/index.md#updating-dependencies-of-the-image)), so the build
+argument `PY_IMAGE` only takes `3.11` to `3.15` with `-slim-trixie`. Images built on
+the published FOCA images aren't affected.
