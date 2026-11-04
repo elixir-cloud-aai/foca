@@ -42,11 +42,18 @@ def test_request_id() -> None:
         seen.append(adapter.request_id())
         return ""
 
-    app.wsgi_app = RequestIdMiddleware(app.wsgi_app)  # type: ignore[method-assign]
+    wsgi_app = app.wsgi_app
+    app.wsgi_app = RequestIdMiddleware(  # type: ignore[method-assign]
+        wsgi_app, trust_incoming=True
+    )
     app.test_client().get("/", headers={"X-Request-ID": "abc-1"})
     app.test_client().get("/", headers={"X-Request-ID": "a b"})
     assert seen[0] == "abc-1"
     assert len(seen[1]) == 32
+
+    app.wsgi_app = RequestIdMiddleware(wsgi_app)  # type: ignore[method-assign]
+    app.test_client().get("/", headers={"X-Request-ID": "abc-1"})
+    assert re.fullmatch("[0-9a-f]{32}", seen[2])
 
 
 def test_inbound_from_request() -> None:

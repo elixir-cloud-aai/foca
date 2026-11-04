@@ -83,16 +83,20 @@ sent back in a response header. It's for correlating logs only, not a trace.
 server:
   request_id:
     header: X-Request-ID
-    trust_incoming: true
+    trust_incoming: false
 ```
 
-An identifier in the request header is taken if it has at most 128 letters, digits
-and `._:-`. Turn `trust_incoming` off unless a proxy sets or checks the header, as
-clients could otherwise choose what groups their requests in the logs. Standard headers
-such as `Content-Length` can't be used. Otherwise, or with `trust_incoming: false`, the
-request gets a new random
-one. Turn it off if clients must not be able to choose what's in your logs and no
-proxy in front of the app sets the header.
+By default, each request gets a new random identifier, and whatever clients send in
+the header is ignored. `header` can't be a standard header such as `Content-Length`.
+
+Set `trust_incoming: true` if a proxy in front of the app sets or checks the header,
+and clients can't reach the app past it, e.g., to have the proxy's identifier in the
+app's logs. The app then takes the identifier from the request header if it has at most
+128 letters, digits and `._:-`, and otherwise generates one. Without such a proxy,
+clients would choose what's in the response header, in log records and in [audit
+events](log.md#audit-log), and what groups their requests in the logs. Check what your
+proxy does: not all of them replace the header, and ingress-nginx, for one, passes on
+a client's value.
 
 If you change `header`, also change `access_log_format` for [Gunicorn's access
 log](../deployment.md).

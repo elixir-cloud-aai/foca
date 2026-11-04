@@ -19,6 +19,7 @@ from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from foca import audit, context
 from foca.config.access import set_app_config
+from foca.context import RequestIdMiddleware
 from foca.models.config import AccessControlConfig, Config, LogConfig, MongoConfig
 from foca.security.access_control import ownership
 from foca.security.access_control.access_control_server import (
@@ -290,6 +291,30 @@ class TestLog:
         finally:
             context._request_id.reset(token)
         assert _events(caplog)[0]["request_id"] == "req-2"
+
+    @pytest.mark.parametrize(
+        ("kwargs", "taken"), [({}, False), ({"trust_incoming": True}, True)]
+    )
+    def test_request_id_of_client(
+        self,
+        app: Flask,
+        caplog: pytest.LogCaptureFixture,
+        kwargs: dict[str, Any],
+        taken: bool,
+    ) -> None:
+        """Clients choose the identifier in events only if it's trusted."""
+
+        @app.route("/")
+        def _view() -> str:
+            """Log an event."""
+            audit.log("thing.create", "/things/1")
+            return ""
+
+        app.wsgi_app = RequestIdMiddleware(  # type: ignore[method-assign]
+            app.wsgi_app, **kwargs
+        )
+        app.test_client().get("/", headers={"X-Request-ID": "chosen"})
+        assert (_events(caplog)[0]["request_id"] == "chosen") is taken
 
     def test_reserved_fields(
         self, app: Flask, caplog: pytest.LogCaptureFixture
