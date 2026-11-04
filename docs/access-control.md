@@ -1350,7 +1350,8 @@ searchable. Declare the query parameters to offer them; the response stays a lis
 Apps that already declare query parameters with these names on the operation get this
 behaviour, so check them when upgrading; it also goes for defaults in the
 specification. Wrappers around `getResourceRoles` need to pass the parameters on, and
-get `(roles, 200, headers)` for a page. Path parameters with these names are ignored.
+get `(roles, 200, headers)` for a page. Declare `limit` and `offset` as `integer` or
+`string`, and `q` as `string`. Path parameters with these names are ignored.
 
 For example, with the base path `/api`:
 

@@ -412,13 +412,16 @@ class TestResourceRolesListing:
             "get": _operation("getResourceRoles"),
         }
         del spec["paths"]["/tasks/{taskId}/permissions"]
-        response = (
-            _create_app(tmp_path, spec)
-            .test_client()
-            .get(f"{TASK}/permissions", headers={"Authorization": "Bearer alice"})
+        app = _create_app(tmp_path, spec)
+        with app.app_context():
+            app.config["casbin_adapter"].add_policy(
+                "g", "g2", ["user:bob", "maintainer", TASK]
+            )
+        response = app.test_client().get(
+            f"{TASK}/permissions", headers={"Authorization": "Bearer alice"}
         )
         assert response.status_code == 200
-        assert self._subjects(response) == ["alice"]
+        assert sorted(self._subjects(response)) == ["alice", "bob"]
 
     def test_offset_beyond_end(self) -> None:
         """A page beyond the end is empty."""
