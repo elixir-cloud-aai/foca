@@ -23,6 +23,7 @@ from foca.security.access_control.enforcement import (
     _requires_authentication,
 )
 from foca.security.access_control.ownership_server import _check_routes_enforced
+from foca.security.auth import InvalidTokenResolver
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -155,6 +156,20 @@ def _get_error_media_type(app: App) -> str:
     if isinstance(config, Config):
         return config.exceptions.media_type
     return DEFAULT_ERROR_MEDIA_TYPE
+
+
+def _rejects_invalid_tokens(app: App) -> bool:
+    """Check whether an app rejects invalid tokens on optional authentication.
+
+    Args:
+        app: Connexion application instance.
+
+    Returns:
+        Whether `security.auth.reject_invalid_tokens` is set; `False` for
+        apps without FOCA configuration.
+    """
+    config = getattr(app.app.config, "foca", None)
+    return isinstance(config, Config) and config.security.auth.reject_invalid_tokens
 
 
 def _set_error_media_type(operation: dict[str, Any], media_type: str) -> None:
@@ -507,6 +522,10 @@ def register_openapi(
         connexion_kwargs = _connexion_add_api_kwargs(spec.connexion)
         if enforce_access_control:
             connexion_kwargs["resolver"] = AccessControlResolver(
+                resolver=connexion_kwargs.get("resolver"),
+            )
+        if _rejects_invalid_tokens(app):
+            connexion_kwargs["resolver"] = InvalidTokenResolver(
                 resolver=connexion_kwargs.get("resolver"),
             )
         try:

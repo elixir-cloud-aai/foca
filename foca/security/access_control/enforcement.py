@@ -33,6 +33,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
     validate_rule_value,
 )
+from foca.security.resolvers import _normalize_resolver
 from foca.utils.logging import escape_log_value
 
 if TYPE_CHECKING:  # import cycle
@@ -846,15 +847,7 @@ class AccessControlResolver(Resolver):
     ):
         """Construct resolver."""
         super().__init__()
-        # Same normalization as Connexion's `App.add_api()`: wrap callables,
-        # use any other resolver object (with a `resolve()` method) as is
-        self.resolver: Resolver
-        if resolver is None:
-            self.resolver = Resolver()
-        elif callable(resolver):
-            self.resolver = Resolver(function_resolver=resolver)
-        else:
-            self.resolver = resolver
+        self.resolver = _normalize_resolver(resolver)
         self.enforce_all = enforce_all
         self.self_service = self_service
 

@@ -1622,6 +1622,10 @@ class AuthConfig(FOCABaseConfig):
             act for (e.g., `X-On-Behalf-Of`). If `None`, only the app can
             pass a named user (e.g., from a request field) to
             :py:func:`foca.security.access_control.get_on_behalf_of_user`.
+        reject_invalid_tokens: Whether to reject invalid tokens (`401`, with
+            an RFC 6750 challenge) also on operations with optional
+            authentication, where they are otherwise handled as anonymous.
+            Requests without a token stay anonymous.
 
     Attributes:
         issuers: Trusted token issuers.
@@ -1646,6 +1650,8 @@ class AuthConfig(FOCABaseConfig):
         service_clients: Service clients.
         on_behalf_of_header: Request header in which service clients name
             the user they act for.
+        reject_invalid_tokens: Whether to reject invalid tokens also on
+            operations with optional authentication.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -1688,6 +1694,7 @@ class AuthConfig(FOCABaseConfig):
     cache_ttl: float = Field(default=300, ge=0)
     service_clients: list[ServiceClientConfig] = []
     on_behalf_of_header: str | None = Field(default=None, min_length=1)
+    reject_invalid_tokens: bool = False
     # Whether warnings about the settings were logged, i.e., on the first
     # token validation
     _warnings_logged: bool = PrivateAttr(default=False)
