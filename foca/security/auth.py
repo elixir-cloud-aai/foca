@@ -75,6 +75,15 @@ _userinfo_cache: dict[str, tuple[float, float, dict[str, Any]]] = {}
 _userinfo_cache_lock = threading.Lock()
 
 
+def clear_caches() -> None:
+    """Forget what was fetched from identity providers, e.g., between tests."""
+    _oidc_configs.clear()
+    _jwk_sets.clear()
+    _failed_fetches.clear()
+    with _userinfo_cache_lock:
+        _userinfo_cache.clear()
+
+
 class _BearerChallenge(WWWAuthenticate):
     """`WWW-Authenticate` challenge of the Bearer scheme (RFC 6750, §3).
 

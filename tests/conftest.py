@@ -72,7 +72,7 @@ def log(
     logging.getLogger().removeHandler(caplog.handler)
 
 
-pytest_plugins = ["foca.plugins.pytest_plugin"]
+pytest_plugins = ["foca.plugins.pytest_plugin", "foca.testing.pytest_plugin"]
 
 
 @pytest.fixture(autouse=True)
