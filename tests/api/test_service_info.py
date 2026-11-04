@@ -317,6 +317,20 @@ DEPLOYED = service(
     documentationUrl="https://docs.ga4gh.org/my-service",
 )
 PLACEHOLDERS = "values in reserved example domains"
+PLACEHOLDER_VERSION = "placeholder version"
+
+
+def test_check_service_info_dev_version(log: pytest.LogCaptureFixture) -> None:
+    """The placeholder version is warned about."""
+    check_service_info(_app({"service": {**DEPLOYED, "version": "0.0.0.dev0"}}))
+    warnings = [r.getMessage() for r in log.records if r.levelno == logging.WARNING]
+    assert any(PLACEHOLDER_VERSION in warning for warning in warnings)
+
+
+def test_check_service_info_released_version(log: pytest.LogCaptureFixture) -> None:
+    """Other versions are not warned about."""
+    check_service_info(_app({"service": {**DEPLOYED, "version": "1.2.3.dev0"}}))
+    assert PLACEHOLDER_VERSION not in log.text
 
 
 def test_check_service_info_placeholders(log: pytest.LogCaptureFixture) -> None:

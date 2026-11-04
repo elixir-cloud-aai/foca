@@ -168,7 +168,11 @@ warnings, naming the setting to change, among others:
   opt-in roles that CORS doesn't allow to ask for (also without access
   control);
 - [service info](configuration/service-info.md#placeholders): values in
-  reserved example domains, as in templates;
+  reserved example domains, as in templates, and the placeholder version
+  `0.0.0.dev0`;
+- [gateway apps](plugins.md#forwarding) with neither
+  `server.public_url` nor `plugins.gateway_id`, as routing loops are not detected
+  then;
 - [plugin store](configuration/plugins.md#plugin-store) of gateway apps:
   plugins that keep stored data in the memory of each process, as no database
   is configured, or in the database without a secret for their keys, and
