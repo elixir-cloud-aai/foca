@@ -2,7 +2,7 @@
 
 import importlib
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import Enum
 from importlib.resources import files
 from pathlib import Path
@@ -122,6 +122,68 @@ class ExceptionLoggingEnum(Enum):
     none = "none"
     regular = "regular"
     oneline = "oneline"
+
+
+# Keys of the configuration that FOCA removed, with what replaces them
+_REMOVED_KEYS: dict[tuple[str, ...], str] = {
+    ("exceptions", "exceptions"): "use 'exceptions.mapping'",
+    ("exceptions", "required_members"): "problem details have fixed members",
+    ("exceptions", "extension_members"): "use 'exceptions.public_members'",
+    ("exceptions", "status_member"): "problem details have fixed members",
+    ("exceptions", "private_members"): "use 'exceptions.public_members'",
+    (
+        "security",
+        "access_control",
+        "api_controllers",
+    ): "controllers are resolved via the 'operationId' of each operation",
+    (
+        "security",
+        "access_control",
+        "owner_headers",
+    ): "without replacement",
+    (
+        "security",
+        "access_control",
+        "user_headers",
+    ): "without replacement",
+    ("security", "auth", "claim_issuer"): "without replacement",
+    ("security", "auth", "required"): "without replacement",
+    ("security", "auth", "validation_checks"): "without replacement",
+    ("security", "auth", "validation_methods"): "without replacement",
+    ("server", "environment"): "without replacement",
+    ("server", "use_reloader"): "without replacement",
+}
+
+
+def _find_removed_keys(data: object) -> list[str]:
+    """Find keys of a configuration that FOCA removed.
+
+    Args:
+        data: Configuration, as given.
+
+    Returns:
+        Keys found, with what replaces them.
+    """
+    found = []
+    for path, hint in _REMOVED_KEYS.items():
+        # Sections given as models are valid already
+        section = data
+        for key in path[:-1]:
+            section = section.get(key) if isinstance(section, dict) else None
+        if isinstance(section, dict) and path[-1] in section:
+            found.append(f"'{'.'.join(path)}': {hint}")
+    api = data.get("api") if isinstance(data, dict) else None
+    specs = api.get("specs") if isinstance(api, dict) else None
+    # Named specifications are a mapping
+    entries = specs.values() if isinstance(specs, dict) else specs
+    if isinstance(entries, Iterable) and any(
+        isinstance(spec, dict) and "path_out" in spec for spec in entries
+    ):
+        found.append(
+            "'api.specs[].path_out': without replacement; modified specifications "
+            "were never written"
+        )
+    return found
 
 
 class FOCABaseConfig(BaseModel):
@@ -2662,6 +2724,91 @@ class MongoConfig(FOCABaseConfig):
         }
 
 
+class PeriodicCronConfig(FOCABaseConfig):
+    """Model for when to run a periodic job, as for `celery.schedules.crontab`.
+
+    Args:
+        minute: Minutes.
+        hour: Hours.
+        day_of_week: Days of the week.
+        day_of_month: Days of the month.
+        month_of_year: Months of the year.
+
+    Attributes:
+        minute: Minutes.
+        hour: Hours.
+        day_of_week: Days of the week.
+        day_of_month: Days of the month.
+        month_of_year: Months of the year.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Examples:
+        >>> PeriodicCronConfig(minute="0", hour="3").day_of_week
+        '*'
+    """
+
+    model_config = ConfigDict(extra="forbid", coerce_numbers_to_str=True)
+
+    minute: str = "*"
+    hour: str = "*"
+    day_of_week: str = "*"
+    day_of_month: str = "*"
+    month_of_year: str = "*"
+
+
+class PeriodicJobConfig(FOCABaseConfig):
+    """Model for a job that Celery beat starts periodically.
+
+    Args:
+        task: Name of the task, e.g., ``my_app.tasks.clean_up``.
+        every: Seconds between runs, at most ten years.
+        cron: When to run. Either this or `every` is required.
+        args: Positional arguments of the task.
+        kwargs: Keyword arguments of the task.
+        options: Options of Celery for running the task, e.g., `expires`.
+
+    Attributes:
+        task: Name of the task.
+        every: Seconds between runs.
+        cron: When to run.
+        args: Positional arguments of the task.
+        kwargs: Keyword arguments of the task.
+        options: Options of Celery for running the task.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type, or doesn't have exactly one of `every` and `cron`.
+
+    Examples:
+        >>> PeriodicJobConfig(task="my_app.tasks.clean_up", every=60).every
+        60.0
+    """
+
+    task: str = Field(min_length=1)
+    every: float | None = Field(default=None, gt=0, le=315360000, strict=True)
+    cron: PeriodicCronConfig | None = None
+    args: list[Any] = []
+    kwargs: dict[str, Any] = {}
+    options: dict[str, Any] = {}
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "PeriodicJobConfig":
+        """Ensure that the job has one schedule.
+
+        Returns:
+            The config.
+
+        Raises:
+            ValueError: It has none or both of `every` and `cron`.
+        """
+        if (self.every is None) == (self.cron is None):
+            raise ValueError("Periodic jobs need exactly one of 'every' and 'cron'.")
+        return self
+
+
 class JobsConfig(FOCABaseConfig):
     """Model for configuring RabbitMQ broker and Celery client and tasks.
 
@@ -2673,12 +2820,14 @@ class JobsConfig(FOCABaseConfig):
         backend: Backend used to store background task results; a URL, which may
             hold credentials, so read it with `.get_secret_value()`.
         include: List of modules to import when workers start.
+        periodic: Jobs that Celery beat starts periodically, by name.
 
     Attributes:
         host: Host at which the broker is exposed.
         port: Port at which the broker is exposed.
         backend: Backend used to store background task results.
         include: List of modules to import when workers start.
+        periodic: Jobs that Celery beat starts periodically, by name.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2696,6 +2845,7 @@ class JobsConfig(FOCABaseConfig):
     port: int = 5672
     backend: SecretStr = SecretStr("rpc://")
     include: list[str] | None = None
+    periodic: dict[str, PeriodicJobConfig] = {}
 
 
 class LogFormatterConfig(FOCABaseConfig):
@@ -3200,6 +3350,27 @@ class Config(FOCABaseConfig):
     # secrets (e.g., `plugins.defaults.store.key_secret`) that are masked
     # only once validated; the outermost model's setting applies
     model_config = ConfigDict(extra="allow", hide_input_in_errors=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_removed_keys(cls, data: Any) -> Any:
+        """Refuse keys that FOCA removed, saying what replaces them.
+
+        Args:
+            data: Configuration, as given.
+
+        Returns:
+            The configuration.
+
+        Raises:
+            ValueError: It has keys that FOCA removed.
+        """
+        found = _find_removed_keys(data)
+        if found:
+            raise ValueError(
+                "Configuration has keys that FOCA removed: " + "; ".join(found)
+            )
+        return data
 
     def _name_mongo_clients(self, mongo_config: MongoConfig) -> None:
         """Name the app in MongoDB's logs after its service info.

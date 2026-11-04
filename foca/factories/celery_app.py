@@ -1,16 +1,19 @@
 """Factory for creating and configuring Celery application instances."""
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from celery import Celery
+from celery.schedules import ParseException, crontab
 from celery.signals import worker_init, worker_process_init
 from flask import Flask
 
 from foca.config.access import get_app_config
 from foca.config.environment import get_env
 from foca.database.register_mongodb import reopen_mongodb
+from foca.models.config import PeriodicJobConfig
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -30,6 +33,38 @@ def _redact_url(url: str) -> str:
     return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
+def _get_beat_entry(name: str, job: PeriodicJobConfig) -> dict[str, Any]:
+    """Get the entry of a periodic job for Celery's `beat_schedule`.
+
+    Args:
+        name: Name of the job.
+        job: Periodic job.
+
+    Returns:
+        Entry of the job.
+
+    Raises:
+        ValueError: Its `cron` isn't valid for `celery.schedules.crontab`, or
+            never occurs (e.g., 31 February), which would stop Celery beat.
+    """
+    schedule: Any = job.every
+    if job.cron is not None:
+        try:
+            schedule = crontab(**job.cron.model_dump())
+            schedule.remaining_estimate(datetime.now(UTC))
+        except (ParseException, ValueError, RuntimeError) as exc:
+            raise ValueError(
+                f"Invalid 'cron' of periodic job '{name}' ('jobs.periodic'): {exc}"
+            ) from exc
+    return {
+        "task": job.task,
+        "schedule": schedule,
+        "args": job.args,
+        "kwargs": job.kwargs,
+        "options": job.options,
+    }
+
+
 def create_celery_app(app: Flask) -> Celery:
     """Create and configure Celery application instance.
 
@@ -44,6 +79,8 @@ def create_celery_app(app: Flask) -> Celery:
     forks its processes, and each process after its fork, as clients must not
     be used across forks (cf.
     :py:func:`foca.database.register_mongodb.reopen_mongodb`).
+
+    Jobs of `jobs.periodic` are set as the schedule of Celery beat.
 
     Args:
         app: Flask application instance.
@@ -73,6 +110,9 @@ def create_celery_app(app: Flask) -> Celery:
 
     # Update Celery app configuration with Flask app configuration
     setattr(celery.conf, "foca", config)
+    celery.conf.beat_schedule = {
+        name: _get_beat_entry(name, job) for name, job in conf.periodic.items()
+    }
     logger.debug("Celery app configured.")
 
     # Celery's task base class is created dynamically

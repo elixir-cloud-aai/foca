@@ -38,6 +38,20 @@ The same holds for workers started in the process of an app (e.g., with
 its client, including FOCA's access control, can't be used afterwards. Create
 the app after the worker has started, or run the worker in a process of its own.
 
+### Errors of creating indexes
+
+Index conflicts, and stored documents that violate a unique index, raise
+`foca.database.register_mongodb.IndexConflictError`, a subclass of `ValueError`, with
+the error of PyMongo as its cause, so code catching `ValueError` still works. Other
+`OperationFailure`s when creating indexes (e.g., missing permissions) now stay what they
+are, instead of a `ValueError` claiming a conflict.
+
+### Workers check the configuration
+
+`Foca.create_celery_app()` now stops on invalid access control settings, as
+`Foca.create_app()` does ([startup checks](configuration/jobs.md#startup-checks)). So a
+worker with such settings doesn't start anymore.
+
 ### Stricter request checks
 
 [Requests that passed before can now fail with `400`](configuration/api.md#stricter-request-checks):

@@ -35,6 +35,9 @@ are created on startup if they do not exist yet; existing indexes, including
 ones created outside FOCA, are kept. If a configured index conflicts with an
 existing one (e.g., same name, different keys), FOCA refuses to start; drop
 or rename the existing index in that case.
+`foca.database.register_mongodb.IndexConflictError` tells that apart from
+other failures, such as missing permissions or lost connections, which stay
+errors of PyMongo.
 
 To use a client outside an app (e.g., in scripts), use
 `create_mongo_client()`:
