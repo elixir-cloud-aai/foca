@@ -15,8 +15,10 @@ resource_id = generate_id(charset="ABCDEFGHJKLMNPQRSTUVWXYZ23456789", length=8)
 
 Characters are drawn with Python's `secrets` module, so identifiers are not
 predictable from previously generated ones. The defaults (6 letters or
-digits) are fine for collision-resistant resource identifiers, but do not use
-them for secrets such as tokens. Pass the characters themselves as
+digits) are fine for resource identifiers if they are checked on insert, with a
+unique index and a new identifier on a conflict, as collisions become likely with
+tens of thousands of resources (use a longer `length` then), but do not use them
+for secrets such as tokens. Pass the characters themselves as
 `charset`; expressions such as `string.ascii_uppercase + string.digits` are
 not evaluated.
 
@@ -75,6 +77,12 @@ The relations are `first`, `prev`, `next` and `last`. Without `total` (counting
 may be expensive), there is no `last`, and always a `next`. Declare the
 parameters and the response in your API specification. The app needs
 `server.public_url`; otherwise, `get_page_links()` raises a `RuntimeError`.
+
+Offsets have the usual limits of such pagination: items may be skipped or returned
+twice if the list changes between requests, and MongoDB reads all items it skips,
+so that large offsets on large collections are slow. If that matters for an API,
+use a sorted range query (`find({"id": {"$gt": last_id}})`) instead, or reject
+large offsets in the controller.
 
 ## Checking and normalizing URLs
 

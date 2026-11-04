@@ -44,10 +44,18 @@ class TestGetPage:
         assert get_page(2**63 - 1).offset == 2**63 - 1
         assert get_page(str(2**63 - 1)).offset == 2**63 - 1
 
-    @pytest.mark.parametrize("kwargs", [{"default_limit": 0}, {"max_limit": -1}])
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"default_limit": 0},
+            {"max_limit": -1},
+            {"default_limit": 2**63},
+            {"max_limit": 2**63},
+        ],
+    )
     def test_invalid_limits_of_app(self, kwargs: dict[str, int]) -> None:
         """Limits of the app must allow items."""
-        with pytest.raises(ValueError, match="at least 1"):
+        with pytest.raises(ValueError, match="must be from 1"):
             get_page(**kwargs)
 
     def test_max_limit(self) -> None:
