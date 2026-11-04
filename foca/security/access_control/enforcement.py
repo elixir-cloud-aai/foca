@@ -16,6 +16,8 @@ from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, Response, current_app, has_request_context, request
 from flask.globals import request_ctx
+from werkzeug.exceptions import HTTPException
+from werkzeug.routing.exceptions import RoutingException
 
 from foca.config.access import get_config
 from foca.security.access_control.constants import (
@@ -52,6 +54,9 @@ _subject_roles_check_lock = threading.Lock()
 # Key of the app's extensions holding the app's enforcer cache
 _ENFORCER_CACHE_KEY = "foca_enforcer_cache"
 _enforcer_cache_lock = threading.Lock()
+
+# End of the rule of Connexion's route for authenticating all paths
+_CATCH_ALL_RULE_SUFFIX = "/<path:invalid_path>"
 
 # Attribute marking the wrappers of `enforce_access_control()`
 _ENFORCING_ATTRIBUTE = "_foca_enforces_access_control"
@@ -765,6 +770,25 @@ def is_permitted() -> bool:
         # identity claim, as clients cannot get tokens with the claim by
         # logging in again
         raise _unauthorized("Subject could not be identified", invalid_token=False)
+    return _is_permitted_on(subject, request.path, request.method)
+
+
+def _is_permitted_on(
+    subject: str, path: str, method: str, denied_level: int = logging.INFO
+) -> bool:
+    """Check whether the current caller is allowed by the policies on a path.
+
+    Args:
+        subject: Identified subject or client of the current caller, for logs.
+        path: Request path, not percent-encoded.
+        method: HTTP method.
+        denied_level: Level of the log message if the caller is denied.
+
+    Returns:
+        `True` if the identity of the caller or any of its roles is allowed
+        to access the path, `False` if not, or if the identity is not a valid
+        value for policy rules (cf. :py:func:`validate_rule_value`).
+    """
     subjects = _get_current_policy_subjects()
     try:
         validate_rule_value(subjects[0])
@@ -776,12 +800,12 @@ def is_permitted() -> bool:
             (
                 _subject
                 for _subject in subjects
-                if enforcer.enforce(_subject, request.path, request.method)
+                if enforcer.enforce(_subject, path, method)
             ),
             None,
         )
     # Escaped, so that request paths and claims cannot forge log lines
-    _request = escape_log_value(f"{request.method} {request.path}")
+    _request = escape_log_value(f"{method} {path}")
     if granted is not None:
         logger.debug(
             "Access granted: %s to '%s' as '%s'",
@@ -790,8 +814,72 @@ def is_permitted() -> bool:
             escape_log_value(granted),
         )
         return True
-    logger.info("Access denied: %s to '%s'", _request, escape_log_value(subject))
+    logger.log(
+        denied_level, "Access denied: %s to '%s'", _request, escape_log_value(subject)
+    )
     return False
+
+
+def is_permitted_for(path: str, method: str = "GET") -> bool:
+    """Check whether the current caller may access another path.
+
+    The decision of policies for a request with the token and the opt-in
+    roles of the current request (cf. :py:func:`is_permitted`) to another
+    path, e.g., for showing only what a caller may open. The route of the
+    path decides whether policies apply: if it doesn't enforce them (e.g.,
+    public operations, those that set `x-foca-access-control: false` and
+    self-service ones), the caller is permitted. This is a decision of
+    policies only: operations that don't enforce policies may still require
+    a token, and controllers may check more. `OPTIONS` requests that Flask
+    answers itself are permitted, as no policy applies to them.
+
+    The caller is who the current operation validated: on public operations
+    (`security: []`), tokens aren't validated, so callers count as anonymous;
+    use optional authentication (e.g., `[{bearerAuth: []}, {}]`) there.
+    Denials are logged as `DEBUG`, as no request was denied. Each call on a
+    route enforcing policies checks for changes of rules in the database, so
+    avoid calling it for many resources in one request.
+
+    Can also be called without a request, e.g., on startup, in an app
+    context: there is no caller then.
+
+    Args:
+        path: Request path, not percent-encoded, including the base path of
+            the API (cf. :py:func:`foca.utils.urls.get_resource_path`).
+        method: HTTP method, in any case.
+
+    Returns:
+        `True` if the route of the path and method doesn't enforce policies,
+        or if they allow the caller (cf. :py:func:`is_permitted`); `False`
+        if they don't, if the caller can't be identified (e.g., without a
+        token), or if no route serves the path and method directly (e.g.,
+        if it would redirect, or the method is empty and the path doesn't
+        start with one slash).
+    """
+    method = method.upper()
+    # Werkzeug would normalize these, unlike requests
+    if not method or not path.startswith("/") or path.startswith("//"):
+        return False
+    # No host-specific routes: FOCA's APIs don't have any
+    try:
+        rule, _ = current_app.url_map.bind("localhost").match(
+            path, method=method, return_rule=True
+        )
+    except (HTTPException, RoutingException):
+        return False
+    # Connexion's route for authenticating all paths (`auth_all_paths`) serves
+    # no operation, it only responds with `404`
+    if rule.rule.endswith(_CATCH_ALL_RULE_SUFFIX):
+        return False
+    if (method == "OPTIONS" and getattr(rule, "provide_automatic_options", False)) or (
+        not _enforces_access_control(current_app.view_functions[rule.endpoint])
+    ):
+        return True
+    client = _get_current_service_client()
+    subject = get_current_subject() if client is None else client.client_id
+    if subject is None:
+        return False
+    return _is_permitted_on(subject, path, method, denied_level=logging.DEBUG)
 
 
 def _requires_authentication(security: list[dict[str, Any]] | None) -> bool:

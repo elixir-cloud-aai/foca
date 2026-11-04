@@ -6,6 +6,7 @@ from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
+from unittest import mock
 from unittest.mock import MagicMock
 
 import mongomock
@@ -100,11 +101,14 @@ def test_register_permission_specs_without_config(
     """Apps without FOCA configuration get the specification unchanged."""
     cnx_app = App(__name__)
     specs = []
-    monkeypatch.setattr(
-        cnx_app,
-        "add_api",
-        lambda specification, **kwargs: specs.append(specification),
-    )
+
+    def add_api(specification: Any, **kwargs: Any) -> Any:
+        specs.append(specification)
+        api = mock.Mock(base_path="/test")
+        api.specification.raw = {"paths": {}}
+        return api
+
+    monkeypatch.setattr(cnx_app, "add_api", add_api)
     register_permission_specs(
         app=cnx_app,
         access_control_config=AccessControlConfig(api_specs=api_specs),
@@ -134,11 +138,14 @@ def test_register_permission_specs_media_type(
         Config(exceptions=ExceptionConfig(media_type=media_type))
     )
     specs = []
-    monkeypatch.setattr(
-        cnx_app,
-        "add_api",
-        lambda specification, **kwargs: specs.append(specification),
-    )
+
+    def add_api(specification: Any, **kwargs: Any) -> Any:
+        specs.append(specification)
+        api = mock.Mock(base_path="/test")
+        api.specification.raw = {"paths": {}}
+        return api
+
+    monkeypatch.setattr(cnx_app, "add_api", add_api)
     register_permission_specs(
         app=cnx_app,
         access_control_config=AccessControlConfig(api_specs=api_specs),

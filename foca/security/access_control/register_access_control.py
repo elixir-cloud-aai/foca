@@ -8,6 +8,7 @@ from typing import Any
 
 import pymongo
 import yaml
+from casbin.util import key_match2
 from connexion import App
 from connexion.resolver import Resolver
 from pymongo.errors import PyMongoError
@@ -16,6 +17,7 @@ from foca.api.register_openapi import (
     _connexion_add_api_kwargs,
     _get_error_media_type,
     _iter_operations,
+    _iter_resolved_operations,
     _rejects_invalid_tokens,
     _set_error_media_type,
 )
@@ -38,6 +40,7 @@ from foca.models.config import (
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     ADMIN_ROLE,
+    BASE_PATH_PLACEHOLDER,
     CHANGES_COLLECTION_SUFFIX,
     CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
@@ -51,6 +54,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
 from foca.security.access_control.ownership_server import _check_routes_enforced
 from foca.security.auth import InvalidTokenResolver
 from foca.utils.logging import escape_log_value
+from foca.utils.urls import _get_api_base_paths, _get_apis, _register_api
 
 logger = logging.getLogger(__name__)
 
@@ -582,9 +586,16 @@ def register_permission_specs(
         ),
         resolver=resolver,
     )
-    app.add_api(
+    api = app.add_api(
         specification=specification,
         **_connexion_add_api_kwargs(options),
+    )
+    _register_api(
+        app.app,
+        api.base_path,
+        _iter_resolved_operations(api.specification.raw),
+        is_app_api=False,
+        paths=list(api.specification.raw.get("paths", {})),
     )
     logger.info("Permission management API registered from '%s'.", spec_path)
     return app
@@ -618,7 +629,8 @@ def register_casbin_enforcer(
     """Method to add casbin permission enforcer.
 
     The stored configured policy rules are replaced with those of
-    `access_control.policies`. If it is not set, stored configured rules
+    `access_control.policies`, with `{base_path}` replaced by the base path of
+    each API of the app's specifications. If it is not set, stored configured rules
     (e.g., set via a config overlay that was removed since) are removed,
     with a warning.
 
@@ -657,6 +669,13 @@ def register_casbin_enforcer(
             adapter=adapter,
             policies=access_control_config.policies,
             names=None if named is None else list(named),
+            base_paths=_get_api_base_paths(app.app),
+            protected_paths=[
+                f"{api.base_path}{path}"
+                for api in _get_apis(app.app)
+                if not api.is_app_api
+                for path in api.paths
+            ],
         )
     else:
         _remove_policies(adapter=adapter)
@@ -710,6 +729,8 @@ def _add_policies(
     adapter: Adapter,
     policies: list[list[str]],
     names: list[str] | None = None,
+    base_paths: list[str] | None = None,
+    protected_paths: list[str] | None = None,
 ) -> None:
     """Replace the stored configured policy rules with the configured ones.
 
@@ -722,18 +743,94 @@ def _add_policies(
             values.
         names: Names of the rules, if given as named rules; used in errors
             and logged.
+        base_paths: Base paths of the app's APIs, for rules with the
+            placeholder `{base_path}` (cf. :py:func:`_expand_base_path`).
+        protected_paths: Paths that rules with the placeholder must not match
+            (cf. :py:func:`_expand_base_path`).
 
     Raises:
         ValueError: A rule is invalid for the adapter's model (cf.
-            :py:func:`validate_rule`).
+            :py:func:`validate_rule`), or has the placeholder `{base_path}`
+            and the app has no API, or it matches a protected path.
     """
+    expanded: list[list[str]] = []
     for index, rule in enumerate(policies):
         try:
-            validate_rule(rule[0] if rule else None, rule[1:], adapter.model)
+            rules = _expand_base_path(rule, base_paths or [], protected_paths or [])
+            for _rule in rules:
+                validate_rule(_rule[0] if _rule else None, _rule[1:], adapter.model)
         except ValueError as exc:
             if names is None:
                 raise
             raise ValueError(f"Invalid policy rule '{names[index]}': {exc}") from exc
-    adapter.set_configured_policies(policies)
+        expanded.extend(rules)
+    adapter.set_configured_policies(expanded)
     if names is not None:
         logger.info("Named policy rules applied: %s", ", ".join(names) or "none")
+
+
+_PATH_PARAMETER = re.compile(r"\{([^{}]+)\}")
+
+
+def _expand_base_path(
+    rule: list[str], base_paths: list[str], protected_paths: list[str]
+) -> list[list[str]]:
+    """Replace the placeholder `{base_path}` in the values of a policy rule.
+
+    An API at the root has an empty base path, so a value such as
+    `{base_path}/*` then matches all paths of the app. Rules with the
+    placeholder are meant for the app's APIs, so they must not match the
+    permissions API that way: moving an API to the root must not silently
+    open up who may manage policies. The check uses `keyMatch2`, as the default
+    model does; custom models that match paths differently aren't covered.
+
+    Args:
+        rule: Policy rule: its policy type, followed by its values.
+        base_paths: Base paths of the app's APIs.
+        protected_paths: Paths that the rule must not match, i.e., those of
+            the permissions API, as in its specification (e.g.,
+            `/permissions/{id}`).
+
+    Returns:
+        The rule if it has no placeholder; otherwise, a rule for each base
+        path. A value that is only the placeholder is the path `/` for an API
+        at the root.
+
+    Raises:
+        ValueError: The rule has the placeholder, but the app has no API, or
+            it matches one of `protected_paths`.
+    """
+    if not any(BASE_PATH_PLACEHOLDER in value for value in rule[1:]):
+        return [rule]
+    if not base_paths:
+        raise ValueError(
+            f"Policy rule {rule!r} has the placeholder "
+            f"'{BASE_PATH_PLACEHOLDER}', but the app has no API (`api.specs`)"
+        )
+    expanded = [
+        [
+            rule[0],
+            *(value.replace(BASE_PATH_PLACEHOLDER, base) or "/" for value in rule[1:]),
+        ]
+        for base in base_paths
+    ]
+    for path in protected_paths:
+        # Any value of a path parameter: the rule may cover all of them (the
+        # sample), or one of them (the pattern)
+        sample = _PATH_PARAMETER.sub("id", path)
+        pattern = _PATH_PARAMETER.sub(r":\1", path)
+        for base in base_paths:
+            for value in rule[1:]:
+                if BASE_PATH_PLACEHOLDER not in value:
+                    continue
+                expanded_value = value.replace(BASE_PATH_PLACEHOLDER, base)
+                if key_match2(sample, expanded_value) or key_match2(
+                    expanded_value, pattern
+                ):
+                    raise ValueError(
+                        f"Policy rule {rule!r} has the placeholder "
+                        f"'{BASE_PATH_PLACEHOLDER}', but with the base paths of "
+                        f"the app's APIs, it also matches the permissions API "
+                        f"('{path}'): limit it to the paths it is meant for"
+                    )
+    return expanded

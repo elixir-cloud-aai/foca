@@ -24,6 +24,7 @@ from foca.security.access_control.enforcement import (
 )
 from foca.security.access_control.ownership_server import _check_routes_enforced
 from foca.security.auth import InvalidTokenResolver
+from foca.utils.urls import _register_api
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -140,6 +141,27 @@ def _iter_operations(spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """
     for _, _, operation_object in _iter_routes(spec):
         yield operation_object
+
+
+def _iter_resolved_operations(spec: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """Iterate over the Operation Objects of a specification, with references.
+
+    Unlike :py:func:`_iter_operations`, path items given via local references
+    are resolved, as by Connexion, to get all operations that are served.
+
+    Args:
+        spec: OpenAPI 2.x or 3.x specification, validated by Connexion.
+
+    Yields:
+        Operation Objects of all Path Item Objects.
+    """
+    for path_item_object in spec["paths"].values():
+        # e.g., specification extensions (`x-...`), which may have any value
+        if not isinstance(path_item_object, dict):
+            continue
+        resolved = _resolve_path_item(spec, path_item_object)
+        for _, operation_object in _iter_path_item(resolved):
+            yield operation_object
 
 
 def _get_error_media_type(app: App) -> str:
@@ -529,7 +551,7 @@ def register_openapi(
                 resolver=connexion_kwargs.get("resolver"),
             )
         try:
-            app.add_api(
+            api = app.add_api(
                 specification=spec_parsed,
                 **connexion_kwargs,
             )
@@ -547,6 +569,7 @@ def register_openapi(
                     label,
                 )
             raise
+        _register_api(app.app, api.base_path, _iter_resolved_operations(spec_parsed))
         logger.info("API endpoints added from spec: %s", label)
 
     _check_routes_enforced(app.app)

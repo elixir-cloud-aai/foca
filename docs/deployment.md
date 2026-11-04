@@ -79,7 +79,7 @@ The settings, and why they are set:
 
 | Setting | Value | Why |
 | --- | --- | --- |
-| `bind` | `["0.0.0.0:8080"]` | The port of the [Helm chart](helm-chart.md)'s Service and probes; `server.host` and `server.port` apply to the development server only |
+| `bind` | `["0.0.0.0:8080"]`, or the port in `PORT` | The port of the [Helm chart](helm-chart.md)'s Service and probes, which doesn't set `PORT`. Platforms such as Cloud Run, Knative and Heroku-style PaaS set `PORT`; values other than an integer from 1 to 65535 stop the server with an error. Ports below 1024 need `CAP_NET_BIND_SERVICE` for a non-root user. `server.host` and `server.port` apply to the development server only |
 | `worker_class`, `workers`, `threads` | `"gthread"`, `1`, `4` | One process with a few threads, as each worker process loads the whole app (e.g., within the chart's memory limit of 128 MiB) |
 | `timeout` | `30` | Workers whose main loop is blocked for 30 seconds are restarted; requests run in threads, so slow requests do not count |
 | `graceful_timeout` | `20` | Seconds that workers get to finish requests on shutdown (e.g., on `SIGTERM` from Kubernetes); keep it below the pod's termination grace period (30 seconds by default), which the chart derives from it |
@@ -168,7 +168,11 @@ warnings, naming the setting to change, among others:
   opt-in roles that CORS doesn't allow to ask for (also without access
   control);
 - [service info](configuration/service-info.md#placeholders): values in
-  reserved example domains, as in templates;
+  reserved example domains, as in templates, and the placeholder version
+  `0.0.0.dev0`;
+- [gateway apps](plugins.md#forwarding) with neither
+  `server.public_url` nor `plugins.gateway_id`, as routing loops are not detected
+  then;
 - [plugin store](configuration/plugins.md#plugin-store) of gateway apps:
   plugins that keep stored data in the memory of each process, as no database
   is configured, or in the database without a secret for their keys, and
