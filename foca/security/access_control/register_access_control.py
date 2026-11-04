@@ -10,6 +10,7 @@ import pymongo
 import yaml
 from casbin.util import key_match2
 from connexion import App
+from connexion.resolver import Resolver
 from pymongo.errors import PyMongoError
 
 from foca.api.register_openapi import (
@@ -17,6 +18,7 @@ from foca.api.register_openapi import (
     _get_error_media_type,
     _iter_operations,
     _iter_resolved_operations,
+    _rejects_invalid_tokens,
     _set_error_media_type,
 )
 from foca.config.access import get_app_config
@@ -50,6 +52,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
 )
 from foca.security.access_control.ownership_server import _check_routes_enforced
+from foca.security.auth import InvalidTokenResolver
 from foca.utils.logging import escape_log_value
 from foca.utils.urls import _get_api_base_paths, _get_apis, _register_api
 
@@ -566,6 +569,13 @@ def register_permission_specs(
         spec_path = access_control_config.api_specs
         specification = Path(spec_path)
 
+    resolver: Resolver = AccessControlResolver(
+        enforce_all=True,
+        self_service=access_control_config.self_service,
+    )
+    # As for the app's APIs; custom specifications may have optional tokens
+    if _rejects_invalid_tokens(app):
+        resolver = InvalidTokenResolver(resolver=resolver)
     options = ConnexionOptions(
         strict_validation=True,
         validate_responses=True,
@@ -574,10 +584,7 @@ def register_permission_specs(
         serve_spec=(
             access_control_config.api_serve_spec or access_control_config.api_swagger_ui
         ),
-        resolver=AccessControlResolver(
-            enforce_all=True,
-            self_service=access_control_config.self_service,
-        ),
+        resolver=resolver,
     )
     api = app.add_api(
         specification=specification,

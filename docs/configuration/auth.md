@@ -28,9 +28,14 @@ security:
         subject: null
         on_behalf_of: false
     on_behalf_of_header: null
+    reject_invalid_tokens: false
     timeout: 10
     cache_ttl: 300
 ```
+
+`reject_invalid_tokens` answers requests with an invalid token with `401` also
+on operations with optional authentication, where they are otherwise handled as
+anonymous (see [optional tokens](../authentication.md#optional-tokens)).
 
 Only tokens issued by one of the trusted `issuers` are accepted; all others
 are rejected without contacting their issuers. With trusted `issuers`,
