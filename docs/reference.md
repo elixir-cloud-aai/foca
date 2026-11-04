@@ -273,6 +273,11 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.context
 
+::: foca.audit
+    options:
+      members:
+        - log
+
 ::: foca.utils.misc
 
 ::: foca.utils.urls

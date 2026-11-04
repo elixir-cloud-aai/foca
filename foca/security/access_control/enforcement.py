@@ -19,6 +19,7 @@ from flask.globals import request_ctx
 from werkzeug.exceptions import HTTPException
 from werkzeug.routing.exceptions import RoutingException
 
+from foca.audit import log as audit_log
 from foca.config.access import get_config
 from foca.security.access_control.constants import (
     CLIENT_PREFIX,
@@ -1157,7 +1158,17 @@ def add_resource_role(
         rule = _validate_grantable_rule(
             subject, role, resource, ptype, subject_type, enforcer
         )
-        return enforcer.add_named_grouping_policy(ptype, *rule)
+        added: bool = enforcer.add_named_grouping_policy(ptype, *rule)
+    if added:
+        audit_log(
+            "resource_role.grant",
+            resource,
+            subject=subject,
+            subject_type=subject_type,
+            role=role,
+            ptype=ptype,
+        )
+    return added
 
 
 def _replace_resource_role(
@@ -1200,7 +1211,20 @@ def _replace_resource_role(
     for configured in adapter.get_filtered_rules(ptype, 2, resource, configured=True):
         if configured[0] == rule[0] and configured[1] in others:
             _warn_configured_rule(ptype, configured)
-    return adapter.replace_role_rule(ptype, rule, roles)
+            others.discard(configured[1])
+    added = adapter.replace_role_rule(ptype, rule, roles)
+    # Also if the role was there: other roles may be gone, and it's granted anew
+    audit_log(
+        "resource_role.grant",
+        resource,
+        subject=subject,
+        subject_type=subject_type,
+        role=role,
+        ptype=ptype,
+        replacing=sorted(others),
+        already_granted=not added,
+    )
+    return added
 
 
 def _validate_grantable_rule(
@@ -1308,6 +1332,15 @@ def remove_resource_role(
     if adapter.is_configured_rule(ptype, rule):
         _warn_configured_rule(ptype, rule)
         return False
+    if removed:
+        audit_log(
+            "resource_role.revoke",
+            resource,
+            subject=subject,
+            subject_type=subject_type,
+            role=role,
+            ptype=ptype,
+        )
     return removed
 
 
@@ -1388,23 +1421,37 @@ def remove_resource(
     configured = adapter.get_filtered_rules(ptype, 2, resource, configured=True)
     for rule in configured:
         _warn_configured_rule(ptype, rule)
-    revoked = False
-    for rule in adapter.get_filtered_rules(ptype, 2, resource, configured=False):
-        # Counted only if this call removed it (not a concurrent one), and
-        # if it granted a role: unmarked copies of configured rules still
-        # apply, and invalid rules are not loaded. Configured copies are
-        # kept by the adapter; the section (first argument) is not used.
-        if (
-            adapter.remove_policy(ptype[0], ptype, rule)
-            and rule not in configured
-            and _is_valid_rule(ptype, rule, model)
-        ):
-            revoked = True
-    # Remove rules that could not be removed one by one (e.g., with values
-    # that are not strings) or that were stored concurrently; the section
-    # (first argument) is not used by the adapter
-    adapter.remove_filtered_policy(ptype[0], ptype, 2, resource, keep_configured=True)
-    return revoked
+    revoked: list[list[str]] = []
+    swept = False
+    # What was removed is logged, also if removing the rest fails
+    try:
+        for rule in adapter.get_filtered_rules(ptype, 2, resource, configured=False):
+            # Counted only if this call removed it (not a concurrent one), and
+            # if it granted a role: unmarked copies of configured rules still
+            # apply, and invalid rules are not loaded. Configured copies are
+            # kept by the adapter; the section (first argument) is not used.
+            if (
+                adapter.remove_policy(ptype[0], ptype, rule)
+                and rule not in configured
+                and _is_valid_rule(ptype, rule, model)
+            ):
+                revoked.append(rule)
+        # Remove rules that could not be removed one by one (e.g., with values
+        # that are not strings) or that were stored concurrently; the section
+        # (first argument) is not used by the adapter
+        swept = adapter.remove_filtered_policy(
+            ptype[0], ptype, 2, resource, keep_configured=True
+        )
+    finally:
+        if revoked or swept:
+            audit_log(
+                "resource_role.revoke_all",
+                resource,
+                ptype=ptype,
+                rules=revoked,
+                swept=swept,
+            )
+    return bool(revoked)
 
 
 def _is_valid_rule(ptype: str, rule: list[str], model: Model) -> bool:
