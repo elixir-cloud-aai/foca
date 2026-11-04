@@ -1,8 +1,9 @@
 {{/*
 Config overlay merged by FOCA into the base config in the image (via
 `FOCA_CONFIG_OVERLAY`); values in `config` take precedence over the generated
-values: those of the app's settings (`config`, e.g., the public URL from
-`hostName`) and the host of the release's MongoDB Service, if it is
+values: those of the options of the app's settings (see
+`foca-common.gatewayConfig`), those of its settings (`config`, e.g., the public URL
+from `hostName`) and the host of the release's MongoDB Service, if it is
 deployed. Generated or read sections (`server`) that are `null` or no map in
 `config` are like no such section (FOCA would replace the base config's
 section with them, and refuse it). Renders a YAML mapping; call with the
@@ -10,7 +11,7 @@ context dict.
 */}}
 {{- define "foca-common.configOverlay" -}}
 {{- $config := deepCopy (.root.Values.config | default dict) -}}
-{{- $generated := deepCopy (.settings.config | default dict) -}}
+{{- $generated := mergeOverwrite (include "foca-common.gatewayConfig" . | fromJson) (deepCopy (.settings.config | default dict)) -}}
 {{- if include "foca-common.mongodbEnabled" .root -}}
 {{- $generated = mergeOverwrite $generated (dict "db" (dict "host" (include "foca-common.mongodbFullname" .root))) -}}
 {{- end -}}

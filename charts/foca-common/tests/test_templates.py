@@ -3,7 +3,9 @@
 import json
 import re
 import shutil
+import subprocess
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -2907,3 +2909,831 @@ def test_topology_spread_selector(render: Callable[..., Docs]) -> None:
         default,
         default,
     ]
+
+
+# Gateway apps
+
+
+def _gateway_settings(*options: str) -> str:
+    """Get settings of an app with options for gateway apps.
+
+    Args:
+        *options: Lines of options.
+
+    Returns:
+        Body of the settings template.
+    """
+    lines = "\n".join(options)
+    return f"valuesKey: petstore\nmongodb:\n  databases: [petstore]\n{lines}\n"
+
+
+GATEWAY_SETTINGS = _gateway_settings(
+    "plugins: true", "backendsKey: tes", "requireAccessControl: true"
+)
+# Security settings that the check of access control accepts
+SECURE = (
+    "--set-json",
+    "config.security="
+    + json.dumps(
+        {
+            "auth": {"issuers": ["https://login.example.org/"]},
+            "access_control": {
+                "claim_groups": "groups",
+                "group_mapping": {"admins": "admin"},
+            },
+        }
+    ),
+)
+SECURITY_DEFAULTS: dict[str, Any] = {
+    "auth": {"issuers": ["https://login.example.org/"]},
+    "access_control": {"claim_groups": "groups", "group_mapping": {"a": "admin"}},
+}
+
+
+def _security(**access_control: Any) -> tuple[str, str]:
+    """Get arguments for security settings that differ from accepted ones.
+
+    Args:
+        **access_control: Settings of `security.access_control` to change.
+
+    Returns:
+        Arguments of Helm.
+    """
+    security = deepcopy(SECURITY_DEFAULTS)
+    security["access_control"].update(access_control)
+    return ("--set-json", f"config.security={json.dumps(security)}")
+
+
+def _issuers(issuers: Any, **auth: Any) -> tuple[str, str]:
+    """Get arguments for issuers that differ from accepted ones.
+
+    Args:
+        issuers: Issuers.
+        **auth: Further settings of `security.auth`.
+
+    Returns:
+        Arguments of Helm.
+    """
+    security = deepcopy(SECURITY_DEFAULTS)
+    security["auth"] = {"issuers": issuers, **auth}
+    return ("--set-json", f"config.security={json.dumps(security)}")
+
+
+def test_gateway_options_off_by_default(render: Callable[..., Docs]) -> None:
+    """Without the options, the values have no effect on the overlay."""
+    docs = render("--set-json", 'plugins={"pipeline":[{"plugin":"x"}]}')
+    overlay = _overlay(docs)
+    assert "plugins" not in overlay
+    assert "server" not in overlay
+    assert "custom" not in overlay
+    # No checks either
+    assert not any(kind == "Deployment" and "flower" in name for kind, name in docs)
+
+
+def test_plugins_rendered(chart_with_settings: Callable[[str], Path]) -> None:
+    """Plugin settings are rendered with the keys that FOCA expects."""
+    chart = chart_with_settings(_gateway_settings("plugins: true"))
+    plugins = {
+        "pipeline": [
+            {
+                "plugin": "router",
+                "onFailure": "abort",
+                "ifMissingPhase": "skip",
+                "params": {"keptAsIs": 1},
+            }
+        ],
+        "available": {
+            "myPlugin.Router": {
+                "clientSelectable": True,
+                "config": {"keptAsIs": 1},
+                "store": {"maxTtl": 1000000},
+            }
+        },
+        "presets": {"myPreset": [{"plugin": "router", "maxSteps": 1}]},
+        "clientPipelines": {"maxAlternatives": 2},
+        "tags": {},
+    }
+    docs = index(template(chart, "--set-json", f"plugins={json.dumps(plugins)}"))
+    assert _overlay(docs)["plugins"] == {
+        "pipeline": [
+            {
+                "plugin": "router",
+                "on_failure": "abort",
+                "if_missing_phase": "skip",
+                "params": {"keptAsIs": 1},
+            }
+        ],
+        "available": {
+            "myPlugin.Router": {
+                "client_selectable": True,
+                "config": {"keptAsIs": 1},
+                "store": {"max_ttl": 1000000},
+            }
+        },
+        "presets": {"myPreset": [{"plugin": "router", "max_steps": 1}]},
+        "client_pipelines": {"max_alternatives": 2},
+    }
+
+
+def test_no_plugin_section_without_values(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Without settings, the base config's section stays."""
+    chart = chart_with_settings(_gateway_settings("plugins: true"))
+    assert "plugins" not in _overlay(index(template(chart)))
+
+
+def test_plugins_in_both_fail(chart_with_settings: Callable[[str], Path]) -> None:
+    """Plugin settings can't be set in both places."""
+    chart = chart_with_settings(_gateway_settings("plugins: true"))
+    error = template_error(
+        chart,
+        "--set-json",
+        'plugins={"clientPipelines":{"maxSteps":1}}',
+        "--set-json",
+        'config.plugins={"client_pipelines":{"max_steps":2}}',
+    )
+    assert "either in plugins.clientPipelines or in config.plugins" in error
+
+
+def test_plugins_only_in_config(chart_with_settings: Callable[[str], Path]) -> None:
+    """Settings in the config alone are kept, as well as other ones in the values."""
+    chart = chart_with_settings(_gateway_settings("plugins: true"))
+    docs = index(
+        template(
+            chart,
+            "--set-json",
+            'plugins={"tags":{"maxRouteEntries":1}}',
+            "--set-json",
+            'config.plugins={"client_pipelines":{"max_steps":2}}',
+        )
+    )
+    assert _overlay(docs)["plugins"] == {
+        "tags": {"max_route_entries": 1},
+        "client_pipelines": {"max_steps": 2},
+    }
+
+
+def test_store_key_secret_in_plugin_values_fails(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """The key secret of the store doesn't get into the ConfigMap via the values."""
+    chart = chart_with_settings(_gateway_settings("plugins: true"))
+    error = template_error(
+        chart,
+        "--set-json",
+        'plugins={"defaults":{"store":{"keySecret":"x"}}}',
+    )
+    assert "key_secret" in error
+
+
+BACKENDS = [
+    {
+        "type": "ga4gh-tes",
+        "url": "https://tes.example.org",
+        "auth": "basic",
+        "basic": {"usernameEnv": "USER", "passwordEnv": "PASSWORD"},
+        "labels": {"myRegion": "eu"},
+        "urlSchemes": ["https"],
+        "apiPath": "/ga4gh/tes/v1",
+    },
+    {
+        "type": "ga4gh-service-registry",
+        "url": "https://registry.example.org/",
+        "refreshInterval": 1,
+        "maxStale": 2,
+        "allowPrivateAddresses": False,
+        "registryAllowPrivateAddresses": False,
+    },
+]
+
+
+def test_backends_rendered(chart_with_settings: Callable[[str], Path]) -> None:
+    """Backends and the public URL are rendered with the keys that FOCA expects."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    docs = index(
+        template(chart, "--set-json", f"tes={json.dumps({'backends': BACKENDS})}")
+    )
+    overlay = _overlay(docs)
+    assert overlay["server"]["public_url"] == "https://petstore.example.org/"
+    assert overlay["custom"]["tes"]["backends"] == [
+        {
+            "type": "ga4gh-tes",
+            "url": "https://tes.example.org",
+            "auth": "basic",
+            "basic": {"username_env": "USER", "password_env": "PASSWORD"},
+            "labels": {"myRegion": "eu"},
+            "url_schemes": ["https"],
+            "api_path": "/ga4gh/tes/v1",
+        },
+        {
+            "type": "ga4gh-service-registry",
+            "url": "https://registry.example.org/",
+            "refresh_interval": 1,
+            "max_stale": 2,
+            "allow_private_addresses": False,
+            "registry_allow_private_addresses": False,
+        },
+    ]
+
+
+def test_public_url_value(chart_with_settings: Callable[[str], Path]) -> None:
+    """`publicUrl` takes precedence over `hostName`."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    docs = index(template(chart, "--set", "publicUrl=https://example.org/a/"))
+    assert _overlay(docs)["server"]["public_url"] == "https://example.org/a/"
+    assert _overlay(docs)["custom"] == {}
+
+
+def test_null_custom_with_backends(chart_with_settings: Callable[[str], Path]) -> None:
+    """`config.custom: null` is like no custom config."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    docs = index(template(chart, "--set", "config.custom=null"))
+    assert _overlay(docs)["custom"] == {}
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (
+            (
+                "--set-json",
+                f"tes={json.dumps({'backends': BACKENDS})}",
+                "--set-json",
+                'config.custom={"tes":{"backends":[]}}',
+            ),
+            "either in tes.backends or in config.custom.tes.backends",
+        ),
+        (
+            ("--set-json", 'config.custom={"tes":1}'),
+            "config.custom.tes must be a map",
+        ),
+    ],
+)
+def test_backends_invalid(
+    chart_with_settings: Callable[[str], Path],
+    args: tuple[str, ...],
+    message: str,
+) -> None:
+    """Backends that the app would refuse or lose fail."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    assert message in template_error(chart, *args)
+
+
+def _registry_without_url(chart: Path, *args: str) -> str:
+    """Render with a registry, without a host name of the app.
+
+    Args:
+        chart: Chart.
+        *args: Further arguments of Helm.
+
+    Returns:
+        Rendered manifests.
+    """
+    return template(
+        chart,
+        "--set",
+        "mongodb.auth.existingSecret=mongodb-credentials",
+        "--set",
+        "petstore.ingress.enabled=false",
+        "--set-json",
+        f"tes={json.dumps({'backends': BACKENDS})}",
+        *args,
+        required=False,
+    )
+
+
+def test_registry_needs_public_url(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Registries need a public URL, in any of its places."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    with pytest.raises(subprocess.CalledProcessError) as info:
+        _registry_without_url(chart)
+    assert "so that the app never discovers itself" in info.value.stderr
+    assert _registry_without_url(chart, "--set", "publicUrl=https://example.org/")
+    assert _registry_without_url(
+        chart, "--set", "config.server.public_url=https://example.org/"
+    )
+
+
+def test_registry_with_public_url_of_settings(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """A public URL from the app's settings counts."""
+    settings = _gateway_settings(
+        "backendsKey: tes",
+        "config:",
+        "  server:",
+        "    public_url: https://example.org/",
+    )
+    assert _registry_without_url(chart_with_settings(settings))
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        (
+            {"type": "ga4gh-tes", "url": "https://u:hunter2@tes.example.org/"},
+            "must not hold credentials",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": " https://u:hunter2@tes.example.org/"},
+            "must not hold credentials",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t", "basic": {"password": "hunter2"}},
+            "not password",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t", "basic": "u:hunter2"},
+            "must only name the environment variables",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t", "password": "hunter2"},
+            "must not hold credentials (password)",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t/?a=1&Access_Token=hunter2"},
+            "must not hold credentials",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t/#api-key=hunter2"},
+            "must not hold credentials",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t", "token_env": "hunter2"},
+            "must not hold credentials (token_env)",
+        ),
+    ],
+)
+def test_backend_credentials_fail(
+    chart_with_settings: Callable[[str], Path], entry: dict[str, Any], message: str
+) -> None:
+    """Credentials don't get into the ConfigMap, and aren't named in the error."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    for args in (
+        ("--set-json", f"tes={json.dumps({'backends': [entry]})}"),
+        (
+            "--set-json",
+            f"config.custom={json.dumps({'tes': {'backends': [entry]}})}",
+        ),
+    ):
+        error = template_error(chart, *args)
+        assert message in error
+        assert "hunter2" not in error
+
+
+def test_backend_keys_with_underscore_stay(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Keys that are in snake_case already aren't converted."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    entry = {"type": "ga4gh-tes", "url": "https://t", "ga4gh_id": "a"}
+    docs = index(
+        template(chart, "--set-json", f"tes={json.dumps({'backends': [entry]})}")
+    )
+    assert _overlay(docs)["custom"]["tes"]["backends"] == [entry]
+
+
+def test_registry_in_config_needs_public_url(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Registries in the config are checked, too, with its public URL first."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    custom = json.dumps({"tes": {"backends": [BACKENDS[1]]}})
+    error = template_error(
+        chart,
+        "--set-json",
+        f"config.custom={custom}",
+        "--set-json",
+        'config.server={"public_url":null}',
+    )
+    assert "so that the app never discovers itself" in error
+
+
+def test_backend_variable_names_accepted(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Keys ending in `_env` may name environment variables."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    entry = {"type": "ga4gh-tes", "url": "https://t/?a=1", "token_env": "API_TOKEN"}
+    docs = index(
+        template(chart, "--set-json", f"tes={json.dumps({'backends': [entry]})}")
+    )
+    assert _overlay(docs)["custom"]["tes"]["backends"] == [entry]
+
+
+@pytest.mark.parametrize(
+    ("backends", "message"),
+    [
+        ({"url": "https://u:hunter2@t/"}, "must be a list"),
+        ("https://u:hunter2@t/", "must be a list"),
+        (["https://u:hunter2@t/"], "must be a list of maps"),
+    ],
+)
+def test_backends_malformed_fail(
+    chart_with_settings: Callable[[str], Path], backends: Any, message: str
+) -> None:
+    """Malformed backends fail, as their credentials wouldn't be recognized."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    for args in (
+        ("--set-json", f"tes={json.dumps({'backends': backends})}"),
+        (
+            "--set-json",
+            f"config.custom={json.dumps({'tes': {'backends': backends}})}",
+        ),
+    ):
+        error = template_error(chart, *args)
+        assert message in error
+        assert "hunter2" not in error
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--set", "publicUrl=https://u:hunter2@example.org/"),
+        ("--set", "config.server.public_url=https://u:hunter2@example.org/"),
+    ],
+)
+def test_public_url_credentials_fail(
+    chart_with_settings: Callable[[str], Path], args: tuple[str, ...]
+) -> None:
+    """Credentials in the public URL don't get into the ConfigMap."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    error = template_error(chart, *args)
+    assert "must not hold credentials" in error
+    assert "hunter2" not in error
+
+
+def test_access_control_of_settings_counts(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Access control turned off by the settings of the app fails, too."""
+    chart = chart_with_settings(
+        _gateway_settings(
+            "requireAccessControl: true",
+            "config:\n  security:\n    access_control:\n      enforce: false",
+        )
+    )
+    assert "enabled and enforce must be true" in template_error(chart, *SECURE)
+
+
+def _group_rule(**access_control: Any) -> tuple[str, str]:
+    """Get arguments for an admin role that only a rule of a group grants.
+
+    Args:
+        **access_control: Further settings of `security.access_control`.
+
+    Returns:
+        Arguments of Helm.
+    """
+    security = {
+        "auth": {"issuers": ["https://login.example.org/"]},
+        "access_control": {
+            "claim_groups": "groups",
+            "policies": [["g", "group:admins", "admin"]],
+            **access_control,
+        },
+    }
+    return ("--set-json", f"config.security={json.dumps(security)}")
+
+
+def test_group_rule_counts_without_group_mapping(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Without a group mapping, as in the app, rules of groups grant roles."""
+    chart = chart_with_settings(_gateway_settings("requireAccessControl: true"))
+    assert index(template(chart, *_group_rule()))
+
+
+def test_group_rule_ignored_with_group_mapping(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """With a group mapping, as in the app, rules of groups don't count."""
+    chart = chart_with_settings(_gateway_settings("requireAccessControl: true"))
+    error = template_error(chart, *_group_rule(group_mapping={"a": "reader"}))
+    assert "must grant the role admin" in error
+
+
+def test_access_control_accepted(chart_with_settings: Callable[[str], Path]) -> None:
+    """Valid security settings render."""
+    chart = chart_with_settings(_gateway_settings("requireAccessControl: true"))
+    assert index(template(chart, *SECURE))
+    no_admin = _security(require_admin="no", group_mapping=None)
+    assert index(template(chart, *no_admin))
+    issuers = _issuers(
+        [
+            {
+                "issuer": "https://login.example.org/",
+                "audience": ["a"],
+                "claim_groups": "groups",
+                "namespace": "a",
+                "userinfo_claims": ["groups"],
+            },
+            {"issuer": "https://other.example.org/", "audience": None},
+        ],
+        audience=None,
+    )
+    assert index(template(chart, *issuers))
+    numeric = _security(enabled=1, enforce="on")
+    assert index(template(chart, *numeric))
+    client = _security(group_mapping=None, client_mapping={"svc": "admin"})
+    assert index(template(chart, *client))
+    rule = _security(group_mapping=None, policies=[["g", "user:alice", "admin"]])
+    assert index(template(chart, *rule))
+    group = _security(group_mapping=None, policies=[["g", "group:a", "admin"]])
+    assert index(template(chart, *group))
+    named = _security(
+        group_mapping=None,
+        policies={"admins": ["g", "user:alice", "admin"], "other": None},
+    )
+    assert index(template(chart, *named))
+    kept = _security(
+        group_mapping={"a": "user"},
+        keep_group_subjects=True,
+        policies=[["g", "group:a", "admin"]],
+    )
+    assert index(template(chart, *kept))
+    no_claim = _security(claim_groups=None)
+    with_issuer = json.loads(no_claim[1].split("=", 1)[1])
+    with_issuer["auth"]["issuers"] = [
+        {"issuer": "https://login.example.org/", "claim_groups": "groups"}
+    ]
+    assert index(
+        template(chart, "--set-json", f"config.security={json.dumps(with_issuer)}")
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        ((), "must list the trusted token issuers"),
+        (_security(enabled=False), "enabled and enforce must be true"),
+        (_security(enforce="off"), "enabled and enforce must be true"),
+        (_security(enforce=0), "enabled and enforce must be true"),
+        (_security(enabled="maybe"), "enabled must be true or false, not maybe"),
+        (_security(enforce=None), "enforce must be true or false, not null"),
+        (_security(require_admin="x"), "require_admin must be true or false"),
+        (_security(group_mapping={}), "must grant the role admin"),
+        (_security(group_mapping={"a": "user"}), "must grant the role admin"),
+        (_security(group_mapping=[]), "must be a map of groups to roles"),
+        (
+            _security(group_mapping=None, client_mapping={"svc": "user"}),
+            "must grant the role admin",
+        ),
+        (
+            _security(group_mapping=None, policies=[["g", "user:a", "user"]]),
+            "must grant the role admin",
+        ),
+        (
+            _security(group_mapping=None, policies=[["g2", "user:a", "admin"]]),
+            "must grant the role admin",
+        ),
+        (
+            _security(
+                group_mapping={"a": "user"}, policies=[["g", "group:a", "admin"]]
+            ),
+            "must grant the role admin",
+        ),
+        (
+            _security(
+                group_mapping=None,
+                claim_groups="",
+                policies=[["g", "group:a", "admin"]],
+            ),
+            "must grant the role admin",
+        ),
+        (
+            _security(keep_group_subjects="x"),
+            "keep_group_subjects must be true or false",
+        ),
+        (_security(claim_groups=""), "must name the claim with the groups"),
+        (_security(claim_groups=" a"), "without surrounding whitespace"),
+        (_security(claim_groups=1), "must be the name of a claim (a string)"),
+        (_issuers([]), "must list the trusted token issuers"),
+        (_issuers("x"), "must list the trusted token issuers"),
+        (_issuers([" https://a/"]), "must list the trusted token issuers"),
+        (_issuers([{"url": "https://a/"}]), "url of issuer"),
+        (_issuers([{"audience": []}]), "must list the trusted token issuers"),
+        (
+            _issuers([{"issuer": "https://a/", "audience": []}]),
+            "must list the accepted audiences",
+        ),
+        (
+            _issuers([{"issuer": "https://a/", "audience": [" "]}]),
+            "must list the accepted audiences",
+        ),
+        (
+            _issuers([{"issuer": "https://a/", "claim_groups": " a"}]),
+            "must be the name of a claim",
+        ),
+        (
+            _issuers(["https://a/"], audience="a"),
+            "must list the accepted audiences (strings",
+        ),
+        (
+            _issuers(["https://a/"], audience=[1]),
+            "must list the accepted audiences (strings",
+        ),
+    ],
+)
+def test_access_control_invalid(
+    chart_with_settings: Callable[[str], Path],
+    args: tuple[str, ...],
+    message: str,
+) -> None:
+    """Security settings that the app would refuse fail."""
+    chart = chart_with_settings(_gateway_settings("requireAccessControl: true"))
+    assert message in template_error(chart, *args)
+
+
+def test_access_control_not_required_by_default(render: Callable[..., Docs]) -> None:
+    """Without the option, security settings aren't required."""
+    assert render()
+
+
+def test_access_control_null_claim(chart_with_settings: Callable[[str], Path]) -> None:
+    """A null group claim is no group claim."""
+    chart = chart_with_settings(_gateway_settings("requireAccessControl: true"))
+    error = template_error(chart, *_security(claim_groups=None))
+    assert "must name the claim with the groups" in error
+
+
+# Flower
+
+
+FLOWER_TEMPLATES = {
+    "flower-deployment.yaml": "foca-common.flowerDeployment",
+    "flower-service.yaml": "foca-common.flowerService",
+    "flower-networkpolicy.yaml": "foca-common.flowerNetworkPolicy",
+    "flower-broker-networkpolicy.yaml": "foca-common.flowerBrokerNetworkPolicy",
+}
+FLOWER = (
+    "--set",
+    "flower.enabled=true",
+    "--set",
+    "flower.existingSecret=flower",
+    "--set",
+    "flower.image=flower:2.0.1",
+    "--set",
+    "broker.existingSecret=celery",
+)
+
+
+@pytest.fixture
+def flower_chart(chart: Path, tmp_path: Path) -> Path:
+    """A copy of the app chart with Flower's templates."""
+    chart_copy = tmp_path / "chart"
+    shutil.copytree(chart, chart_copy)
+    for name, template_name in FLOWER_TEMPLATES.items():
+        (chart_copy / "templates" / name).write_text(
+            f'{{{{- include "{template_name}" '
+            '(dict "root" . "settings" (include "petstore.settings" . | fromYaml)) }}\n'
+        )
+    return chart_copy
+
+
+def test_flower_off_by_default(flower_chart: Path) -> None:
+    """Flower isn't deployed by default."""
+    docs = index(template(flower_chart))
+    assert not [name for _, name in docs if "flower" in name]
+
+
+def test_flower(flower_chart: Path) -> None:
+    """Flower is deployed with its secrets, within the cluster only."""
+    docs = index(
+        template(
+            flower_chart,
+            *FLOWER,
+            "--set",
+            "flower.networkPolicy.enabled=true",
+            "--set-json",
+            'flower.securityContext={"readOnlyRootFilesystem":true}',
+            "--set",
+            "flower.tmpSizeLimit=64Mi",
+        )
+    )
+    name = f"{APP}-flower"
+    deployment = docs["Deployment", name]
+    spec = deployment["spec"]["template"]["spec"]
+    container = spec["containers"][0]
+    assert spec["automountServiceAccountToken"] is False
+    assert spec["enableServiceLinks"] is False
+    assert container["image"] == "flower:2.0.1"
+    assert container["securityContext"] == {"readOnlyRootFilesystem": True}
+    assert spec["volumes"] == [{"name": "tmp", "emptyDir": {"sizeLimit": "64Mi"}}]
+    assert _env(container) == {
+        "CELERY_BROKER_URL": {"secretKeyRef": {"name": "celery", "key": "broker-url"}},
+        "FLOWER_BASIC_AUTH": {"secretKeyRef": {"name": "flower", "key": "basic-auth"}},
+    }
+    assert docs["Service", name]["spec"]["type"] == "ClusterIP"
+    assert docs["NetworkPolicy", name]["spec"]["ingress"] == []
+    assert ("NetworkPolicy", f"{APP}-broker-from-flower") not in docs
+
+
+def test_flower_network_policy_peers(flower_chart: Path) -> None:
+    """Peers can be admitted, and the policy turned off."""
+    peers = [{"podSelector": {"matchLabels": {"app": "proxy"}}}]
+    docs = index(
+        template(
+            flower_chart,
+            *FLOWER,
+            "--set",
+            "flower.networkPolicy.enabled=true",
+            "--set-json",
+            f"flower.networkPolicy.ingressFrom={json.dumps(peers)}",
+        )
+    )
+    ingress = docs["NetworkPolicy", f"{APP}-flower"]["spec"]["ingress"]
+    assert ingress == [{"from": peers, "ports": [{"port": 5555, "protocol": "TCP"}]}]
+    docs = index(
+        template(flower_chart, *FLOWER, "--set", "flower.networkPolicy.enabled=false")
+    )
+    assert ("NetworkPolicy", f"{APP}-flower") not in docs
+
+
+def test_flower_safe_by_default(flower_chart: Path) -> None:
+    """With what it needs only, Flower is unprivileged and admits no one."""
+    docs = index(template(flower_chart, *FLOWER))
+    name = f"{APP}-flower"
+    assert docs["NetworkPolicy", name]["spec"]["ingress"] == []
+    spec = docs["Deployment", name]["spec"]["template"]["spec"]
+    assert spec["securityContext"]["runAsNonRoot"] is True
+    assert spec["containers"][0]["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "readOnlyRootFilesystem": True,
+    }
+
+
+def test_flower_reaches_bundled_broker(flower_chart: Path) -> None:
+    """The bundled broker's NetworkPolicy admits Flower."""
+    docs = index(
+        template(
+            flower_chart,
+            *FLOWER,
+            "--set",
+            "broker.enabled=true",
+            "--set",
+            "broker.networkPolicy.enabled=true",
+        )
+    )
+    policy = docs["NetworkPolicy", f"{APP}-broker-from-flower"]
+    peer = policy["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"]
+    assert peer["app.kubernetes.io/component"] == "flower"
+    assert policy["spec"]["ingress"][0]["ports"] == [{"port": 5672, "protocol": "TCP"}]
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (("--set", "flower.enabled=true"), "flower.image must be set"),
+        (
+            ("--set", "flower.enabled=true", "--set", "flower.image=x"),
+            "flower.existingSecret must be set",
+        ),
+        (
+            (
+                "--set",
+                "flower.enabled=true",
+                "--set",
+                "flower.image=x",
+                "--set",
+                "flower.existingSecret=x",
+            ),
+            "broker.existingSecret must be set if flower.enabled",
+        ),
+        (
+            (*FLOWER, "--set", f"fullnameOverride={'a' * 56}-flower"),
+            "does not end in -flower",
+        ),
+    ],
+)
+def test_flower_invalid(
+    flower_chart: Path, args: tuple[str, ...], message: str
+) -> None:
+    """Flower without what it needs fails."""
+    assert message in template_error(flower_chart, *args)
+
+
+def test_flower_rollout_on_secrets(flower_chart: Path) -> None:
+    """Flower's pods use the same checksum as those of the app."""
+    for name in (flower_chart / "templates").iterdir():
+        if name.name != "flower-deployment.yaml" and name.suffix == ".yaml":
+            name.unlink()
+    error = template_error(
+        flower_chart,
+        *FLOWER,
+        "--skip-schema-validation",
+        "--set-json",
+        "petstore.rolloutOnSecrets=[1]",
+    )
+    assert "rolloutOnSecrets must be a list" in error
+
+
+def test_flower_values_of_apps_without_its_templates(
+    render: Callable[..., Docs],
+) -> None:
+    """Apps may have `flower` values of their own, which aren't checked."""
+    assert render("--set", "flower.enabled=true")

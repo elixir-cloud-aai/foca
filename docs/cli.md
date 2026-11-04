@@ -28,7 +28,12 @@ if __name__ == "__main__":
 
 The attribute must lead to a `Foca` instance. A function must return that instance, not
 the Connexion app that `create_app()` returns, as in
-[the example of the deployment guide](deployment.md). `Foca` instances created while the
+[the example of the deployment guide](deployment.md). Apps whose only factory returns
+the Connexion app, and that keep no `Foca` instance in a module, can't be targeted: for
+them, moving these tasks out of startup needs a change in the app, such as a module-level
+`Foca` instance or a function returning one. `foca` can only tell what a function returns
+by calling it, so with such a factory, what the function does itself (e.g., writing to
+the database) runs before `foca` exits with code 2. `Foca` instances created while the
 module loads, the function runs or the command runs (e.g., in a worker module that a
 controller imports) don't write to the database on startup. What the module
 writes to the standard output goes to the standard error, so that the output of the

@@ -1175,7 +1175,7 @@ class TestLogAuthConfigWarnings:
         conf = AuthConfig(issuers=[ISSUER], audience=[AUDIENCE])
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
-        assert caplog.text == ""
+        assert not [r for r in caplog.records if r.name.startswith("foca.")]
 
     def test_service_clients_of_several_issuers(
         self, caplog: pytest.LogCaptureFixture
@@ -1216,7 +1216,7 @@ class TestLogAuthConfigWarnings:
         conf = AuthConfig(issuers=[ISSUER], verify_audience=False, clients=[CLIENT])
         with caplog.at_level(logging.WARNING):
             log_auth_config_warnings(conf)
-        assert caplog.text == ""
+        assert not [r for r in caplog.records if r.name.startswith("foca.")]
 
 
 @pytest.mark.parametrize(

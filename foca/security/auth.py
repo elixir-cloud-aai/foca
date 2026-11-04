@@ -287,6 +287,31 @@ def _validates_optional_token(operation: AbstractOperation) -> bool:
     )
 
 
+def _other_token_validators(operation: AbstractOperation) -> set[str]:
+    """Get the functions validating an operation's optional tokens otherwise.
+
+    Args:
+        operation: Connexion operation, for which
+            :py:func:`_validates_optional_token` is `False`.
+
+    Returns:
+        Names of the functions in `x-bearerInfoFunc` and `x-tokenInfoFunc` of
+        its schemes, if its effective security requirements have an empty
+        alternative.
+    """
+    security = operation.security or []
+    if all(security):
+        return set()
+    schemes = operation.security_schemes or {}
+    return {
+        function
+        for alternative in security
+        for name in alternative
+        for field in ("x-bearerInfoFunc", "x-tokenInfoFunc")
+        if (function := schemes.get(name, {}).get(field)) is not None
+    }
+
+
 class InvalidTokenResolver(Resolver):
     """Connexion resolver rejecting invalid tokens on optional authentication.
 
@@ -295,7 +320,10 @@ class InvalidTokenResolver(Resolver):
     by FOCA's token validation (security requirements with an empty
     alternative and a scheme naming :py:func:`validate_token`, e.g.,
     `[{bearerAuth: []}, {}]`) are wrapped, so that invalid tokens are
-    rejected. Other operations are not changed.
+    rejected. Other operations are not changed; a warning names other
+    functions that validate optional tokens (e.g., wrappers of
+    :py:func:`validate_token`), once per function and resolver, i.e., API
+    specification, as the setting doesn't reach them.
 
     Args:
         resolver: Resolver to resolve functions with (any object with a
@@ -311,6 +339,24 @@ class InvalidTokenResolver(Resolver):
         """Construct resolver."""
         super().__init__()
         self.resolver = _normalize_resolver(resolver)
+        self._warned: set[str] = set()
+
+    def _warn_other_validators(self, operation: AbstractOperation) -> None:
+        """Warn of functions validating tokens that the setting doesn't reach.
+
+        Args:
+            operation: Connexion operation that wasn't wrapped.
+        """
+        for function in sorted(_other_token_validators(operation) - self._warned):
+            self._warned.add(function)
+            logger.warning(
+                "'security.auth.reject_invalid_tokens' has no effect on operations "
+                "with optional authentication by '%s': it only applies to schemes "
+                "of type 'http' and scheme 'bearer' naming %s in 'x-bearerInfoFunc'. "
+                "Use such a scheme, or reject invalid tokens in your own function.",
+                function,
+                _VALIDATE_TOKEN_FUNCTION,
+            )
 
     def resolve(self, operation: AbstractOperation) -> Resolution:
         """Resolve operation and wrap function of optional authentication.
@@ -323,6 +369,7 @@ class InvalidTokenResolver(Resolver):
         """
         resolution = self.resolver.resolve(operation)
         if not _validates_optional_token(operation):
+            self._warn_other_validators(operation)
             return resolution
         return Resolution(
             function=_reject_invalid_token(resolution.function),

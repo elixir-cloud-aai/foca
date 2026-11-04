@@ -26,6 +26,7 @@ from foca.models.config import (
     IndexConfig,
     IssuerConfig,
     MongoConfig,
+    RequestIdConfig,
     SecurityConfig,
     ServerConfig,
     ServiceInfoConfig,
@@ -1371,3 +1372,9 @@ def test_removed_keys(data: dict[str, Any], key: str, hint: str) -> None:
 def test_no_removed_keys(data: dict[str, Any]) -> None:
     """Other configurations aren't affected."""
     assert Config(**data)
+
+
+def test_request_id_not_trusted_by_default() -> None:
+    """Identifiers of clients are only taken if deployments opt in."""
+    assert RequestIdConfig().trust_incoming is False
+    assert Config().server.request_id.trust_incoming is False

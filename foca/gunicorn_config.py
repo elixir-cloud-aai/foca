@@ -44,7 +44,8 @@ __all__ = [
 ]
 
 # Port of the app if the environment doesn't set `PORT`; the Helm chart's
-# Service and probes expect it, and the chart doesn't set `PORT`
+# Service and probes expect it, and from foca-common 0.5.0, the chart sets `PORT`
+# to the same value
 _DEFAULT_PORT = 8080
 _MAX_PORT = 65535
 

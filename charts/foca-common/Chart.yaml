@@ -4,7 +4,8 @@ description: >-
   Library chart for FOCA apps by ELIXIR On-Cloud: the app's Deployment,
   HorizontalPodAutoscaler and PodDisruptionBudget, config overlay, Service, Ingress, Gateway API
   HTTPRoute or OpenShift Route and NetworkPolicy, an optional MongoDB, and
-  an optional Celery worker and broker (RabbitMQ)
+  an optional Celery worker and broker (RabbitMQ) with Flower, and options for
+  gateway apps
 type: library
 # Independent of FOCA's version; bump it with every change, following
 # semantic versioning (see docs/helm-chart.md)
