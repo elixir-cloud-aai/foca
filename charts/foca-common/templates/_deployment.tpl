@@ -1,9 +1,10 @@
 {{/*
-Deployment of the app: `<valuesKey>.replicas` pods (1 if not set) with the
-app's container (port 8080, `http`), the config overlay mounted at
-`configDir` (see `foca-common.checkSettings`), MongoDB credentials from the
-existing Secret if authentication is enabled, and a writable `emptyDir` at
-`/tmp`. Call with the context dict.
+Deployment of the app: `<valuesKey>.replicas` pods (1 if not set, and not
+rendered with autoscaling, cf. `foca-common.hpa`) with the app's container
+(port 8080, `http`), the config overlay mounted at `configDir` (see
+`foca-common.checkSettings`), MongoDB credentials from the existing Secret if
+authentication is enabled, and a writable `emptyDir` at `/tmp`. Call with the
+context dict.
 */}}
 {{- define "foca-common.deployment" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -18,7 +19,9 @@ metadata:
     {{- include "foca-common.labels" (dict "root" $root "component" "app") | nindent 4 }}
 spec:
   progressDeadlineSeconds: 600
+  {{- if ne (include "foca-common.autoscalingEnabled" .) "true" }}
   replicas: {{ include "foca-common.replicas" . }}
+  {{- end }}
   revisionHistoryLimit: 10
   selector:
     matchLabels:
@@ -46,6 +49,10 @@ spec:
       # FOCA reads some as configuration (e.g., `MONGO_PORT` of a Service
       # `mongo`, which isn't a port)
       enableServiceLinks: false
+      {{- with include "foca-common.topologySpreadConstraints" . }}
+      topologySpreadConstraints:
+        {{- . | nindent 8 }}
+      {{- end }}
       containers:
       - image: {{ include "foca-common.image" . | quote }}
         imagePullPolicy: {{ $values.imagePullPolicy | default "Always" }}
