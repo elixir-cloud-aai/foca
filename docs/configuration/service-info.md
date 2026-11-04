@@ -167,6 +167,9 @@ runtime) that still have such values:
   domain `example` (e.g., `https://docs.example.org`,
   `mailto:support@example.org`).
 
+FOCA also logs a warning if the service info reports the placeholder version
+`0.0.0.dev0`, as clients then can't tell which version is deployed.
+
 The app still starts. Set these fields to describe the deployment, e.g., in
 a [config overlay](index.md#environment-specific-configuration).
 

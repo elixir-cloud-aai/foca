@@ -48,6 +48,54 @@ challenge (with `error="invalid_token"` if the token is invalid, cf.
 specification's config, its security requirements are removed, e.g., for
 local development.
 
+## Optional tokens
+
+Operations can accept requests with and without a token, by adding an empty
+security requirement:
+
+```yaml title="api/openapi.yaml"
+paths:
+  /pets:
+    get:
+      security:
+        - bearerAuth: []
+        - {}
+```
+
+List the bearer scheme first: Connexion stops at the first requirement that is
+met, and the empty one always is, so a token listed after it isn't even
+validated. By default, a request with an invalid token (e.g., an expired one)
+is handled as anonymous on such operations. The client isn't told that its
+token failed, and sees a public view that looks like missing data. With
+`reject_invalid_tokens`, these requests are answered with `401 Unauthorized`
+and the same challenge (`error="invalid_token"`) as on operations requiring a
+token:
+
+```yaml title="config.yaml"
+security:
+  auth:
+    reject_invalid_tokens: true
+```
+
+With this option:
+
+- Requests without a token, or with an `Authorization` header of another
+  scheme, stay anonymous.
+- It applies to operations with an empty security requirement and a scheme that
+  names `foca.security.auth.validate_token` in `x-bearerInfoFunc`, whichever
+  order they have. Operations with other schemes (e.g., API keys, or your own
+  validation function) don't change, as FOCA can't judge their tokens, nor do
+  operations that require a token or are public (`security: []`).
+- It only rejects: it never identifies a caller. If the empty requirement comes
+  first, a valid token still leaves the request anonymous, so list the bearer
+  scheme first.
+- If a token can't be validated for reasons other than the token itself (e.g.,
+  the identity provider is not available), the request stays anonymous, so that
+  public operations keep working, and an `INFO` message is logged. Clients with
+  such a token get the public view, as their token may well be valid.
+- The check runs after Connexion validated the request, so an invalid token in
+  an invalid request gets `400`, without a challenge.
+
 ## How tokens are validated
 
 1. The token's issuer (`iss` claim) must be one of the configured
@@ -83,7 +131,8 @@ local development.
    the issuer's user info endpoint, which needs to report the token's
    subject. Claims of the token are never replaced. Unless
    `validate_userinfo` is set, the user info is cached per token for
-   `cache_ttl` seconds, but not beyond the token's expiry.
+   `userinfo_cache_ttl` seconds (by default, `cache_ttl`), but not beyond the
+   token's expiry (see [caching of user info](#caching-of-user-info)).
 
 Steps 7 and 8 are skipped for [service tokens](#service-tokens), which have
 no user info.
@@ -91,6 +140,36 @@ no user info.
 FOCA logs a warning on the first validation if no issuers are configured,
 audience validation is disabled without restricting `clients`, token type
 validation is disabled, or expired tokens are accepted.
+
+### Caching of user info
+
+User info is cached for `cache_ttl` seconds (default: 300), like discovery
+documents and public keys, unless you set `userinfo_cache_ttl`. A shorter time
+lets a change of a user's groups apply sooner, if FOCA reads them from user
+info, without fetching keys more often:
+
+```yaml
+security:
+  auth:
+    cache_ttl: 300
+    userinfo_cache_ttl: 60
+```
+
+Each process caches separately: each worker of each replica has its own cache.
+So removing a user from an admin group can take up to the time set here to
+apply, and it applies at different times in different processes. Meanwhile, a
+user can be an admin in one response and not in the next. With
+`validate_userinfo: true`, user info is fetched for each request instead.
+
+This only applies to claims that FOCA reads from user info, i.e., those listed
+in `userinfo_claims` that the token lacks. Claims in the token always win, so
+if the token has the groups, a change applies with the next token, whatever
+you set here, and also with `validate_userinfo: true`.
+
+A shorter time means more requests to the identity provider: one per token and
+interval, and one per request with `0`. These block the request for up to
+`timeout` seconds, and if the identity provider is down, requests that need the
+claims fail with `401` as soon as the cached user info has expired.
 
 ### Several trusted issuers
 

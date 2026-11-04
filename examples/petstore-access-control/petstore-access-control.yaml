@@ -166,7 +166,9 @@ paths:
                 $ref: '#/components/schemas/Error'
   /pets/{id}/permissions:
     get:
-      description: Lists the roles granted on a pet; owners only.
+      description: >-
+        Lists the roles granted on a pet; owners only, and admins for pets
+        without owners.
       operationId: getPetRoles
       parameters:
         - name: id
@@ -213,7 +215,7 @@ paths:
     put:
       description: >-
         Grants a user a role on a pet, replacing their other roles; owners
-        only.
+        only, and admins for pets without owners.
       operationId: putPetUserRole
       parameters:
         - name: id

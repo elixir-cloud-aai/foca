@@ -240,13 +240,19 @@ def _placeholder_fields(info: dict[str, Any]) -> list[str]:
     return fields
 
 
+# Version of service info that isn't one of a release, e.g., from a template or
+# of a package installed without version information
+_PLACEHOLDER_VERSION = "0.0.0.dev0"
+
+
 def check_service_info(app: Flask) -> None:
     """Check the service info of an app.
 
     The function returning fields at runtime, if configured, is called in an
     app context. A warning is logged if the service info still has values in
     reserved example domains, e.g., from a template (cf.
-    :py:func:`_placeholder_fields`).
+    :py:func:`_placeholder_fields`), or the placeholder version of unreleased
+    versions (`0.0.0.dev0`).
 
     Args:
         app: Flask app, with API specifications registered.
@@ -275,5 +281,12 @@ def check_service_info(app: Flask) -> None:
             "(RFC 2606), e.g., from a template: %s; set them to describe the "
             "deployment ('service_info.service').",
             ", ".join(f"'{field}'" for field in fields),
+        )
+    if info["version"] == _PLACEHOLDER_VERSION:
+        logger.warning(
+            "The service info reports the placeholder version '%s', so clients "
+            "can't tell which version is deployed: set it to the version of the "
+            "deployment ('service_info.service.version').",
+            _PLACEHOLDER_VERSION,
         )
     logger.info("Serving service info '%s', version '%s'.", info["id"], info["version"])
