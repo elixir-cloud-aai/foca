@@ -1,7 +1,9 @@
 """Class for setting up and initializing a FOCA-based microservice."""
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from celery import Celery
@@ -26,6 +28,26 @@ from foca.security.cors import enable_cors
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+_no_startup_writes: ContextVar[bool] = ContextVar(
+    "foca_no_startup_writes", default=False
+)
+
+
+@contextmanager
+def no_startup_writes() -> Iterator[None]:
+    """Keep `Foca` instances created in the context from writing on startup.
+
+    For tools that load the module of an app, which may create the app.
+
+    Yields:
+        Nothing.
+    """
+    token = _no_startup_writes.set(True)
+    try:
+        yield
+    finally:
+        _no_startup_writes.reset(token)
 
 
 class Foca:
@@ -112,6 +134,8 @@ class Foca:
         logger.info("Log formatting configured.")
         if not self.config_files:
             logger.info("Default app configuration used.")
+        if _no_startup_writes.get():
+            self.disable_startup_writes()
 
     def _create_base_app(self) -> App:
         """Create Connexion app with error handler and databases.
@@ -208,6 +232,9 @@ class Foca:
         # each process creates its own host on first use (after forks), so
         # plugins are instantiated (`setup()`) once more there
         if self.gateway is not None:
+            create_indexes = self.conf.db is None or (
+                self.conf.db.create_indexes_on_startup
+            )
             host = runtime.create_host()
             if host.gateway_id is None:
                 logger.warning(
@@ -219,7 +246,10 @@ class Foca:
                 # the plugins' store: its indexes (writes to the store
                 # create them too, so the app may start without them) and
                 # expiry capped at the current max_ttl; errors are logged
-                host.setup_store()
+                if create_indexes:
+                    host.setup_store()
+                else:
+                    host.warn_store_settings()
             finally:
                 host.close()
             if self.gateway.backends is not None:
@@ -233,6 +263,35 @@ class Foca:
             )
 
         return cnx_app
+
+    def create_indexes(self) -> None:
+        """Create the configured indexes, and set up the store of gateway plugins.
+
+        This is what `Foca.create_app()` does on startup, unless
+        `db.create_indexes_on_startup` is unset.
+
+        Raises:
+            foca.database.register_mongodb.IndexConflictError: A configured index
+                conflicts with an existing one, or stored documents violate it.
+            pymongo.errors.PyMongoError: Indexes can't be created for another reason.
+            ValueError: No databases are configured.
+        """
+        if self.conf.db is None or not self.conf.db.dbs:
+            raise ValueError("No databases configured ('db.dbs')")
+        register_mongodb(self.conf.db, create_indexes=True)
+        if self.gateway is not None:
+            runtime.configure(self.gateway, self.conf, serve=True)
+            host = runtime.create_host()
+            try:
+                host.setup_store(strict=True)
+            finally:
+                host.close()
+
+    def disable_startup_writes(self) -> None:
+        """Turn off the steps of startup that write to the database."""
+        if self.conf.db is not None:
+            self.conf.db.create_indexes_on_startup = False
+        self.conf.security.access_control.sync_policies_on_startup = False
 
     def _check_worker_config(self) -> None:
         """Run the checks of the configuration that apps run on startup.

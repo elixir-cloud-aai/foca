@@ -681,24 +681,12 @@ class PluginHost:
             if settings.mode == "shared" and self.plugins[plugin_id].cls.data_stored
         )
 
-    def setup_store(self) -> None:
-        """Prepare the backend of the stores at startup.
+    def warn_store_settings(self) -> None:
+        """Warn of settings of the stores that keep entries from being safe.
 
-        Called once at startup (cf. `Foca.create_app()`); idempotent. Logs a
-        warning if plugins that declare stored data (`data_stored`) keep it
-        in memory as no database is configured, and one if they keep it in
-        the database without a key secret; creates the indexes of the
-        backend; and cuts the expiry of the entries of each namespace to the
-        current `max_ttl` (the longest of the namespace's plugins that
-        share the backend), so that a lowered `max_ttl` applies to entries
-        written before.
-
-        Database errors are logged, not raised, so that the app starts
-        anyway (cf. `_store_setup_log`): if the indexes cannot be created
-        (e.g., the database is down, an index conflicts with an existing
-        one, or the database user may not create indexes), writes create
-        them first; capping is tried anyway, and fails per namespace, within
-        one deadline for all (`_STORE_SETUP_TIMEOUT`).
+        Logs a warning if plugins that declare stored data (`data_stored`) keep it
+        in memory as no database is configured, and one if they keep it in the
+        database without a key secret.
         """
         local = sorted(
             plugin_id
@@ -723,9 +711,37 @@ class PluginHost:
                 " variable FOCA_PLUGINS_STORE_KEY_SECRET) to key them with a"
                 " secret",
             )
+
+    def setup_store(self, strict: bool = False) -> None:
+        """Prepare the backend of the stores at startup.
+
+        Called once at startup (cf. `Foca.create_app()`); idempotent. Warns of
+        settings (cf. :py:meth:`warn_store_settings`); creates the indexes of the
+        backend; and cuts the expiry of the entries of each namespace to the
+        current `max_ttl` (the longest of the namespace's plugins that
+        share the backend), so that a lowered `max_ttl` applies to entries
+        written before.
+
+        Database errors are logged, not raised, so that the app starts
+        anyway (cf. `_store_setup_log`): if the indexes cannot be created
+        (e.g., the database is down, an index conflicts with an existing
+        one, or the database user may not create indexes), writes create
+        them first; capping is tried anyway, and fails per namespace, within
+        one deadline for all (`_STORE_SETUP_TIMEOUT`).
+
+        Args:
+            strict: Raise database errors rather than logging them, for when the
+                setup is a step of its own (cf. `Foca.create_indexes()`).
+
+        Raises:
+            pymongo.errors.PyMongoError: A database error, if `strict` is set.
+        """
+        self.warn_store_settings()
         try:
             self._store_backend.setup()
         except PyMongoError as exc:
+            if strict:
+                raise
             level, cause = _store_setup_log(exc)
             logger.log(
                 level,
@@ -770,6 +786,8 @@ class PluginHost:
                     remaining,
                 )
             except PyMongoError as exc:
+                if strict:
+                    raise
                 level, cause = _store_setup_log(exc)
                 logger.log(
                     level,
