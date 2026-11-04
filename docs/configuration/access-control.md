@@ -29,10 +29,23 @@ security:
     self_service: true
     policies:
       - [p, "*", /pets, "(GET)|(POST)"]
+    policies_revision: 3
+    policies_force: false
     api_swagger_ui: true
     api_serve_spec: true
+    api_enabled: true
+    api_base_path: /admin/access-control
     log_traffic: true
 ```
+
+`policies_revision` and `policies_force` keep old pods from bringing back old
+rules during rolling upgrades (cf. [Configured policies in rolling
+upgrades](../deployment.md#configured-policies-in-rolling-upgrades)).
+
+`api_enabled: false` removes the permissions API, and with it its Swagger UI and
+specification, while policies are still enforced. `api_base_path` moves it, unless
+`api_specs` sets its own (cf. [Configuring the
+API](../access-control.md#configuring-the-api)).
 
 Access control requires `enabled: true` and trusted token
 [`issuers`](auth.md); the other options are rejected otherwise. With

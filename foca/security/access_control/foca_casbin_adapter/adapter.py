@@ -36,6 +36,7 @@ from foca.security.access_control.constants import (
     LEGACY_GENERATION,
     LOAD_POLICY_ATTEMPTS,
     MARKER_GENERATION_FIELD,
+    MARKER_REVISION_FIELD,
     MAX_RECORDED_CHANGES,
     RULE_GENERATIONS_FIELD,
     STALE_GENERATION_AGE,
@@ -875,8 +876,18 @@ class Adapter(persist.Adapter):
         """
         return self._rules_query(self._active_generation())
 
-    def set_configured_policies(self, rules: list[list[str]]) -> None:
+    def set_configured_policies(
+        self,
+        rules: list[list[str]],
+        revision: int | None = None,
+        force: bool = False,
+    ) -> bool:
         """Replace the stored configured rules with the given rules.
+
+        Rules of an older revision than the stored one aren't stored, with a
+        warning, so that old app instances restarting during a rolling upgrade
+        don't bring back old rules. Rules without a revision count as older
+        than any revision. Stored rules without one are replaced by any rules.
 
         Rules are replaced without transactions, but such that rules are
         always loaded with one complete set of configured rules: the given
@@ -903,12 +914,23 @@ class Adapter(persist.Adapter):
             rules: Configured rules, each given as its policy type followed
                 by its values; they need to be valid (cf.
                 :py:func:`validate_rule`).
+            revision: Revision of the rules, if any.
+            force: Replace the rules also if the stored revision is newer, e.g.,
+                for a rollback; `revision` is then stored as the new one.
+
+        Returns:
+            Whether the rules were replaced.
         """
+        if not force and self._warn_if_newer_stored(revision):
+            return False
         self._ensure_id_index()
         generation = str(ObjectId())
         self._store_generation(generation, rules)
         try:
-            previous = self._activate_generation(generation)
+            previous = self._activate_generation(generation, revision, force)
+            if previous is None:
+                self._remove_generations([generation])
+                return False
         # The generation may have been activated nonetheless
         except BaseException:
             self._record_changes([_ALL_CHANGED])
@@ -921,6 +943,32 @@ class Adapter(persist.Adapter):
             raise
         self._remove_generations([previous])
         self._remove_stale_generations()
+        return True
+
+    def _warn_if_newer_stored(self, revision: int | None) -> bool:
+        """Check whether the revision of the stored configured rules is newer.
+
+        Args:
+            revision: Revision of the rules to store, if any.
+
+        Returns:
+            Whether it is, in which case a warning was logged.
+        """
+        marker = _primary(self._collection).find_one(
+            {"_id": GENERATION_MARKER_ID}, projection=[MARKER_REVISION_FIELD]
+        )
+        stored = None if marker is None else marker.get(MARKER_REVISION_FIELD)
+        if stored is None or (revision is not None and stored <= revision):
+            return False
+        logger.warning(
+            "Configured policy rules not replaced: the stored rules have revision "
+            "%s, which is newer than this app's ('security.access_control."
+            "policies_revision': %s). If this is a rollback, set "
+            "'security.access_control.policies_force'.",
+            stored,
+            revision,
+        )
+        return True
 
     def _record_configured_changes(self, previous: str, rules: list[list[str]]) -> None:
         """Record the changes of replacing the active configured rules.
@@ -993,27 +1041,46 @@ class Adapter(persist.Adapter):
                 "Stored configured policy rule '%s' (generation '%s')", id, generation
             )
 
-    def _activate_generation(self, generation: str) -> str:
+    def _activate_generation(
+        self, generation: str, revision: int | None = None, force: bool = False
+    ) -> str | None:
         """Make a generation of configured rules the active one.
 
         Args:
             generation: Generation to activate.
+            revision: Revision of its rules, if any.
+            force: Activate it also if the stored revision is newer.
 
         Returns:
-            Previously active generation.
+            Previously active generation, or `None` if it wasn't activated, as
+            another app instance stored a newer revision in the meantime.
         """
+        query: dict[str, Any] = {"_id": GENERATION_MARKER_ID}
+        if not force:
+            # Without the field, or none that is newer, in the same write
+            query[MARKER_REVISION_FIELD] = (
+                None if revision is None else {"$not": {"$gt": revision}}
+            )
         # One write, so that the rules of one generation are in effect;
         # again if the marker was created concurrently, which then updates it
         for attempt in range(2):
             try:
                 previous = self._collection.find_one_and_update(
-                    {"_id": GENERATION_MARKER_ID},
-                    {"$set": {MARKER_GENERATION_FIELD: generation}},
+                    query,
+                    {
+                        "$set": {
+                            MARKER_GENERATION_FIELD: generation,
+                            MARKER_REVISION_FIELD: revision,
+                        }
+                    },
                     upsert=True,
                     return_document=ReturnDocument.BEFORE,
                 )
                 break
             except DuplicateKeyError:
+                # The marker exists, but doesn't match
+                if not force and self._warn_if_newer_stored(revision):
+                    return None
                 if attempt:
                     raise
         logger.info("Configured policy rules replaced (generation '%s')", generation)

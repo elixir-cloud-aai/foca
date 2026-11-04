@@ -28,6 +28,9 @@ from foca.models.config import (
     MongoConfig,
     SecurityConfig,
 )
+from foca.security.access_control import (
+    register_access_control as register_access_control_module,
+)
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
@@ -918,3 +921,42 @@ def test_register_permission_specs_invalid_tokens(
     register_permission_specs(app=cnx_app, access_control_config=AccessControlConfig())
     resolver = add_api.call_args.kwargs["resolver"]
     assert isinstance(resolver, InvalidTokenResolver) is reject
+
+
+class TestWarnDefaultBasePath:
+    """Tests for the warning about rules for the former path of the API."""
+
+    @pytest.mark.parametrize(
+        ("base_path", "rule", "warned"),
+        [
+            ("/acl", ["p", "admin", "/admin/access-control/policies", "GET"], True),
+            ("/acl", ["p", "admin", "/admin/*", "GET"], True),
+            ("/acl", ["p", "admin", "/*", "GET"], False),
+            ("/acl", ["p", "/admin/access-control/x", "/tasks", "GET"], False),
+            ("/acl", ["g", "alice", "/admin/access-control/x"], False),
+            ("/acl", ["p", "admin"], False),
+            (
+                "/admin/access-control/v2",
+                ["p", "admin", "/admin/access-control/policies", "GET"],
+                True,
+            ),
+            (
+                "/admin/access-control/v2",
+                ["p", "admin", "/admin/access-control/*", "GET"],
+                False,
+            ),
+        ],
+    )
+    def test_rules(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        base_path: str,
+        rule: list[str],
+        warned: bool,
+    ) -> None:
+        """Only rules whose object applied to the former path are named."""
+        conf = AccessControlConfig.model_construct(
+            api_enabled=True, api_specs=None, api_base_path=base_path, policies=[rule]
+        )
+        register_access_control_module._warn_default_base_path(conf)
+        assert ("names the default path" in caplog.text) is warned

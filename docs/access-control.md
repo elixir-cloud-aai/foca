@@ -152,7 +152,8 @@ security:
 > model `model`. Corresponding permissions could be accessed and altered
 > by a user with admin permissions via the endpoints defined in `api_specs`
 > (FOCA's default specification if not set), at
-> `/admin/access-control/permissions` by default. Permissions will be stored
+> `/admin/access-control/permissions` by default (cf. `api_base_path`).
+> Permissions will be stored
 > in collection `collection_name` of MongoDB database `db_name`.
 >  
 > Cf. the [API model][docs-models-access-control] for further options and details.
@@ -182,9 +183,44 @@ older than the changes they read.
 ### Configuring the API
 
 FOCA comes with a default API for configuring permission resources, served
-at `/admin/access-control`. However, you can provide a custom [Swagger 2.x or
+at `/admin/access-control`. To move it, set `api_base_path`, an absolute path
+without trailing slash or dot segments. Paths in these docs assume the default:
+
+```yaml
+security:
+  access_control:
+    api_base_path: /internal/permissions
+```
+
+Rules are matched against request paths, so what you write for the API has to
+follow it:
+
+- Rules for the old path don't apply anymore, which is logged for `policies`, but
+  not for rules stored via the API.
+- Moved under paths that a literal rule grants (e.g., `/api/v1/*`), the API is
+  open to those it applies to, and with write access, they can make themselves
+  admins. FOCA logs a warning for all `policies` other than those of admins that
+  match the API, also at the default path, as they can be deliberate (e.g.,
+  delegating the management of rules). Rules with `{base_path}` are refused instead
+  (cf. [Configuring policies](#configuring-policies)). Rules stored via
+  the API aren't checked.
+- A base path that overlaps with one of the app's APIs is pointed out with a
+  warning, as the operations of each can shadow those of the other.
+- A base path of one of the app's APIs is refused.
+
+If you manage policies through the configuration (`policies`) only, set
+`api_enabled: false` to take the API off the internet. It isn't registered, its
+paths respond with `404`, so policies can't be managed at runtime anymore, and
+they are enforced as before. The other `api_*` settings and `self_service` then
+have no effect, and a warning is logged if `api_specs` or `self_service` is set.
+Rules stored earlier via the API stay in effect, and `policies` doesn't remove
+them, so delete those you don't want anymore before switching the API off;
+afterwards, only the database can. The roles of owners keep working, too.
+
+You can also provide a custom [Swagger 2.x or
 OpenAPI 3.x][res-openapi] definition for `/permissions` endpoints via
-`api_specs`. Its `servers` (or `basePath`) define where the endpoints are
+`api_specs`. It wins over `api_base_path`, with a warning if that is explicitly
+set: its `servers` (or `basePath`) define where the endpoints are
 served, and the `operationId` of each operation which controller handles it
 (e.g., FOCA's default controllers in
 `foca.security.access_control.access_control_server`, or your own).
@@ -264,7 +300,12 @@ then, rules of the previous generation are removed. Only the configured
 rules of the active generation are loaded and listed by the permissions API,
 which changes no configured rules of any generation. If instances with different rules start
 concurrently, the rules of the instance that activates its generation last
-are kept. Rules of generations that never became active (e.g., because an
+are kept, unless the stored rules have a newer revision (`policies_revision`, cf.
+[Configured
+policies in rolling
+upgrades](deployment.md#configured-policies-in-rolling-upgrades)), which also keeps
+older instances from replacing them later on, or removing them. Rules of generations
+that never became active (e.g., because an
 instance failed while storing them) are removed on a later startup, once
 older than an hour (by the clocks of the instances, which must be
 synchronized), as are rules of generations not created by FOCA. Configured
@@ -285,7 +326,8 @@ a later version replaces them.
 !!! warning "Apps sharing a policy collection"
     All apps using the same policy collection must configure the same rules:
     each startup replaces the configured rules of the others, also if
-    `policies` is not set. By default, all FOCA apps on the same MongoDB
+    `policies` is not set. A revision (`policies_revision`) applies to the
+    collection, too, so it would block the others. By default, all FOCA apps on the same MongoDB
     server use the same policy collection (`access_control_db.policy_rules`):
     apps on a shared external MongoDB must set their own `db_name`.
 
