@@ -375,6 +375,8 @@ class TestExtraParameters:
         resolution = resolver.resolve(operation)
         assert isinstance(resolution, Resolution)
         assert len(calls) == 1
+        with Flask(__name__).test_request_context("/items"):
+            assert resolution.function() == []
 
 
 class TestResponses:
