@@ -96,9 +96,7 @@ def register_access_control(
             :py:func:`_check_required_roles`).
     """
     auth_config = get_app_config(cnx_app.app).security.auth
-    _check_group_config(access_control_config, auth_config)
-    _check_admin_role(access_control_config, auth_config)
-    _check_required_roles(access_control_config)
+    check_access_control_config(access_control_config, auth_config)
 
     # Group claim values of several issuers could collide
     if sum(map(bool, _get_group_claims(access_control_config, auth_config))) > 1:
@@ -230,6 +228,31 @@ def _get_group_claims(
         default if conf.claim_groups is None else conf.claim_groups
         for conf in issuers.values()
     ]
+
+
+def check_access_control_config(
+    access_control_config: AccessControlConfig, auth_config: AuthConfig
+) -> None:
+    """Run the checks of access control that only need the configuration.
+
+    Apps run them when access control is registered, and Celery workers, which
+    don't register it, on startup.
+
+    Args:
+        access_control_config: Access control configuration.
+        auth_config: Authentication configuration.
+
+    Raises:
+        ValueError: Group settings keep all group mappings from applying (cf.
+            :py:func:`_check_group_config`), or no group or configured policy
+            rule grants the role `admin` and `access_control.require_admin` is
+            set (cf. :py:func:`_check_admin_role`), or a role of
+            `access_control.required_roles` doesn't exist (cf.
+            :py:func:`_check_required_roles`).
+    """
+    _check_group_config(access_control_config, auth_config)
+    _check_admin_role(access_control_config, auth_config)
+    _check_required_roles(access_control_config)
 
 
 def _check_group_config(

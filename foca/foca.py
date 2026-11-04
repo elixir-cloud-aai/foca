@@ -18,6 +18,7 @@ from foca.plugins import runtime
 from foca.plugins.runtime import GatewayApp
 from foca.security.access_control.enforcement import register_opt_in_header
 from foca.security.access_control.register_access_control import (
+    check_access_control_config,
     check_opt_in_roles,
     register_access_control,
 )
@@ -233,16 +234,36 @@ class Foca:
 
         return cnx_app
 
+    def _check_worker_config(self) -> None:
+        """Run the checks of the configuration that apps run on startup.
+
+        Those of what a worker doesn't register or serve aren't run, e.g., of
+        API specifications, and of fields of the service info computed at
+        runtime, whose functions may need what the app registers.
+        """
+        access_control = self.conf.security.access_control
+        if access_control.enabled:
+            check_access_control_config(access_control, self.conf.security.auth)
+        if access_control.opt_in_roles:
+            check_opt_in_roles(access_control, self.conf.security.cors)
+
     def create_celery_app(self) -> Celery:
         """Set up and initialize FOCA-based Celery app.
 
         Returns:
             Celery application instance.
+
+        Raises:
+            ValueError: Background tasks aren't configured, or the configuration
+                of access control fails the checks of apps (cf.
+                :py:func:`foca.security.access_control.register_access_control.check_access_control_config`),
+                or a periodic job has an invalid schedule.
         """
         cnx_app = self._create_base_app()
 
         # Create Celery app
         if self.conf.jobs:
+            self._check_worker_config()
             celery_app = create_celery_app(cnx_app.app)
             logger.info("Support for background tasks set up.")
         else:

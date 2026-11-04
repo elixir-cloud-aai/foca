@@ -1326,3 +1326,48 @@ def test_swagger_ui_of_disabled_api() -> None:
         api_enabled=False, api_swagger_ui=True, api_serve_spec=False
     )
     assert conf.api_enabled is False
+
+
+@pytest.mark.parametrize(
+    ("data", "key", "hint"),
+    [
+        ({"exceptions": {"exceptions": {}}}, "exceptions.exceptions", "mapping"),
+        ({"server": {"use_reloader": True}}, "server.use_reloader", "without"),
+        (
+            {"security": {"access_control": {"api_controllers": {}}}},
+            "security.access_control.api_controllers",
+            "operationId",
+        ),
+        (
+            {"api": {"specs": [{"path": PATH, "path_out": "/out"}]}},
+            r"api\.specs\[\]\.path_out",
+            "without",
+        ),
+        (
+            {"api": {"specs": {"named": {"path": PATH, "path_out": "/out"}}}},
+            r"api\.specs\[\]\.path_out",
+            "without",
+        ),
+    ],
+)
+def test_removed_keys(data: dict[str, Any], key: str, hint: str) -> None:
+    """Keys that FOCA removed fail, with a hint on what replaces them."""
+    with pytest.raises(ValidationError, match=rf"'{key}':.*{hint}"):
+        Config(**data)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {},
+        {"security": {"auth": {}}},
+        {"server": ServerConfig()},
+        {"custom": {"server": {"environment": "dev"}}},
+        {"api": {"specs": [{"path": PATH}]}},
+        {"api": {"specs": {"named": {"path": PATH}, "gone": None}}},
+        {"api": {}},
+    ],
+)
+def test_no_removed_keys(data: dict[str, Any]) -> None:
+    """Other configurations aren't affected."""
+    assert Config(**data)
