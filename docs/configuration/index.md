@@ -27,6 +27,22 @@ template](https://github.com/elixir-cloud-aai/foca/blob/dev/templates/config.yam
 or check the configuration of the [petstore
 example](https://github.com/elixir-cloud-aai/foca/blob/dev/examples/petstore/config.yaml).
 
+## Removed keys
+
+These keys that FOCA removed fail with a hint on what replaces them, rather than with
+the error for unknown keys:
+
+| Key | Instead |
+| --- | --- |
+| `api.specs[].path_out` | Nothing: modified specifications were never written |
+| `exceptions.exceptions` | `exceptions.mapping` |
+| `exceptions.extension_members`, `exceptions.private_members` | `exceptions.public_members` |
+| `exceptions.required_members`, `exceptions.status_member` | Problem details have fixed members |
+| `security.access_control.api_controllers` | Controllers are resolved via the `operationId` of each operation |
+| `security.access_control.owner_headers`, `security.access_control.user_headers` | Nothing |
+| `security.auth.claim_issuer`, `security.auth.required`, `security.auth.validation_checks`, `security.auth.validation_methods` | Nothing |
+| `server.environment`, `server.use_reloader` | Nothing |
+
 ## Relative paths
 
 Relative file paths in the configuration (`api.specs[].path`,

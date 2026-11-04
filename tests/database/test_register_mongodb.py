@@ -9,11 +9,13 @@ import pytest
 from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
-from pymongo.errors import ConfigurationError, PyMongoError
+from pymongo.errors import ConfigurationError, OperationFailure, PyMongoError
 
 from foca.database import register_mongodb as module
 from foca.database.register_mongodb import (
+    IndexConflictError,
     _redact_uri,
+    _register_database,
     create_mongo_client,
     get_mongo_client,
     get_mongo_db_name,
@@ -274,7 +276,7 @@ class TestRegisterMongodb:
         }
         conf = _config(db1={"collections": {"c1": {"indexes": [conflicting]}}})
         conf._client = clients[0][1]
-        with pytest.raises(ValueError, match="conflicts with an existing index"):
+        with pytest.raises(IndexConflictError, match="conflicts with an existing"):
             register_mongodb(conf)
 
     def test_index_without_keys(self, clients: MongoClients) -> None:
@@ -634,3 +636,36 @@ class TestClientOptions:
 def test_redact_uri(uri: str, expected: str) -> None:
     """Credentials and options are removed, also with `#` in a password."""
     assert _redact_uri(uri) == expected
+
+
+@pytest.mark.parametrize("code", [68, 85, 86, 11000])
+def test_index_conflict_codes(code: int) -> None:
+    """Errors of conflicts are told apart."""
+    assert _create_failing_index(code) is IndexConflictError
+
+
+@pytest.mark.parametrize("code", [13, None])
+def test_other_index_errors(code: int | None) -> None:
+    """Other errors stay what they are."""
+    assert _create_failing_index(code) is OperationFailure
+
+
+def _create_failing_index(code: int | None) -> type[Exception]:
+    """Register a database whose indexes can't be created.
+
+    Args:
+        code: Code of the error.
+
+    Returns:
+        Type of the error raised.
+    """
+    client = MagicMock()
+    client.__getitem__.return_value.__getitem__.return_value.create_index = MagicMock(
+        side_effect=OperationFailure("Failed", code=code)
+    )
+    conf = DBConfig.model_validate(
+        {"collections": {"c": {"indexes": [{"keys": {"a": 1}}]}}}
+    )
+    with pytest.raises(Exception) as info:
+        _register_database(client, "db", conf)
+    return info.type
