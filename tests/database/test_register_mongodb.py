@@ -1,12 +1,15 @@
 """Tests for `register_mongodb.py`."""
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
 from urllib.parse import unquote, urlsplit
 
+import mongomock
 import pytest
+from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
+from pymongo.errors import ConfigurationError
 
 from foca.database import register_mongodb as module
 from foca.database.register_mongodb import (
@@ -17,7 +20,13 @@ from foca.database.register_mongodb import (
     register_mongodb,
     reopen_mongodb,
 )
-from foca.models.config import CollectionConfig, DBConfig, MongoConfig
+from foca.models.config import (
+    CollectionConfig,
+    Config,
+    DBConfig,
+    MongoConfig,
+    ServiceInfoConfig,
+)
 from tests.mock_data import MongoClients
 
 MONGO_ENV_VARS = [
@@ -346,4 +355,185 @@ class TestReopenMongodb:
         conf = MongoConfig(dbs={"a": DBConfig()})
         conf._client = MagicMock()
         reopen_mongodb(conf)
-        assert created.call_args.kwargs == {"connect": False}
+        assert created.call_args.kwargs["connect"] is False
+
+
+class TestClientOptions:
+    """Tests for the options of MongoDB clients."""
+
+    @pytest.fixture
+    def options(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        """Keyword arguments of the MongoDB clients created."""
+        for var in MONGO_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        created: list[dict[str, Any]] = []
+
+        def mongo_client(uri: str, **kwargs: Any) -> Any:
+            """Record the keyword arguments of a client."""
+            created.append(kwargs)
+            return mongomock.MongoClient()
+
+        monkeypatch.setattr(module, "MongoClient", mongo_client)
+        return created
+
+    def test_defaults(self, options: list[dict[str, Any]]) -> None:
+        """Clients have the default timeouts, also without configuration."""
+        create_mongo_client()
+        assert options == [
+            {
+                "connect": True,
+                "serverselectiontimeoutms": 5000,
+                "connecttimeoutms": 5000,
+            }
+        ]
+
+    def test_config(self, options: list[dict[str, Any]]) -> None:
+        """Options of the config are passed, and win over defaults."""
+        get_mongo_client(
+            MongoConfig(
+                client_options={
+                    "maxPoolSize": 20,
+                    "serverselectiontimeoutMS": 100,
+                    "appname": "mine",
+                }
+            )
+        )
+        assert options == [
+            {
+                "connect": True,
+                "maxpoolsize": 20,
+                "serverselectiontimeoutms": 100,
+                "connecttimeoutms": 5000,
+                "appname": "mine",
+            }
+        ]
+
+    def test_default_appname(self, options: list[dict[str, Any]]) -> None:
+        """Without service info, the app is named after FOCA."""
+        get_mongo_client(MongoConfig())
+        assert options[0]["appname"] == "foca"
+
+    @pytest.mark.parametrize(
+        ("service_info", "expected"),
+        [
+            (
+                {"service": {"id": "org.example.my"}, "package": "my-app"},
+                "org.example.my",
+            ),
+            ({"service": {"name": "x"}, "package": "my-app"}, "my-app"),
+            ({"service": None, "package": "my-app"}, "my-app"),
+            ({"service": {"name": "x"}, "package": None}, "foca"),
+        ],
+    )
+    def test_appname_service_info(
+        self,
+        options: list[dict[str, Any]],
+        service_info: dict[str, Any],
+        expected: str,
+    ) -> None:
+        """The app is named after its service info."""
+        conf = Config(db=MongoConfig())
+        conf.service_info = ServiceInfoConfig.model_construct(**service_info)
+        conf._set_mongo_appname()  # type: ignore[operator]
+        assert conf.db is not None
+        get_mongo_client(conf.db)
+        assert options[0]["appname"] == expected
+
+    def test_appname_on_validation(self, options: list[dict[str, Any]]) -> None:
+        """The validated config names the app."""
+        conf = Config(
+            db=MongoConfig(),
+            service_info=ServiceInfoConfig(
+                service={
+                    "id": "org.example.my",
+                    "name": "My service",
+                    "type": {"group": "org.example", "artifact": "a", "version": "1"},
+                    "organization": {"name": "Org", "url": "https://org.test/"},
+                    "version": "1.0.0",
+                }
+            ),
+        )
+        assert conf.db is not None
+        get_mongo_client(conf.db)
+        assert options[0]["appname"] == "org.example.my"
+
+    def test_uri_wins(
+        self,
+        options: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Options in the connection string win, with a warning on conflicts."""
+        monkeypatch.setenv(
+            "MONGO_URI",
+            "mongodb://a:1,b:2/db?appName=uri&ConnectTimeoutMS=1&maxPoolSize=2",
+        )
+        warning = Mock()
+        monkeypatch.setattr(module.logger, "warning", warning)
+        get_mongo_client(
+            MongoConfig(client_options={"maxPoolSize": "s3cr3t", "minPoolSize": 1})
+        )
+        assert options == [
+            {
+                "connect": True,
+                "serverselectiontimeoutms": 5000,
+                "minpoolsize": 1,
+            }
+        ]
+        warning.assert_called_once()
+        assert warning.call_args.args[1] == "maxPoolSize"
+        assert "s3cr3t" not in str(warning.call_args)
+
+    def test_no_warning_for_defaults(
+        self,
+        options: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The connection string overriding defaults isn't a conflict."""
+        monkeypatch.setenv("MONGO_URI", "mongodb://a/?connectTimeoutMS=1&appname=x")
+        warning = Mock()
+        monkeypatch.setattr(module.logger, "warning", warning)
+        get_mongo_client(MongoConfig())
+        assert "connecttimeoutms" not in options[0]
+        assert "appname" not in options[0]
+        warning.assert_not_called()
+
+    def test_real_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """PyMongo takes the options."""
+        for var in MONGO_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        client = create_mongo_client(
+            host="localhost", connect=False, options={"maxPoolSize": 3}, appname="x"
+        )
+        try:
+            assert client.options.pool_options.max_pool_size == 3
+            assert client.options.server_selection_timeout == 5
+            assert client.options.pool_options.connect_timeout == 5
+            assert client.options.pool_options.metadata["application"] == {"name": "x"}
+        finally:
+            client.close()
+
+    def test_unknown_option(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unknown options fail on creating the client."""
+        for var in MONGO_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        with pytest.raises(ConfigurationError, match="nonsense"):
+            create_mongo_client(connect=False, options={"nonsense": 1})
+
+    @pytest.mark.parametrize("name", ["host", "PORT", "connect"])
+    def test_reserved_option(self, name: str) -> None:
+        """Options that FOCA sets are rejected."""
+        with pytest.raises(ValidationError, match=name):
+            MongoConfig(client_options={name: "x"})
+
+    @pytest.mark.parametrize("value", [None, ["x"], {"a": 1}])
+    def test_only_scalars(self, value: object) -> None:
+        """Options are scalars."""
+        with pytest.raises(ValidationError):
+            MongoConfig(client_options={"maxPoolSize": value})  # type: ignore[dict-item]
+
+    def test_reopen_keeps_options(self, options: list[dict[str, Any]]) -> None:
+        """Replaced clients have the same options."""
+        conf = MongoConfig(client_options={"maxPoolSize": 20})
+        get_mongo_client(conf)
+        reopen_mongodb(conf)
+        assert options[1] == {**options[0], "connect": False}

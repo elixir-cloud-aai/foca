@@ -110,6 +110,8 @@ api:
 db:
   host: mongodb
   port: 27017
+  # Options of the client (PyMongo's names); options in `MONGO_URI` win
+  client_options: {}
   dbs:
     myDb:
       collections:

@@ -48,6 +48,41 @@ from foca.database.register_mongodb import (
 db = create_mongo_client(host="mongodb", port=27017)[get_mongo_db_name("myDb")]
 ```
 
+## Client options
+
+`client_options` are passed to PyMongo's
+[`MongoClient`](https://pymongo.readthedocs.io/en/stable/api/pymongo/mongo_client.html),
+with PyMongo's names, e.g., for the size of the connection pool:
+
+```yaml
+db:
+  client_options:
+    maxPoolSize: 20
+    serverSelectionTimeoutMS: 2000
+```
+
+Values are strings, numbers or booleans. Unknown or invalid options stop the app
+on startup. `host`, `port` and `connect` can't be set here: use `db.host`,
+`db.port` or `MONGO_URI`.
+
+FOCA sets these defaults:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `serverSelectionTimeoutMS` | `5000` | If MongoDB can't be reached, requests and the startup of the app fail after this time; PyMongo's default is 30 seconds. |
+| `connectTimeoutMS` | `5000` | Time allowed to open a connection; PyMongo's default is 20 seconds. |
+| `appname` | `service_info.service.id`, else `service_info.package`, else `foca` | Name of the app in MongoDB's logs. |
+
+Options in the connection string of `MONGO_URI` win over `client_options`, and
+FOCA logs a warning naming them. Note that this differs from PyMongo itself, where
+keyword arguments win. It lets a deployment change an option without changing the
+app's configuration, also for the defaults above, without a warning. Names in
+either place are not case-sensitive. Aliases aren't resolved (e.g., `ssl` for
+`tls`), so use the same name in both places.
+
+The options apply to all clients of the app. `create_mongo_client()` takes them
+as `options`, and applies the defaults as well.
+
 ## Environment variables
 
 The connection can be configured through environment variables, e.g., to keep

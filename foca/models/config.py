@@ -2283,12 +2283,19 @@ class MongoConfig(FOCABaseConfig):
         port: Port at which the database is exposed.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
+        client_options: Options of the MongoDB client (PyMongo's names, e.g.,
+            `maxPoolSize`), passed to `MongoClient`, which fails on unknown
+            ones. By default, `serverSelectionTimeoutMS` and `connectTimeoutMS`
+            are 5000, and `appname` is the identifier of the service info or
+            else the name of its package. Options in `MONGO_URI` win, with a
+            warning. Not `host`, `port` and `connect`, which FOCA sets.
 
     Attributes:
         host: Host at which the database is exposed.
         port: Port at which the database is exposed.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
+        client_options: Options of the MongoDB client.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2305,8 +2312,38 @@ class MongoConfig(FOCABaseConfig):
     host: str = "mongodb"
     port: int = 27017
     dbs: dict[str, DBConfig] | None = None
+    client_options: dict[str, str | int | float | bool] = Field(default_factory=dict)
     # MongoDB client shared by all databases; set on registration
     _client: MongoClient[dict[str, Any]] | None = PrivateAttr(default=None)
+    # Name of the app in MongoDB's logs by default; set from the service info
+    _default_appname: str = PrivateAttr(default="foca")
+
+    @field_validator("client_options")
+    @classmethod
+    def _check_client_options(
+        cls, value: dict[str, str | int | float | bool]
+    ) -> dict[str, str | int | float | bool]:
+        """Reject client options that FOCA sets itself.
+
+        Args:
+            value: Options of the client.
+
+        Returns:
+            The options.
+
+        Raises:
+            ValueError: An option is `host`, `port` or `connect`.
+        """
+        reserved = sorted(
+            name for name in value if name.lower() in {"host", "port", "connect"}
+        )
+        if reserved:
+            raise ValueError(
+                f"Options {reserved} can't be set in `db.client_options`: use "
+                "`db.host`, `db.port` or `MONGO_URI`; FOCA decides when clients "
+                "connect"
+            )
+        return value
 
 
 class JobsConfig(FOCABaseConfig):
@@ -2682,3 +2719,17 @@ class Config(FOCABaseConfig):
     # secrets (e.g., `plugins.defaults.store.key_secret`) that are masked
     # only once validated; the outermost model's setting applies
     model_config = ConfigDict(extra="allow", hide_input_in_errors=True)
+
+    @model_validator(mode="after")
+    def _set_mongo_appname(self) -> "Config":
+        """Name the app in MongoDB's logs after its service info.
+
+        Returns:
+            The config.
+        """
+        if self.db is not None and self.service_info is not None:
+            service_id = (self.service_info.service or {}).get("id")
+            name = service_id or self.service_info.package
+            if isinstance(name, str) and name:
+                self.db._default_appname = name
+        return self

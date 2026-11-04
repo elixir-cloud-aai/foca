@@ -2,8 +2,9 @@
 
 import logging
 import os
+from collections.abc import Mapping
 from typing import Any
-from urllib.parse import quote_plus, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote_plus, urlsplit, urlunsplit
 
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
@@ -12,6 +13,14 @@ from foca.models.config import DBConfig, MongoConfig
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+# Options of MongoDB clients unless set otherwise, in milliseconds: with
+# MongoDB down, requests and the startup of the app fail after this time, not
+# after PyMongo's default of 30 seconds
+DEFAULT_CLIENT_OPTIONS = {
+    "serverSelectionTimeoutMS": 5000,
+    "connectTimeoutMS": 5000,
+}
 
 
 def register_mongodb(conf: MongoConfig) -> MongoConfig:
@@ -95,6 +104,8 @@ def get_mongo_client(
             port=conf.port,
             db=next(iter(conf.dbs or {}), None),
             connect=connect,
+            options=conf.client_options,
+            appname=conf._default_appname,
         )
     return conf._client
 
@@ -104,12 +115,16 @@ def create_mongo_client(
     port: int = 27017,
     db: str | None = None,
     connect: bool = True,
+    options: Mapping[str, Any] | None = None,
+    appname: str | None = None,
 ) -> MongoClient[dict[str, Any]]:
     """Create MongoDB client.
 
     Cf. :py:func:`get_mongo_uri` for how the connection string is built,
     including environment variables. Select databases via the client, e.g.,
-    ``client[get_mongo_db_name("my_db")]``.
+    ``client[get_mongo_db_name("my_db")]``. Options in the connection string
+    win over `options`, with a warning, and over defaults (cf.
+    :py:func:`_get_client_options`).
 
     Args:
         host: Host at which MongoDB is exposed.
@@ -118,14 +133,65 @@ def create_mongo_client(
             database to authenticate against, if credentials are given.
         connect: Whether the client connects in the background right away,
             rather than on first use.
+        options: Options of the client, with PyMongo's names.
+        appname: Name of the app in MongoDB's logs, unless `options` or the
+            connection string set one.
 
     Returns:
         MongoDB client.
+
+    Raises:
+        pymongo.errors.ConfigurationError: An option is unknown or invalid.
     """
     uri = get_mongo_uri(host=host, port=port, db=db or "")
-    client: MongoClient[dict[str, Any]] = MongoClient(uri, connect=connect)
+    client: MongoClient[dict[str, Any]] = MongoClient(
+        uri,
+        connect=connect,
+        **_get_client_options(uri=uri, options=options or {}, appname=appname),
+    )
     logger.info("Created MongoDB client for '%s'.", _redact_uri(uri))
     return client
+
+
+def _get_client_options(
+    uri: str, options: Mapping[str, Any], appname: str | None
+) -> dict[str, Any]:
+    """Get the keyword arguments for a MongoDB client.
+
+    PyMongo gives keyword arguments precedence over the connection string, but
+    the connection string of a deployment should win over the configuration of
+    an app, so options it sets are left out. Names of options are not
+    case-sensitive, as in PyMongo.
+
+    Args:
+        uri: Connection string.
+        options: Configured options.
+        appname: Name of the app, if not set otherwise.
+
+    Returns:
+        Defaults (cf. `DEFAULT_CLIENT_OPTIONS`), the name of the app and the
+        configured options, in order of precedence and with lowercase names,
+        without those in the connection string.
+    """
+    in_uri = {
+        name.lower()
+        for name, _ in parse_qsl(urlsplit(uri).query, keep_blank_values=True)
+    }
+    overridden = sorted(name for name in options if name.lower() in in_uri)
+    if overridden:
+        # Only the names, as values may be sensitive
+        logger.warning(
+            "MongoDB client options %s are also set in the connection string, "
+            "which takes precedence.",
+            ", ".join(overridden),
+        )
+    merged: dict[str, Any] = {
+        name.lower(): value for name, value in DEFAULT_CLIENT_OPTIONS.items()
+    }
+    if appname is not None:
+        merged["appname"] = appname
+    merged.update({name.lower(): value for name, value in options.items()})
+    return {name: value for name, value in merged.items() if name not in in_uri}
 
 
 def _register_database(
