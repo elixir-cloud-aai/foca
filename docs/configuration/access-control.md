@@ -31,8 +31,15 @@ security:
       - [p, "*", /pets, "(GET)|(POST)"]
     api_swagger_ui: true
     api_serve_spec: true
+    api_enabled: true
+    api_base_path: /admin/access-control
     log_traffic: true
 ```
+
+`api_enabled: false` removes the permissions API, and with it its Swagger UI and
+specification, while policies are still enforced. `api_base_path` moves it, unless
+`api_specs` sets its own (cf. [Configuring the
+API](../access-control.md#configuring-the-api)).
 
 Access control requires `enabled: true` and trusted token
 [`issuers`](auth.md); the other options are rejected otherwise. With
