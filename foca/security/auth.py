@@ -704,7 +704,8 @@ def _get_userinfo(
         if cached is not None and now < cached[1] and now - cached[0] < ttl:
             return cached[2]
     # The age of the entry counts from before the request, and a slow response
-    # doesn't replace what a later request found (e.g., after a revocation)
+    # doesn't replace or take precedence over what a later request found (e.g.,
+    # after a revocation)
     started = time.monotonic()
     userinfo = _fetch_json(
         url=url,
@@ -725,10 +726,11 @@ def _get_userinfo(
     with _userinfo_cache_lock:
         cached = _userinfo_cache.get(key)
         if cached is not None and cached[0] > started:
-            return userinfo
+            return userinfo if conf.validate_userinfo else cached[2]
         _userinfo_cache.pop(key, None)
-        if not conf.validate_userinfo and lifetime > 0:
-            now = time.monotonic()
+        now = time.monotonic()
+        # Not if it expired during the request: it would evict a live entry
+        if not conf.validate_userinfo and started + lifetime > now:
             for cached_key, entry in list(_userinfo_cache.items()):
                 if entry[1] <= now:
                     del _userinfo_cache[cached_key]

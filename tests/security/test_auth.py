@@ -829,8 +829,32 @@ class TestUserinfoClaims:
         monkeypatch.setattr(auth, "_fetch_json", fetch)
         claims = {"sub": "alice", "exp": time.time() + 60}
         result = auth._get_userinfo(token, claims, "https://url", AuthConfig())
-        assert result == slow
+        assert result == newer
         assert auth._userinfo_cache[key][2] == newer
+
+    def test_userinfo_expired_during_request_not_cached(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A response slower than the TTL doesn't evict live entries."""
+        key = hashlib.sha256(b"token").hexdigest()
+        now = time.monotonic()
+        live = {
+            str(number): (now, now + 60, {"sub": "other"})
+            for number in range(auth.USERINFO_CACHE_SIZE)
+        }
+        monkeypatch.setattr(auth, "_userinfo_cache", live)
+        times = iter([now, now])
+        monkeypatch.setattr(auth.time, "monotonic", lambda: next(times, now + 2))
+        monkeypatch.setattr(auth, "_fetch_json", lambda **_: {"sub": "alice"})
+        result = auth._get_userinfo(
+            "token",
+            {"sub": "alice", "exp": time.time() + 60},
+            "https://url",
+            AuthConfig(userinfo_cache_ttl=1),
+        )
+        assert result == {"sub": "alice"}
+        assert key not in live
+        assert len(live) == auth.USERINFO_CACHE_SIZE
 
     def test_userinfo_age_counts_from_request(
         self, monkeypatch: pytest.MonkeyPatch
