@@ -202,7 +202,7 @@ follow it:
   admins. FOCA logs a warning for all `policies` other than those of admins that
   match the API, also at the default path, as they can be deliberate (e.g.,
   delegating the management of rules). Rules with `{base_path}` are refused instead
-  (cf. [Policy rules for each API](#policy-rules-for-each-api)). Rules stored via
+  (cf. [Configuring policies](#configuring-policies)). Rules stored via
   the API aren't checked.
 - A base path that overlaps with one of the app's APIs is pointed out with a
   warning, as the operations of each can shadow those of the other.
