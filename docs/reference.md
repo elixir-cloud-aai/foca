@@ -264,6 +264,7 @@ configuration models, see [Configuration](configuration/index.md).
         - get_mongo_client
         - get_mongo_db_name
         - register_mongodb
+        - reopen_mongodb
 
 ::: foca.utils.db
 

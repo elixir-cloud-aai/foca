@@ -178,15 +178,28 @@ def deletePet(id: int) -> Response:
 
 def _pet_exists(id: int) -> Callable[[], bool]:
     # Existence check for FOCA's role controllers, so that roles granted
-    # while a pet is deleted are revoked again
+    # while a pet is deleted are revoked again, and admins can manage pets
+    # that were left without owners
     return lambda: _get_collection().count_documents({"id": id}) > 0
 
 
 # Roles on pets are managed by FOCA's ready-made controllers, which take the
 # pet and the user from the route; operations are routed to this module
-# (`x-openapi-router-controller`), so via an alias and wrappers passing
-# existence checks
-getPetRoles = ownership_server.getResourceRoles
+# (`x-openapi-router-controller`), so via wrappers passing existence checks
+
+
+def getPetRoles(id: int, **kwargs: Any) -> list[dict[str, str]]:
+    """List the roles granted on a pet.
+
+    Args:
+        id: Identifier of the pet.
+        **kwargs: Further arguments of the controller (cf.
+            `foca.security.access_control.ownership_server.getResourceRoles`).
+
+    Returns:
+        Subject type, subject and role of each role granted on the pet.
+    """
+    return ownership_server.getResourceRoles(exists=_pet_exists(id), id=id, **kwargs)
 
 
 def putPetUserRole(id: int, **kwargs: Any) -> dict[str, str]:

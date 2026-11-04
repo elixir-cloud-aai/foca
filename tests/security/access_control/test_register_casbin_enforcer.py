@@ -143,7 +143,9 @@ class TestPolicies:
         Registrations thus behave as with a persistent database.
         """
         client: MongoClient[dict[str, Any]] = mongomock.MongoClient()
-        monkeypatch.setattr(register_mongodb, "MongoClient", lambda uri: client)
+        monkeypatch.setattr(
+            register_mongodb, "MongoClient", lambda uri, connect: client
+        )
         return client
 
     def test_added(self, clients: MongoClient[dict[str, Any]]) -> None:
