@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 import warnings
 from collections.abc import Iterator
 from pathlib import Path
@@ -19,11 +20,7 @@ from pymongo import MongoClient
 from foca.database.register_mongodb import register_mongodb, reopen_mongodb
 from foca.models.config import CollectionConfig, DBConfig, MongoConfig
 
-pytestmark = [
-    pytest.mark.mongodb,
-    # Forks on purpose, in the test of fork safety
-    pytest.mark.filterwarnings("ignore:This process .* is multi-threaded"),
-]
+pytestmark = pytest.mark.mongodb
 
 MONGO_PORT = 12345
 COLLECTION = "runs"
@@ -184,6 +181,8 @@ def test_no_client_opened_before_fork(tmp_path: Path, database: str) -> None:
     assert "opened before fork" not in output_text
 
 
+# Forks on purpose
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
 def test_reopen_after_fork_keeps_client_of_parent(
     database: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -211,6 +210,8 @@ def test_reopen_after_fork_keeps_client_of_parent(
                 assert child is not None
                 child.insert_one({"process": "child"})
             status = 0
+        except BaseException:
+            traceback.print_exc()
         finally:
             os._exit(status)
     assert os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]) == 0

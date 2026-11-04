@@ -44,10 +44,13 @@ replaces the client just before the worker starts its pool, and again in each
 pool process when it starts. The new clients connect on first use.
 
 Get collections when you need them, e.g., with
-[`get_collection()`](index.md#accessing-the-configuration) in a task. Objects
-taken from a client before the worker started (e.g., a collection kept in a
-module-level variable) belong to a closed client, and using them raises
-`pymongo.errors.InvalidOperation`.
+[`get_collection()`](index.md#accessing-the-configuration) in a task. Clients,
+databases and collections kept from earlier (e.g., in a module-level variable,
+or in a handler of `worker_process_init` that runs before FOCA's) belong to a
+closed client, and using them raises `pymongo.errors.InvalidOperation`. This
+also holds for what an app keeps from its client if a worker starts in its
+process (e.g., `celery.contrib.testing.worker.start_worker` in tests); see
+[Migrating to 0.21.0](../migration-0.21.md).
 
 ## Worker shutdown
 

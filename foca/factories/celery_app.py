@@ -103,8 +103,9 @@ def create_celery_app(app: Flask) -> Celery:
         # forks without the client's threads; `worker_process_init`: in each
         # of them, as the worker may have used the client since (it replaces
         # processes that end, while it runs)
-        worker_init.connect(reopen_client, weak=False)
-        worker_process_init.connect(reopen_client, weak=False)
+        uid = f"foca-reopen-mongodb-{id(db)}"
+        worker_init.connect(reopen_client, weak=False, dispatch_uid=uid)
+        worker_process_init.connect(reopen_client, weak=False, dispatch_uid=uid)
         logger.debug("MongoDB client set to be reopened around worker forks.")
 
     return celery

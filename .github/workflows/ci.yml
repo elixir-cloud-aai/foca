@@ -393,6 +393,7 @@ jobs:
         working-directory: examples/gateway
         run: |
           if docker compose logs worker | grep 'opened before fork'; then
+            echo "A MongoDB client is used across forks of the worker" >&2
             exit 1
           fi
       - name: Show gateway logs

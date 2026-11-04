@@ -47,8 +47,8 @@ def reopen_mongodb(conf: MongoConfig) -> None:
     forked processes can inherit the new client safely until it is used.
     Nothing is done if no client was created yet.
 
-    Objects taken from the previous client (e.g., a collection kept in a
-    variable) can't be used afterwards.
+    Anything taken from the previous client (e.g., a collection kept in a
+    variable, or the adapter of the access control) can't be used afterwards.
 
     Args:
         conf: :py:class:`foca.models.config.MongoConfig` instance whose

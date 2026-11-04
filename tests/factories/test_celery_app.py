@@ -86,6 +86,22 @@ def test_no_database_no_signals(
 ) -> None:
     """Workers of apps without a database have no client to replace."""
     connected = MagicMock()
-    monkeypatch.setattr(module.worker_init, "connect", connected)
+    monkeypatch.setattr(worker_init, "connect", connected)
+    monkeypatch.setattr(worker_process_init, "connect", connected)
     create_celery_app(create_connexion_app(CONFIG).app)
     connected.assert_not_called()
+
+
+def test_worker_signals_reopen_once_per_config(
+    logged: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Creating the Celery app of a configuration again adds no handler."""
+    reopen = MagicMock()
+    monkeypatch.setattr(module, "reopen_mongodb", reopen)
+    config = Config(jobs=JobsConfig(), db=MongoConfig())
+    app = create_connexion_app(config).app
+    create_celery_app(app)
+    create_celery_app(app)
+    worker_process_init.send(sender=None)
+    calls = [call for call in reopen.call_args_list if call.args[0] is config.db]
+    assert len(calls) == 1
