@@ -159,7 +159,16 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["maxSkew", "topologyKey", "whenUnsatisfiable"]
+            "required": ["maxSkew", "topologyKey", "whenUnsatisfiable"],
+            "properties": {
+              "maxSkew": { "type": "integer", "minimum": 1 },
+              "topologyKey": { "type": "string", "minLength": 1 },
+              "whenUnsatisfiable": {
+                "type": "string",
+                "enum": ["DoNotSchedule", "ScheduleAnyway"]
+              },
+              "labelSelector": { "type": ["object", "null"] }
+            }
           },
           "description": "topologySpreadConstraints of the app's pods; labelSelector defaults to the selector of the pods"
         },

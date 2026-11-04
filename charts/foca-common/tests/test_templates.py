@@ -2794,6 +2794,16 @@ def test_autoscaling_max_below_min(render_error: Callable[..., str]) -> None:
         ('{"topologySpreadConstraints": {}}', "must be a list"),
         ('{"topologySpreadConstraints": ["a"]}', "must be a list"),
         ('{"topologySpreadConstraints": [{}]}', "must be a list"),
+        (
+            '{"topologySpreadConstraints": [{"maxSkew": 0, "topologyKey": "a", '
+            '"whenUnsatisfiable": "DoNotSchedule"}]}',
+            "maxSkew of at least 1",
+        ),
+        (
+            '{"topologySpreadConstraints": [{"maxSkew": 1, "topologyKey": "a", '
+            '"whenUnsatisfiable": "DoNotSchedule", "labelSelector": "x"}]}',
+            "labelSelector must be a map",
+        ),
     ],
 )
 def test_autoscaling_invalid_without_schema(
@@ -2816,6 +2826,18 @@ def test_autoscaling_invalid_without_schema(
         '{"topologySpreadConstraints": {}}',
         '{"topologySpreadConstraints": ["a"]}',
         '{"topologySpreadConstraints": [{}]}',
+        *(
+            '{"topologySpreadConstraints": [{"maxSkew": 1, "topologyKey": "a", '
+            f'"whenUnsatisfiable": "DoNotSchedule", {field}}}]}}'
+            for field in (
+                '"maxSkew": 0',
+                '"maxSkew": 1.5',
+                '"maxSkew": "1"',
+                '"topologyKey": ""',
+                '"whenUnsatisfiable": "Nope"',
+                '"labelSelector": "x"',
+            )
+        ),
     ],
 )
 def test_autoscaling_schema(render_error: Callable[..., str], values: str) -> None:
@@ -2847,10 +2869,20 @@ def test_topology_spread_selector(render: Callable[..., Docs]) -> None:
         "whenUnsatisfiable": "ScheduleAnyway",
     }
     given = {**constraint, "labelSelector": {"matchLabels": {"a": "b"}}}
-    empty = {**constraint, "labelSelector": {}}
+    expressions = {
+        **constraint,
+        "labelSelector": {
+            "matchExpressions": [{"key": "a", "operator": "Exists"}],
+        },
+    }
+    empties = [
+        {**constraint, "labelSelector": selector}
+        for selector in ({}, {"matchLabels": {}}, {"matchExpressions": []})
+    ]
+    constraints = [constraint, given, expressions, *empties]
     docs = render(
         "--set-json",
-        f"petstore.topologySpreadConstraints={json.dumps([constraint, given, empty])}",
+        f"petstore.topologySpreadConstraints={json.dumps(constraints)}",
     )
     template_spec = docs[("Deployment", APP)]["spec"]["template"]
     default = {
@@ -2860,5 +2892,8 @@ def test_topology_spread_selector(render: Callable[..., Docs]) -> None:
     assert template_spec["spec"]["topologySpreadConstraints"] == [
         default,
         given,
+        expressions,
+        default,
+        default,
         default,
     ]
