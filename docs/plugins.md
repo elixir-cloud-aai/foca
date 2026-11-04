@@ -245,6 +245,15 @@ seconds and keeps the last good list while a registry is unreachable or
 answers invalidly (retrying after 30 s at most), for `max_stale` seconds at
 most, so that revoked backends are not used for long; before the first good
 read, and after `max_stale`, a registry yields no candidates.
+Verifications apply as soon as they are read, also if `GET /services` then
+fails. A backend of the last good list stays only if its service is still
+verified with the same URL and API type, of an accepted version. Backends that
+are not are dropped and logged as a warning. Of services with the same URL, the
+list has the first only, so that its verification decides. Such a read is not a
+good read: `max_stale` and the times from `snapshots()` still count from the
+last good one, and new or re-verified backends are only added by the next one.
+If `GET /verifications` itself fails or doesn't answer with a list, the whole
+last good list stays.
 
 ## Default routing
 
