@@ -1,5 +1,15 @@
 ARG PY_IMAGE=3.13-slim-trixie
-FROM python:$PY_IMAGE AS base
+
+# Base images by digest, updated by Dependabot; one stage per Python version,
+# of which only that of `PY_IMAGE` is built (a new version also needs a file in
+# `docker/requirements/`)
+FROM python:3.11-slim-trixie@sha256:db20d8506e2f15b6db39b40b6015ca46bae855dec6dd326d462cfe79ae972893 AS python-3.11-slim-trixie
+FROM python:3.12-slim-trixie@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS python-3.12-slim-trixie
+FROM python:3.13-slim-trixie@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1 AS python-3.13-slim-trixie
+FROM python:3.14-slim-trixie@sha256:930e1abba7c4e8f96ed93e8012c35d174d7732752731bbd5e8e757d7ec6f3966 AS python-3.14-slim-trixie
+FROM python:3.15-slim-trixie@sha256:8c13a3f37a6a5b71498228e902c4b9f51c1f7900d49fabf71f9a650c6120e0d0 AS python-3.15-slim-trixie
+
+FROM python-$PY_IMAGE AS base
 
 # Metadata: OCI annotations (the workflows add none; version and revision
 # come from build arguments, at the end); images built from this one inherit
@@ -18,13 +28,11 @@ LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 # isolated environments, so remove them for the same contents on all versions
 RUN pip uninstall --yes --no-cache-dir setuptools wheel
 
-# Build image: installs FOCA with the pip of the Python image, which is
-# upgraded first, as images of Python 3.11 and 3.12 ship an old pip (24.0 and
-# 25.0.1) with known vulnerabilities (fixed by 26.2: CVE-2025-8869,
-# CVE-2026-1703, CVE-2026-3219, CVE-2026-6357, CVE-2026-8643,
-# CVE-2026-13346); a no-op where the image already ships the latest release
+# Build image: installs FOCA with pip from `docker/requirements/build.txt`, as
+# images of Python 3.11 and 3.12 ship an old pip (24.0 and 25.0.1) with known
+# vulnerabilities (fixed by 26.2: CVE-2025-8869, CVE-2026-1703, CVE-2026-3219,
+# CVE-2026-6357, CVE-2026-8643, CVE-2026-13346)
 FROM base AS builder
-RUN pip install --no-cache-dir --upgrade "pip>=26.2"
 
 # Install general dependencies
 ENV PACKAGES="openssl git build-essential python3-dev curl jq"
@@ -33,13 +41,28 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Install FOCA and its dependencies; without git history, the version needs
-# to be passed explicitly (e.g., `--build-arg FOCA_VERSION=1.2.3`); files
-# copied here must be in the allowlist of `.dockerignore`
+# Install pip and the build tools, and FOCA's dependencies, as compiled in
+# `docker/requirements/` with their hashes (only the latter go into the final
+# image), then FOCA alone; files copied here must be in the allowlist of
+# `.dockerignore`; dependencies that are also build tools (`packaging`) must be
+# installed again, for the final image
+COPY docker/requirements/ ./requirements/
+ARG PY_IMAGE
+RUN pip install --no-cache-dir --require-hashes -r requirements/build.txt
+RUN pip install --no-cache-dir --require-hashes --no-deps --ignore-installed \
+        --no-warn-script-location \
+        --prefix="/install" \
+        -r "requirements/py${PY_IMAGE%%-*}.txt"
+
+# Without git history, the version needs to be passed explicitly (e.g.,
+# `--build-arg FOCA_VERSION=1.2.3`)
 COPY pyproject.toml MANIFEST.in README.md LICENSE NOTICE ./
 COPY foca/ ./foca/
 ARG FOCA_VERSION=0+unknown
 RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FOCA="${FOCA_VERSION}" pip install . \
+        --no-cache-dir \
+        --no-deps \
+        --no-build-isolation \
         --no-warn-script-location \
         --prefix="/install"
 

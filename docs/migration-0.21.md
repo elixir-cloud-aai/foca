@@ -52,6 +52,17 @@ are, instead of a `ValueError` claiming a conflict.
 `Foca.create_app()` does ([startup checks](configuration/jobs.md#startup-checks)). So a
 worker with such settings doesn't start anymore.
 
+### Stricter request checks
+
+[Requests that passed before can now fail with `400`](configuration/api.md#stricter-request-checks):
+values that don't fit the formats `date-time`, `date` or `uri` where your
+specification declares them, unpaired surrogates in JSON bodies, and, with
+`strict_validation`, query parameters of operations without parameters. The same
+format checks apply to responses with `validate_responses`, which then fail with
+`500`, also for what you stored earlier, e.g., timestamps without a time zone from
+`datetime.isoformat()`. Check what your specifications declare and what your clients
+send. Other formats are checked as before.
+
 ## Request IDs
 
 Responses now have the header `X-Request-ID`, and [log
@@ -83,3 +94,11 @@ pods. Copy `app-values.schema.json` again so that their values are checked.
 Autoscaling also needs a template file with `foca-common.hpa`; without it,
 enabling it leaves the app with one pod (see [Several replicas](helm-chart.md#several-replicas)). Nothing changes
 otherwise.
+
+## Building the FOCA image
+
+`docker/Dockerfile` now pins its base images by digest and installs from hashed
+requirements (see [Updating dependencies of the
+image](contributing/index.md#updating-dependencies-of-the-image)), so the build
+argument `PY_IMAGE` only takes `3.11` to `3.15` with `-slim-trixie`. Images built on
+the published FOCA images aren't affected.
