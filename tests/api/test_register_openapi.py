@@ -4,6 +4,7 @@ import logging
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import pytest
 from connexion import App
@@ -15,6 +16,7 @@ from foca.api import register_openapi as module
 from foca.api.register_openapi import (
     _connexion_add_api_kwargs,
     _iter_operations,
+    _iter_resolved_operations,
     register_openapi,
 )
 from foca.factories.connexion_app import create_connexion_app
@@ -248,11 +250,12 @@ def _registered_spec(
 ) -> dict[str, Any]:
     """Register spec and return the specification passed to `add_api()`."""
     specs: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        App,
-        "add_api",
-        lambda self, specification, **kwargs: specs.append(specification),
-    )
+
+    def add_api(self: App, specification: dict[str, Any], **kwargs: Any) -> Any:
+        specs.append(specification)
+        return mock.Mock(base_path="/test")
+
+    monkeypatch.setattr(App, "add_api", add_api)
     register_openapi(app=App(__name__), specs=[SpecConfig(**spec_config)])
     assert len(specs) == 1
     return specs[0]
@@ -273,7 +276,9 @@ def test_disable_auth_with_enforcement(
 
     Operations without security requirements are not enforced.
     """
-    monkeypatch.setattr(App, "add_api", lambda self, **kwargs: None)
+    monkeypatch.setattr(
+        App, "add_api", lambda self, **kwargs: mock.Mock(base_path="/test")
+    )
     monkeypatch.setattr(module.logger, "disabled", False)
     spec_config = {**SPEC_CONFIG_3, "disable_auth": disable_auth}
     with caplog.at_level(logging.WARNING, logger=module.logger.name):
@@ -884,3 +889,10 @@ class TestConnexionAddApiKwargs:
         spec = SpecConfig(**SPEC_CONFIG_3)
         assert isinstance(spec.connexion, ConnexionOptions)
         assert spec.connexion.strict_validation is True
+
+
+def test_iter_resolved_operations_skips_extensions() -> None:
+    """Values under `paths` that aren't path items, e.g., extensions, are skipped."""
+    operation = {"operationId": "getPets"}
+    spec = {"paths": {"x-note": "hello", "/pets": {"get": operation}}}
+    assert list(_iter_resolved_operations(spec)) == [operation]

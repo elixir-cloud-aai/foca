@@ -11,6 +11,8 @@ RESOURCE_ROLE_MODEL_FILE = "resource_role_model.conf"
 
 ACCESS_CONTROL_BASE_PATH = "foca.security.access_control.api"
 
+# Placeholder for the base paths of the app's APIs in configured policy rules
+BASE_PATH_PLACEHOLDER = "{base_path}"
 # Field marking stored policy rules set via `access_control.policies`
 CONFIGURED_FIELD = "configured"
 # Field listing the generations of configured rules (the sets of configured

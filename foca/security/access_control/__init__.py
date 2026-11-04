@@ -15,6 +15,7 @@ from foca.security.access_control.enforcement import (  # noqa: F401 (re-export)
     get_current_subject,
     get_on_behalf_of_user,
     is_permitted,
+    is_permitted_for,
     list_resource_roles,
     remove_resource,
     remove_resource_role,
