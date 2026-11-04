@@ -10,11 +10,15 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from typing import Any
 
+import pytest
 import requests
 
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://localhost:8081")
+# The same app with `server.request_id.trust_incoming: false`
+GATEWAY_NO_TRUST_URL = os.environ.get("GATEWAY_NO_TRUST_URL", "http://localhost:8082")
 # Seconds; requests to the worker wait for its result, and it may still start
 TIMEOUT = 60
 PLUGIN = "org.example.gateway.stamp"
@@ -40,6 +44,34 @@ def _send(path: str, message: str = "hello") -> dict[str, Any]:
     assert response.status_code == 200, response.text
     data: dict[str, Any] = response.json()
     return data
+
+
+@pytest.mark.parametrize(
+    ("url", "trusted"), [(GATEWAY_URL, True), (GATEWAY_NO_TRUST_URL, False)]
+)
+def test_request_id_header(url: str, trusted: bool) -> None:
+    """Responses identify their request, by a client's value only if trusted."""
+
+    def _request_id(headers: dict[str, str] | None = None) -> str:
+        """Send a request and get the identifier in its response."""
+        response = requests.post(
+            url=f"{url}/messages",
+            json={"message": "hello"},
+            headers=headers,
+            timeout=TIMEOUT,
+        )
+        assert response.status_code == 200, response.text
+        return response.headers["X-Request-ID"]
+
+    client_id = "client-id_1.2:3"
+    generated = _request_id()
+    assert generated != client_id
+    assert re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", generated)
+    assert generated != _request_id()
+    taken = _request_id({"X-Request-ID": client_id})
+    assert (taken == client_id) is trusted
+    replaced = _request_id({"X-Request-ID": "a" * 129})
+    assert re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", replaced)
 
 
 def test_plugin_changes_request_in_app() -> None:

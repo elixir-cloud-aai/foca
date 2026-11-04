@@ -1,17 +1,21 @@
 # The gateway example with its worker, MongoDB and RabbitMQ, for the
 # integration tests (`tests/integration_gateway_tests.py`). The values below
 # are for this example only: don't use them for anything else. The app is
-# published on port 8081, so that it can run next to the petstore example
+# published on port 8081, so that it can run next to the petstore example, and
+# a second app (see below) on port 8082
+
+x-gateway-environment: &gateway-environment
+  # The tests compute hashes with this value
+  FOCA_PLUGINS_STORE_KEY_SECRET: not-a-secret-for-the-example-only
+  CELERY_BROKER_URL: pyamqp://gateway:not-a-secret@rabbitmq:5672//
+
 x-gateway: &gateway
   image: foca-gateway-example:latest
-  # On both services, as Compose would try to pull the image of one without
+  # On all services, as Compose would try to pull the image of one without
   build:
     context: .
     dockerfile: Dockerfile
-  environment:
-    # The tests compute hashes with this value
-    FOCA_PLUGINS_STORE_KEY_SECRET: not-a-secret-for-the-example-only
-    CELERY_BROKER_URL: pyamqp://gateway:not-a-secret@rabbitmq:5672//
+  environment: *gateway-environment
   restart: unless-stopped
 
 services:
@@ -33,6 +37,20 @@ services:
       - rabbitmq
     ports:
       - "8081:8080"
+
+  # The app again, for the test of both settings of
+  # `server.request_id.trust_incoming`: `config.yaml` turns it on, this one off
+  app-no-trust:
+    <<: *gateway
+    depends_on:
+      - app
+    environment:
+      <<: *gateway-environment
+      FOCA_CONFIG_OVERLAY: /app/no-trust.yaml
+    volumes:
+      - ./no-trust.yaml:/app/no-trust.yaml:ro
+    ports:
+      - "8082:8080"
 
   worker:
     <<: *gateway
