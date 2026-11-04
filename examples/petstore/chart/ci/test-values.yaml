@@ -1,6 +1,6 @@
 hostName: petstore.example.org
 # Autoscaling and spreading of the app's pods (without metrics-server in CI, the
-# autoscaler keeps `minReplicas`, and the install is what is tested)
+# autoscaler only raises the pods to `minReplicas`)
 petstore:
   autoscaling:
     enabled: true

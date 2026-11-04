@@ -216,8 +216,8 @@ dict.
 
 {{/*
 `<valuesKey>.topologySpreadConstraints` of the app's pods, as YAML, with the
-selector of the app's pods as `labelSelector` where none is given; empty if
-there are none. Fails if it isn't a list of maps (for app charts without the
+selector of the app's pods as `labelSelector` where none is given (an empty one
+would mean all pods of the namespace); empty if there are none. Fails if it isn't a list of maps (for app charts without the
 schema). Call with the context dict.
 */}}
 {{- define "foca-common.topologySpreadConstraints" -}}
@@ -230,11 +230,11 @@ schema). Call with the context dict.
 {{- $selector := include "foca-common.selectorLabels" (dict "root" $root "component" "app") | fromYaml -}}
 {{- $filled := list -}}
 {{- range $constraints -}}
-{{- if not (kindIs "map" .) -}}
-{{- fail (printf "%s.topologySpreadConstraints must be a list of TopologySpreadConstraint" $key) -}}
+{{- if not (and (kindIs "map" .) .maxSkew .topologyKey .whenUnsatisfiable) -}}
+{{- fail (printf "%s.topologySpreadConstraints must be a list of TopologySpreadConstraint, each with maxSkew, topologyKey and whenUnsatisfiable" $key) -}}
 {{- end -}}
 {{- $constraint := deepCopy . -}}
-{{- if kindIs "invalid" $constraint.labelSelector -}}
+{{- if not $constraint.labelSelector -}}
 {{- $_ := set $constraint "labelSelector" (dict "matchLabels" $selector) -}}
 {{- end -}}
 {{- $filled = append $filled $constraint -}}

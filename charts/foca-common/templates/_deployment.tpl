@@ -1,9 +1,10 @@
 {{/*
 Deployment of the app: `<valuesKey>.replicas` pods (1 if not set, and not
-rendered with autoscaling, cf. `foca-common.hpa`) with the app's container (port 8080, `http`), the config overlay mounted at
-`configDir` (see `foca-common.checkSettings`), MongoDB credentials from the
-existing Secret if authentication is enabled, and a writable `emptyDir` at
-`/tmp`. Call with the context dict.
+rendered with autoscaling, cf. `foca-common.hpa`) with the app's container
+(port 8080, `http`), the config overlay mounted at `configDir` (see
+`foca-common.checkSettings`), MongoDB credentials from the existing Secret if
+authentication is enabled, and a writable `emptyDir` at `/tmp`. Call with the
+context dict.
 */}}
 {{- define "foca-common.deployment" -}}
 {{- include "foca-common.checkSettings" . -}}

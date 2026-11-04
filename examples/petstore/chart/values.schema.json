@@ -158,7 +158,8 @@
         "topologySpreadConstraints": {
           "type": "array",
           "items": {
-            "type": "object"
+            "type": "object",
+            "required": ["maxSkew", "topologyKey", "whenUnsatisfiable"]
           },
           "description": "topologySpreadConstraints of the app's pods; labelSelector defaults to the selector of the pods"
         },

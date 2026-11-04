@@ -2750,12 +2750,21 @@ def test_autoscaling_no_target_means_cpu(render: Callable[..., Docs]) -> None:
     assert metric["target"]["averageUtilization"] == 80
 
 
-@pytest.mark.parametrize(("minimum", "budget"), [(2, True), (1, False)])
+@pytest.mark.parametrize(
+    ("replicas", "minimum", "budget"),
+    [(1, 2, True), (5, 1, False), (5, 2, True), (1, 1, False)],
+)
 def test_autoscaling_budget(
-    render: Callable[..., Docs], minimum: int, budget: bool
+    render: Callable[..., Docs], replicas: int, minimum: int, budget: bool
 ) -> None:
-    """The fewest pods decide whether a budget is rendered."""
-    docs = render(*AUTOSCALING, "--set", f"petstore.autoscaling.minReplicas={minimum}")
+    """The fewest pods decide whether a budget is rendered, not `replicas`."""
+    docs = render(
+        *AUTOSCALING,
+        "--set",
+        f"petstore.autoscaling.minReplicas={minimum}",
+        "--set",
+        f"petstore.replicas={replicas}",
+    )
     assert (("PodDisruptionBudget", APP) in docs) is budget
 
 
@@ -2784,6 +2793,7 @@ def test_autoscaling_max_below_min(render_error: Callable[..., str]) -> None:
         ),
         ('{"topologySpreadConstraints": {}}', "must be a list"),
         ('{"topologySpreadConstraints": ["a"]}', "must be a list"),
+        ('{"topologySpreadConstraints": [{}]}', "must be a list"),
     ],
 )
 def test_autoscaling_invalid_without_schema(
@@ -2792,6 +2802,25 @@ def test_autoscaling_invalid_without_schema(
     """Invalid values are refused, also for app charts without the schema."""
     chart_copy = _chart_without_schema(chart, tmp_path)
     assert error in template_error(chart_copy, "--set-json", f"petstore={values}")
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        '{"autoscaling": {"minReplicas": 0}}',
+        '{"autoscaling": {"maxReplicas": 0}}',
+        '{"autoscaling": {"targetCPUUtilizationPercentage": 0}}',
+        '{"autoscaling": {"targetMemoryUtilizationPercentage": "a"}}',
+        '{"autoscaling": {"unknown": 1}}',
+        '{"autoscaling": {"enabled": "yes"}}',
+        '{"topologySpreadConstraints": {}}',
+        '{"topologySpreadConstraints": ["a"]}',
+        '{"topologySpreadConstraints": [{}]}',
+    ],
+)
+def test_autoscaling_schema(render_error: Callable[..., str], values: str) -> None:
+    """The schema refuses invalid values."""
+    assert "schema" in render_error("--set-json", f"petstore={values}")
 
 
 def test_autoscaling_without_values(chart: Path, tmp_path: Path) -> None:
@@ -2818,15 +2847,18 @@ def test_topology_spread_selector(render: Callable[..., Docs]) -> None:
         "whenUnsatisfiable": "ScheduleAnyway",
     }
     given = {**constraint, "labelSelector": {"matchLabels": {"a": "b"}}}
+    empty = {**constraint, "labelSelector": {}}
     docs = render(
         "--set-json",
-        f"petstore.topologySpreadConstraints={json.dumps([constraint, given])}",
+        f"petstore.topologySpreadConstraints={json.dumps([constraint, given, empty])}",
     )
     template_spec = docs[("Deployment", APP)]["spec"]["template"]
-    filled, kept = template_spec["spec"]["topologySpreadConstraints"]
-    assert filled == {
+    default = {
         **constraint,
         "labelSelector": {"matchLabels": template_spec["metadata"]["labels"]},
     }
-    assert kept == given
-    assert ("Deployment", f"{APP}-worker") not in docs
+    assert template_spec["spec"]["topologySpreadConstraints"] == [
+        default,
+        given,
+        default,
+    ]

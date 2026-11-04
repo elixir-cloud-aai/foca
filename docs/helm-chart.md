@@ -924,16 +924,24 @@ It scales on CPU and memory only, by default on CPU at 80%; to scale on memory
 only, set `targetCPUUtilizationPercentage: null`. This needs
 [metrics-server](https://github.com/kubernetes-sigs/metrics-server) in the
 cluster and `resources.requests` of what is measured, as the percentages refer to
-these. A `PodDisruptionBudget` is rendered if `minReplicas` is more than 1. If an
+these. `minReplicas` defaults to 2 and `maxReplicas` to 4, and a
+`PodDisruptionBudget` is rendered if `minReplicas` is more than 1. If an
 autoscaler takes over from `replicas` on an upgrade, Helm removes the field, so
-the number of pods can drop to one until the autoscaler acts. All the caveats
-below apply, and more so, as autoscaling adds pods at any time: each new pod
-runs the startup work of the app.
+the number of pods can drop to one until the autoscaler acts. The caveats below
+on several replicas apply, and autoscaling adds pods at any time: each new pod
+runs the startup work of the app, until the `foca` CLI and its switches take that
+over. The chart doesn't manage the number of pods with autoscaling: after scaling
+the app to 0 (e.g., for an upgrade that needs it stopped), the autoscaler stays
+inactive, and `helm upgrade` doesn't restore the pods, so scale it up again
+(`kubectl scale deployment/my-app --replicas=2`).
 
 App charts written for versions before foca-common 0.5.0 copy
-`app-values.schema.json` again and add a template file with `foca-common.hpa`
-for autoscaling (see the petstore example); without them, `autoscaling` has no
-effect or the schema refuses it, and nothing changes otherwise.
+`app-values.schema.json` again, so that `autoscaling` and
+`topologySpreadConstraints` are checked. For autoscaling, they must also add a
+template file with `foca-common.hpa` (see the petstore example): without it,
+`autoscaling.enabled` still removes `replicas` from the Deployment, with no
+autoscaler, so the app ends up with one pod. Nothing changes if these values
+aren't used.
 
 App charts written for versions before foca-common 0.3.0 copy
 `app-values.schema.json` again (see [Values](#values)), add `replicas` and

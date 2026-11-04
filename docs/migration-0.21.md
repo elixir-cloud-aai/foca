@@ -41,6 +41,7 @@ the app after the worker has started, or run the worker in a process of its own.
 ## App charts
 
 foca-common 0.5.0 has autoscaling and topology spread constraints of the app's
-pods. To use autoscaling, copy `app-values.schema.json` again and add a template
-file with `foca-common.hpa` (see [Several
-replicas](helm-chart.md#several-replicas)). Nothing changes otherwise.
+pods. Copy `app-values.schema.json` again so that their values are checked.
+Autoscaling also needs a template file with `foca-common.hpa`; without it,
+enabling it leaves the app with one pod (see [Several replicas](helm-chart.md#several-replicas)). Nothing changes
+otherwise.
