@@ -3243,6 +3243,18 @@ def test_registry_with_public_url_of_settings(
             {"type": "ga4gh-tes", "url": "https://t", "password": "hunter2"},
             "must not hold credentials (password)",
         ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t/?a=1&Access_Token=hunter2"},
+            "must not hold credentials",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t/#api-key=hunter2"},
+            "must not hold credentials",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t", "token_env": "hunter2"},
+            "must not hold credentials (token_env)",
+        ),
     ],
 )
 def test_backend_credentials_fail(
@@ -3288,6 +3300,110 @@ def test_registry_in_config_needs_public_url(
         'config.server={"public_url":null}',
     )
     assert "so that the app never discovers itself" in error
+
+
+def test_backend_variable_names_accepted(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Keys ending in `_env` may name environment variables."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    entry = {"type": "ga4gh-tes", "url": "https://t/?a=1", "token_env": "API_TOKEN"}
+    docs = index(
+        template(chart, "--set-json", f"tes={json.dumps({'backends': [entry]})}")
+    )
+    assert _overlay(docs)["custom"]["tes"]["backends"] == [entry]
+
+
+@pytest.mark.parametrize(
+    ("backends", "message"),
+    [
+        ({"url": "https://u:hunter2@t/"}, "must be a list"),
+        ("https://u:hunter2@t/", "must be a list"),
+        (["https://u:hunter2@t/"], "must be a list of maps"),
+    ],
+)
+def test_backends_malformed_fail(
+    chart_with_settings: Callable[[str], Path], backends: Any, message: str
+) -> None:
+    """Malformed backends fail, as their credentials wouldn't be recognized."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    for args in (
+        ("--set-json", f"tes={json.dumps({'backends': backends})}"),
+        (
+            "--set-json",
+            f"config.custom={json.dumps({'tes': {'backends': backends}})}",
+        ),
+    ):
+        error = template_error(chart, *args)
+        assert message in error
+        assert "hunter2" not in error
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--set", "publicUrl=https://u:hunter2@example.org/"),
+        ("--set", "config.server.public_url=https://u:hunter2@example.org/"),
+    ],
+)
+def test_public_url_credentials_fail(
+    chart_with_settings: Callable[[str], Path], args: tuple[str, ...]
+) -> None:
+    """Credentials in the public URL don't get into the ConfigMap."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    error = template_error(chart, *args)
+    assert "must not hold credentials" in error
+    assert "hunter2" not in error
+
+
+def test_access_control_of_settings_counts(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Access control turned off by the settings of the app fails, too."""
+    chart = chart_with_settings(
+        _gateway_settings(
+            "requireAccessControl: true",
+            "config:\n  security:\n    access_control:\n      enforce: false",
+        )
+    )
+    assert "enabled and enforce must be true" in template_error(chart, *SECURE)
+
+
+def _group_rule(**access_control: Any) -> tuple[str, str]:
+    """Get arguments for an admin role that only a rule of a group grants.
+
+    Args:
+        **access_control: Further settings of `security.access_control`.
+
+    Returns:
+        Arguments of Helm.
+    """
+    security = {
+        "auth": {"issuers": ["https://login.example.org/"]},
+        "access_control": {
+            "claim_groups": "groups",
+            "policies": [["g", "group:admins", "admin"]],
+            **access_control,
+        },
+    }
+    return ("--set-json", f"config.security={json.dumps(security)}")
+
+
+def test_group_rule_counts_without_group_mapping(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Without a group mapping, as in the app, rules of groups grant roles."""
+    chart = chart_with_settings(_gateway_settings("requireAccessControl: true"))
+    assert index(template(chart, *_group_rule()))
+
+
+def test_group_rule_ignored_with_group_mapping(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """With a group mapping, as in the app, rules of groups don't count."""
+    chart = chart_with_settings(_gateway_settings("requireAccessControl: true"))
+    error = template_error(chart, *_group_rule(group_mapping={"a": "reader"}))
+    assert "must grant the role admin" in error
 
 
 def test_access_control_accepted(chart_with_settings: Callable[[str], Path]) -> None:
@@ -3589,6 +3705,21 @@ def test_flower_invalid(
 ) -> None:
     """Flower without what it needs fails."""
     assert message in template_error(flower_chart, *args)
+
+
+def test_flower_rollout_on_secrets(flower_chart: Path) -> None:
+    """Flower's pods use the same checksum as those of the app."""
+    for name in (flower_chart / "templates").iterdir():
+        if name.name != "flower-deployment.yaml" and name.suffix == ".yaml":
+            name.unlink()
+    error = template_error(
+        flower_chart,
+        *FLOWER,
+        "--skip-schema-validation",
+        "--set-json",
+        "petstore.rolloutOnSecrets=[1]",
+    )
+    assert "rolloutOnSecrets must be a list" in error
 
 
 def test_flower_values_of_apps_without_its_templates(

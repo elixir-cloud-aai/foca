@@ -520,7 +520,7 @@ ConfigMap template, which every app chart renders.
 {{- include "foca-common.checkBackends" (dict "root" $.root "settings" $.settings "key" .) -}}
 {{- end -}}
 {{- if .settings.requireAccessControl -}}
-{{- include "foca-common.checkAccessControl" .root -}}
+{{- include "foca-common.checkAccessControl" . -}}
 {{- end -}}
 {{- $_ := include "foca-common.brokerSecret" .root -}}
 {{- $_ = include "foca-common.maxContentLength" . -}}

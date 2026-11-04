@@ -593,7 +593,8 @@ plugins:
 
 The `config` of plugins, the `params` of pipeline steps, the identifiers of plugins
 in `available` and the names of `presets` are kept as they are. Empty settings are left
-out. Rendering fails if a setting is also in `config.plugins`, which would replace it.
+out, as they can't be told from defaults in the values of app charts: to set one to empty
+(e.g., `pipeline: []`), use `config.plugins`. Rendering fails if a setting is also in `config.plugins`, which would replace it.
 Keep the key secret of the store out of them: see `pluginStore`.
 
 **Backends** (`backendsKey: tes`): the [backend list](plugins.md#backend-lists) in
@@ -603,9 +604,11 @@ and of their `basic` in camelCase in the values (e.g., `urlSchemes`,
 The public URL of the app
 (`server.public_url`) is set to `publicUrl`, or else to `https://<hostName>/`.
 Rendering fails if `config.custom.tes.backends` is set too, if `config.custom.tes` is no
-map, for credentials in entries that it recognizes (in a `url`, in `basic` other than
-the names of variables, or in keys named like `password` or `token`), which would be
-readable in the ConfigMap, and for service registries without
+map, if a list of backends is no list of maps, for credentials in entries that it
+recognizes (in a `url`, as user info or as a query or fragment parameter named like
+`token`; in `basic` other than the names of variables; in keys named like `password` or
+`token`, unless they end in `_env` and hold the name of a variable in capitals) or in the
+public URL, which would be readable in the ConfigMap, and for service registries without
 a public URL in the overlay, as FOCA refuses to start then; a public URL of the base
 config in the image doesn't count, so set it in the setting `config`. Keys with `_` are
 kept as they are; Sprig's `snakecase` separates digits, so write such keys that way
@@ -922,7 +925,7 @@ broker's NetworkPolicy admits Flower through `<app>-broker-from-flower`.
 - **Rollouts on changes of Secrets:** Pods restart when the config overlay
   changes, but not when a Secret that they read changes. With the names of
   Secrets in `<valuesKey>.rolloutOnSecrets`, a checksum of their data becomes
-  an annotation of the app's and the worker's pods (`checksum/secrets`), so an
+  an annotation of the pods of the app, the worker and Flower (`checksum/secrets`), so an
   upgrade after a change rolls them. Helm's `lookup` reads the Secrets at that
   time, so the user running Helm must be allowed to read them, nothing happens
   until the next upgrade, and Secrets not found are ignored (deleting one rolls

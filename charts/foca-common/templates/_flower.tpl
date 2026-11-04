@@ -79,6 +79,11 @@ spec:
       {{- include "foca-common.selectorLabels" (dict "root" $root "component" "flower") | nindent 6 }}
   template:
     metadata:
+      {{- with include "foca-common.rolloutChecksum" . }}
+      annotations:
+        # Roll the pods when the Secrets in `rolloutOnSecrets` change
+        checksum/secrets: {{ . }}
+      {{- end }}
       labels:
         {{- include "foca-common.selectorLabels" (dict "root" $root "component" "flower") | nindent 8 }}
     spec:

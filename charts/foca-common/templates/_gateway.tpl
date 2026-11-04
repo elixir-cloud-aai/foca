@@ -123,12 +123,15 @@ empty without both. Call with the root context.
 The backends of `<backendsKey>.backends`, with the keys of the entries and of their
 `basic` in snake_case, as the config has them, also those that only the app adds to
 FOCA's entries (those of `labels` and `location` are kept, as are keys with `_`, and
-Sprig's `snakecase` separates digits: write `ga4gh_id` as it is), as a JSON list. Call with
-a dict of the root context (`root`) and the key (`key`).
+Sprig's `snakecase` separates digits: write `ga4gh_id` as it is), as a JSON list. Fails
+if they are no list of maps. Call with a dict of the root context (`root`) and the key
+(`key`).
 */}}
 {{- define "foca-common.backendsConfig" -}}
+{{- $section := index .root.Values .key | default dict -}}
+{{- include "foca-common.checkBackendList" (dict "section" $section "name" .key) -}}
 {{- $entries := list -}}
-{{- range $entry := get (index .root.Values .key | default dict) "backends" | default list -}}
+{{- range $entry := get $section "backends" | default list -}}
 {{- $converted := dict -}}
 {{- range $key, $value := $entry -}}
 {{- if and (eq $key "basic") (kindIs "map" $value) -}}
@@ -146,9 +149,31 @@ a dict of the root context (`root`) and the key (`key`).
 {{- end -}}
 
 {{/*
+Fails on a list of backends (`backends` of `section`, named `name` in messages) that
+is set and no list of maps, whose credentials would not be recognized; renders
+nothing. Messages don't show values, which may hold credentials.
+*/}}
+{{- define "foca-common.checkBackendList" -}}
+{{- if hasKey .section "backends" -}}
+{{- $backends := get .section "backends" -}}
+{{- if not (or (kindIs "invalid" $backends) (kindIs "slice" $backends)) -}}
+{{- fail (printf "%s.backends must be a list of backends (the app refuses other values)" .name) -}}
+{{- end -}}
+{{- range $entry := ternary $backends (list) (kindIs "slice" $backends) -}}
+{{- if not (kindIs "map" $entry) -}}
+{{- fail (printf "%s.backends must be a list of maps (the app refuses other values)" $.name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Fails on backends set both in `<backendsKey>.backends` and in
 `config.custom.<backendsKey>.backends`, on a `config.custom.<backendsKey>` that is
-no map, on credentials in entries, which the overlay in a ConfigMap would expose, and
+no map, on malformed lists of backends, on credentials in entries or in the public URL,
+which the overlay in a ConfigMap would expose (in a URL's user info, or in its query or
+fragment under a name like `token`; in keys named like `password` or `token`, unless
+they end in `_env` and their value can be the name of a variable, in capitals), and
 on service registries without a public URL in the overlay (`publicUrl`, `hostName`,
 the setting `config`, or `config.server.public_url`, which takes precedence, also if
 `null`), which FOCA needs so that the app never discovers itself; renders nothing. Call
@@ -162,6 +187,12 @@ with a dict of the root context (`root`), the settings (`settings`) and the key
 {{- $section := and (kindIs "map" $custom) (get $custom $key) -}}
 {{- $server := get (include "foca-common.configOverlay" . | fromYaml) "server" -}}
 {{- $publicUrl := and (kindIs "map" $server) (get $server "public_url") -}}
+{{- if and (kindIs "string" $publicUrl) (regexMatch "://[^/?#]*@" $publicUrl) -}}
+{{- fail "the public URL (publicUrl or config.server.public_url) must not hold credentials, which would be readable in the ConfigMap" -}}
+{{- end -}}
+{{- if kindIs "map" $section -}}
+{{- include "foca-common.checkBackendList" (dict "section" $section "name" (printf "config.custom.%s" $key)) -}}
+{{- end -}}
 {{- $backends := include "foca-common.backendsConfig" . | fromJsonArray -}}
 {{- if and (kindIs "map" $custom) (hasKey $custom $key) (not (kindIs "map" $section)) -}}
 {{- fail (printf "config.custom.%s must be a map (the app refuses other values; leave it out for none)" $key) -}}
@@ -175,12 +206,11 @@ with a dict of the root context (`root`), the settings (`settings`) and the key
 {{- end -}}
 {{- end -}}
 {{- range $entry := $backends -}}
-{{- if kindIs "map" $entry -}}
-{{- if and (kindIs "string" (get $entry "url")) (regexMatch "://[^/?#]*@" (get $entry "url")) -}}
+{{- if and (kindIs "string" (get $entry "url")) (regexMatch "(?i)://[^/?#]*@|[?&#;][^=&#;]*(password|passwd|secret|token|credential|api[-_]?key)[^=&#;]*=" (get $entry "url")) -}}
 {{- fail (printf "the url of an entry of %s.backends must not hold credentials, which would be readable in the ConfigMap: use auth and basic.usernameEnv and basic.passwordEnv" $key) -}}
 {{- end -}}
 {{- range $name := keys $entry | sortAlpha -}}
-{{- if and (regexMatch "(?i)password|secret|token|credential" $name) (not (hasSuffix "_env" $name)) -}}
+{{- if and (regexMatch "(?i)password|secret|token|credential" $name) (not (and (hasSuffix "_env" $name) (regexMatch "^[A-Z_][A-Z0-9_]*$" (toString (get $entry $name))))) -}}
 {{- fail (printf "an entry of %s.backends must not hold credentials (%s), which would be readable in the ConfigMap: use auth and basic.usernameEnv and basic.passwordEnv" $key $name) -}}
 {{- end -}}
 {{- end -}}
@@ -197,7 +227,6 @@ with a dict of the root context (`root`), the settings (`settings`) and the key
 {{- end -}}
 {{- if and (eq (get $entry "type") "ga4gh-service-registry") (not $publicUrl) -}}
 {{- fail (printf "hostName or publicUrl (or config.server.public_url) must be set if %s.backends or config.custom.%s.backends has registries (type: ga4gh-service-registry), so that the app never discovers itself" $key $key) -}}
-{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -264,12 +293,13 @@ unless access control is enabled and enforced (`security.access_control.enabled`
 (global or of an issuer), or without the role `admin` being granted by
 `group_mapping`, `client_mapping` or `policies` (unless admins are explicitly not
 required, `security.access_control.require_admin`); renders nothing. The audiences of issuers are checked here, too, also if each issuer has one
-of its own, so that the global one is not needed. Assumes what such apps' base configs
-set: `enabled`, `enforce` and `require_admin` are true unless set otherwise in the
-values. Call with the root context.
+of its own, so that the global one is not needed. Reads the overlay, with the settings
+of the app (`config`). Assumes what such apps' base configs set: `enabled`, `enforce`
+and `require_admin` are true unless set otherwise in the overlay. Call with the context
+dict.
 */}}
 {{- define "foca-common.checkAccessControl" -}}
-{{- $config := .Values.config | default dict -}}
+{{- $config := include "foca-common.configOverlay" . | fromYaml -}}
 {{- $mapping := dict -}}
 {{- $requireAdmin := "true" -}}
 {{- $claimGroups := "" -}}
@@ -311,6 +341,7 @@ values. Call with the root context.
 {{- /* Only if set, as `get` returns an empty string for missing keys */ -}}
 {{- if hasKey $accessControl "group_mapping" -}}
 {{- $mapping = get $accessControl "group_mapping" -}}
+{{- $groupMappingSet = not (kindIs "invalid" $mapping) -}}
 {{- end -}}
 {{- if hasKey $accessControl "require_admin" -}}
 {{- $requireAdmin = include "foca-common.parseBool" (dict
@@ -404,7 +435,6 @@ issuer
 {{- if ne $claimGroups (trim $claimGroups) -}}
 {{- fail "config.security.access_control.claim_groups must be the name of a claim, without surrounding whitespace" -}}
 {{- end -}}
-{{- $groupMappingSet = not (kindIs "invalid" $mapping) -}}
 {{- if kindIs "invalid" $mapping -}}
 {{- $mapping = dict -}}
 {{- else if not (kindIs "map" $mapping) -}}
