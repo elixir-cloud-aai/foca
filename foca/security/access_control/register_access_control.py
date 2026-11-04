@@ -107,6 +107,7 @@ def register_access_control(
     # Set default db attributes if config not present.
     if mongo_config is None:
         mongo_config = MongoConfig()
+        get_app_config(cnx_app.app)._name_mongo_clients(mongo_config)
     if mongo_config.dbs is None:
         mongo_config.dbs = {}
 
