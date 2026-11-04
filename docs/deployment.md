@@ -92,6 +92,7 @@ The settings, and why they are set:
 | `keepalive` | `100` | Seconds after which idle keep-alive connections are closed; longer than the idle timeouts of proxies in front of the app (60 seconds for ingress-nginx, 90 seconds for Traefik), which would otherwise reuse connections just as Gunicorn closes them (failing requests with `502`) |
 | `limit_request_line`, `limit_request_fields`, `limit_request_field_size` | `4094`, `100`, `8190` | Size limits of the request line and headers (Gunicorn's defaults, set explicitly); the size of bodies is limited by FOCA (`server.max_content_length`, see below) |
 | `accesslog`, `errorlog` | `None`, `"-"` | No access log, as apps log requests themselves if needed (FOCA logs those of controllers decorated with [`log_traffic`](utilities.md#logging-requests-and-responses)); for a log of all requests, add `--access-logfile -`. Errors go to stderr, like the app's logs |
+| `access_log_format` | Gunicorn's default, then `%({x-request-id}o)s` | For a log of all requests, with their [identifiers](configuration/server.md#request-ids) at the default header |
 | `control_socket_disable` | `True` | No control socket (`gunicornc`, Gunicorn 25.1 or later), which would be created in `$XDG_RUNTIME_DIR` or `$HOME/.gunicorn`, i.e., on the possibly read-only root file system (as in the chart), and log an error at startup if that is not writable |
 | `worker_tmp_dir` | `/dev/shm` if it is a writable directory, else Gunicorn's default | Workers update their heartbeat files often, so they are kept in memory if possible; otherwise in the temporary directory (`TMPDIR` or `/tmp`) |
 
@@ -193,6 +194,50 @@ warnings, naming the setting to change, among others:
 Apps add checks of their own after creating the app, e.g.,
 [`require_no_service_clients()`](authentication.md#service-tokens) for apps
 that don't support service clients.
+
+## Configured policies in rolling upgrades
+
+`security.access_control.policies` are written to the database on startup, and
+by default, the last pod to start wins. During a rolling upgrade, an old pod that
+restarts thus brings back the old rules, until the next new pod starts. To prevent
+that, set a revision, a number that grows with each release changing the rules:
+
+```yaml
+security:
+  access_control:
+    policies_revision: 3
+```
+
+A pod with an older revision than the stored one leaves the stored rules as they
+are, and logs a warning. Like all pods, it enforces the stored rules, not those in
+its configuration, so it enforces the newer rules. A pod with the same or a newer
+revision writes its rules, so change the revision whenever the rules change: pods
+with the same revision race as before. The first pod with a revision takes over from
+stored rules without one. Once a revision is stored, pods without one count as older,
+also when they would remove all rules, as `policies` isn't set. A pod without
+`policies` only stores its revision when it removes rules, or when forced: on an empty
+collection, nothing is stored, so older pods can still write theirs.
+
+A revision takes effect with the first pod that starts, before it's ready, and stays.
+So rollbacks don't restore the rules anymore, neither `helm rollback` nor `kubectl
+rollout undo` nor `helm upgrade --atomic`: the pods of the old version keep enforcing
+the newer rules, with a warning in their logs. To roll back the rules, deliberately,
+set `policies_force: true` for the old version: its pods then write their rules and
+their revision whatever is stored. Remove it again afterwards, as forcing pods keep
+overwriting newer ones.
+
+!!! warning "Before all pods have this version of FOCA"
+    Pods with FOCA versions before 0.21.0 know no revisions: they overwrite the
+    rules, whatever is stored, and leave the stored revision as it is. So the
+    protection starts once all pods have this version. Restart them after the first
+    upgrade to it, so that the rules of the new version are in effect. Versions
+    without these settings also refuse to start with them, so remove them from
+    overlays if you roll back that far.
+
+!!! warning "Apps sharing a policy collection"
+    The stored revision applies to the whole policy collection. Apps sharing one
+    (cf. [Configuring policies](access-control.md#configuring-policies)) need to use
+    the same revisions, or none.
 
 ## Kubernetes and Helm
 

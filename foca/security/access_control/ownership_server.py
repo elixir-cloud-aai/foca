@@ -40,6 +40,8 @@ from typing import Any, NamedTuple
 from flask import Flask, current_app, request
 from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
+from foca.config.access import get_app_config
+
 # Internal helpers of the same package: whether traffic is logged (as for
 # the permissions API), subject descriptions for logs and owners whose role
 # applies
@@ -62,6 +64,7 @@ from foca.security.access_control.ownership import (
     revoke_roles,
 )
 from foca.utils.logging import escape_log_value, log_traffic_if
+from foca.utils.pagination import get_link_header, get_page, get_page_links
 
 logger = logging.getLogger(__name__)
 
@@ -318,30 +321,66 @@ def _delete_roles(
 @log_traffic_if(_permissions_traffic_logged)
 @_require_enforcement
 def getResourceRoles(
-    exists: Callable[[], bool] | None = None, **kwargs: Any
-) -> list[dict[str, str]]:
+    exists: Callable[[], bool] | None = None,
+    q: str | None = None,
+    limit: int | str | None = None,
+    offset: int | str | None = None,
+    **kwargs: Any,
+) -> list[dict[str, str]] | tuple[list[dict[str, str]], int, dict[str, str]]:
     """List the roles granted on the resource of the route.
+
+    Declare the query parameters `q`, `limit` and `offset` in the specification to
+    offer them.
 
     Args:
         exists: Function checking whether the resource exists, so that admins
             can list the roles of a resource without owners (cf.
             :py:func:`putUserRole`).
+        q: Only list the roles of subjects (users, groups or service clients)
+            with this text in their identifier, in any case. Like `limit` and
+            `offset`, ignored if it's a path parameter.
+        limit: Largest number of roles to return. With this or `offset`, a page
+            of the roles is returned, sorted so that pages are stable (cf.
+            :py:func:`foca.utils.pagination.get_page`, which also takes the values
+            as strings, for apps that don't declare a type).
+        offset: Number of roles to skip.
         **kwargs: Path parameters and further arguments that Connexion
             passes (e.g., `user`, `token_info`); unused, as the resource is
             taken from the route.
 
     Returns:
         Subject type, subject and role of each role granted on the resource
-        (cf. :py:func:`foca.security.access_control.list_roles`).
+        (cf. :py:func:`foca.security.access_control.list_roles`). For a page, also
+        status code `200` and a header `Link` with the links to other pages, if the
+        app has a public URL (`server.public_url`).
 
     Raises:
+        werkzeug.exceptions.BadRequest: `q`, `limit` or `offset` is invalid.
         werkzeug.exceptions.NotFound: The resource has no owners, unless the
             caller is an admin and `exists` returned `True`.
     """
+    # Parameters of the path name the resource, whatever they are called
+    path_parameters = request.view_args or {}
+    q = None if "q" in path_parameters else q
+    limit = None if "limit" in path_parameters else limit
+    offset = None if "offset" in path_parameters else offset
+    if q is not None and not isinstance(q, str):
+        raise BadRequest("'q' must be a string.")
+    page = None if limit is None and offset is None else get_page(offset, limit)
     resource = _get_owned_resource(with_subject=False, exists=exists)
-    return [
+    roles = [
         granted._asdict() for granted in list_roles(resource, ptype=RESOURCE_ROLE_PTYPE)
     ]
+    if q:
+        text = q.casefold()
+        roles = [role for role in roles if text in role["subject"].casefold()]
+    if page is None:
+        return roles
+    roles.sort(key=lambda role: (role["subject_type"], role["subject"], role["role"]))
+    headers: dict[str, str] = {}
+    if get_app_config(current_app).server.public_url is not None:
+        headers["Link"] = get_link_header(get_page_links(page, total=len(roles)))
+    return roles[page.offset : page.offset + page.limit], 200, headers
 
 
 @log_traffic_if(_permissions_traffic_logged)

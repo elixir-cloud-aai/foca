@@ -8,7 +8,6 @@ The plugin host itself is reached without the framework (cf.
 Flask) replaces this module and keeps its function names and signatures.
 """
 
-import re
 import uuid
 from typing import Any
 
@@ -16,6 +15,7 @@ from flask import has_request_context, request
 from flask.wrappers import Response
 from werkzeug.exceptions import HTTPException
 
+from foca.context import request_id as get_request_id
 from foca.errors.exceptions import problem_response
 from foca.plugins.engine import GatewayError
 from foca.plugins.model import CREDENTIAL_HEADERS, Headers, InboundRequest, Principal
@@ -27,19 +27,15 @@ from foca.security.access_control.enforcement import (
     get_on_behalf_of_user,
 )
 
-# Request IDs taken from clients (`X-Request-ID`)
-_REQUEST_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
-
 
 def request_id() -> str:
     """Get the identifier of the current request, for logs.
 
     Returns:
-        The client's `X-Request-ID` header if it is a safe identifier (at
-        most 128 letters, digits and `._:-`), otherwise a new random one.
+        Identifier of the current request (cf. :py:func:`foca.context.request_id`),
+        otherwise a new random one.
     """
-    value = request.headers.get("X-Request-ID", "") if has_request_context() else ""
-    return value if _REQUEST_ID.fullmatch(value) else uuid.uuid4().hex
+    return get_request_id() or uuid.uuid4().hex
 
 
 def current_principal() -> Principal:

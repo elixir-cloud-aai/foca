@@ -1237,6 +1237,22 @@ def test_AccessControlConfig_added_database() -> None:
     assert conf.added_database is None  # an app database
 
 
+@pytest.mark.parametrize(
+    ("options", "name"),
+    [
+        ({"policies_revision": 0}, "policies_revision"),
+        ({"policies_revision": 3}, "policies_revision"),
+        ({"policies_force": True}, "policies_force"),
+    ],
+)
+def test_policy_revision_needs_access_control(
+    options: dict[str, Any], name: str
+) -> None:
+    """Revision options are refused if access control isn't enabled."""
+    with pytest.raises(ValidationError, match=name):
+        SecurityConfig(access_control=AccessControlConfig(**options))
+
+
 def test_IdConfig_defaults() -> None:
     """Identifiers are 6 uppercase letters or digits by default."""
     conf = IdConfig()
@@ -1295,3 +1311,18 @@ def test_ServiceInfoConfig_locked_fields() -> None:
 def test_ServiceInfoConfig_no_locked_fields() -> None:
     """No fields are locked by default."""
     assert ServiceInfoConfig(service=SERVICE).locked_fields == []
+
+
+@pytest.mark.parametrize("options", [{"api_enabled": False}, {"api_base_path": "/acl"}])
+def test_api_settings_need_access_control(options: dict[str, Any]) -> None:
+    """Settings of the permissions API are refused without access control."""
+    with pytest.raises(ValidationError, match=r"require 'access_control\.enabled'"):
+        SecurityConfig(access_control=AccessControlConfig(**options))
+
+
+def test_swagger_ui_of_disabled_api() -> None:
+    """Without the permissions API, its other settings don't matter."""
+    conf = AccessControlConfig(
+        api_enabled=False, api_swagger_ui=True, api_serve_spec=False
+    )
+    assert conf.api_enabled is False

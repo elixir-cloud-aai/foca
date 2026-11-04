@@ -152,7 +152,8 @@ security:
 > model `model`. Corresponding permissions could be accessed and altered
 > by a user with admin permissions via the endpoints defined in `api_specs`
 > (FOCA's default specification if not set), at
-> `/admin/access-control/permissions` by default. Permissions will be stored
+> `/admin/access-control/permissions` by default (cf. `api_base_path`).
+> Permissions will be stored
 > in collection `collection_name` of MongoDB database `db_name`.
 >  
 > Cf. the [API model][docs-models-access-control] for further options and details.
@@ -182,9 +183,44 @@ older than the changes they read.
 ### Configuring the API
 
 FOCA comes with a default API for configuring permission resources, served
-at `/admin/access-control`. However, you can provide a custom [Swagger 2.x or
+at `/admin/access-control`. To move it, set `api_base_path`, an absolute path
+without trailing slash or dot segments. Paths in these docs assume the default:
+
+```yaml
+security:
+  access_control:
+    api_base_path: /internal/permissions
+```
+
+Rules are matched against request paths, so what you write for the API has to
+follow it:
+
+- Rules for the old path don't apply anymore, which is logged for `policies`, but
+  not for rules stored via the API.
+- Moved under paths that a literal rule grants (e.g., `/api/v1/*`), the API is
+  open to those it applies to, and with write access, they can make themselves
+  admins. FOCA logs a warning for all `policies` other than those of admins that
+  match the API, also at the default path, as they can be deliberate (e.g.,
+  delegating the management of rules). Rules with `{base_path}` are refused instead
+  (cf. [Configuring policies](#configuring-policies)). Rules stored via
+  the API aren't checked.
+- A base path that overlaps with one of the app's APIs is pointed out with a
+  warning, as the operations of each can shadow those of the other.
+- A base path of one of the app's APIs is refused.
+
+If you manage policies through the configuration (`policies`) only, set
+`api_enabled: false` to take the API off the internet. It isn't registered, its
+paths respond with `404`, so policies can't be managed at runtime anymore, and
+they are enforced as before. The other `api_*` settings and `self_service` then
+have no effect, and a warning is logged if `api_specs` or `self_service` is set.
+Rules stored earlier via the API stay in effect, and `policies` doesn't remove
+them, so delete those you don't want anymore before switching the API off;
+afterwards, only the database can. The roles of owners keep working, too.
+
+You can also provide a custom [Swagger 2.x or
 OpenAPI 3.x][res-openapi] definition for `/permissions` endpoints via
-`api_specs`. Its `servers` (or `basePath`) define where the endpoints are
+`api_specs`. It wins over `api_base_path`, with a warning if that is explicitly
+set: its `servers` (or `basePath`) define where the endpoints are
 served, and the `operationId` of each operation which controller handles it
 (e.g., FOCA's default controllers in
 `foca.security.access_control.access_control_server`, or your own).
@@ -264,7 +300,12 @@ then, rules of the previous generation are removed. Only the configured
 rules of the active generation are loaded and listed by the permissions API,
 which changes no configured rules of any generation. If instances with different rules start
 concurrently, the rules of the instance that activates its generation last
-are kept. Rules of generations that never became active (e.g., because an
+are kept, unless the stored rules have a newer revision (`policies_revision`, cf.
+[Configured
+policies in rolling
+upgrades](deployment.md#configured-policies-in-rolling-upgrades)), which also keeps
+older instances from replacing them later on, or removing them. Rules of generations
+that never became active (e.g., because an
 instance failed while storing them) are removed on a later startup, once
 older than an hour (by the clocks of the instances, which must be
 synchronized), as are rules of generations not created by FOCA. Configured
@@ -285,7 +326,8 @@ a later version replaces them.
 !!! warning "Apps sharing a policy collection"
     All apps using the same policy collection must configure the same rules:
     each startup replaces the configured rules of the others, also if
-    `policies` is not set. By default, all FOCA apps on the same MongoDB
+    `policies` is not set. A revision (`policies_revision`) applies to the
+    collection, too, so it would block the others. By default, all FOCA apps on the same MongoDB
     server use the same policy collection (`access_control_db.policy_rules`):
     apps on a shared external MongoDB must set their own `db_name`.
 
@@ -808,6 +850,19 @@ maintainers may not, as no rule allows them to. Trailing slashes in resource
 paths are ignored, and roles granted on `/` only apply to `/` itself. Set
 `resource_roles_cover_subpaths: False` to only match the exact resource path.
 
+Set `resource_roles_cover_custom_methods: True` for [custom
+methods](https://google.aip.dev/136) such as `POST /tasks/1:cancel`: roles on
+`/tasks/1` then also apply to them. It's off by default, and not for apps whose
+resource identifiers may contain `:`, as `/tasks/1:2` would then count as a custom
+method of `/tasks/1`.
+
+As with sub-paths, what a role may do is decided by `p` rules, which can't name a
+custom method: in `keyMatch2`, a `:` starts a variable up to the next `/`. So
+`/tasks/:id` also matches `/tasks/1:cancel`, and `/tasks/1:cancel` also matches
+`/tasks/12`. Only the HTTP method tells them apart, so an owner's
+`[p, owner, /tasks/:id, POST]` allows all `POST` operations on these paths. If roles
+need to differ between custom methods, check that in the controller.
+
 Which subjects get which roles on which resources depends on your app's
 domain and is up to your app. FOCA provides helpers to manage resource-scoped
 roles (`g2` rules) in your controllers, e.g., to make the creator of a
@@ -1059,6 +1114,30 @@ unset) do not count as owners for the last-owner rule. Every role change is
 logged on level `INFO`, naming the resource, the subject, the caller and the
 previous roles, for auditing.
 
+In `resource_role_model.conf`, admins may do everything. For apps where
+operators must not see all user data, use the model `foca:granted_rights_model.conf`
+instead (the prefix names a model that FOCA ships). It's the same but for that:
+admins only have the rights that rules grant them, so give them those they need:
+
+```yaml
+security:
+  access_control:
+    model: foca:granted_rights_model.conf
+    policies:
+      - [p, admin, "/admin/access-control/*", GET]
+```
+
+Write access to the permissions API amounts to all rights, as whoever has it can
+grant themselves any role, and read access shows who has which role on which
+resource. So keep write access to a separate, trusted role, or set
+[`api_enabled: false`](#configuring-the-api) and manage rules in the configuration.
+
+`is_admin()` is then always `False`, so that the helpers treat admins as anyone else:
+`resource_filter()` limits them to resources they have roles on, and they can't
+manage resources without owners. This goes for all models with global and
+resource-scoped roles whose matcher doesn't start with `g(r.sub, "admin") ||`, also
+if it has other rules for admins (e.g., only read access).
+
 For example, an app whose users only see their own tasks:
 
 ```yaml
@@ -1266,7 +1345,7 @@ choice:
 
 | Controller | Example operation | Response |
 | --- | --- | --- |
-| `getResourceRoles` | `GET /tasks/{id}/permissions` | roles on the resource, as `subject_type`, `subject` and `role` (cf. `list_roles()`) |
+| `getResourceRoles` | `GET /tasks/{id}/permissions` | roles on the resource, as `subject_type`, `subject` and `role` (cf. `list_roles()`); paged and filtered on request (see below) |
 | `putUserRole` | `PUT /tasks/{id}/permissions/users/{userId}` | the granted role, replacing others (cf. `grant_role()`) |
 | `deleteUserRole` | `DELETE /tasks/{id}/permissions/users/{userId}` | the user identifier (a JSON string), after revoking their roles (cf. `revoke_roles()`) |
 | `putGroupRole` | `PUT /tasks/{id}/permissions/groups/{group}` | as `putUserRole`, for a group |
@@ -1336,6 +1415,23 @@ role to a user called `groups`.
   `putFileUserRole = ownership_server.putUserRole` in a module of your
   app).
 
+Resources with many users are easier to manage if `getResourceRoles` is paged and
+searchable. Declare the query parameters to offer them; the response stays a list:
+
+* `q` only lists the roles of subjects (users, groups and service clients) with
+  this text in their identifier, in any case.
+* `limit` (default: 100, at most 1000) and `offset`, either or both, ask for a page,
+  sorted by subject type, subject and role. The header `Link` has the links to the
+  other pages, but only if the app has a
+  [public URL](utilities.md#building-public-urls). There's no total. Invalid values
+  are rejected with `400`. With neither of them, all roles are returned.
+
+Apps that already declare query parameters with these names on the operation get this
+behaviour, so check them when upgrading; it also goes for defaults in the
+specification. Wrappers around `getResourceRoles` need to pass the parameters on, and
+get `(roles, 200, headers)` for a page. Declare `limit` and `offset` as `integer` or
+`string`, and `q` as `string`. Path parameters with these names are ignored.
+
 For example, with the base path `/api`:
 
 ```yaml
@@ -1347,6 +1443,10 @@ paths:
       - {name: id, in: path, required: true, schema: {type: string}}
     get:
       operationId: foca.security.access_control.ownership_server.getResourceRoles
+      parameters:
+        - {name: q, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
         "200": {description: Roles on the task}
   /tasks/{id}/permissions/users/{userId}:

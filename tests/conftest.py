@@ -9,6 +9,7 @@ import mongomock
 import pytest
 from pymongo import MongoClient
 
+from foca import context
 from foca.config import config_parser
 from foca.database import register_mongodb
 from tests.mock_data import MongoClients
@@ -71,4 +72,10 @@ def log(
     logging.getLogger().removeHandler(caplog.handler)
 
 
-pytest_plugins = ["foca.plugins.pytest_plugin"]
+pytest_plugins = ["foca.plugins.pytest_plugin", "foca.testing.pytest_plugin"]
+
+
+@pytest.fixture(autouse=True)
+def _no_request_id() -> None:
+    """Forget the identifier of the last request, whose response stays open."""
+    context._request_id.set(None)

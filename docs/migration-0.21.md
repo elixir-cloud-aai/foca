@@ -38,6 +38,18 @@ The same holds for workers started in the process of an app (e.g., with
 its client, including FOCA's access control, can't be used afterwards. Create
 the app after the worker has started, or run the worker in a process of its own.
 
+## Request IDs
+
+Responses now have the header `X-Request-ID`, and [log
+records](configuration/log.md#context-of-log-records) the identifier of their
+request. Check this if a proxy in front of the app sets the header itself, or if your
+log format used a field of that name from `extra`, which now wins over `extra`. The
+formatter `standard` stays the default, so log lines look the same.
+
+The `request_id()` of `foca.plugins.adapter` follows
+[`server.request_id`](configuration/server.md#request-ids), rather than always
+reading `X-Request-ID`.
+
 ## Changed defaults
 
 ### Shorter MongoDB timeouts

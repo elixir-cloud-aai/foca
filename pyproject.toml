@@ -72,6 +72,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# For `foca.testing.pytest_plugin`
+testing = [
+    "mongomock>=4.3",
+    "pytest>=8.3",
+]
 dev = [
     # The ast-grep hook of `.pre-commit-config.yaml` uses this one
     "ast-grep-cli>=0.51",
