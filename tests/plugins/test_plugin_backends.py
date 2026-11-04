@@ -700,17 +700,27 @@ def test_verification_spelling_without_services(
 
 @pytest.mark.parametrize("document", [{}, None, "x"])
 def test_invalid_verifications_keep_backends(
-    two_backends: Any, monkeypatch: pytest.MonkeyPatch, document: Any
+    registry: Registry,
+    two_backends: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    document: Any,
 ) -> None:
-    """Verifications that can't be read revoke nothing."""
+    """Verifications that can't be read revoke nothing, with services or without."""
     cache = two_backends
+    urls = cache.urls()
+    read_at = cache.read_at
+    fetch = registry.fetch
 
-    def fetch(url: str, timeout: float, **options: Any) -> Any:
-        return document
+    def invalid(url: str, timeout: float, **options: Any) -> Any:
+        if url.endswith("/verifications"):
+            return document
+        return fetch(url, timeout, **options)
 
-    monkeypatch.setattr(discovery, "fetch_json", fetch)
+    monkeypatch.setattr(discovery, "fetch_json", invalid)
     cache._next_read = 0
-    assert len(cache.urls()) == 2
+    assert cache.urls() == urls
+    assert cache.read_at == read_at
+    assert registry.reads == 1  # the services aren't read either
 
 
 def test_malformed_verifications_without_services(
