@@ -133,14 +133,14 @@ request. Check this if your log format used a field of that name from `extra`, w
 now wins over `extra`. The formatter `standard` stays the default, so log lines look
 the same.
 
-By default, the app generates the identifier and ignores what the request header says,
-as [`server.request_id.trust_incoming`](configuration/server.md#request-ids) is
+By default, the app generates the identifier and doesn't use what the request header
+says, as [`server.request_id.trust_incoming`](configuration/server.md#request-ids) is
 `false`. So [audit events](configuration/log.md#audit-log), too, have an identifier that
 clients can't choose. A proxy in front of the app that sets the header doesn't have its
 identifier in the app's logs, and sees the app's in the response. If you want the
-proxy's, set the option to `true`, but only if the proxy sets or checks the header and
-clients can't reach the app past it, as they could otherwise choose the identifier in
-all of these. Not all proxies replace the header; ingress-nginx, for one, passes on a
+proxy's, set the option to `true`, but only if the proxy replaces what clients send in
+the header or rejects it, and clients can't reach the app past it, as they could
+otherwise choose the identifier in all of these. Not all proxies replace the header; ingress-nginx, for one, passes on a
 client's value.
 
 This changes the behaviour of gateways: the `request_id()` of `foca.plugins.adapter`
@@ -150,6 +150,10 @@ took a valid `X-Request-ID` of any client in 0.20, unconditionally, and now foll
 generated identifier, not what the client sent. Clients and dashboards that look up
 these records by their own value need to take the identifier from the response header
 instead, or a deployment that meets the conditions above sets the option to `true`.
+This holds for runs started in the request, with `request_id()`. A run in a Celery task
+only has the identifier that the app passes to `PluginHost.start()`, so to correlate
+it, the app needs to send it along to the task; the [gateway
+example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/gateway) doesn't.
 
 ## Command-line tool
 

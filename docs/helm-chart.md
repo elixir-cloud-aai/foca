@@ -253,8 +253,9 @@ setup below:
 - **Rate limiting:** configured at the proxy only, if at all.
 - **Request IDs:** the app generates its own identifiers rather than using the
   `X-Request-ID` of requests, also behind a proxy. To take the proxy's, set
-  `config.server.request_id.trust_incoming`, but only if the proxy sets or checks
-  the header and clients can't reach the app past it, e.g., with
+  `config.server.request_id.trust_incoming`, but only if the proxy replaces what
+  clients send in the header or rejects it, and clients can't reach the app past
+  it, e.g., with
   `<valuesKey>.networkPolicy` (see [request
   IDs](configuration/server.md#request-ids)); the chart doesn't configure that for
   any proxy.

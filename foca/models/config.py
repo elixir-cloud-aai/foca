@@ -271,7 +271,7 @@ class RequestIdConfig(FOCABaseConfig):
         trust_incoming: Whether to take the identifier from the request header,
             if it's valid (at most 128 letters, digits and `._:-`); otherwise,
             each request gets a new random one. Only for apps behind a proxy
-            that sets or checks the header.
+            that replaces clients' values or rejects them.
 
     Attributes:
         header: Name of the request and response header with the identifier.

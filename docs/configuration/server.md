@@ -87,17 +87,19 @@ server:
 ```
 
 By default, each request gets a new random identifier, and what clients send in the
-header isn't used as the identifier. `header` can't be a standard header such as `Content-Length`.
+header isn't used as the identifier. `header` can't be a standard header such as
+`Content-Length`.
 
-Set `trust_incoming: true` if a proxy in front of the app sets or checks the header,
-and clients can't reach the app past it, e.g., to have the proxy's identifier in the
-app's logs. The app then takes the identifier from the request header if it has at most
-128 letters, digits and `._:-`, and otherwise generates one. Without such a proxy,
-clients would choose what's in the response header, in log records, in [audit
-events](log.md#audit-log) and in the [records of gateways](../plugins.md#provenance), and
-what groups their requests in the logs. Check what your
-proxy does: not all of them replace the header, and ingress-nginx, for one, passes on
-a client's value.
+Set `trust_incoming: true` only if a proxy in front of the app replaces what clients
+send in the header or rejects it, and clients can't reach the app past that proxy, e.g.,
+to have the proxy's identifier in the app's logs. A proxy that only checks the format
+isn't enough. With the option on, the app takes the identifier from the request header
+if it has at most 128 letters, digits and `._:-`, and otherwise generates one. Without
+such a proxy, clients would choose what's in the response header, in log records, in
+[audit events](log.md#audit-log) and in the [records of
+gateways](../plugins.md#provenance), and what groups their requests in the logs. Check
+what your proxy does: not all of them replace the header, and ingress-nginx, for one,
+passes on a client's value.
 
 If you change `header`, also change `access_log_format` for [Gunicorn's access
 log](../deployment.md).

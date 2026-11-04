@@ -79,7 +79,7 @@ class RequestIdMiddleware:
         header: Name of the request and response header.
         trust_incoming: Whether to take the identifier from the request header,
             if it's valid (at most 128 letters, digits and `._:-`); only for
-            apps behind a proxy that sets or checks the header.
+            apps behind a proxy that replaces clients' values or rejects them.
 
     Attributes:
         app: WSGI application.
