@@ -1,15 +1,19 @@
 """Tests for `register_mongodb.py`."""
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
 from urllib.parse import unquote, urlsplit
 
+import mongomock
 import pytest
+from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
+from pymongo.errors import ConfigurationError, PyMongoError
 
 from foca.database import register_mongodb as module
 from foca.database.register_mongodb import (
+    _redact_uri,
     create_mongo_client,
     get_mongo_client,
     get_mongo_db_name,
@@ -17,8 +21,20 @@ from foca.database.register_mongodb import (
     register_mongodb,
     reopen_mongodb,
 )
-from foca.models.config import CollectionConfig, DBConfig, MongoConfig
+from foca.factories.connexion_app import create_connexion_app
+from foca.models.config import (
+    AccessControlConfig,
+    CollectionConfig,
+    Config,
+    DBConfig,
+    MongoConfig,
+    ServiceInfoConfig,
+)
+from foca.security.access_control.register_access_control import (
+    register_access_control,
+)
 from tests.mock_data import MongoClients
+from tests.test_files.service_info_data import FIELDS, REMOVE, service
 
 MONGO_ENV_VARS = [
     "MONGO_URI",
@@ -346,4 +362,275 @@ class TestReopenMongodb:
         conf = MongoConfig(dbs={"a": DBConfig()})
         conf._client = MagicMock()
         reopen_mongodb(conf)
-        assert created.call_args.kwargs == {"connect": False}
+        assert created.call_args.kwargs["connect"] is False
+
+
+class TestClientOptions:
+    """Tests for the options of MongoDB clients."""
+
+    @pytest.fixture
+    def options(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        """Keyword arguments of the MongoDB clients created."""
+        for var in MONGO_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        created: list[dict[str, Any]] = []
+
+        def mongo_client(uri: str, **kwargs: Any) -> Any:
+            """Record the keyword arguments of a client."""
+            created.append(kwargs)
+            return mongomock.MongoClient()
+
+        monkeypatch.setattr(module, "MongoClient", mongo_client)
+        return created
+
+    def test_defaults(self, options: list[dict[str, Any]]) -> None:
+        """Clients have the default timeouts, also without configuration."""
+        create_mongo_client()
+        assert options == [
+            {
+                "connect": True,
+                "serverselectiontimeoutms": 5000,
+                "connecttimeoutms": 5000,
+            }
+        ]
+
+    def test_config(self, options: list[dict[str, Any]]) -> None:
+        """Options of the config are passed, and win over defaults."""
+        get_mongo_client(
+            MongoConfig(
+                client_options={
+                    "maxPoolSize": 20,
+                    "serverselectiontimeoutMS": 100,
+                    "appname": "mine",
+                }
+            )
+        )
+        assert options == [
+            {
+                "connect": True,
+                "maxpoolsize": 20,
+                "serverselectiontimeoutms": 100,
+                "connecttimeoutms": 5000,
+                "appname": "mine",
+            }
+        ]
+
+    def test_default_appname(self, options: list[dict[str, Any]]) -> None:
+        """Without service info, the app is named after FOCA."""
+        get_mongo_client(MongoConfig())
+        assert options[0]["appname"] == "foca"
+
+    @pytest.mark.parametrize(
+        ("service_info", "expected"),
+        [
+            ({"service": service(id="org.example.my")}, "org.example.my"),
+            ({"service": service(id="x" * 128)}, "x" * 128),
+            ({"service": service(id="x" * 129)}, "foca"),
+            ({"service": service(id="\u00e4" * 65)}, "foca"),
+            (
+                {
+                    "service": service(id=REMOVE),
+                    "runtime_fields": f"{FIELDS}.runtime_fields",
+                    "package": "pytest",
+                },
+                "pytest",
+            ),
+            (
+                {
+                    "service": service(id=REMOVE),
+                    "runtime_fields": f"{FIELDS}.runtime_fields",
+                },
+                "foca",
+            ),
+        ],
+    )
+    def test_appname_service_info(
+        self,
+        options: list[dict[str, Any]],
+        service_info: dict[str, Any],
+        expected: str,
+    ) -> None:
+        """The app is named after its service info."""
+        conf = Config(db=MongoConfig(), service_info=ServiceInfoConfig(**service_info))
+        assert conf.db is not None
+        get_mongo_client(conf.db)
+        assert options[0]["appname"] == expected
+
+    def test_appname_without_db_section(self, options: list[dict[str, Any]]) -> None:
+        """Apps with only a policy database are named after their service info."""
+        conf = Config(
+            service_info=ServiceInfoConfig(service=service(id="org.example.my"))
+        )
+        register_access_control(
+            create_connexion_app(conf), None, AccessControlConfig(enabled=True)
+        )
+        assert options[0]["appname"] == "org.example.my"
+
+    def test_uri_wins(
+        self,
+        options: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Options in the connection string win, with a warning on conflicts."""
+        monkeypatch.setenv(
+            "MONGO_URI",
+            "mongodb://a:1,b:2/db?appName=uri&ConnectTimeoutMS=1&maxPoolSize=2",
+        )
+        warning = Mock()
+        monkeypatch.setattr(module.logger, "warning", warning)
+        get_mongo_client(
+            MongoConfig(client_options={"maxPoolSize": "s3cr3t", "minPoolSize": 1})
+        )
+        assert options == [
+            {
+                "connect": True,
+                "serverselectiontimeoutms": 5000,
+                "minpoolsize": 1,
+            }
+        ]
+        warning.assert_called_once()
+        assert warning.call_args.args[1] == "maxPoolSize"
+        assert "s3cr3t" not in str(warning.call_args)
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "maxPoolSize=2;connectTimeoutMS=1;appname=uri",
+            "appname=a#b&connectTimeoutMS=1&maxPoolSize=2",
+            "maxPoolSize=2 connectTimeoutMS=1 appname=uri",
+        ],
+    )
+    def test_uri_parsed_as_in_pymongo(
+        self,
+        options: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+        query: str,
+    ) -> None:
+        """Each form of connection string that PyMongo accepts wins."""
+        monkeypatch.setenv("MONGO_URI", f"mongodb://a/db?{query}")
+        get_mongo_client(MongoConfig(client_options={"maxPoolSize": 9}))
+        assert options == [{"connect": True, "serverselectiontimeoutms": 5000}]
+
+    def test_no_warning_for_defaults(
+        self,
+        options: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The connection string overriding defaults isn't a conflict."""
+        monkeypatch.setenv("MONGO_URI", "mongodb://a/?connectTimeoutMS=1&appname=x")
+        warning = Mock()
+        monkeypatch.setattr(module.logger, "warning", warning)
+        get_mongo_client(MongoConfig())
+        assert "connecttimeoutms" not in options[0]
+        assert "appname" not in options[0]
+        warning.assert_not_called()
+
+    def test_real_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """PyMongo takes the options."""
+        for var in MONGO_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        client = create_mongo_client(
+            host="localhost", connect=False, options={"maxPoolSize": 3}, appname="x"
+        )
+        try:
+            assert client.options.pool_options.max_pool_size == 3
+            assert client.options.server_selection_timeout == 5
+            assert client.options.pool_options.connect_timeout == 5
+            assert client.options.pool_options.metadata["application"] == {"name": "x"}
+        finally:
+            client.close()
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "maxPoolSize=7;serverSelectionTimeoutMS=1000",
+            "maxPoolSize=7&serverSelectionTimeoutMS=1000",
+        ],
+    )
+    def test_real_client_uri_wins(
+        self, monkeypatch: pytest.MonkeyPatch, query: str
+    ) -> None:
+        """PyMongo uses the options of the connection string."""
+        monkeypatch.setenv("MONGO_URI", f"mongodb://localhost/db?{query}")
+        client = create_mongo_client(connect=False, options={"maxPoolSize": 9})
+        try:
+            assert client.options.pool_options.max_pool_size == 7
+            assert client.options.server_selection_timeout == 1
+            assert client.options.pool_options.connect_timeout == 5
+        finally:
+            client.close()
+
+    def test_aliases_not_resolved(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """PyMongo refuses aliases with different values in both places."""
+        monkeypatch.setenv("MONGO_URI", "mongodb://localhost/db?ssl=true")
+        with pytest.raises(PyMongoError):
+            create_mongo_client(connect=False, options={"tls": False})
+
+    @pytest.mark.parametrize(
+        ("name", "value", "error"),
+        [
+            ("maxPoolSize", "abc", ValueError),
+            ("serverSelectionTimeoutMS", -1, ValueError),
+            ("document_class", "x", TypeError),
+        ],
+    )
+    def test_invalid_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+        value: object,
+        error: type[Exception],
+    ) -> None:
+        """Invalid values fail on creating the client."""
+        for var in MONGO_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        with pytest.raises(error):
+            create_mongo_client(connect=False, options={name: value})
+
+    def test_unknown_option(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unknown options fail on creating the client."""
+        for var in MONGO_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        with pytest.raises(ConfigurationError, match="nonsense"):
+            create_mongo_client(connect=False, options={"nonsense": 1})
+
+    @pytest.mark.parametrize(
+        "name", ["host", "PORT", "connect", "username", "Password"]
+    )
+    def test_reserved_option(self, name: str) -> None:
+        """Options that FOCA sets are rejected."""
+        with pytest.raises(ValidationError, match=name):
+            MongoConfig(client_options={name: "x"})
+
+    def test_option_set_twice(self) -> None:
+        """The same option in different cases is rejected, not overwritten."""
+        with pytest.raises(ValidationError, match="twice"):
+            MongoConfig(client_options={"maxPoolSize": 1, "maxpoolsize": 2})
+
+    @pytest.mark.parametrize("value", [None, ["x"], {"a": 1}])
+    def test_only_scalars(self, value: object) -> None:
+        """Options are scalars."""
+        with pytest.raises(ValidationError):
+            MongoConfig(client_options={"maxPoolSize": value})  # type: ignore[dict-item]
+
+    def test_reopen_keeps_options(self, options: list[dict[str, Any]]) -> None:
+        """Replaced clients have the same options."""
+        conf = MongoConfig(client_options={"maxPoolSize": 20})
+        get_mongo_client(conf)
+        reopen_mongodb(conf)
+        assert options[1] == {**options[0], "connect": False}
+
+
+@pytest.mark.parametrize(
+    ("uri", "expected"),
+    [
+        ("mongodb://h:1/db", "mongodb://h:1/db"),
+        ("mongodb://u:p@h:1/db", "mongodb://h:1/db"),
+        ("mongodb://u:p#q@h:1,i:2/db", "mongodb://h:1,i:2/db"),
+        ("mongodb+srv://u:p@h/db?a=b", "mongodb+srv://h/db"),
+        ("mongodb://h/db?tlsCertificateKeyFilePassword=p@q", "mongodb://h/db"),
+    ],
+)
+def test_redact_uri(uri: str, expected: str) -> None:
+    """Credentials and options are removed, also with `#` in a password."""
+    assert _redact_uri(uri) == expected
