@@ -38,6 +38,9 @@ env:
   # fork that sets `DOCKERHUB_ORG` (and the Docker Hub secrets). Jobs' `if:`
   # can't read `env`, so they repeat the expression
   PUBLISH: ${{ github.event_name == 'push' && (github.repository_owner == 'elixir-cloud-aai' || vars.DOCKERHUB_ORG != '') }}
+  # Version of uv in this workflow; not bumped by Dependabot, so update it
+  # manually, together with `uv_version` in `.github/actions/install-chart`
+  UV_VERSION: "0.13.4"
 
 # Cancel superseded runs of a pull request; runs for pushes get their own
 # group, so that runs for successive pushes are not dropped. Runs for edits
@@ -168,6 +171,8 @@ jobs:
           persist-credentials: false
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Check requirements
         run: scripts/compile-image-requirements.sh --check
 
@@ -290,7 +295,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.4"  # not bumped by Dependabot; update manually
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: pyproject.toml
       - name: Install package with lowest direct dependency versions
