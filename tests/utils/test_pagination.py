@@ -39,6 +39,17 @@ class TestGetPage:
         """Integers and their strings are accepted."""
         assert get_page(offset, limit) == expected
 
+    def test_largest_offset(self) -> None:
+        """The largest integer of MongoDB is accepted."""
+        assert get_page(2**63 - 1).offset == 2**63 - 1
+        assert get_page(str(2**63 - 1)).offset == 2**63 - 1
+
+    @pytest.mark.parametrize("kwargs", [{"default_limit": 0}, {"max_limit": -1}])
+    def test_invalid_limits_of_app(self, kwargs: dict[str, int]) -> None:
+        """Limits of the app must allow items."""
+        with pytest.raises(ValueError, match="at least 1"):
+            get_page(**kwargs)
+
     def test_max_limit(self) -> None:
         """Larger limits are reduced."""
         assert get_page(limit=MAX_PAGE_LIMIT + 1).limit == MAX_PAGE_LIMIT
@@ -60,6 +71,9 @@ class TestGetPage:
             {"limit": "0"},
             {"limit": "not-a-number"},
             {"limit": False},
+            {"offset": 2**63},
+            {"offset": str(2**63)},
+            {"limit": 2**63},
         ],
     )
     def test_invalid(self, kwargs: dict[str, object]) -> None:
@@ -119,6 +133,18 @@ class TestGetPageLinks:
             links = get_page_links(Page(offset, 10), total=total)
         assert "next" not in links
         assert _params(links["last"])["offset"] == [last]
+
+    def test_past_the_end(self, app: Flask) -> None:
+        """The previous page of a page past the end has items."""
+        with app.test_request_context("/pets"):
+            links = get_page_links(Page(50, 10), total=25)
+        assert _params(links["prev"])["offset"] == ["20"]
+
+    def test_trailing_slash_kept(self, app: Flask) -> None:
+        """Routes with and without trailing slash differ."""
+        with app.test_request_context("/pets/"):
+            links = get_page_links(Page(0, 10))
+        assert urlsplit(links["first"]).path == "/prefix/pets/"
 
     def test_unknown_total(self, app: Flask) -> None:
         """Without the total, there is a next page, and no last one."""

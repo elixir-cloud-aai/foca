@@ -17,8 +17,10 @@ from foca.utils.urls import get_public_url
 # Items per page unless set otherwise, and the most that clients can ask for
 DEFAULT_PAGE_LIMIT = 100
 MAX_PAGE_LIMIT = 1000
-# Longest values that are converted, as `int()` refuses very long strings
-_MAX_DIGITS = 18
+# Largest value, as MongoDB has 8-byte integers
+_MAX_VALUE = 2**63 - 1
+# Longest strings that are converted, as `int()` refuses very long ones
+_MAX_DIGITS = len(str(_MAX_VALUE))
 
 
 class Page(NamedTuple):
@@ -46,13 +48,18 @@ def _get_integer(value: int | str, name: str, minimum: int) -> int:
 
     Raises:
         werkzeug.exceptions.BadRequest: The value is not an integer of at
-            least `minimum`. The message doesn't quote the value.
+            least `minimum` and fitting into 8 bytes. The message doesn't quote
+            the value.
     """
     if isinstance(value, str) and (
         value.isascii() and value.isdigit() and len(value) <= _MAX_DIGITS
     ):
         value = int(value)
-    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not minimum <= value <= _MAX_VALUE
+    ):
         raise BadRequest(f"'{name}' must be an integer of at least {minimum}.")
     return value
 
@@ -80,7 +87,10 @@ def get_page(
     Raises:
         werkzeug.exceptions.BadRequest: `offset` is not an integer of at
             least 0, or `limit` is not one of at least 1.
+        ValueError: `default_limit` or `max_limit` is less than 1.
     """
+    if default_limit < 1 or max_limit < 1:
+        raise ValueError("`default_limit` and `max_limit` must be at least 1")
     return Page(
         offset=0 if offset is None else _get_integer(offset, "offset", 0),
         limit=min(
@@ -116,19 +126,24 @@ def get_page_links(page: Page, total: int | None = None) -> dict[str, str]:
         if name not in ("offset", "limit")
     ]
     url = get_public_url(request.path)
+    # Removed by `get_public_url()`, but routes differ by it
+    if request.path.endswith("/") and not url.endswith("/"):
+        url = f"{url}/"
 
     def link(offset: int) -> str:
         """Get the link to the page at an offset."""
         params = [*query, ("offset", offset), ("limit", page.limit)]
         return f"{url}?{urlencode(params)}"
 
+    last = None if total is None else max(total - 1, 0) // page.limit * page.limit
     links = {"first": link(0)}
     if page.offset > 0:
-        links["prev"] = link(max(page.offset - page.limit, 0))
+        previous = max(page.offset - page.limit, 0)
+        # Not an empty page, if the current one starts past the end
+        links["prev"] = link(previous if last is None else min(previous, last))
     if total is None or page.offset + page.limit < total:
         links["next"] = link(page.offset + page.limit)
-    if total is not None:
-        last = max(total - 1, 0) // page.limit * page.limit
+    if last is not None:
         links["last"] = link(last)
     return links
 

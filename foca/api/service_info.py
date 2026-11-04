@@ -76,7 +76,10 @@ def build_service_info(conf: ServiceInfoConfig) -> dict[str, Any]:
         return info
     path = str(conf.runtime_fields)
     runtime = call_runtime_function(conf.runtime_function, path)
-    missing = sorted(set(conf.locked_fields) - runtime.keys())
+    # `null` removes a field
+    missing = sorted(
+        name for name in set(conf.locked_fields) if runtime.get(name) is None
+    )
     if missing:
         raise InvalidServiceInfo(
             f"`{path}` must return the locked fields of the service info "

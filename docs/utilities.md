@@ -22,7 +22,9 @@ not evaluated.
 
 For the character set and length in the custom configuration of an app, use
 the model `foca.models.config.IdConfig`, which rejects character sets that aren't
-fit for identifiers (empty, expressions, `/` or dots only):
+fit for identifiers (empty, expressions, `/` or dots only). By default, it has
+uppercase letters and digits, and `generate_id()` has letters of both cases and
+digits:
 
 ```python
 from foca.models.config import FOCABaseConfig, IdConfig
@@ -41,7 +43,8 @@ def new_id(conf: CustomConfig) -> str:
 
 `foca.utils.pagination` has helpers for lists with an offset and a limit:
 `get_page()` checks the parameters (`400 Bad Request` for invalid ones, and limits
-above `max_limit`, by default 1000, are reduced to it), and `get_page_links()`
+above `max_limit`, by default 1000, are reduced to it; `default_limit` is 100
+unless set otherwise), and `get_page_links()`
 builds links to the other pages from the [public URL](#building-public-urls) of
 the app, with the path and the other query parameters of the request:
 

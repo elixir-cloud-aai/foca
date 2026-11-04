@@ -656,6 +656,23 @@ def test_get_service_info_locked_fields() -> None:
         assert get_service_info()["description"] == "From runtime"
 
 
+def test_get_service_info_locked_fields_null(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A locked field that the function returns as `null` is missing."""
+    monkeypatch.setitem(service_info_fields.TOGGLE, "fields", {"x-rules": None})
+    app = _app(
+        {
+            "service": SERVICE,
+            "runtime_fields": TOGGLED,
+            "locked_fields": ["x-rules"],
+        }
+    )
+    with (
+        app.app_context(),
+        pytest.raises(InvalidServiceInfo, match="must return the locked fields"),
+    ):
+        get_service_info()
+
+
 def test_get_service_info_locked_fields_not_returned() -> None:
     """The runtime function must return locked fields."""
     app = _app(

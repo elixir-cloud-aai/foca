@@ -139,7 +139,7 @@ service_info:
 
 The app then refuses to start if `service` sets one of them (also to `null`), or
 if `runtime_fields` is not set, and the service info fails if the function
-doesn't return them. Fields are top-level fields only. By default, no fields are
+doesn't return them (or returns `null`). Fields are top-level fields only. By default, no fields are
 locked.
 
 ## Validation
