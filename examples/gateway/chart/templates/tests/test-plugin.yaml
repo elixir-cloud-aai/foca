@@ -1,0 +1,66 @@
+{{- /*
+Test of the release (`helm test`, run by chart-testing in CI): sends messages
+to the app, which runs the installed plugin in its own process and in the
+worker, and checks that both share the plugin's store in MongoDB and key it
+with the secret of `pluginStore.existingSecret`.
+*/ -}}
+{{- $context := dict "root" . "settings" (include "gateway.settings" . | fromYaml) -}}
+{{- $fullname := include "foca-common.fullname" . -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ printf "%s-test-plugin" $fullname | quote }}
+  labels:
+    {{- include "foca-common.labels" (dict "root" . "component" "test") | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  restartPolicy: Never
+  securityContext:
+    {{- include "foca-common.securityContext" (dict "root" . "context" .Values.gateway.podSecurityContext) | nindent 4 }}
+  containers:
+  - name: test
+    image: {{ include "foca-common.image" $context | quote }}
+    imagePullPolicy: {{ .Values.gateway.imagePullPolicy | default "Always" }}
+    env:
+    - name: GATEWAY_URL
+      value: {{ printf "http://%s:8080" $fullname | quote }}
+    command:
+    - python
+    - -c
+    - |
+      import json, os, urllib.request
+
+      def send(path):
+          request = urllib.request.Request(
+              os.environ["GATEWAY_URL"] + path,
+              data=json.dumps({"message": "helm test"}).encode(),
+              headers={"Content-Type": "application/json"},
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              return json.load(response)
+
+      in_app = send("/messages")
+      in_worker = send("/messages/worker")
+      for result in (in_app, in_worker):
+          payload = result["payload"]
+          assert payload["stamp"] == "stamped by the plugin", payload
+          assert payload["store_mode"] == "shared", payload
+          assert payload["store_key"].startswith("hk:"), payload
+          plugins = result["provenance"]["plugins"]
+          assert "org.example.gateway.stamp" in plugins.values(), plugins
+      assert in_app["payload"]["store_key"] == in_worker["payload"]["store_key"]
+      assert in_app["payload"]["count"] < in_worker["payload"]["count"]
+      print("the plugin ran in the app and the worker")
+    securityContext:
+      {{- include "foca-common.securityContext" (dict "root" . "context" .Values.gateway.securityContext) | nindent 6 }}
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi
+      requests:
+        cpu: 100m
+        memory: 64Mi

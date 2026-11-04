@@ -97,6 +97,8 @@ ALLOWED_LINES = (
 CHART_ALLOWED_FILES = (
     "charts/foca-common/Chart.yaml",
     "docs/changelog.md",
+    "examples/gateway/chart/Chart.lock",
+    "examples/gateway/chart/Chart.yaml",
     "examples/petstore/chart/Chart.lock",
     "examples/petstore/chart/Chart.yaml",
     "tests/test_docs_hooks.py",

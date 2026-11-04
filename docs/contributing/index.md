@@ -63,10 +63,28 @@ until curl -s -o /dev/null http://localhost:8080/; do sleep 2; done
 pytest tests/integration_tests.py
 ```
 
+The petstore has no plugins, so CI also tests the plugin path of gateway apps
+in real containers, with the [gateway
+example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/gateway):
+a plugin installed as a distribution runs in the app and in a Celery worker,
+with MongoDB, RabbitMQ and the plugin store's key secret. Locally:
+
+```bash
+cd examples/gateway
+docker compose build foca-gateway-root  # FOCA image
+docker compose up -d --build
+cd ../..
+# Wait until the app accepts requests and the worker is ready
+until curl -sf -o /dev/null http://localhost:8081/openapi.json; do sleep 2; done
+until docker compose -f examples/gateway/docker-compose.yaml logs worker | grep -q ' ready\.$'; do sleep 2; done
+pytest tests/integration_gateway_tests.py
+```
+
 The tests of the Helm library chart need [Helm](https://helm.sh/) and run
 separately (`pytest charts/foca-common/tests`); CI (the `chart` and
 `chart-install` jobs of `.github/workflows/ci.yml`) also installs the
-petstore example with its chart on a kind cluster and checks that changes of
+petstore and gateway examples with their charts on a kind cluster and checks
+that changes of
 the library chart raise its version (see [Developing the library
 chart](../helm-chart.md#developing-the-library-chart)).
 
@@ -188,8 +206,8 @@ but with `chart_version` inside the braces (`CHART_VARIABLE` in
 `docs/hooks.py`). The same test fails if it is mentioned as the chart's
 version (e.g., `foca-common:X.Y.Z`, `--version X.Y.Z`, the tag
 `chart-vX.Y.Z`, or the `version` of a dependency on the chart) anywhere
-else than in `Chart.yaml`, the example app's chart
-(`examples/petstore/chart/`), the changelog, the migration guides and
+else than in `Chart.yaml`, the example apps' charts
+(`examples/petstore/chart/`, `examples/gateway/chart/`), the changelog, the migration guides and
 statements of what applies before, since, from or up to (until) a chart
 release. As the chart's version is raised with its first change after a
 release, the docs of `dev` may show a chart version that is not released

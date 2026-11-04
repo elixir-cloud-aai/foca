@@ -1,0 +1,57 @@
+openapi: 3.0.2
+info:
+  version: 1.0.0
+  title: FOCA gateway example
+  description: Runs messages through the gateway plugins that FOCA loads
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: http://localhost/
+paths:
+  /messages:
+    post:
+      description: Runs a message through the plugin pipeline in the app
+      operationId: addMessage
+      requestBody:
+        $ref: '#/components/requestBodies/Message'
+      responses:
+        '200':
+          $ref: '#/components/responses/Processed'
+  /messages/worker:
+    post:
+      description: Runs a message through the plugin pipeline in the worker
+      operationId: addWorkerMessage
+      requestBody:
+        $ref: '#/components/requestBodies/Message'
+      responses:
+        '200':
+          $ref: '#/components/responses/Processed'
+components:
+  requestBodies:
+    Message:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - message
+            properties:
+              message:
+                type: string
+  responses:
+    Processed:
+      description: The payload after the plugins and the provenance record
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - payload
+              - provenance
+            properties:
+              payload:
+                type: object
+              provenance:
+                type: object

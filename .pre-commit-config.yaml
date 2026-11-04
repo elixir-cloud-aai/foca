@@ -13,7 +13,7 @@ repos:
           (?x)^(
             tests/test_files/invalid_conf\.yaml|
             mkdocs\.yml|
-            (charts/[^/]+|examples/petstore/chart)/templates/.*|
+            (charts/[^/]+|examples/(petstore|gateway)/chart)/templates/.*|
             charts/[^/]+/tests/__snapshots__/.*
           )$
       - id: end-of-file-fixer

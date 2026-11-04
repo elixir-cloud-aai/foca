@@ -1,0 +1,1 @@
+{{- include "foca-common.brokerPersistentVolumeClaim" (dict "root" . "settings" (include "gateway.settings" . | fromYaml)) }}

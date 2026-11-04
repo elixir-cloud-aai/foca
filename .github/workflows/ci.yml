@@ -296,13 +296,14 @@ jobs:
   integration:
     name: Integration test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.13", "3.15"]
     env:
       PETSTORE_PY_IMAGE: ${{ matrix.python-version }}-slim-trixie
+      GATEWAY_PY_IMAGE: ${{ matrix.python-version }}-slim-trixie
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -360,6 +361,31 @@ jobs:
       - name: Show app logs
         if: failure()
         working-directory: examples/petstore
+        run: docker compose logs
+      # A real plugin, installed as a distribution, in the app and a Celery
+      # worker, with the plugin store's key secret in their environment
+      - name: Build and start gateway example
+        working-directory: examples/gateway
+        run: |
+          docker compose build foca-gateway-root
+          docker compose up -d --build
+      - name: Wait for gateway example
+        working-directory: examples/gateway
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:8081/openapi.json \
+                && docker compose logs worker | grep -q ' ready\.$'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Gateway example did not become ready" >&2
+          exit 1
+      - name: Run gateway integration tests
+        run: pytest tests/integration_gateway_tests.py
+      - name: Show gateway logs
+        if: failure()
+        working-directory: examples/gateway
         run: docker compose logs
 
   # Lints and tests the Helm charts and checks the library chart's version

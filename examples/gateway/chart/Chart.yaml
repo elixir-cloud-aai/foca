@@ -1,0 +1,15 @@
+apiVersion: v2
+name: gateway-example
+description: >-
+  Gateway example app of FOCA with a plugin, for CI; a thin chart over the
+  library chart foca-common. See the petstore example's chart for a chart to
+  start from
+type: application
+version: 0.1.0
+appVersion: "latest"
+dependencies:
+  # Apps outside this repository use the released library chart instead:
+  # `repository: oci://ghcr.io/elixir-cloud-aai/charts`
+  - name: foca-common
+    version: 0.4.0
+    repository: file://../../../charts/foca-common

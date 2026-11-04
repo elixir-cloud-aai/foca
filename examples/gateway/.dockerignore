@@ -1,0 +1,18 @@
+# Allowlist: only the files the app needs go into the image, so that local
+# files (e.g., `.env` files or config overlays) stay out of it
+*
+!config.yaml
+!controllers.py
+!gateway.yaml
+!plugin/
+!requirements.txt
+!service.py
+!tasks.py
+!worker.py
+!wsgi.py
+
+# Exclude local files inside the allowed paths
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/build

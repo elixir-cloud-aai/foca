@@ -2,8 +2,10 @@
 # with the Celery worker and broker (and check that queued tasks survive a
 # restart of the broker), with access control and with an HTTPRoute of the
 # Gateway API (via Envoy Gateway), and run its test (`helm test`); check that
-# a reinstalled release finds MongoDB's data. Used by the `chart-install` job
-# of `ci.yml` and by `release-chart.yml`. Needs a checkout of the repository.
+# a reinstalled release finds MongoDB's data; install the gateway example,
+# with a real plugin in the app and the worker and the plugin store's key
+# secret from `pluginStore.existingSecret`. Used by the `chart-install` job of
+# `ci.yml` and by `release-chart.yml`. Needs a checkout of the repository.
 
 name: Install chart
 description: Install the petstore example's chart on a kind cluster and check it
@@ -12,6 +14,9 @@ inputs:
   namespace:
     description: Namespace of the petstore releases
     default: petstore
+  gateway-namespace:
+    description: Namespace of the gateway example's release
+    default: gateway-example
 
 runs:
   using: composite
@@ -55,14 +60,17 @@ runs:
         kubectl wait gateway/eg -n gateway --for=condition=Programmed \
             --timeout=300s
     # The FOCA image from the repository (tagged as in the `FROM` line of
-    # `examples/petstore/Dockerfile`), and the petstore image on it, which
-    # serves the app with Gunicorn
+    # `examples/petstore/Dockerfile`), and the images of the petstore and
+    # gateway examples on it, which serve the apps with Gunicorn
     - name: Build and load images
       shell: bash
       run: |
-        docker build -t foca-petstore-root:latest -f docker/Dockerfile .
+        docker build -t foca-petstore-root:latest -t foca-gateway-root:latest \
+            -f docker/Dockerfile .
         docker build -t foca-petstore:latest examples/petstore
-        kind load docker-image foca-petstore:latest --name chart-testing
+        docker build -t foca-gateway-example:latest examples/gateway
+        kind load docker-image foca-petstore:latest foca-gateway-example:latest \
+            --name chart-testing
     # The Secrets with the MongoDB credentials and the broker settings
     # (`ci/*-values.yaml`), with random passwords; the broker URL has the
     # host of the broker's Service of `ci/celery-values.yaml`
@@ -322,12 +330,48 @@ runs:
           exit 1
         fi
         helm test "${RELEASE}" -n "${NAMESPACE}" --timeout 300s
+    # A namespace of its own: the steps above select the petstore's pods by
+    # their labels. The chart's `helm test` sends messages through the plugin
+    # in the app and the worker (`templates/tests/test-plugin.yaml`); the logs
+    # show errors that don't fail it, e.g., when setting up the plugin store
+    - name: Install gateway example and run its test
+      env:
+        NAMESPACE: ${{ inputs.gateway-namespace }}
+      shell: bash
+      run: |
+        kubectl create namespace "${NAMESPACE}"
+        kubectl create secret generic mongodb -n "${NAMESPACE}" \
+            --from-literal=root-username=root \
+            --from-literal=root-password="$(openssl rand -hex 16)" \
+            --from-literal=username=gateway \
+            --from-literal=password="$(openssl rand -hex 16)"
+        password="$(openssl rand -hex 16)"
+        kubectl create secret generic celery -n "${NAMESPACE}" \
+            --from-literal=username=gateway \
+            --from-literal=password="${password}" \
+            --from-literal=broker-url="pyamqp://gateway:${password}@gateway-example-broker:5672//"
+        kubectl create secret generic plugins -n "${NAMESPACE}" \
+            --from-literal=store-key-secret="$(openssl rand -base64 32)"
+        ct install --charts examples/gateway/chart --skip-clean-up \
+            --namespace "${NAMESPACE}" --helm-extra-args "--timeout 600s"
+        logs="$(kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
+            -l 'app.kubernetes.io/component in (app,worker)' --tail=-1)"
+        printf '%s\n' "${logs}"
+        if grep -v 'consumer: Cannot connect to' <<< "${logs}" \
+            | grep -E '\[ERROR\]|: ERROR +\]|ERROR/'; then
+          echo "::error::The gateway example logged errors"
+          exit 1
+        fi
     - name: Show cluster state
       if: failure()
       env:
         NAMESPACE: ${{ inputs.namespace }}
+        GATEWAY_NAMESPACE: ${{ inputs.gateway-namespace }}
       shell: bash
       run: |
+        kubectl get all,networkpolicies,pvc -n "${GATEWAY_NAMESPACE}" || true
+        kubectl logs -n "${GATEWAY_NAMESPACE}" --all-containers --prefix \
+            -l app.kubernetes.io/instance --tail=100 || true
         kubectl get all,networkpolicies,pvc -n "${NAMESPACE}"
         kubectl get gateways,httproutes -A -o yaml
         kubectl logs -n envoy-gateway-system deployment/envoy-gateway --tail=100

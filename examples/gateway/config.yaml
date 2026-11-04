@@ -1,0 +1,48 @@
+server:
+    host: '0.0.0.0'
+    port: 8080
+    debug: False
+    testing: False
+
+api:
+    specs:
+        gateway:
+            path: gateway.yaml
+            append: null
+            add_operation_fields:
+                x-openapi-router-controller: controllers
+            connexion:
+                strict_validation: True
+                validate_responses: False
+                options:
+                    swagger_ui: False
+                    serve_spec: True
+
+# The plugins' store is in the first database
+db:
+    host: mongodb
+    port: 27017
+    dbs:
+        gateway:
+            collections: null
+
+# Deployments set the broker URL via `CELERY_BROKER_URL` (e.g., the Helm
+# chart's `broker.existingSecret`)
+jobs:
+    host: rabbitmq
+    port: 5672
+    backend: rpc://
+    include:
+        - tasks
+
+# The key secret of the plugins' store comes from the environment
+# (`FOCA_PLUGINS_STORE_KEY_SECRET`, e.g., the chart's
+# `pluginStore.existingSecret`), as it must not be in a config file
+plugins:
+    available:
+        org.example.gateway.stamp:
+            config:
+                stamp: stamped by the plugin
+    pipeline:
+        - org.example.gateway.stamp
+        - foca.routing.ordered

@@ -13,9 +13,10 @@ registries:
 
 updates:
   # Python packages: FOCA's, those of the tools (`requirements/`) and those
-  # that the petstore example's image installs (`examples/petstore`)
+  # that the images of the examples install (`examples/petstore`,
+  # `examples/gateway`)
   - package-ecosystem: pip
-    directories: ["/", "/requirements", "/examples/petstore"]
+    directories: ["/", "/requirements", "/examples/petstore", "/examples/gateway"]
     target-branch: dev
     schedule:
       interval: weekly
@@ -72,6 +73,15 @@ updates:
       interval: weekly
     ignore:
       - dependency-name: foca-petstore-root
+
+  # The same in the gateway example's image
+  - package-ecosystem: docker
+    directory: /examples/gateway
+    target-branch: dev
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: foca-gateway-root
 
   # Images in the values of the petstore example's chart, which app charts
   # copy: patch updates only, as minor versions are chosen deliberately (e.g.,

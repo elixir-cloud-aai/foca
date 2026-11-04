@@ -1,0 +1,62 @@
+# The gateway example with its worker, MongoDB and RabbitMQ, for the
+# integration tests (`tests/integration_gateway_tests.py`). The values below
+# are for this example only: don't use them for anything else. The app is
+# published on port 8081, so that it can run next to the petstore example
+x-gateway: &gateway
+  image: foca-gateway-example:latest
+  environment:
+    # The tests compute hashes with this value
+    FOCA_PLUGINS_STORE_KEY_SECRET: not-a-secret-for-the-example-only
+    CELERY_BROKER_URL: pyamqp://gateway:not-a-secret@rabbitmq:5672//
+  restart: unless-stopped
+
+services:
+  # build app image based on current FOCA root image
+  foca-gateway-root:
+    build:
+      context: ../../
+      dockerfile: docker/Dockerfile
+      args:
+        PY_IMAGE: ${GATEWAY_PY_IMAGE:-3.13-slim-trixie}
+    image: foca-gateway-root:latest
+    restart: "no"
+
+  app:
+    <<: *gateway
+    depends_on:
+      - foca-gateway-root
+      - mongodb
+      - rabbitmq
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+
+  worker:
+    <<: *gateway
+    depends_on:
+      - app
+    command:
+      - python
+      - -m
+      - celery
+      - --app
+      - worker:celery_app
+      - worker
+      - --concurrency=1
+      - --loglevel=INFO
+
+  mongodb:
+    # See the petstore example for the version
+    image: mongo:7.0
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4.3
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: gateway
+      RABBITMQ_DEFAULT_PASS: not-a-secret
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/conf.d/90-gateway.conf:ro
