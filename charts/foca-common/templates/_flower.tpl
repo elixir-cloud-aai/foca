@@ -42,7 +42,10 @@ Deployment of Flower, the monitoring UI of the Celery worker, if `flower.enabled
 pod, connected to the broker with the URL of `broker.existingSecret` (key
 `broker-url`), with basic authentication from `flower.existingSecret` (key
 `basic-auth`, `<user>:<password>`), as it shows the arguments of tasks. It is not
-exposed outside the cluster. Call with the context dict.
+exposed outside the cluster. Without `flower.podSecurityContext` and
+`flower.securityContext`, it runs unprivileged. Also checks Flower's values, in this
+template only, as apps may have their own `flower` values without it. Call with the
+context dict.
 */}}
 {{- define "foca-common.flowerDeployment" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -50,6 +53,18 @@ exposed outside the cluster. Call with the context dict.
 {{- if include "foca-common.flowerEnabled" $root -}}
 {{- include "foca-common.checkFlower" $root -}}
 {{- $flower := $root.Values.flower -}}
+{{- /* The image runs as user `flower` (1000) */ -}}
+{{- $podSecurityContext := $flower.podSecurityContext | default (dict
+  "runAsNonRoot" true
+  "runAsUser" 1000
+  "runAsGroup" 1000
+  "seccompProfile" (dict "type" "RuntimeDefault")
+) -}}
+{{- $securityContext := $flower.securityContext | default (dict
+  "allowPrivilegeEscalation" false
+  "capabilities" (dict "drop" (list "ALL"))
+  "readOnlyRootFilesystem" true
+) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -109,13 +124,13 @@ spec:
           failureThreshold: 3
         resources: {{- toYaml ($flower.resources | default dict) | nindent 10 }}
         securityContext:
-          {{- include "foca-common.securityContext" (dict "root" $root "context" $flower.securityContext) | nindent 10 }}
+          {{- include "foca-common.securityContext" (dict "root" $root "context" $securityContext) | nindent 10 }}
         volumeMounts:
         # Writable, as the root file system is read-only by default
         - mountPath: /tmp
           name: tmp
       securityContext:
-        {{- include "foca-common.securityContext" (dict "root" $root "context" $flower.podSecurityContext) | nindent 8 }}
+        {{- include "foca-common.securityContext" (dict "root" $root "context" $podSecurityContext) | nindent 8 }}
       volumes:
       - name: tmp
         {{- include "foca-common.emptyDir" $flower.tmpSizeLimit | nindent 8 }}
@@ -149,8 +164,8 @@ spec:
 {{- end -}}
 
 {{/*
-NetworkPolicy of Flower, if `flower.enabled` and `flower.networkPolicy.enabled`: only
-the peers in `flower.networkPolicy.ingressFrom` may connect to Flower (none by default,
+NetworkPolicy of Flower, if `flower.enabled`, unless `flower.networkPolicy.enabled` is
+false: only the peers in `flower.networkPolicy.ingressFrom` may connect to Flower (none by default,
 so it is reached via `kubectl port-forward` only). Connections from the pods' node (the
 kubelet's probes) are always allowed. Call with the context dict.
 */}}
@@ -158,7 +173,7 @@ kubelet's probes) are always allowed. Call with the context dict.
 {{- include "foca-common.checkSettings" . -}}
 {{- $root := .root -}}
 {{- $flower := $root.Values.flower | default dict -}}
-{{- if and (include "foca-common.flowerEnabled" $root) (dig "networkPolicy" "enabled" false $flower) -}}
+{{- if and (include "foca-common.flowerEnabled" $root) (dig "networkPolicy" "enabled" true $flower) -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -171,7 +186,7 @@ spec:
       {{- include "foca-common.selectorLabels" (dict "root" $root "component" "flower") | nindent 6 }}
   policyTypes:
   - Ingress
-  {{- with $flower.networkPolicy.ingressFrom }}
+  {{- with dig "networkPolicy" "ingressFrom" list $flower }}
   ingress:
   - from:
       {{- toYaml . | nindent 4 }}

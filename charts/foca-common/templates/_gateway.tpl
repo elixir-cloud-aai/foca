@@ -36,13 +36,13 @@ The keys of the settings of FOCA's plugins (`foca.plugins.config`) in the values
 {{- end -}}
 
 {{/*
-A value of the plugin settings (`value`) with the keys of the config (cf.
+A value of the plugin settings (`value`) with the keys of the config (`keys`, cf.
 `foca-common.pluginKeys`), recursively; the settings of plugins (`config` and
 `params`) are kept as they are. Rendered as a JSON object, with the value as
 `value`.
 */}}
 {{- define "foca-common.snakeKeys" -}}
-{{- $keys := include "foca-common.pluginKeys" . | fromJson -}}
+{{- $keys := .keys -}}
 {{- $value := .value -}}
 {{- if kindIs "map" $value -}}
 {{- $converted := dict -}}
@@ -50,14 +50,14 @@ A value of the plugin settings (`value`) with the keys of the config (cf.
 {{- if has $key (list "config" "params") -}}
 {{- $_ := set $converted $key $item -}}
 {{- else -}}
-{{- $_ := set $converted (get $keys $key | default $key) (get (include "foca-common.snakeKeys" (dict "value" $item) | fromJson) "value") -}}
+{{- $_ := set $converted (get $keys $key | default $key) (get (include "foca-common.snakeKeys" (dict "keys" $keys "value" $item) | fromJson) "value") -}}
 {{- end -}}
 {{- end -}}
 {{- $value = $converted -}}
 {{- else if kindIs "slice" $value -}}
 {{- $converted := list -}}
 {{- range $item := $value -}}
-{{- $converted = append $converted (get (include "foca-common.snakeKeys" (dict "value" $item) | fromJson) "value") -}}
+{{- $converted = append $converted (get (include "foca-common.snakeKeys" (dict "keys" $keys "value" $item) | fromJson) "value") -}}
 {{- end -}}
 {{- $value = $converted -}}
 {{- end -}}
@@ -78,10 +78,10 @@ Call with the root context.
 {{- $converted := dict -}}
 {{- if has $key (list "available" "presets") -}}
 {{- range $name, $item := $value -}}
-{{- $_ := set $converted $name (get (include "foca-common.snakeKeys" (dict "value" $item) | fromJson) "value") -}}
+{{- $_ := set $converted $name (get (include "foca-common.snakeKeys" (dict "keys" $keys "value" $item) | fromJson) "value") -}}
 {{- end -}}
 {{- else -}}
-{{- $converted = get (include "foca-common.snakeKeys" (dict "value" $value) | fromJson) "value" -}}
+{{- $converted = get (include "foca-common.snakeKeys" (dict "keys" $keys "value" $value) | fromJson) "value" -}}
 {{- end -}}
 {{- $_ := set $plugins (get $keys $key | default $key) $converted -}}
 {{- end -}}
@@ -122,7 +122,8 @@ empty without both. Call with the root context.
 {{/*
 The backends of `<backendsKey>.backends`, with the keys of the entries and of their
 `basic` in snake_case, as the config has them, also those that only the app adds to
-FOCA's entries (those of `labels` and `location` are kept), as a JSON list. Call with
+FOCA's entries (those of `labels` and `location` are kept, as are keys with `_`, and
+Sprig's `snakecase` separates digits: write `ga4gh_id` as it is), as a JSON list. Call with
 a dict of the root context (`root`) and the key (`key`).
 */}}
 {{- define "foca-common.backendsConfig" -}}
@@ -133,11 +134,11 @@ a dict of the root context (`root`) and the key (`key`).
 {{- if and (eq $key "basic") (kindIs "map" $value) -}}
 {{- $basic := dict -}}
 {{- range $name, $env := $value -}}
-{{- $_ := set $basic (snakecase $name) $env -}}
+{{- $_ := set $basic (ternary $name (snakecase $name) (contains "_" $name)) $env -}}
 {{- end -}}
 {{- $value = $basic -}}
 {{- end -}}
-{{- $_ := set $converted (snakecase $key) $value -}}
+{{- $_ := set $converted (ternary $key (snakecase $key) (contains "_" $key)) $value -}}
 {{- end -}}
 {{- $entries = append $entries $converted -}}
 {{- end -}}
@@ -147,21 +148,20 @@ a dict of the root context (`root`) and the key (`key`).
 {{/*
 Fails on backends set both in `<backendsKey>.backends` and in
 `config.custom.<backendsKey>.backends`, on a `config.custom.<backendsKey>` that is
-no map, and on service registries without a public URL (`publicUrl`, `hostName` or
-`config.server.public_url`, which takes precedence, also if `null`), which FOCA
-needs so that the app never discovers itself; renders nothing. Call with a dict of
-the root context (`root`) and the key (`key`).
+no map, on credentials in entries, which the overlay in a ConfigMap would expose, and
+on service registries without a public URL in the overlay (`publicUrl`, `hostName`,
+the setting `config`, or `config.server.public_url`, which takes precedence, also if
+`null`), which FOCA needs so that the app never discovers itself; renders nothing. Call
+with a dict of the root context (`root`), the settings (`settings`) and the key
+(`key`).
 */}}
 {{- define "foca-common.checkBackends" -}}
 {{- $key := .key -}}
 {{- $config := .root.Values.config | default dict -}}
 {{- $custom := get $config "custom" -}}
 {{- $section := and (kindIs "map" $custom) (get $custom $key) -}}
-{{- $server := get $config "server" -}}
-{{- $publicUrl := include "foca-common.publicUrl" .root -}}
-{{- if and (kindIs "map" $server) (hasKey $server "public_url") -}}
-{{- $publicUrl = get $server "public_url" -}}
-{{- end -}}
+{{- $server := get (include "foca-common.configOverlay" . | fromYaml) "server" -}}
+{{- $publicUrl := and (kindIs "map" $server) (get $server "public_url") -}}
 {{- $backends := include "foca-common.backendsConfig" . | fromJsonArray -}}
 {{- if and (kindIs "map" $custom) (hasKey $custom $key) (not (kindIs "map" $section)) -}}
 {{- fail (printf "config.custom.%s must be a map (the app refuses other values; leave it out for none)" $key) -}}
@@ -175,8 +175,21 @@ the root context (`root`) and the key (`key`).
 {{- end -}}
 {{- end -}}
 {{- range $entry := $backends -}}
-{{- if and (kindIs "map" $entry) (eq (get $entry "type") "ga4gh-service-registry") (not $publicUrl) -}}
+{{- if kindIs "map" $entry -}}
+{{- if and (kindIs "string" (get $entry "url")) (regexMatch "^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*@" (get $entry "url")) -}}
+{{- fail (printf "the url of an entry of %s.backends must not hold credentials, which would be readable in the ConfigMap: use auth and basic.usernameEnv and basic.passwordEnv" $key) -}}
+{{- end -}}
+{{- $basic := get $entry "basic" -}}
+{{- if kindIs "map" $basic -}}
+{{- range $name := keys $basic | sortAlpha -}}
+{{- if not (has $name (list "username_env" "password_env")) -}}
+{{- fail (printf "basic of an entry of %s.backends must only name the environment variables with the credentials (usernameEnv, passwordEnv), not %s" $key $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq (get $entry "type") "ga4gh-service-registry") (not $publicUrl) -}}
 {{- fail (printf "hostName or publicUrl (or config.server.public_url) must be set if %s.backends or config.custom.%s.backends has registries (type: ga4gh-service-registry), so that the app never discovers itself" $key $key) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -240,9 +253,9 @@ false
 With the setting `requireAccessControl`, as such apps on startup, refuses to render
 unless access control is enabled and enforced (`security.access_control.enabled` and
 `enforce`), without trusted token issuers, with a group mapping but no group claim
-(global or of an issuer), or without a group mapped to the role `admin` (unless
-admins are explicitly not required, `security.access_control.require_admin`); renders
-nothing. The audiences of issuers are checked here, too, also if each issuer has one
+(global or of an issuer), or without the role `admin` being granted by
+`group_mapping`, `client_mapping` or `policies` (unless admins are explicitly not
+required, `security.access_control.require_admin`); renders nothing. The audiences of issuers are checked here, too, also if each issuer has one
 of its own, so that the global one is not needed. Assumes what such apps' base configs
 set: `enabled`, `enforce` and `require_admin` are true unless set otherwise in the
 values. Call with the root context.
@@ -255,10 +268,26 @@ values. Call with the root context.
 {{- $issuers := list -}}
 {{- $enabled := "true" -}}
 {{- $enforce := "true" -}}
+{{- $clientMapping := dict -}}
+{{- $policies := list -}}
+{{- $groupMappingSet := false -}}
+{{- $keepGroupSubjects := "false" -}}
 {{- $security := get $config "security" -}}
 {{- if kindIs "map" $security -}}
 {{- $accessControl := get $security "access_control" -}}
 {{- if kindIs "map" $accessControl -}}
+{{- with get $accessControl "client_mapping" -}}
+{{- $clientMapping = . -}}
+{{- end -}}
+{{- with get $accessControl "policies" -}}
+{{- $policies = . -}}
+{{- end -}}
+{{- if hasKey $accessControl "keep_group_subjects" -}}
+{{- $keepGroupSubjects = include "foca-common.parseBool" (dict
+  "value" (get $accessControl "keep_group_subjects")
+  "key" "config.security.access_control.keep_group_subjects"
+) -}}
+{{- end -}}
 {{- if hasKey $accessControl "enabled" -}}
 {{- $enabled = include "foca-common.parseBool" (dict
   "value" (get $accessControl "enabled")
@@ -367,6 +396,7 @@ issuer
 {{- if ne $claimGroups (trim $claimGroups) -}}
 {{- fail "config.security.access_control.claim_groups must be the name of a claim, without surrounding whitespace" -}}
 {{- end -}}
+{{- $groupMappingSet = not (kindIs "invalid" $mapping) -}}
 {{- if kindIs "invalid" $mapping -}}
 {{- $mapping = dict -}}
 {{- else if not (kindIs "map" $mapping) -}}
@@ -378,7 +408,17 @@ issuer
 {{- if and $mapping (not $anyClaim) -}}
 {{- fail "config.security.access_control.claim_groups must name the claim with the groups of users (e.g., groups), as groups are mapped to roles (group_mapping), unless claim_groups of each issuer in config.security.auth.issuers does (an issuer's claim replaces the global one for its tokens; an empty one takes no groups); also add it to config.security.auth.userinfo_claims if the identity provider releases it via user info only" -}}
 {{- end -}}
-{{- if and (eq $requireAdmin "true") (not (has "admin" (values $mapping))) -}}
-{{- fail "config.security.access_control.group_mapping must map a group to the role admin (e.g., the admin group of the identity provider), or set config.security.access_control.require_admin to false" -}}
+{{- /* As the app: rules for groups count only if group subjects are in use */ -}}
+{{- $admin := or (has "admin" (values $mapping)) (and (kindIs "map" $clientMapping) (has "admin" (values $clientMapping))) -}}
+{{- $groupSubjects := and $anyClaim (or (not $groupMappingSet) (eq $keepGroupSubjects "true")) -}}
+{{- range $rule := ternary $policies (list) (kindIs "slice" $policies) -}}
+{{- if and (kindIs "slice" $rule) (eq (len $rule) 3) (eq (index $rule 0 | toString) "g") (eq (index $rule 2 | toString) "admin") -}}
+{{- if or (not (hasPrefix "group:" (index $rule 1 | toString))) $groupSubjects -}}
+{{- $admin = true -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq $requireAdmin "true") (not $admin) -}}
+{{- fail "config.security.access_control must grant the role admin: map a group (group_mapping, e.g., the admin group of the identity provider) or a service client (client_mapping) to it, grant it in policies, or set config.security.access_control.require_admin to false" -}}
 {{- end -}}
 {{- end -}}

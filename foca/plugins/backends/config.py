@@ -42,9 +42,9 @@ API_TYPES: dict[str, ApiType] = {
 
 
 class _Model(BaseModel):
-    """Base of the models: unknown keys are errors."""
+    """Base of the models: unknown keys are errors, without their values."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
 
 class BasicCredentialsConfig(_Model):

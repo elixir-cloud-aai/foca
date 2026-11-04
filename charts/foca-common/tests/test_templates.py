@@ -3207,6 +3207,61 @@ def test_registry_needs_public_url(
     )
 
 
+def test_registry_with_public_url_of_settings(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """A public URL from the app's settings counts."""
+    settings = _gateway_settings(
+        "backendsKey: tes",
+        "config:",
+        "  server:",
+        "    public_url: https://example.org/",
+    )
+    assert _registry_without_url(chart_with_settings(settings))
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        (
+            {"type": "ga4gh-tes", "url": "https://u:hunter2@tes.example.org/"},
+            "must not hold credentials",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t", "basic": {"password": "hunter2"}},
+            "not password",
+        ),
+    ],
+)
+def test_backend_credentials_fail(
+    chart_with_settings: Callable[[str], Path], entry: dict[str, Any], message: str
+) -> None:
+    """Credentials don't get into the ConfigMap, and aren't named in the error."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    for args in (
+        ("--set-json", f"tes={json.dumps({'backends': [entry]})}"),
+        (
+            "--set-json",
+            f"config.custom={json.dumps({'tes': {'backends': [entry]}})}",
+        ),
+    ):
+        error = template_error(chart, *args)
+        assert message in error
+        assert "hunter2" not in error
+
+
+def test_backend_keys_with_underscore_stay(
+    chart_with_settings: Callable[[str], Path],
+) -> None:
+    """Keys that are in snake_case already aren't converted."""
+    chart = chart_with_settings(_gateway_settings("backendsKey: tes"))
+    entry = {"type": "ga4gh-tes", "url": "https://t", "ga4gh_id": "a"}
+    docs = index(
+        template(chart, "--set-json", f"tes={json.dumps({'backends': [entry]})}")
+    )
+    assert _overlay(docs)["custom"]["tes"]["backends"] == [entry]
+
+
 def test_registry_in_config_needs_public_url(
     chart_with_settings: Callable[[str], Path],
 ) -> None:
@@ -3245,6 +3300,18 @@ def test_access_control_accepted(chart_with_settings: Callable[[str], Path]) -> 
     assert index(template(chart, *issuers))
     numeric = _security(enabled=1, enforce="on")
     assert index(template(chart, *numeric))
+    client = _security(group_mapping=None, client_mapping={"svc": "admin"})
+    assert index(template(chart, *client))
+    rule = _security(group_mapping=None, policies=[["g", "user:alice", "admin"]])
+    assert index(template(chart, *rule))
+    group = _security(group_mapping=None, policies=[["g", "group:a", "admin"]])
+    assert index(template(chart, *group))
+    kept = _security(
+        group_mapping={"a": "user"},
+        keep_group_subjects=True,
+        policies=[["g", "group:a", "admin"]],
+    )
+    assert index(template(chart, *kept))
     no_claim = _security(claim_groups=None)
     with_issuer = json.loads(no_claim[1].split("=", 1)[1])
     with_issuer["auth"]["issuers"] = [
@@ -3265,9 +3332,39 @@ def test_access_control_accepted(chart_with_settings: Callable[[str], Path]) -> 
         (_security(enabled="maybe"), "enabled must be true or false, not maybe"),
         (_security(enforce=None), "enforce must be true or false, not null"),
         (_security(require_admin="x"), "require_admin must be true or false"),
-        (_security(group_mapping={}), "must map a group to the role admin"),
-        (_security(group_mapping={"a": "user"}), "must map a group to the role admin"),
+        (_security(group_mapping={}), "must grant the role admin"),
+        (_security(group_mapping={"a": "user"}), "must grant the role admin"),
         (_security(group_mapping=[]), "must be a map of groups to roles"),
+        (
+            _security(group_mapping=None, client_mapping={"svc": "user"}),
+            "must grant the role admin",
+        ),
+        (
+            _security(group_mapping=None, policies=[["g", "user:a", "user"]]),
+            "must grant the role admin",
+        ),
+        (
+            _security(group_mapping=None, policies=[["g2", "user:a", "admin"]]),
+            "must grant the role admin",
+        ),
+        (
+            _security(
+                group_mapping={"a": "user"}, policies=[["g", "group:a", "admin"]]
+            ),
+            "must grant the role admin",
+        ),
+        (
+            _security(
+                group_mapping=None,
+                claim_groups="",
+                policies=[["g", "group:a", "admin"]],
+            ),
+            "must grant the role admin",
+        ),
+        (
+            _security(keep_group_subjects="x"),
+            "keep_group_subjects must be true or false",
+        ),
         (_security(claim_groups=""), "must name the claim with the groups"),
         (_security(claim_groups=" a"), "without surrounding whitespace"),
         (_security(claim_groups=1), "must be the name of a claim (a string)"),
@@ -3407,8 +3504,24 @@ def test_flower_network_policy_peers(flower_chart: Path) -> None:
     )
     ingress = docs["NetworkPolicy", f"{APP}-flower"]["spec"]["ingress"]
     assert ingress == [{"from": peers, "ports": [{"port": 5555, "protocol": "TCP"}]}]
-    docs = index(template(flower_chart, *FLOWER))
+    docs = index(
+        template(flower_chart, *FLOWER, "--set", "flower.networkPolicy.enabled=false")
+    )
     assert ("NetworkPolicy", f"{APP}-flower") not in docs
+
+
+def test_flower_safe_by_default(flower_chart: Path) -> None:
+    """With what it needs only, Flower is unprivileged and admits no one."""
+    docs = index(template(flower_chart, *FLOWER))
+    name = f"{APP}-flower"
+    assert docs["NetworkPolicy", name]["spec"]["ingress"] == []
+    spec = docs["Deployment", name]["spec"]["template"]["spec"]
+    assert spec["securityContext"]["runAsNonRoot"] is True
+    assert spec["containers"][0]["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "readOnlyRootFilesystem": True,
+    }
 
 
 def test_flower_reaches_bundled_broker(flower_chart: Path) -> None:
@@ -3461,8 +3574,8 @@ def test_flower_invalid(
     assert message in template_error(flower_chart, *args)
 
 
-def test_flower_invalid_without_its_templates(
-    render_error: Callable[..., str],
+def test_flower_values_of_apps_without_its_templates(
+    render: Callable[..., Docs],
 ) -> None:
-    """The checks don't depend on the templates, as `foca-common.validate` has them."""
-    assert "flower.image must be set" in render_error("--set", "flower.enabled=true")
+    """Apps may have `flower` values of their own, which aren't checked."""
+    assert render("--set", "flower.enabled=true")

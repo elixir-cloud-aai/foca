@@ -144,7 +144,7 @@ and the settings (`settings`), one per file:
 | `foca-common.brokerService` | the broker's `Service` (port 5672), the host of the broker URL |
 | `foca-common.flowerDeployment` | Flower's `Deployment`, if `flower.enabled` (see [Flower](#flower)) |
 | `foca-common.flowerService` | Flower's `Service` (port 5555), if `flower.enabled` |
-| `foca-common.flowerNetworkPolicy` | Flower's `NetworkPolicy`, if `flower.enabled` and `flower.networkPolicy.enabled` |
+| `foca-common.flowerNetworkPolicy` | Flower's `NetworkPolicy`, if `flower.enabled`, unless `flower.networkPolicy.enabled` is false |
 | `foca-common.flowerBrokerNetworkPolicy` | `NetworkPolicy` allowing Flower to connect to the bundled broker, if `flower.enabled`, `broker.enabled` and `broker.networkPolicy.enabled` |
 
 App charts without background tasks may leave out the worker's and broker's
@@ -558,7 +558,8 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
 ## Gateway apps
 
 Apps built on FOCA's [plugin engine](plugins.md) turn these options on in their
-[settings](#settings); by default, none of them changes what the chart renders.
+[settings](#settings); by default, none of them changes what the chart renders. New in
+0.5.0; copy `app-values.schema.json` again (see [Values](#values)) to use them.
 
 ```yaml title="templates/_helpers.tpl"
 {{- define "my-gateway.settings" -}}
@@ -602,7 +603,12 @@ and of their `basic` in camelCase in the values (e.g., `urlSchemes`,
 The public URL of the app
 (`server.public_url`) is set to `publicUrl`, or else to `https://<hostName>/`.
 Rendering fails if `config.custom.tes.backends` is set too, if `config.custom.tes` is no
-map, and for service registries without a public URL, as FOCA refuses to start then.
+map, for credentials in entries (in a `url`, or in `basic` other than the names of
+variables), which would be readable in the ConfigMap, and for service registries without
+a public URL in the overlay, as FOCA refuses to start then; a public URL of the base
+config in the image doesn't count, so set it in the setting `config`. Keys with `_` are
+kept as they are; Sprig's `snakecase` separates digits, so write such keys that way
+(`ga4gh_id`).
 
 **Security settings** (`requireAccessControl: true`), for apps that protect their
 resources with access control, with `enabled`, `enforce` and `require_admin` as true
@@ -614,14 +620,20 @@ by default in their base configs. As the app on startup, rendering fails
   them, or with issuer maps with unknown keys or with an `audience` or `claim_groups`
   that the app refuses;
 - with a `group_mapping` but no group claim (`claim_groups`, global or of an issuer);
-- without a group mapped to the role `admin`, unless `require_admin` is false.
+- unless a group (`group_mapping`), a service client (`client_mapping`) or a rule in
+  `policies` (`[g, <subject>, admin]`; for `group:` subjects, as far as the app applies
+  them) has the role `admin`, or `require_admin` is false.
+
+These are the checks that catch a deployment that would refuse to start, not all of
+FOCA's validation: the app checks the rest of its configuration on startup.
 
 ## Flower
 
 [Flower](https://flower.readthedocs.io/) shows the Celery worker's tasks, including
-their arguments. App charts that offer it add the template files and the
+their arguments. New in 0.5.0: app charts that offer it add the template files and the
 values `flower`; it's off by default and needs basic authentication: create a Secret
-with the key `basic-auth` (`<user>:<password>`), and set
+with the key `basic-auth` (`<user>:<password>`), and set the following. The chart's
+defaults are the same as these for the security contexts and the NetworkPolicy.
 
 ```yaml title="values.yaml"
 flower:

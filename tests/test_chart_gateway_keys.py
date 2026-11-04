@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from foca.models.config import IssuerConfig
 from foca.plugins import config as plugins_config
+from foca.plugins.backends import config as backends_config
 
 TEMPLATE = (
     Path(__file__).parents[1] / "charts" / "foca-common" / "templates" / "_gateway.tpl"
@@ -57,6 +58,14 @@ def test_keys_complete() -> None:
     for camel, snake in keys.items():
         first, *rest = snake.split("_")
         assert camel == first + "".join(word.title() for word in rest)
+
+
+def test_backend_keys_rendered() -> None:
+    """The chart's test of backend lists covers all fields with several words."""
+    tests = TEMPLATE.parents[1] / "tests" / "test_templates.py"
+    text = tests.read_text()
+    for field in _fields(backends_config):
+        assert f'"{field}"' in text
 
 
 def test_issuer_settings_complete() -> None:

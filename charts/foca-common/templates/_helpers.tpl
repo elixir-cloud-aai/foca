@@ -513,14 +513,11 @@ ConfigMap template, which every app chart renders.
 {{- if and $httpRoute (dig "httpRoute" "httpsRedirect" "enabled" false $values) (eq $fullname (include "foca-common.httpsRedirectFullname" .root)) -}}
 {{- fail (printf "the app's HTTPRoute and the HTTPS redirect would both be named %s: choose a fullnameOverride that does not end in -https-redirect" $fullname) -}}
 {{- end -}}
-{{- if include "foca-common.flowerEnabled" .root -}}
-{{- include "foca-common.checkFlower" .root -}}
-{{- end -}}
 {{- if .settings.plugins -}}
 {{- include "foca-common.checkPluginValues" .root -}}
 {{- end -}}
 {{- with .settings.backendsKey -}}
-{{- include "foca-common.checkBackends" (dict "root" $.root "key" .) -}}
+{{- include "foca-common.checkBackends" (dict "root" $.root "settings" $.settings "key" .) -}}
 {{- end -}}
 {{- if .settings.requireAccessControl -}}
 {{- include "foca-common.checkAccessControl" .root -}}
