@@ -512,6 +512,73 @@ would apply to all others.
 `is_permitted_for()` works without a request, too, but there is no caller
 then: only routes that don't enforce policies are permitted.
 
+### The current caller
+
+Clients often need to know who the caller is and what they may do, e.g., to show or
+hide admin functions. With `me_enabled`, FOCA serves `GET /me` for that. It's off by
+default, so that apps with their own endpoint aren't affected:
+
+```yaml
+security:
+  access_control:
+    enabled: true
+    me_enabled: true
+    # Optional
+    me_path: /me
+    me_hook: my_app.access.me_fields
+```
+
+Any caller with a valid token may call it, policies aren't enforced on it, and requests
+without a token get `401`. The response is:
+
+```json
+{
+  "subject": "alice",
+  "client": null,
+  "groups": ["curator"],
+  "admin": false,
+  "admin_available": true
+}
+```
+
+- `subject` is the caller's identifier (`get_current_subject()`), `null` if the token
+  has none.
+- `client` is the client ID of [service clients](#service-clients)
+  (`get_current_client()`), otherwise `null`.
+- `groups` are the roles from the caller's group claims (`get_current_groups()`).
+- `admin` tells whether the caller is an admin on this request (`is_admin()`). With
+  [opt-in roles](#opt-in-roles), it takes asking for it.
+- `admin_available` tells whether the caller may be one, also if it takes opting in.
+
+`me_hook` names a function without arguments that returns further fields for the
+response. It runs during the request, so it can use the same helpers, and they can't
+replace the fields above, on which clients rely. If it can't be imported, the app
+doesn't start; if it fails, the request fails with `500`.
+
+```python
+from typing import Any
+
+from foca.security.access_control.ownership import list_subject_roles
+
+
+def me_fields() -> dict[str, Any]:
+    return {"services": [role.id for role in list_subject_roles("/services")]}
+```
+
+The app doesn't start if another route has the path, or if one of its APIs has the
+base path `/`: then, declare the endpoint in that API, with the operation ID
+`foca.security.access_control.me.getMe`. The endpoint isn't part of the permissions
+API, so it doesn't depend on `api_enabled`.
+
+cloud-registry's own `GET /me` maps to this one as follows:
+
+| cloud-registry | FOCA |
+| --- | --- |
+| `user_id` | `subject` |
+| `admin` | `admin` |
+| `admin_available` | `admin_available` |
+| `may_add_service_types`, `service_types_pending`, `services` | Fields of `me_hook` |
+
 ### Requiring login for reads
 
 Many apps make reads public (operations with `security: []`). Operators who

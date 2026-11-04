@@ -33,13 +33,18 @@ security:
     api_serve_spec: true
     api_enabled: true
     api_base_path: /admin/access-control
+    me_enabled: false
+    me_path: /me
+    me_hook: my_app.access.me_fields
     log_traffic: true
 ```
 
 `api_enabled: false` removes the permissions API, and with it its Swagger UI and
 specification, while policies are still enforced. `api_base_path` moves it, unless
 `api_specs` sets its own (cf. [Configuring the
-API](../access-control.md#configuring-the-api)).
+API](../access-control.md#configuring-the-api)). `me_enabled`, `me_path` and `me_hook`
+configure an endpoint telling callers who they are (cf. [The current
+caller](../access-control.md#the-current-caller)).
 
 Access control requires `enabled: true` and trusted token
 [`issuers`](auth.md); the other options are rejected otherwise. With

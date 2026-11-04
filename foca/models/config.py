@@ -822,6 +822,12 @@ class AccessControlConfig(FOCABaseConfig):
             its specification, which the UI needs (`api_serve_spec` must
             then not be set to `False`).
         api_serve_spec: Serve the API specification of the permissions API.
+        me_enabled: Register `GET /me`, telling callers with a valid token who
+            they are and whether they are admins.
+        me_path: Path of the endpoint.
+        me_hook: Dot-separated path to a function without arguments returning
+            further fields for the response of the endpoint, e.g.,
+            ``my_app.access.me_fields``. They can't replace those of FOCA.
         db_name: Name of the database of the policy collection. If it is the
             name of one of the app's databases, the policy collection is
             added to that database.
@@ -1001,6 +1007,9 @@ class AccessControlConfig(FOCABaseConfig):
     api_specs: str | None = None
     api_swagger_ui: bool = False
     api_serve_spec: bool = False
+    me_enabled: bool = False
+    me_path: str = "/me"
+    me_hook: str | None = None
     db_name: str = DEFAULT_ACCESS_CONTROL_DB_NAME
     collection_name: str = DEFAULT_ACCESS_CONTROL_COLLECTION_NAME
     model: str | None = Field(default=None, validate_default=True)
@@ -1098,16 +1107,17 @@ class AccessControlConfig(FOCABaseConfig):
             return None
         return {name: list(rule) for name, rule in named.items()}
 
-    @field_validator("api_base_path")
+    @field_validator("api_base_path", "me_path")
     @classmethod
-    def validate_api_base_path(cls, value: str) -> str:
-        """Ensure that the base path of the permissions API is usable.
+    def validate_api_base_path(cls, value: str, info: ValidationInfo) -> str:
+        """Ensure that a path of the APIs of access control is usable.
 
         Args:
-            value: Base path.
+            value: Path.
+            info: Information on the field.
 
         Returns:
-            The base path.
+            The path.
 
         Raises:
             ValueError: It is not an absolute path of at least one segment,
@@ -1120,7 +1130,7 @@ class AccessControlConfig(FOCABaseConfig):
             or {".", ".."} & set(segments)
         ):
             raise ValueError(
-                "'api_base_path' must be an absolute path of unreserved "
+                f"'{info.field_name}' must be an absolute path of unreserved "
                 "characters (e.g., '/admin/access-control'), without trailing "
                 "slash or dot segments"
             )
@@ -2254,6 +2264,7 @@ class SecurityConfig(FOCABaseConfig):
                     ("enforce", access_control.enforce),
                     ("api_specs", access_control.api_specs),
                     ("self_service", access_control.self_service),
+                    ("me_enabled", access_control.me_enabled),
                     ("api_enabled", not access_control.api_enabled),
                     (
                         "api_base_path",

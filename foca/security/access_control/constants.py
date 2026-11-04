@@ -6,6 +6,7 @@ from datetime import timedelta
 DEFAULT_ACCESS_CONTROL_DB_NAME = "access_control_db"
 DEFAULT_ACCESS_CONTROL_COLLECTION_NAME = "policy_rules"
 DEFAULT_API_SPEC_PATH = "access-control-specs.yaml"
+ME_API_SPEC_PATH = "me-specs.yaml"
 DEFAULT_MODEL_FILE = "default_model.conf"
 RESOURCE_ROLE_MODEL_FILE = "resource_role_model.conf"
 

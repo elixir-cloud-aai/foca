@@ -46,12 +46,14 @@ from foca.security.access_control.constants import (
     CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
     GROUP_PREFIX,
+    ME_API_SPEC_PATH,
 )
 from foca.security.access_control.enforcement import AccessControlResolver
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
 )
+from foca.security.access_control.me import import_me_hook
 from foca.security.access_control.ownership_server import _check_routes_enforced
 from foca.security.auth import InvalidTokenResolver
 from foca.utils.logging import escape_log_value
@@ -187,6 +189,9 @@ def register_access_control(
         app=cnx_app, access_control_config=access_control_config
     )
     _check_routes_enforced(cnx_app.app)
+    cnx_app = register_me_endpoint(
+        app=cnx_app, access_control_config=access_control_config
+    )
 
     cnx_app = register_casbin_enforcer(
         app=cnx_app,
@@ -623,6 +628,74 @@ def register_permission_specs(
         paths=list(api.specification.raw.get("paths", {})),
     )
     logger.info("Permission management API registered from '%s'.", spec_path)
+    return app
+
+
+def register_me_endpoint(app: App, access_control_config: AccessControlConfig) -> App:
+    """Register the endpoint telling callers who they are, if configured.
+
+    Any caller with a valid token may call it, as policies aren't enforced on it.
+
+    Args:
+        app: Connexion application instance.
+        access_control_config:
+            :py:class:`foca.models.config.AccessControlConfig` instance
+            with the options of the endpoint (`me_enabled`, `me_path`, `me_hook`).
+
+    Returns:
+        Connexion app, with the endpoint if it is enabled.
+
+    Raises:
+        ValueError: The function of `me_hook` can't be used, the path is taken,
+            or an API of the app has the base path `/`, which the endpoint needs.
+    """
+    if not access_control_config.me_enabled:
+        for option in ("me_path", "me_hook"):
+            if option in access_control_config.model_fields_set:
+                logger.warning(
+                    "'security.access_control.%s' has no effect, as "
+                    "'security.access_control.me_enabled' is false.",
+                    option,
+                )
+        return app
+    path = access_control_config.me_path
+    if access_control_config.me_hook is not None:
+        import_me_hook(access_control_config.me_hook)
+    # Connexion names blueprints after the base paths of APIs
+    if "" in _get_api_base_paths(app.app):
+        raise ValueError(
+            "'security.access_control.me_path' can't be used with an API at the "
+            "base path '/'. Declare the endpoint in that API instead (cf. "
+            "`foca.security.access_control.me.getMe`)."
+        )
+    if any(rule.rule == path for rule in app.app.url_map.iter_rules()):
+        raise ValueError(
+            f"'security.access_control.me_path' is taken by another route: '{path}'"
+        )
+    spec_file = Path(str(files(ACCESS_CONTROL_BASE_PATH).joinpath(ME_API_SPEC_PATH)))
+    specification = _with_error_media_type(
+        spec_path=spec_file, media_type=_get_error_media_type(app)
+    )
+    specification["paths"] = {path: specification["paths"]["/me"]}
+    resolver: Resolver | None = None
+    if _rejects_invalid_tokens(app):
+        resolver = InvalidTokenResolver()
+    options = ConnexionOptions(
+        strict_validation=True,
+        validate_responses=True,
+        swagger_ui=False,
+        serve_spec=False,
+        resolver=resolver,
+    )
+    api = app.add_api(specification=specification, **_connexion_add_api_kwargs(options))
+    _register_api(
+        app.app,
+        api.base_path,
+        _iter_resolved_operations(api.specification.raw),
+        is_app_api=False,
+        paths=[path],
+    )
+    logger.info("Endpoint for the current caller registered at '%s'.", path)
     return app
 
 
