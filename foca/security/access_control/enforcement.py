@@ -638,13 +638,15 @@ def _get_enforcer_cache() -> EnforcerCache:
     """
     model = current_app.config["CASBIN_MODEL"]
     adapter = _get_adapter()
-    cover_subpaths = _get_access_control_config().resource_roles_cover_subpaths
+    conf = _get_access_control_config()
+    cover_subpaths = conf.resource_roles_cover_subpaths
+    cover_custom_methods = conf.resource_roles_cover_custom_methods
     with _enforcer_cache_lock:
         cache = current_app.extensions.get(_ENFORCER_CACHE_KEY)
         if not isinstance(cache, EnforcerCache) or not cache.is_for(
-            model, adapter, cover_subpaths
+            model, adapter, cover_subpaths, cover_custom_methods
         ):
-            cache = EnforcerCache(model, adapter, cover_subpaths)
+            cache = EnforcerCache(model, adapter, cover_subpaths, cover_custom_methods)
             current_app.extensions[_ENFORCER_CACHE_KEY] = cache
     return cache
 

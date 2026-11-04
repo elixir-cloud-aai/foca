@@ -8,6 +8,10 @@ DEFAULT_ACCESS_CONTROL_COLLECTION_NAME = "policy_rules"
 DEFAULT_API_SPEC_PATH = "access-control-specs.yaml"
 DEFAULT_MODEL_FILE = "default_model.conf"
 RESOURCE_ROLE_MODEL_FILE = "resource_role_model.conf"
+# Without the override for admins
+GRANTED_RIGHTS_MODEL_FILE = "granted_rights_model.conf"
+# Prefix of models that FOCA ships in `access_control.model`
+PACKAGED_MODEL_PREFIX = "foca:"
 
 ACCESS_CONTROL_BASE_PATH = "foca.security.access_control.api"
 
