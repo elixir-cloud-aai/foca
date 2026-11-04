@@ -12,7 +12,7 @@ description = "Archetype for OpenAPI microservices based on Flask and Connexion"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 authors = [
     { name = "ELIXIR On-Cloud", email = "cloud-service@elixir-europe.org" },
     { name = "Alexander Kanitz" },

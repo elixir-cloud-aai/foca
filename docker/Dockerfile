@@ -36,7 +36,7 @@ WORKDIR /app
 # Install FOCA and its dependencies; without git history, the version needs
 # to be passed explicitly (e.g., `--build-arg FOCA_VERSION=1.2.3`); files
 # copied here must be in the allowlist of `.dockerignore`
-COPY pyproject.toml MANIFEST.in README.md LICENSE ./
+COPY pyproject.toml MANIFEST.in README.md LICENSE NOTICE ./
 COPY foca/ ./foca/
 ARG FOCA_VERSION=0+unknown
 RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FOCA="${FOCA_VERSION}" pip install . \
