@@ -34,6 +34,47 @@ from foca import Foca
 celery_app = Foca(config_file="my_app/config.yaml").create_celery_app()
 ```
 
+## Periodic jobs
+
+`periodic` sets jobs that [Celery
+beat](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html) starts, by
+name, with either `every` (seconds) or `cron` (fields of
+[`crontab`](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html#crontab-schedules),
+`*` by default):
+
+```yaml
+jobs:
+  include:
+    - my_app.tasks
+  periodic:
+    resume-tasks:
+      task: my_app.tasks.resume
+      every: 60
+    clean-up:
+      task: my_app.tasks.clean_up
+      cron:
+        minute: "0"
+        hour: "3"
+      kwargs:
+        retention_days: 30
+      options:
+        expires: 3600
+```
+
+The schedule takes effect in a beat process, which FOCA doesn't start. Run exactly
+one, or jobs start several times: `celery -A my_app.worker beat`, or `celery -A
+my_app.worker worker --beat` if a single worker runs. Beat keeps its state in a file,
+so point `--schedule` to a writable path on read-only file systems. The [Helm library
+chart](../helm-chart.md) doesn't deploy it yet: run it in a Deployment of its own, with
+one replica.
+
+## Startup checks
+
+`Foca.create_celery_app()` stops with an error on what `Foca.create_app()` would: the
+service info, and the access control settings that don't depend on what the app
+registers (groups, admins, opt-in roles). Workers don't register API specifications, so
+checks of those stay with the app.
+
 ## MongoDB in workers
 
 PyMongo clients [must not be used across

@@ -15,6 +15,9 @@ from foca.models.config import DBConfig, MongoConfig
 # Get logger instance
 logger = logging.getLogger(__name__)
 
+# `IndexOptionsConflict`, `IndexKeySpecsConflict`, and none with mongomock
+_INDEX_CONFLICT_CODES = (85, 86, None)
+
 # Options of MongoDB clients unless set otherwise, in milliseconds: with
 # MongoDB down, requests and the startup of the app fail after this time, not
 # after PyMongo's default of 30 seconds
@@ -206,6 +209,15 @@ def _get_client_options(
     return {name: value for name, value in merged.items() if name not in in_uri}
 
 
+class IndexConflictError(ValueError):
+    """A configured index conflicts with an existing index.
+
+    Other errors of creating indexes (e.g., missing permissions or connection
+    failures) stay what they are: subclasses of
+    :py:class:`pymongo.errors.PyMongoError`.
+    """
+
+
 def _register_database(
     client: MongoClient[dict[str, Any]],
     db_name: str,
@@ -222,8 +234,10 @@ def _register_database(
             set.
 
     Raises:
-        ValueError: A configured index conflicts with an existing index
-            (e.g., one with the same name but different keys or options).
+        IndexConflictError: A configured index conflicts with an existing
+            index (e.g., one with the same name but different keys or options).
+        pymongo.errors.PyMongoError: Indexes can't be created for another reason,
+            e.g., missing permissions or a connection failure.
     """
     db_conf.client = client[get_mongo_db_name(db_name)]
     logger.info("Added database '%s'.", db_name)
@@ -236,7 +250,9 @@ def _register_database(
             try:
                 coll_conf.client.create_index(index.keys, **index.options)
             except OperationFailure as exc:
-                raise ValueError(
+                if exc.code not in _INDEX_CONFLICT_CODES:
+                    raise
+                raise IndexConflictError(
                     f"Index {index.keys} of collection '{coll_name}' in "
                     f"database '{db_name}' conflicts with an existing index; "
                     f"drop or rename the existing index: {exc}"

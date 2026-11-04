@@ -4,12 +4,14 @@ from unittest.mock import MagicMock
 
 import pytest
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import worker_init, worker_process_init
+from pydantic import ValidationError
 
 from foca.factories import celery_app as module
 from foca.factories.celery_app import create_celery_app
 from foca.factories.connexion_app import create_connexion_app
-from foca.models.config import Config, JobsConfig, MongoConfig
+from foca.models.config import Config, JobsConfig, MongoConfig, PeriodicJobConfig
 
 CONFIG = Config()
 CONFIG.jobs = JobsConfig()
@@ -105,3 +107,63 @@ def test_worker_signals_reopen_once_per_config(
     worker_process_init.send(sender=None)
     calls = [call for call in reopen.call_args_list if call.args[0] is config.db]
     assert len(calls) == 1
+
+
+def test_periodic_jobs(logged: list[str]) -> None:
+    """Periodic jobs are set as the schedule of Celery beat."""
+    config = Config()
+    config.jobs = JobsConfig.model_validate(
+        {
+            "periodic": {
+                "often": {"task": "a.b", "every": 60, "args": [1]},
+                "nightly": {
+                    "task": "a.c",
+                    "cron": {"minute": "0", "hour": "3"},
+                    "kwargs": {"d": 1},
+                    "options": {"expires": 5},
+                },
+            }
+        }
+    )
+    schedule = create_celery_app(create_connexion_app(config).app).conf.beat_schedule
+    assert schedule["often"] == {
+        "task": "a.b",
+        "schedule": 60.0,
+        "args": [1],
+        "kwargs": {},
+        "options": {},
+    }
+    assert schedule["nightly"]["schedule"] == crontab(minute="0", hour="3")
+    assert schedule["nightly"]["kwargs"] == {"d": 1}
+    assert schedule["nightly"]["options"] == {"expires": 5}
+
+
+def test_no_periodic_jobs(logged: list[str]) -> None:
+    """Without periodic jobs, the schedule is empty."""
+    assert create_celery_app(create_connexion_app(CONFIG).app).conf.beat_schedule == {}
+
+
+def test_periodic_job_invalid_cron(logged: list[str]) -> None:
+    """Invalid fields stop the worker."""
+    config = Config()
+    config.jobs = JobsConfig.model_validate(
+        {"periodic": {"a": {"task": "a.b", "cron": {"hour": "25"}}}}
+    )
+    with pytest.raises(ValueError):
+        create_celery_app(create_connexion_app(config).app)
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        {"task": "a.b"},
+        {"task": "a.b", "every": 1, "cron": {"hour": "3"}},
+        {"task": "a.b", "every": 0},
+        {"task": "", "every": 1},
+        {"task": "a.b", "cron": {"hours": "3"}},
+    ],
+)
+def test_periodic_job_invalid(job: dict[str, object]) -> None:
+    """Jobs need a task and exactly one valid schedule."""
+    with pytest.raises(ValidationError):
+        PeriodicJobConfig.model_validate(job)

@@ -264,6 +264,7 @@ configuration models, see [Configuration](configuration/index.md).
         - create_mongo_client
         - get_mongo_client
         - get_mongo_db_name
+        - IndexConflictError
         - register_mongodb
         - reopen_mongodb
 

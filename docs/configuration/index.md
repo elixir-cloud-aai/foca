@@ -27,6 +27,9 @@ template](https://github.com/elixir-cloud-aai/foca/blob/dev/templates/config.yam
 or check the configuration of the [petstore
 example](https://github.com/elixir-cloud-aai/foca/blob/dev/examples/petstore/config.yaml).
 
+
+Keys that FOCA removed fail with a hint on what replaces them, rather than with
+the error for unknown keys.
 ## Relative paths
 
 Relative file paths in the configuration (`api.specs[].path`,

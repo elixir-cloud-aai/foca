@@ -4,6 +4,7 @@ import os
 import shutil
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from celery import Celery
@@ -541,3 +542,30 @@ def test_check_opt_in_roles_invalid_pattern(log: pytest.LogCaptureFixture) -> No
         access_control, CORSConfig(enabled=False, allow_headers=["Authorization"])
     )
     assert "is not allowed in cross-origin requests" not in log.text
+
+
+def test_create_celery_app_checks_service_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workers stop on what apps stop on, for service info."""
+    foca = Foca(config_file=JOBS_CONF)
+    monkeypatch.setattr(
+        "foca.foca.check_service_info", MagicMock(side_effect=ValueError("Invalid"))
+    )
+    with pytest.raises(ValueError, match="Invalid"):
+        foca.create_celery_app()
+
+
+def test_create_celery_app_checks_access_control(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workers stop on what apps stop on, for access control."""
+    foca = Foca(config_file=JOBS_CONF)
+    foca.conf.security.access_control.enabled = True
+    foca.conf.security.access_control.opt_in_roles = ["admin"]
+    checks = MagicMock()
+    monkeypatch.setattr("foca.foca.check_access_control_config", checks.settings)
+    monkeypatch.setattr("foca.foca.check_opt_in_roles", checks.opt_in)
+    foca.create_celery_app()
+    checks.settings.assert_called_once()
+    checks.opt_in.assert_called_once()
