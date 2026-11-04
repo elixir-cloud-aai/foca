@@ -1223,6 +1223,90 @@ def _store_legacy(
     collection.insert_one({**document, "id": id, CONFIGURED_FIELD: True})
 
 
+class TestConfiguredRevisions:
+    """Tests for keeping old app instances from bringing back old rules."""
+
+    @pytest.fixture(autouse=True)
+    def _adapter(self, policy_collection: Collection[dict[str, Any]]) -> None:
+        """Get an adapter."""
+        self.collection = policy_collection
+        self.adapter = Adapter(policy_collection)
+        self.adapter.save_policy_line(API_RULE[0], API_RULE[1:])
+
+    def _stored_revision(self) -> int | None:
+        """Get the stored revision."""
+        marker = self.collection.find_one({"_id": GENERATION_MARKER_ID})
+        assert marker is not None
+        return marker["revision"]
+
+    def test_first_without_stamp(self) -> None:
+        """Rules with a revision replace those without, also of old versions."""
+        assert self.adapter.set_configured_policies(OLD)
+        assert self.adapter.set_configured_policies(NEW, revision=1)
+        assert _loaded(self.collection) == _expected(*NEW)
+        assert self._stored_revision() == 1
+
+    def test_nothing_stored(self) -> None:
+        """Rules with a revision are stored in an empty collection."""
+        assert self.adapter.set_configured_policies(NEW, revision=0)
+        assert _loaded(self.collection) == _expected(*NEW)
+
+    def test_without_revisions(self) -> None:
+        """Without revisions, the last instance wins, as before."""
+        assert self.adapter.set_configured_policies(OLD)
+        assert self.adapter.set_configured_policies(NEW)
+        assert _loaded(self.collection) == _expected(*NEW)
+
+    @pytest.mark.parametrize("revision", [2, 3])
+    def test_new_after_old(self, revision: int) -> None:
+        """The same or a newer revision replaces the rules."""
+        assert self.adapter.set_configured_policies(OLD, revision=2)
+        assert self.adapter.set_configured_policies(NEW, revision=revision)
+        assert _loaded(self.collection) == _expected(*NEW)
+        assert self._stored_revision() == revision
+        _check_clean(self.collection, NEW)
+
+    @pytest.mark.parametrize("revision", [1, None])
+    def test_old_after_new(
+        self, revision: int | None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An older revision, or none, leaves the rules alone, with a warning."""
+        assert self.adapter.set_configured_policies(NEW, revision=2)
+        documents = list(self.collection.find())
+        assert not self.adapter.set_configured_policies(OLD, revision=revision)
+        assert list(self.collection.find()) == documents
+        assert "Configured policy rules not replaced" in caplog.text
+        assert "policies_force" in caplog.text
+
+    @pytest.mark.parametrize("revision", [1, None])
+    def test_rollback(self, revision: int | None) -> None:
+        """Rules can be forced, and their revision is stored."""
+        assert self.adapter.set_configured_policies(NEW, revision=2)
+        assert self.adapter.set_configured_policies(OLD, revision, force=True)
+        assert _loaded(self.collection) == _expected(*OLD)
+        assert self._stored_revision() == revision
+        _check_clean(self.collection, OLD)
+
+    def test_newer_stored_concurrently(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A newer revision stored after the first check still wins."""
+        other = Adapter(self.collection)
+        assert other.set_configured_policies(OLD, revision=1)
+        store = self.adapter._store_generation
+
+        def _store(generation: str, rules: list[list[str]]) -> None:
+            store(generation, rules)
+            other.set_configured_policies(NEW, revision=3)
+
+        monkeypatch.setattr(self.adapter, "_store_generation", _store)
+        assert not self.adapter.set_configured_policies(OLD, revision=2)
+        assert _loaded(self.collection) == _expected(*NEW)
+        assert self._stored_revision() == 3
+        assert "Configured policy rules not replaced" in caplog.text
+        _check_clean(self.collection, NEW)
+
+
 class TestLegacyConfiguredRules:
     """Tests for configured rules stored by FOCA 0.16, without generations."""
 

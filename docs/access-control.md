@@ -300,7 +300,12 @@ then, rules of the previous generation are removed. Only the configured
 rules of the active generation are loaded and listed by the permissions API,
 which changes no configured rules of any generation. If instances with different rules start
 concurrently, the rules of the instance that activates its generation last
-are kept. Rules of generations that never became active (e.g., because an
+are kept, unless the stored rules have a newer revision (`policies_revision`, cf.
+[Configured
+policies in rolling
+upgrades](deployment.md#configured-policies-in-rolling-upgrades)), which also keeps
+older instances from replacing them later on, or removing them. Rules of generations
+that never became active (e.g., because an
 instance failed while storing them) are removed on a later startup, once
 older than an hour (by the clocks of the instances, which must be
 synchronized), as are rules of generations not created by FOCA. Configured
@@ -321,7 +326,8 @@ a later version replaces them.
 !!! warning "Apps sharing a policy collection"
     All apps using the same policy collection must configure the same rules:
     each startup replaces the configured rules of the others, also if
-    `policies` is not set. By default, all FOCA apps on the same MongoDB
+    `policies` is not set. A revision (`policies_revision`) applies to the
+    collection, too, so it would block the others. By default, all FOCA apps on the same MongoDB
     server use the same policy collection (`access_control_db.policy_rules`):
     apps on a shared external MongoDB must set their own `db_name`.
 
@@ -1374,7 +1380,7 @@ choice:
 
 | Controller | Example operation | Response |
 | --- | --- | --- |
-| `getResourceRoles` | `GET /tasks/{id}/permissions` | roles on the resource, as `subject_type`, `subject` and `role` (cf. `list_roles()`) |
+| `getResourceRoles` | `GET /tasks/{id}/permissions` | roles on the resource, as `subject_type`, `subject` and `role` (cf. `list_roles()`); paged and filtered on request (see below) |
 | `putUserRole` | `PUT /tasks/{id}/permissions/users/{userId}` | the granted role, replacing others (cf. `grant_role()`) |
 | `deleteUserRole` | `DELETE /tasks/{id}/permissions/users/{userId}` | the user identifier (a JSON string), after revoking their roles (cf. `revoke_roles()`) |
 | `putGroupRole` | `PUT /tasks/{id}/permissions/groups/{group}` | as `putUserRole`, for a group |
@@ -1444,6 +1450,23 @@ role to a user called `groups`.
   `putFileUserRole = ownership_server.putUserRole` in a module of your
   app).
 
+Resources with many users are easier to manage if `getResourceRoles` is paged and
+searchable. Declare the query parameters to offer them; the response stays a list:
+
+* `q` only lists the roles of subjects (users, groups and service clients) with
+  this text in their identifier, in any case.
+* `limit` (default: 100, at most 1000) and `offset`, either or both, ask for a page,
+  sorted by subject type, subject and role. The header `Link` has the links to the
+  other pages, but only if the app has a
+  [public URL](utilities.md#building-public-urls). There's no total. Invalid values
+  are rejected with `400`. With neither of them, all roles are returned.
+
+Apps that already declare query parameters with these names on the operation get this
+behaviour, so check them when upgrading; it also goes for defaults in the
+specification. Wrappers around `getResourceRoles` need to pass the parameters on, and
+get `(roles, 200, headers)` for a page. Declare `limit` and `offset` as `integer` or
+`string`, and `q` as `string`. Path parameters with these names are ignored.
+
 For example, with the base path `/api`:
 
 ```yaml
@@ -1455,6 +1478,10 @@ paths:
       - {name: id, in: path, required: true, schema: {type: string}}
     get:
       operationId: foca.security.access_control.ownership_server.getResourceRoles
+      parameters:
+        - {name: q, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
         "200": {description: Roles on the task}
   /tasks/{id}/permissions/users/{userId}:

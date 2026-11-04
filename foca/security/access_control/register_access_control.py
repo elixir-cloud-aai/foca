@@ -814,6 +814,8 @@ def register_casbin_enforcer(
         _add_policies(
             adapter=adapter,
             policies=access_control_config.policies,
+            revision=access_control_config.policies_revision,
+            force=access_control_config.policies_force,
             names=None if named is None else list(named),
             base_paths=_get_api_base_paths(app.app),
             protected_paths=[
@@ -824,7 +826,11 @@ def register_casbin_enforcer(
             ],
         )
     else:
-        _remove_policies(adapter=adapter)
+        _remove_policies(
+            adapter=adapter,
+            revision=access_control_config.policies_revision,
+            force=access_control_config.policies_force,
+        )
     _check_stored_group_subjects(adapter, access_control_config)
     logger.info("Casbin enforcer registered.")
 
@@ -861,7 +867,9 @@ def _warn_default_base_path(access_control_config: AccessControlConfig) -> None:
             )
 
 
-def _remove_policies(adapter: Adapter) -> None:
+def _remove_policies(
+    adapter: Adapter, revision: int | None = None, force: bool = False
+) -> None:
     """Remove stored configured policy rules, if any.
 
     Apps refuse to start if stored configured rules cannot be checked for or
@@ -873,6 +881,9 @@ def _remove_policies(adapter: Adapter) -> None:
 
     Args:
         adapter: Casbin adapter of the app.
+        revision: Revision of the configuration, if any (cf.
+            :py:meth:`Adapter.set_configured_policies`).
+        force: Remove the rules also if their revision is newer.
 
     Raises:
         pymongo.errors.PyMongoError: Checking for or removing stored
@@ -883,13 +894,16 @@ def _remove_policies(adapter: Adapter) -> None:
         # default)
         with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
             configured = adapter.has_configured_policies()
-        if configured:
-            # E.g., set via a config overlay that was removed since
+        # E.g., set via a config overlay that was removed since; if forced, also
+        # without rules, for the revision
+        applied = (configured or force) and adapter.set_configured_policies(
+            [], revision, force
+        )
+        if configured and applied:
             logger.warning(
-                "Removing stored configured policy rules, as "
+                "Removed stored configured policy rules, as "
                 "'security.access_control.policies' is not set."
             )
-            adapter.set_configured_policies([])
     except PyMongoError as exc:
         logger.error(
             "Could not check for or remove stored configured policy rules, "
@@ -904,6 +918,8 @@ def _remove_policies(adapter: Adapter) -> None:
 def _add_policies(
     adapter: Adapter,
     policies: list[list[str]],
+    revision: int | None = None,
+    force: bool = False,
     names: list[str] | None = None,
     base_paths: list[str] | None = None,
     protected_paths: list[str] | None = None,
@@ -917,6 +933,9 @@ def _add_policies(
         adapter: Casbin adapter of the app.
         policies: Policy rules, each given as its policy type followed by its
             values.
+        revision: Revision of the configuration, if any (cf.
+            :py:meth:`Adapter.set_configured_policies`).
+        force: Replace the rules also if their revision is newer.
         names: Names of the rules, if given as named rules; used in errors
             and logged.
         base_paths: Base paths of the app's APIs, for rules with the
@@ -940,8 +959,8 @@ def _add_policies(
                 raise
             raise ValueError(f"Invalid policy rule '{names[index]}': {exc}") from exc
         expanded.extend(rules)
-    adapter.set_configured_policies(expanded)
-    if names is not None:
+    applied = adapter.set_configured_policies(expanded, revision, force)
+    if applied and names is not None:
         logger.info("Named policy rules applied: %s", ", ".join(names) or "none")
 
 

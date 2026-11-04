@@ -940,6 +940,14 @@ class AccessControlConfig(FOCABaseConfig):
             or remove single rules (cf.
             :py:class:`foca.config.config_parser.ConfigParser`); `None`
             values remove rules.
+        policies_revision: Revision of `policies`, a number that grows with each
+            release that changes them. If set, app instances with an older
+            revision than the stored one, or none, don't change the stored rules
+            on startup (with a warning), so that old instances restarting
+            during a rolling upgrade don't bring back old rules. Without it,
+            and if none is stored, the last instance to start wins.
+        policies_force: Change the stored rules also if their revision is newer,
+            for rollbacks; `policies_revision` becomes the stored revision.
         log_traffic: Whether requests to the permissions API and their
             responses are logged (cf.
             :py:func:`foca.utils.logging.log_traffic`).
@@ -982,6 +990,8 @@ class AccessControlConfig(FOCABaseConfig):
         policies: Policy rules the app relies on, managed on startup, as a
             list (names of named rules are kept in `named_policies`). If not
             set, stored configured rules are removed on startup.
+        policies_revision: Revision of `policies`.
+        policies_force: Change the stored rules also if their revision is newer.
         log_traffic: Whether requests to the permissions API and their
             responses are logged.
 
@@ -1031,6 +1041,9 @@ class AccessControlConfig(FOCABaseConfig):
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
     self_service: bool = False
     policies: list[list[str]] | None = None
+    # In the range of MongoDB's integers; not `true` for 1
+    policies_revision: int | None = Field(default=None, ge=0, le=2**63 - 1, strict=True)
+    policies_force: bool = False
     log_traffic: bool = True
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
@@ -2274,6 +2287,8 @@ class SecurityConfig(FOCABaseConfig):
                         != AccessControlConfig.model_fields["api_base_path"].default,
                     ),
                     ("policies", access_control.policies),
+                    ("policies_revision", access_control.policies_revision is not None),
+                    ("policies_force", access_control.policies_force),
                     ("client_mapping", access_control.client_mapping),
                     ("require_admin", access_control.require_admin),
                 ]
