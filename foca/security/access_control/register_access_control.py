@@ -551,8 +551,18 @@ def register_permission_specs(
     Returns:
         Connexion app with updated permission specifications.
     """
+    if not access_control_config.api_enabled:
+        if access_control_config.api_specs is not None:
+            logger.warning(
+                "'security.access_control.api_specs' has no effect, as "
+                "'security.access_control.api_enabled' is false."
+            )
+        logger.info("Permission management API not registered.")
+        return app
     specification: Path | dict[str, Any]
+    base_path: dict[str, str] = {}
     if access_control_config.api_specs is None:
+        base_path["base_path"] = access_control_config.api_base_path
         spec_path = str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH))
         specification = Path(spec_path)
         media_type = _get_error_media_type(app)
@@ -565,6 +575,12 @@ def register_permission_specs(
     else:
         spec_path = access_control_config.api_specs
         specification = Path(spec_path)
+        if "api_base_path" in access_control_config.model_fields_set:
+            logger.warning(
+                "'security.access_control.api_base_path' has no effect, as the "
+                "specification in 'security.access_control.api_specs' sets the "
+                "base path of the permissions API."
+            )
 
     options = ConnexionOptions(
         strict_validation=True,
@@ -582,6 +598,7 @@ def register_permission_specs(
     api = app.add_api(
         specification=specification,
         **_connexion_add_api_kwargs(options),
+        **base_path,
     )
     _register_api(
         app.app,

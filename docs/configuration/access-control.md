@@ -31,6 +31,8 @@ security:
       - [p, "*", /pets, "(GET)|(POST)"]
     api_swagger_ui: true
     api_serve_spec: true
+    api_enabled: true
+    api_base_path: /admin/access-control
     log_traffic: true
 ```
 

@@ -182,9 +182,23 @@ older than the changes they read.
 ### Configuring the API
 
 FOCA comes with a default API for configuring permission resources, served
-at `/admin/access-control`. However, you can provide a custom [Swagger 2.x or
+at `/admin/access-control`, which `api_base_path` changes. If you manage
+policies through the configuration (`policies`) only, set `api_enabled: false`
+to take the API off the internet: it isn't registered, its paths respond with
+`404`, and policies are enforced as before. `api_specs` then has no effect, which
+is logged as a warning.
+
+```yaml
+security:
+  access_control:
+    api_enabled: true
+    api_base_path: /internal/permissions
+```
+
+However, you can provide a custom [Swagger 2.x or
 OpenAPI 3.x][res-openapi] definition for `/permissions` endpoints via
-`api_specs`. Its `servers` (or `basePath`) define where the endpoints are
+`api_specs`. It wins over `api_base_path`, with a warning if that is set: its
+`servers` (or `basePath`) define where the endpoints are
 served, and the `operationId` of each operation which controller handles it
 (e.g., FOCA's default controllers in
 `foca.security.access_control.access_control_server`, or your own).

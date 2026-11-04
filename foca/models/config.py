@@ -755,6 +755,10 @@ class AccessControlConfig(FOCABaseConfig):
             Casbin adapter and the permissions API. Required for all other
             options to take effect; requires trusted token issuers
             (`AuthConfig.issuers`).
+        api_enabled: Register the permissions API. If `False`, policies are
+            still enforced, and can be managed via `policies` only.
+        api_base_path: Base path of the default specification of the permissions
+            API. A custom one (`api_specs`) wins, with a warning.
         api_specs: Path to a custom API specification of the permissions
             API. If None, the default specification is used. Controllers are
             resolved via the `operationId` of each operation.
@@ -880,6 +884,9 @@ class AccessControlConfig(FOCABaseConfig):
 
     Attributes:
         enabled: Register access control.
+        api_enabled: Whether the permissions API is registered.
+        api_base_path: Base path of the default specification of the
+            permissions API.
         api_specs: Path to a custom API specification of the permissions
             API.
         api_swagger_ui: Serve the Swagger UI of the permissions API.
@@ -933,6 +940,8 @@ class AccessControlConfig(FOCABaseConfig):
     """
 
     enabled: bool = False
+    api_enabled: bool = True
+    api_base_path: str = "/admin/access-control"
     api_specs: str | None = None
     api_swagger_ui: bool = False
     api_serve_spec: bool = False
@@ -1032,6 +1041,35 @@ class AccessControlConfig(FOCABaseConfig):
         if named is None or list(named.values()) != self.policies:
             return None
         return {name: list(rule) for name, rule in named.items()}
+
+    @field_validator("api_base_path")
+    @classmethod
+    def validate_api_base_path(cls, value: str) -> str:
+        """Ensure that the base path of the permissions API is usable.
+
+        Args:
+            value: Base path.
+
+        Returns:
+            The base path.
+
+        Raises:
+            ValueError: It is not an absolute path of at least one segment,
+                without trailing slash or dot segments.
+        """
+        segments = value.split("/")[1:]
+        if (
+            not value.startswith("/")
+            or not segments
+            or not all(re.fullmatch(r"[A-Za-z0-9._~-]+", item) for item in segments)
+            or {".", ".."} & set(segments)
+        ):
+            raise ValueError(
+                "'api_base_path' must be an absolute path of unreserved "
+                "characters (e.g., '/admin/access-control'), without trailing "
+                "slash or dot segments"
+            )
+        return value
 
     @field_validator("subject_prefix")
     @classmethod
