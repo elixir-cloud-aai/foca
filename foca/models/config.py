@@ -810,6 +810,11 @@ class AccessControlConfig(FOCABaseConfig):
             Casbin adapter and the permissions API. Required for all other
             options to take effect; requires trusted token issuers
             (`AuthConfig.issuers`).
+        api_enabled: Register the permissions API. If `False`, policies are
+            still enforced, including stored ones (e.g., added via the API
+            before), which `policies` doesn't remove.
+        api_base_path: Base path of the default specification of the permissions
+            API. A custom one (`api_specs`) wins, with a warning.
         api_specs: Path to a custom API specification of the permissions
             API. If None, the default specification is used. Controllers are
             resolved via the `operationId` of each operation.
@@ -935,6 +940,9 @@ class AccessControlConfig(FOCABaseConfig):
 
     Attributes:
         enabled: Register access control.
+        api_enabled: Whether the permissions API is registered.
+        api_base_path: Base path of the default specification of the
+            permissions API.
         api_specs: Path to a custom API specification of the permissions
             API.
         api_swagger_ui: Serve the Swagger UI of the permissions API.
@@ -988,6 +996,8 @@ class AccessControlConfig(FOCABaseConfig):
     """
 
     enabled: bool = False
+    api_enabled: bool = True
+    api_base_path: str = "/admin/access-control"
     api_specs: str | None = None
     api_swagger_ui: bool = False
     api_serve_spec: bool = False
@@ -1088,6 +1098,34 @@ class AccessControlConfig(FOCABaseConfig):
             return None
         return {name: list(rule) for name, rule in named.items()}
 
+    @field_validator("api_base_path")
+    @classmethod
+    def validate_api_base_path(cls, value: str) -> str:
+        """Ensure that the base path of the permissions API is usable.
+
+        Args:
+            value: Base path.
+
+        Returns:
+            The base path.
+
+        Raises:
+            ValueError: It is not an absolute path of at least one segment,
+                without trailing slash or dot segments.
+        """
+        segments = value.split("/")[1:]
+        if (
+            not value.startswith("/")
+            or not all(re.fullmatch(r"[A-Za-z0-9._~-]+", item) for item in segments)
+            or {".", ".."} & set(segments)
+        ):
+            raise ValueError(
+                "'api_base_path' must be an absolute path of unreserved "
+                "characters (e.g., '/admin/access-control'), without trailing "
+                "slash or dot segments"
+            )
+        return value
+
     @field_validator("subject_prefix")
     @classmethod
     def validate_subject_prefix(cls, v: str) -> str:
@@ -1126,12 +1164,13 @@ class AccessControlConfig(FOCABaseConfig):
             Validated access control configuration.
 
         Raises:
-            ValueError: `api_swagger_ui` is enabled, but `api_serve_spec` is
-                set to `False` (the specification is served with the UI
-                unless it is set).
+            ValueError: The permissions API is enabled and `api_swagger_ui`
+                too, but `api_serve_spec` is set to `False` (the specification
+                is served with the UI unless it is set).
         """
         if (
-            self.api_swagger_ui
+            self.api_enabled
+            and self.api_swagger_ui
             and not self.api_serve_spec
             and "api_serve_spec" in self.model_fields_set
         ):
@@ -2215,6 +2254,12 @@ class SecurityConfig(FOCABaseConfig):
                     ("enforce", access_control.enforce),
                     ("api_specs", access_control.api_specs),
                     ("self_service", access_control.self_service),
+                    ("api_enabled", not access_control.api_enabled),
+                    (
+                        "api_base_path",
+                        access_control.api_base_path
+                        != AccessControlConfig.model_fields["api_base_path"].default,
+                    ),
                     ("policies", access_control.policies),
                     ("client_mapping", access_control.client_mapping),
                     ("require_admin", access_control.require_admin),
@@ -2356,6 +2401,12 @@ class DBConfig(FOCABaseConfig):
     client: database.Database[dict[str, Any]] | None = None
 
 
+# Options of a MongoDB client, as far as they can be set in configuration files
+ClientOptions = dict[str, str | int | float | bool]
+# Longest name of an app that PyMongo accepts
+MAX_MONGO_APPNAME_BYTES = 128
+
+
 class MongoConfig(FOCABaseConfig):
     """Model for a MongoDB instance attached to a Flask/Connexion app.
 
@@ -2364,12 +2415,21 @@ class MongoConfig(FOCABaseConfig):
         port: Port at which the database is exposed.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
+        client_options: Options of the MongoDB client (PyMongo's names, e.g.,
+            `maxPoolSize`), passed to `MongoClient`, which fails on unknown
+            ones. By default, `serverSelectionTimeoutMS` and `connectTimeoutMS`
+            are 5000, and `appname` is the identifier of the service info or
+            else the name of its package. Options in `MONGO_URI` win, with a
+            warning. Not `host`, `port` and `connect`, which FOCA sets, and not
+            `username` and `password`, which belong in `MONGO_USERNAME` and
+            `MONGO_PASSWORD` or `MONGO_URI`.
 
     Attributes:
         host: Host at which the database is exposed.
         port: Port at which the database is exposed.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
+        client_options: Options of the MongoDB client.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2386,8 +2446,47 @@ class MongoConfig(FOCABaseConfig):
     host: str = "mongodb"
     port: int = 27017
     dbs: dict[str, DBConfig] | None = None
+    client_options: ClientOptions = Field(default_factory=dict)
     # MongoDB client shared by all databases; set on registration
     _client: MongoClient[dict[str, Any]] | None = PrivateAttr(default=None)
+    # Name of the app in MongoDB's logs by default; set from the service info
+    # when `Config` is validated
+    _default_appname: str = PrivateAttr(default="foca")
+
+    @field_validator("client_options")
+    @classmethod
+    def _check_client_options(cls, value: ClientOptions) -> ClientOptions:
+        """Reject client options that are set elsewhere.
+
+        Args:
+            value: Options of the client.
+
+        Returns:
+            The options.
+
+        Raises:
+            ValueError: An option is `host`, `port`, `connect`, `username` or
+                `password`. The latter would override the connection string
+                and put credentials in the configuration. Or an option is set
+                twice, as PyMongo's names are not case-sensitive.
+        """
+        reserved = sorted(
+            name
+            for name in value
+            if name.lower() in {"host", "port", "connect", "username", "password"}
+        )
+        if reserved:
+            raise ValueError(
+                f"Options {reserved} can't be set in `db.client_options`: use "
+                "`db.host`, `db.port`, `MONGO_URI`, `MONGO_USERNAME` or "
+                "`MONGO_PASSWORD`; FOCA decides when clients connect"
+            )
+        if len({name.lower() for name in value}) < len(value):
+            raise ValueError(
+                f"Options {sorted(value)} of `db.client_options` set an option "
+                "twice: their names are not case-sensitive"
+            )
+        return value
 
 
 class JobsConfig(FOCABaseConfig):
@@ -2780,3 +2879,32 @@ class Config(FOCABaseConfig):
     # secrets (e.g., `plugins.defaults.store.key_secret`) that are masked
     # only once validated; the outermost model's setting applies
     model_config = ConfigDict(extra="allow", hide_input_in_errors=True)
+
+    def _name_mongo_clients(self, mongo_config: MongoConfig) -> None:
+        """Name the app in MongoDB's logs after its service info.
+
+        Args:
+            mongo_config: Database configuration whose clients to name.
+        """
+        if self.service_info is None:
+            return
+        service_id = self.service_info.service.get("id")
+        name = service_id or self.service_info.package
+        # A default mustn't stop the app: PyMongo rejects longer names
+        if (
+            isinstance(name, str)
+            and name
+            and len(name.encode()) <= MAX_MONGO_APPNAME_BYTES
+        ):
+            mongo_config._default_appname = name
+
+    @model_validator(mode="after")
+    def _set_mongo_appname(self) -> "Config":
+        """Name the app in MongoDB's logs, if it has a database configuration.
+
+        Returns:
+            The config.
+        """
+        if self.db is not None:
+            self._name_mongo_clients(self.db)
+        return self
