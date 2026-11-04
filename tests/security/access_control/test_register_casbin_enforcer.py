@@ -482,6 +482,8 @@ class TestPoliciesRevision:
         )
         self._start(collection, [], revision=3)
         assert self._start(collection, None, revision=1, force=True) == set()
+        old = [["p", "old", "/a", "GET"]]
+        assert self._start(collection, old, revision=0) == set()
         rules = [["p", "new", "/a", "GET"]]
         assert self._start(collection, rules, revision=2) == {"new"}
 
