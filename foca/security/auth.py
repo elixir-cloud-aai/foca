@@ -240,6 +240,9 @@ def _reject_invalid_token(fn: Callable[..., Any]) -> Callable[..., Any]:
                     for challenge in challenges
                 ):
                     raise
+                # Logs why the token was rejected, not the token (a false positive
+                # of semgrep's registry rules, `p/python`)
+                # nosemgrep: python-logger-credential-disclosure
                 logger.info(
                     "Token not validated, request handled as anonymous: %s",
                     escape_log_value(str(exc.description)),
