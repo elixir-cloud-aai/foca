@@ -83,7 +83,8 @@ local development.
    the issuer's user info endpoint, which needs to report the token's
    subject. Claims of the token are never replaced. Unless
    `validate_userinfo` is set, the user info is cached per token for
-   `cache_ttl` seconds, but not beyond the token's expiry.
+   `userinfo_cache_ttl` seconds (by default, `cache_ttl`), but not beyond the
+   token's expiry (see [caching of user info](#caching-of-user-info)).
 
 Steps 7 and 8 are skipped for [service tokens](#service-tokens), which have
 no user info.
@@ -91,6 +92,36 @@ no user info.
 FOCA logs a warning on the first validation if no issuers are configured,
 audience validation is disabled without restricting `clients`, token type
 validation is disabled, or expired tokens are accepted.
+
+### Caching of user info
+
+User info is cached for `cache_ttl` seconds (default: 300), like discovery
+documents and public keys, unless you set `userinfo_cache_ttl`. A shorter time
+lets a change of a user's groups apply sooner, if FOCA reads them from user
+info, without fetching keys more often:
+
+```yaml
+security:
+  auth:
+    cache_ttl: 300
+    userinfo_cache_ttl: 60
+```
+
+Each process caches separately: each worker of each replica has its own cache.
+So removing a user from an admin group can take up to the time set here to
+apply, and it applies at different times in different processes. Meanwhile, a
+user can be an admin in one response and not in the next. With
+`validate_userinfo: true`, user info is fetched for each request instead.
+
+This only applies to claims that FOCA reads from user info, i.e., those listed
+in `userinfo_claims` that the token lacks. Claims in the token always win, so
+if the token has the groups, a change applies with the next token, whatever
+you set here, and also with `validate_userinfo: true`.
+
+A shorter time means more requests to the identity provider: one per token and
+interval, and one per request with `0`. These block the request for up to
+`timeout` seconds, and if the identity provider is down, requests that need the
+claims fail with `401` as soon as the cached user info has expired.
 
 ### Several trusted issuers
 
