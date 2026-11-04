@@ -33,6 +33,7 @@ configuration models, see [Configuration](configuration/index.md).
       members:
         - enforce_access_control
         - is_permitted
+        - is_permitted_for
         - get_current_subject
         - get_current_groups
         - get_current_roles
@@ -277,6 +278,8 @@ configuration models, see [Configuration](configuration/index.md).
         - check_url_fields
         - normalize_url
         - get_public_url
+        - get_api_base_path
+        - get_resource_path
         - InvalidURL
         - URLScheme
         - HTTP_SCHEMES
