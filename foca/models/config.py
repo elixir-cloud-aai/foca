@@ -180,6 +180,24 @@ class IdConfig(FOCABaseConfig):
         return charset
 
 
+# Headers that the middleware of request IDs would replace or not find
+_RESERVED_HEADERS = frozenset(
+    {
+        "authorization",
+        "connection",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "cookie",
+        "host",
+        "location",
+        "set-cookie",
+        "transfer-encoding",
+        "www-authenticate",
+    }
+)
+
+
 class RequestIdConfig(FOCABaseConfig):
     """Model for the identifiers of requests.
 
@@ -206,6 +224,27 @@ class RequestIdConfig(FOCABaseConfig):
 
     header: str = Field(default="X-Request-ID", pattern=r"^[A-Za-z0-9-]+$")
     trust_incoming: bool = True
+
+    @field_validator("header")
+    @classmethod
+    def validate_header(cls, value: str) -> str:
+        """Ensure that the header isn't one with another purpose.
+
+        Args:
+            value: Name of the header.
+
+        Returns:
+            The name of the header.
+
+        Raises:
+            ValueError: It's the name of a header that requests or responses
+                need, e.g., `Content-Length`.
+        """
+        if value.lower() in _RESERVED_HEADERS:
+            raise ValueError(
+                f"'server.request_id.header' must not be a standard header: {value}"
+            )
+        return value
 
 
 class ServerConfig(FOCABaseConfig):
@@ -2844,6 +2883,11 @@ class LogConfig(FOCABaseConfig):
                 f"{user}: {name}"
                 for user, conf in self.loggers.items()
                 for name in conf.handlers or []
+                if name not in handlers
+            }
+            | {
+                f"root: {name}"
+                for name in (self.root.handlers if self.root else None) or []
                 if name not in handlers
             }
         )

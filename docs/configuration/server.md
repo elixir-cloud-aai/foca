@@ -87,7 +87,10 @@ server:
 ```
 
 An identifier in the request header is taken if it has at most 128 letters, digits
-and `._:-`. Otherwise, or with `trust_incoming: false`, the request gets a new random
+and `._:-`. Turn `trust_incoming` off unless a proxy sets or checks the header, as
+clients could otherwise choose what groups their requests in the logs. Standard headers
+such as `Content-Length` can't be used. Otherwise, or with `trust_incoming: false`, the
+request gets a new random
 one. Turn it off if clients must not be able to choose what's in your logs and no
 proxy in front of the app sets the header.
 

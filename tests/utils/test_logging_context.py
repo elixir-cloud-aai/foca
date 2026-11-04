@@ -22,6 +22,7 @@ from foca.models.config import (
     LogConfig,
     LogFilterConfig,
     LogLoggerConfig,
+    RequestIdConfig,
 )
 from foca.security.access_control import enforcement
 from foca.utils import logging as module
@@ -411,7 +412,7 @@ class TestLogConfig:
                     }
                 },
                 "handlers": {"console": {"formatter": "text"}},
-                "filters": {"only_a": {"name": "foca_test_logger"}},
+                "filters": {"only_a": {"name": "foca_test_logger.a"}},
                 "loggers": {
                     "foca_test_logger": {
                         "level": 30,
@@ -425,8 +426,12 @@ class TestLogConfig:
         try:
             dictConfig(conf.model_dump(by_alias=True, exclude_none=True))
             logger.handlers[0].setStream(stream)  # type: ignore[attr-defined]
-            logger.info("ignored")
-            logger.warning("shown")
+            child = logger.getChild("a")
+            # Below the level of the logger
+            child.info("ignored")
+            # Refused by the filter of the logger, which only applies to itself
+            logger.warning("filtered")
+            child.warning("shown")
             assert stream.getvalue() == "|WARNING|shown\n"
             assert logger.propagate is False
         finally:
@@ -457,6 +462,52 @@ class TestLogConfig:
         finally:
             root.handlers[:] = handlers
             root.setLevel(level)
+
+
+class TestSourceryFindings:
+    """Tests of edge cases of the configuration and of the JSON format."""
+
+    @pytest.mark.parametrize("header", ["Content-Length", "set-cookie", "Host"])
+    def test_reserved_header(self, header: str) -> None:
+        """Headers with another purpose can't be used."""
+        with pytest.raises(ValidationError, match="must not be a standard header"):
+            RequestIdConfig(header=header)
+
+    def test_root_handler_unknown(self) -> None:
+        """Handlers of the root logger must exist."""
+        with pytest.raises(ValidationError, match="root: missing"):
+            LogConfig.model_validate({"root": {"handlers": ["missing"]}})
+
+    def test_no_root(self) -> None:
+        """The root logger may have no configuration."""
+        assert LogConfig.model_validate({"root": None}).root is None
+
+    def test_task_id_escaped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Task identifiers can't add log lines."""
+        monkeypatch.setattr(module, "request_id", lambda: "a\nb")
+        record = _record()
+        ContextFilter().filter(record)
+        assert record.request_id == "a\\nb"  # type: ignore[attr-defined]
+
+    def test_operation_id_escaped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Operation identifiers can't add log lines."""
+        monkeypatch.setattr(
+            "foca.utils.urls.get_operation_id", lambda: "a\nb", raising=True
+        )
+        with Flask(__name__).test_request_context():
+            assert module._get_context()["operation_id"] == "a\\nb"
+
+    def test_key_not_a_string(self) -> None:
+        """Keys of `extra` that aren't strings don't lose the record."""
+        record = _record()
+        vars(record)[1] = "value"  # type: ignore[index]
+        assert _format(record)["1"] == "value"
+
+    def test_mixed_values(self) -> None:
+        """Records with values of several kinds aren't lost."""
+        data = _format(_record(other=object(), ratio=float("nan")))
+        assert data["ratio"] == "nan"
+        assert data["other"].startswith("<object")
 
 
 def _exc_info() -> Any:

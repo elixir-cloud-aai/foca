@@ -51,7 +51,7 @@ def _get_context() -> dict[str, str]:
         values that aren't available are empty.
     """
     context = dict.fromkeys(_CONTEXT_FIELDS, "")
-    context["request_id"] = request_id()
+    context["request_id"] = escape_log_value(request_id())
     if not has_request_context():
         return context
     # Import cycles, as these modules log
@@ -64,7 +64,7 @@ def _get_context() -> dict[str, str]:
 
     # Logging must not fail, e.g., for an app without FOCA's configuration
     try:
-        context["operation_id"] = get_operation_id()
+        context["operation_id"] = escape_log_value(get_operation_id())
         context["subject"] = escape_log_value(get_current_subject() or "")
         context["client"] = escape_log_value(get_token_client(_get_claims()) or "")
     except Exception:  # noqa: S110
@@ -149,7 +149,7 @@ class JsonFormatter(logging.Formatter):
         extra = {
             key: value
             for key, value in vars(record).items()
-            if key not in _RECORD_ATTRIBUTES and not key.startswith("_")
+            if key not in _RECORD_ATTRIBUTES and not str(key).startswith("_")
         }
         # Records of handlers without `ContextFilter`
         context = (
@@ -175,7 +175,8 @@ class JsonFormatter(logging.Formatter):
             # E.g., keys that aren't strings, circular references, deep nesting
             # or values that JSON doesn't have, such as NaN
             return json.dumps(
-                {key: _to_json_value(value) for key, value in data.items()}
+                {str(key): _to_json_value(value) for key, value in data.items()},
+                default=_to_text,
             )
 
 

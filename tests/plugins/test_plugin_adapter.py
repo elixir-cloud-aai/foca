@@ -1,6 +1,7 @@
 """Tests of the Connexion 2 / Flask glue (`foca.plugins.adapter`)."""
 
 import json
+import re
 
 import pytest
 from connexion.exceptions import Forbidden
@@ -29,9 +30,10 @@ from tests.security.access_control.callers import (
 def test_request_id() -> None:
     """Requests have the identifier of the middleware, else a random one."""
     app = Flask(__name__)
-    assert len(adapter.request_id()) == 32
+    assert re.fullmatch("[0-9a-f]{32}", adapter.request_id())
+    assert adapter.request_id() != adapter.request_id()
     with app.test_request_context():
-        assert len(adapter.request_id()) == 32
+        assert re.fullmatch("[0-9a-f]{32}", adapter.request_id())
     seen = []
 
     @app.route("/")
