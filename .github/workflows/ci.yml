@@ -392,7 +392,8 @@ jobs:
       - name: Check worker for MongoDB clients opened before fork
         working-directory: examples/gateway
         run: |
-          if docker compose logs worker | grep 'opened before fork'; then
+          logs="$(docker compose logs worker)"
+          if grep 'opened before fork' <<< "${logs}"; then
             echo "A MongoDB client is used across forks of the worker" >&2
             exit 1
           fi
