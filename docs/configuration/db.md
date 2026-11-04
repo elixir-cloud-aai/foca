@@ -95,6 +95,10 @@ not `client_options`.
 The connection can be configured through environment variables, e.g., to keep
 credentials out of configuration files:
 
+`MONGO_URI`, `MONGO_USERNAME` and `MONGO_PASSWORD` can also [come from
+files](index.md#environment-variables), through `MONGO_URI_FILE` and so on, e.g., for
+mounted secrets.
+
 | Variable | Description |
 | --- | --- |
 | `MONGO_URI` | Full [connection string](https://www.mongodb.com/docs/manual/reference/connection-string/) (`mongodb://` or `mongodb+srv://`), e.g., for replica sets, TLS or other connection options. Takes precedence over the variables below, except `MONGO_DBNAME`. It is used as is, so a database in its path only acts as authentication database (as per MongoDB's defaults); each configured database is still accessed under its own name. |

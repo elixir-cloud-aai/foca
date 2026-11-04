@@ -20,7 +20,10 @@ To pass credentials or use TLS, set the broker URL via environment variable
 `CELERY_BROKER_URL` (e.g., `amqps://user:password@rabbitmq:5671//`), which
 takes precedence over `jobs.host` and `jobs.port`. Likewise,
 `CELERY_RESULT_BACKEND` takes precedence over `jobs.backend`. Both are logged
-without credentials. On Kubernetes, the [Helm library chart](../helm-chart.md)
+without credentials, and can also [come from
+files](index.md#environment-variables), through `CELERY_BROKER_URL_FILE` and
+`CELERY_RESULT_BACKEND_FILE`. `jobs.backend` can hold credentials, too, so it's a
+`SecretStr`, read with `.get_secret_value()`. On Kubernetes, the [Helm library chart](../helm-chart.md)
 can deploy a worker and a RabbitMQ broker, and sets both variables from a
 Secret.
 

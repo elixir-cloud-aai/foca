@@ -67,8 +67,8 @@ is another class.
 Without `custom_config_model`, the section (like any other unknown top-level
 section) is passed through as is, as a dictionary.
 
-Do not put secrets into configuration files; read them from environment
-variables instead (e.g., with
+Do not put secrets into configuration files; [reference environment
+variables](#secrets) instead, or read them directly (e.g., with
 [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)).
 
 ## Secrets

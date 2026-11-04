@@ -208,6 +208,7 @@ def _get_client_options(
     }
     if appname is not None:
         merged["appname"] = appname
+    # Secrets are unwrapped here, where they are used
     merged.update(
         {
             name.lower(): (

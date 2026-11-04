@@ -2,7 +2,6 @@
 
 import functools
 import logging
-import os
 from typing import Any
 
 from celery import Celery
@@ -12,6 +11,7 @@ from kombu.exceptions import OperationalError
 from service import run_pipeline
 from tasks import TASK_NAME
 
+from foca.config.environment import get_env
 from foca.plugins.adapter import current_principal, inbound_from_request, request_id
 
 logger = logging.getLogger(__name__)
@@ -34,10 +34,8 @@ def _celery_client() -> Celery:
     """
     jobs = current_app.config.foca.jobs
     return Celery(
-        broker=os.environ.get(
-            "CELERY_BROKER_URL", f"pyamqp://{jobs.host}:{jobs.port}//"
-        ),
-        backend=os.environ.get("CELERY_RESULT_BACKEND", jobs.backend),
+        broker=get_env("CELERY_BROKER_URL", f"pyamqp://{jobs.host}:{jobs.port}//"),
+        backend=get_env("CELERY_RESULT_BACKEND", jobs.backend.get_secret_value()),
         set_as_current=False,
     )
 

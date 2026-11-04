@@ -121,12 +121,15 @@ def _read_secret_file(name: str, path: str) -> str:
     Raises:
         ValueError: The file can't be read.
     """
+    error = f"File named in environment variable '{name}' could not be read"
     try:
-        return Path(path).read_text().removesuffix("\n").removesuffix("\r")
-    except (OSError, UnicodeError) as exc:
-        raise ValueError(
-            f"File named in environment variable '{name}' could not be read"
-        ) from exc
+        # Bytes, as reading text would translate line breaks within the value
+        return Path(path).read_bytes().decode().removesuffix("\n").removesuffix("\r")
+    except OSError as exc:
+        raise ValueError(error) from exc
+    except UnicodeError:
+        # Not chained: the error has a byte of the content
+        raise ValueError(error) from None
 
 
 @overload

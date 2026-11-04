@@ -781,7 +781,9 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
     reads it), and, if the chart's settings for them are in use,
     `GUNICORN_CMD_ARGS`, `MONGO_USERNAME` and `MONGO_PASSWORD`,
     `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND`, and
-    `FOCA_PLUGINS_STORE_KEY_SECRET`. It also fails if `extraEnv` has a secret
+    `FOCA_PLUGINS_STORE_KEY_SECRET`; with the first of these, also their
+    [`_FILE` forms](configuration/index.md#environment-variables), as FOCA refuses
+    both at once. It also fails if `extraEnv` has a secret
     as a literal value, which would be readable in the Deployment:
     `MONGO_PASSWORD` and `FOCA_PLUGINS_STORE_KEY_SECRET`, and `MONGO_URI`,
     `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` with credentials (an `@`);

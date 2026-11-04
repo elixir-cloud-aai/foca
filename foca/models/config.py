@@ -2586,7 +2586,10 @@ class CollectionConfig(FOCABaseConfig):
     """
 
     indexes: list[IndexConfig] | None = None
-    client: collection.Collection[dict[str, Any]] | None = None
+    # Not in `repr()` and dumps: the repr of clients shows their credentials
+    client: collection.Collection[dict[str, Any]] | None = Field(
+        default=None, repr=False, exclude=True
+    )
 
 
 class DBConfig(FOCABaseConfig):
@@ -2621,7 +2624,10 @@ class DBConfig(FOCABaseConfig):
     """
 
     collections: dict[str, CollectionConfig] | None = None
-    client: database.Database[dict[str, Any]] | None = None
+    # Not in `repr()` and dumps: the repr of clients shows their credentials
+    client: database.Database[dict[str, Any]] | None = Field(
+        default=None, repr=False, exclude=True
+    )
 
 
 # Options of a MongoDB client, as far as they can be set in configuration files
@@ -2649,8 +2655,9 @@ class MongoConfig(FOCABaseConfig):
             else the name of its package. Options in `MONGO_URI` win, with a
             warning. Not `host`, `port` and `connect`, which FOCA sets, and not
             `username` and `password`, which belong in `MONGO_USERNAME` and
-            `MONGO_PASSWORD` or `MONGO_URI`. Values of `authMechanismProperties` and
-            `tlsCertificateKeyFilePassword` become :py:class:`pydantic.SecretStr`.
+            `MONGO_PASSWORD` or `MONGO_URI`. String values of `authMechanismProperties`
+            and `tlsCertificateKeyFilePassword` become
+            :py:class:`pydantic.SecretStr`.
 
     Attributes:
         host: Host at which the database is exposed.

@@ -6,13 +6,20 @@ from typing import Any
 import pytest
 from flask import Flask
 from pydantic import SecretStr, ValidationError
+from pymongo import MongoClient
 
 from foca.config.access import set_app_config
 from foca.config.config_parser import ConfigParser
 from foca.config.environment import get_env, interpolate
 from foca.database.register_mongodb import _get_client_options, get_mongo_uri
 from foca.factories.celery_app import create_celery_app
-from foca.models.config import Config, JobsConfig, MongoConfig
+from foca.models.config import (
+    CollectionConfig,
+    Config,
+    DBConfig,
+    JobsConfig,
+    MongoConfig,
+)
 
 
 class TestInterpolate:
@@ -236,6 +243,15 @@ class TestGetEnv:
         with pytest.raises(ValueError, match="'X_FILE' could not be read"):
             get_env("X")
 
+    def test_line_breaks_within_stay(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only the final line break is removed."""
+        path = tmp_path / "secret"
+        path.write_bytes(b"a\rb\r\n")
+        monkeypatch.setenv("X_FILE", str(path))
+        assert get_env("X") == "a\rb"
+
     def test_invalid_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -243,8 +259,9 @@ class TestGetEnv:
         path = tmp_path / "binary"
         path.write_bytes(b"\xff\xfe")
         monkeypatch.setenv("X_FILE", str(path))
-        with pytest.raises(ValueError, match="'X_FILE' could not be read"):
+        with pytest.raises(ValueError, match="'X_FILE' could not be read") as info:
             get_env("X")
+        assert info.value.__cause__ is None
 
 
 class TestUses:
@@ -347,6 +364,20 @@ class TestSecretStr:
     def test_default_backend(self) -> None:
         """The default result backend is read in the same way."""
         assert JobsConfig().backend.get_secret_value() == "rpc://"
+
+    def test_clients_not_shown(self) -> None:
+        """Clients, whose repr shows credentials, aren't in reprs and dumps."""
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            "mongodb://localhost:1", connect=False, appname="PW-SECRET"
+        )
+        db = DBConfig(
+            client=client["d"],
+            collections={"c": CollectionConfig(client=client["d"]["c"])},
+        )
+        assert "PW-SECRET" in repr(client)
+        assert "PW-SECRET" not in repr(db)
+        assert "PW-SECRET" not in str(db.model_dump())
+        client.close()
 
     @pytest.mark.parametrize(
         "name", ["tlsCertificateKeyFilePassword", "authMechanismProperties"]
