@@ -1,0 +1,1 @@
+{{- include "foca-common.hpa" (dict "root" . "settings" (include "petstore.settings" . | fromYaml)) }}

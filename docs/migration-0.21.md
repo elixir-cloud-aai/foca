@@ -37,3 +37,23 @@ The same holds for workers started in the process of an app (e.g., with
 `celery.contrib.testing.worker.start_worker` in tests): what the app keeps from
 its client, including FOCA's access control, can't be used afterwards. Create
 the app after the worker has started, or run the worker in a process of its own.
+
+## Changed defaults
+
+### Shorter MongoDB timeouts
+
+`serverSelectionTimeoutMS` and `connectTimeoutMS` of MongoDB clients are now 5
+seconds, down from PyMongo's 30 and 20 seconds, so that with MongoDB down,
+requests and the startup of the app fail sooner, rather than blocking their
+threads. If MongoDB takes longer to become available or to answer in your
+deployment, e.g., during failovers of a replica set, set them in
+[`db.client_options`](configuration/db.md#client-options) or `MONGO_URI`. Clients
+also report a name to MongoDB now (`appname`), which appears in its logs.
+
+## App charts
+
+foca-common 0.5.0 has autoscaling and topology spread constraints of the app's
+pods. Copy `app-values.schema.json` again so that their values are checked.
+Autoscaling also needs a template file with `foca-common.hpa`; without it,
+enabling it leaves the app with one pod (see [Several replicas](helm-chart.md#several-replicas)). Nothing changes
+otherwise.

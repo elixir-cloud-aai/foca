@@ -38,6 +38,7 @@ from foca.security.access_control.constants import (
     OWNER_ROLE,
     SUBJECT_TYPE_PREFIXES,
 )
+from foca.utils.misc import generate_id
 from foca.utils.service_info import (
     import_runtime_function,
     lookup_package_version,
@@ -123,6 +124,60 @@ class FOCABaseConfig(BaseModel):
     """Base configuration for FOCA models."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+
+class IdConfig(FOCABaseConfig):
+    """Model for generating identifiers of resources of an app.
+
+    For the custom configuration of apps; use it with
+    :py:func:`foca.utils.misc.generate_id`.
+
+    Args:
+        charset: The allowed characters (duplicates are ignored).
+        length: Length of generated identifiers.
+
+    Attributes:
+        charset: The allowed characters.
+        length: Length of generated identifiers.
+
+    Raises:
+        pydantic.ValidationError: `length` is not positive, or `charset` is
+            empty, an expression (such as `string.digits`), which FOCA no
+            longer evaluates, contains `/` or consists of dots only, as
+            identifiers are URL path segments.
+
+    Examples:
+        >>> IdConfig(charset="ABC123", length=6)
+        IdConfig(charset='ABC123', length=6)
+    """
+
+    charset: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    length: PositiveInt = 6
+
+    @field_validator("charset")
+    @classmethod
+    def _check_charset(cls, charset: str) -> str:
+        """Reject character sets unfit for identifiers.
+
+        Args:
+            charset: Character set of identifiers.
+
+        Returns:
+            The character set.
+
+        Raises:
+            ValueError: Identifiers can't be generated from the character set,
+                or would not be URL path segments.
+        """
+        if "/" in charset:
+            raise ValueError("Identifier character sets must not contain '/'")
+        if charset and not charset.strip("."):
+            raise ValueError("Identifier character sets must not be dots only")
+        try:
+            generate_id(charset=charset, length=1)
+        except TypeError as exc:  # pydantic only reports `ValueError`s
+            raise ValueError(str(exc)) from exc
+        return charset
 
 
 class ServerConfig(FOCABaseConfig):
@@ -2339,6 +2394,12 @@ class DBConfig(FOCABaseConfig):
     client: database.Database[dict[str, Any]] | None = None
 
 
+# Options of a MongoDB client, as far as they can be set in configuration files
+ClientOptions = dict[str, str | int | float | bool]
+# Longest name of an app that PyMongo accepts
+MAX_MONGO_APPNAME_BYTES = 128
+
+
 class MongoConfig(FOCABaseConfig):
     """Model for a MongoDB instance attached to a Flask/Connexion app.
 
@@ -2347,12 +2408,21 @@ class MongoConfig(FOCABaseConfig):
         port: Port at which the database is exposed.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
+        client_options: Options of the MongoDB client (PyMongo's names, e.g.,
+            `maxPoolSize`), passed to `MongoClient`, which fails on unknown
+            ones. By default, `serverSelectionTimeoutMS` and `connectTimeoutMS`
+            are 5000, and `appname` is the identifier of the service info or
+            else the name of its package. Options in `MONGO_URI` win, with a
+            warning. Not `host`, `port` and `connect`, which FOCA sets, and not
+            `username` and `password`, which belong in `MONGO_USERNAME` and
+            `MONGO_PASSWORD` or `MONGO_URI`.
 
     Attributes:
         host: Host at which the database is exposed.
         port: Port at which the database is exposed.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
+        client_options: Options of the MongoDB client.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2369,8 +2439,47 @@ class MongoConfig(FOCABaseConfig):
     host: str = "mongodb"
     port: int = 27017
     dbs: dict[str, DBConfig] | None = None
+    client_options: ClientOptions = Field(default_factory=dict)
     # MongoDB client shared by all databases; set on registration
     _client: MongoClient[dict[str, Any]] | None = PrivateAttr(default=None)
+    # Name of the app in MongoDB's logs by default; set from the service info
+    # when `Config` is validated
+    _default_appname: str = PrivateAttr(default="foca")
+
+    @field_validator("client_options")
+    @classmethod
+    def _check_client_options(cls, value: ClientOptions) -> ClientOptions:
+        """Reject client options that are set elsewhere.
+
+        Args:
+            value: Options of the client.
+
+        Returns:
+            The options.
+
+        Raises:
+            ValueError: An option is `host`, `port`, `connect`, `username` or
+                `password`. The latter would override the connection string
+                and put credentials in the configuration. Or an option is set
+                twice, as PyMongo's names are not case-sensitive.
+        """
+        reserved = sorted(
+            name
+            for name in value
+            if name.lower() in {"host", "port", "connect", "username", "password"}
+        )
+        if reserved:
+            raise ValueError(
+                f"Options {reserved} can't be set in `db.client_options`: use "
+                "`db.host`, `db.port`, `MONGO_URI`, `MONGO_USERNAME` or "
+                "`MONGO_PASSWORD`; FOCA decides when clients connect"
+            )
+        if len({name.lower() for name in value}) < len(value):
+            raise ValueError(
+                f"Options {sorted(value)} of `db.client_options` set an option "
+                "twice: their names are not case-sensitive"
+            )
+        return value
 
 
 class JobsConfig(FOCABaseConfig):
@@ -2596,6 +2705,9 @@ class ServiceInfoConfig(FOCABaseConfig):
         log_traffic: Whether requests for the service info and their
             responses are logged (cf.
             :py:func:`foca.utils.logging.log_traffic`).
+        locked_fields: Names of top-level fields that only `runtime_fields`
+            may set, e.g., as they are computed from the config, so that
+            `service` can't override them. The function must return them.
 
     Attributes:
         service: Service info, as per the GA4GH `Service` schema.
@@ -2604,6 +2716,8 @@ class ServiceInfoConfig(FOCABaseConfig):
             at runtime.
         log_traffic: Whether requests for the service info and their
             responses are logged.
+        locked_fields: Names of top-level fields that only `runtime_fields`
+            may set.
         package_version: Version of `package`, if used for `version` (set on
             validation).
         runtime_function: Function imported from `runtime_fields`, if set
@@ -2643,6 +2757,7 @@ class ServiceInfoConfig(FOCABaseConfig):
     package: str | None = None
     runtime_fields: str | None = None
     log_traffic: bool = True
+    locked_fields: list[str] = Field(default_factory=list)
     # Version of `package`, if used; set on validation
     _package_version: str | None = PrivateAttr(default=None)
     # Function imported from `runtime_fields`; set on validation
@@ -2670,11 +2785,22 @@ class ServiceInfoConfig(FOCABaseConfig):
 
         Raises:
             ValueError: `package` is needed but not installed, the runtime
-                fields function cannot be imported or is not callable, or the
-                service info is invalid, naming the first invalid field.
-                Missing required fields are ignored if `runtime_fields` is
-                set.
+                fields function cannot be imported or is not callable, the
+                service info is invalid, naming the first invalid field, or
+                `locked_fields` are set in `service` or without
+                `runtime_fields`. Missing required fields are ignored if
+                `runtime_fields` is set.
         """
+        if self.locked_fields and self.runtime_fields is None:
+            raise ValueError(
+                "`service_info.locked_fields` need `service_info.runtime_fields`"
+            )
+        locked = sorted(set(self.locked_fields) & self.service.keys())
+        if locked:
+            raise ValueError(
+                f"Fields {locked} of `service_info.service` are computed by the "
+                "app (`service_info.locked_fields`) and can't be set"
+            )
         self._runtime_function = (
             None
             if self.runtime_fields is None
@@ -2746,3 +2872,32 @@ class Config(FOCABaseConfig):
     # secrets (e.g., `plugins.defaults.store.key_secret`) that are masked
     # only once validated; the outermost model's setting applies
     model_config = ConfigDict(extra="allow", hide_input_in_errors=True)
+
+    def _name_mongo_clients(self, mongo_config: MongoConfig) -> None:
+        """Name the app in MongoDB's logs after its service info.
+
+        Args:
+            mongo_config: Database configuration whose clients to name.
+        """
+        if self.service_info is None:
+            return
+        service_id = self.service_info.service.get("id")
+        name = service_id or self.service_info.package
+        # A default mustn't stop the app: PyMongo rejects longer names
+        if (
+            isinstance(name, str)
+            and name
+            and len(name.encode()) <= MAX_MONGO_APPNAME_BYTES
+        ):
+            mongo_config._default_appname = name
+
+    @model_validator(mode="after")
+    def _set_mongo_appname(self) -> "Config":
+        """Name the app in MongoDB's logs, if it has a database configuration.
+
+        Returns:
+            The config.
+        """
+        if self.db is not None:
+            self._name_mongo_clients(self.db)
+        return self

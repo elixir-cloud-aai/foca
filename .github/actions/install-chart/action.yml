@@ -115,6 +115,24 @@ runs:
           echo "::error::Expected the app and the worker to have the annotation of rolloutOnSecrets"
           exit 1
         fi
+    # The release of `ci/test-values.yaml` has autoscaling: the only autoscaler
+    # of the namespace finds its Deployment, which is rendered without `replicas`,
+    # and raises it to `minReplicas` (without metrics, as it is below that)
+    - name: Check autoscaler
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+      shell: bash
+      run: |
+        count="$(kubectl get hpa -n "${NAMESPACE}" -o json | jq '.items | length')"
+        echo "Autoscalers: ${count}"
+        if [ "${count}" -ne 1 ]; then
+          echo "::error::Expected the release with autoscaling to have an autoscaler"
+          exit 1
+        fi
+        target="$(kubectl get hpa -n "${NAMESPACE}" -o json \
+            | jq -r '.items[0].spec.scaleTargetRef.name')"
+        kubectl wait "deployment/${target}" -n "${NAMESPACE}" \
+            --for=jsonpath='{.status.readyReplicas}'=2 --timeout=300s
     # The release of `ci/gateway-values.yaml` via the Gateway (port
     # forwarding to the Envoy proxy's Service): HTTP is redirected to HTTPS,
     # and HTTPS reaches the app through its NetworkPolicy, which blocks
