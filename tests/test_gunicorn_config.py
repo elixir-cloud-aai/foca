@@ -92,7 +92,7 @@ def load_settings(
 def test_settings() -> None:
     """Gunicorn loads the settings, without preloading the app."""
     cfg = load_settings().cfg
-    assert cfg.bind == ["0.0.0.0:8080"]
+    assert cfg.bind == [f"0.0.0.0:{_get_port()}"]
     assert cfg.worker_class_str == "gthread"
     assert (cfg.workers, cfg.threads) == (1, 4)
     assert (cfg.timeout, cfg.graceful_timeout) == (30, 20)
@@ -141,7 +141,7 @@ def test_petstore_command() -> None:
     assert command == COMMAND
     app = load_settings(command=command)
     assert app.app_uri == "wsgi:create_app()"
-    assert app.cfg.bind == ["0.0.0.0:8080"]
+    assert app.cfg.bind == [f"0.0.0.0:{_get_port()}"]
 
 
 def test_star_import() -> None:
@@ -237,7 +237,21 @@ class TestPort:
         assert _get_port() == int(value)
 
     @pytest.mark.parametrize(
-        "value", ["", "0", "65536", "-1", "+80", " 80", "80a", "http", "8.5", "٨٠"]
+        "value",
+        [
+            "",
+            "0",
+            "65536",
+            "-1",
+            "+80",
+            " 80",
+            "80a",
+            "http",
+            "8.5",
+            "٨٠",
+            "000080",
+            "1" * 5000,
+        ],
     )
     def test_invalid(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
         """Other values are errors that name the variable."""

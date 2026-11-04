@@ -62,8 +62,14 @@ def _get_port() -> int:
     value = os.environ.get("PORT")
     if value is None:
         return _DEFAULT_PORT
-    # `isascii()`, as `int()` also takes other digits, signs and whitespace
-    if not (value.isascii() and value.isdigit() and 1 <= int(value) <= _MAX_PORT):
+    # `isascii()`, as `int()` also takes other digits, signs and whitespace;
+    # the length first, as `int()` refuses very long strings with its own error
+    if not (
+        len(value) <= len(str(_MAX_PORT))
+        and value.isascii()
+        and value.isdigit()
+        and 1 <= int(value) <= _MAX_PORT
+    ):
         raise ValueError(
             f"Environment variable PORT must be an integer between 1 and "
             f"{_MAX_PORT}, not {value!r}"
