@@ -776,7 +776,8 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
     ```
 
     Rendering fails if `extraEnv` sets a variable that the chart sets:
-    `FOCA_CONFIG_OVERLAY`, and, if the chart's settings for them are in use,
+    `FOCA_CONFIG_OVERLAY`, `PORT` (the chart's ports are 8080; `foca.gunicorn_config`
+    reads it), and, if the chart's settings for them are in use,
     `GUNICORN_CMD_ARGS`, `MONGO_USERNAME` and `MONGO_PASSWORD`,
     `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND`, and
     `FOCA_PLUGINS_STORE_KEY_SECRET`. It also fails if `extraEnv` has a secret

@@ -310,7 +310,7 @@ worker, separated by spaces. Call with the context dict.
 */}}
 {{- define "foca-common.reservedEnv" -}}
 {{- $root := .root -}}
-{{- $names := list "FOCA_CONFIG_OVERLAY" -}}
+{{- $names := list "FOCA_CONFIG_OVERLAY" "PORT" -}}
 {{- if (index $root.Values .settings.valuesKey).gunicorn -}}
 {{- $names = append $names "GUNICORN_CMD_ARGS" -}}
 {{- end -}}

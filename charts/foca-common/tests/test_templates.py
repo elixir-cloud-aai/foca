@@ -2496,6 +2496,7 @@ def test_extra_env(render: Callable[..., Docs]) -> None:
     "name",
     [
         "FOCA_CONFIG_OVERLAY",
+        "PORT",
         "GUNICORN_CMD_ARGS",
         "MONGO_USERNAME",
         "MONGO_PASSWORD",
