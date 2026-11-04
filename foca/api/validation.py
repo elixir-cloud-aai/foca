@@ -93,7 +93,7 @@ class BodyValidator(RequestBodyValidator):
 def _api_key_names(operation: Any) -> set[str]:
     """Get the names of query parameters holding API keys of an operation.
 
-    Connexion doesn't count these as extra parameters either.
+    Connexion takes these out of the parameters it checks when it uses them.
 
     Args:
         operation: Connexion operation.
