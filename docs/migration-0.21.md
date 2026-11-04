@@ -49,3 +49,23 @@ formatter `standard` stays the default, so log lines look the same.
 The `request_id()` of `foca.plugins.adapter` follows
 [`server.request_id`](configuration/server.md#request-ids), rather than always
 reading `X-Request-ID`.
+
+## Changed defaults
+
+### Shorter MongoDB timeouts
+
+`serverSelectionTimeoutMS` and `connectTimeoutMS` of MongoDB clients are now 5
+seconds, down from PyMongo's 30 and 20 seconds, so that with MongoDB down,
+requests and the startup of the app fail sooner, rather than blocking their
+threads. If MongoDB takes longer to become available or to answer in your
+deployment, e.g., during failovers of a replica set, set them in
+[`db.client_options`](configuration/db.md#client-options) or `MONGO_URI`. Clients
+also report a name to MongoDB now (`appname`), which appears in its logs.
+
+## App charts
+
+foca-common 0.5.0 has autoscaling and topology spread constraints of the app's
+pods. Copy `app-values.schema.json` again so that their values are checked.
+Autoscaling also needs a template file with `foca-common.hpa`; without it,
+enabling it leaves the app with one pod (see [Several replicas](helm-chart.md#several-replicas)). Nothing changes
+otherwise.
