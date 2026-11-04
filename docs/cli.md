@@ -26,10 +26,11 @@ if __name__ == "__main__":
     foca.create_app().run()
 ```
 
-The attribute must lead to a `Foca` instance: a function returning the app, as in
-[the example of the deployment guide](deployment.md), is refused. Instances created
-while the module is loaded don't write to the database on startup, also if the module
-creates the app when it's imported, or the function does before refusal. What the module
+The attribute must lead to a `Foca` instance. A function must return that instance, not
+the Connexion app that `create_app()` returns, as in
+[the example of the deployment guide](deployment.md). `Foca` instances created while the
+module loads, the function runs or the command runs (e.g., in a worker module that a
+controller imports) don't write to the database on startup. What the module
 writes to the standard output goes to the standard error, so that the output of the
 commands stays clean.
 

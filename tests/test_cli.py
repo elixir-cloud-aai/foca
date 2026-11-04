@@ -379,6 +379,30 @@ class TestCheckConfig:
         assert "neither" in _usage_error(argv, capsys)
         assert mongodb.list_database_names() == []
 
+    def test_instances_created_while_running_write_nothing(
+        self, app_module: AppFactory
+    ) -> None:
+        """Instances of modules that the command imports don't write either."""
+        created: list[Foca] = []
+
+        def create(foca: Foca) -> Any:
+            """Create another instance, as a worker module imported by controllers.
+
+            Args:
+                foca: Instance of the app.
+
+            Returns:
+                Connexion app.
+            """
+            created.append(Foca(config_file="config.yaml"))
+            return foca.create_app()
+
+        name = app_module(CONF_INDEXES)
+        with patch("foca.cli._create_app_without_writes", create):
+            assert main(["--app", f"{name}:foca", "check-config"]) == 0
+        assert created[0].conf.db is not None
+        assert created[0].conf.db.create_indexes_on_startup is False
+
     def test_app_failure_shows_debug_traceback(self, app_module: AppFactory) -> None:
         """The cause of failures is logged on level `DEBUG`."""
         name = app_module({})

@@ -225,20 +225,20 @@ def _create_parser() -> argparse.ArgumentParser:
     ):
         command = commands.add_parser(name, help=description, description=description)
         command.set_defaults(function=function)
-    # The last one
-    command.add_argument(
-        "--format",
-        choices=["yaml", "json"],
-        default="yaml",
-        help="Format of the output (default: %(default)s)",
-    )
-    command.add_argument(
-        "--spec",
-        help=(
-            "Name in 'api.specs', or base path, of the specification; "
-            "required if the app has several"
-        ),
-    )
+        if name == "export-spec":
+            command.add_argument(
+                "--format",
+                choices=["yaml", "json"],
+                default="yaml",
+                help="Format of the output (default: %(default)s)",
+            )
+            command.add_argument(
+                "--spec",
+                help=(
+                    "Name in 'api.specs', or base path, of the specification; "
+                    "required if the app has several"
+                ),
+            )
     return parser
 
 
@@ -261,9 +261,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # code prints or logs there
     with contextlib.redirect_stdout(sys.stderr):
         try:
+            # Also while it runs: controllers may import a worker, with its own instance
             with no_startup_writes():
-                foca = _load_app(app)
-            output = args.function(foca, args)
+                output = args.function(_load_app(app), args)
         except _UsageError as exc:
             parser.error(str(exc))
         # What goes wrong is for the operator to fix, so no traceback by default;
