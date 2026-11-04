@@ -87,6 +87,22 @@ def _to_text(value: object) -> str:
         return "<not printable>"
 
 
+def _to_json_value(value: object) -> object:
+    """Get a value that can be written as JSON.
+
+    Args:
+        value: Value.
+
+    Returns:
+        The value if it can be written as JSON, otherwise its text.
+    """
+    try:
+        json.dumps(value, default=_to_text, allow_nan=False)
+    except Exception:
+        return _to_text(value)
+    return value
+
+
 class ContextFilter(logging.Filter):
     """Filter adding the context of the current request to log records.
 
@@ -155,14 +171,11 @@ class JsonFormatter(logging.Formatter):
             data["stack_info"] = self.formatStack(record.stack_info)
         try:
             return json.dumps(data, default=_to_text, allow_nan=False)
-        except (TypeError, ValueError, RecursionError):
+        except Exception:
             # E.g., keys that aren't strings, circular references, deep nesting
             # or values that JSON doesn't have, such as NaN
             return json.dumps(
-                {
-                    key: _to_text(value) if key in extra else value
-                    for key, value in data.items()
-                }
+                {key: _to_json_value(value) for key, value in data.items()}
             )
 
 

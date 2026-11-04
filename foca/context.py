@@ -2,12 +2,11 @@
 
 import re
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from contextvars import ContextVar
 from typing import Any
 
 from celery import current_task
-from werkzeug.wsgi import ClosingIterator
 
 DEFAULT_REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -30,6 +29,43 @@ def request_id() -> str:
     if current_task:
         return str(current_task.request.id or "")
     return ""
+
+
+class _ResponseBody:
+    """Body of a response that calls a function when it's closed.
+
+    Args:
+        body: Body of the response.
+        on_close: Function to call, also if closing the body fails.
+    """
+
+    def __init__(self, body: Iterable[bytes], on_close: Callable[[], None]) -> None:
+        """Wrap a body.
+
+        Args:
+            body: Body of the response.
+            on_close: Function to call, also if closing the body fails.
+        """
+        self._body = body
+        self._iterator = iter(body)
+        self._on_close = on_close
+
+    def __iter__(self) -> Iterator[bytes]:
+        """Get the iterator of the body.
+
+        Returns:
+            Iterator of the body.
+        """
+        return self._iterator
+
+    def close(self) -> None:
+        """Close the body."""
+        try:
+            close = getattr(self._body, "close", None)
+            if close is not None:
+                close()
+        finally:
+            self._on_close()
 
 
 class RequestIdMiddleware:
@@ -129,7 +165,7 @@ class RequestIdMiddleware:
             if isinstance(file_wrapper, type) and isinstance(body, file_wrapper):
                 _clear()
                 return body
-            return ClosingIterator(body, _clear)
+            return _ResponseBody(body, _clear)
         except BaseException:
             _clear()
             raise

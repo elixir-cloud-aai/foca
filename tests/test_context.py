@@ -138,6 +138,13 @@ class TestMiddleware:
         body.close()  # type: ignore[attr-defined]
         assert request_id() == ""
 
+    def test_body_without_close(self) -> None:
+        """Bodies need no `close()`."""
+        body = RequestIdMiddleware(MagicMock(return_value=[b"body"]))({}, MagicMock())
+        assert list(body) == [b"body"]
+        body.close()  # type: ignore[attr-defined]
+        assert request_id() == ""
+
     def test_cleared_on_error(self) -> None:
         """The identifier doesn't outlive a failed request."""
         with pytest.raises(ZeroDivisionError):
@@ -151,6 +158,19 @@ class TestMiddleware:
         app = MagicMock(return_value=1)
         with pytest.raises(TypeError):
             RequestIdMiddleware(app)({}, MagicMock())
+        assert request_id() == ""
+
+    def test_cleared_if_closing_fails(self) -> None:
+        """The identifier doesn't outlive a body failing to close."""
+        response_body = MagicMock()
+        response_body.__iter__.return_value = iter([b"body"])
+        response_body.close.side_effect = ZeroDivisionError
+        body = RequestIdMiddleware(MagicMock(return_value=response_body))(
+            {}, MagicMock()
+        )
+        assert list(body) == [b"body"]
+        with pytest.raises(ZeroDivisionError):
+            body.close()  # type: ignore[attr-defined]
         assert request_id() == ""
 
     def test_nested(self) -> None:

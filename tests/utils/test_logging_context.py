@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+from collections.abc import Iterator
 from logging.config import dictConfig
 from pathlib import Path
 from typing import Any
@@ -248,6 +249,24 @@ class TestJsonFormatter:
                 raise RuntimeError
 
         assert _format(_record(bad=_Bad()))["bad"] == "<not printable>"
+
+    def test_only_failing_values_as_text(self) -> None:
+        """Other fields keep their types if one can't be written."""
+        data = _format(_record(ratio=float("nan"), count=3))
+        assert data["ratio"] == "nan"
+        assert data["count"] == 3
+
+    def test_iteration_failing(self) -> None:
+        """Values failing in other ways don't fail the record."""
+
+        class _Bad(list[int]):
+            """List that can't be iterated over."""
+
+            def __iter__(self) -> Iterator[int]:
+                """Fail."""
+                raise RuntimeError
+
+        assert _format(_record(bad=_Bad([1]), count=3))["count"] == 3
 
     def test_control_characters(self) -> None:
         """Line breaks of messages can't forge log lines."""
