@@ -152,7 +152,8 @@ security:
 > model `model`. Corresponding permissions could be accessed and altered
 > by a user with admin permissions via the endpoints defined in `api_specs`
 > (FOCA's default specification if not set), at
-> `/admin/access-control/permissions` by default. Permissions will be stored
+> `/admin/access-control/permissions` by default (cf. `api_base_path`).
+> Permissions will be stored
 > in collection `collection_name` of MongoDB database `db_name`.
 >  
 > Cf. the [API model][docs-models-access-control] for further options and details.
@@ -182,23 +183,42 @@ older than the changes they read.
 ### Configuring the API
 
 FOCA comes with a default API for configuring permission resources, served
-at `/admin/access-control`, which `api_base_path` changes. If you manage
-policies through the configuration (`policies`) only, set `api_enabled: false`
-to take the API off the internet: it isn't registered, its paths respond with
-`404`, and policies are enforced as before. `api_specs` then has no effect, which
-is logged as a warning.
+at `/admin/access-control`. To move it, set `api_base_path`, an absolute path
+without trailing slash or dot segments. Paths in these docs assume the default:
 
 ```yaml
 security:
   access_control:
-    api_enabled: true
     api_base_path: /internal/permissions
 ```
 
-However, you can provide a custom [Swagger 2.x or
+Rules are matched against request paths, so what you write for the API has to
+follow it:
+
+- Rules for the old path don't apply anymore, which is logged for `policies`, but
+  not for rules stored via the API.
+- Moved under paths that a literal rule grants (e.g., `/api/v1/*`), the API is
+  open to those it applies to, and they can make themselves admins. FOCA logs a
+  warning for such `policies`, as they can be deliberate (e.g., delegating the
+  management of rules), and for a base path under one of the app's APIs, whose
+  operations it can also shadow. Rules with `{base_path}` are refused instead
+  (cf. [Policy rules for each API](#policy-rules-for-each-api)). Rules stored via
+  the API aren't checked.
+- A base path of one of the app's APIs is refused.
+
+If you manage policies through the configuration (`policies`) only, set
+`api_enabled: false` to take the API off the internet. It isn't registered, its
+paths respond with `404`, so policies can't be managed at runtime anymore, and
+they are enforced as before. The other `api_*` settings and `self_service` then
+have no effect, and a warning is logged if `api_specs` or `self_service` is set.
+Rules stored earlier via the API stay in effect, and `policies` doesn't remove
+them, so delete those you don't want anymore before switching the API off;
+afterwards, only the database can. The roles of owners keep working, too.
+
+You can also provide a custom [Swagger 2.x or
 OpenAPI 3.x][res-openapi] definition for `/permissions` endpoints via
-`api_specs`. It wins over `api_base_path`, with a warning if that is set: its
-`servers` (or `basePath`) define where the endpoints are
+`api_specs`. It wins over `api_base_path`, with a warning if that is explicitly
+set: its `servers` (or `basePath`) define where the endpoints are
 served, and the `operationId` of each operation which controller handles it
 (e.g., FOCA's default controllers in
 `foca.security.access_control.access_control_server`, or your own).

@@ -756,7 +756,8 @@ class AccessControlConfig(FOCABaseConfig):
             options to take effect; requires trusted token issuers
             (`AuthConfig.issuers`).
         api_enabled: Register the permissions API. If `False`, policies are
-            still enforced, and can be managed via `policies` only.
+            still enforced, including stored ones (e.g., added via the API
+            before), which `policies` doesn't remove.
         api_base_path: Base path of the default specification of the permissions
             API. A custom one (`api_specs`) wins, with a warning.
         api_specs: Path to a custom API specification of the permissions
@@ -1060,7 +1061,6 @@ class AccessControlConfig(FOCABaseConfig):
         segments = value.split("/")[1:]
         if (
             not value.startswith("/")
-            or not segments
             or not all(re.fullmatch(r"[A-Za-z0-9._~-]+", item) for item in segments)
             or {".", ".."} & set(segments)
         ):

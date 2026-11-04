@@ -746,12 +746,16 @@ class TestPermissionsApiSwitch:
 
     def test_disabled(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Without the API, its paths are gone, and policies are still enforced."""
+        caplog.set_level(logging.INFO)
         app = _create_app(
             tmp_path,
             [PETS_SPEC],
             policies=[["p", "user:alice", "/api/v1/pets/*", "GET"]],
             api_enabled=False,
+            api_swagger_ui=True,
         )
+        assert "Permission management API not registered" in caplog.text
+        assert app.test_client().get("/admin/access-control/ui/").status_code == 404
         response = app.test_client().get(
             "/admin/access-control/permissions",
             headers={"Authorization": "Bearer admin"},
@@ -782,6 +786,112 @@ class TestPermissionsApiSwitch:
             .status_code
             == 403
         )
+
+    def test_disabled_with_self_service(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Self-service without the API is pointed out."""
+        _create_app(tmp_path, [PETS_SPEC], api_enabled=False, self_service=True)
+        assert "'security.access_control.self_service' has no effect" in caplog.text
+
+    def test_base_path_of_app_api(self, tmp_path: Path) -> None:
+        """The base path of one of the app's APIs is refused, naming the setting."""
+        with pytest.raises(ValueError, match="api_base_path' must differ"):
+            _create_app(tmp_path, [PETS_SPEC], api_base_path="/api/v1")
+
+    def test_base_path_under_app_api(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A base path under one of the app's APIs is pointed out."""
+        _create_app(tmp_path, [PETS_SPEC], api_base_path="/api/v1/admin")
+        assert "lies under the base path of an API of the app" in caplog.text
+
+    def test_base_path_outside_app_api(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Neither other paths nor similar ones nor the root API are a conflict."""
+        _create_app(
+            tmp_path,
+            [PETS_SPEC, _spec("/", ("/pets", "get", _operation("list_pets")))],
+            api_base_path="/api/v1.admin",
+        )
+        assert "lies under" not in caplog.text
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            ["p", "*", "/api/v1/*", "(GET)|(POST)"],
+            ["p", "ops", "/api/v1/admin/permissions", "GET"],
+            ["p", "ops", "/api/v1/admin/permissions/:id", "GET"],
+        ],
+    )
+    def test_literal_rule_matches_api(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, rule: list[str]
+    ) -> None:
+        """Literal rules matching the API are pointed out, but may be deliberate."""
+        _create_app(
+            tmp_path, [PETS_SPEC], policies=[rule], api_base_path="/api/v1/admin"
+        )
+        assert f"Policy rule {rule!r} matches the permissions API" in caplog.text
+
+    def test_literal_rule_other_paths(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Other literal rules aren't."""
+        _create_app(
+            tmp_path,
+            [PETS_SPEC],
+            policies=[
+                ["p", "*", "/api/v1/pets/*", "GET"],
+                ["g", "user:alice", "ops"],
+            ],
+        )
+        assert "matches the permissions API" not in caplog.text
+
+    def test_rule_for_default_path(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Rules for the default path of a moved API are pointed out."""
+        rule = ["p", "ops", "/admin/access-control/permissions", "GET"]
+        _create_app(
+            tmp_path, [PETS_SPEC], policies=[rule], api_base_path="/internal/roles"
+        )
+        assert "names the default path of the permissions API" in caplog.text
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            {},
+            {"api_enabled": False},
+            {"api_base_path": "/internal/roles", "api_enabled": False},
+        ],
+    )
+    def test_rule_for_default_path_applies(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        options: dict[str, Any],
+    ) -> None:
+        """Without a moved API, there is nothing to point out."""
+        rule = ["p", "ops", "/admin/access-control/permissions", "GET"]
+        _create_app(tmp_path, [PETS_SPEC], policies=[rule], **options)
+        assert "names the default path" not in caplog.text
+
+    def test_rule_for_default_path_custom_spec(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A custom specification decides where the API is."""
+        spec_file = tmp_path / "permissions.yaml"
+        spec_file.write_text(DEFAULT_PERMISSIONS_SPEC.read_text())
+        rule = ["p", "ops", "/admin/access-control/permissions", "GET"]
+        _create_app(
+            tmp_path,
+            [PETS_SPEC],
+            policies=[rule],
+            api_specs=str(spec_file),
+            api_base_path="/ignored",
+        )
+        assert "names the default path" not in caplog.text
 
     def test_base_path_protected(self, tmp_path: Path) -> None:
         """Rules with the placeholder must not match the moved API."""
