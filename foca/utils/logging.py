@@ -1,13 +1,26 @@
 """Utility functions for logging."""
 
+import json
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from functools import wraps
 from typing import Any
 
 from flask import has_request_context, request
 
+from foca.context import request_id
+
 logger = logging.getLogger(__name__)
+
+# Fields that `ContextFilter` adds to log records
+_CONTEXT_FIELDS = ("request_id", "operation_id", "subject", "client")
+# Attributes of log records that aren't fields added via `extra`
+_RECORD_ATTRIBUTES = frozenset(vars(logging.makeLogRecord({}))) | {
+    "asctime",
+    "message",
+    *_CONTEXT_FIELDS,
+}
 
 
 def escape_log_value(value: object) -> str:
@@ -27,6 +40,114 @@ def escape_log_value(value: object) -> str:
     return "".join(
         char if char.isprintable() else repr(char)[1:-1] for char in str(value)
     )
+
+
+def _get_context() -> dict[str, str]:
+    """Get the context of the current request, for log records.
+
+    Returns:
+        Identifier of the request (or Celery task) and, within requests, of the
+        operation, subject and client, with non-printable characters escaped;
+        values that aren't available are empty.
+    """
+    context = dict.fromkeys(_CONTEXT_FIELDS, "")
+    context["request_id"] = request_id()
+    if not has_request_context():
+        return context
+    # Import cycles, as these modules log
+    from foca.security.access_control.enforcement import (  # noqa: PLC0415
+        _get_claims,
+        get_current_subject,
+    )
+    from foca.security.auth import get_token_client  # noqa: PLC0415
+    from foca.utils.urls import get_operation_id  # noqa: PLC0415
+
+    # Logging must not fail, e.g., for an app without FOCA's configuration
+    try:
+        context["operation_id"] = get_operation_id()
+        context["subject"] = escape_log_value(get_current_subject() or "")
+        context["client"] = escape_log_value(get_token_client(_get_claims()) or "")
+    except Exception:  # noqa: S110
+        pass
+    return context
+
+
+class ContextFilter(logging.Filter):
+    """Filter adding the context of the current request to log records.
+
+    It adds the fields `request_id`, `operation_id`, `subject` and `client`,
+    for use in formats (e.g., ``{request_id}``). They are empty outside requests,
+    except for `request_id`, which is the identifier of the task in Celery tasks.
+    It lets all records pass.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Add the context to a log record.
+
+        Args:
+            record: Log record.
+
+        Returns:
+            `True`, so that the record is logged.
+        """
+        for name, value in _get_context().items():
+            setattr(record, name, value)
+        return True
+
+
+class JsonFormatter(logging.Formatter):
+    """Formatter writing log records as one JSON object per line.
+
+    The objects have the keys `timestamp`, `level`, `logger`, `message`,
+    `request_id`, `operation_id`, `subject` and `client`, as well as `exc_info`
+    and `stack_info`, if the record has them, and those given via `extra`, unless
+    they are named as any of these. The format string and format of dates aren't
+    used. Messages are written as they are, so what was escaped for text logs
+    (cf. :py:func:`escape_log_value`) reads the same.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format a log record.
+
+        Args:
+            record: Log record.
+
+        Returns:
+            JSON object of the record, in one line.
+        """
+        extra = {
+            key: value
+            for key, value in vars(record).items()
+            if key not in _RECORD_ATTRIBUTES and not key.startswith("_")
+        }
+        # Records of handlers without `ContextFilter`
+        context = (
+            {name: getattr(record, name) for name in _CONTEXT_FIELDS}
+            if all(hasattr(record, name) for name in _CONTEXT_FIELDS)
+            else _get_context()
+        )
+        data = {
+            **extra,
+            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            **context,
+        }
+        if record.exc_info:
+            data["exc_info"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            data["stack_info"] = self.formatStack(record.stack_info)
+        try:
+            return json.dumps(data, default=str)
+        except (TypeError, ValueError):
+            # E.g., keys that aren't strings, or circular references
+            return json.dumps(
+                {
+                    key: str(value) if key in extra else value
+                    for key, value in data.items()
+                }
+            )
 
 
 def _describe_request() -> str:

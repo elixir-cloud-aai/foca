@@ -100,6 +100,7 @@ def test_settings() -> None:
     assert cfg.limit_request_fields == 100
     assert cfg.limit_request_field_size == 8190
     assert (cfg.accesslog, cfg.errorlog) == (None, "-")
+    assert "%({x-request-id}o)s" in cfg.access_log_format
     assert cfg.control_socket_disable
     assert not cfg.preload_app
     # Not set: Gunicorn's defaults

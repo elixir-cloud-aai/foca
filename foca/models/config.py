@@ -180,6 +180,34 @@ class IdConfig(FOCABaseConfig):
         return charset
 
 
+class RequestIdConfig(FOCABaseConfig):
+    """Model for the identifiers of requests.
+
+    Args:
+        header: Name of the request and response header with the identifier.
+        trust_incoming: Whether to take the identifier from the request header,
+            if it's valid (at most 128 letters, digits and `._:-`); otherwise,
+            each request gets a new random one.
+
+    Attributes:
+        header: Name of the request and response header with the identifier.
+        trust_incoming: Whether to take the identifier from the request header.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type, or `header` is not a header name.
+
+    Examples:
+        >>> RequestIdConfig().header
+        'X-Request-ID'
+        >>> RequestIdConfig().trust_incoming
+        True
+    """
+
+    header: str = Field(default="X-Request-ID", pattern=r"^[A-Za-z0-9-]+$")
+    trust_incoming: bool = True
+
+
 class ServerConfig(FOCABaseConfig):
     """Model for configuration parameters of a Flask or Connexion app.
 
@@ -211,6 +239,8 @@ class ServerConfig(FOCABaseConfig):
             no trailing slash); must not have a query or fragment. If
             ``None``, the app has no public URL, and
             :py:func:`foca.utils.urls.get_public_url` raises an error.
+        request_id: How requests get their identifiers (cf.
+            :py:func:`foca.context.request_id`).
 
     Attributes:
         host: Host at which the application is exposed.
@@ -239,6 +269,7 @@ class ServerConfig(FOCABaseConfig):
     testing: bool = False
     max_content_length: PositiveInt | None = None
     public_url: str | None = None
+    request_id: RequestIdConfig = RequestIdConfig()
 
     @field_validator("public_url")
     @classmethod
@@ -2432,11 +2463,15 @@ class LogFormatterConfig(FOCABaseConfig):
         class: Name of logging formatter class.
         style: Determines how the format string will be merged with its data.
         format: Format string any log messages.
+        datefmt: Format string of dates and times in messages.
+        defaults: Values of fields of the format string that a record may lack.
 
     Attributes:
         class: Name of logging formatter class.
         style: Determines how the format string will be merged with its data.
         format: Format string any log messages.
+        datefmt: Format string of dates and times in messages.
+        defaults: Values of fields of the format string that a record may lack.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2456,6 +2491,8 @@ class LogFormatterConfig(FOCABaseConfig):
     )
     style: str = "{"
     format: str = "[{asctime}: {levelname:<8}] {message} [{name}]"
+    datefmt: str | None = None
+    defaults: dict[str, Any] | None = None
 
 
 class LogHandlerConfig(FOCABaseConfig):
@@ -2466,12 +2503,15 @@ class LogHandlerConfig(FOCABaseConfig):
         level: Numeric value of logging level.
         formatter: Name of logging formatter.
         stream: Devide to which log is streamed.
+        filters: Names of the filters of the handler. Unless set, in a
+            :py:class:`LogConfig`, the built-in filter `context`.
 
     Attributes:
         class: Name of logging handler class.
         level: Numeric value of logging level.
         formatter: Name of logging formatter.
         stream: Devide to which log is streamed.
+        filters: Names of the filters of the handler.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2493,8 +2533,84 @@ class LogHandlerConfig(FOCABaseConfig):
     level: int = 20
     formatter: str = "standard"
     stream: str = "ext://sys.stderr"
+    filters: list[str] | None = None
 
     _validate_level = field_validator("level")(_validate_log_level_choices)
+
+
+class LogFilterConfig(FOCABaseConfig):
+    """Model for a filter of log records.
+
+    Args:
+        factory: Name of the callable creating the filter, given as `()`; further
+            fields are passed to it. If not set, the filter is a
+            :py:class:`logging.Filter` of the logger `name`.
+        name: Name of the logger whose records pass.
+
+    Attributes:
+        factory: Name of the callable creating the filter.
+        name: Name of the logger whose records pass.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Examples:
+        >>> LogFilterConfig(name="foca").name
+        'foca'
+        >>> LogFilterConfig.model_validate({"()": "my_app.Filter"}).factory
+        'my_app.Filter'
+    """
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    factory: str | None = Field(None, alias="()")
+    name: str | None = None
+
+
+class LogLoggerConfig(FOCABaseConfig):
+    """Model for the configuration of a logger.
+
+    Args:
+        level: Numeric value of logging level.
+        handlers: Names of the handlers of the logger.
+        propagate: Whether records are passed on to the handlers of parent
+            loggers.
+        filters: Names of the filters of the logger. They only see the records
+            of this very logger, not those of its children.
+
+    Attributes:
+        level: Numeric value of logging level.
+        handlers: Names of the handlers of the logger.
+        propagate: Whether records are passed on to the handlers of parents.
+        filters: Names of the filters of the logger.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Examples:
+        >>> LogLoggerConfig(level=30).level
+        30
+    """
+
+    level: int | None = None
+    handlers: list[str] | None = None
+    propagate: bool | None = None
+    filters: list[str] | None = None
+
+    @field_validator("level")
+    @classmethod
+    def _validate_level(cls, level: int | None) -> int | None:
+        """Ensure that a valid logging level is set, if any.
+
+        Args:
+            level: Logging level.
+
+        Returns:
+            Unmodified logging level.
+        """
+        return level if level is None else _validate_log_level_choices(cls, level)
 
 
 class LogRootConfig(FOCABaseConfig):
@@ -2539,8 +2655,12 @@ class LogConfig(FOCABaseConfig):
             configuration parameters.
         handlers: A dictionary of logging handlers, where keys represent
             handler names and values represent the corresponding configuration
-            parameters.
+            parameters. Handlers without `filters` get the built-in filter
+            `context`.
         root: Configuration of the root logger.
+        filters: Filters of log records by name, in addition to the built-in
+            `context` (cf. :py:class:`foca.utils.logging.ContextFilter`).
+        loggers: Configuration of other loggers by name.
 
     Attributes:
         version: Represents current schema version.
@@ -2553,10 +2673,13 @@ class LogConfig(FOCABaseConfig):
             handler names and values represent the corresponding configuration
             parameters.
         root: Configuration of the root logger.
+        filters: Filters of log records by name.
+        loggers: Configuration of other loggers by name.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type.
+            data type, or a logger or handler names a filter or handler that
+            isn't configured.
 
     Examples:
         >>> import logging
@@ -2578,6 +2701,56 @@ class LogConfig(FOCABaseConfig):
         "console": LogHandlerConfig.model_validate({}),
     }
     root: LogRootConfig | None = LogRootConfig()
+    filters: dict[str, LogFilterConfig] = Field(default_factory=dict)
+    loggers: dict[str, LogLoggerConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _add_builtins_and_check_names(self) -> "LogConfig":
+        """Add the built-in formatter and filter, and check names of the sections.
+
+        Returns:
+            The config.
+
+        Raises:
+            ValueError: A logger or handler names a filter or handler that isn't
+                configured.
+        """
+        if self.formatters is not None:
+            self.formatters.setdefault(
+                "json",
+                LogFormatterConfig.model_validate(
+                    {"class": "foca.utils.logging.JsonFormatter"}
+                ),
+            )
+        self.filters.setdefault(
+            "context",
+            LogFilterConfig.model_validate({"()": "foca.utils.logging.ContextFilter"}),
+        )
+        handlers = self.handlers or {}
+        for handler in handlers.values():
+            if handler.filters is None:
+                handler.filters = ["context"]
+        users: list[tuple[str, LogHandlerConfig | LogLoggerConfig]] = [
+            *handlers.items(),
+            *self.loggers.items(),
+        ]
+        unknown = sorted(
+            {
+                f"{user}: {name}"
+                for user, conf in users
+                for name in conf.filters or []
+                if name not in self.filters
+            }
+            | {
+                f"{user}: {name}"
+                for user, conf in self.loggers.items()
+                for name in conf.handlers or []
+                if name not in handlers
+            }
+        )
+        if unknown:
+            raise ValueError(f"Unknown filters or handlers in `log`: {unknown}")
+        return self
 
 
 class ServiceInfoConfig(FOCABaseConfig):

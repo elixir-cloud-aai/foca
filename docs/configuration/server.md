@@ -72,3 +72,24 @@ control unless the proxy sets them.
 ::: foca.models.config.ServerConfig
     options:
       members: false
+
+## Request IDs
+
+Each request has an identifier, for finding its log lines. It's available from
+`foca.context.request_id()` and in [log records](log.md#context-of-log-records), and
+sent back in a response header. It's for correlating logs only, not a trace.
+
+```yaml
+server:
+  request_id:
+    header: X-Request-ID
+    trust_incoming: true
+```
+
+An identifier in the request header is taken if it has at most 128 letters, digits
+and `._:-`. Otherwise, or with `trust_incoming: false`, the request gets a new random
+one. Turn it off if clients must not be able to choose what's in your logs and no
+proxy in front of the app sets the header.
+
+If you change `header`, also change `access_log_format` for [Gunicorn's access
+log](../deployment.md).
