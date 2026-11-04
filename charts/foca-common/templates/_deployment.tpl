@@ -33,6 +33,10 @@ spec:
       annotations:
         # Roll the pods when the config changes
         checksum/config: {{ include "foca-common.configMap" . | sha256sum }}
+        {{- with include "foca-common.rolloutChecksum" . }}
+        # Roll the pods when the Secrets in `rolloutOnSecrets` change
+        checksum/secrets: {{ . }}
+        {{- end }}
       labels:
         {{- include "foca-common.selectorLabels" (dict "root" $root "component" "app") | nindent 8 }}
     spec:
@@ -49,6 +53,9 @@ spec:
         env:
         - name: FOCA_CONFIG_OVERLAY
           value: {{ printf "%s/overlay.yaml" $configDir }}
+        # The port of the Service and the probes, also over `extraEnvFrom`
+        - name: PORT
+          value: "8080"
         {{- if $values.gunicorn }}
         # Settings of Gunicorn (the image's command), overriding the image's
         # defaults; options are split like shell words, so `extraArgs` are
@@ -66,6 +73,13 @@ spec:
         {{- . | nindent 8 }}
         {{- end }}
         {{- with include "foca-common.pluginsEnv" $root | trim }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "foca-common.extraEnv" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "foca-common.extraEnvFrom" . }}
+        envFrom:
         {{- . | nindent 8 }}
         {{- end }}
         ports:
