@@ -6,10 +6,12 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote_plus, urlsplit
 
+from pydantic import SecretStr
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from pymongo.uri_parser import split_options
 
+from foca.config.environment import get_env
 from foca.models.config import DBConfig, MongoConfig
 
 # Get logger instance
@@ -202,7 +204,14 @@ def _get_client_options(
     }
     if appname is not None:
         merged["appname"] = appname
-    merged.update({name.lower(): value for name, value in options.items()})
+    merged.update(
+        {
+            name.lower(): (
+                value.get_secret_value() if isinstance(value, SecretStr) else value
+            )
+            for name, value in options.items()
+        }
+    )
     return {name: value for name, value in merged.items() if name not in in_uri}
 
 
@@ -274,7 +283,7 @@ def get_mongo_uri(
     Raises:
         ValueError: Raised if `MONGO_URI` is not a MongoDB connection string.
     """
-    uri = os.environ.get("MONGO_URI")
+    uri = get_env("MONGO_URI")
     if uri:
         if urlsplit(uri).scheme not in ("mongodb", "mongodb+srv"):
             raise ValueError(
@@ -284,11 +293,11 @@ def get_mongo_uri(
         return uri
 
     auth = ""
-    user = os.environ.get("MONGO_USERNAME")
+    user = get_env("MONGO_USERNAME")
     if user:
         # An unset password is passed as 'None', as in previous versions;
         # PyMongo refuses to create clients with a username but no password
-        password = str(os.environ.get("MONGO_PASSWORD"))
+        password = str(get_env("MONGO_PASSWORD"))
         auth = f"{quote_plus(user)}:{quote_plus(password)}@"
     host = os.environ.get("MONGO_HOST", host)
     port_str = os.environ.get("MONGO_PORT", str(port))

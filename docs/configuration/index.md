@@ -133,7 +133,49 @@ them.
 See [Deployment](../deployment.md) for how to split the configuration between
 the app and its deployments, e.g., with Helm on Kubernetes.
 
+## References to environment variables
+
+String values in configuration files can reference environment variables, e.g., to
+keep secrets out of the files:
+
+```yaml
+custom:
+  storage:
+    access_key: ${STORAGE_ACCESS_KEY}
+    region: ${STORAGE_REGION:-eu-north-1}
+    secret_key: ${STORAGE_SECRET_KEY:?needed for the storage}
+    price: $$5
+```
+
+| Syntax | Result |
+| --- | --- |
+| `${VAR}` | Value of `VAR`, which may be empty; an error if it isn't set |
+| `${VAR:-default}` | Value of `VAR`, or `default` if it's unset or empty |
+| `${VAR:?message}` | Value of `VAR`; an error with `message` if it's unset or empty |
+| `$$` | A literal `$` |
+
+This follows the [specification of
+Compose](https://github.com/compose-spec/compose-spec/blob/main/spec.md#interpolation),
+for these forms; nesting them isn't supported, and neither is `$VAR` without braces,
+which stays as it is. Errors name the key. References are replaced per file, after
+parsing the YAML and before merging, so all files must resolve, also values that a later
+file overrides. Keys aren't changed, and neither are API specifications and other files
+that the configuration points to. Values stay strings, also where a variable holds a
+number. Most settings convert them, but those that say they're strict refuse them.
+
+Keep secrets in fields that hide them, i.e., of type
+[`SecretStr`](https://docs.pydantic.dev/latest/api/types/#pydantic.types.SecretStr) in
+[your own models](custom.md#secrets). Those of FOCA are `jobs.backend`, the
+`client_options` `authMechanismProperties` and `tlsCertificateKeyFilePassword` of
+[`db`](db.md), and `plugins.defaults.store.key_secret`.
+
 ## Environment variables
+
+`MONGO_URI`, `MONGO_USERNAME`, `MONGO_PASSWORD`, `CELERY_BROKER_URL` and
+`CELERY_RESULT_BACKEND` can come from files, e.g., mounted secrets, as with Docker's
+official images: `MONGO_PASSWORD_FILE=/run/secrets/mongo-password` reads the password
+from that file, without its final line break. Setting both a variable and its `_FILE`
+variable is an error, as is a file that can't be read.
 
 | Variable | Description |
 | --- | --- |

@@ -41,6 +41,9 @@ _MONGO_ENV_VARS = (
     "MONGO_DBNAME",
     "MONGO_USERNAME",
     "MONGO_PASSWORD",
+    "MONGO_URI_FILE",
+    "MONGO_USERNAME_FILE",
+    "MONGO_PASSWORD_FILE",
 )
 # Would send requests to the local issuer elsewhere, or others past the guard
 _PROXY_ENV_VARS = (

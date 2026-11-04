@@ -49,6 +49,22 @@ format checks apply to responses with `validate_responses`, which then fail with
 `datetime.isoformat()`. Check what your specifications declare and what your clients
 send. Other formats are checked as before.
 
+### References to environment variables in configuration files
+
+String values in configuration files now [reference environment
+variables](configuration/index.md#references-to-environment-variables). What you wrote as
+`${...}` now means that: an unset variable stops the app, and invalid forms do too, naming
+the key. `$$` now means a literal `$`. Write `$$` for each `$` that's meant literally in
+these two cases, e.g., `$${...}`. Other uses of `$`, such as at the end of a regular
+expression, stay as they are. API specifications aren't affected.
+
+### Secrets in the configuration
+
+`jobs.backend` is now a `SecretStr`, as are the `client_options`
+`authMechanismProperties` and `tlsCertificateKeyFilePassword`, so that they don't show up
+in `repr()`. Code reading them must call `.get_secret_value()`. Don't read them outside
+of what needs them.
+
 ## Request IDs
 
 Responses now have the header `X-Request-ID`, and [log

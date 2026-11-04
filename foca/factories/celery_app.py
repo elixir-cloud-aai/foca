@@ -1,7 +1,6 @@
 """Factory for creating and configuring Celery application instances."""
 
 import logging
-import os
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -10,6 +9,7 @@ from celery.signals import worker_init, worker_process_init
 from flask import Flask
 
 from foca.config.access import get_app_config
+from foca.config.environment import get_env
 from foca.database.register_mongodb import reopen_mongodb
 
 # Get logger instance
@@ -37,7 +37,8 @@ def create_celery_app(app: Flask) -> Celery:
     `CELERY_BROKER_URL`, if set (e.g., with credentials or for
     `amqps://`), otherwise built from `jobs.host` and `jobs.port`. The
     result backend is taken from environment variable
-    `CELERY_RESULT_BACKEND`, if set, otherwise from `jobs.backend`.
+    `CELERY_RESULT_BACKEND`, if set, otherwise from `jobs.backend`. Both
+    variables can come from files (cf. :py:func:`foca.config.environment.get_env`).
 
     If the app has a database, a worker replaces its MongoDB client before it
     forks its processes, and each process after its fork, as clients must not
@@ -54,8 +55,8 @@ def create_celery_app(app: Flask) -> Celery:
     conf = config.jobs
     if conf is None:
         raise ValueError("No background task support configured")
-    broker = os.environ.get("CELERY_BROKER_URL", f"pyamqp://{conf.host}:{conf.port}//")
-    backend = os.environ.get("CELERY_RESULT_BACKEND", conf.backend)
+    broker = get_env("CELERY_BROKER_URL", f"pyamqp://{conf.host}:{conf.port}//")
+    backend = get_env("CELERY_RESULT_BACKEND", conf.backend.get_secret_value())
 
     # Instantiate Celery app
     celery = Celery(
