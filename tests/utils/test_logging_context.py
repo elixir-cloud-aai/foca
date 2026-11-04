@@ -220,6 +220,35 @@ class TestJsonFormatter:
         assert data["tuples"] == "{(1, 2): 3}"
         assert data["circular"] == str(circular)
 
+    def test_values_json_lacks(self) -> None:
+        """The output is valid JSON, for strict parsers."""
+        line = JsonFormatter().format(_record(ratio=float("nan")))
+        assert (
+            json.loads(line, parse_constant=lambda _: pytest.fail("Not valid JSON"))[
+                "ratio"
+            ]
+            == "nan"
+        )
+
+    def test_deep_nesting(self) -> None:
+        """Deeply nested values don't get out of the formatter as errors."""
+        deep: list[Any] = []
+        for _ in range(100000):
+            deep = [deep]
+        assert _format(_record(deep=deep))["deep"] == "<not printable>"
+
+    def test_not_printable(self) -> None:
+        """Values that can't be printed don't fail the record."""
+
+        class _Bad:
+            """Value that can't be printed."""
+
+            def __str__(self) -> str:
+                """Fail."""
+                raise RuntimeError
+
+        assert _format(_record(bad=_Bad()))["bad"] == "<not printable>"
+
     def test_control_characters(self) -> None:
         """Line breaks of messages can't forge log lines."""
         message = "a\nb" + chr(0x2028) + "c"

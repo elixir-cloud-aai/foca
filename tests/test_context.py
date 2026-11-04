@@ -146,6 +146,31 @@ class TestMiddleware:
             )
         assert request_id() == ""
 
+    def test_cleared_if_body_is_invalid(self) -> None:
+        """The identifier doesn't outlive a response that isn't iterable."""
+        app = MagicMock(return_value=1)
+        with pytest.raises(TypeError):
+            RequestIdMiddleware(app)({}, MagicMock())
+        assert request_id() == ""
+
+    def test_nested(self) -> None:
+        """A request made during another keeps the identifier of the outer one."""
+        inner = RequestIdMiddleware(_echo_app, trust_incoming=False)
+        seen = []
+
+        def _app(
+            environ: dict[str, Any], start_response: Callable[..., Any]
+        ) -> Iterable[bytes]:
+            """Call another app."""
+            Client(inner).get().close()
+            seen.append(request_id())
+            start_response("200 OK", [])
+            return []
+
+        body = RequestIdMiddleware(_app)({"HTTP_X_REQUEST_ID": "abc-1"}, MagicMock())
+        assert seen == ["abc-1"]
+        body.close()  # type: ignore[attr-defined]
+
     def test_file_wrapper_passed_on(self) -> None:
         """File wrappers of servers stay as they are."""
 

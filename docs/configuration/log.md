@@ -58,7 +58,8 @@ children, as in Python's `logging`; use filters of handlers to see them all.
 The built-in filter `context`
 (`foca.utils.logging.ContextFilter`) adds these
 fields to the records of all handlers without their own `filters`. To opt out, set
-`filters: []` for a handler.
+`filters: []` for a handler. A filter or formatter of your own named `context` or
+`json` replaces the built-in one.
 
 | Field | Value |
 |-------|-------|
@@ -77,9 +78,12 @@ log:
       format: "[{asctime}: {levelname:<8}] {request_id} {message} [{name}]"
 ```
 
-Celery replaces the handlers of the root logger in its workers, unless
+Workers of Celery set up logging themselves, so this configuration doesn't apply
+there by default. With
 [`worker_hijack_root_logger`](https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-hijack-root-logger)
-is off, so that workers don't use this configuration then.
+off, it applies to the handlers of the root logger, where `request_id` is the
+identifier of the task. Loggers from `get_task_logger()` keep Celery's own handler,
+so use `logging.getLogger(__name__)` in tasks to have the context.
 
 ## JSON logs
 

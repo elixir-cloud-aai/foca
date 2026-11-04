@@ -72,6 +72,21 @@ def _get_context() -> dict[str, str]:
     return context
 
 
+def _to_text(value: object) -> str:
+    """Get the text of a value for a log record, whatever the value.
+
+    Args:
+        value: Value.
+
+    Returns:
+        Text of the value, or a placeholder if there is none.
+    """
+    try:
+        return str(value)
+    except Exception:
+        return "<not printable>"
+
+
 class ContextFilter(logging.Filter):
     """Filter adding the context of the current request to log records.
 
@@ -139,12 +154,13 @@ class JsonFormatter(logging.Formatter):
         if record.stack_info:
             data["stack_info"] = self.formatStack(record.stack_info)
         try:
-            return json.dumps(data, default=str)
-        except (TypeError, ValueError):
-            # E.g., keys that aren't strings, or circular references
+            return json.dumps(data, default=_to_text, allow_nan=False)
+        except (TypeError, ValueError, RecursionError):
+            # E.g., keys that aren't strings, circular references, deep nesting
+            # or values that JSON doesn't have, such as NaN
             return json.dumps(
                 {
-                    key: str(value) if key in extra else value
+                    key: _to_text(value) if key in extra else value
                     for key, value in data.items()
                 }
             )

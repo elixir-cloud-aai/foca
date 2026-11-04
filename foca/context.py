@@ -116,18 +116,20 @@ class RequestIdMiddleware:
             headers.append((self.header, value))
             return start_response(status, headers, *args)
 
+        previous = _request_id.get()
+
         def _clear() -> None:
-            """Forget the identifier."""
-            _request_id.set(None)
+            """Forget the identifier, for the request that an app may be called in."""
+            _request_id.set(previous)
 
         _request_id.set(value)
         try:
             body = self.app(environ, _start_response)
+            file_wrapper = environ.get("wsgi.file_wrapper")
+            if isinstance(file_wrapper, type) and isinstance(body, file_wrapper):
+                _clear()
+                return body
+            return ClosingIterator(body, _clear)
         except BaseException:
             _clear()
             raise
-        file_wrapper = environ.get("wsgi.file_wrapper")
-        if isinstance(file_wrapper, type) and isinstance(body, file_wrapper):
-            _clear()
-            return body
-        return ClosingIterator(body, _clear)
