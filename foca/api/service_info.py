@@ -67,7 +67,8 @@ def build_service_info(conf: ServiceInfoConfig) -> dict[str, Any]:
 
     Raises:
         InvalidServiceInfo: The function returning fields at runtime failed
-            or did not return a dictionary, or the service info is invalid.
+            or did not return a dictionary or one of the locked fields
+            (`service_info.locked_fields`), or the service info is invalid.
     """
     if conf.runtime_function is None:
         info = merge_service_info(conf.service, conf.package_version)
@@ -75,6 +76,12 @@ def build_service_info(conf: ServiceInfoConfig) -> dict[str, Any]:
         return info
     path = str(conf.runtime_fields)
     runtime = call_runtime_function(conf.runtime_function, path)
+    missing = sorted(set(conf.locked_fields) - runtime.keys())
+    if missing:
+        raise InvalidServiceInfo(
+            f"`{path}` must return the locked fields of the service info "
+            f"(`service_info.locked_fields`): {missing}"
+        )
     info = merge_service_info(conf.service, conf.package_version, runtime)
     validate_service_info(info, note=f" (from `service_info.service` and `{path}`)")
     return info

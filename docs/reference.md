@@ -272,6 +272,8 @@ configuration models, see [Configuration](configuration/index.md).
 ::: foca.utils.misc
 
 ::: foca.utils.urls
+
+::: foca.utils.pagination
     options:
       members:
         - check_url

@@ -641,3 +641,33 @@ def test_service_info_runtime_failed_at_startup(
     foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})
     with pytest.raises(InvalidServiceInfo, match="failed"):
         foca.create_app()
+
+
+def test_get_service_info_locked_fields() -> None:
+    """Locked fields are served from the runtime function."""
+    app = _app(
+        {
+            "service": service(description=REMOVE),
+            "runtime_fields": f"{FIELDS}.runtime_fields",
+            "locked_fields": ["description"],
+        }
+    )
+    with app.app_context():
+        assert get_service_info()["description"] == "From runtime"
+
+
+def test_get_service_info_locked_fields_not_returned() -> None:
+    """The runtime function must return locked fields."""
+    app = _app(
+        {
+            "service": SERVICE,
+            "runtime_fields": f"{FIELDS}.version_field",
+            "locked_fields": ["x-rules", "x-other"],
+        }
+    )
+    with (
+        app.app_context(),
+        pytest.raises(InvalidServiceInfo, match="must return the locked fields") as exc,
+    ):
+        get_service_info()
+    assert "['x-other', 'x-rules']" in str(exc.value)

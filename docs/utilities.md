@@ -20,6 +20,59 @@ them for secrets such as tokens. Pass the characters themselves as
 `charset`; expressions such as `string.ascii_uppercase + string.digits` are
 not evaluated.
 
+For the character set and length in the custom configuration of an app, use
+the model `foca.models.config.IdConfig`, which rejects character sets that aren't
+fit for identifiers (empty, expressions, `/` or dots only):
+
+```python
+from foca.models.config import FOCABaseConfig, IdConfig
+from foca.utils.misc import generate_id
+
+
+class CustomConfig(FOCABaseConfig):
+    id: IdConfig = IdConfig()
+
+
+def new_id(conf: CustomConfig) -> str:
+    return generate_id(charset=conf.id.charset, length=conf.id.length)
+```
+
+## Paginating lists
+
+`foca.utils.pagination` has helpers for lists with an offset and a limit:
+`get_page()` checks the parameters (`400 Bad Request` for invalid ones, and limits
+above `max_limit`, by default 1000, are reduced to it), and `get_page_links()`
+builds links to the other pages from the [public URL](#building-public-urls) of
+the app, with the path and the other query parameters of the request:
+
+```python
+from foca import get_collection
+from foca.utils.pagination import get_link_header, get_page, get_page_links
+
+
+def getPets(offset=None, limit=None):
+    page = get_page(offset, limit, default_limit=50)
+    pets = get_collection(db="myDb", collection="pets")
+    items = list(
+        pets.find({}, {"_id": False}).sort("id").skip(page.offset).limit(page.limit)
+    )
+    links = get_page_links(page, total=pets.count_documents({}))
+    return {"items": items, "links": links}, 200, {"Link": get_link_header(links)}
+```
+
+```json
+{
+  "first": "https://api.example.org/pets?offset=0&limit=50",
+  "next": "https://api.example.org/pets?offset=50&limit=50",
+  "last": "https://api.example.org/pets?offset=100&limit=50"
+}
+```
+
+The relations are `first`, `prev`, `next` and `last`. Without `total` (counting
+may be expensive), there is no `last`, and always a `next`. Declare the
+parameters and the response in your API specification. The app needs
+`server.public_url`; otherwise, `get_page_links()` raises a `RuntimeError`.
+
 ## Checking and normalizing URLs
 
 Apps that store URLs sent by clients (e.g., service URLs, documentation or
