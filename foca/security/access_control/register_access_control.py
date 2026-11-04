@@ -634,12 +634,14 @@ def _check_api_base_path(app: Flask, api_base_path: str) -> None:
                 "'security.access_control.api_base_path' must differ from the "
                 f"base paths of the app's APIs: '{base_path}'"
             )
-        if base_path and api_base_path.startswith(f"{base_path}/"):
+        if (base_path and api_base_path.startswith(f"{base_path}/")) or (
+            base_path.startswith(f"{api_base_path}/")
+        ):
             logger.warning(
-                "'security.access_control.api_base_path' lies under the base "
+                "'security.access_control.api_base_path' overlaps with the base "
                 "path of an API of the app, '%s': policy rules for the paths of "
-                "that API may also grant access to the permissions API, and "
-                "its paths win over those of that API.",
+                "one API may also grant access to the other, and the operations "
+                "of each can shadow those of the other.",
                 base_path,
             )
 
@@ -740,6 +742,7 @@ def _warn_default_base_path(access_control_config: AccessControlConfig) -> None:
         not access_control_config.api_enabled
         or access_control_config.api_specs is not None
         or access_control_config.api_base_path == default
+        or access_control_config.api_base_path.startswith(f"{default}/")
     ):
         return
     for rule in access_control_config.policies or []:
@@ -870,18 +873,7 @@ def _expand_base_path(
             it matches one of `protected_paths`.
     """
     if not any(BASE_PATH_PLACEHOLDER in value for value in rule[1:]):
-        # Paths only: subjects and actions may be wildcards as well
-        for value in (value for value in rule[1:] if value.startswith("/")):
-            path = _get_matching_path(value, protected_paths)
-            if path is not None:
-                logger.warning(
-                    "Policy rule %r matches the permissions API ('%s'): whoever "
-                    "it applies to can manage access control, and may make "
-                    "themselves an admin with write access.",
-                    rule,
-                    path,
-                )
-                break
+        _warn_if_matches_api(rule, protected_paths)
         return [rule]
     if not base_paths:
         raise ValueError(
@@ -909,6 +901,34 @@ def _expand_base_path(
                     f"('{path}'): limit it to the paths it is meant for"
                 )
     return expanded
+
+
+def _warn_if_matches_api(rule: list[str], protected_paths: list[str]) -> None:
+    """Warn about a rule that grants access to the permissions API.
+
+    Only rules of the type `p`, with the values subject, object and action, grant
+    access. It isn't refused, as it may be meant to, e.g., for delegating the
+    management of rules; those for admins, who have access anyway, are left out.
+
+    Args:
+        rule: Policy rule: its policy type, followed by its values.
+        protected_paths: Paths of the permissions API (cf.
+            :py:func:`_expand_base_path`).
+    """
+    if rule[0:1] != ["p"] or len(rule) < 3 or rule[1] == ADMIN_ROLE:
+        return
+    try:
+        path = _get_matching_path(rule[2], protected_paths)
+    except re.error:  # Not a valid pattern, which isn't a matter of this check
+        return
+    if path is not None:
+        logger.warning(
+            "Policy rule %r matches the permissions API ('%s'): whoever it applies "
+            "to can use it with the rule's methods, and with write access, can make "
+            "themselves admins.",
+            rule,
+            path,
+        )
 
 
 def _get_matching_path(value: str, paths: list[str]) -> str | None:

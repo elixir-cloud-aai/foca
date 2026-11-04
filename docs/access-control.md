@@ -198,12 +198,14 @@ follow it:
 - Rules for the old path don't apply anymore, which is logged for `policies`, but
   not for rules stored via the API.
 - Moved under paths that a literal rule grants (e.g., `/api/v1/*`), the API is
-  open to those it applies to, and they can make themselves admins. FOCA logs a
-  warning for such `policies`, as they can be deliberate (e.g., delegating the
-  management of rules), and for a base path under one of the app's APIs, whose
-  operations it can also shadow. Rules with `{base_path}` are refused instead
+  open to those it applies to, and with write access, they can make themselves
+  admins. FOCA logs a warning for all `policies` other than those of admins that
+  match the API, also at the default path, as they can be deliberate (e.g.,
+  delegating the management of rules). Rules with `{base_path}` are refused instead
   (cf. [Policy rules for each API](#policy-rules-for-each-api)). Rules stored via
   the API aren't checked.
+- A base path that overlaps with one of the app's APIs is pointed out with a
+  warning, as the operations of each can shadow those of the other.
 - A base path of one of the app's APIs is refused.
 
 If you manage policies through the configuration (`policies`) only, set

@@ -804,7 +804,14 @@ class TestPermissionsApiSwitch:
     ) -> None:
         """A base path under one of the app's APIs is pointed out."""
         _create_app(tmp_path, [PETS_SPEC], api_base_path="/api/v1/admin")
-        assert "lies under the base path of an API of the app" in caplog.text
+        assert "overlaps with the base path of an API of the app" in caplog.text
+
+    def test_base_path_above_app_api(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A base path above one of the app's APIs is pointed out."""
+        _create_app(tmp_path, [PETS_SPEC], api_base_path="/api")
+        assert "overlaps with the base path of an API of the app" in caplog.text
 
     def test_base_path_outside_app_api(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -815,7 +822,7 @@ class TestPermissionsApiSwitch:
             [PETS_SPEC, _spec("/", ("/pets", "get", _operation("list_pets")))],
             api_base_path="/api/v1.admin",
         )
-        assert "lies under" not in caplog.text
+        assert "overlaps with" not in caplog.text
 
     @pytest.mark.parametrize(
         "rule",
@@ -823,6 +830,8 @@ class TestPermissionsApiSwitch:
             ["p", "*", "/api/v1/*", "(GET)|(POST)"],
             ["p", "ops", "/api/v1/admin/permissions", "GET"],
             ["p", "ops", "/api/v1/admin/permissions/:id", "GET"],
+            ["p", "*", "*", "(GET)|(POST)"],
+            ["p", "*", "(/.*)", "GET"],
         ],
     )
     def test_literal_rule_matches_api(
@@ -844,6 +853,12 @@ class TestPermissionsApiSwitch:
             policies=[
                 ["p", "*", "/api/v1/pets/*", "GET"],
                 ["g", "user:alice", "ops"],
+                # Admins have access anyway
+                ["p", "admin", "/*", "GET"],
+                # Gives no access by itself
+                ["g2", "user:alice", "owner", "/admin/access-control/permissions"],
+                # Not a valid pattern
+                ["p", "ops", "/pets(", "GET"],
             ],
         )
         assert "matches the permissions API" not in caplog.text
@@ -857,6 +872,19 @@ class TestPermissionsApiSwitch:
             tmp_path, [PETS_SPEC], policies=[rule], api_base_path="/internal/roles"
         )
         assert "names the default path of the permissions API" in caplog.text
+
+    def test_rule_for_default_path_below(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Moved below the default path, rules may still apply."""
+        rule = ["p", "ops", "/admin/access-control/*", "GET"]
+        _create_app(
+            tmp_path,
+            [PETS_SPEC],
+            policies=[rule],
+            api_base_path="/admin/access-control/v2",
+        )
+        assert "names the default path" not in caplog.text
 
     @pytest.mark.parametrize(
         "options",
