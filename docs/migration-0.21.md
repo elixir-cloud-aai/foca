@@ -38,6 +38,17 @@ The same holds for workers started in the process of an app (e.g., with
 its client, including FOCA's access control, can't be used afterwards. Create
 the app after the worker has started, or run the worker in a process of its own.
 
+### Stricter request checks
+
+[Requests that passed before can now fail with `400`](configuration/api.md#stricter-request-checks):
+values that don't fit the formats `date-time`, `date` or `uri` where your
+specification declares them, unpaired surrogates in JSON bodies, and, with
+`strict_validation`, query parameters of operations without parameters. The same
+format checks apply to responses with `validate_responses`, which then fail with
+`500`, also for what you stored earlier, e.g., timestamps without a time zone from
+`datetime.isoformat()`. Check what your specifications declare and what your clients
+send. Other formats are checked as before.
+
 ## Request IDs
 
 Responses now have the header `X-Request-ID`, and [log

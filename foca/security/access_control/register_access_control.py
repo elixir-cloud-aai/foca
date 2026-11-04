@@ -23,6 +23,7 @@ from foca.api.register_openapi import (
     _rejects_invalid_tokens,
     _set_error_media_type,
 )
+from foca.api.validation import BodyValidator, StrictParametersResolver
 from foca.config.access import get_app_config
 from foca.database.register_mongodb import (
     _register_database,
@@ -635,9 +636,11 @@ def register_permission_specs(
                 "base path of the permissions API."
             )
 
-    resolver: Resolver = AccessControlResolver(
-        enforce_all=True,
-        self_service=access_control_config.self_service,
+    resolver: Resolver = StrictParametersResolver(
+        resolver=AccessControlResolver(
+            enforce_all=True,
+            self_service=access_control_config.self_service,
+        )
     )
     # As for the app's APIs; custom specifications may have optional tokens
     if _rejects_invalid_tokens(app):
@@ -654,6 +657,7 @@ def register_permission_specs(
     )
     api = app.add_api(
         specification=specification,
+        validator_map={"body": BodyValidator},
         **_connexion_add_api_kwargs(options),
         **base_path,
     )
