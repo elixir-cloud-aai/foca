@@ -34,6 +34,7 @@ the error for unknown keys:
 
 | Key | Instead |
 | --- | --- |
+| `api.specs[].path_out` | Nothing: modified specifications were never written |
 | `exceptions.exceptions` | `exceptions.mapping` |
 | `exceptions.extension_members`, `exceptions.private_members` | `exceptions.public_members` |
 | `exceptions.required_members`, `exceptions.status_member` | Problem details have fixed members |

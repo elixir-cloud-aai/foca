@@ -15,8 +15,8 @@ from foca.models.config import DBConfig, MongoConfig
 # Get logger instance
 logger = logging.getLogger(__name__)
 
-# `IndexOptionsConflict`, `IndexKeySpecsConflict`
-_INDEX_CONFLICT_CODES = (85, 86)
+# `IndexAlreadyExists`, `IndexOptionsConflict`, `IndexKeySpecsConflict`
+_INDEX_CONFLICT_CODES = (68, 85, 86)
 _DUPLICATE_KEY_CODE = 11000
 
 # Options of MongoDB clients unless set otherwise, in milliseconds: with

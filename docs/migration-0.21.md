@@ -52,6 +52,18 @@ are, instead of a `ValueError` claiming a conflict.
 `Foca.create_app()` does ([startup checks](configuration/jobs.md#startup-checks)). So a
 worker with such settings doesn't start anymore.
 
+## Request IDs
+
+Responses now have the header `X-Request-ID`, and [log
+records](configuration/log.md#context-of-log-records) the identifier of their
+request. Check this if a proxy in front of the app sets the header itself, or if your
+log format used a field of that name from `extra`, which now wins over `extra`. The
+formatter `standard` stays the default, so log lines look the same.
+
+The `request_id()` of `foca.plugins.adapter` follows
+[`server.request_id`](configuration/server.md#request-ids), rather than always
+reading `X-Request-ID`.
+
 ## Changed defaults
 
 ### Shorter MongoDB timeouts

@@ -1338,6 +1338,16 @@ def test_swagger_ui_of_disabled_api() -> None:
             "security.access_control.api_controllers",
             "operationId",
         ),
+        (
+            {"api": {"specs": [{"path": PATH, "path_out": "/out"}]}},
+            r"api\.specs\[\]\.path_out",
+            "without",
+        ),
+        (
+            {"api": {"specs": {"named": {"path": PATH, "path_out": "/out"}}}},
+            r"api\.specs\[\]\.path_out",
+            "without",
+        ),
     ],
 )
 def test_removed_keys(data: dict[str, Any], key: str, hint: str) -> None:
@@ -1353,6 +1363,9 @@ def test_removed_keys(data: dict[str, Any], key: str, hint: str) -> None:
         {"security": {"auth": {}}},
         {"server": ServerConfig()},
         {"custom": {"server": {"environment": "dev"}}},
+        {"api": {"specs": [{"path": PATH}]}},
+        {"api": {"specs": {"named": {"path": PATH}, "gone": None}}},
+        {"api": {}},
     ],
 )
 def test_no_removed_keys(data: dict[str, Any]) -> None:

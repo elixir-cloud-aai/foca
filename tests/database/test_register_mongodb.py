@@ -638,7 +638,7 @@ def test_redact_uri(uri: str, expected: str) -> None:
     assert _redact_uri(uri) == expected
 
 
-@pytest.mark.parametrize("code", [85, 86, 11000])
+@pytest.mark.parametrize("code", [68, 85, 86, 11000])
 def test_index_conflict_codes(code: int) -> None:
     """Errors of conflicts are told apart."""
     assert _create_failing_index(code) is IndexConflictError

@@ -11,6 +11,7 @@ from flask import current_app, request, url_for
 from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 
 from foca.config.access import set_app_config
+from foca.context import RequestIdMiddleware
 from foca.models.config import Config
 
 # Get logger instance
@@ -190,6 +191,12 @@ def __add_config_to_connexion_app(
             "for local development.",
             conf.host,
         )
+
+    app.app.wsgi_app = RequestIdMiddleware(
+        app.app.wsgi_app,
+        header=conf.request_id.header,
+        trust_incoming=conf.request_id.trust_incoming,
+    )
 
     # Add user configuration to Flask app config
     set_app_config(app.app, config)
