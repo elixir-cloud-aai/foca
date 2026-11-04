@@ -234,21 +234,18 @@ class Foca:
 
         return cnx_app
 
-    def _check_worker_config(self, cnx_app: App) -> None:
+    def _check_worker_config(self) -> None:
         """Run the checks of the configuration that apps run on startup.
 
-        Those of what a worker doesn't register (e.g., API specifications)
-        aren't run.
-
-        Args:
-            cnx_app: Connexion application instance.
+        Those of what a worker doesn't register or serve aren't run, e.g., of
+        API specifications, and of fields of the service info computed at
+        runtime, whose functions may need what the app registers.
         """
         access_control = self.conf.security.access_control
         if access_control.enabled:
             check_access_control_config(access_control, self.conf.security.auth)
         if access_control.opt_in_roles:
             check_opt_in_roles(access_control, self.conf.security.cors)
-        check_service_info(cnx_app.app)
 
     def create_celery_app(self) -> Celery:
         """Set up and initialize FOCA-based Celery app.
@@ -257,8 +254,6 @@ class Foca:
             Celery application instance.
 
         Raises:
-            foca.api.service_info.InvalidServiceInfo: The service info,
-                including fields computed at runtime, is invalid.
             ValueError: Background tasks aren't configured, or the configuration
                 of access control fails the checks of apps (cf.
                 :py:func:`foca.security.access_control.register_access_control.check_access_control_config`),
@@ -268,7 +263,7 @@ class Foca:
 
         # Create Celery app
         if self.conf.jobs:
-            self._check_worker_config(cnx_app)
+            self._check_worker_config()
             celery_app = create_celery_app(cnx_app.app)
             logger.info("Support for background tasks set up.")
         else:

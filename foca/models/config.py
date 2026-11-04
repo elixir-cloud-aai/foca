@@ -142,6 +142,10 @@ _REMOVED_KEYS: dict[tuple[str, ...], str] = {
         "access_control",
         "user_headers",
     ): "without replacement",
+    ("security", "auth", "claim_issuer"): "without replacement",
+    ("security", "auth", "required"): "without replacement",
+    ("security", "auth", "validation_checks"): "without replacement",
+    ("security", "auth", "validation_methods"): "without replacement",
     ("server", "environment"): "without replacement",
     ("server", "use_reloader"): "without replacement",
 }
@@ -2562,6 +2566,8 @@ class PeriodicCronConfig(FOCABaseConfig):
         '*'
     """
 
+    model_config = ConfigDict(extra="forbid", coerce_numbers_to_str=True)
+
     minute: str = "*"
     hour: str = "*"
     day_of_week: str = "*"
@@ -2574,7 +2580,7 @@ class PeriodicJobConfig(FOCABaseConfig):
 
     Args:
         task: Name of the task, e.g., ``my_app.tasks.clean_up``.
-        every: Seconds between runs.
+        every: Seconds between runs, at most ten years.
         cron: When to run. Either this or `every` is required.
         args: Positional arguments of the task.
         kwargs: Keyword arguments of the task.
@@ -2598,7 +2604,7 @@ class PeriodicJobConfig(FOCABaseConfig):
     """
 
     task: str = Field(min_length=1)
-    every: float | None = Field(default=None, gt=0)
+    every: float | None = Field(default=None, gt=0, le=315360000, strict=True)
     cron: PeriodicCronConfig | None = None
     args: list[Any] = []
     kwargs: dict[str, Any] = {}

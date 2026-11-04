@@ -38,7 +38,7 @@ celery_app = Foca(config_file="my_app/config.yaml").create_celery_app()
 
 `periodic` sets jobs that [Celery
 beat](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html) starts, by
-name, with either `every` (seconds) or `cron` (fields of
+name, with either `every` (seconds, at most ten years) or `cron` (fields of
 [`crontab`](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html#crontab-schedules),
 `*` by default):
 
@@ -61,7 +61,8 @@ jobs:
         expires: 3600
 ```
 
-The schedule takes effect in a beat process, which FOCA doesn't start. Run exactly
+Invalid fields, and dates that never occur (e.g., 31 February), stop
+`Foca.create_celery_app()`. The schedule takes effect in a beat process, which FOCA doesn't start. Run exactly
 one, or jobs start several times: `celery -A my_app.worker beat`, or `celery -A
 my_app.worker worker --beat` if a single worker runs. Beat keeps its state in a file,
 so point `--schedule` to a writable path on read-only file systems. The [Helm library
@@ -70,10 +71,11 @@ one replica.
 
 ## Startup checks
 
-`Foca.create_celery_app()` stops with an error on what `Foca.create_app()` would: the
-service info, and the access control settings that don't depend on what the app
-registers (groups, admins, opt-in roles). Workers don't register API specifications, so
-checks of those stay with the app.
+`Foca.create_celery_app()` runs the checks of `Foca.create_app()` that only depend on
+the configuration of access control (groups, admins, opt-in roles), and stops with an
+error or warns as the app does. Workers don't register API specifications or serve the
+service info, so checks of those, and of service info fields computed at runtime, stay
+with the app.
 
 ## MongoDB in workers
 

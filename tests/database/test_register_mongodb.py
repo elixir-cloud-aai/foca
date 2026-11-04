@@ -638,19 +638,19 @@ def test_redact_uri(uri: str, expected: str) -> None:
     assert _redact_uri(uri) == expected
 
 
-@pytest.mark.parametrize("code", [85, 86])
+@pytest.mark.parametrize("code", [85, 86, 11000])
 def test_index_conflict_codes(code: int) -> None:
     """Errors of conflicts are told apart."""
     assert _create_failing_index(code) is IndexConflictError
 
 
-@pytest.mark.parametrize("code", [13, 11000])
-def test_other_index_errors(code: int) -> None:
+@pytest.mark.parametrize("code", [13, None])
+def test_other_index_errors(code: int | None) -> None:
     """Other errors stay what they are."""
     assert _create_failing_index(code) is OperationFailure
 
 
-def _create_failing_index(code: int) -> type[Exception]:
+def _create_failing_index(code: int | None) -> type[Exception]:
     """Register a database whose indexes can't be created.
 
     Args:

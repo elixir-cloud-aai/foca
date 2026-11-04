@@ -2,11 +2,12 @@
 
 import logging
 import os
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from celery import Celery
-from celery.schedules import crontab
+from celery.schedules import ParseException, crontab
 from celery.signals import worker_init, worker_process_init
 from flask import Flask
 
@@ -32,19 +33,29 @@ def _redact_url(url: str) -> str:
     return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
-def _get_beat_entry(job: PeriodicJobConfig) -> dict[str, Any]:
+def _get_beat_entry(name: str, job: PeriodicJobConfig) -> dict[str, Any]:
     """Get the entry of a periodic job for Celery's `beat_schedule`.
 
     Args:
+        name: Name of the job.
         job: Periodic job.
 
     Returns:
         Entry of the job.
 
     Raises:
-        ValueError: Its `cron` isn't valid for `celery.schedules.crontab`.
+        ValueError: Its `cron` isn't valid for `celery.schedules.crontab`, or
+            never occurs (e.g., 31 February), which would stop Celery beat.
     """
-    schedule = job.every if job.cron is None else crontab(**job.cron.model_dump())
+    schedule: Any = job.every
+    if job.cron is not None:
+        try:
+            schedule = crontab(**job.cron.model_dump())
+            schedule.remaining_estimate(datetime.now(UTC))
+        except (ParseException, ValueError, RuntimeError) as exc:
+            raise ValueError(
+                f"Invalid 'cron' of periodic job '{name}' ('jobs.periodic'): {exc}"
+            ) from exc
     return {
         "task": job.task,
         "schedule": schedule,
@@ -99,7 +110,7 @@ def create_celery_app(app: Flask) -> Celery:
     # Update Celery app configuration with Flask app configuration
     setattr(celery.conf, "foca", config)
     celery.conf.beat_schedule = {
-        name: _get_beat_entry(job) for name, job in conf.periodic.items()
+        name: _get_beat_entry(name, job) for name, job in conf.periodic.items()
     }
     logger.debug("Celery app configured.")
 

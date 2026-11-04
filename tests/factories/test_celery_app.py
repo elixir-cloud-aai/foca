@@ -143,14 +143,32 @@ def test_no_periodic_jobs(logged: list[str]) -> None:
     assert create_celery_app(create_connexion_app(CONFIG).app).conf.beat_schedule == {}
 
 
-def test_periodic_job_invalid_cron(logged: list[str]) -> None:
-    """Invalid fields stop the worker."""
+@pytest.mark.parametrize(
+    "cron",
+    [
+        {"hour": "25"},
+        {"minute": "0,"},
+        {"minute": "-1"},
+        {"day_of_month": "31", "month_of_year": "2"},
+    ],
+)
+def test_periodic_job_invalid_cron(logged: list[str], cron: dict[str, str]) -> None:
+    """Fields that aren't valid or never occur stop the worker, naming the job."""
     config = Config()
     config.jobs = JobsConfig.model_validate(
-        {"periodic": {"a": {"task": "a.b", "cron": {"hour": "25"}}}}
+        {"periodic": {"my-job": {"task": "a.b", "cron": cron}}}
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="'my-job'"):
         create_celery_app(create_connexion_app(config).app)
+
+
+def test_periodic_job_numbers_in_cron() -> None:
+    """Numbers, as YAML has them, are fine in fields."""
+    job = PeriodicJobConfig.model_validate(
+        {"task": "a.b", "cron": {"minute": 0, "hour": 3}}
+    )
+    assert job.cron is not None
+    assert job.cron.hour == "3"
 
 
 @pytest.mark.parametrize(
@@ -159,6 +177,9 @@ def test_periodic_job_invalid_cron(logged: list[str]) -> None:
         {"task": "a.b"},
         {"task": "a.b", "every": 1, "cron": {"hour": "3"}},
         {"task": "a.b", "every": 0},
+        {"task": "a.b", "every": True},
+        {"task": "a.b", "every": float("inf")},
+        {"task": "a.b", "every": 1e30},
         {"task": "", "every": 1},
         {"task": "a.b", "cron": {"hours": "3"}},
     ],

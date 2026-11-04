@@ -544,16 +544,15 @@ def test_check_opt_in_roles_invalid_pattern(log: pytest.LogCaptureFixture) -> No
     assert "is not allowed in cross-origin requests" not in log.text
 
 
-def test_create_celery_app_checks_service_info(
+def test_create_celery_app_without_runtime_fields_check(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Workers stop on what apps stop on, for service info."""
+    """Workers don't compute the service info, which they don't serve."""
     foca = Foca(config_file=JOBS_CONF)
-    monkeypatch.setattr(
-        "foca.foca.check_service_info", MagicMock(side_effect=ValueError("Invalid"))
-    )
-    with pytest.raises(ValueError, match="Invalid"):
-        foca.create_celery_app()
+    check = MagicMock()
+    monkeypatch.setattr("foca.foca.check_service_info", check)
+    foca.create_celery_app()
+    check.assert_not_called()
 
 
 def test_create_celery_app_checks_access_control(
@@ -569,3 +568,12 @@ def test_create_celery_app_checks_access_control(
     foca.create_celery_app()
     checks.settings.assert_called_once()
     checks.opt_in.assert_called_once()
+
+
+def test_create_celery_app_invalid_access_control() -> None:
+    """Workers stop on invalid access control settings, without mocks."""
+    foca = Foca(config_file=JOBS_CONF)
+    foca.conf.security.access_control.enabled = True
+    foca.conf.security.access_control.require_admin = True
+    with pytest.raises(ValueError, match="require_admin"):
+        foca.create_celery_app()

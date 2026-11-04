@@ -15,8 +15,9 @@ from foca.models.config import DBConfig, MongoConfig
 # Get logger instance
 logger = logging.getLogger(__name__)
 
-# `IndexOptionsConflict`, `IndexKeySpecsConflict`, and none with mongomock
-_INDEX_CONFLICT_CODES = (85, 86, None)
+# `IndexOptionsConflict`, `IndexKeySpecsConflict`
+_INDEX_CONFLICT_CODES = (85, 86)
+_DUPLICATE_KEY_CODE = 11000
 
 # Options of MongoDB clients unless set otherwise, in milliseconds: with
 # MongoDB down, requests and the startup of the app fail after this time, not
@@ -210,12 +211,26 @@ def _get_client_options(
 
 
 class IndexConflictError(ValueError):
-    """A configured index conflicts with an existing index.
+    """A configured index conflicts with an existing index or stored documents.
 
     Other errors of creating indexes (e.g., missing permissions or connection
     failures) stay what they are: subclasses of
     :py:class:`pymongo.errors.PyMongoError`.
     """
+
+
+def _is_index_conflict(exc: OperationFailure) -> bool:
+    """Check whether an error of creating an index tells of a conflict.
+
+    Args:
+        exc: Error.
+
+    Returns:
+        Whether it does, by its code; mongomock has none, but a message.
+    """
+    return exc.code in _INDEX_CONFLICT_CODES or (
+        exc.code is None and "already exists" in str(exc)
+    )
 
 
 def _register_database(
@@ -235,7 +250,8 @@ def _register_database(
 
     Raises:
         IndexConflictError: A configured index conflicts with an existing
-            index (e.g., one with the same name but different keys or options).
+            index (e.g., one with the same name but different keys or options),
+            or stored documents violate it, with the error of PyMongo as cause.
         pymongo.errors.PyMongoError: Indexes can't be created for another reason,
             e.g., missing permissions or a connection failure.
     """
@@ -250,7 +266,13 @@ def _register_database(
             try:
                 coll_conf.client.create_index(index.keys, **index.options)
             except OperationFailure as exc:
-                if exc.code not in _INDEX_CONFLICT_CODES:
+                if exc.code == _DUPLICATE_KEY_CODE:
+                    raise IndexConflictError(
+                        f"Index {index.keys} of collection '{coll_name}' in "
+                        f"database '{db_name}' can't be created, as stored "
+                        f"documents violate it: {exc}"
+                    ) from exc
+                if not _is_index_conflict(exc):
                     raise
                 raise IndexConflictError(
                     f"Index {index.keys} of collection '{coll_name}' in "

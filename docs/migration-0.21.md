@@ -40,17 +40,17 @@ the app after the worker has started, or run the worker in a process of its own.
 
 ### Errors of creating indexes
 
-Index conflicts raise `foca.database.register_mongodb.IndexConflictError`, a subclass
-of `ValueError`, so code catching that still works. Other `OperationFailure`s when
-creating indexes (e.g., missing permissions, or duplicates for a unique index) now stay
-what they are, instead of a `ValueError` claiming a conflict.
+Index conflicts, and stored documents that violate a unique index, raise
+`foca.database.register_mongodb.IndexConflictError`, a subclass of `ValueError`, with
+the error of PyMongo as its cause, so code catching `ValueError` still works. Other
+`OperationFailure`s when creating indexes (e.g., missing permissions) now stay what they
+are, instead of a `ValueError` claiming a conflict.
 
 ### Workers check the configuration
 
-`Foca.create_celery_app()` now stops on invalid service info and access control
-settings, as `Foca.create_app()` does ([startup
-checks](configuration/jobs.md#startup-checks)). So a worker with such settings doesn't
-start anymore.
+`Foca.create_celery_app()` now stops on invalid access control settings, as
+`Foca.create_app()` does ([startup checks](configuration/jobs.md#startup-checks)). So a
+worker with such settings doesn't start anymore.
 
 ## Changed defaults
 
