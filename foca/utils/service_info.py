@@ -44,6 +44,7 @@ _DATE_TIME = re.compile(
     r"([Zz]|[+-](?P<offset_hour>\d{2}):(?P<offset_minute>\d{2}))",
     re.ASCII,
 )
+_FULL_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})", re.ASCII)
 
 
 class InvalidServiceInfo(ValueError):
@@ -51,7 +52,7 @@ class InvalidServiceInfo(ValueError):
 
 
 @FORMAT_CHECKER.checks("uri")
-def _is_uri(value: object) -> bool:
+def is_uri(value: object) -> bool:
     """Check whether a string looks like an absolute URI (non-strings pass).
 
     The check is lenient: a scheme, followed by a colon and any characters
@@ -61,7 +62,7 @@ def _is_uri(value: object) -> bool:
 
 
 @FORMAT_CHECKER.checks("date-time")
-def _is_date_time(value: object) -> bool:
+def is_date_time(value: object) -> bool:
     """Check whether a string is an RFC 3339 date-time (non-strings pass)."""
     if not isinstance(value, str):
         return True
@@ -81,6 +82,27 @@ def _is_date_time(value: object) -> bool:
         and parts["offset_hour"] < 24
         and parts["offset_minute"] < 60
     )
+
+
+def is_date(value: object) -> bool:
+    """Check whether a string is an RFC 3339 full date (non-strings pass).
+
+    Args:
+        value: Value.
+
+    Returns:
+        Whether it's a valid date in the format `YYYY-MM-DD`, or not a string.
+    """
+    if not isinstance(value, str):
+        return True
+    match = _FULL_DATE.fullmatch(value)
+    if match is None:
+        return False
+    try:
+        date(*(int(part) for part in match.groups()))
+    except ValueError:
+        return False
+    return True
 
 
 @cache
