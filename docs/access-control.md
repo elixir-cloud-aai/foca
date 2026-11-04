@@ -1341,10 +1341,16 @@ searchable. Declare the query parameters to offer them; the response stays a lis
 
 * `q` only lists the roles of subjects (users, groups and service clients) with
   this text in their identifier, in any case.
-* `limit` (default: 100, at most 1000) and `offset` ask for a page. The header
-  `Link`, if the app has a [public URL](utilities.md#building-public-urls), has the
-  links to the other pages. Invalid values are rejected with `400`. Without both,
-  all roles are returned.
+* `limit` (default: 100, at most 1000) and `offset`, either or both, ask for a page,
+  sorted by subject type, subject and role. The header `Link` has the links to the
+  other pages, but only if the app has a
+  [public URL](utilities.md#building-public-urls). There's no total. Invalid values
+  are rejected with `400`. With neither of them, all roles are returned.
+
+Apps that already declare query parameters with these names on the operation get this
+behaviour, so check them when upgrading; it also goes for defaults in the
+specification. Wrappers around `getResourceRoles` need to pass the parameters on, and
+get `(roles, 200, headers)` for a page. Path parameters with these names are ignored.
 
 For example, with the base path `/api`:
 
