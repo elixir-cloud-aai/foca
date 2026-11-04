@@ -859,6 +859,9 @@ class AccessControlConfig(FOCABaseConfig):
             operations are not affected.
         policies: Policy rules the app relies on, each given as its policy
             type followed by its values (e.g., `["p", "*", "/pets", "GET"]`).
+            Values may contain the placeholder `{base_path}`, replaced on
+            startup by the base path of the app's API (with several APIs, a
+            rule for each).
             If set, they are validated against the model on startup, and the
             stored rules set via the configuration are made to match them:
             missing rules are added, and rules removed from the
