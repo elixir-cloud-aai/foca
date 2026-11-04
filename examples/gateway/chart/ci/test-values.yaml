@@ -1,0 +1,24 @@
+# Installation with the worker, the bundled broker and the plugin store's key
+# secret, in CI (see `.github/actions/install-chart`); the fixed name gives the
+# broker's Service a known host for the broker URL of the Secret `celery`
+fullnameOverride: gateway-example
+hostName: gateway-example.example.org
+pluginStore:
+  existingSecret: plugins
+mongodb:
+  auth:
+    existingSecret: mongodb
+worker:
+  enabled: true
+  command:
+  - python
+  - -m
+  - celery
+  - --app
+  - worker:celery_app
+  - worker
+  - --concurrency=1
+  - --loglevel=INFO
+broker:
+  enabled: true
+  existingSecret: celery

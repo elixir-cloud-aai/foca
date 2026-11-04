@@ -1,0 +1,19 @@
+# The plugin of the gateway example: a distribution with an entry point of the
+# group `foca.plugins`, as real plugins are; the example's image installs it
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foca-gateway-example-plugin"
+version = "1.0.0"
+description = "Example plugin of the FOCA gateway example"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = ["foca"]
+
+[project.entry-points."foca.plugins"]
+"org.example.gateway.stamp" = "gateway_example_plugin:Stamp"
+
+[tool.setuptools]
+packages = ["gateway_example_plugin"]

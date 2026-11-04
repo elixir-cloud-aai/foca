@@ -1,6 +1,7 @@
 # Lint and test the Helm charts: the library chart foca-common
-# (`charts/foca-common`) and the thin chart of the petstore example built on
-# it (`examples/petstore/chart`), with template and snapshot tests
+# (`charts/foca-common`) and the thin charts of the examples built on it
+# (`examples/petstore/chart`, `examples/gateway/chart`), with template and
+# snapshot tests on the petstore's
 # (`charts/foca-common/tests`), and check that changes of the library chart
 # since its latest release raise its version. Used by the `chart` job of
 # `ci.yml` and by `release-chart.yml`, which publishes releases of the
@@ -69,6 +70,9 @@ runs:
         for values in examples/petstore/chart/ci/*-values.yaml; do
           helm lint --strict examples/petstore/chart -f "${values}"
         done
+        helm dependency build examples/gateway/chart
+        helm lint --strict examples/gateway/chart \
+            -f examples/gateway/chart/ci/test-values.yaml
     # Fails instead of skipping the tests if Helm is missing
     - name: Test charts
       shell: bash

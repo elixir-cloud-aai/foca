@@ -578,6 +578,10 @@ app = foca.create_app()  # loads the plugins once, to fail fast
   `custom.middlewares`) are refused with a migration hint, before the app's
   custom model is validated.
 
+The [gateway
+example](https://github.com/elixir-cloud-aai/foca/tree/dev/examples/gateway)
+shows all of this in a small app with a worker, a plugin and a Helm chart.
+
 Controllers and Celery tasks get the host of their process with
 `foca.plugins.runtime.get_host()`; each process creates its own host (and
 thread pool) on first use, after Gunicorn or Celery forked it. In the

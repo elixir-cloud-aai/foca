@@ -1,0 +1,132 @@
+# Values of the gateway example; the petstore example's chart explains them.
+# Only what CI needs: no Ingress, and no values schema
+nameOverride: ""
+fullnameOverride: ""
+hostName: ""
+config: {}
+
+# Name of an existing Secret with the key `store-key-secret`, passed to the
+# app and the worker as `FOCA_PLUGINS_STORE_KEY_SECRET`; none if empty
+pluginStore:
+  existingSecret: ""
+
+gateway:
+  image: foca-gateway-example
+  tag: ""
+  imagePullPolicy: IfNotPresent
+  probePath: /openapi.json
+  ingress:
+    enabled: false
+  httpRoute:
+    enabled: false
+  route:
+    enabled: false
+  networkPolicy:
+    enabled: false
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+  # Room for the client of the worker's results
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  tmpSizeLimit: 64Mi
+
+mongodb:
+  enabled: true
+  image: docker.io/library/mongo:7.0.45
+  imagePullPolicy: IfNotPresent
+  auth:
+    enabled: true
+    existingSecret: ""
+  networkPolicy:
+    enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+    accessModes: ["ReadWriteOnce"]
+    storageClass: ""
+    existingClaim: ""
+    resourcePolicy: keep
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  tmpSizeLimit: 64Mi
+
+worker:
+  enabled: false
+  command: []
+  replicas: 1
+  readinessProbe: {}
+  livenessProbe: {}
+  terminationGracePeriodSeconds: 30
+  resources:
+    limits:
+      cpu: 100m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  tmpSizeLimit: 64Mi
+
+broker:
+  enabled: false
+  existingSecret: ""
+  image: docker.io/library/rabbitmq:4.3.7
+  imagePullPolicy: IfNotPresent
+  networkPolicy:
+    enabled: true
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  persistence:
+    enabled: true
+    size: 1Gi
+    accessModes: ["ReadWriteOnce"]
+    storageClass: ""
+    existingClaim: ""
+    resourcePolicy: ""
+  dataSizeLimit: 1Gi
+  tmpSizeLimit: 64Mi

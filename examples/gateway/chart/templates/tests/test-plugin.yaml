@@ -1,0 +1,88 @@
+{{- /*
+Test of the release (`helm test`, run by chart-testing in CI): sends messages
+to the app, which runs the installed plugin in its own process and in the
+worker, and checks that both share the plugin's store in MongoDB and key it
+with the secret of `pluginStore.existingSecret`, which the test requires.
+*/ -}}
+{{- $context := dict "root" . "settings" (include "gateway.settings" . | fromYaml) -}}
+{{- $fullname := include "foca-common.fullname" . -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ printf "%s-test-plugin" $fullname | quote }}
+  labels:
+    {{- include "foca-common.labels" (dict "root" . "component" "test") | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  restartPolicy: Never
+  securityContext:
+    {{- include "foca-common.securityContext" (dict "root" . "context" .Values.gateway.podSecurityContext) | nindent 4 }}
+  containers:
+  - name: test
+    image: {{ include "foca-common.image" $context | quote }}
+    imagePullPolicy: {{ .Values.gateway.imagePullPolicy | default "Always" }}
+    env:
+    - name: GATEWAY_URL
+      value: {{ printf "http://%s:8080" $fullname | quote }}
+    - name: STORE_KEY_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: {{ required "pluginStore.existingSecret is required by the test" .Values.pluginStore.existingSecret | quote }}
+          key: store-key-secret
+    command:
+    - python
+    - -c
+    - |
+      import hashlib, hmac, json, os, time, urllib.error, urllib.request
+
+      def send(path):
+          request = urllib.request.Request(
+              os.environ["GATEWAY_URL"] + path,
+              data=json.dumps({"message": "helm test"}).encode(),
+              headers={"Content-Type": "application/json"},
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              return json.load(response)
+
+      # As `ctx.store.key_for("example")` of the plugin's distribution
+      expected_key = "hk:" + hmac.new(
+          os.environb[b"STORE_KEY_SECRET"],
+          json.dumps(["foca-gateway-example-plugin", "example"]).encode(),
+          hashlib.sha256,
+      ).hexdigest()
+      in_app = send("/messages")
+      # The worker has no probes, so it may still connect to the broker when
+      # the release is ready: the app answers 503 until it gets a result
+      deadline = time.monotonic() + 180
+      while True:
+          try:
+              in_worker = send("/messages/worker")
+              break
+          except urllib.error.HTTPError as error:
+              if error.code != 503 or time.monotonic() > deadline:
+                  raise
+              time.sleep(5)
+      assert in_worker["payload"]["process"].startswith("ForkPoolWorker"), in_worker
+      assert not in_app["payload"]["process"].startswith("ForkPoolWorker"), in_app
+      for result in (in_app, in_worker):
+          payload = result["payload"]
+          assert payload["stamp"] == "stamped by the plugin", payload
+          assert payload["store_mode"] == "shared", payload
+          assert payload["store_key"] == expected_key, payload
+          plugins = result["provenance"]["plugins"]
+          assert "org.example.gateway.stamp" in plugins.values(), plugins
+      assert in_app["payload"]["count"] < in_worker["payload"]["count"]
+      print("the plugin ran in the app and the worker")
+    securityContext:
+      {{- include "foca-common.securityContext" (dict "root" . "context" .Values.gateway.securityContext) | nindent 6 }}
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi
+      requests:
+        cpu: 100m
+        memory: 64Mi

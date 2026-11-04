@@ -330,3 +330,4 @@ examples/petstore-access-control/data/
 
 # Dependencies of Helm charts (`helm dependency build`)
 examples/petstore/chart/charts/
+examples/gateway/chart/charts/
