@@ -107,6 +107,7 @@ def is_resource_or_custom_method(request_path: str, resource_path: str) -> bool:
     Returns:
         Whether the path equals it, with or without a custom method.
     """
+    resource_path = resource_path.rstrip("/") or "/"
     return resource_path in (request_path, _strip_custom_method(request_path))
 
 
@@ -384,6 +385,12 @@ class ResourceRoleManager(DomainManager):
                 *self._get_domains_within_path(domain),
                 *self._get_domains_within_path(_strip_custom_method(domain)),
             ]
+        if self.domain_matching_func is is_resource_or_custom_method:
+            return [
+                other
+                for path in {domain, _strip_custom_method(domain)}
+                for other in self._domains_by_path.get(path, ())
+            ]
         if self.domain_matching_func is not is_within_path:
             return [
                 other
@@ -533,16 +540,7 @@ class EnforcerCache:
                 enforcer.set_named_role_manager(
                     ptype, ResourceRoleManager(role_manager.max_hierarchy_level)
                 )
-        matching_func = {
-            (True, False): is_within_path,
-            (True, True): is_within_path_or_custom_method,
-            (False, True): is_resource_or_custom_method,
-        }.get(
-            (
-                self.resource_roles_cover_subpaths,
-                self.resource_roles_cover_custom_methods,
-            )
-        )
+        matching_func = self._get_domain_matching_func()
         if matching_func is not None:
             for ptype in get_resource_role_ptypes(enforcer.get_model()):
                 enforcer.add_named_domain_matching_func(ptype, matching_func)
@@ -563,6 +561,22 @@ class EnforcerCache:
         )
         logger.debug("Policy rules loaded (changes version %s)", _describe(state))
         return enforcer
+
+    def _get_domain_matching_func(self) -> Callable[[str, str], bool] | None:
+        """Get the function by which resource-scoped roles apply to request paths.
+
+        Returns:
+            The function, or `None` if they only apply to their exact resource.
+        """
+        if self.resource_roles_cover_subpaths:
+            return (
+                is_within_path_or_custom_method
+                if self.resource_roles_cover_custom_methods
+                else is_within_path
+            )
+        if self.resource_roles_cover_custom_methods:
+            return is_resource_or_custom_method
+        return None
 
     def _apply(self, enforcer: Enforcer, changes: PolicyChanges) -> bool:
         """Apply recorded changes to the enforcer.

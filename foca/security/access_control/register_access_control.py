@@ -432,7 +432,11 @@ def _check_required_roles(access_control_config: AccessControlConfig) -> None:
         *(conf.group_mapping or {}).values(),
         *(conf.client_mapping or {}).values(),
         *conf.resource_roles,
-        *(rule[2] for rule in conf.policies or [] if rule[0] in ("g", "g2")),
+        *(
+            rule[2]
+            for rule in conf.policies or []
+            if len(rule) > 2 and rule[0] in ("g", "g2")
+        ),
     }
     missing = sorted(set(conf.required_roles) - existing)
     if missing:

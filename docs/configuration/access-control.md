@@ -76,12 +76,17 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   start (`ValueError`) instead, before anything is stored; set it if the
   app needs admins, e.g., to manage resources of others. It defaults to
   `false` and requires `enabled: true`.
+- **Model:** `model` is a path, or `foca:<file>` for a model that FOCA ships:
+  `default_model.conf`, `resource_role_model.conf` or, for admins with only granted
+  rights, `granted_rights_model.conf` (see [configuring the
+  model](../access-control.md#configuring-the-access-control-model)).
 - **Enforcement:** with `require_enforced: true`, the app refuses to start unless
-  `enforce: true` is set, for apps that must not run without it.
+  `enforce: true` is set, for apps that must not run without it. It requires
+  `enabled: true`.
 - **Required roles:** the app refuses to start (`ValueError`) if a role of
   `required_roles` isn't mapped from a group or service client, one of
-  `resource_roles`, or granted by a rule of `policies`. Roles granted via stored
-  policy rules aren't checked, as the database may not be available yet.
+  `resource_roles`, or granted by a `g` or `g2` rule of `policies`. Roles granted via
+  stored policy rules aren't checked, as the database may not be available yet.
 - **Group claim:** the app refuses to start (`ValueError`) if
   `group_mapping` maps groups, but no group claim is set, neither
   `claim_groups` nor that of any trusted issuer

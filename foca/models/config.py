@@ -1330,7 +1330,7 @@ class AccessControlConfig(FOCABaseConfig):
         """
         if v is None:
             return str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE))
-        if v.startswith(PACKAGED_MODEL_PREFIX):
+        if isinstance(v, str) and v.startswith(PACKAGED_MODEL_PREFIX):
             name = v.removeprefix(PACKAGED_MODEL_PREFIX)
             packaged = (
                 DEFAULT_MODEL_FILE,

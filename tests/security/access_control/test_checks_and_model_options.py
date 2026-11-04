@@ -1,6 +1,7 @@
 """Tests of `require_enforced`, `required_roles` and the models' options."""
 
 from importlib.resources import files
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -9,11 +10,12 @@ import pytest
 from flask import Flask
 from pydantic import ValidationError
 
-from foca.models.config import AccessControlConfig
+from foca.models.config import AccessControlConfig, SecurityConfig
 from foca.security.access_control import ownership
 from foca.security.access_control import register_access_control as module
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    DEFAULT_MODEL_FILE,
     GRANTED_RIGHTS_MODEL_FILE,
     RESOURCE_ROLE_MODEL_FILE,
 )
@@ -25,6 +27,7 @@ from foca.security.access_control.enforcer_cache import (
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 
 TASK = "/tasks/1"
+DEFAULT_MODEL = str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE))
 GRANTED_MODEL = str(files(ACCESS_CONTROL_BASE_PATH).joinpath(GRANTED_RIGHTS_MODEL_FILE))
 RESOURCE_MODEL = str(files(ACCESS_CONTROL_BASE_PATH).joinpath(RESOURCE_ROLE_MODEL_FILE))
 
@@ -44,6 +47,15 @@ class TestRequireEnforced:
     def test_default(self) -> None:
         """It's off by default."""
         assert AccessControlConfig(enabled=True).require_enforced is False
+
+    @pytest.mark.parametrize(
+        "options",
+        [{"require_enforced": True, "enforce": True}, {"required_roles": ["a"]}],
+    )
+    def test_needs_access_control(self, options: dict[str, Any]) -> None:
+        """Without access control, the options are refused."""
+        with pytest.raises(ValidationError, match=r"require 'access_control\.enabled'"):
+            SecurityConfig(access_control=AccessControlConfig(**options))
 
 
 class TestRequiredRoles:
@@ -89,6 +101,13 @@ class TestRequiredRoles:
                 )
             )
 
+    def test_malformed_rule(self) -> None:
+        """Too short rules don't get in the way, and are refused later on."""
+        with pytest.raises(ValueError, match="required_roles"):
+            module._check_required_roles(
+                AccessControlConfig(required_roles=["ops"], policies=[["g", "a"]])
+            )
+
     def test_default(self) -> None:
         """By default, no role is required."""
         module._check_required_roles(AccessControlConfig())
@@ -124,6 +143,25 @@ class TestGrantedRightsModel:
         with pytest.raises(ValidationError, match="FOCA ships"):
             AccessControlConfig(model="foca:other.conf")
 
+    def test_path_model(self, tmp_path: Path) -> None:
+        """Models can still be given as paths."""
+        path = tmp_path / "model.conf"
+        path.touch()
+        assert AccessControlConfig.model_validate({"model": path}).model == str(path)
+
+    def test_same_as_reference_model(self) -> None:
+        """The models only differ in the override of admins."""
+
+        def _definitions(path: str) -> list[str]:
+            """Get the lines of a model that aren't comments."""
+            with open(path, encoding="utf-8") as model:
+                return [line for line in model if not line.startswith("#")]
+
+        assert [
+            line.replace('g(r.sub, "admin") || ', "")
+            for line in _definitions(RESOURCE_MODEL)
+        ] == _definitions(GRANTED_MODEL)
+
     def test_admins_only_have_granted_rights(self) -> None:
         """Admins only have the rights that rules grant them."""
         enforcer = self._enforcer(GRANTED_MODEL)
@@ -156,6 +194,25 @@ class TestGrantedRightsModel:
             app.config["CASBIN_MODEL"] = RESOURCE_MODEL
             assert ownership.is_admin() is True
 
+    @pytest.mark.parametrize(
+        ("model", "expected"),
+        [
+            (RESOURCE_MODEL, True),
+            (GRANTED_MODEL, False),
+            # Not for resource-scoped roles, so admins are as they always were
+            (DEFAULT_MODEL, True),
+        ],
+    )
+    def test_admin_override_detected(self, model: str, expected: bool) -> None:
+        """The override is taken from the model."""
+        assert ownership._admins_have_all_rights(model) is expected
+
+    def test_copy_of_model(self, tmp_path: Path) -> None:
+        """A copy of the model fails closed, too."""
+        path = tmp_path / "copy.conf"
+        path.write_text(Path(GRANTED_MODEL).read_text())
+        assert ownership._admins_have_all_rights(str(path)) is False
+
 
 class TestCustomMethods:
     """Tests of `resource_roles_cover_custom_methods`."""
@@ -172,6 +229,7 @@ class TestCustomMethods:
             ("/tasks/:cancel", "/tasks", False, False),
             ("/tasks/2:cancel", "/tasks/1", False, False),
             ("/tasks/1:cancel:now", "/tasks/1:cancel", True, True),
+            ("/tasks/1:cancel", "/tasks/1/", True, True),
         ],
     )
     def test_matching(self, path: str, resource: str, within: bool, same: bool) -> None:
@@ -203,6 +261,17 @@ class TestCustomMethods:
         assert enforcer.enforce("user:a", f"{TASK}:cancel", "POST") is custom
         assert enforcer.enforce("user:a", f"{TASK}/logs", "POST") is below
         assert enforcer.enforce("user:a", "/tasks/2:cancel", "POST") is False
+
+    def test_trailing_slash(self) -> None:
+        """Trailing slashes of resources are ignored, whatever the options."""
+        adapter = Adapter(mongomock.MongoClient().db.coll, model=RESOURCE_MODEL)
+        adapter.add_policy("p", "p", ["owner", "/tasks/*", "POST"])
+        adapter.add_policy("g", "g2", ["user:a", "owner", f"{TASK}/"])
+        for subpaths in (True, False):
+            enforcer = EnforcerCache(
+                RESOURCE_MODEL, adapter, subpaths, True
+            ).get_enforcer()
+            assert enforcer.enforce("user:a", f"{TASK}:cancel", "POST") is True
 
     def test_cache_for_options(self) -> None:
         """A change of the option replaces the cache."""
