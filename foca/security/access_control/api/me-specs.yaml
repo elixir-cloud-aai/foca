@@ -79,7 +79,7 @@ components:
         admin_available:
           type: boolean
           description: >-
-            Whether the caller may be an admin, also if it takes opting in.
+            Whether the caller is an admin, or may opt in to the role admin.
     Error:
       description: Problem details (RFC 9457).
       type: object

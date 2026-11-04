@@ -548,7 +548,8 @@ without a token get `401`. The response is:
 - `groups` are the roles from the caller's group claims (`get_current_groups()`).
 - `admin` tells whether the caller is an admin on this request (`is_admin()`). With
   [opt-in roles](#opt-in-roles), it takes asking for it.
-- `admin_available` tells whether the caller may be one, also if it takes opting in.
+- `admin_available` tells whether the caller is one, or may opt in to the role `admin`.
+  Roles that other opt-in roles grant via rules don't count.
 
 `me_hook` names a function without arguments that returns further fields for the
 response. It runs during the request, so it can use the same helpers, and they can't
@@ -559,16 +560,20 @@ doesn't start; if it fails, the request fails with `500`.
 from typing import Any
 
 from foca.security.access_control.ownership import list_subject_roles
+from foca.utils.urls import get_resource_path
 
 
 def me_fields() -> dict[str, Any]:
-    return {"services": [role.id for role in list_subject_roles("/services")]}
+    path = get_resource_path("services")
+    return {"services": [role.id for role in list_subject_roles(path)]}
 ```
 
 The app doesn't start if another route has the path, or if one of its APIs has the
 base path `/`: then, declare the endpoint in that API, with the operation ID
-`foca.security.access_control.me.getMe`. The endpoint isn't part of the permissions
-API, so it doesn't depend on `api_enabled`.
+`foca.security.access_control.me.getMe`, without `me_enabled`, and with
+`x-foca-access-control: false`, if policies are enforced on it otherwise. `me_hook`
+applies to it as well. The endpoint isn't part of the permissions API, so it doesn't
+depend on `api_enabled`. Rules for its path don't apply, so it needs none.
 
 cloud-registry's own `GET /me` maps to this one as follows:
 

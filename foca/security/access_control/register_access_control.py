@@ -13,6 +13,7 @@ from connexion import App
 from connexion.resolver import Resolver
 from flask import Flask
 from pymongo.errors import PyMongoError
+from werkzeug.exceptions import HTTPException
 
 from foca.api.register_openapi import (
     _connexion_add_api_kwargs,
@@ -647,31 +648,27 @@ def register_me_endpoint(app: App, access_control_config: AccessControlConfig) -
 
     Raises:
         ValueError: The function of `me_hook` can't be used, the path is taken,
-            or an API of the app has the base path `/`, which the endpoint needs.
+            or an API has the base path `/`, which the endpoint needs.
     """
-    if not access_control_config.me_enabled:
-        for option in ("me_path", "me_hook"):
-            if option in access_control_config.model_fields_set:
-                logger.warning(
-                    "'security.access_control.%s' has no effect, as "
-                    "'security.access_control.me_enabled' is false.",
-                    option,
-                )
-        return app
-    path = access_control_config.me_path
+    # Also for routes of the app to the controller
     if access_control_config.me_hook is not None:
         import_me_hook(access_control_config.me_hook)
+    path = access_control_config.me_path
+    if not access_control_config.me_enabled:
+        if "me_path" in access_control_config.model_fields_set:
+            logger.warning(
+                "'security.access_control.me_path' has no effect, as "
+                "'security.access_control.me_enabled' is false."
+            )
+        return app
     # Connexion names blueprints after the base paths of APIs
-    if "" in _get_api_base_paths(app.app):
+    if any(api.base_path == "" for api in _get_apis(app.app)):
         raise ValueError(
-            "'security.access_control.me_path' can't be used with an API at the "
+            "'security.access_control.me_enabled' can't be used with an API at the "
             "base path '/'. Declare the endpoint in that API instead (cf. "
             "`foca.security.access_control.me.getMe`)."
         )
-    if any(rule.rule == path for rule in app.app.url_map.iter_rules()):
-        raise ValueError(
-            f"'security.access_control.me_path' is taken by another route: '{path}'"
-        )
+    _check_me_path(app.app, path)
     spec_file = Path(str(files(ACCESS_CONTROL_BASE_PATH).joinpath(ME_API_SPEC_PATH)))
     specification = _with_error_media_type(
         spec_path=spec_file, media_type=_get_error_media_type(app)
@@ -687,16 +684,38 @@ def register_me_endpoint(app: App, access_control_config: AccessControlConfig) -
         serve_spec=False,
         resolver=resolver,
     )
-    api = app.add_api(specification=specification, **_connexion_add_api_kwargs(options))
-    _register_api(
-        app.app,
-        api.base_path,
-        _iter_resolved_operations(api.specification.raw),
-        is_app_api=False,
-        paths=[path],
-    )
+    # Not remembered as an API (cf. `_register_api()`): the helpers for paths stay
+    # with those of the app, also in hooks, and rules aren't checked against it, as
+    # they don't apply to it
+    app.add_api(specification=specification, **_connexion_add_api_kwargs(options))
     logger.info("Endpoint for the current caller registered at '%s'.", path)
     return app
+
+
+def _check_me_path(app: Flask, path: str) -> None:
+    """Check the path of `GET /me` against the routes of the app.
+
+    Args:
+        app: Flask app, with the app's APIs registered.
+        path: Path of the endpoint.
+
+    Raises:
+        ValueError: It is the path of a route of the app.
+    """
+    if any(rule.rule == path for rule in app.url_map.iter_rules()):
+        raise ValueError(
+            f"'security.access_control.me_path' is taken by another route: '{path}'"
+        )
+    try:
+        rule, _ = app.url_map.bind("").match(path, method="GET", return_rule=True)
+    except HTTPException:
+        return
+    logger.warning(
+        "'security.access_control.me_path' ('%s') takes precedence over the route "
+        "'%s' for that path.",
+        path,
+        rule.rule,
+    )
 
 
 def _check_api_base_path(app: Flask, api_base_path: str) -> None:

@@ -18,14 +18,17 @@ from foca.models.config import (
     AuthConfig,
     Config,
     ExceptionConfig,
+    MongoConfig,
     SecurityConfig,
     ServiceClientConfig,
     SpecConfig,
 )
 from foca.security.access_control import register_access_control as module
+from foca.security.access_control.enforcement import get_current_subject
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.me import import_me_hook
 from foca.security.auth import InvalidTokenResolver
+from foca.utils.urls import _register_api, get_resource_path
 
 ISSUER = "https://login.example.org/oidc/"
 ADMINS = "urn:example:admins"
@@ -46,6 +49,42 @@ def hook_fields() -> dict[str, Any]:
         A field of the app, and one named as a field of FOCA.
     """
     return {"services": ["a"], "admin": True}
+
+
+def failing_hook() -> dict[str, Any]:
+    """Fail.
+
+    Raises:
+        RuntimeError: Always.
+    """
+    raise RuntimeError("Failed")
+
+
+def hook_without_mapping() -> list[str]:
+    """Get something that isn't a mapping.
+
+    Returns:
+        A list of numbers as text.
+    """
+    return ["1"]
+
+
+def hook_for_caller() -> dict[str, Any]:
+    """Get a field from the identity of the caller.
+
+    Returns:
+        A field with the subject.
+    """
+    return {"caller": get_current_subject()}
+
+
+def hook_with_path() -> dict[str, Any]:
+    """Get the path of a resource.
+
+    Returns:
+        A field with the path.
+    """
+    return {"path": get_resource_path("services")}
 
 
 def _token_info(token: str) -> dict[str, Any]:
@@ -123,6 +162,31 @@ def _get(app: Flask, token: str, path: str = "/me", **headers: str) -> Any:
     )
 
 
+def _spec(servers: str, path: str = "/items") -> dict[str, Any]:
+    """Get the specification of an API of the app.
+
+    Args:
+        servers: Base path.
+        path: Path of its operation.
+
+    Returns:
+        Specification.
+    """
+    return {
+        "openapi": "3.0.3",
+        "info": {"title": "Test", "version": "1.0"},
+        "servers": [{"url": servers}],
+        "paths": {
+            path: {
+                "get": {
+                    "operationId": f"{__name__}.hook_fields",
+                    "responses": {"200": {"description": "Fine"}},
+                }
+            }
+        },
+    }
+
+
 class TestResponse:
     """Tests of the responses."""
 
@@ -186,6 +250,45 @@ class TestResponse:
         assert data["services"] == ["a"]
         assert data["admin"] is False
 
+    def test_hook_replaces_nothing(self, tmp_path: Path) -> None:
+        """Fields of FOCA stay what they are, whatever the hook returns."""
+        app = _create_app(tmp_path, me_enabled=True, me_hook=f"{__name__}.hook_fields")
+        assert _get(app, "user").json["admin"] is False
+
+    def test_hook_has_the_request(self, tmp_path: Path) -> None:
+        """Hooks can use the helpers for the current request."""
+        app = _create_app(
+            tmp_path, me_enabled=True, me_hook=f"{__name__}.hook_for_caller"
+        )
+        assert _get(app, "user").json["caller"] == "user"
+
+    @pytest.mark.parametrize("hook", ["failing_hook", "hook_without_mapping"])
+    def test_hook_fails(self, tmp_path: Path, hook: str) -> None:
+        """Hooks that fail lead to a server error, as problem details."""
+        app = _create_app(tmp_path, me_enabled=True, me_hook=f"{__name__}.{hook}")
+        response = _get(app, "user")
+        assert response.status_code == 500
+        assert response.content_type == "application/problem+json"
+
+    def test_hook_has_path_helpers(self, tmp_path: Path) -> None:
+        """The helpers for paths stay with the API of the app."""
+        app = _create_app(
+            tmp_path,
+            _spec("/api"),
+            me_enabled=True,
+            me_hook=f"{__name__}.hook_with_path",
+        )
+        assert _get(app, "user").json["path"] == "/api/services"
+
+    def test_no_identity_with_opt_in(self, tmp_path: Path) -> None:
+        """Without an identity, being an admin isn't available."""
+        app = _create_app(tmp_path, me_enabled=True, opt_in_roles=["admin"])
+        TOKENS["nobody_admin"] = {"iss": ISSUER, "groups": [ADMINS]}
+        try:
+            assert _get(app, "nobody_admin").json["admin_available"] is False
+        finally:
+            del TOKENS["nobody_admin"]
+
     def test_other_path(self, tmp_path: Path) -> None:
         """The endpoint can be moved."""
         app = _create_app(tmp_path, me_enabled=True, me_path="/ga4gh/v1/me")
@@ -200,21 +303,22 @@ class TestRegistration:
         """The endpoint is off by default."""
         assert _get(_create_app(tmp_path), "user").status_code == 404
 
-    @pytest.mark.parametrize(
-        "options", [{"me_path": "/whoami"}, {"me_hook": f"{__name__}.hook_fields"}]
-    )
+    def test_invalid_hook_without_endpoint(self, tmp_path: Path) -> None:
+        """Hooks are checked if an app routes to the controller itself."""
+        with pytest.raises(ValueError, match="could not be imported"):
+            _create_app(tmp_path, me_hook="nowhere.at_all")
+
     def test_options_without_endpoint(
         self,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
-        options: dict[str, Any],
     ) -> None:
         """Options that have no effect are logged."""
         logger = module.logger
         disabled, propagate = logger.disabled, logger.propagate
         logger.disabled, logger.propagate = False, True
         try:
-            _create_app(tmp_path, **options)
+            _create_app(tmp_path, me_path="/whoami")
         finally:
             logger.disabled, logger.propagate = disabled, propagate
         assert "has no effect" in caplog.text
@@ -276,11 +380,73 @@ class TestRegistration:
             },
         }
         if servers[0]["url"] == "/":
-            with pytest.raises(ValueError, match="me_path"):
+            with pytest.raises(ValueError, match="me_"):
                 _create_app(tmp_path, spec, me_enabled=True)
         else:
             app = _create_app(tmp_path, spec, me_enabled=True)
             assert _get(app, "user").status_code == 200
+
+    def test_custom_permissions_api_at_root(self, tmp_path: Path) -> None:
+        """Other APIs at the base path are refused as well."""
+        cnx_app = create_connexion_app(Config())
+        _register_api(cnx_app.app, "/", [], is_app_api=False)
+        with pytest.raises(ValueError, match="me_enabled"):
+            module.register_me_endpoint(cnx_app, AccessControlConfig(me_enabled=True))
+
+    def test_route_with_parameter(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Routes that the endpoint takes precedence over are logged."""
+        logger = module.logger
+        disabled, propagate = logger.disabled, logger.propagate
+        logger.disabled, logger.propagate = False, True
+        try:
+            app = _create_app(
+                tmp_path,
+                _spec("/api", "/{id}"),
+                me_enabled=True,
+                me_path="/api/me",
+            )
+        finally:
+            logger.disabled, logger.propagate = disabled, propagate
+        assert "takes precedence" in caplog.text
+        assert _get(app, "user", path="/api/me").json["subject"] == "user"
+
+    def test_registered_with_access_control(self, tmp_path: Path) -> None:
+        """Registering access control registers it, whatever the rules."""
+        conf = AccessControlConfig(
+            enabled=True,
+            me_enabled=True,
+            me_path="/api/me",
+            policies=[["p", "member", "{base_path}/*", "GET"]],
+        )
+        config = Config(
+            security=SecurityConfig(
+                auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
+                access_control=conf,
+            ),
+            db=MongoConfig(),
+        )
+        cnx_app = register_exception_handler(create_connexion_app(config))
+        path = tmp_path / "spec.yaml"
+        path.write_text(yaml.safe_dump(_spec("/api")))
+        cnx_app = register_openapi(
+            cnx_app,
+            specs=[SpecConfig.model_validate({"path": path, "disable_auth": True})],
+        )
+        with (
+            mock.patch(
+                "foca.security.access_control.register_access_control.get_mongo_client",
+                return_value=mongomock.MongoClient(),
+            ),
+            mock.patch("foca.security.auth.validate_token", new=_token_info),
+        ):
+            cnx_app = module.register_access_control(
+                cnx_app=cnx_app,
+                mongo_config=config.db,
+                access_control_config=conf,
+            )
+        assert _get(cnx_app.app, "user", path="/api/me").status_code == 200
 
     def test_path_taken(self, tmp_path: Path) -> None:
         """Paths of routes of the app are refused."""

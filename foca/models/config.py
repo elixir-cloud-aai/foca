@@ -1109,7 +1109,7 @@ class AccessControlConfig(FOCABaseConfig):
 
     @field_validator("api_base_path", "me_path")
     @classmethod
-    def validate_api_base_path(cls, value: str, info: ValidationInfo) -> str:
+    def validate_access_control_path(cls, value: str, info: ValidationInfo) -> str:
         """Ensure that a path of the APIs of access control is usable.
 
         Args:

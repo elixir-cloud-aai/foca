@@ -56,17 +56,24 @@ def getMe() -> dict[str, Any]:
         is an admin on this request (`admin`, cf.
         :py:func:`foca.security.access_control.ownership.is_admin`; with opt-in,
         only if the request asks for it) and whether they may be one
-        (`admin_available`; cf. :py:func:`get_available_opt_in_roles`).
+        (`admin_available`: they are, or may opt in to the role `admin`; cf.
+        :py:func:`get_available_opt_in_roles`).
     """
     hook = get_config().security.access_control.me_hook
     fields = {} if hook is None else dict(import_me_hook(hook)())
     admin = is_admin()
+    subject = get_current_subject()
+    client = get_current_client()
     return {
         **fields,
-        "subject": get_current_subject(),
-        "client": get_current_client(),
+        "subject": subject,
+        "client": client,
         "groups": get_current_groups(),
         "admin": admin,
-        # Admins without opt-in are always admins
-        "admin_available": admin or ADMIN_ROLE in get_available_opt_in_roles(),
+        # Admins without opt-in are always admins; no identity, no admin
+        "admin_available": admin
+        or (
+            (subject is not None or client is not None)
+            and ADMIN_ROLE in get_available_opt_in_roles()
+        ),
     }
