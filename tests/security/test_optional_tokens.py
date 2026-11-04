@@ -52,7 +52,8 @@ def controller(*args: Any, **kwargs: Any) -> Any:
     return jsonify(get_current_subject())
 
 
-optional_first = empty_first = required = public = key = custom = both = controller
+optional_first = empty_first = required = public = key = controller
+custom = custom_again = both = controller
 
 
 def validate_custom(token: str) -> dict[str, Any]:
@@ -95,6 +96,7 @@ SPEC = {
             "get": _operation("both", [{"goodKey": []}, {"bearerAuth": []}, {}]),
         },
         "/custom": {"get": _operation("custom", [{"customAuth": []}, {}])},
+        "/custom-again": {"get": _operation("custom_again", [{"customAuth": []}, {}])},
     },
     "components": {
         "securitySchemes": {
@@ -333,6 +335,58 @@ class TestOptionalTokens:
         response = _get(_app(tmp_path, True), "/public", "Bearer not-a-jwt")
         assert response.status_code == 200
         assert not idp.called
+
+
+def _operation_mock(security: list[dict[str, Any]]) -> MagicMock:
+    """Build a Connexion operation with the security schemes of the test API."""
+    operation = MagicMock()
+    operation.security = security
+    operation.security_schemes = SPEC["components"]["securitySchemes"]  # type: ignore[index]
+    return operation
+
+
+class TestOtherValidationFunctionWarning:
+    """Tests of the warning that the option doesn't reach other functions."""
+
+    def test_warns_once_per_function(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Startup names the function once, for all of its operations."""
+        with caplog.at_level(logging.WARNING, logger=auth.logger.name):
+            _app(tmp_path, True)
+        warnings = [
+            record.getMessage()
+            for record in caplog.records
+            if "reject_invalid_tokens" in record.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert f"{THIS_MODULE}.validate_custom" in warnings[0]
+        assert "foca.security.auth.validate_token in" in warnings[0]
+
+    def test_option_off(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """Without the option, nothing is missed."""
+        with caplog.at_level(logging.WARNING, logger=auth.logger.name):
+            _app(tmp_path, False)
+        assert "reject_invalid_tokens" not in caplog.text
+
+    @pytest.mark.parametrize(
+        "security",
+        [
+            pytest.param([{"bearerAuth": []}, {}], id="validate_token"),
+            pytest.param([{"customAuth": []}], id="required"),
+            pytest.param([{"apiKey": []}, {}], id="api key"),
+            pytest.param([{"customAuth": []}, {"bearerAuth": []}, {}], id="both"),
+            pytest.param([], id="public"),
+        ],
+    )
+    def test_no_warning(
+        self, caplog: pytest.LogCaptureFixture, security: list[dict[str, Any]]
+    ) -> None:
+        """Other operations, which the option isn't about, don't warn."""
+        resolver = InvalidTokenResolver(lambda operation_id: controller)
+        with caplog.at_level(logging.WARNING, logger=auth.logger.name):
+            resolver.resolve(_operation_mock(security))
+        assert "reject_invalid_tokens" not in caplog.text
 
 
 class TestInvalidTokenResolver:

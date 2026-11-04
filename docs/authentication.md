@@ -85,7 +85,10 @@ With this option:
   names `foca.security.auth.validate_token` in `x-bearerInfoFunc`, whichever
   order they have. Operations with other schemes (e.g., API keys, or your own
   validation function) don't change, as FOCA can't judge their tokens, nor do
-  operations that require a token or are public (`security: []`).
+  operations that require a token or are public (`security: []`). This includes
+  functions that wrap `validate_token`: for those, startup logs a warning naming
+  the function, on operations with optional authentication. Reject invalid
+  tokens in such a function, or name `validate_token` in the scheme.
 - It only rejects: it never identifies a caller. If the empty requirement comes
   first, a valid token still leaves the request anonymous, so list the bearer
   scheme first.
