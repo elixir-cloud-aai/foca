@@ -46,8 +46,8 @@ class Issuer:
     def __init__(self) -> None:
         """Generate the signing key, and start listening on a free port."""
         self._key = rsa.generate_private_key(public_exponent=65537, key_size=_KEY_SIZE)
-        self._userinfo: dict[str, Any] = {}
-        self._userinfo_status = 200
+        # Status and claims, set and read together
+        self._userinfo: tuple[int, dict[str, Any]] = (200, {})
         provider = self
 
         class _Handler(BaseHTTPRequestHandler):
@@ -122,8 +122,9 @@ class Issuer:
             Status code and JSON body: the subject of the token and what was
             set with :py:meth:`set_userinfo`.
         """
-        if self._userinfo_status != 200:
-            return self._userinfo_status, {"error": "userinfo_failed"}
+        status, userinfo = self._userinfo
+        if status != 200:
+            return status, {"error": "userinfo_failed"}
         scheme, _, token = (authorization or "").partition(" ")
         try:
             if scheme.lower() != "bearer":
@@ -136,7 +137,7 @@ class Issuer:
             )
         except jwt.InvalidTokenError:
             return 401, {"error": "invalid_token"}
-        return 200, {"sub": claims.get("sub"), **self._userinfo}
+        return 200, {"sub": claims.get("sub"), **userinfo}
 
     def set_userinfo(self, status: int = 200, **claims: Any) -> None:
         """Set the responses to requests for user info.
@@ -146,8 +147,7 @@ class Issuer:
             **claims: Claims in addition to the subject of the token, replacing
                 those of earlier calls.
         """
-        self._userinfo = claims
-        self._userinfo_status = status
+        self._userinfo = (status, claims)
         auth.clear_caches()
 
     def token(

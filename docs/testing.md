@@ -17,15 +17,16 @@ It has:
 - **A network guard**, for all tests: `connect()` to other hosts than the local
   one and the test database fails, and settings of proxies are unset. Mark a test
   with `@pytest.mark.allow_network` to lift it. It catches accidental connections,
-  but isn't a sandbox: it starts with each test, so session-scoped fixtures aren't
-  covered, nor are DNS lookups or subprocesses. For a replica set in
+  but isn't a sandbox: it starts with each test, so fixtures of broader scope than
+  a function aren't covered, nor are DNS lookups or subprocesses. For a replica set in
   `MONGODB_TEST_URI`, only the hosts it names are allowed, so name all members or
   use `directConnection=true`.
 - **The fixture `mongodb`**, which makes FOCA use a MongoDB for tests, and returns
   a client of it: an empty in-memory MongoDB of mongomock for each test, or, with
   the environment variable `MONGODB_TEST_URI` (e.g., in CI), that MongoDB.
   Databases that a test writes to through this client or FOCA, and that weren't
-  there before, are dropped afterwards, so its user needs the right to do that.
+  there before, are dropped afterwards, so its user needs the rights to list and
+  drop databases.
   Others are kept, but not protected from the test, and may be seen by it. So use a
   throwaway MongoDB without other data, one for each worker of parallel tests, and
   drop what stays behind: databases of aborted runs, and those created only by
