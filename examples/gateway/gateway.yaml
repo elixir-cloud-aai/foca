@@ -27,6 +27,8 @@ paths:
       responses:
         '200':
           $ref: '#/components/responses/Processed'
+        '503':
+          description: The worker didn't answer in time
 components:
   requestBodies:
     Message:

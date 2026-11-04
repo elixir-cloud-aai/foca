@@ -45,14 +45,14 @@ spec:
 
       in_app = send("/messages")
       # The worker has no probes, so it may still connect to the broker when
-      # the release is ready: the app answers 500 until it gets a result
+      # the release is ready: the app answers 503 until it gets a result
       deadline = time.monotonic() + 180
       while True:
           try:
               in_worker = send("/messages/worker")
               break
           except urllib.error.HTTPError as error:
-              if error.code != 500 or time.monotonic() > deadline:
+              if error.code != 503 or time.monotonic() > deadline:
                   raise
               time.sleep(5)
       assert in_worker["payload"]["process"].startswith("ForkPoolWorker"), in_worker

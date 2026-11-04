@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from celery import Celery
+from celery.exceptions import TimeoutError as ResultTimeout
 from flask import current_app
 from service import run_pipeline
 from tasks import TASK_NAME
@@ -51,15 +52,22 @@ def addMessage(body: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def addWorkerMessage(body: dict[str, Any]) -> dict[str, Any]:
+def addWorkerMessage(
+    body: dict[str, Any],
+) -> dict[str, Any] | tuple[dict[str, Any], int]:
     """Run a message through the plugin pipeline, in the Celery worker.
 
     Args:
         body: Message.
 
     Returns:
-        Payload after the plugins, and the run's provenance record.
+        Payload after the plugins, and the run's provenance record; or
+        problem details and status 503 if the worker didn't answer in time,
+        e.g., as it is still starting.
     """
     result = _celery_client().send_task(TASK_NAME, args=[body])
-    data: dict[str, Any] = result.get(timeout=WORKER_TIMEOUT)
+    try:
+        data: dict[str, Any] = result.get(timeout=WORKER_TIMEOUT)
+    except ResultTimeout:
+        return {"title": "Service Unavailable", "status": 503}, 503
     return data

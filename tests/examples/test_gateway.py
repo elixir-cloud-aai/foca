@@ -8,6 +8,7 @@ real containers, with the plugin installed.
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from flask.testing import FlaskClient
@@ -63,6 +64,21 @@ def test_message(client: FlaskClient) -> None:
 def test_invalid_message(client: FlaskClient) -> None:
     """Requests that don't match the spec are refused."""
     assert client.post("/messages", json={"other": "x"}).status_code == 400
+
+
+def test_worker_not_answering(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worker that doesn't answer in time gives 503, not an error in the logs."""
+    import controllers  # noqa: PLC0415
+    from celery.exceptions import TimeoutError as ResultTimeout  # noqa: PLC0415
+
+    celery = mock.Mock()
+    celery.send_task.return_value.get.side_effect = ResultTimeout
+    monkeypatch.setattr(controllers, "_celery_client", lambda: celery)
+    response = client.post("/messages/worker", json={"message": "hi"})
+    assert response.status_code == 503
+    assert response.json == {"title": "Service Unavailable", "status": 503}
 
 
 def test_task(client: FlaskClient) -> None:
