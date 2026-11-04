@@ -462,6 +462,7 @@ class TestResourceRolesListing:
         assert self._subjects(response) == ["bob-team", "Bob"]
         assert 'rel="next"' in response.headers["Link"]
         response = self._get(q="carol", limit="2")
+        assert self._subjects(response) == ["carol"]
         assert 'rel="next"' not in response.headers["Link"]
 
 
