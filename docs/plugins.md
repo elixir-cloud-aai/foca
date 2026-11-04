@@ -635,8 +635,8 @@ after `OutcomeUnknown` without raising, with `run.final_reason` set to
 
 `foca.plugins.adapter` is the only module that uses Connexion and Flask: it
 builds the plain request model (`inbound_from_request()`), the caller
-(`current_principal()`), the request ID (`request_id()`: a safe
-`X-Request-ID` header of the client, or a new one), and problem responses
+(`current_principal()`), the request ID (`request_id()`: the [identifier of
+the request](configuration/server.md#request-ids), or a new one), and problem responses
 for gateway errors (`problem()`).
 
 The caller (`Principal`) is identified as by access control and its

@@ -21,6 +21,8 @@ from typing import Any, Literal, NamedTuple, get_args
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 import idna
+from connexion.apis.flask_utils import flaskify_endpoint
+from flask import current_app, has_request_context, request
 
 URLScheme = Literal["http", "https", "mailto"]
 """Supported URL schemes, e.g., for app configuration models."""
@@ -325,6 +327,24 @@ class _RegisteredApi(NamedTuple):
 
 # Key of the app's extensions holding the APIs registered with it
 _APIS_EXTENSION = "foca_apis"
+# Key of the app's extensions mapping names of Flask endpoints to operations
+_OPERATIONS_EXTENSION = "foca_operations"
+
+
+def get_operation_id() -> str:
+    """Get the identifier of the operation of the current request.
+
+    Returns:
+        Identifier of the operation, as in the specification (or else the name
+        of the endpoint); empty outside of requests and for requests that don't
+        match a route.
+    """
+    if not has_request_context() or request.endpoint is None:
+        return ""
+    # Connexion prefixes the endpoints of an API with the name of its blueprint
+    name = request.endpoint.rsplit(".", 1)[-1]
+    operations = current_app.extensions.get(_OPERATIONS_EXTENSION, {})
+    return str(operations.get(name, name))
 
 
 def _register_api(
@@ -344,6 +364,14 @@ def _register_api(
         is_app_api: Whether the API is one of the app's specifications.
         paths: Paths of the API, relative to its base path.
     """
+    operations = list(operations)
+    app.extensions.setdefault(_OPERATIONS_EXTENSION, {}).update(
+        {
+            flaskify_endpoint(operation["operationId"]): operation["operationId"]
+            for operation in operations
+            if isinstance(operation.get("operationId"), str)
+        }
+    )
     app.extensions.setdefault(_APIS_EXTENSION, []).append(
         _RegisteredApi(
             base_path=base_path.rstrip("/"),
