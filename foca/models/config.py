@@ -1095,6 +1095,9 @@ class AccessControlConfig(FOCABaseConfig):
             and if none is stored, the last instance to start wins.
         policies_force: Change the stored rules also if their revision is newer,
             for rollbacks; `policies_revision` becomes the stored revision.
+        sync_policies_on_startup: Replace the stored configured rules with
+            `policies` on startup. If `False`, run `foca sync-policies` instead (cf.
+            :py:mod:`foca.cli`).
         log_traffic: Whether requests to the permissions API and their
             responses are logged (cf.
             :py:func:`foca.utils.logging.log_traffic`).
@@ -1143,6 +1146,7 @@ class AccessControlConfig(FOCABaseConfig):
             set, stored configured rules are removed on startup.
         policies_revision: Revision of `policies`.
         policies_force: Change the stored rules also if their revision is newer.
+        sync_policies_on_startup: Replace the stored configured rules on startup.
         log_traffic: Whether requests to the permissions API and their
             responses are logged.
 
@@ -1198,6 +1202,7 @@ class AccessControlConfig(FOCABaseConfig):
     # In the range of MongoDB's integers; not `true` for 1
     policies_revision: int | None = Field(default=None, ge=0, le=2**63 - 1, strict=True)
     policies_force: bool = False
+    sync_policies_on_startup: bool = True
     log_traffic: bool = True
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
@@ -2658,6 +2663,8 @@ class MongoConfig(FOCABaseConfig):
             `MONGO_PASSWORD` or `MONGO_URI`. String values of `authMechanismProperties`
             and `tlsCertificateKeyFilePassword` become
             :py:class:`pydantic.SecretStr`.
+        create_indexes_on_startup: Create the configured indexes on startup. If
+            `False`, run `foca create-indexes` instead (cf. :py:mod:`foca.cli`).
 
     Attributes:
         host: Host at which the database is exposed.
@@ -2665,6 +2672,7 @@ class MongoConfig(FOCABaseConfig):
         dbs: Mapping of database names (keys) and configuration objects
             (values).
         client_options: Options of the MongoDB client.
+        create_indexes_on_startup: Create the configured indexes on startup.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2682,6 +2690,7 @@ class MongoConfig(FOCABaseConfig):
     port: int = 27017
     dbs: dict[str, DBConfig] | None = None
     client_options: ClientOptions = Field(default_factory=dict)
+    create_indexes_on_startup: bool = True
     # MongoDB client shared by all databases; set on registration
     _client: MongoClient[dict[str, Any]] | None = PrivateAttr(default=None)
     # Name of the app in MongoDB's logs by default; set from the service info

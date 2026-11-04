@@ -37,7 +37,9 @@ existing one (e.g., same name, different keys), FOCA refuses to start; drop
 or rename the existing index in that case.
 `foca.database.register_mongodb.IndexConflictError` tells that apart from
 other failures, such as missing permissions or lost connections, which stay
-errors of PyMongo.
+errors of PyMongo. To leave creating indexes to a step of your deployment, set
+`db.create_indexes_on_startup: false` and run
+[`foca create-indexes`](../cli.md#create-indexes).
 
 To use a client outside an app (e.g., in scripts), use
 `create_mongo_client()`:

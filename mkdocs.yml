@@ -119,6 +119,7 @@ nav:
   - Authentication: authentication.md
   - Access control: access-control.md
   - Gateway plugins: plugins.md
+  - Command-line tool: cli.md
   - Deployment: deployment.md
   - Helm library chart: helm-chart.md
   - Utilities: utilities.md

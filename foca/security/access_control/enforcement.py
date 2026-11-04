@@ -19,6 +19,7 @@ from flask.globals import request_ctx
 from werkzeug.exceptions import HTTPException
 from werkzeug.routing.exceptions import RoutingException
 
+from foca.audit import log as audit_log
 from foca.config.access import get_config
 from foca.security.access_control.constants import (
     CLIENT_PREFIX,
@@ -42,6 +43,9 @@ if TYPE_CHECKING:  # import cycle
     from foca.models.config import AccessControlConfig, ServiceClientConfig
 
 logger = logging.getLogger(__name__)
+
+# Rules of an audit event of revoking all roles on a resource
+_MAX_RULES_PER_AUDIT_EVENT = 50
 
 # Policy type of resource-scoped role rules: subject, role, resource
 RESOURCE_ROLE_PTYPE = "g2"
@@ -1157,7 +1161,17 @@ def add_resource_role(
         rule = _validate_grantable_rule(
             subject, role, resource, ptype, subject_type, enforcer
         )
-        return enforcer.add_named_grouping_policy(ptype, *rule)
+        added: bool = enforcer.add_named_grouping_policy(ptype, *rule)
+    if added:
+        audit_log(
+            "resource_role.grant",
+            resource,
+            subject=subject,
+            subject_type=subject_type,
+            role=role,
+            ptype=ptype,
+        )
+    return added
 
 
 def _replace_resource_role(
@@ -1200,7 +1214,26 @@ def _replace_resource_role(
     for configured in adapter.get_filtered_rules(ptype, 2, resource, configured=True):
         if configured[0] == rule[0] and configured[1] in others:
             _warn_configured_rule(ptype, configured)
-    return adapter.replace_role_rule(ptype, rule, roles)
+            others.discard(configured[1])
+    # What the subject has now, read separately, as the change returns no more
+    held = {
+        stored[1]
+        for stored in adapter.get_filtered_rules(ptype, 2, resource, configured=False)
+        if stored[0] == rule[0]
+    }
+    added = adapter.replace_role_rule(ptype, rule, roles)
+    # Also if the role was there: other roles may be gone, and it's granted anew
+    audit_log(
+        "resource_role.grant",
+        resource,
+        subject=subject,
+        subject_type=subject_type,
+        role=role,
+        ptype=ptype,
+        replacing=sorted(others & held),
+        already_granted=not added,
+    )
+    return added
 
 
 def _validate_grantable_rule(
@@ -1308,6 +1341,15 @@ def remove_resource_role(
     if adapter.is_configured_rule(ptype, rule):
         _warn_configured_rule(ptype, rule)
         return False
+    if removed:
+        audit_log(
+            "resource_role.revoke",
+            resource,
+            subject=subject,
+            subject_type=subject_type,
+            role=role,
+            ptype=ptype,
+        )
     return removed
 
 
@@ -1388,23 +1430,54 @@ def remove_resource(
     configured = adapter.get_filtered_rules(ptype, 2, resource, configured=True)
     for rule in configured:
         _warn_configured_rule(ptype, rule)
-    revoked = False
-    for rule in adapter.get_filtered_rules(ptype, 2, resource, configured=False):
-        # Counted only if this call removed it (not a concurrent one), and
-        # if it granted a role: unmarked copies of configured rules still
-        # apply, and invalid rules are not loaded. Configured copies are
-        # kept by the adapter; the section (first argument) is not used.
-        if (
-            adapter.remove_policy(ptype[0], ptype, rule)
-            and rule not in configured
-            and _is_valid_rule(ptype, rule, model)
-        ):
-            revoked = True
-    # Remove rules that could not be removed one by one (e.g., with values
-    # that are not strings) or that were stored concurrently; the section
-    # (first argument) is not used by the adapter
-    adapter.remove_filtered_policy(ptype[0], ptype, 2, resource, keep_configured=True)
-    return revoked
+    revoked: list[list[str]] = []
+    swept = False
+    # What a failing write may have removed: the rule, or any left
+    uncertain: list[str] | None = None
+    sweeping = False
+    # What was removed is logged, also if removing the rest fails
+    try:
+        for rule in adapter.get_filtered_rules(ptype, 2, resource, configured=False):
+            # Counted only if this call removed it (not a concurrent one), and
+            # if it granted a role: unmarked copies of configured rules still
+            # apply, and invalid rules are not loaded. Configured copies are
+            # kept by the adapter; the section (first argument) is not used.
+            uncertain = rule
+            removed = adapter.remove_policy(ptype[0], ptype, rule)
+            uncertain = None
+            if removed:
+                if rule not in configured and _is_valid_rule(ptype, rule, model):
+                    revoked.append(rule)
+                else:
+                    swept = True
+        # Remove rules that could not be removed one by one (e.g., with values
+        # that are not strings) or that were stored concurrently; the section
+        # (first argument) is not used by the adapter
+        sweeping = True
+        swept = (
+            adapter.remove_filtered_policy(
+                ptype[0], ptype, 2, resource, keep_configured=True
+            )
+            or swept
+        )
+        sweeping = False
+    finally:
+        if revoked or swept or uncertain or sweeping:
+            # In batches, as log sinks limit the size of records
+            starts = range(0, len(revoked), _MAX_RULES_PER_AUDIT_EVENT) or [0]
+            for part, start in enumerate(starts, start=1):
+                audit_log(
+                    "resource_role.revoke_all",
+                    resource,
+                    ptype=ptype,
+                    rules=revoked[start : start + _MAX_RULES_PER_AUDIT_EVENT],
+                    part=part,
+                    parts=len(starts),
+                    swept=swept,
+                    incomplete=bool(uncertain) or sweeping,
+                    uncertain=uncertain,
+                )
+    return bool(revoked)
 
 
 def _is_valid_rule(ptype: str, rule: list[str], model: Model) -> bool:

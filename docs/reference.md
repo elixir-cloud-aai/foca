@@ -281,9 +281,21 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.utils.db
 
+## Command-line tool
+
+::: foca.cli
+    options:
+      members:
+        - main
+
 ## Utilities
 
 ::: foca.context
+
+::: foca.audit
+    options:
+      members:
+        - log
 
 ::: foca.utils.misc
 
