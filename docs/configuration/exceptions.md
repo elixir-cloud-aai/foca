@@ -95,8 +95,7 @@ values, these may appear in the logs (shortened), e.g., of query parameters
 and headers. Connexion's validation logger (`connexion.decorators.validation`)
 logs the validator's message in full and unescaped (and rejected values can
 be as large as the request body), so its messages on rejected requests are
-filtered out, for all apps of the process; its messages on invalid
-responses are kept.
+filtered out, for all apps of the process.
 Exceptions that your app raises as `BadRequestProblem` (e.g., FOCA's
 [access control](../access-control.md) for an invalid user acted for) get
 their `detail` as well, so keep internals out of it. Set
@@ -156,6 +155,28 @@ from foca.utils.logging import escape_log_value
 
 logger.info("Rejected: %s", escape_log_value(shorten_detail(reason)))
 ```
+
+## Invalid responses
+
+With [`validate_responses`](api.md), responses that don't match the API
+specification are errors of the app: clients get the problem details of the
+exception (by default `500 Internal Server Error`), without the validator's
+message. FOCA logs the operation and the validation error (the path of the
+failed keyword in the schema and, for `required`, the missing properties), but
+nothing of the response body, which may hold personal data or be large, and no
+traceback, e.g.:
+
+```text
+{"title": "Internal Server Error", "status": 500} Response of operation '/ga4gh/v1.my_app_controllers_get_pet' does not conform to its specification: failed at schema path '/properties/name/type'
+```
+
+With `logging: none`, nothing is logged; all other values give this one line,
+without a traceback, as the validator's message in it has the response body.
+For the same reason, the messages of Connexion's validation logger on invalid
+responses are always filtered out, for all apps of the process, also with
+`validation_details: false`. Connexion also logs response bodies at `DEBUG`, as
+extra fields of its records (logger `connexion.apis.abstract`), which formatters
+that write such fields would show; keep that logger above `DEBUG` in production.
 
 ## Media type
 
