@@ -52,12 +52,17 @@ def controller(*args: Any, **kwargs: Any) -> Any:
     return jsonify(get_current_subject())
 
 
-optional_first = empty_first = required = public = key = custom = controller
+optional_first = empty_first = required = public = key = custom = both = controller
 
 
 def validate_custom(token: str) -> dict[str, Any]:
     """Reject all tokens, as an app's own validation function may."""
     raise auth.Unauthorized("Not for this validation function")
+
+
+def validate_key(key: str, required_scopes: Any = None) -> dict[str, Any]:
+    """Accept all API keys."""
+    return {"sub": "key-client"}
 
 
 def _operation(name: str, security: list[dict[str, Any]] | None) -> dict[str, Any]:
@@ -86,6 +91,9 @@ SPEC = {
         "/required": {"get": _operation("required", [{"bearerAuth": []}])},
         "/public": {"get": _operation("public", [])},
         "/key": {"get": _operation("key", [{"apiKey": []}, {}])},
+        "/both": {
+            "get": _operation("both", [{"goodKey": []}, {"bearerAuth": []}, {}]),
+        },
         "/custom": {"get": _operation("custom", [{"customAuth": []}, {}])},
     },
     "components": {
@@ -99,6 +107,12 @@ SPEC = {
                 "type": "http",
                 "scheme": "bearer",
                 "x-bearerInfoFunc": f"{THIS_MODULE}.validate_custom",
+            },
+            "goodKey": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-Key",
+                "x-apikeyInfoFunc": f"{THIS_MODULE}.validate_key",
             },
             "apiKey": {
                 "type": "apiKey",
@@ -297,6 +311,15 @@ class TestOptionalTokens:
         response = _get(_app(tmp_path, True), path, "Bearer opaque-for-others")
         assert response.status_code == 200
         assert not idp.called
+
+    def test_invalid_rejected_with_other_scheme(
+        self, idp: MagicMock, tmp_path: Path
+    ) -> None:
+        """Another accepted scheme doesn't excuse an invalid token."""
+        client = _app(tmp_path, True).test_client()
+        headers = {"X-Key": "key", "Authorization": "Bearer invalid"}
+        assert client.get("/both", headers=headers).status_code == 401
+        assert client.get("/both", headers={"X-Key": "key"}).status_code == 200
 
     def test_required_unchanged(self, idp: MagicMock, tmp_path: Path) -> None:
         """Operations that require tokens aren't changed."""

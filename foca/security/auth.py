@@ -18,7 +18,6 @@ from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from cryptography.hazmat.primitives import serialization
 from flask import Flask, g, has_request_context, request
-from flask.globals import request_ctx
 from jwt.types import Options
 from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.http import quote_header_value
@@ -60,6 +59,8 @@ _INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"  # noqa: 
 
 # Attribute of `flask.g` with the rejection of the token of the request
 _TOKEN_ERROR_ATTRIBUTE = "foca_token_error"  # noqa: S105 (attribute name)
+# Attribute of `flask.g` set if the token of the request was found valid
+_TOKEN_VALID_ATTRIBUTE = "foca_token_valid"  # noqa: S105 (attribute name)
 # Name of `validate_token()` in security schemes (`x-bearerInfoFunc`)
 _VALIDATE_TOKEN_FUNCTION = "foca.security.auth.validate_token"  # noqa: S105 (name)
 
@@ -168,6 +169,8 @@ def validate_token(token: str) -> dict[str, Any]:
         if has_request_context():
             setattr(g, _TOKEN_ERROR_ATTRIBUTE, exc)
         raise
+    if has_request_context():
+        setattr(g, _TOKEN_VALID_ATTRIBUTE, True)
     # Logs the issuer and subject only, not the token (a false positive of
     # semgrep's registry rules, `p/python`)
     # nosemgrep: python-logger-credential-disclosure
@@ -209,7 +212,8 @@ def _reject_invalid_token(fn: Callable[..., Any]) -> Callable[..., Any]:
     (`401`, with an `invalid_token` challenge), as on operations requiring
     tokens. The rejection of Connexion's validation is used, if any (cf.
     :py:func:`validate_token`); tokens are validated only if Connexion didn't
-    (e.g., if the empty security requirement comes first). The decorator only
+    (e.g., if the empty security requirement comes first, or another scheme
+    of the operation accepted the request). The decorator only
     rejects: requests that Connexion left anonymous stay anonymous, also with
     a valid token. If the token can't be validated for other reasons (e.g.,
     the identity provider is unavailable), the request stays anonymous, so
@@ -225,9 +229,9 @@ def _reject_invalid_token(fn: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(fn)
     def _wrapper(*args: Any, **kwargs: Any) -> Any:
         token = _get_bearer_token()
-        # Set by Connexion's security handlers, which wrap the controller
-        context = request_ctx.connexion_context  # type: ignore[attr-defined]
-        if token is not None and not context.get("token_info"):
+        # Not Connexion's `token_info`, which another security scheme may have
+        # set for the same request
+        if token is not None and not g.get(_TOKEN_VALID_ATTRIBUTE):
             try:
                 error = g.pop(_TOKEN_ERROR_ATTRIBUTE, None)
                 if error is not None:
