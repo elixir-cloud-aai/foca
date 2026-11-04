@@ -1350,3 +1350,14 @@ class TestUnauthorized:
         """Parameter values are quoted and escaped."""
         challenge = auth._BearerChallenge("bearer", {"realm": 'a"b'})
         assert str(challenge) == 'Bearer realm="a\\"b"'
+
+
+def test_clear_caches() -> None:
+    """What was fetched from identity providers is forgotten."""
+    auth._oidc_configs["a"] = (0.0, {})
+    auth._failed_fetches["a"] = 0.0
+    auth._userinfo_cache["a"] = (0.0, 0.0, {})
+    auth.clear_caches()
+    assert not auth._oidc_configs
+    assert not auth._failed_fetches
+    assert not auth._userinfo_cache
