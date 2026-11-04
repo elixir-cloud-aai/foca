@@ -1287,7 +1287,9 @@ users and groups apart in the paths (e.g., `.../users/{userId}` and
 role to a user called `groups`.
 
 * Resources without owners are not found (`404`), so that roles cannot be
-  granted on resources that do not exist.
+  granted on resources that do not exist. Admins are the exception if an
+  existence check finds the resource (see [adopting ownership in an existing
+  app](#adopting-ownership-in-an-existing-app)).
 * The controllers cannot know whether a resource still exists, so a role
   granted while the resource is deleted would be left behind. To revoke it
   again (`404`), route to a wrapper passing an existence check as `exists`
@@ -1405,6 +1407,50 @@ security:
 
 Apps with further needs (e.g., cloud-registry, which also shows display names
 of users) write their own controllers on top of the helpers.
+
+#### Adopting ownership in an existing app
+
+Resources stored before an app adopted ownership have no owners, so the
+controllers don't find them. So that an admin can give them an owner via the
+API, route `getResourceRoles`, `putUserRole` and `putGroupRole` to wrappers
+passing an existence check as `exists`, as shown above; `getResourceRoles`
+takes it as well, and `putGroupRole` is wrapped like `putUserRole`:
+
+```python
+from foca import get_collection
+from foca.security.access_control import ownership_server
+
+
+def _task_exists(task_id):
+    tasks = get_collection(db="myDb", collection="tasks")
+    return lambda: tasks.count_documents({"id": task_id}) > 0
+
+
+def getTaskRoles(**kwargs):
+    return ownership_server.getResourceRoles(
+        exists=_task_exists(kwargs["id"]), **kwargs
+    )
+
+
+def putTaskUserRole(**kwargs):
+    return ownership_server.putUserRole(exists=_task_exists(kwargs["id"]), **kwargs)
+```
+
+With these, if the caller is an admin (cf. `is_admin()`) and the resource
+exists:
+
+* `GET .../permissions` lists its roles: none yet, or leftovers that don't make
+  anyone an owner (e.g., of a maintainer).
+* `PUT .../permissions/users/{userId}` and `.../groups/{group}` with
+  `{"role": "owner"}` assign the first owner. As on all resources, other
+  roles need an owner first (`400`).
+
+Everyone else still gets `403` from the policies, or `404` if policies let them
+through, and so does an admin if the resource doesn't exist, or if the
+operation passes no existence check. Resources with owners work as before, and
+the check isn't called to find them. The `DELETE` operations don't change: on a
+resource without owners, they respond with `404`, so assign an owner first to
+revoke leftover roles. A grant may call the check more than once.
 
 ### Securing the permissions API
 

@@ -6,9 +6,11 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from celery import Celery
+from celery.signals import worker_init, worker_process_init
 from flask import Flask
 
 from foca.config.access import get_app_config
+from foca.database.register_mongodb import reopen_mongodb
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -36,6 +38,11 @@ def create_celery_app(app: Flask) -> Celery:
     `amqps://`), otherwise built from `jobs.host` and `jobs.port`. The
     result backend is taken from environment variable
     `CELERY_RESULT_BACKEND`, if set, otherwise from `jobs.backend`.
+
+    If the app has a database, a worker replaces its MongoDB client before it
+    forks its processes, and each process after its fork, as clients must not
+    be used across forks (cf.
+    :py:func:`foca.database.register_mongodb.reopen_mongodb`).
 
     Args:
         app: Flask application instance.
@@ -80,5 +87,25 @@ def create_celery_app(app: Flask) -> Celery:
 
     celery.Task = ContextTask
     logger.debug("App context added to 'celery.Task' class.")
+
+    db = config.db
+    if db is not None:
+
+        def reopen_client(**kwargs: Any) -> None:
+            """Replace the app's MongoDB client around forks of a worker.
+
+            Args:
+                **kwargs: Arguments of the signal; ignored.
+            """
+            reopen_mongodb(db)
+
+        # `worker_init`: before the worker forks its processes, so that it
+        # forks without the client's threads; `worker_process_init`: in each
+        # of them, as the worker may have used the client since (it replaces
+        # processes that end, while it runs)
+        uid = f"foca-reopen-mongodb-{id(db)}"
+        worker_init.connect(reopen_client, weak=False, dispatch_uid=uid)
+        worker_process_init.connect(reopen_client, weak=False, dispatch_uid=uid)
+        logger.debug("MongoDB client set to be reopened around worker forks.")
 
     return celery

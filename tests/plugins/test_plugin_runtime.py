@@ -4,6 +4,7 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import pytest
 from yaml import safe_dump
@@ -61,6 +62,40 @@ def test_app_info(tmp_path: Path, fake_plugins: None) -> None:
         assert host.app_info == expected
         host.close()
         runtime.reset()
+
+
+@pytest.mark.parametrize(
+    ("extra", "plugins", "warned"),
+    [
+        ({}, {}, True),
+        ({"server": {"public_url": "https://gateway.example.org/"}}, {}, False),
+        ({}, {"gateway_id": "gateway.example.org"}, False),
+    ],
+)
+def test_loop_detection_warning(
+    tmp_path: Path,
+    fake_plugins: None,
+    extra: dict[str, Any],
+    plugins: dict[str, Any],
+    warned: bool,
+) -> None:
+    """Gateways without a name for `Via` headers are warned about."""
+    config = write_config(
+        tmp_path,
+        {
+            "plugins": {
+                "available": {"test.tag": {}},
+                "pipeline": ["test.tag"],
+                **plugins,
+            },
+            **extra,
+        },
+    )
+    foca = Foca(config_file=config, gateway=GatewayApp(api="tes"))
+    with mock.patch.object(foca_module.logger, "warning") as warning:
+        foca.create_app()
+    messages = [str(call.args[0]) for call in warning.call_args_list]
+    assert any("Routing loops are not detected" in msg for msg in messages) is warned
 
 
 def test_gateway_app(tmp_path: Path, fake_plugins: None) -> None:
