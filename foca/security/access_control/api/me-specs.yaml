@@ -1,0 +1,105 @@
+openapi: 3.0.2
+info:
+  title: FOCA current caller API specification
+  description: 'Tells callers who they are and what they may do.'
+  version: 1.0.0
+  license:
+    name: Apache 2.0
+    url: https://github.com/elixir-cloud-aai/foca/blob/dev/LICENSE
+  contact:
+    name: ELIXIR On-Cloud
+    email: cloud-service@elixir-europe.org
+paths:
+  /me:
+    get:
+      summary: Get the current caller.
+      operationId: foca.security.access_control.me.getMe
+      description: >-
+        Returns who the caller is, and whether they are an admin. Any caller
+        with a valid token may call it. The app may add further fields.
+      tags:
+        - me
+      responses:
+        '200':
+          description: The current caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          description: The request is unauthorized.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: An unexpected error occurred.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      x-bearerInfoFunc: foca.security.auth.validate_token
+  schemas:
+    Me:
+      description: The current caller, and fields of the app.
+      type: object
+      required:
+        - subject
+        - client
+        - groups
+        - admin
+        - admin_available
+      properties:
+        subject:
+          type: string
+          nullable: true
+          description: Identifier of the caller, if the token has one.
+        client:
+          type: string
+          nullable: true
+          description: Client ID, if the caller is a service client.
+        groups:
+          type: array
+          items:
+            type: string
+          description: Roles from the group claims of the caller.
+        admin:
+          type: boolean
+          description: Whether the caller is an admin on this request.
+        admin_available:
+          type: boolean
+          description: >-
+            Whether the caller is an admin, or may opt in to the role admin.
+    Error:
+      description: Problem details (RFC 9457).
+      type: object
+      required:
+        - title
+        - status
+      properties:
+        title:
+          type: string
+          description: Short summary of the problem type.
+        status:
+          type: integer
+          format: int32
+          description: HTTP status code.
+        detail:
+          type: string
+          description: Explanation of this occurrence of the problem.
+        type:
+          type: string
+          description: URI identifying the problem type.
+        instance:
+          type: string
+          description: URI identifying this occurrence of the problem.
