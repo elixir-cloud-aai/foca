@@ -159,7 +159,8 @@ passed through verbatim, plus the gateway's name (`plugins.gateway_id`, by
 default the host and port of `server.public_url`). Inbound requests whose
 `Via` header already names this gateway are refused (`508 Loop Detected`),
 as are `Via` headers that would exceed 1024 characters with the gateway's
-entry (`400`). Backends at or below the gateway's own public URL are
+entry (`400`). A gateway with neither `plugins.gateway_id` nor
+`server.public_url` can't detect loops, and FOCA logs a warning on startup. Backends at or below the gateway's own public URL are
 never candidates. Credentials of backends are added by the app after the
 `forward` phase, so plugins never see them; the client's own credentials
 are never forwarded by the engine.
