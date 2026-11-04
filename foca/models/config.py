@@ -2763,21 +2763,31 @@ class Config(FOCABaseConfig):
     # only once validated; the outermost model's setting applies
     model_config = ConfigDict(extra="allow", hide_input_in_errors=True)
 
+    def _name_mongo_clients(self, mongo_config: MongoConfig) -> None:
+        """Name the app in MongoDB's logs after its service info.
+
+        Args:
+            mongo_config: Database configuration whose clients to name.
+        """
+        if self.service_info is None:
+            return
+        service_id = self.service_info.service.get("id")
+        name = service_id or self.service_info.package
+        # A default mustn't stop the app: PyMongo rejects longer names
+        if (
+            isinstance(name, str)
+            and name
+            and len(name.encode()) <= MAX_MONGO_APPNAME_BYTES
+        ):
+            mongo_config._default_appname = name
+
     @model_validator(mode="after")
     def _set_mongo_appname(self) -> "Config":
-        """Name the app in MongoDB's logs after its service info.
+        """Name the app in MongoDB's logs, if it has a database configuration.
 
         Returns:
             The config.
         """
-        if self.db is not None and self.service_info is not None:
-            service_id = self.service_info.service.get("id")
-            name = service_id or self.service_info.package
-            # A default mustn't stop the app: PyMongo rejects longer names
-            if (
-                isinstance(name, str)
-                and name
-                and len(name.encode()) <= MAX_MONGO_APPNAME_BYTES
-            ):
-                self.db._default_appname = name
+        if self.db is not None:
+            self._name_mongo_clients(self.db)
         return self

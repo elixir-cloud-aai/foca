@@ -21,12 +21,17 @@ from foca.database.register_mongodb import (
     register_mongodb,
     reopen_mongodb,
 )
+from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
+    AccessControlConfig,
     CollectionConfig,
     Config,
     DBConfig,
     MongoConfig,
     ServiceInfoConfig,
+)
+from foca.security.access_control.register_access_control import (
+    register_access_control,
 )
 from tests.mock_data import MongoClients
 from tests.test_files.service_info_data import FIELDS, REMOVE, service
@@ -450,6 +455,16 @@ class TestClientOptions:
         assert conf.db is not None
         get_mongo_client(conf.db)
         assert options[0]["appname"] == expected
+
+    def test_appname_without_db_section(self, options: list[dict[str, Any]]) -> None:
+        """Apps with only a policy database are named after their service info."""
+        conf = Config(
+            service_info=ServiceInfoConfig(service=service(id="org.example.my"))
+        )
+        register_access_control(
+            create_connexion_app(conf), None, AccessControlConfig(enabled=True)
+        )
+        assert options[0]["appname"] == "org.example.my"
 
     def test_uri_wins(
         self,
