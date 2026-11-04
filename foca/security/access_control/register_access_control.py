@@ -700,9 +700,12 @@ def _check_me_path(app: Flask, path: str) -> None:
         path: Path of the endpoint.
 
     Raises:
-        ValueError: It is the path of a route of the app.
+        ValueError: It is the path of a `GET` route of the app.
     """
-    if any(rule.rule == path for rule in app.url_map.iter_rules()):
+    if any(
+        rule.rule == path and "GET" in (rule.methods or ())
+        for rule in app.url_map.iter_rules()
+    ):
         raise ValueError(
             f"'security.access_control.me_path' is taken by another route: '{path}'"
         )

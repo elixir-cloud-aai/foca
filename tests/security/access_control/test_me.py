@@ -452,6 +452,14 @@ class TestRegistration:
             )
         assert _get(cnx_app.app, "user", path="/api/me").status_code == 200
 
+    def test_other_method_at_path(self, tmp_path: Path) -> None:
+        """Routes at the path with other methods stay."""
+        spec = _spec("/api")
+        spec["paths"]["/items"]["post"] = spec["paths"]["/items"].pop("get")
+        app = _create_app(tmp_path, spec, me_enabled=True, me_path="/api/items")
+        assert _get(app, "user", path="/api/items").status_code == 200
+        assert app.test_client().post("/api/items").status_code == 200
+
     def test_path_taken(self, tmp_path: Path) -> None:
         """Paths of routes of the app are refused."""
         spec = {
