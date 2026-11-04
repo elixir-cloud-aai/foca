@@ -24,11 +24,15 @@ It has:
 - **The fixture `mongodb`**, which makes FOCA use a MongoDB for tests, and returns
   a client of it: an empty in-memory MongoDB of mongomock for each test, or, with
   the environment variable `MONGODB_TEST_URI` (e.g., in CI), that MongoDB.
-  Databases that a test creates there through this client or FOCA are dropped
-  afterwards, so its user needs the right to do that; others are kept, but not
-  protected from the test, and may be seen by it, so use a MongoDB without other
-  data, and one for each worker of parallel tests. Settings of deployments
-  (`MONGO_URI` etc.) are unset.
+  Databases that a test writes to through this client or FOCA, and that weren't
+  there before, are dropped afterwards, so its user needs the right to do that.
+  Others are kept, but not protected from the test, and may be seen by it. So use a
+  throwaway MongoDB without other data, one for each worker of parallel tests, and
+  drop what stays behind: databases of aborted runs, and those created only by
+  rarer commands, such as `$out` or `renameCollection`. Settings of deployments
+  (`MONGO_URI` etc.) are unset. In memory, closed clients keep working, unlike real
+  ones, so use a real MongoDB for testing what happens after
+  `reopen_mongodb()`.
 - **The fixture `issuer`**: a local identity provider (see below).
 
 The fixtures last for one test. A new identity provider takes a moment, for its

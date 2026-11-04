@@ -3,7 +3,7 @@
 import os
 import socket
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -197,6 +197,39 @@ def test_mongodb_real(monkeypatch: pytest.MonkeyPatch) -> None:
     finally:
         for name in (kept, new, other):
             outside.drop_database(name)
+        outside.close()
+
+
+@pytest.mark.mongodb
+@pytest.mark.parametrize(
+    "write",
+    [
+        lambda db: db.create_collection("coll"),
+        lambda db: db["coll"].create_index("a"),
+        lambda db: db["coll"].find_one_and_update(
+            {"a": 1}, {"$set": {"a": 2}}, upsert=True
+        ),
+        lambda db: db["coll"].update_one({"a": 1}, {"$set": {"a": 2}}, upsert=True),
+        lambda db: db.command(
+            "findandmodify", "coll", query={}, update={"a": 1}, upsert=True
+        ),
+    ],
+)
+def test_mongodb_real_writes(
+    monkeypatch: pytest.MonkeyPatch, write: Callable[[Any], Any]
+) -> None:
+    """Databases that come into being by any of the usual commands are dropped."""
+    monkeypatch.setenv(pytest_plugin.MONGODB_TEST_URI, REAL_MONGODB)
+    name = "foca_plugin_writes"
+    fixture = pytest_plugin.use_mongodb(monkeypatch)
+    write(next(fixture)[name])
+    with pytest.raises(StopIteration):
+        next(fixture)
+    outside: MongoClient[dict[str, Any]] = MongoClient(REAL_MONGODB)
+    try:
+        assert name not in outside.list_database_names()
+    finally:
+        outside.drop_database(name)
         outside.close()
 
 

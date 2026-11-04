@@ -51,13 +51,12 @@ _PROXY_ENV_VARS = (
     "https_proxy",
     "all_proxy",
 )
-# Commands by which a database comes into being
+# Lowercase names of the usual commands by which a database comes into being
 _WRITE_COMMANDS = frozenset(
     {
         "create",
-        "createIndexes",
-        "delete",
-        "findAndModify",
+        "createindexes",
+        "findandmodify",
         "insert",
         "update",
     }
@@ -205,7 +204,7 @@ class _WrittenDatabases(monitoring.CommandListener):
         Args:
             event: Event of the started command.
         """
-        if event.command_name in _WRITE_COMMANDS:
+        if event.command_name.lower() in _WRITE_COMMANDS:
             self.names.add(event.database_name)
 
     def succeeded(self, event: monitoring.CommandSucceededEvent) -> None:
@@ -273,10 +272,12 @@ def _use_real_mongodb(
     written = _WrittenDatabases()
     clients: list[MongoClient[dict[str, Any]]] = []
 
-    def _create_client(*_args: Any, **_kwargs: Any) -> MongoClient[dict[str, Any]]:
+    def _create_client(
+        *_args: Any, connect: bool = True, **_kwargs: Any
+    ) -> MongoClient[dict[str, Any]]:
         """Create a client that records the databases that it writes to."""
         client: MongoClient[dict[str, Any]] = MongoClient(
-            uri, event_listeners=[written]
+            uri, connect=connect, event_listeners=[written]
         )
         clients.append(client)
         return client
