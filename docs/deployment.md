@@ -207,7 +207,9 @@ its configuration, so it enforces the newer rules. A pod with the same or a newe
 revision writes its rules, so change the revision whenever the rules change: pods
 with the same revision race as before. The first pod with a revision takes over from
 stored rules without one. Once a revision is stored, pods without one count as older,
-also when they would remove all rules, as `policies` isn't set.
+also when they would remove all rules, as `policies` isn't set. A pod without
+`policies` only stores its revision when it removes rules, or when forced: on an empty
+collection, nothing is stored, so older pods can still write theirs.
 
 A revision takes effect with the first pod that starts, before it's ready, and stays.
 So rollbacks don't restore the rules anymore, neither `helm rollback` nor `kubectl

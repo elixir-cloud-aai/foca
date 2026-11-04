@@ -1234,3 +1234,19 @@ def test_AccessControlConfig_added_database() -> None:
     assert conf.added_database == "policies"
     conf._registered_collection = ("policies", "policy_rules", False)
     assert conf.added_database is None  # an app database
+
+
+@pytest.mark.parametrize(
+    ("options", "name"),
+    [
+        ({"policies_revision": 0}, "policies_revision"),
+        ({"policies_revision": 3}, "policies_revision"),
+        ({"policies_force": True}, "policies_force"),
+    ],
+)
+def test_policy_revision_needs_access_control(
+    options: dict[str, Any], name: str
+) -> None:
+    """Revision options are refused if access control isn't enabled."""
+    with pytest.raises(ValidationError, match=name):
+        SecurityConfig(access_control=AccessControlConfig(**options))

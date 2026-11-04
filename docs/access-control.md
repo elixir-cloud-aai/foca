@@ -264,7 +264,8 @@ then, rules of the previous generation are removed. Only the configured
 rules of the active generation are loaded and listed by the permissions API,
 which changes no configured rules of any generation. If instances with different rules start
 concurrently, the rules of the instance that activates its generation last
-are kept, unless they have a newer revision (`policies_revision`, cf. [Configured
+are kept, unless the stored rules have a newer revision (`policies_revision`, cf.
+[Configured
 policies in rolling
 upgrades](deployment.md#configured-policies-in-rolling-upgrades)), which also keeps
 older instances from replacing them later on, or removing them. Rules of generations

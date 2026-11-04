@@ -2174,6 +2174,8 @@ class SecurityConfig(FOCABaseConfig):
                     ("api_specs", access_control.api_specs),
                     ("self_service", access_control.self_service),
                     ("policies", access_control.policies),
+                    ("policies_revision", access_control.policies_revision is not None),
+                    ("policies_force", access_control.policies_force),
                     ("client_mapping", access_control.client_mapping),
                     ("require_admin", access_control.require_admin),
                 ]
