@@ -53,16 +53,17 @@ class _Selection:
 
 
 def _same(first: object, second: str) -> bool:
-    """Compare parts of API types, case-insensitively.
+    """Compare parts of API types, as the Cloud Registry does.
 
     Args:
         first: Part of an API type, as listed.
         second: Expected part.
 
     Returns:
-        Whether the first is a string equal to the second, ignoring case.
+        Whether the first is a string equal to the second, ignoring case and
+        surrounding whitespace.
     """
-    return isinstance(first, str) and first.casefold() == second.casefold()
+    return isinstance(first, str) and first.strip().casefold() == second.casefold()
 
 
 def _version(api_type: object) -> object:
@@ -85,7 +86,7 @@ def _is_api(api_type: object, api: ApiType) -> bool:
         api: API type.
 
     Returns:
-        Whether group and artifact match, ignoring case.
+        Whether group and artifact match (cf. :py:func:`_same`).
     """
     return (
         isinstance(api_type, Mapping)
@@ -117,9 +118,11 @@ def _verifications(document: object) -> dict[str, tuple[object, object]]:
     Args:
         document: Response of `GET /verifications`.
 
-    Items that are no objects with string identifiers are skipped (and
-    logged), like invalid services: one invalid item must not keep the last
-    good list, with backends whose verification was revoked, in use.
+    Items name their service by `serviceId`, or by `service_id` in Cloud
+    Registry versions before 1.0.0rc2. Items that are no objects with
+    non-empty string identifiers are skipped (and logged), like invalid
+    services: one invalid item must not keep the last good list, with backends
+    whose verification was revoked, in use.
 
     Returns:
         URL and API type of each verified service, as verified.
@@ -132,10 +135,15 @@ def _verifications(document: object) -> dict[str, tuple[object, object]]:
     verified: dict[str, tuple[object, object]] = {}
     skipped = 0
     for item in document:
-        if not isinstance(item, dict) or not isinstance(item.get("service_id"), str):
+        service_id = (
+            item.get("serviceId", item.get("service_id"))
+            if isinstance(item, dict)
+            else None
+        )
+        if not service_id or not isinstance(service_id, str):
             skipped += 1
             continue
-        verified[item["service_id"]] = (item.get("url"), item.get("type"))
+        verified[service_id] = (item.get("url"), item.get("type"))
     if skipped:
         logger.warning("Skipped %d verifications without service identifier", skipped)
     return verified
@@ -193,7 +201,9 @@ def select_services(
             not isinstance(url, str)
             or url != verified_url
             or not _is_api(verified_type, api)
-            # the version verified is the version offered
+            # the versions listed agree; the Cloud Registry lists a service's
+            # current version in both, as updating it usually keeps the
+            # verification (not if that makes the service pending)
             or _version(verified_type) != _version(api_type)
         ):
             selection.rejected.append(
