@@ -2433,3 +2433,126 @@ def test_schema_rejects_invalid_plugin_store_values(
     """The schema rejects invalid plugin store values."""
     assert "schema" in render_error("--set-json", "pluginStore.existingSecret=1")
     assert "schema" in render_error("--set", "pluginStore.unknown=true")
+
+
+EXTRA_ENV = [
+    {"name": "MONGO_URI", "valueFrom": {"secretKeyRef": {"name": "db", "key": "uri"}}},
+    {"name": "OTHER", "value": "x"},
+]
+EXTRA_ENV_FROM = [{"secretRef": {"name": "more"}}, {"configMapRef": {"name": "cm"}}]
+
+
+def test_extra_env_default(render: Callable[..., Docs]) -> None:
+    """Without extra settings, containers have no `envFrom`."""
+    docs = render(*CELERY)
+    for name in (APP, WORKER):
+        container = docs["Deployment", name]["spec"]["template"]["spec"]["containers"][
+            0
+        ]
+        assert "envFrom" not in container
+        assert "OTHER" not in _env(container)
+
+
+def test_extra_env(render: Callable[..., Docs]) -> None:
+    """Extra settings apply to the app and the worker, not to other containers."""
+    docs = render(
+        *CELERY,
+        "--set-json",
+        f"petstore.extraEnv={json.dumps(EXTRA_ENV)}",
+        "--set-json",
+        f"petstore.extraEnvFrom={json.dumps(EXTRA_ENV_FROM)}",
+    )
+    for name in (APP, WORKER):
+        container = docs["Deployment", name]["spec"]["template"]["spec"]["containers"][
+            0
+        ]
+        env = _env(container)
+        assert env["OTHER"] == "x"
+        assert "MONGO_URI" in env
+        assert container["envFrom"] == EXTRA_ENV_FROM
+    for key, doc in docs.items():
+        if key not in {("Deployment", APP), ("Deployment", WORKER)}:
+            assert "OTHER" not in json.dumps(doc)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "FOCA_CONFIG_OVERLAY",
+        "GUNICORN_CMD_ARGS",
+        "MONGO_USERNAME",
+        "MONGO_PASSWORD",
+    ],
+)
+def test_extra_env_reserved(render_error: Callable[..., str], name: str) -> None:
+    """Variables that the chart sets can't be set."""
+    error = render_error(
+        "--set-json", f"petstore.extraEnv={json.dumps([{'name': name, 'value': 'x'}])}"
+    )
+    assert f"petstore.extraEnv must not set {name}" in error
+
+
+@pytest.mark.parametrize("name", ["CELERY_BROKER_URL", "CELERY_RESULT_BACKEND"])
+def test_extra_env_reserved_broker(render_error: Callable[..., str], name: str) -> None:
+    """The broker's variables can't be set if the chart sets them."""
+    error = render_error(
+        *CELERY,
+        "--set-json",
+        f"petstore.extraEnv={json.dumps([{'name': name, 'value': 'x'}])}",
+    )
+    assert f"petstore.extraEnv must not set {name}" in error
+
+
+def test_extra_env_reserved_plugins(render_error: Callable[..., str]) -> None:
+    """The key secret of the plugin store can't be set if the chart sets it."""
+    name = "FOCA_PLUGINS_STORE_KEY_SECRET"
+    error = render_error(
+        "--set",
+        "pluginStore.existingSecret=store",
+        "--set-json",
+        f"petstore.extraEnv={json.dumps([{'name': name, 'value': 'x'}])}",
+    )
+    assert f"petstore.extraEnv must not set {name}" in error
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("GUNICORN_CMD_ARGS", ("--set-json", "petstore.gunicorn=null")),
+        (
+            "MONGO_USERNAME",
+            ("--set", "mongodb.auth.enabled=false"),
+        ),
+        ("CELERY_BROKER_URL", ()),
+        ("FOCA_PLUGINS_STORE_KEY_SECRET", ()),
+    ],
+)
+def test_extra_env_allowed(
+    render: Callable[..., Docs], name: str, args: tuple[str, ...]
+) -> None:
+    """Variables are free if the chart doesn't set them."""
+    docs = render(
+        *args,
+        "--set-json",
+        f"petstore.extraEnv={json.dumps([{'name': name, 'value': 'x'}])}",
+    )
+    assert name in _env(_container(docs))
+
+
+@pytest.mark.parametrize("extra_env", [{"value": "x"}, {"name": ""}, "x"])
+def test_extra_env_schema(render_error: Callable[..., str], extra_env: object) -> None:
+    """Items without a name are rejected."""
+    assert "extraEnv" in render_error(
+        "--set-json", f"petstore.extraEnv={json.dumps([extra_env])}"
+    )
+
+
+def test_rollout_on_secrets_template(render: Callable[..., Docs]) -> None:
+    """`helm template` renders without an annotation, as it finds no Secrets."""
+    docs = render(*CELERY, "--set-json", 'petstore.rolloutOnSecrets=["db"]')
+    for name in (APP, WORKER):
+        annotations = docs["Deployment", name]["spec"]["template"]["metadata"][
+            "annotations"
+        ]
+        assert "checksum/secrets" not in annotations
+        assert "checksum/config" in annotations

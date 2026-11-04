@@ -336,6 +336,35 @@
         "tmpSizeLimit": {
           "$ref": "#/$defs/tmpSizeLimit"
         },
+        "extraEnv": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "description": "Further environment variables of the app and the worker (EnvVar), e.g., from Secrets; must not set variables that the chart sets"
+        },
+        "extraEnvFrom": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Secrets and ConfigMaps whose keys become environment variables of the app and the worker (EnvFromSource); variables that the chart sets take precedence"
+        },
+        "rolloutOnSecrets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Names of Secrets whose data checksum becomes an annotation of the pods of the app and the worker, so that they roll on changes; not in helm template or Argo CD, which can't read them"
+        },
         "preStopSleepSeconds": {
           "type": "integer",
           "minimum": 0,

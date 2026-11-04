@@ -233,6 +233,70 @@ plugin store (`plugins.defaults.store.key_secret` of FOCA), if
 {{- end -}}
 
 {{/*
+Further environment variables of the app and the worker from
+`<valuesKey>.extraEnv` (a list of EnvVar). Fails if one sets a variable that
+the chart sets (see `foca-common.reservedEnv`), as the last one with a name
+would win. Call with the context dict.
+*/}}
+{{- define "foca-common.extraEnv" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $values := index .root.Values $key -}}
+{{- $reserved := include "foca-common.reservedEnv" . | splitList " " -}}
+{{- range $values.extraEnv -}}
+{{- if has .name $reserved -}}
+{{- fail (printf "%s.extraEnv must not set %s, which the chart sets" $key .name) -}}
+{{- end -}}
+{{- end -}}
+{{- with $values.extraEnv -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Names of the environment variables that the chart sets for the app or the
+worker, separated by spaces. Call with the context dict.
+*/}}
+{{- define "foca-common.reservedEnv" -}}
+{{- $root := .root -}}
+{{- $names := list "FOCA_CONFIG_OVERLAY" -}}
+{{- if (index $root.Values .settings.valuesKey).gunicorn -}}
+{{- $names = append $names "GUNICORN_CMD_ARGS" -}}
+{{- end -}}
+{{- if $root.Values.mongodb.auth.enabled -}}
+{{- $names = concat $names (list "MONGO_USERNAME" "MONGO_PASSWORD") -}}
+{{- end -}}
+{{- if include "foca-common.brokerSecret" $root -}}
+{{- $names = concat $names (list "CELERY_BROKER_URL" "CELERY_RESULT_BACKEND") -}}
+{{- end -}}
+{{- if include "foca-common.pluginsEnv" $root | trim -}}
+{{- $names = append $names "FOCA_PLUGINS_STORE_KEY_SECRET" -}}
+{{- end -}}
+{{- join " " $names -}}
+{{- end -}}
+
+{{/*
+Checksum of the data of the Secrets in `<valuesKey>.rolloutOnSecrets`, for an
+annotation that rolls the pods when they change; empty if none of them is
+found. `lookup` finds nothing in `helm template` and in Argo CD, as they don't
+read from a cluster. Call with the context dict.
+*/}}
+{{- define "foca-common.rolloutChecksum" -}}
+{{- $root := .root -}}
+{{- $found := false -}}
+{{- $data := dict -}}
+{{- range (index $root.Values .settings.valuesKey).rolloutOnSecrets -}}
+{{- $secret := lookup "v1" "Secret" $root.Release.Namespace . -}}
+{{- if $secret -}}
+{{- $found = true -}}
+{{- $_ := set $data . $secret.data -}}
+{{- end -}}
+{{- end -}}
+{{- if $found -}}
+{{- toJson $data | sha256sum -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Refuse to render the key secret of the plugin store
 (`plugins.defaults.store.key_secret`) into the config overlay, a ConfigMap;
 an empty or null one passes (FOCA then reads `FOCA_PLUGINS_STORE_KEY_SECRET`),

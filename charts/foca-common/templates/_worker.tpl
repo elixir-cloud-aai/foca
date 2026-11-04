@@ -41,6 +41,10 @@ spec:
       annotations:
         # Roll the pods when the config changes
         checksum/config: {{ include "foca-common.configMap" . | sha256sum }}
+        {{- with include "foca-common.rolloutChecksum" . }}
+        # Roll the pods when the Secrets in `rolloutOnSecrets` change
+        checksum/secrets: {{ . }}
+        {{- end }}
       labels:
         {{- include "foca-common.selectorLabels" (dict "root" $root "component" "worker") | nindent 8 }}
     spec:
@@ -69,6 +73,13 @@ spec:
         {{- end }}
         {{- with include "foca-common.pluginsEnv" $root | trim }}
         {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "foca-common.extraEnv" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with $values.extraEnvFrom }}
+        envFrom:
+        {{- toYaml . | nindent 8 }}
         {{- end }}
         {{- with $worker.readinessProbe }}
         readinessProbe:

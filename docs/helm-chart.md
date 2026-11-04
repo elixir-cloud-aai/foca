@@ -167,7 +167,7 @@ your app's `valuesKey`:
 | `hostName` | Public host name of the Ingress, HTTPRoute or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
 | `pluginStore` | Secrets of the plugin store of gateway apps: `existingSecret` (its key secret; none if empty). The library chart doesn't read top-level `plugins` values, which stay the app chart's own |
-| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `startupProbe`, `readinessProbe`, `livenessProbe`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
+| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `startupProbe`, `readinessProbe`, `livenessProbe`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn`, `extraEnv`, `extraEnvFrom`, `rolloutOnSecrets` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `persistence` (`volumeSize`, its size up to 0.1.0, is a deprecated alias of `persistence.size`), `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
 | `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `persistence`, `dataSizeLimit`, `tmpSizeLimit` |
@@ -750,6 +750,46 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
     map and render as before; copy `app-values.schema.json` again (see
     [Values](#values)) and add `pluginStore.existingSecret: ""` to the
     values to use it.
+- **Environment variables and Secrets of your own:** `<valuesKey>.extraEnv`
+  (a list of EnvVar) and `<valuesKey>.extraEnvFrom` (a list of EnvFromSource)
+  apply to the app's and the worker's containers, not to the bundled broker or
+  MongoDB, e.g., for a connection string from your own Secret:
+
+    ```yaml
+    myApp:
+      extraEnv:
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: my-mongodb
+              key: uri
+      rolloutOnSecrets:
+        - my-mongodb
+    mongodb:
+      enabled: false
+      auth:
+        enabled: false
+    ```
+
+    Rendering fails if `extraEnv` sets a variable that the chart sets:
+    `FOCA_CONFIG_OVERLAY`, and, if the chart's settings for them are in use,
+    `GUNICORN_CMD_ARGS`, `MONGO_USERNAME` and `MONGO_PASSWORD`,
+    `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND`, and
+    `FOCA_PLUGINS_STORE_KEY_SECRET`. Kubernetes gives variables in `env`
+    precedence over those from `envFrom`, so these also win over
+    `extraEnvFrom`. New in 0.5.0; values of older app charts render as before;
+    copy `app-values.schema.json` again (see [Values](#values)) to use them.
+- **Rollouts on changes of Secrets:** Pods restart when the config overlay
+  changes, but not when a Secret that they read changes. With the names of
+  Secrets in `<valuesKey>.rolloutOnSecrets`, a checksum of their data becomes
+  an annotation of the app's and the worker's pods (`checksum/secrets`), so an
+  upgrade after a change rolls them. Helm's `lookup` reads the Secrets at that
+  time, so the user running Helm must be allowed to read them, nothing happens
+  until the next upgrade, and Secrets not found are ignored. `helm template` and
+  Argo CD don't read from the cluster, so they render no annotation, without an
+  error. There, and to roll pods right on changes, use a controller such as
+  [Stakater Reloader](https://github.com/stakater/Reloader), for which the chart
+  needs no support.
 - **Network policies:** MongoDB's NetworkPolicy, enabled by default, admits
   only the app's pods of the release (and the worker's, if enabled); the
   broker's admits only the app's and the worker's pods. The app's
@@ -914,7 +954,7 @@ ready, i.e., connected to the broker, and that a task queued while no
 worker runs survives a restart of the broker and then reaches it. A third one
 (`ci/access-control-values.yaml`) enables access control with configured
 policies, which FOCA stores on startup, so that the app user's access to the
-access-control database is checked. A fourth one (`ci/gateway-values.yaml`)
+access-control database is checked. The first (`ci/test-values.yaml`) has `rolloutOnSecrets`, and CI checks that the annotation is set. A fourth one (`ci/gateway-values.yaml`)
 exposes the app with an HTTPRoute on a Gateway of [Envoy
 Gateway](https://gateway.envoyproxy.io/) (`.github/kind/gateway.yaml`) and
 enables the app's NetworkPolicy; CI checks that HTTP is redirected to HTTPS,
