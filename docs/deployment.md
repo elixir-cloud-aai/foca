@@ -60,6 +60,12 @@ from a requirements file that pins its version and hashes
 packages](getting-started.md#installing-python-packages)). The image's
 working directory is `/app`:
 
+To install the same versions as the image, start your requirements from the file
+that each release has as an asset, `foca-image-requirements-py<version>.txt`, the
+compiled and hashed requirements of the image for that Python version (the
+same as `docker/requirements/` in the repository at that tag), e.g., with
+`uv pip compile --constraint foca-image-requirements-py3.13.txt --generate-hashes`.
+
 ```dockerfile title="Dockerfile"
 FROM ghcr.io/astral-sh/uv:<version>@sha256:<digest> AS uv
 
