@@ -143,3 +143,19 @@ for a recipe that combines a patch with named policy rules.
 ::: foca.models.config.ConnexionOptions
     options:
       members: false
+
+## Stricter request checks
+
+Beyond the checks of Connexion against the specification, FOCA refuses these with
+`400` (see `foca.api.validation`):
+
+- **Unpaired surrogates** in JSON bodies, from escapes such as `\ud800`, also in keys
+  and nested strings: they can't be encoded for storage. Only for operations that
+  declare a schema for their body.
+- **Invalid values for the JSON Schema formats** `date-time` (RFC 3339), `date`
+  (`YYYY-MM-DD`) and `uri` (lenient: any scheme, without whitespace), in bodies and
+  parameters, as well as in responses with `validate_responses`.
+- **Query parameters of operations without parameters**, with `strict_validation`.
+  Operations with parameters refuse others already.
+
+Reporting which field failed is a topic of its own (#586).

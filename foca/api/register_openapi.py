@@ -11,6 +11,7 @@ import yaml
 from connexion import App
 from connexion.exceptions import InvalidSpecification
 
+from foca.api.validation import BodyValidator, StrictParametersResolver
 from foca.config.config_parser import ConfigParser, deep_merge
 from foca.models.config import (
     DEFAULT_ERROR_MEDIA_TYPE,
@@ -550,6 +551,10 @@ def register_openapi(
             connexion_kwargs["resolver"] = InvalidTokenResolver(
                 resolver=connexion_kwargs.get("resolver"),
             )
+        connexion_kwargs["resolver"] = StrictParametersResolver(
+            resolver=connexion_kwargs.get("resolver"),
+        )
+        connexion_kwargs["validator_map"] = {"body": BodyValidator}
         try:
             api = app.add_api(
                 specification=spec_parsed,

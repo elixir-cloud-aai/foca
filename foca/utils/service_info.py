@@ -44,6 +44,7 @@ _DATE_TIME = re.compile(
     r"([Zz]|[+-](?P<offset_hour>\d{2}):(?P<offset_minute>\d{2}))",
     re.ASCII,
 )
+_FULL_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})", re.ASCII)
 
 
 class InvalidServiceInfo(ValueError):
@@ -81,6 +82,25 @@ def _is_date_time(value: object) -> bool:
         and parts["offset_hour"] < 24
         and parts["offset_minute"] < 60
     )
+
+
+def is_full_date(value: str) -> bool:
+    """Check whether a string is an RFC 3339 full date (`YYYY-MM-DD`).
+
+    Args:
+        value: String.
+
+    Returns:
+        Whether it's a valid date.
+    """
+    match = _FULL_DATE.fullmatch(value)
+    if match is None:
+        return False
+    try:
+        date(*(int(part) for part in match.groups()))
+    except ValueError:
+        return False
+    return True
 
 
 @cache
