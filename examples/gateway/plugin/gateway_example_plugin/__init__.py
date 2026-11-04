@@ -1,5 +1,6 @@
 """Plugin of the gateway example."""
 
+import multiprocessing
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
@@ -23,8 +24,9 @@ class Config(BaseModel):
 class Stamp(Plugin[Config, EmptyModel]):
     """Stamp requests, and show what the plugin's store does in this process.
 
-    Adds to the payload: the configured stamp, a counter of the requests in
-    the store, the store's mode and a key derived with the store's secret.
+    Adds to the payload: the configured stamp, the name of the process, a
+    counter of the requests in the store, the store's mode and a key derived
+    with the store's secret.
     """
 
     Config = Config
@@ -42,6 +44,7 @@ class Stamp(Plugin[Config, EmptyModel]):
         request.payload.update(
             {
                 "stamp": self.config.stamp,
+                "process": multiprocessing.current_process().name,
                 "count": ctx.store.increment("requests"),
                 "store_mode": ctx.store.mode,
                 "store_key": ctx.store.key_for("example"),

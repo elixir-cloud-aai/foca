@@ -921,6 +921,13 @@ enables the app's NetworkPolicy; CI checks that HTTP is redirected to HTTPS,
 that the app is reachable via HTTPS, and that the NetworkPolicy blocks other
 pods.
 
+CI also installs the gateway example with its thin chart
+(`examples/gateway/chart`), in a namespace of its own, with the worker, the
+bundled broker and `pluginStore.existingSecret`. Its test (`helm test`) sends
+messages through a plugin installed in the image, in the app and in the worker,
+and checks that both share the plugin's store in MongoDB and key it with the
+secret; CI then fails on errors in their logs.
+
 ### Releases
 
 The library chart is versioned independently of FOCA, following [semantic

@@ -47,6 +47,7 @@ def test_plugin_changes_request_in_app() -> None:
     payload = _send("/messages", "from a client")["payload"]
     assert payload["message"] == "from a client"
     assert payload["stamp"] == "stamped by the plugin"
+    assert not payload["process"].startswith("ForkPoolWorker")
 
 
 def test_plugin_changes_request_in_worker() -> None:
@@ -54,6 +55,7 @@ def test_plugin_changes_request_in_worker() -> None:
     payload = _send("/messages/worker", "for the worker")["payload"]
     assert payload["message"] == "for the worker"
     assert payload["stamp"] == "stamped by the plugin"
+    assert payload["process"].startswith("ForkPoolWorker")
 
 
 def test_store_is_shared() -> None:

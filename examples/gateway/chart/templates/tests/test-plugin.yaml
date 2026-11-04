@@ -32,7 +32,7 @@ spec:
     - python
     - -c
     - |
-      import json, os, urllib.request
+      import json, os, time, urllib.error, urllib.request
 
       def send(path):
           request = urllib.request.Request(
@@ -44,7 +44,19 @@ spec:
               return json.load(response)
 
       in_app = send("/messages")
-      in_worker = send("/messages/worker")
+      # The worker has no probes, so it may still connect to the broker when
+      # the release is ready: the app answers 500 until it gets a result
+      deadline = time.monotonic() + 180
+      while True:
+          try:
+              in_worker = send("/messages/worker")
+              break
+          except urllib.error.HTTPError as error:
+              if error.code != 500 or time.monotonic() > deadline:
+                  raise
+              time.sleep(5)
+      assert in_worker["payload"]["process"].startswith("ForkPoolWorker"), in_worker
+      assert not in_app["payload"]["process"].startswith("ForkPoolWorker"), in_app
       for result in (in_app, in_worker):
           payload = result["payload"]
           assert payload["stamp"] == "stamped by the plugin", payload

@@ -75,7 +75,7 @@ mongodb:
       cpu: 200m
       memory: 512Mi
     requests:
-      cpu: 200m
+      cpu: 100m
       memory: 512Mi
   tmpSizeLimit: 64Mi
 
@@ -119,7 +119,7 @@ broker:
       cpu: 200m
       memory: 512Mi
     requests:
-      cpu: 200m
+      cpu: 100m
       memory: 512Mi
   persistence:
     enabled: true

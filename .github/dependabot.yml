@@ -83,13 +83,13 @@ updates:
     ignore:
       - dependency-name: foca-gateway-root
 
-  # Images in the values of the petstore example's chart, which app charts
-  # copy: patch updates only, as minor versions are chosen deliberately (e.g.,
+  # Images in the values of the charts of the examples; app charts copy the
+  # petstore's: patch updates only, as minor versions are chosen deliberately (e.g.,
   # MongoDB 8.0 refuses to start on some kernels); the dependency on the
   # library chart is local (`file://`). The snapshots of the chart tests
   # contain the images: refresh them in these PRs (see docs/helm-chart.md)
   - package-ecosystem: helm
-    directory: /examples/petstore/chart
+    directories: ["/examples/petstore/chart", "/examples/gateway/chart"]
     target-branch: dev
     registries: [dockerhub]
     schedule:

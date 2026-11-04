@@ -4,6 +4,10 @@
 # published on port 8081, so that it can run next to the petstore example
 x-gateway: &gateway
   image: foca-gateway-example:latest
+  # On both services, as Compose would try to pull the image of one without
+  build:
+    context: .
+    dockerfile: Dockerfile
   environment:
     # The tests compute hashes with this value
     FOCA_PLUGINS_STORE_KEY_SECRET: not-a-secret-for-the-example-only
@@ -27,9 +31,6 @@ services:
       - foca-gateway-root
       - mongodb
       - rabbitmq
-    build:
-      context: .
-      dockerfile: Dockerfile
     ports:
       - "8081:8080"
 

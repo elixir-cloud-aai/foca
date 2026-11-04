@@ -1,7 +1,7 @@
 # Packages that the app's image installs on top of the FOCA image (see
 # `Dockerfile`), with their hashes: the WSGI server for deployments (e.g.,
-# with the Helm chart in `chart/`); Docker Compose runs the development
-# server instead. Its dependency `packaging` is in the FOCA image
+# with the Helm chart in `chart/`, or Docker Compose). Its dependency
+# `packaging` is in the FOCA image
 gunicorn==26.2.0 \
     --hash=sha256:62b864895d9ebff0b2f9867ba04fe811c93121596540830c9c916d0769668447 \
     --hash=sha256:bd249d0b3f7972f7432f0a6b6ff3b3ee2d129f70cd1ff6c09a9dd9e29a2b88e3

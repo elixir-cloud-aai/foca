@@ -8,7 +8,7 @@
 # `ci.yml` and by `release-chart.yml`. Needs a checkout of the repository.
 
 name: Install chart
-description: Install the petstore example's chart on a kind cluster and check it
+description: Install the charts of the petstore and gateway examples on a kind cluster and check them
 
 inputs:
   namespace:
@@ -354,6 +354,8 @@ runs:
             --from-literal=store-key-secret="$(openssl rand -base64 32)"
         ct install --charts examples/gateway/chart --skip-clean-up \
             --namespace "${NAMESPACE}" --helm-extra-args "--timeout 600s"
+        # Errors in the log formats of the steps above, except the worker's
+        # connection retries while the broker starts
         logs="$(kubectl logs -n "${NAMESPACE}" --all-containers --prefix \
             -l 'app.kubernetes.io/component in (app,worker)' --tail=-1)"
         printf '%s\n' "${logs}"
@@ -372,6 +374,7 @@ runs:
         kubectl get all,networkpolicies,pvc -n "${GATEWAY_NAMESPACE}" || true
         kubectl logs -n "${GATEWAY_NAMESPACE}" --all-containers --prefix \
             -l app.kubernetes.io/instance --tail=100 || true
+        kubectl describe pods -n "${GATEWAY_NAMESPACE}" || true
         kubectl get all,networkpolicies,pvc -n "${NAMESPACE}"
         kubectl get gateways,httproutes -A -o yaml
         kubectl logs -n envoy-gateway-system deployment/envoy-gateway --tail=100

@@ -84,8 +84,7 @@ The tests of the Helm library chart need [Helm](https://helm.sh/) and run
 separately (`pytest charts/foca-common/tests`); CI (the `chart` and
 `chart-install` jobs of `.github/workflows/ci.yml`) also installs the
 petstore and gateway examples with their charts on a kind cluster and checks
-that changes of
-the library chart raise its version (see [Developing the library
+that changes of the library chart raise its version (see [Developing the library
 chart](../helm-chart.md#developing-the-library-chart)).
 
 Run `pre-commit` in the environment with the dev dependencies: the ast-grep

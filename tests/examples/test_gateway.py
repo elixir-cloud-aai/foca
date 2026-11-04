@@ -60,6 +60,11 @@ def test_message(client: FlaskClient) -> None:
         assert [item["outcome"] for item in provenance["attempts"]] == ["accepted"]
 
 
+def test_invalid_message(client: FlaskClient) -> None:
+    """Requests that don't match the spec are refused."""
+    assert client.post("/messages", json={"other": "x"}).status_code == 400
+
+
 def test_task(client: FlaskClient) -> None:
     """The task of the worker runs the pipeline, too."""
     from tasks import process_message  # noqa: PLC0415

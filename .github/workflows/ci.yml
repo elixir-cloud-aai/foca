@@ -1,8 +1,8 @@
 # Check the pull request title; lint, type-check and test the package and
 # build the docs and distributions; run the unit tests again with the lowest
-# direct dependency versions; run integration tests on the petstore example;
-# lint and test the Helm charts and install the petstore example's chart on
-# a kind cluster; scan the Docker images for known vulnerabilities; check
+# direct dependency versions; run integration tests on the petstore and
+# gateway examples; lint and test the Helm charts and install the charts of
+# these examples on a kind cluster; scan the Docker images for known vulnerabilities; check
 # the curated release notes of a release in preparation; on pushes to `dev`
 # of this repository, push the Docker images by digest, scan exactly those
 # digests, then attest, sign and tag them with dated tags (release images
@@ -369,6 +369,12 @@ jobs:
         run: |
           docker compose build foca-gateway-root
           docker compose up -d --build
+      - name: Check gateway example image
+        run: |
+          image=foca-gateway-example:latest
+          scripts/check-no-pip.sh "${image}"
+          docker run --rm "${image}" python -c \
+              "from importlib.metadata import entry_points as e; assert e(group='foca.plugins')['org.example.gateway.stamp']"
       - name: Wait for gateway example
         working-directory: examples/gateway
         run: |
