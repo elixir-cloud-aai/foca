@@ -554,7 +554,11 @@ def register_openapi(
         connexion_kwargs["resolver"] = StrictParametersResolver(
             resolver=connexion_kwargs.get("resolver"),
         )
-        connexion_kwargs["validator_map"] = {"body": BodyValidator}
+        # Custom validators of apps win
+        connexion_kwargs["validator_map"] = {
+            "body": BodyValidator,
+            **connexion_kwargs.get("validator_map", {}),
+        }
         try:
             api = app.add_api(
                 specification=spec_parsed,

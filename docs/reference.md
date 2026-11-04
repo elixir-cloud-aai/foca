@@ -245,9 +245,18 @@ configuration models, see [Configuration](configuration/index.md).
         - build_service_info
         - check_service_info
 
+::: foca.api.validation
+    options:
+      members:
+        - BodyValidator
+        - StrictParametersResolver
+
 ::: foca.utils.service_info
     options:
       members:
+        - is_date
+        - is_date_time
+        - is_uri
         - InvalidServiceInfo
         - merge_service_info
         - validate_service_info

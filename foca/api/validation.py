@@ -1,10 +1,13 @@
 r"""Stricter checks of requests than those of Connexion 2.
 
 - Unpaired surrogates in JSON bodies (e.g., from the escape `\ud800`) can't be
-  encoded for storage, and are refused, wherever they are in a body.
+  encoded for storage, and are refused, wherever they are in a body. As with
+  all checks of bodies by Connexion, only for operations whose only media types
+  are JSON, with a schema.
 - The JSON Schema formats `date-time`, `date` and `uri` are checked, which
-  jsonschema only does with optional packages. As Connexion uses jsonschema's
-  format checker of Draft 4, this applies to all its validators.
+  jsonschema only does with optional packages. Importing this module registers
+  them on jsonschema's format checker of Draft 4, which Connexion uses, for the
+  whole process.
 - Query parameters of operations without parameters are refused with
   `strict_validation`, as Connexion only checks them for operations with
   parameters.
@@ -23,26 +26,13 @@ from flask import request
 from jsonschema import Draft4Validator
 
 from foca.security.resolvers import _normalize_resolver
-from foca.utils.service_info import _is_date_time, _is_uri, is_full_date
-
-
-def _is_date(value: object) -> bool:
-    """Check whether a value is an RFC 3339 full date (non-strings pass).
-
-    Args:
-        value: Value.
-
-    Returns:
-        Whether the value is a valid date, or isn't a string.
-    """
-    return not isinstance(value, str) or is_full_date(value)
-
+from foca.utils.service_info import is_date, is_date_time, is_uri
 
 # The format checker that Connexion uses
 for _name, _check in (
-    ("date-time", _is_date_time),
-    ("date", _is_date),
-    ("uri", _is_uri),
+    ("date-time", is_date_time),
+    ("date", is_date),
+    ("uri", is_uri),
 ):
     Draft4Validator.FORMAT_CHECKER.checks(_name)(_check)
 
@@ -100,6 +90,26 @@ class BodyValidator(RequestBodyValidator):
         return super().validate_schema(data, url)
 
 
+def _api_key_names(operation: Any) -> set[str]:
+    """Get the names of query parameters holding API keys of an operation.
+
+    Connexion doesn't count these as extra parameters either.
+
+    Args:
+        operation: Connexion operation.
+
+    Returns:
+        Names of the query parameters.
+    """
+    schemes = operation._security_schemes or {}
+    return {
+        scheme["name"]
+        for requirement in operation.security or []
+        for scheme in (schemes.get(name, {}) for name in requirement)
+        if scheme.get("type") == "apiKey" and scheme.get("in") == "query"
+    }
+
+
 class StrictParametersResolver(Resolver):
     """Resolver refusing query parameters of operations without parameters.
 
@@ -146,8 +156,10 @@ class StrictParametersResolver(Resolver):
                     parameters, but the operation has none.
             """
             # Operations only know their parameters after being resolved
-            if request.args and not operation.parameters:
-                raise ExtraParameterProblem([], list(request.args))
+            if not operation.parameters:
+                extra = set(request.args) - _api_key_names(operation)
+                if extra:
+                    raise ExtraParameterProblem([], sorted(extra))
             return function(*args, **kwargs)
 
         return Resolution(function=_wrapper, operation_id=resolution.operation_id)

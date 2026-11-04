@@ -2297,3 +2297,20 @@ class TestResourceRoles:
                     helper(*args, ptype=ptype)
             collection = helper_app.config["casbin_adapter"]._collection
             assert collection.count_documents({}) == 0
+
+
+def test_permissions_api_strict_checks(app: Flask) -> None:
+    """The permissions API has the stricter request checks."""
+    client = app.test_client()
+    path = f"{AccessControlConfig().api_base_path}/permissions"
+    admin = _headers("carol")
+    response = client.post(
+        path,
+        data='{"policy_type": "p", "rule": {"v0": "\\ud800"}}',
+        content_type="application/json",
+        headers=admin,
+    )
+    assert response.status_code == 400
+    assert b"surrogates" in response.data
+    response = client.post(f"{path}?other=1", json={}, headers=admin)
+    assert response.status_code == 400

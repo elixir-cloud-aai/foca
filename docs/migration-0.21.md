@@ -45,8 +45,9 @@ values that don't fit the formats `date-time`, `date` or `uri` where your
 specification declares them, unpaired surrogates in JSON bodies, and, with
 `strict_validation`, query parameters of operations without parameters. The same
 format checks apply to responses with `validate_responses`, which then fail with
-`500`. Check what your specifications declare and what your clients send. Other
-formats are checked as before.
+`500`, also for what you stored earlier, e.g., timestamps without a time zone from
+`datetime.isoformat()`. Check what your specifications declare and what your clients
+send. Other formats are checked as before.
 
 ## Changed defaults
 

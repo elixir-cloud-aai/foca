@@ -2,17 +2,21 @@
 
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
+from connexion.decorators.validation import RequestBodyValidator
+from connexion.resolver import Resolution
 from flask import Flask
 from werkzeug.test import TestResponse
 
 from foca.api.register_openapi import register_openapi
-from foca.api.validation import _has_unpaired_surrogates
+from foca.api.validation import StrictParametersResolver, _has_unpaired_surrogates
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, SpecConfig
+from foca.utils.service_info import is_date
 
 DATE_TIME = {"type": "string", "format": "date-time"}
 SPEC: dict[str, Any] = {
@@ -126,12 +130,60 @@ def getItem(itemId: str) -> dict[str, str]:
     return {"id": itemId}
 
 
-def _create_app(tmp_path: Path, strict: bool = True) -> Flask:
+def getLog() -> dict[str, str]:
+    """Controller returning an invalid value for its specification.
+
+    Returns:
+        Log.
+    """
+    return {"created": "2026-11-04T07:00:00"}
+
+
+def getSecret() -> str:
+    """Controller of an operation with an API key.
+
+    Returns:
+        Text.
+    """
+    return "secret"
+
+
+def checkKey(api_key: str, required_scopes: Any = None) -> dict[str, str] | None:
+    """Check an API key.
+
+    Args:
+        api_key: API key.
+        required_scopes: Required scopes.
+
+    Returns:
+        Token information, if the key is valid.
+    """
+    return {"sub": "a"} if api_key == "good" else None
+
+
+class CustomBodyValidator(RequestBodyValidator):
+    """Body validator of an app, refusing all bodies."""
+
+    def validate_schema(self, data: Any, url: str) -> Any:
+        """Refuse a body.
+
+        Args:
+            data: Body.
+            url: URL of the request.
+
+        Raises:
+            ValueError: Always.
+        """
+        raise ValueError("Refused")
+
+
+def _create_app(tmp_path: Path, strict: bool = True, **connexion: Any) -> Flask:
     """Create an app with the test API.
 
     Args:
         tmp_path: Temporary directory.
         strict: Whether to use `strict_validation`.
+        **connexion: Further Connexion options.
 
     Returns:
         Flask app.
@@ -143,7 +195,7 @@ def _create_app(tmp_path: Path, strict: bool = True) -> Flask:
         {
             "path": path,
             "disable_auth": True,
-            "connexion": {"strict_validation": strict},
+            "connexion": {"strict_validation": strict, **connexion},
         }
     )
     return register_openapi(cnx_app, specs=[spec]).app
@@ -270,3 +322,133 @@ class TestExtraParameters:
         """Without `strict_validation`, nothing changes."""
         client = _create_app(tmp_path, strict=False).test_client()
         assert client.get("/items?other=1").status_code == 200
+
+    def test_api_key(self, tmp_path: Path) -> None:
+        """API keys in the query aren't extra parameters, as for Connexion."""
+        path = tmp_path / "keys.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "openapi": "3.0.3",
+                    "info": {"title": "Keys", "version": "1.0"},
+                    "security": [{"key": []}],
+                    "components": {
+                        "securitySchemes": {
+                            "key": {
+                                "type": "apiKey",
+                                "in": "query",
+                                "name": "api_key",
+                                "x-apikeyInfoFunc": f"{__name__}.checkKey",
+                            }
+                        }
+                    },
+                    "paths": {
+                        "/secret": {
+                            "get": {
+                                "operationId": f"{__name__}.getSecret",
+                                "responses": {"200": {"description": "Secret"}},
+                            }
+                        }
+                    },
+                }
+            )
+        )
+        cnx_app = register_exception_handler(create_connexion_app(Config()))
+        spec = SpecConfig.model_validate(
+            {"path": path, "connexion": {"strict_validation": True}}
+        )
+        client = register_openapi(cnx_app, specs=[spec]).app.test_client()
+        assert client.get("/secret?api_key=good").status_code == 200
+        assert client.get("/secret?api_key=bad").status_code == 401
+        assert client.get("/secret?api_key=good&other=1").status_code == 400
+
+    def test_custom_resolver(self) -> None:
+        """The resolver of an app is used."""
+        calls: list[str] = []
+
+        def _resolve(operation_id: str) -> Any:
+            calls.append(operation_id)
+            return listItems
+
+        resolver = StrictParametersResolver(_resolve)
+        operation = MagicMock(strict_validation=True)
+        resolution = resolver.resolve(operation)
+        assert isinstance(resolution, Resolution)
+        assert len(calls) == 1
+
+
+class TestResponses:
+    """Tests of the format checks of responses."""
+
+    def test_invalid(self, tmp_path: Path) -> None:
+        """Responses with invalid values fail, with `validate_responses`."""
+        path = tmp_path / "logs.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "openapi": "3.0.3",
+                    "info": {"title": "Logs", "version": "1.0"},
+                    "paths": {
+                        "/log": {
+                            "get": {
+                                "operationId": f"{__name__}.getLog",
+                                "responses": {
+                                    "200": {
+                                        "description": "Log",
+                                        "content": {
+                                            "application/json": {
+                                                "schema": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "created": DATE_TIME
+                                                    },
+                                                }
+                                            }
+                                        },
+                                    }
+                                },
+                            }
+                        }
+                    },
+                }
+            )
+        )
+        cnx_app = register_exception_handler(create_connexion_app(Config()))
+        spec = SpecConfig.model_validate(
+            {
+                "path": path,
+                "disable_auth": True,
+                "connexion": {"validate_responses": True},
+            }
+        )
+        client = register_openapi(cnx_app, specs=[spec]).app.test_client()
+        assert client.get("/log").status_code == 500
+
+
+class TestValidatorMap:
+    """Tests of validators of apps."""
+
+    def test_custom_body_validator(self, tmp_path: Path) -> None:
+        """Validators of apps win."""
+        app = _create_app(tmp_path, validator_map={"body": CustomBodyValidator})
+        assert _post(app, "{}").status_code == 500
+
+
+class TestDate:
+    """Tests of the format `date`."""
+
+    @pytest.mark.parametrize(
+        ("value", "valid"),
+        [
+            ("2026-11-04", True),
+            ("2023-02-30", False),
+            ("0000-01-01", False),
+            ("2026-1-4", False),
+            ("٢٠٢٦-11-04", False),
+            (1, True),
+            (None, True),
+        ],
+    )
+    def test_is_date(self, value: object, valid: bool) -> None:
+        """Valid dates and non-strings pass."""
+        assert is_date(value) is valid

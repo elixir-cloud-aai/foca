@@ -150,12 +150,13 @@ Beyond the checks of Connexion against the specification, FOCA refuses these wit
 `400` (see `foca.api.validation`):
 
 - **Unpaired surrogates** in JSON bodies, from escapes such as `\ud800`, also in keys
-  and nested strings: they can't be encoded for storage. Only for operations that
-  declare a schema for their body.
+  and nested strings: they can't be encoded for storage. As with Connexion's checks of
+  bodies, only for operations with a schema for their body and only JSON media types.
+  A custom `body` validator in `validator_map` takes this check over.
 - **Invalid values for the JSON Schema formats** `date-time` (RFC 3339), `date`
   (`YYYY-MM-DD`) and `uri` (lenient: any scheme, without whitespace), in bodies and
   parameters, as well as in responses with `validate_responses`.
-- **Query parameters of operations without parameters**, with `strict_validation`.
-  Operations with parameters refuse others already.
+- **Query parameters of operations without parameters**, with `strict_validation`,
+  except those holding API keys. Operations with parameters refuse others already.
 
-Reporting which field failed is a topic of its own (#586).
+Error responses don't name the field that failed yet.
