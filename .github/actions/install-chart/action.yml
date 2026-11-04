@@ -100,8 +100,9 @@ runs:
       run: |
         ct install --charts examples/petstore/chart --skip-clean-up \
             --namespace "${NAMESPACE}" --helm-extra-args "--timeout 600s"
-    # The release of `ci/test-values.yaml` has `rolloutOnSecrets`: `lookup` finds
-    # the Secret when installing, unlike in `helm template` (the chart's tests)
+    # The release of `ci/celery-values.yaml` has `rolloutOnSecrets`: `lookup` finds
+    # the Secret when installing, unlike in `helm template` (the chart's tests),
+    # so that the Deployments of its app and worker have the annotation
     - name: Check rollout annotation
       env:
         NAMESPACE: ${{ inputs.namespace }}
@@ -110,8 +111,8 @@ runs:
         count="$(kubectl get deployments -n "${NAMESPACE}" -o json \
             | jq '[.items[].spec.template.metadata.annotations["checksum/secrets"] // empty] | length')"
         echo "Deployments with the annotation: ${count}"
-        if [ "${count}" -lt 1 ]; then
-          echo "::error::No Deployment has the annotation of rolloutOnSecrets"
+        if [ "${count}" -ne 2 ]; then
+          echo "::error::Expected the app and the worker to have the annotation of rolloutOnSecrets"
           exit 1
         fi
     # The release of `ci/gateway-values.yaml` via the Gateway (port

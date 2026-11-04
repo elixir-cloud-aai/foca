@@ -234,20 +234,72 @@ plugin store (`plugins.defaults.store.key_secret` of FOCA), if
 
 {{/*
 Further environment variables of the app and the worker from
-`<valuesKey>.extraEnv` (a list of EnvVar). Fails if one sets a variable that
-the chart sets (see `foca-common.reservedEnv`), as the last one with a name
-would win. Call with the context dict.
+`<valuesKey>.extraEnv` (a list of EnvVar). Fails if it isn't such a list (for
+app charts without the schema), sets a name twice or a variable that the chart
+sets (see `foca-common.reservedEnv`), as the last one with a name would win, or
+has a secret as a literal value (see `foca-common.checkExtraEnvSecret`). Call
+with the context dict.
 */}}
 {{- define "foca-common.extraEnv" -}}
 {{- $key := .settings.valuesKey -}}
 {{- $values := index .root.Values $key -}}
+{{- $extraEnv := $values.extraEnv | default list -}}
+{{- if not (kindIs "slice" $extraEnv) -}}
+{{- fail (printf "%s.extraEnv must be a list of EnvVar" $key) -}}
+{{- end -}}
 {{- $reserved := include "foca-common.reservedEnv" . | splitList " " -}}
-{{- range $values.extraEnv -}}
+{{- $seen := list -}}
+{{- range $extraEnv -}}
+{{- if not (and (kindIs "map" .) (kindIs "string" .name) .name) -}}
+{{- fail (printf "%s.extraEnv must be a list of EnvVar, each with a name" $key) -}}
+{{- end -}}
 {{- if has .name $reserved -}}
 {{- fail (printf "%s.extraEnv must not set %s, which the chart sets" $key .name) -}}
 {{- end -}}
+{{- if has .name $seen -}}
+{{- fail (printf "%s.extraEnv must not set %s twice" $key .name) -}}
 {{- end -}}
-{{- with $values.extraEnv -}}
+{{- $seen = append $seen .name -}}
+{{- include "foca-common.checkExtraEnvSecret" (dict "key" $key "var" .) -}}
+{{- end -}}
+{{- with $extraEnv -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Refuse secrets as literal values in `<valuesKey>.extraEnv`, which would be
+readable in the Deployment, like `foca-common.checkStoreKeySecret` for the
+overlay: variables that hold only a secret, and connection strings with
+credentials (with an `@`). Use `valueFrom` for them. The value is not shown.
+Call with a dict of the values key (`key`) and the EnvVar (`var`).
+*/}}
+{{- define "foca-common.checkExtraEnvSecret" -}}
+{{- $value := toString (get .var "value" | default "") -}}
+{{- $secret := and $value (has .var.name (list "MONGO_PASSWORD" "FOCA_PLUGINS_STORE_KEY_SECRET")) -}}
+{{- $credentials := and (contains "@" $value) (has .var.name (list "MONGO_URI" "CELERY_BROKER_URL" "CELERY_RESULT_BACKEND")) -}}
+{{- if or $secret $credentials -}}
+{{- fail (printf "%s.extraEnv must take %s from a Secret (valueFrom), not as a literal value" .key .var.name) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Sources of environment variables of the app and the worker from
+`<valuesKey>.extraEnvFrom` (a list of EnvFromSource). Fails if it isn't such a
+list (for app charts without the schema). Call with the context dict.
+*/}}
+{{- define "foca-common.extraEnvFrom" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $extraEnvFrom := (index .root.Values $key).extraEnvFrom | default list -}}
+{{- if not (kindIs "slice" $extraEnvFrom) -}}
+{{- fail (printf "%s.extraEnvFrom must be a list of EnvFromSource" $key) -}}
+{{- end -}}
+{{- range $extraEnvFrom -}}
+{{- if not (kindIs "map" .) -}}
+{{- fail (printf "%s.extraEnvFrom must be a list of EnvFromSource" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- with $extraEnvFrom -}}
 {{- toYaml . -}}
 {{- end -}}
 {{- end -}}
@@ -265,7 +317,7 @@ worker, separated by spaces. Call with the context dict.
 {{- if $root.Values.mongodb.auth.enabled -}}
 {{- $names = concat $names (list "MONGO_USERNAME" "MONGO_PASSWORD") -}}
 {{- end -}}
-{{- if include "foca-common.brokerSecret" $root -}}
+{{- if $root.Values.broker | default dict | dig "existingSecret" "" -}}
 {{- $names = concat $names (list "CELERY_BROKER_URL" "CELERY_RESULT_BACKEND") -}}
 {{- end -}}
 {{- if include "foca-common.pluginsEnv" $root | trim -}}
@@ -282,16 +334,22 @@ read from a cluster. Call with the context dict.
 */}}
 {{- define "foca-common.rolloutChecksum" -}}
 {{- $root := .root -}}
-{{- $found := false -}}
+{{- $key := .settings.valuesKey -}}
+{{- $names := (index $root.Values $key).rolloutOnSecrets | default list -}}
+{{- if not (kindIs "slice" $names) -}}
+{{- fail (printf "%s.rolloutOnSecrets must be a list of names of Secrets" $key) -}}
+{{- end -}}
 {{- $data := dict -}}
-{{- range (index $root.Values .settings.valuesKey).rolloutOnSecrets -}}
+{{- range $names -}}
+{{- if not (and (kindIs "string" .) .) -}}
+{{- fail (printf "%s.rolloutOnSecrets must be a list of names of Secrets" $key) -}}
+{{- end -}}
 {{- $secret := lookup "v1" "Secret" $root.Release.Namespace . -}}
 {{- if $secret -}}
-{{- $found = true -}}
 {{- $_ := set $data . $secret.data -}}
 {{- end -}}
 {{- end -}}
-{{- if $found -}}
+{{- if $data -}}
 {{- toJson $data | sha256sum -}}
 {{- end -}}
 {{- end -}}

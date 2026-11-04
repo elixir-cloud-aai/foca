@@ -769,15 +769,24 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
       enabled: false
       auth:
         enabled: false
+    config:
+      db:
+        # Required with `mongodb.enabled: false`; `MONGO_URI` takes precedence
+        host: external
     ```
 
     Rendering fails if `extraEnv` sets a variable that the chart sets:
     `FOCA_CONFIG_OVERLAY`, and, if the chart's settings for them are in use,
     `GUNICORN_CMD_ARGS`, `MONGO_USERNAME` and `MONGO_PASSWORD`,
     `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND`, and
-    `FOCA_PLUGINS_STORE_KEY_SECRET`. Kubernetes gives variables in `env`
-    precedence over those from `envFrom`, so these also win over
-    `extraEnvFrom`. New in 0.5.0; values of older app charts render as before;
+    `FOCA_PLUGINS_STORE_KEY_SECRET`. It also fails if `extraEnv` has a secret
+    as a literal value, which would be readable in the Deployment:
+    `MONGO_PASSWORD` and `FOCA_PLUGINS_STORE_KEY_SECRET`, and `MONGO_URI`,
+    `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` with credentials (an `@`);
+    use `valueFrom` for them. Kubernetes gives variables in `env` precedence
+    over those from `envFrom`, so the chart's also win over `extraEnvFrom`
+    (except `CELERY_RESULT_BACKEND` if the broker's Secret lacks that optional
+    key). New in 0.5.0; values of older app charts render as before;
     copy `app-values.schema.json` again (see [Values](#values)) to use them.
 - **Rollouts on changes of Secrets:** Pods restart when the config overlay
   changes, but not when a Secret that they read changes. With the names of
@@ -785,7 +794,10 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
   an annotation of the app's and the worker's pods (`checksum/secrets`), so an
   upgrade after a change rolls them. Helm's `lookup` reads the Secrets at that
   time, so the user running Helm must be allowed to read them, nothing happens
-  until the next upgrade, and Secrets not found are ignored. `helm template` and
+  until the next upgrade, and Secrets not found are ignored (deleting one rolls
+  the pods as well). The annotation is an unsalted hash of the data, which those
+  who can read Deployments can test guesses against, so use it for Secrets with
+  long random values, not for weak passwords. `helm template` and
   Argo CD don't read from the cluster, so they render no annotation, without an
   error. There, and to roll pods right on changes, use a controller such as
   [Stakater Reloader](https://github.com/stakater/Reloader), for which the chart
@@ -951,10 +963,12 @@ pet and reads it back, so that the app, its MongoDB and the app user are
 checked. A second installation (`ci/celery-values.yaml`) adds the Celery
 worker and the bundled broker; CI checks that the worker logs that it is
 ready, i.e., connected to the broker, and that a task queued while no
-worker runs survives a restart of the broker and then reaches it. A third one
+worker runs survives a restart of the broker and then reaches it; this one also
+has `rolloutOnSecrets`, and CI checks that the app and the worker have the
+annotation. A third one
 (`ci/access-control-values.yaml`) enables access control with configured
 policies, which FOCA stores on startup, so that the app user's access to the
-access-control database is checked. The first (`ci/test-values.yaml`) has `rolloutOnSecrets`, and CI checks that the annotation is set. A fourth one (`ci/gateway-values.yaml`)
+access-control database is checked. A fourth one (`ci/gateway-values.yaml`)
 exposes the app with an HTTPRoute on a Gateway of [Envoy
 Gateway](https://gateway.envoyproxy.io/) (`.github/kind/gateway.yaml`) and
 enables the app's NetworkPolicy; CI checks that HTTP is redirected to HTTPS,

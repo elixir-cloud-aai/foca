@@ -2,6 +2,3 @@ hostName: petstore.example.org
 mongodb:
   auth:
     existingSecret: mongodb
-petstore:
-  rolloutOnSecrets:
-    - mongodb

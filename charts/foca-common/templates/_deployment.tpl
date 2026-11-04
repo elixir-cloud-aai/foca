@@ -75,9 +75,9 @@ spec:
         {{- with include "foca-common.extraEnv" . }}
         {{- . | nindent 8 }}
         {{- end }}
-        {{- with $values.extraEnvFrom }}
+        {{- with include "foca-common.extraEnvFrom" . }}
         envFrom:
-        {{- toYaml . | nindent 8 }}
+        {{- . | nindent 8 }}
         {{- end }}
         ports:
         - name: http
