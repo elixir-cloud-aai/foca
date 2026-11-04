@@ -2341,7 +2341,8 @@ class MongoConfig(FOCABaseConfig):
         Raises:
             ValueError: An option is `host`, `port`, `connect`, `username` or
                 `password`. The latter would override the connection string
-                and put credentials in the configuration.
+                and put credentials in the configuration. Or an option is set
+                twice, as PyMongo's names are not case-sensitive.
         """
         reserved = sorted(
             name
@@ -2353,6 +2354,11 @@ class MongoConfig(FOCABaseConfig):
                 f"Options {reserved} can't be set in `db.client_options`: use "
                 "`db.host`, `db.port`, `MONGO_URI`, `MONGO_USERNAME` or "
                 "`MONGO_PASSWORD`; FOCA decides when clients connect"
+            )
+        if len({name.lower() for name in value}) < len(value):
+            raise ValueError(
+                f"Options {sorted(value)} of `db.client_options` set an option "
+                "twice: their names are not case-sensitive"
             )
         return value
 

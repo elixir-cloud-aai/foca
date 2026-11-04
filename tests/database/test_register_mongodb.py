@@ -587,6 +587,11 @@ class TestClientOptions:
         with pytest.raises(ValidationError, match=name):
             MongoConfig(client_options={name: "x"})
 
+    def test_option_set_twice(self) -> None:
+        """The same option in different cases is rejected, not overwritten."""
+        with pytest.raises(ValidationError, match="twice"):
+            MongoConfig(client_options={"maxPoolSize": 1, "maxpoolsize": 2})
+
     @pytest.mark.parametrize("value", [None, ["x"], {"a": 1}])
     def test_only_scalars(self, value: object) -> None:
         """Options are scalars."""
