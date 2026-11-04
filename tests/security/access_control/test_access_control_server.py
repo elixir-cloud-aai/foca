@@ -378,7 +378,10 @@ class TestLogging:
         """Capture records of the module, also if its logger was disabled."""
         disabled = module.logger.disabled
         module.logger.disabled = False
-        with caplog.at_level(logging.INFO, logger=module.logger.name):
+        with (
+            caplog.at_level(logging.INFO, logger=module.logger.name),
+            caplog.at_level(logging.INFO, logger="foca.audit"),
+        ):
             yield
         module.logger.disabled = disabled
 
@@ -387,7 +390,7 @@ class TestLogging:
         messages = [
             record.getMessage()
             for record in caplog.records
-            if record.name == module.logger.name
+            if record.name in (module.logger.name, "foca.audit")
         ]
         assert messages
         assert all("\n" not in message for message in messages)

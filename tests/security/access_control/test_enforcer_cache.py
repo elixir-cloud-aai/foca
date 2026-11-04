@@ -892,6 +892,11 @@ class TestEnforcerCache:
 
     def test_concurrent_use(self, cache: EnforcerCache, other_adapter: Adapter) -> None:
         """Threads use and update the enforcer concurrently."""
+        if isinstance(other_adapter.changes_collection, mongomock.Collection):
+            pytest.skip(
+                "Updates of mongomock aren't atomic: reads can see a new version of "
+                "the changes without its change"
+            )
         other_adapter.add_policy("p", "p", ["owner", "/tasks/:id", "GET"])
         errors: list[BaseException] = []
         done = threading.Event()

@@ -14,8 +14,10 @@ from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
+from foca.audit import log as audit_log
 from foca.config.access import get_collection, get_config
 from foca.security.access_control.constants import (
+    CONFIGURED_FIELD,
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
@@ -24,6 +26,7 @@ from foca.security.access_control.enforcement import (
     grants_opt_in_role,
     is_permitted,
 )
+from foca.security.access_control.foca_casbin_adapter.adapter import _rule_values
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
     validate_rule,
@@ -57,6 +60,25 @@ def _get_permissions_collection() -> Collection[dict[str, Any]]:
     return get_collection(
         db=access_control.db_name, collection=access_control.collection_name
     )
+
+
+def _get_stored_rule(id: str) -> dict[str, Any] | None:
+    """Get a stored rule for the audit log, before it's changed.
+
+    Args:
+        id: Identifier of the rule.
+
+    Returns:
+        Policy type (`ptype`) and values (`rule`) of the rule, as stored, or `None`
+        if no rule with the identifier is stored, other than configured ones, which
+        the API doesn't change.
+    """
+    document = _get_permissions_collection().find_one(
+        {"id": id, CONFIGURED_FIELD: {"$ne": True}}
+    )
+    if document is None:
+        return None
+    return {"ptype": document.get("ptype"), "rule": _rule_values(document)}
 
 
 def _get_visibility_filter() -> dict[str, Any]:
@@ -200,7 +222,7 @@ def postPermission() -> str:
         ptype=ptype,
         rule=values,
     )
-    logger.info("Policy rule '%s' added.", permission_id)
+    audit_log("permission.create", permission_id, ptype=ptype, rule=values)
     return permission_id
 
 
@@ -229,6 +251,7 @@ def putPermission(
         raise BadRequest
     ptype, values = _get_rule()
     _check_not_configured(id)
+    previous = _get_stored_rule(id)
     try:
         current_app.config["casbin_adapter"].save_policy_line(
             ptype=ptype,
@@ -238,7 +261,10 @@ def putPermission(
     # A configured rule with the identifier (e.g., stored meanwhile)
     except DuplicateKeyError as exc:
         _raise_configured(id, exc)
-    logger.info("Policy rule '%s' updated.", escape_log_value(id))
+    if previous is None:
+        audit_log("permission.create", id, ptype=ptype, rule=values)
+    else:
+        audit_log("permission.update", id, ptype=ptype, rule=values, previous=previous)
     return id
 
 
@@ -344,11 +370,12 @@ def deletePermission(
             that is not active yet), as for getting it.
     """
     _check_not_configured(id)
+    stored = _get_stored_rule(id)
     # Not configured rules, also if stored meanwhile; via the adapter, which
     # records the change for the enforcers of all app instances
     if not current_app.config["casbin_adapter"].remove_policy_by_id(id):
         # E.g., if its generation became active meanwhile
         _check_not_configured(id)
         raise NotFound
-    logger.info("Policy rule '%s' deleted.", escape_log_value(id))
+    audit_log("permission.delete", id, **(stored or {}))
     return id

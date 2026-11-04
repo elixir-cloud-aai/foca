@@ -20,8 +20,9 @@ a field of each resource document (:py:func:`set_owner_field`) and filter by
 it (:py:func:`owner_filter`), without policy rules per resource.
 
 Resources are identified by their full request paths (e.g., `/tasks/123`), as
-roles are enforced on request paths. Role changes are logged for auditing
-(who changed which role of whom on which resource). Which subjects may call
+roles are enforced on request paths. Role changes are logged (who changed which
+role of whom on which resource), and the helpers they use write to the audit log
+(cf. :py:mod:`foca.audit`). Which subjects may call
 the operations using the helpers is decided by the app's policies.
 """
 
