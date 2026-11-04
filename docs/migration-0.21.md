@@ -75,6 +75,15 @@ The `request_id()` of `foca.plugins.adapter` follows
 [`server.request_id`](configuration/server.md#request-ids), rather than always
 reading `X-Request-ID`.
 
+## Audit log
+
+Changes of access rights now go to the logger `foca.audit`, with who made them (see
+[Audit log](configuration/log.md#audit-log)). This isn't breaking, but log texts
+change: the permissions API no longer logs `Policy rule '...' added.`, `updated.` or
+`deleted.` on its own logger. Adapt filters and alerts that match them. Role changes
+via the operations on owners keep their log lines and now also have audit events. The
+actor is personal data, so check where these logs go.
+
 ## Changed defaults
 
 ### Shorter MongoDB timeouts
