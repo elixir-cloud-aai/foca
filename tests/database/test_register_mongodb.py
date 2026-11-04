@@ -1,20 +1,25 @@
 """Tests for `register_mongodb.py`."""
 
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, Mock
 from urllib.parse import unquote, urlsplit
 
 import mongomock
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
-from pymongo.errors import ConfigurationError, OperationFailure, PyMongoError
+from pymongo.errors import (
+    ConfigurationError,
+    InvalidURI,
+    OperationFailure,
+    PyMongoError,
+)
 
 from foca.database import register_mongodb as module
 from foca.database.register_mongodb import (
     IndexConflictError,
-    _redact_uri,
     _register_database,
     create_mongo_client,
     get_mongo_client,
@@ -37,6 +42,13 @@ from foca.security.access_control.register_access_control import (
 )
 from tests.mock_data import MongoClients
 from tests.test_files.service_info_data import FIELDS, REMOVE, service
+
+# Assembled here, as secret scanners take such strings for real credentials
+SECRET = "hunter2"  # noqa: S105 (made up)
+AUTH = f"u:{SECRET}@"
+SCHEME = "mongodb://"
+SRV_SCHEME = "mongodb+srv://"
+OPTION = f"tlsCertificateKeyFilePassword={SECRET}"
 
 MONGO_ENV_VARS = [
     "MONGO_URI",
@@ -141,6 +153,16 @@ def clients(mongo_clients: MongoClients) -> MongoClients:
     return mongo_clients
 
 
+@pytest.fixture
+def logged(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """What is logged on level `INFO`, whatever the logging setup of other tests."""
+    messages: list[str] = []
+    monkeypatch.setattr(
+        module.logger, "info", lambda msg, *args: messages.append(msg % args)
+    )
+    return messages
+
+
 class TestCreateMongoClient:
     """Tests for `create_mongo_client()`."""
 
@@ -165,20 +187,155 @@ class TestCreateMongoClient:
         create_mongo_client(db="my_db")
         assert clients[0][0] == uri
 
-    def test_no_secrets_logged(
-        self, clients: MongoClients, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("env", "expected"),
+        [
+            ({}, "db:1234/my_db"),
+            ({"MONGO_HOST": "h1", "MONGO_PORT": "1"}, "h1:1/my_db"),
+            ({"MONGO_DBNAME": "other-db"}, "db:1234/other-db"),
+            ({"MONGO_USERNAME": "u", "MONGO_PASSWORD": SECRET}, "db:1234/my_db"),
+            # Connection strings; the app selects the database by name
+            ({"MONGO_URI": f"{SCHEME}h1:1"}, "h1:1/my_db"),
+            ({"MONGO_URI": f"{SCHEME}{AUTH}h1:1/"}, "h1:1/my_db"),
+            ({"MONGO_URI": f"{SCHEME}{AUTH}h2:2,h1:1/admin"}, "h1:1,h2:2/my_db"),
+            ({"MONGO_URI": f"{SCHEME}u:{SECRET}#x@h1:1/"}, "h1:1/my_db"),
+            ({"MONGO_URI": f"{SRV_SCHEME}{AUTH}h1.org/db?a=b"}, "h1.org/my_db"),
+            ({"MONGO_URI": f"{SCHEME}h1:1/?{OPTION}"}, "h1:1/my_db"),
+            ({"MONGO_URI": f"{SCHEME}h1:1/{SECRET}"}, "h1:1/my_db"),
+            ({"MONGO_URI": f"{SCHEME}h1:1/db;{OPTION}"}, "h1:1/my_db"),
+            ({"MONGO_URI": f"{SCHEME}h1:1/db?{OPTION}@x"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}h1:1?{OPTION}"}, "h1:1/my_db"),
+            ({"MONGO_URI": f"{SCHEME}h1:1?{OPTION}@x"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}{AUTH}h1:1?{OPTION}@x"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}h1?x={SECRET}/y"}, "h1:27017/my_db"),
+            # Unescaped characters in credentials, which PyMongo takes for hosts
+            ({"MONGO_URI": f"{SCHEME}u/v:{SECRET}@h1"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}u:12/{SECRET}?a=b@h1"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}u:p@{SECRET}/w@h1:1"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}u:12,{SECRET}/x@h1"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}u:a@{SECRET}?x=y@h1:1/"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SRV_SCHEME}u:p@{SECRET}/w@h1"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}u:{SECRET}.sock"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}u:{SECRET}%2Fx.sock"}, "unknown/my_db"),
+            ({"MONGO_URI": f"{SCHEME}%2Frun%2Fm.sock/"}, "/run/m.sock/my_db"),
+            ({"MONGO_HOST": f"u:p@{SECRET}?w=x@h1"}, "unknown/my_db"),
+            ({"MONGO_PORT": f"1,u:{SECRET}.sock"}, "unknown/my_db"),
+            # Other variables
+            ({"MONGO_HOST": f"{AUTH}h1"}, "h1:1234/my_db"),
+            ({"MONGO_HOST": f"h1/?{OPTION}"}, "h1:27017/my_db"),
+            ({"MONGO_HOST": f"h1?{OPTION}"}, "h1:27017/my_db"),
+            ({"MONGO_HOST": f"h1?{OPTION}@x"}, "unknown/my_db"),
+            ({"MONGO_PORT": f"1/?{OPTION}"}, "db:1/my_db"),
+            ({"MONGO_PORT": f"1?{OPTION}@x"}, "unknown/my_db"),
+            ({"MONGO_DBNAME": f"my_db?{OPTION}"}, "db:1234/(name not shown)"),
+            ({"MONGO_DBNAME": f"my_db#{SECRET}"}, "db:1234/(name not shown)"),
+            ({"MONGO_DBNAME": f"{AUTH}x"}, "unknown/(name not shown)"),
+        ],
+    )
+    def test_only_location_logged(
+        self,
+        clean_env: pytest.MonkeyPatch,
+        logged: list[str],
+        env: dict[str, str],
+        expected: str,
     ) -> None:
-        """Credentials and options are not logged."""
-        monkeypatch.setenv(
-            "MONGO_URI",
-            "mongodb://u:secret@h1:1/?tlsCertificateKeyFilePassword=secret",
-        )
-        messages: list[str] = []
-        monkeypatch.setattr(
-            module.logger, "info", lambda msg, *args: messages.append(msg % args)
-        )
-        create_mongo_client(db="my_db")
-        assert messages == ["Created MongoDB client for 'mongodb://h1:1/'."]
+        """Only hosts, ports and the database are logged, however configured."""
+        for name, value in env.items():
+            clean_env.setenv(name, value)
+        create_mongo_client(host="db", port=1234, db="my_db", connect=False).close()
+        assert logged == [f"Created MongoDB client for '{expected}'."]
+        assert SECRET not in "".join(logged)
+
+    @pytest.mark.parametrize(
+        ("host", "expected"),
+        [
+            (f"{AUTH}h1", "h1:1/my_db"),
+            (f"h1?{OPTION}@x", "unknown/my_db"),
+        ],
+    )
+    def test_credentials_in_configured_host_not_logged(
+        self,
+        clean_env: pytest.MonkeyPatch,
+        logged: list[str],
+        host: str,
+        expected: str,
+    ) -> None:
+        """Credentials in the host of the configuration are not logged."""
+        create_mongo_client(host=host, port=1, db="my_db", connect=False).close()
+        assert logged == [f"Created MongoDB client for '{expected}'."]
+
+    @pytest.mark.parametrize(
+        ("env", "name", "content", "expected"),
+        [
+            ({}, "MONGO_URI", f"{SCHEME}{AUTH}h1:1/", "h1:1/my_db"),
+            ({"MONGO_PASSWORD": "x"}, "MONGO_USERNAME", SECRET, "db:1234/my_db"),
+            ({"MONGO_USERNAME": "u"}, "MONGO_PASSWORD", SECRET, "db:1234/my_db"),
+        ],
+    )
+    def test_credentials_from_files_not_logged(
+        self,
+        clean_env: pytest.MonkeyPatch,
+        logged: list[str],
+        tmp_path: Path,
+        env: dict[str, str],
+        name: str,
+        content: str,
+        expected: str,
+    ) -> None:
+        """Credentials from files are not logged."""
+        path = tmp_path / "secret"
+        path.write_text(content)
+        clean_env.setenv(f"{name}_FILE", str(path))
+        for variable, value in env.items():
+            clean_env.setenv(variable, value)
+        create_mongo_client(host="db", port=1234, db="my_db", connect=False).close()
+        assert logged == [f"Created MongoDB client for '{expected}'."]
+        assert SECRET not in "".join(logged)
+
+    def test_client_options_not_logged(
+        self, clean_env: pytest.MonkeyPatch, logged: list[str]
+    ) -> None:
+        """Options of the client are not logged."""
+        create_mongo_client(
+            host="db",
+            port=1234,
+            connect=False,
+            options={"tlsCertificateKeyFilePassword": SecretStr(SECRET)},
+        ).close()
+        assert logged == ["Created MongoDB client for 'db:1234/'."]
+
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            f"{SCHEME}u:{SECRET}/x@h1:1/",
+            f"{SCHEME}u:{SECRET}?x@h1:1/",
+            f"{SCHEME}u:{SECRET}@x@h1:1/",
+            f"{SCHEME}h1/u:{SECRET}@h2/db",
+        ],
+    )
+    def test_rejected_uri_not_logged(
+        self,
+        clean_env: pytest.MonkeyPatch,
+        logged: list[str],
+        uri: str,
+    ) -> None:
+        """Connection strings that PyMongo rejects aren't logged."""
+        clean_env.setenv("MONGO_URI", uri)
+        with pytest.raises((InvalidURI, ValueError)):
+            create_mongo_client(connect=False)
+        assert SECRET not in "".join(logged)
+
+    def test_stand_in_for_client(
+        self, clients: MongoClients, logged: list[str]
+    ) -> None:
+        """Stand-ins of clients, as in the tests of apps, don't get in the way."""
+        create_mongo_client(host="db", port=1234, db="my_db")
+        assert logged == ["Created MongoDB client for 'unknown/my_db'."]
+
+    @pytest.mark.parametrize("stand_in", [Mock(), MagicMock(), object()])
+    def test_other_stand_ins_for_client(self, stand_in: Any) -> None:
+        """Stand-ins of any kind have unknown hosts."""
+        assert module._get_client_hosts(stand_in, "mongodb://h1") == "unknown"
 
 
 MONGO_DICT_MIN: dict[str, Any] = {
@@ -621,21 +778,6 @@ class TestClientOptions:
         get_mongo_client(conf)
         reopen_mongodb(conf)
         assert options[1] == {**options[0], "connect": False}
-
-
-@pytest.mark.parametrize(
-    ("uri", "expected"),
-    [
-        ("mongodb://h:1/db", "mongodb://h:1/db"),
-        ("mongodb://u:p@h:1/db", "mongodb://h:1/db"),
-        ("mongodb://u:p#q@h:1,i:2/db", "mongodb://h:1,i:2/db"),
-        ("mongodb+srv://u:p@h/db?a=b", "mongodb+srv://h/db"),
-        ("mongodb://h/db?tlsCertificateKeyFilePassword=p@q", "mongodb://h/db"),
-    ],
-)
-def test_redact_uri(uri: str, expected: str) -> None:
-    """Credentials and options are removed, also with `#` in a password."""
-    assert _redact_uri(uri) == expected
 
 
 @pytest.mark.parametrize("code", [68, 85, 86, 11000])

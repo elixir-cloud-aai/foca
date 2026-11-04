@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote_plus, urlsplit
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 # `IndexAlreadyExists`, `IndexOptionsConflict`, `IndexKeySpecsConflict`
 _INDEX_CONFLICT_CODES = (68, 85, 86)
 _DUPLICATE_KEY_CODE = 11000
+
+# Names of databases that logs tell as they are
+_PLAIN_DB_NAME = re.compile(r"[\w-]*")
 
 # Options of MongoDB clients unless set otherwise, in milliseconds: with
 # MongoDB down, requests and the startup of the app fail after this time, not
@@ -165,7 +169,11 @@ def create_mongo_client(
         connect=connect,
         **_get_client_options(uri=uri, options=options or {}, appname=appname),
     )
-    logger.info("Created MongoDB client for '%s'.", _redact_uri(uri))
+    logger.info(
+        "Created MongoDB client for '%s/%s'.",
+        _get_client_hosts(client, uri),
+        _get_loggable_db_name(db or ""),
+    )
     return client
 
 
@@ -368,19 +376,48 @@ def get_mongo_db_name(db: str) -> str:
     return os.environ.get("MONGO_DBNAME", db)
 
 
-def _redact_uri(uri: str) -> str:
-    """Remove credentials and options from MongoDB connection string.
+def _get_client_hosts(client: MongoClient[dict[str, Any]], uri: str) -> str:
+    """Get the hosts and ports of a MongoDB client, for logs.
 
-    Options are removed, as some may contain secrets (e.g.,
-    `tlsCertificateKeyFilePassword`).
+    They come from what the client made of its connection string, so that no
+    other part of it ends up in logs, whatever its form. They are left out if
+    a credential with unescaped characters may have been taken for a host: an
+    `@` after the end of the hosts is that, or a value of an option, and so is
+    a `:` in what has no port, i.e., sockets and SRV records. A host that looks
+    like any other can't be told apart, e.g., behind a `,` in a password.
 
     Args:
-        uri: MongoDB connection string.
+        client: MongoDB client.
+        uri: Connection string of the client, only checked for these forms.
 
     Returns:
-        MongoDB connection string without credentials and options.
+        Hosts and ports, separated by commas, or `unknown` if they are left
+        out, and for stand-ins of clients in the tests of apps, e.g., of
+        mongomock.
     """
-    # As PyMongo splits it: for `urlsplit()`, a `#` in a password would start
-    # a fragment
-    scheme, _, rest = uri.partition("://")
-    return f"{scheme}://{rest.partition('?')[0].rpartition('@')[2]}"
+    if "@" in uri.partition("://")[2].replace("?", "/").partition("/")[2]:
+        return "unknown"
+    try:
+        addresses = list(client.topology_description.server_descriptions())
+    except (AttributeError, TypeError):
+        return "unknown"
+    if not addresses or any(port is None and ":" in host for host, port in addresses):
+        return "unknown"
+    return ",".join(
+        sorted(host if port is None else f"{host}:{port}" for host, port in addresses)
+    )
+
+
+def _get_loggable_db_name(db: str) -> str:
+    """Get the name of a MongoDB database, for logs.
+
+    Args:
+        db: Name of the database as configured (cf. :py:func:`get_mongo_db_name`).
+
+    Returns:
+        The name in use or, as `MONGO_DBNAME` ends up in a connection string
+        and may so hold options, a placeholder if it has other characters than
+        word characters and hyphens.
+    """
+    name = get_mongo_db_name(db)
+    return name if _PLAIN_DB_NAME.fullmatch(name) else "(name not shown)"

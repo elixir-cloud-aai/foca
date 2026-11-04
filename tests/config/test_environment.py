@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 from flask import Flask
@@ -298,9 +299,9 @@ class TestUses:
         user.write_text("alice\n")
         monkeypatch.setenv("MONGO_USERNAME_FILE", str(user))
         monkeypatch.setenv("MONGO_PASSWORD_FILE", str(secret))
-        assert get_mongo_uri(host="db", port=1, db="x").startswith(
-            "mongodb://alice:pass+word@db:1/"
-        )
+        uri = urlsplit(get_mongo_uri(host="db", port=1, db="x"))
+        assert (uri.username, uri.password) == ("alice", "pass+word")
+        assert (uri.hostname, uri.port, uri.path) == ("db", 1, "/x")
 
     def test_mongo_uri(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """MongoDB connection strings can come from files."""

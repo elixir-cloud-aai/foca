@@ -16,8 +16,13 @@ change if:
 - their [requests or stored data don't fit declared formats](#stricter-request-checks);
 - they use [`is_admin()` with a model of their own](#is_admin-with-other-models);
 - they use the [plugins of foca-plugins](#plugins-of-foca-plugins);
+- their configuration files have [`${` or `$$` in string
+  values](#references-to-environment-variables-in-configuration-files);
+- their code reads [`jobs.backend`](#secrets-in-the-configuration), which is now a
+  `SecretStr`;
 - their filters or alerts match log texts that changed, of [changes of access
-  rights](#audit-log) or [invalid responses](#log-of-invalid-responses).
+  rights](#audit-log), [invalid responses](#log-of-invalid-responses) or [new MongoDB
+  clients](#log-of-new-mongodb-clients).
 
 Upgrading from 0.19 or earlier? Start with [Migrating to
 0.20.0](migration-0.20.md).
@@ -199,6 +204,23 @@ responses, which has the whole response body, is now filtered out. Instead, the 
 `foca.errors.exceptions` logs the operation and the validation error on level `ERROR`
 (see [Invalid responses](configuration/exceptions.md#invalid-responses)). Adapt filters
 and alerts that match Connexion's message.
+
+## Log of new MongoDB clients
+
+The message on level `INFO` for a new MongoDB client no longer derives from the connection
+string as such. It was `Created MongoDB client for 'mongodb://mongodb:27017/my_db'.`, and is
+now `Created MongoDB client for 'mongodb:27017/my_db'.`, with the hosts and ports as
+PyMongo understands them (e.g., sorted, with default ports, and for `mongodb+srv` the
+name or the resolved hosts) and the first configured database, even if `MONGO_URI` names
+another, which is only used to authenticate.
+
+The hosts show as `unknown` if the connection string has an `@` after them, as an
+unescaped credential or a value of an option can look like hosts then, and for stand-ins
+of clients in tests, such as mongomock. So escape credentials in connection strings as
+PyMongo requires: other forms of unescaped credentials can't always be recognized, and
+a part of one can still be taken for a host. A `MONGO_DBNAME` with other characters than
+word characters and hyphens shows as `(name not shown)`. Adapt filters and alerts that
+match the message.
 
 ## Changed defaults
 
