@@ -151,6 +151,26 @@ new releases of `elixir-cloud-aai/.github`; the Trivy version is the
 default of the shared action's `trivy-version` input. The setup is the
 same as in [cloud-registry](https://github.com/elixir-cloud-aai/cloud-registry).
 
+### Updating dependencies of the image
+
+The builder stage of `docker/Dockerfile` installs FOCA's dependencies and its
+build tools with their hashes (`--require-hashes`), from
+`docker/requirements/py<version>.txt` and `build.txt`. They are compiled from
+`pyproject.toml` with `scripts/compile-image-requirements.sh`, which needs uv:
+
+- After changing dependencies in `pyproject.toml`, run the script, which keeps all
+  pins that still fit. The job `Image constraints` fails if you forgot to.
+- `scripts/compile-image-requirements.sh --upgrade` updates all pins. Dependabot
+  updates them, too, one version and its hashes at a time.
+
+The base images are given by digest, one stage per Python version, which Dependabot
+updates, but it doesn't change the Python versions. A new Python version needs a new
+stage in the `Dockerfile`, an entry in `PYTHON_VERSIONS` of the script, and its file
+(`tests/test_image_requirements.py` checks that they match the workflows).
+
+Dependencies without wheels for a Python version are built in the builder stage, in
+an environment of their own, whose build tools are not pinned.
+
 ## Citation metadata
 
 FOCA is cited with the metadata in

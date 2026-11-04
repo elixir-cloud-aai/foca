@@ -1,0 +1,182 @@
+"""Tests of the hashed requirements of the image (`docker/requirements/`)."""
+
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).parents[1]
+REQUIREMENTS = ROOT / "docker/requirements"
+SCRIPT = "scripts/compile-image-requirements.sh"
+
+
+def _get_python_versions() -> set[str]:
+    """Get the Python versions of the stages of the Dockerfile.
+
+    Returns:
+        Python versions.
+    """
+    text = (ROOT / "docker/Dockerfile").read_text()
+    return set(
+        re.findall(
+            r"^FROM python:([0-9.]+)-slim-trixie@sha256:[0-9a-f]{64} "
+            r"AS python-\1-slim-trixie$",
+            text,
+            re.M,
+        )
+    )
+
+
+def test_all_stages_by_digest() -> None:
+    """All base images are given by digest."""
+    text = (ROOT / "docker/Dockerfile").read_text()
+    versions = _get_python_versions()
+    assert versions
+    assert len(re.findall(r"^FROM python:", text, re.M)) == len(versions)
+
+
+def test_each_version_has_requirements() -> None:
+    """The files of the requirements are those of the stages."""
+    assert {
+        path.stem.removeprefix("py") for path in REQUIREMENTS.glob("py*.txt")
+    } == _get_python_versions()
+    assert (REQUIREMENTS / "build.txt").is_file()
+
+
+@pytest.mark.parametrize(
+    ("workflow", "job"),
+    [
+        ("ci.yml", "push"),
+        ("ci.yml", "scan"),
+        ("release.yml", "push"),
+    ],
+)
+def test_matrix_has_stages(workflow: str, job: str) -> None:
+    """Workflows only build images that the Dockerfile has stages for."""
+    jobs = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"]
+    versions = jobs[job]["strategy"]["matrix"]["python-version"]
+    assert set(versions) == _get_python_versions()
+
+
+@pytest.mark.parametrize("path", sorted(REQUIREMENTS.glob("*.txt")), ids=str)
+def test_all_hashed(path: Path) -> None:
+    """All requirements have hashes."""
+    blocks = re.split(r"\n(?=[A-Za-z0-9])", path.read_text().strip())
+    assert blocks
+    for block in blocks:
+        assert re.match(r"[A-Za-z0-9._\[\]-]+==", block), block
+        assert "--hash=sha256:" in block, block
+
+
+def test_dependencies_installed_despite_build_tools() -> None:
+    """Dependencies that are also build tools still reach the final image."""
+    text = (ROOT / "docker/Dockerfile").read_text()
+    build_tools = (REQUIREMENTS / "build.txt").read_text()
+    pins = re.findall(r"^([a-z0-9._-]+)==", build_tools, re.M)
+    shared = {
+        pin
+        for path in REQUIREMENTS.glob("py*.txt")
+        for pin in re.findall(r"^([a-z0-9._-]+)==", path.read_text(), re.M)
+    } & set(pins)
+    # On the command that installs them for the final image
+    install = next(run for run in text.split("RUN ") if "--prefix" in run)
+    assert not shared or "--ignore-installed" in install
+
+
+def test_files_in_build_context() -> None:
+    """The files are in the allowlist of the build context."""
+    assert "!docker/requirements/" in (ROOT / ".dockerignore").read_text().split()
+
+
+# Stands in for `uv pip compile`: keeps the output file, with another pin if
+# `FAKE_PIN` is set
+_FAKE_UV = """#!/bin/sh
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--output-file" ]; then
+        output="$2"
+    fi
+    shift
+done
+if [ -n "${FAKE_PIN:-}" ]; then
+    sed -i "s/^addict==.* /addict==${FAKE_PIN} /" "${output}"
+fi
+"""
+
+
+class TestCheck:
+    """Tests of `scripts/compile-image-requirements.sh --check`."""
+
+    @pytest.fixture
+    def repo(self, tmp_path: Path) -> Path:
+        """Create a copy of the files of the repository that the script needs.
+
+        Args:
+            tmp_path: Temporary directory.
+
+        Returns:
+            Path of the copy.
+        """
+        (tmp_path / "scripts").mkdir()
+        shutil.copy(ROOT / SCRIPT, tmp_path / SCRIPT)
+        shutil.copy(ROOT / "pyproject.toml", tmp_path)
+        shutil.copytree(REQUIREMENTS, tmp_path / "docker/requirements")
+        uv = tmp_path / "bin/uv"
+        uv.parent.mkdir()
+        uv.write_text(_FAKE_UV)
+        uv.chmod(0o755)
+        return tmp_path
+
+    @staticmethod
+    def _check(repo: Path, **env: str) -> subprocess.CompletedProcess[str]:
+        """Run the check.
+
+        Args:
+            repo: Path of the copy of the repository.
+            **env: Further environment variables.
+
+        Returns:
+            Result of the script.
+        """
+        return subprocess.run(  # noqa: S603 (script of the repository)
+            ["/bin/sh", str(repo / SCRIPT), "--check"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={
+                "PATH": f"{repo / 'bin'}:{os.environ['PATH']}",
+                "TMPDIR": str(repo),
+                **env,
+            },
+        )
+
+    def test_fits(self, repo: Path) -> None:
+        """Pins that stay as they are pass."""
+        result = self._check(repo)
+        assert result.returncode == 0, result.stderr
+
+    def test_stale(self, repo: Path) -> None:
+        """Pins that change fail, naming the file."""
+        result = self._check(repo, FAKE_PIN="0.0.1")
+        assert result.returncode == 1
+        assert "Stale: docker/requirements/py3.13.txt" in result.stderr
+
+    def test_missing(self, repo: Path) -> None:
+        """Missing files fail."""
+        (repo / "docker/requirements/py3.13.txt").unlink()
+        result = self._check(repo)
+        assert result.returncode == 1
+        assert "Missing: docker/requirements/py3.13.txt" in result.stderr
+
+    def test_invalid_argument(self, repo: Path) -> None:
+        """Unknown arguments are refused."""
+        result = subprocess.run(  # noqa: S603 (script of the repository)
+            ["/bin/sh", str(repo / SCRIPT), "--other"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 2

@@ -37,7 +37,7 @@ from tests.test_files.service_info_data import (
 )
 def test_is_uri(value: object) -> None:
     """Absolute URIs with any scheme pass; non-strings are left to the schema."""
-    assert module._is_uri(value)
+    assert module.is_uri(value)
 
 
 @pytest.mark.parametrize(
@@ -46,7 +46,7 @@ def test_is_uri(value: object) -> None:
 )
 def test_is_uri_invalid(value: str) -> None:
     """Relative URIs and strings with whitespace fail."""
-    assert not module._is_uri(value)
+    assert not module.is_uri(value)
 
 
 @pytest.mark.parametrize(
@@ -65,7 +65,7 @@ def test_is_date_time(value: object) -> None:
 
     Non-strings are left to the schema.
     """
-    assert module._is_date_time(value)
+    assert module.is_date_time(value)
 
 
 @pytest.mark.parametrize(
@@ -88,7 +88,7 @@ def test_is_date_time(value: object) -> None:
 )
 def test_is_date_time_invalid(value: str) -> None:
     """Other strings fail, also with non-ASCII digits."""
-    assert not module._is_date_time(value)
+    assert not module.is_date_time(value)
 
 
 def test_without_nulls() -> None:

@@ -434,6 +434,12 @@ jobs:
         with:
           name: dist
           path: dist/
+      # For images built on the FOCA image, to install the same versions
+      - name: Add image requirements
+        run: |
+          for file in docker/requirements/py*.txt; do
+              cp "${file}" "dist/foca-image-requirements-$(basename "${file}")"
+          done
       # Assets of a published immutable release can't be added, replaced or
       # deleted, so the release is created as a draft, gets the
       # distributions, and is published last. Re-runs finish a draft of an
