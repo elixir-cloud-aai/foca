@@ -34,19 +34,17 @@ cd "$(dirname "$0")/.."
 upgrade=""
 [ "${mode}" = "--upgrade" ] && upgrade="--upgrade"
 
-# Compile a file from standard input or `pyproject.toml`, into a temporary copy
-# with `--check`
+# Compile a file from `pyproject.toml` or another input into a temporary copy,
+# so that a failure changes none of the files
 compile() {
     file="$1"
     shift
-    output="${TARGET}/${file}"
-    if [ "${mode}" = "--check" ]; then
-        output="${work}/${file}"
-        cp "${TARGET}/${file}" "${output}" 2>/dev/null || {
-            echo "Missing: ${TARGET}/${file}" >&2
-            status=1
-            return 0
-        }
+    output="${work}/${file}"
+    if ! cp "${TARGET}/${file}" "${output}" 2>/dev/null \
+        && [ "${mode}" = "--check" ]; then
+        echo "Missing: ${TARGET}/${file}" >&2
+        status=1
+        return 0
     fi
     # shellcheck disable=SC2086 # `upgrade` is empty or one option
     uv pip compile --quiet --generate-hashes --no-header ${upgrade} \
@@ -81,5 +79,9 @@ print("${PIP_REQUIREMENT}")
 EOF
 compile build.txt "${build_requirements}" \
     --python-version 3.11 --universal --no-annotate
+
+if [ "${mode}" != "--check" ]; then
+    mv "${work}"/*.txt "${TARGET}/"
+fi
 
 exit "${status}"

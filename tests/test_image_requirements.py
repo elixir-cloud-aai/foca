@@ -82,7 +82,9 @@ def test_dependencies_installed_despite_build_tools() -> None:
         for path in REQUIREMENTS.glob("py*.txt")
         for pin in re.findall(r"^([a-z0-9._-]+)==", path.read_text(), re.M)
     } & set(pins)
-    assert not shared or "--ignore-installed" in text
+    # On the command that installs them for the final image
+    install = next(run for run in text.split("RUN ") if "--prefix" in run)
+    assert not shared or "--ignore-installed" in install
 
 
 def test_files_in_build_context() -> None:
