@@ -50,6 +50,11 @@ specification, while policies are still enforced. `api_base_path` moves it, unle
 `api_specs` sets its own (cf. [Configuring the
 API](../access-control.md#configuring-the-api)).
 
+`resource_roles_cover_custom_methods` is off by default. Set to `true`, roles on a
+resource also cover its custom methods (e.g., a role on `/tasks/1` covers
+`POST /tasks/1:cancel`; cf. [resource-scoped
+roles](../access-control.md#resource-scoped-roles)).
+
 Access control requires `enabled: true` and trusted token
 [`issuers`](auth.md); the other options are rejected otherwise. With
 `enforce: true`, policies are enforced on all operations that require
