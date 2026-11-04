@@ -188,6 +188,28 @@ Apps add checks of their own after creating the app, e.g.,
 [`require_no_service_clients()`](authentication.md#service-tokens) for apps
 that don't support service clients.
 
+## Configured policies in rolling upgrades
+
+`security.access_control.policies` are written to the database on startup, and
+by default, the last pod to start wins. During a rolling upgrade, an old pod that
+restarts thus brings back the old rules, until the next new pod starts. To prevent
+that, set a revision, a number that grows with each release changing the rules:
+
+```yaml
+security:
+  access_control:
+    policies_revision: 3
+```
+
+A pod with an older revision than the stored one leaves the rules as they are, and
+logs a warning. A pod with the same or a newer revision writes its rules, which is
+also how the first pod with a revision takes over. Once a revision is stored, pods
+without one count as older, and apply to removing all rules, too.
+
+To roll back, deliberately, set `policies_force: true` for the old version: its
+pods then write their rules and their revision whatever is stored. Remove it again
+afterwards, as forcing pods keep overwriting newer ones.
+
 ## Kubernetes and Helm
 
 FOCA's [Helm library chart](helm-chart.md) implements the setup described

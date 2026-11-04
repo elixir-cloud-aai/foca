@@ -29,10 +29,16 @@ security:
     self_service: true
     policies:
       - [p, "*", /pets, "(GET)|(POST)"]
+    policies_revision: 3
+    policies_force: false
     api_swagger_ui: true
     api_serve_spec: true
     log_traffic: true
 ```
+
+`policies_revision` and `policies_force` keep old pods from bringing back old
+rules during rolling upgrades (cf. [Configured policies in rolling
+upgrades](../deployment.md#configured-policies-in-rolling-upgrades)).
 
 Access control requires `enabled: true` and trusted token
 [`issuers`](auth.md); the other options are rejected otherwise. With
