@@ -1164,12 +1164,13 @@ class AccessControlConfig(FOCABaseConfig):
             Validated access control configuration.
 
         Raises:
-            ValueError: `api_swagger_ui` is enabled, but `api_serve_spec` is
-                set to `False` (the specification is served with the UI
-                unless it is set).
+            ValueError: The permissions API is enabled and `api_swagger_ui`
+                too, but `api_serve_spec` is set to `False` (the specification
+                is served with the UI unless it is set).
         """
         if (
-            self.api_swagger_ui
+            self.api_enabled
+            and self.api_swagger_ui
             and not self.api_serve_spec
             and "api_serve_spec" in self.model_fields_set
         ):
@@ -2253,6 +2254,12 @@ class SecurityConfig(FOCABaseConfig):
                     ("enforce", access_control.enforce),
                     ("api_specs", access_control.api_specs),
                     ("self_service", access_control.self_service),
+                    ("api_enabled", not access_control.api_enabled),
+                    (
+                        "api_base_path",
+                        access_control.api_base_path
+                        != AccessControlConfig.model_fields["api_base_path"].default,
+                    ),
                     ("policies", access_control.policies),
                     ("client_mapping", access_control.client_mapping),
                     ("require_admin", access_control.require_admin),

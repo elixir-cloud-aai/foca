@@ -746,21 +746,26 @@ def _warn_default_base_path(access_control_config: AccessControlConfig) -> None:
         access_control_config: Access control configuration, with policy rules.
     """
     default = AccessControlConfig.model_fields["api_base_path"].default
+    base_path = access_control_config.api_base_path
     if (
         not access_control_config.api_enabled
         or access_control_config.api_specs is not None
-        or access_control_config.api_base_path == default
-        or access_control_config.api_base_path.startswith(f"{default}/")
+        or base_path == default
     ):
         return
     for rule in access_control_config.policies or []:
-        if any(value.startswith(f"{default}/") for value in rule[1:]):
+        if rule[0] != "p" or len(rule) < 3:
+            continue
+        # Paths below the base paths: rules for all paths apply to both
+        if (
+            rule[2].startswith(f"{default}/") or key_match2(f"{default}/x", rule[2])
+        ) and not key_match2(f"{base_path}/x", rule[2]):
             logger.warning(
                 "Policy rule %r names the default path of the permissions API, "
                 "which is at '%s' ('security.access_control.api_base_path'): "
                 "the rule doesn't apply to it.",
                 rule,
-                access_control_config.api_base_path,
+                base_path,
             )
 
 
