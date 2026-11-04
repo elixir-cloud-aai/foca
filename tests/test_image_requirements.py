@@ -39,6 +39,17 @@ def test_all_stages_by_digest() -> None:
     assert len(re.findall(r"^FROM python:", text, re.M)) == len(versions)
 
 
+def test_base_stage_upgrades_apt() -> None:
+    """Both later stages get the fixed `apt`, also with pinned base images."""
+    text = (ROOT / "docker/Dockerfile").read_text()
+    base_stage = text.partition(" AS base\n")[2].partition(" AS builder\n")[0]
+    assert re.search(
+        r"apt-get install -y --no-install-recommends --only-upgrade "
+        r"apt libapt-pkg7\.0\b",
+        base_stage,
+    )
+
+
 def test_each_version_has_requirements() -> None:
     """The files of the requirements are those of the stages."""
     assert {
