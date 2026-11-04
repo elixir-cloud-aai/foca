@@ -73,6 +73,9 @@ security:
     # Request header in which service clients with `on_behalf_of: True`
     # name the user they act for
     on_behalf_of_header: null
+    # Reject invalid tokens also on operations with optional authentication,
+    # where they are otherwise handled as anonymous
+    reject_invalid_tokens: False
   # Cf. https://foca.readthedocs.io/en/latest/configuration/access-control/
   access_control:
     # Requires trusted `issuers`; all other access control options require
@@ -96,7 +99,7 @@ api:
       add_operation_fields:
         x-openapi-router-controller: myapi.controllers
       add_security_fields:
-        x-bearerInfoFunc: app.validate_token
+        x-bearerInfoFunc: foca.security.auth.validate_token
       disable_auth: False
       connexion:
         strict_validation: True

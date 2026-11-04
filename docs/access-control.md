@@ -423,8 +423,8 @@ policy allows them.
 
 * Operations with `security: []` are not enforced, i.e., they are public.
   The same applies to operations with optional authentication, i.e., with an
-  empty security requirement alternative (e.g., `security: [{}, {bearerAuth:
-  []}]`).
+  empty security requirement alternative (e.g., `security: [{bearerAuth: []},
+  {}]`; see [optional tokens](authentication.md#optional-tokens)).
 * Single operations can opt out via `x-foca-access-control: false`.
 * Operations are selected as resolved by Connexion, so operations of path
   items defined via `$ref` are enforced, too.

@@ -1641,7 +1641,7 @@ class AuthConfig(FOCABaseConfig):
             `access_control.claim_groups`) with identity providers that
             only provide them via user info. Claims of the token are never
             replaced. The user info needs to report the token's subject; it
-            is cached per token for `cache_ttl` seconds (unless
+            is cached per token for `userinfo_cache_ttl` seconds (unless
             `validate_userinfo` is set), but not beyond the token's expiry.
             The claims `client_id` and `azp` cannot be added, as they
             identify the client that obtained the token (cf. `clients` and
@@ -1651,6 +1651,10 @@ class AuthConfig(FOCABaseConfig):
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
+        userinfo_cache_ttl: Time (in seconds) for which user info is cached.
+            If `None`, `cache_ttl`. Each process caches separately, so a
+            change of a user's groups can take this long to apply, at
+            different times in different processes.
         service_clients: Service clients, whose client-credentials tokens
             (service tokens) represent the client, not a user (cf.
             :py:class:`ServiceClientConfig`). No user info is requested for
@@ -1663,6 +1667,10 @@ class AuthConfig(FOCABaseConfig):
             act for (e.g., `X-On-Behalf-Of`). If `None`, only the app can
             pass a named user (e.g., from a request field) to
             :py:func:`foca.security.access_control.get_on_behalf_of_user`.
+        reject_invalid_tokens: Whether to reject invalid tokens (`401`, with
+            an RFC 6750 challenge) also on operations with optional
+            authentication, where they are otherwise handled as anonymous.
+            Requests without a token stay anonymous.
 
     Attributes:
         issuers: Trusted token issuers.
@@ -1684,9 +1692,12 @@ class AuthConfig(FOCABaseConfig):
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
+        userinfo_cache_ttl: Time (in seconds) for which user info is cached.
         service_clients: Service clients.
         on_behalf_of_header: Request header in which service clients name
             the user they act for.
+        reject_invalid_tokens: Whether to reject invalid tokens also on
+            operations with optional authentication.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -1727,8 +1738,10 @@ class AuthConfig(FOCABaseConfig):
     userinfo_claims: list[str] = []
     timeout: float = Field(default=10, gt=0)
     cache_ttl: float = Field(default=300, ge=0)
+    userinfo_cache_ttl: float | None = Field(default=None, ge=0)
     service_clients: list[ServiceClientConfig] = []
     on_behalf_of_header: str | None = Field(default=None, min_length=1)
+    reject_invalid_tokens: bool = False
     # Whether warnings about the settings were logged, i.e., on the first
     # token validation
     _warnings_logged: bool = PrivateAttr(default=False)
@@ -1876,6 +1889,16 @@ class AuthConfig(FOCABaseConfig):
         if conf is None or conf.audience is None:
             return self.audience
         return conf.audience
+
+    def get_userinfo_cache_ttl(self) -> float:
+        """Get the time for which user info is cached.
+
+        Returns:
+            `userinfo_cache_ttl`, or `cache_ttl` if unset.
+        """
+        if self.userinfo_cache_ttl is None:
+            return self.cache_ttl
+        return self.userinfo_cache_ttl
 
     def get_userinfo_claims(self, issuer: str) -> list[str]:
         """Get the claims to add from the user info of an issuer.
