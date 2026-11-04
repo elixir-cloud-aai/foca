@@ -86,7 +86,7 @@ def _is_api(api_type: object, api: ApiType) -> bool:
         api: API type.
 
     Returns:
-        Whether group and artifact match, ignoring case.
+        Whether group and artifact match (cf. :py:func:`_same`).
     """
     return (
         isinstance(api_type, Mapping)
@@ -202,7 +202,8 @@ def select_services(
             or url != verified_url
             or not _is_api(verified_type, api)
             # the versions listed agree; the Cloud Registry lists a service's
-            # current version in both, as updating it keeps the verification
+            # current version in both, as updating it usually keeps the
+            # verification (not if that makes the service pending)
             or _version(verified_type) != _version(api_type)
         ):
             selection.rejected.append(

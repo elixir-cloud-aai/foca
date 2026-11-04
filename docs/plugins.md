@@ -232,8 +232,9 @@ environment are accepted, their URLs are `https` and their hosts have public
 addresses only (unless `allow_private_addresses`); malformed items are
 skipped and logged. A verification doesn't cover the version and environment:
 the Cloud Registry keeps it when the owner or a maintainer of a service changes
-them, so these filters select by what the registry lists now, not by what an
-admin checked. Registries are read without access token and without
+them (unless a new version makes the service pending, which removes it), so
+these filters select by what the registry lists now, not by what an admin
+checked. Registries are read without access token and without
 following redirects, at public addresses only unless
 `registry_allow_private_addresses` (e.g., a registry in the same cluster), so
 a registry that requires login for reads can't be used: it answers `401`,
