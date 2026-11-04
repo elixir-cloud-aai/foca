@@ -63,7 +63,8 @@ db:
 
 Values are strings, numbers or booleans. Unknown or invalid options stop the app
 on startup. `host`, `port` and `connect` can't be set here: use `db.host`,
-`db.port` or `MONGO_URI`.
+`db.port` or `MONGO_URI`. Neither can `username` and `password`: use
+[the environment variables below](#environment-variables).
 
 FOCA sets these defaults:
 
@@ -71,17 +72,20 @@ FOCA sets these defaults:
 | --- | --- | --- |
 | `serverSelectionTimeoutMS` | `5000` | If MongoDB can't be reached, requests and the startup of the app fail after this time; PyMongo's default is 30 seconds. |
 | `connectTimeoutMS` | `5000` | Time allowed to open a connection; PyMongo's default is 20 seconds. |
-| `appname` | `service_info.service.id`, else `service_info.package`, else `foca` | Name of the app in MongoDB's logs. |
+| `appname` | `service_info.service.id`, else `service_info.package`, else `foca` (the latter if longer than the 128 bytes that PyMongo allows) | Name of the app in MongoDB's logs. |
 
 Options in the connection string of `MONGO_URI` win over `client_options`, and
 FOCA logs a warning naming them. Note that this differs from PyMongo itself, where
 keyword arguments win. It lets a deployment change an option without changing the
 app's configuration, also for the defaults above, without a warning. Names in
 either place are not case-sensitive. Aliases aren't resolved (e.g., `ssl` for
-`tls`), so use the same name in both places.
+`tls`), so use the same name in both places; PyMongo refuses `ssl` and `tls` with
+different values. `authSource` only counts as set if the connection string has
+that option: the database in its path is merely the default for it.
 
-The options apply to all clients of the app. `create_mongo_client()` takes them
-as `options`, and applies the defaults as well.
+The options apply to all clients that the app gets from `get_mongo_client()`.
+`create_mongo_client()` takes them as `options`, and applies the defaults, but
+not `client_options`.
 
 ## Environment variables
 

@@ -2275,6 +2275,12 @@ class DBConfig(FOCABaseConfig):
     client: database.Database[dict[str, Any]] | None = None
 
 
+# Options of a MongoDB client, as far as they can be set in configuration files
+ClientOptions = dict[str, str | int | float | bool]
+# Longest name of an app that PyMongo accepts
+MAX_MONGO_APPNAME_BYTES = 128
+
+
 class MongoConfig(FOCABaseConfig):
     """Model for a MongoDB instance attached to a Flask/Connexion app.
 
@@ -2288,7 +2294,9 @@ class MongoConfig(FOCABaseConfig):
             ones. By default, `serverSelectionTimeoutMS` and `connectTimeoutMS`
             are 5000, and `appname` is the identifier of the service info or
             else the name of its package. Options in `MONGO_URI` win, with a
-            warning. Not `host`, `port` and `connect`, which FOCA sets.
+            warning. Not `host`, `port` and `connect`, which FOCA sets, and not
+            `username` and `password`, which belong in `MONGO_USERNAME` and
+            `MONGO_PASSWORD` or `MONGO_URI`.
 
     Attributes:
         host: Host at which the database is exposed.
@@ -2312,18 +2320,17 @@ class MongoConfig(FOCABaseConfig):
     host: str = "mongodb"
     port: int = 27017
     dbs: dict[str, DBConfig] | None = None
-    client_options: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    client_options: ClientOptions = Field(default_factory=dict)
     # MongoDB client shared by all databases; set on registration
     _client: MongoClient[dict[str, Any]] | None = PrivateAttr(default=None)
     # Name of the app in MongoDB's logs by default; set from the service info
+    # when `Config` is validated
     _default_appname: str = PrivateAttr(default="foca")
 
     @field_validator("client_options")
     @classmethod
-    def _check_client_options(
-        cls, value: dict[str, str | int | float | bool]
-    ) -> dict[str, str | int | float | bool]:
-        """Reject client options that FOCA sets itself.
+    def _check_client_options(cls, value: ClientOptions) -> ClientOptions:
+        """Reject client options that are set elsewhere.
 
         Args:
             value: Options of the client.
@@ -2332,16 +2339,20 @@ class MongoConfig(FOCABaseConfig):
             The options.
 
         Raises:
-            ValueError: An option is `host`, `port` or `connect`.
+            ValueError: An option is `host`, `port`, `connect`, `username` or
+                `password`. The latter would override the connection string
+                and put credentials in the configuration.
         """
         reserved = sorted(
-            name for name in value if name.lower() in {"host", "port", "connect"}
+            name
+            for name in value
+            if name.lower() in {"host", "port", "connect", "username", "password"}
         )
         if reserved:
             raise ValueError(
                 f"Options {reserved} can't be set in `db.client_options`: use "
-                "`db.host`, `db.port` or `MONGO_URI`; FOCA decides when clients "
-                "connect"
+                "`db.host`, `db.port`, `MONGO_URI`, `MONGO_USERNAME` or "
+                "`MONGO_PASSWORD`; FOCA decides when clients connect"
             )
         return value
 
@@ -2728,8 +2739,13 @@ class Config(FOCABaseConfig):
             The config.
         """
         if self.db is not None and self.service_info is not None:
-            service_id = (self.service_info.service or {}).get("id")
+            service_id = self.service_info.service.get("id")
             name = service_id or self.service_info.package
-            if isinstance(name, str) and name:
+            # A default mustn't stop the app: PyMongo rejects longer names
+            if (
+                isinstance(name, str)
+                and name
+                and len(name.encode()) <= MAX_MONGO_APPNAME_BYTES
+            ):
                 self.db._default_appname = name
         return self

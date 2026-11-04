@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
-from pymongo.errors import ConfigurationError
+from pymongo.errors import ConfigurationError, PyMongoError
 
 from foca.database import register_mongodb as module
 from foca.database.register_mongodb import (
@@ -28,6 +28,7 @@ from foca.models.config import (
     ServiceInfoConfig,
 )
 from tests.mock_data import MongoClients
+from tests.test_files.service_info_data import FIELDS, REMOVE, service
 
 MONGO_ENV_VARS = [
     "MONGO_URI",
@@ -416,13 +417,25 @@ class TestClientOptions:
     @pytest.mark.parametrize(
         ("service_info", "expected"),
         [
+            ({"service": service(id="org.example.my")}, "org.example.my"),
+            ({"service": service(id="x" * 128)}, "x" * 128),
+            ({"service": service(id="x" * 129)}, "foca"),
+            ({"service": service(id="\u00e4" * 65)}, "foca"),
             (
-                {"service": {"id": "org.example.my"}, "package": "my-app"},
-                "org.example.my",
+                {
+                    "service": service(id=REMOVE),
+                    "runtime_fields": f"{FIELDS}.runtime_fields",
+                    "package": "pytest",
+                },
+                "pytest",
             ),
-            ({"service": {"name": "x"}, "package": "my-app"}, "my-app"),
-            ({"service": None, "package": "my-app"}, "my-app"),
-            ({"service": {"name": "x"}, "package": None}, "foca"),
+            (
+                {
+                    "service": service(id=REMOVE),
+                    "runtime_fields": f"{FIELDS}.runtime_fields",
+                },
+                "foca",
+            ),
         ],
     )
     def test_appname_service_info(
@@ -432,30 +445,10 @@ class TestClientOptions:
         expected: str,
     ) -> None:
         """The app is named after its service info."""
-        conf = Config(db=MongoConfig())
-        conf.service_info = ServiceInfoConfig.model_construct(**service_info)
-        conf._set_mongo_appname()  # type: ignore[operator]
+        conf = Config(db=MongoConfig(), service_info=ServiceInfoConfig(**service_info))
         assert conf.db is not None
         get_mongo_client(conf.db)
         assert options[0]["appname"] == expected
-
-    def test_appname_on_validation(self, options: list[dict[str, Any]]) -> None:
-        """The validated config names the app."""
-        conf = Config(
-            db=MongoConfig(),
-            service_info=ServiceInfoConfig(
-                service={
-                    "id": "org.example.my",
-                    "name": "My service",
-                    "type": {"group": "org.example", "artifact": "a", "version": "1"},
-                    "organization": {"name": "Org", "url": "https://org.test/"},
-                    "version": "1.0.0",
-                }
-            ),
-        )
-        assert conf.db is not None
-        get_mongo_client(conf.db)
-        assert options[0]["appname"] == "org.example.my"
 
     def test_uri_wins(
         self,
@@ -482,6 +475,26 @@ class TestClientOptions:
         warning.assert_called_once()
         assert warning.call_args.args[1] == "maxPoolSize"
         assert "s3cr3t" not in str(warning.call_args)
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "maxPoolSize=2;connectTimeoutMS=1;appname=uri",
+            "maxPoolSize=2&connectTimeoutMS=1;appname=uri",
+            "appname=a#b&connectTimeoutMS=1&maxPoolSize=2",
+            "&maxPoolSize=2&&connectTimeoutMS=1&appname=uri&",
+        ],
+    )
+    def test_uri_parsed_as_in_pymongo(
+        self,
+        options: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+        query: str,
+    ) -> None:
+        """Each form of connection string that PyMongo accepts wins."""
+        monkeypatch.setenv("MONGO_URI", f"mongodb://a/db?{query}")
+        get_mongo_client(MongoConfig(client_options={"maxPoolSize": 9}))
+        assert options == [{"connect": True, "serverselectiontimeoutms": 5000}]
 
     def test_no_warning_for_defaults(
         self,
@@ -512,6 +525,53 @@ class TestClientOptions:
         finally:
             client.close()
 
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "maxPoolSize=7;serverSelectionTimeoutMS=1000",
+            "maxPoolSize=7&serverSelectionTimeoutMS=1000",
+        ],
+    )
+    def test_real_client_uri_wins(
+        self, monkeypatch: pytest.MonkeyPatch, query: str
+    ) -> None:
+        """PyMongo uses the options of the connection string."""
+        monkeypatch.setenv("MONGO_URI", f"mongodb://localhost/db?{query}")
+        client = create_mongo_client(connect=False, options={"maxPoolSize": 9})
+        try:
+            assert client.options.pool_options.max_pool_size == 7
+            assert client.options.server_selection_timeout == 1
+            assert client.options.pool_options.connect_timeout == 5
+        finally:
+            client.close()
+
+    def test_aliases_not_resolved(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """PyMongo refuses aliases with different values in both places."""
+        monkeypatch.setenv("MONGO_URI", "mongodb://localhost/db?ssl=true")
+        with pytest.raises(PyMongoError):
+            create_mongo_client(connect=False, options={"tls": False})
+
+    @pytest.mark.parametrize(
+        ("name", "value", "error"),
+        [
+            ("maxPoolSize", "abc", ValueError),
+            ("serverSelectionTimeoutMS", -1, ValueError),
+            ("document_class", "x", TypeError),
+        ],
+    )
+    def test_invalid_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+        value: object,
+        error: type[Exception],
+    ) -> None:
+        """Invalid values fail on creating the client."""
+        for var in MONGO_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        with pytest.raises(error):
+            create_mongo_client(connect=False, options={name: value})
+
     def test_unknown_option(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Unknown options fail on creating the client."""
         for var in MONGO_ENV_VARS:
@@ -519,7 +579,9 @@ class TestClientOptions:
         with pytest.raises(ConfigurationError, match="nonsense"):
             create_mongo_client(connect=False, options={"nonsense": 1})
 
-    @pytest.mark.parametrize("name", ["host", "PORT", "connect"])
+    @pytest.mark.parametrize(
+        "name", ["host", "PORT", "connect", "username", "Password"]
+    )
     def test_reserved_option(self, name: str) -> None:
         """Options that FOCA sets are rejected."""
         with pytest.raises(ValidationError, match=name):

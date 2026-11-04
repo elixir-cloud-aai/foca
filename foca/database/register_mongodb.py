@@ -2,9 +2,10 @@
 
 import logging
 import os
+import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import parse_qsl, quote_plus, urlsplit, urlunsplit
+from urllib.parse import quote_plus, urlsplit, urlunsplit
 
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
@@ -141,7 +142,9 @@ def create_mongo_client(
         MongoDB client.
 
     Raises:
-        pymongo.errors.ConfigurationError: An option is unknown or invalid.
+        pymongo.errors.PyMongoError: An option is unknown, or options conflict.
+        TypeError: An option has a value of the wrong type.
+        ValueError: An option has an invalid value.
     """
     uri = get_mongo_uri(host=host, port=port, db=db or "")
     client: MongoClient[dict[str, Any]] = MongoClient(
@@ -173,9 +176,10 @@ def _get_client_options(
         configured options, in order of precedence and with lowercase names,
         without those in the connection string.
     """
+    # As PyMongo parses it: `#` isn't special, and `;` also separates options
+    query = uri.partition("?")[2]
     in_uri = {
-        name.lower()
-        for name, _ in parse_qsl(urlsplit(uri).query, keep_blank_values=True)
+        option.partition("=")[0].lower() for option in re.split("[&;]", query) if option
     }
     overridden = sorted(name for name in options if name.lower() in in_uri)
     if overridden:
