@@ -25,6 +25,7 @@ configuration models, see [Configuration](configuration/index.md).
         - get_token_client
         - get_service_client
         - require_no_service_clients
+        - InvalidTokenResolver
 
 ## Access control
 
@@ -33,6 +34,7 @@ configuration models, see [Configuration](configuration/index.md).
       members:
         - enforce_access_control
         - is_permitted
+        - is_permitted_for
         - get_current_subject
         - get_current_groups
         - get_current_roles
@@ -278,6 +280,8 @@ configuration models, see [Configuration](configuration/index.md).
         - check_url_fields
         - normalize_url
         - get_public_url
+        - get_api_base_path
+        - get_resource_path
         - InvalidURL
         - URLScheme
         - HTTP_SCHEMES
@@ -291,3 +295,5 @@ configuration models, see [Configuration](configuration/index.md).
         - log_traffic
         - log_traffic_if
         - escape_log_value
+
+::: foca.utils.pagination

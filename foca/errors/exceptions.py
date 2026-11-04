@@ -11,10 +11,13 @@ from connexion import App
 from connexion.exceptions import (
     BadRequestProblem,
     ExtraParameterProblem,
+    NonConformingResponse,
+    NonConformingResponseHeaders,
     OAuthProblem,
     ProblemException,
 )
-from flask import Response
+from flask import Response, request
+from jsonschema import ValidationError
 from werkzeug.datastructures import Headers
 from werkzeug.exceptions import HTTPException
 
@@ -74,7 +77,7 @@ _VALIDATION_LOGGER = "connexion.decorators.validation"
 _RESERVED_MEMBERS = ("title", "status", "detail", "type")
 
 
-def _keep_response_validation_records(record: logging.LogRecord) -> bool:
+def _drop_request_validation_records(record: logging.LogRecord) -> bool:
     """Filter out log records of Connexion's request validation.
 
     Added to Connexion's validation logger with
@@ -82,15 +85,33 @@ def _keep_response_validation_records(record: logging.LogRecord) -> bool:
     as it logs the reasons of rejected requests in full and unescaped (e.g.,
     with the rejected values); the handler logs them shortened and escaped
     instead. Records of response validation (`validator` attribute
-    `response`) are kept, as they log why a response is invalid.
+    `response`) are left to :py:func:`_drop_response_validation_records`.
 
     Args:
         record: Log record of Connexion's validation logger.
 
     Returns:
-        Whether the record is of response validation.
+        Whether the record is not of request validation, i.e., is of response
+        validation.
     """
     return getattr(record, "validator", None) == "response"
+
+
+def _drop_response_validation_records(record: logging.LogRecord) -> bool:
+    """Filter out log records of Connexion's response validation.
+
+    Added to Connexion's validation logger (cf.
+    :py:func:`register_exception_handler`), as it logs the validator's message
+    with the whole response body; the handler logs the operation and the
+    validation error instead (cf. :py:func:`_response_validation_handler_json`).
+
+    Args:
+        record: Log record of Connexion's validation logger.
+
+    Returns:
+        Whether the record is not of response validation.
+    """
+    return getattr(record, "validator", None) != "response"
 
 
 def register_exception_handler(
@@ -99,12 +120,17 @@ def register_exception_handler(
 ) -> App:
     """Register generic JSON problem handler with Connexion app.
 
+    Registers a handler for responses that fail validation, which logs them
+    without their bodies, and filters out the messages on them of Connexion's
+    validation logger (`connexion.decorators.validation`; for all apps of the
+    process; cf. :py:func:`_response_validation_handler_json`).
+
     With `conf.validation_details`, also registers a handler for Connexion's
     request validation exceptions (`BadRequestProblem` and
     `ExtraParameterProblem`; cf. :py:func:`_validation_handler_json`) and
     filters out the request validation messages of Connexion's validation
     logger (`connexion.decorators.validation`; for all apps of the process,
-    cf. :py:func:`_keep_response_validation_records`).
+    cf. :py:func:`_drop_request_validation_records`).
 
     Args:
         app: Connexion application instance.
@@ -122,6 +148,13 @@ def register_exception_handler(
 
     app.add_error_handler(Exception, _handler)
     logger.debug("Registered generic JSON problem handler with Connexion app.")
+
+    def _response_validation_handler(exception: NonConformingResponse) -> Response:
+        return _response_validation_handler_json(exception=exception, conf=_conf)
+
+    app.add_error_handler(NonConformingResponse, _response_validation_handler)
+    # Added once per process (`addFilter()` skips filters already added)
+    logging.getLogger(_VALIDATION_LOGGER).addFilter(_drop_response_validation_records)
     if _conf.validation_details:
 
         def _validation_handler(exception: ProblemException) -> Response:
@@ -132,7 +165,7 @@ def register_exception_handler(
         # The handler logs the reason shortened and escaped instead; added
         # once per process (`addFilter()` skips filters already added)
         logging.getLogger(_VALIDATION_LOGGER).addFilter(
-            _keep_response_validation_records
+            _drop_request_validation_records
         )
         logger.debug("Registered validation problem handler with Connexion app.")
     return app
@@ -411,6 +444,67 @@ def _validation_handler_json(
                 conf.max_detail_length,
             ),
         )
+    return _response(exc=exception, problem=problem, conf=conf)
+
+
+def _response_validation_error(exc: NonConformingResponse) -> str:
+    """Describe why a response failed validation, without its content.
+
+    The message of the validator quotes the invalid values, up to the whole
+    response body, and locations in the body may have keys of the body. So
+    body errors are described by what comes from the specification only: the
+    path of the failed keyword in the schema and, for `required`, the names
+    of the missing properties.
+
+    Args:
+        exc: Exception of Connexion's response validation.
+
+    Returns:
+        The path of the failed keyword for invalid bodies, the reason of the
+        exception for invalid headers (naming the missing ones), otherwise its
+        title.
+    """
+    # Connexion raises the exception while handling the validator's error
+    error = exc.__context__
+    if isinstance(error, ValidationError):
+        path = "/".join(str(item) for item in error.absolute_schema_path)
+        message = f"failed at schema path '/{path}'"
+        if error.validator == "required" and isinstance(error.instance, dict):
+            missing = sorted(set(error.validator_value) - error.instance.keys())
+            message = f"{message}: missing {', '.join(missing)}"
+        return message
+    if isinstance(exc, NonConformingResponseHeaders):
+        return str(exc.detail)
+    return str(exc.title)
+
+
+def _response_validation_handler_json(
+    exception: NonConformingResponse,
+    conf: ExceptionConfig,
+) -> Response:
+    """JSON problem handler for Connexion's response validation exceptions.
+
+    Logs the operation and the validation error, shortened and escaped
+    (unless disabled via `conf.logging`), instead of the exception, as the
+    message of the validator, also in the traceback, has the response body.
+    Responds like :py:func:`_problem_handler_json`.
+
+    Args:
+        exception: Exception of Connexion's response validation.
+        conf: Exception handling settings.
+
+    Returns:
+        JSON-formatted error response, with the problem details mapped to
+        the exception (cf. :py:func:`build_problem`).
+    """
+    problem = _resolve_problem(exc=exception, conf=conf)
+    if conf.logging is not ExceptionLoggingEnum.none:
+        message = escape_log_value(
+            f"Response of operation '{request.endpoint}' does not conform to "
+            f"its specification: {_response_validation_error(exception)}"
+        )
+        logged = f"{dumps(problem)} {_shorten(message, conf.max_detail_length)}"
+        logger.error(logged)
     return _response(exc=exception, problem=problem, conf=conf)
 
 

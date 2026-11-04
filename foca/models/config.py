@@ -38,6 +38,7 @@ from foca.security.access_control.constants import (
     OWNER_ROLE,
     SUBJECT_TYPE_PREFIXES,
 )
+from foca.utils.misc import generate_id
 from foca.utils.service_info import (
     import_runtime_function,
     lookup_package_version,
@@ -123,6 +124,60 @@ class FOCABaseConfig(BaseModel):
     """Base configuration for FOCA models."""
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+
+class IdConfig(FOCABaseConfig):
+    """Model for generating identifiers of resources of an app.
+
+    For the custom configuration of apps; use it with
+    :py:func:`foca.utils.misc.generate_id`.
+
+    Args:
+        charset: The allowed characters (duplicates are ignored).
+        length: Length of generated identifiers.
+
+    Attributes:
+        charset: The allowed characters.
+        length: Length of generated identifiers.
+
+    Raises:
+        pydantic.ValidationError: `length` is not positive, or `charset` is
+            empty, an expression (such as `string.digits`), which FOCA no
+            longer evaluates, contains `/` or consists of dots only, as
+            identifiers are URL path segments.
+
+    Examples:
+        >>> IdConfig(charset="ABC123", length=6)
+        IdConfig(charset='ABC123', length=6)
+    """
+
+    charset: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    length: PositiveInt = 6
+
+    @field_validator("charset")
+    @classmethod
+    def _check_charset(cls, charset: str) -> str:
+        """Reject character sets unfit for identifiers.
+
+        Args:
+            charset: Character set of identifiers.
+
+        Returns:
+            The character set.
+
+        Raises:
+            ValueError: Identifiers can't be generated from the character set,
+                or would not be URL path segments.
+        """
+        if "/" in charset:
+            raise ValueError("Identifier character sets must not contain '/'")
+        if charset and not charset.strip("."):
+            raise ValueError("Identifier character sets must not be dots only")
+        try:
+            generate_id(charset=charset, length=1)
+        except TypeError as exc:  # pydantic only reports `ValueError`s
+            raise ValueError(str(exc)) from exc
+        return charset
 
 
 class ServerConfig(FOCABaseConfig):
@@ -859,6 +914,9 @@ class AccessControlConfig(FOCABaseConfig):
             operations are not affected.
         policies: Policy rules the app relies on, each given as its policy
             type followed by its values (e.g., `["p", "*", "/pets", "GET"]`).
+            Values may contain the placeholder `{base_path}`, replaced on
+            startup by the base path of the app's API (with several APIs, a
+            rule for each).
             If set, they are validated against the model on startup, and the
             stored rules set via the configuration are made to match them:
             missing rules are added, and rules removed from the
@@ -1600,7 +1658,7 @@ class AuthConfig(FOCABaseConfig):
             `access_control.claim_groups`) with identity providers that
             only provide them via user info. Claims of the token are never
             replaced. The user info needs to report the token's subject; it
-            is cached per token for `cache_ttl` seconds (unless
+            is cached per token for `userinfo_cache_ttl` seconds (unless
             `validate_userinfo` is set), but not beyond the token's expiry.
             The claims `client_id` and `azp` cannot be added, as they
             identify the client that obtained the token (cf. `clients` and
@@ -1610,6 +1668,10 @@ class AuthConfig(FOCABaseConfig):
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
+        userinfo_cache_ttl: Time (in seconds) for which user info is cached.
+            If `None`, `cache_ttl`. Each process caches separately, so a
+            change of a user's groups can take this long to apply, at
+            different times in different processes.
         service_clients: Service clients, whose client-credentials tokens
             (service tokens) represent the client, not a user (cf.
             :py:class:`ServiceClientConfig`). No user info is requested for
@@ -1622,6 +1684,10 @@ class AuthConfig(FOCABaseConfig):
             act for (e.g., `X-On-Behalf-Of`). If `None`, only the app can
             pass a named user (e.g., from a request field) to
             :py:func:`foca.security.access_control.get_on_behalf_of_user`.
+        reject_invalid_tokens: Whether to reject invalid tokens (`401`, with
+            an RFC 6750 challenge) also on operations with optional
+            authentication, where they are otherwise handled as anonymous.
+            Requests without a token stay anonymous.
 
     Attributes:
         issuers: Trusted token issuers.
@@ -1643,9 +1709,12 @@ class AuthConfig(FOCABaseConfig):
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
+        userinfo_cache_ttl: Time (in seconds) for which user info is cached.
         service_clients: Service clients.
         on_behalf_of_header: Request header in which service clients name
             the user they act for.
+        reject_invalid_tokens: Whether to reject invalid tokens also on
+            operations with optional authentication.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -1686,8 +1755,10 @@ class AuthConfig(FOCABaseConfig):
     userinfo_claims: list[str] = []
     timeout: float = Field(default=10, gt=0)
     cache_ttl: float = Field(default=300, ge=0)
+    userinfo_cache_ttl: float | None = Field(default=None, ge=0)
     service_clients: list[ServiceClientConfig] = []
     on_behalf_of_header: str | None = Field(default=None, min_length=1)
+    reject_invalid_tokens: bool = False
     # Whether warnings about the settings were logged, i.e., on the first
     # token validation
     _warnings_logged: bool = PrivateAttr(default=False)
@@ -1835,6 +1906,16 @@ class AuthConfig(FOCABaseConfig):
         if conf is None or conf.audience is None:
             return self.audience
         return conf.audience
+
+    def get_userinfo_cache_ttl(self) -> float:
+        """Get the time for which user info is cached.
+
+        Returns:
+            `userinfo_cache_ttl`, or `cache_ttl` if unset.
+        """
+        if self.userinfo_cache_ttl is None:
+            return self.cache_ttl
+        return self.userinfo_cache_ttl
 
     def get_userinfo_claims(self, issuer: str) -> list[str]:
         """Get the claims to add from the user info of an issuer.
@@ -2532,6 +2613,9 @@ class ServiceInfoConfig(FOCABaseConfig):
         log_traffic: Whether requests for the service info and their
             responses are logged (cf.
             :py:func:`foca.utils.logging.log_traffic`).
+        locked_fields: Names of top-level fields that only `runtime_fields`
+            may set, e.g., as they are computed from the config, so that
+            `service` can't override them. The function must return them.
 
     Attributes:
         service: Service info, as per the GA4GH `Service` schema.
@@ -2540,6 +2624,8 @@ class ServiceInfoConfig(FOCABaseConfig):
             at runtime.
         log_traffic: Whether requests for the service info and their
             responses are logged.
+        locked_fields: Names of top-level fields that only `runtime_fields`
+            may set.
         package_version: Version of `package`, if used for `version` (set on
             validation).
         runtime_function: Function imported from `runtime_fields`, if set
@@ -2579,6 +2665,7 @@ class ServiceInfoConfig(FOCABaseConfig):
     package: str | None = None
     runtime_fields: str | None = None
     log_traffic: bool = True
+    locked_fields: list[str] = Field(default_factory=list)
     # Version of `package`, if used; set on validation
     _package_version: str | None = PrivateAttr(default=None)
     # Function imported from `runtime_fields`; set on validation
@@ -2606,11 +2693,22 @@ class ServiceInfoConfig(FOCABaseConfig):
 
         Raises:
             ValueError: `package` is needed but not installed, the runtime
-                fields function cannot be imported or is not callable, or the
-                service info is invalid, naming the first invalid field.
-                Missing required fields are ignored if `runtime_fields` is
-                set.
+                fields function cannot be imported or is not callable, the
+                service info is invalid, naming the first invalid field, or
+                `locked_fields` are set in `service` or without
+                `runtime_fields`. Missing required fields are ignored if
+                `runtime_fields` is set.
         """
+        if self.locked_fields and self.runtime_fields is None:
+            raise ValueError(
+                "`service_info.locked_fields` need `service_info.runtime_fields`"
+            )
+        locked = sorted(set(self.locked_fields) & self.service.keys())
+        if locked:
+            raise ValueError(
+                f"Fields {locked} of `service_info.service` are computed by the "
+                "app (`service_info.locked_fields`) and can't be set"
+            )
         self._runtime_function = (
             None
             if self.runtime_fields is None

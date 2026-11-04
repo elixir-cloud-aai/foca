@@ -6,6 +6,8 @@ from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
+from unittest import mock
+from unittest.mock import MagicMock
 
 import mongomock
 import pytest
@@ -39,6 +41,7 @@ from foca.security.access_control.register_access_control import (
     register_access_control,
     register_permission_specs,
 )
+from foca.security.auth import InvalidTokenResolver
 from tests.mock_data import MongoClients
 
 DEFAULT_SPEC = Path(
@@ -98,11 +101,14 @@ def test_register_permission_specs_without_config(
     """Apps without FOCA configuration get the specification unchanged."""
     cnx_app = App(__name__)
     specs = []
-    monkeypatch.setattr(
-        cnx_app,
-        "add_api",
-        lambda specification, **kwargs: specs.append(specification),
-    )
+
+    def add_api(specification: Any, **kwargs: Any) -> Any:
+        specs.append(specification)
+        api = mock.Mock(base_path="/test")
+        api.specification.raw = {"paths": {}}
+        return api
+
+    monkeypatch.setattr(cnx_app, "add_api", add_api)
     register_permission_specs(
         app=cnx_app,
         access_control_config=AccessControlConfig(api_specs=api_specs),
@@ -132,11 +138,14 @@ def test_register_permission_specs_media_type(
         Config(exceptions=ExceptionConfig(media_type=media_type))
     )
     specs = []
-    monkeypatch.setattr(
-        cnx_app,
-        "add_api",
-        lambda specification, **kwargs: specs.append(specification),
-    )
+
+    def add_api(specification: Any, **kwargs: Any) -> Any:
+        specs.append(specification)
+        api = mock.Mock(base_path="/test")
+        api.specification.raw = {"paths": {}}
+        return api
+
+    monkeypatch.setattr(cnx_app, "add_api", add_api)
     register_permission_specs(
         app=cnx_app,
         access_control_config=AccessControlConfig(api_specs=api_specs),
@@ -884,3 +893,28 @@ class TestRegisterAccessControlSetup:
             self._register(None)
         assert "Casbin enforcer registered." in caplog.text
         assert "Permission management API registered" in caplog.text
+
+
+@pytest.mark.parametrize("reject", [True, False])
+def test_register_permission_specs_invalid_tokens(
+    monkeypatch: pytest.MonkeyPatch, reject: bool
+) -> None:
+    """The permissions API rejects invalid tokens like the app's APIs do."""
+    cnx_app = create_connexion_app(
+        Config.model_validate(
+            {
+                "security": {
+                    "auth": {
+                        "issuers": ["https://idp.example.org"],
+                        "audience": ["foca"],
+                        "reject_invalid_tokens": reject,
+                    }
+                }
+            }
+        )
+    )
+    add_api = MagicMock()
+    monkeypatch.setattr(cnx_app, "add_api", add_api)
+    register_permission_specs(app=cnx_app, access_control_config=AccessControlConfig())
+    resolver = add_api.call_args.kwargs["resolver"]
+    assert isinstance(resolver, InvalidTokenResolver) is reject

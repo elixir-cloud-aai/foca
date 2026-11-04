@@ -123,6 +123,25 @@ the function or the package set them (except for `version`, cf.
 `foca.api.service_info.InvalidServiceInfo` (with the original exception as
 its cause).
 
+### Locked fields
+
+Fields in `service` take precedence over those of the function, so that a
+[config overlay](index.md#environment-specific-configuration) can override them.
+That isn't what you want for fields that the app computes, e.g., from its
+configuration, as they would then be wrong. List these in `locked_fields`:
+
+```yaml
+service_info:
+  runtime_fields: my_app.service_info.runtime_fields
+  locked_fields:
+    - registration_rules
+```
+
+The app then refuses to start if `service` sets one of them (also to `null`), or
+if `runtime_fields` is not set, and the service info fails if the function
+doesn't return them (or returns `null`). Fields are top-level fields only. By default, no fields are
+locked.
+
 ## Validation
 
 The service info is validated against the `Service` schema of the GA4GH
