@@ -2276,6 +2276,10 @@ class SecurityConfig(FOCABaseConfig):
                     ("require_admin", access_control.require_admin),
                     ("require_enforced", access_control.require_enforced),
                     ("required_roles", access_control.required_roles),
+                    (
+                        "resource_roles_cover_custom_methods",
+                        access_control.resource_roles_cover_custom_methods,
+                    ),
                 ]
                 if value
             ]

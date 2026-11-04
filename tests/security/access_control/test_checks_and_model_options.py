@@ -11,7 +11,7 @@ from flask import Flask
 from pydantic import ValidationError
 
 from foca.models.config import AccessControlConfig, SecurityConfig
-from foca.security.access_control import ownership
+from foca.security.access_control import enforcement, ownership
 from foca.security.access_control import register_access_control as module
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
@@ -42,7 +42,8 @@ class TestRequireEnforced:
 
     def test_enforced(self) -> None:
         """With enforcement, nothing happens."""
-        assert AccessControlConfig(enabled=True, enforce=True, require_enforced=True)
+        conf = AccessControlConfig(enabled=True, enforce=True, require_enforced=True)
+        assert conf.enforce is True
 
     def test_default(self) -> None:
         """It's off by default."""
@@ -50,7 +51,11 @@ class TestRequireEnforced:
 
     @pytest.mark.parametrize(
         "options",
-        [{"require_enforced": True, "enforce": True}, {"required_roles": ["a"]}],
+        [
+            {"require_enforced": True, "enforce": True},
+            {"required_roles": ["a"]},
+            {"resource_roles_cover_custom_methods": True},
+        ],
     )
     def test_needs_access_control(self, options: dict[str, Any]) -> None:
         """Without access control, the options are refused."""
@@ -99,6 +104,15 @@ class TestRequiredRoles:
                     resource_roles=["owner"],
                     **options,
                 )
+            )
+
+    def test_checked_when_registering(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Registering access control fails for a missing role."""
+        for name in ("get_app_config", "_check_group_config", "_check_admin_role"):
+            monkeypatch.setattr(module, name, MagicMock())
+        with pytest.raises(ValueError, match=r"'ops'.*required_roles"):
+            module.register_access_control(
+                MagicMock(), MagicMock(), AccessControlConfig(required_roles=["ops"])
             )
 
     def test_malformed_rule(self) -> None:
@@ -300,6 +314,24 @@ class TestCustomMethods:
         assert enforcer.enforce("user:a", f"{TASK}:cancel", "POST") is custom
         assert enforcer.enforce("user:a", f"{TASK}/logs", "POST") is below
         assert enforcer.enforce("user:a", "/tasks/2:cancel", "POST") is False
+
+    @pytest.mark.parametrize("methods", [True, False])
+    def test_configured(self, monkeypatch: pytest.MonkeyPatch, methods: bool) -> None:
+        """The enforcer of an app follows its configuration."""
+        adapter = Adapter(mongomock.MongoClient().db.coll, model=RESOURCE_MODEL)
+        adapter.add_policy("p", "p", ["owner", "/tasks/*", "POST"])
+        adapter.add_policy("g", "g2", ["user:a", "owner", TASK])
+        monkeypatch.setattr(enforcement, "_get_adapter", lambda: adapter)
+        monkeypatch.setattr(
+            enforcement,
+            "_get_access_control_config",
+            lambda: AccessControlConfig(resource_roles_cover_custom_methods=methods),
+        )
+        app = Flask(__name__)
+        app.config["CASBIN_MODEL"] = RESOURCE_MODEL
+        with app.app_context():
+            enforcer = enforcement._get_enforcer_cache().get_enforcer()
+        assert enforcer.enforce("user:a", f"{TASK}:cancel", "POST") is methods
 
     def test_trailing_slash(self) -> None:
         """Trailing slashes of resources are ignored, whatever the options."""
