@@ -270,7 +270,8 @@ class RequestIdConfig(FOCABaseConfig):
         header: Name of the request and response header with the identifier.
         trust_incoming: Whether to take the identifier from the request header,
             if it's valid (at most 128 letters, digits and `._:-`); otherwise,
-            each request gets a new random one.
+            each request gets a new random one. Only for apps behind a proxy
+            that replaces clients' values or rejects them.
 
     Attributes:
         header: Name of the request and response header with the identifier.
@@ -284,11 +285,11 @@ class RequestIdConfig(FOCABaseConfig):
         >>> RequestIdConfig().header
         'X-Request-ID'
         >>> RequestIdConfig().trust_incoming
-        True
+        False
     """
 
     header: str = Field(default="X-Request-ID", pattern=r"^[A-Za-z0-9-]+$")
-    trust_incoming: bool = True
+    trust_incoming: bool = False
 
     @field_validator("header")
     @classmethod

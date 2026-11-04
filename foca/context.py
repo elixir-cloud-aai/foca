@@ -78,7 +78,8 @@ class RequestIdMiddleware:
         app: WSGI application.
         header: Name of the request and response header.
         trust_incoming: Whether to take the identifier from the request header,
-            if it's valid (at most 128 letters, digits and `._:-`).
+            if it's valid (at most 128 letters, digits and `._:-`); only for
+            apps behind a proxy that replaces clients' values or rejects them.
 
     Attributes:
         app: WSGI application.
@@ -90,7 +91,7 @@ class RequestIdMiddleware:
         self,
         app: Callable[..., Iterable[bytes]],
         header: str = DEFAULT_REQUEST_ID_HEADER,
-        trust_incoming: bool = True,
+        trust_incoming: bool = False,
     ) -> None:
         """Wrap a WSGI application.
 

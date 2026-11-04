@@ -168,7 +168,7 @@ Each event also has:
 | `action` | What was done |
 | `target` | What it was done to: the identifier of the rule, or the path of the resource |
 | `actor` | `subject` and `client` of the validated token, and the user that a service client names in the header [`auth.on_behalf_of_header`](auth.md) (`on_behalf_of`); `null` where not available, e.g., for changes outside of requests |
-| `request_id` | [Identifier of the request](server.md#request-ids) or Celery task, or `null`; with `trust_incoming`, clients choose it |
+| `request_id` | [Identifier of the request](server.md#request-ids) or Celery task, or `null`; with [`trust_incoming`](server.md#request-ids), it comes from the request header, so clients can choose it unless a proxy replaces it |
 
 These are in the `audit` field of the record, so that the [formatter `json`](#json-logs)
 writes them as an object. The message has them as `name=value`, with values as JSON,

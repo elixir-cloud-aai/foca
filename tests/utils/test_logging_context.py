@@ -95,7 +95,9 @@ class TestContextFilter:
             return ""
 
         _register_api(app, "/api", [{"operationId": "my_app.getThings"}])
-        app.wsgi_app = RequestIdMiddleware(app.wsgi_app)  # type: ignore[method-assign]
+        app.wsgi_app = RequestIdMiddleware(  # type: ignore[method-assign]
+            app.wsgi_app, trust_incoming=True
+        )
         app.test_client().get("/", headers={"X-Request-ID": "abc-1"})
         assert vars(records[0])["request_id"] == "abc-1"
         assert vars(records[0])["operation_id"] == "my_app.getThings"

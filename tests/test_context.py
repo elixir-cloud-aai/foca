@@ -47,8 +47,8 @@ class TestMiddleware:
 
     @pytest.mark.parametrize("value", ["abc-1", "a.b_c:d-E", "x" * 128])
     def test_valid_incoming(self, value: str) -> None:
-        """Valid identifiers are used and echoed."""
-        response = Client(RequestIdMiddleware(_echo_app)).get(
+        """Valid identifiers are used and echoed, if trusted."""
+        response = Client(RequestIdMiddleware(_echo_app, trust_incoming=True)).get(
             headers={"X-Request-ID": value}
         )
         assert response.headers["X-Request-ID"] == value
@@ -58,8 +58,8 @@ class TestMiddleware:
         "value", ["", "a b", "a\tb", "x" * 129, "ä", "a,b", "a\\nb", "a/b"]
     )
     def test_invalid_incoming(self, value: str) -> None:
-        """Invalid identifiers are replaced."""
-        response = Client(RequestIdMiddleware(_echo_app)).get(
+        """Invalid identifiers are replaced, even if trusted."""
+        response = Client(RequestIdMiddleware(_echo_app, trust_incoming=True)).get(
             headers={"X-Request-ID": value}
         )
         assert _is_generated(response.headers["X-Request-ID"])
@@ -73,18 +73,20 @@ class TestMiddleware:
         assert _is_generated(first)
         assert first != second
 
-    def test_not_trusted(self) -> None:
-        """Without trust, incoming identifiers are replaced."""
-        response = Client(RequestIdMiddleware(_echo_app, trust_incoming=False)).get(
+    @pytest.mark.parametrize("kwargs", [{}, {"trust_incoming": False}])
+    def test_not_trusted(self, kwargs: dict[str, Any]) -> None:
+        """By default or without trust, incoming identifiers are replaced."""
+        response = Client(RequestIdMiddleware(_echo_app, **kwargs)).get(
             headers={"X-Request-ID": "abc-1"}
         )
         assert _is_generated(response.headers["X-Request-ID"])
+        assert response.text == response.headers["X-Request-ID"]
 
     def test_other_header(self) -> None:
         """The name of the header can be configured."""
-        response = Client(RequestIdMiddleware(_echo_app, header="X-Trace")).get(
-            headers={"X-Trace": "abc-1", "X-Request-ID": "other"}
-        )
+        response = Client(
+            RequestIdMiddleware(_echo_app, header="X-Trace", trust_incoming=True)
+        ).get(headers={"X-Trace": "abc-1", "X-Request-ID": "other"})
         assert response.headers["X-Trace"] == "abc-1"
         assert response.text == "abc-1"
         assert "X-Request-ID" not in response.headers
@@ -99,7 +101,7 @@ class TestMiddleware:
             start_response("200 OK", [("x-request-id", "of-app")])
             return []
 
-        response = Client(RequestIdMiddleware(_app)).get(
+        response = Client(RequestIdMiddleware(_app, trust_incoming=True)).get(
             headers={"X-Request-ID": "abc-1"}
         )
         assert response.headers.getlist("X-Request-ID") == ["abc-1"]
@@ -131,7 +133,9 @@ class TestMiddleware:
             yield b"body"
             seen.append(request_id())
 
-        body = RequestIdMiddleware(_app)({"HTTP_X_REQUEST_ID": "abc-1"}, MagicMock())
+        body = RequestIdMiddleware(_app, trust_incoming=True)(
+            {"HTTP_X_REQUEST_ID": "abc-1"}, MagicMock()
+        )
         assert list(body) == [b"body"]
         assert seen == ["abc-1", "abc-1"]
         assert request_id() == "abc-1"
@@ -187,7 +191,9 @@ class TestMiddleware:
             start_response("200 OK", [])
             return []
 
-        body = RequestIdMiddleware(_app)({"HTTP_X_REQUEST_ID": "abc-1"}, MagicMock())
+        body = RequestIdMiddleware(_app, trust_incoming=True)(
+            {"HTTP_X_REQUEST_ID": "abc-1"}, MagicMock()
+        )
         assert seen == ["abc-1"]
         body.close()  # type: ignore[attr-defined]
 
@@ -231,8 +237,18 @@ class TestApp:
     """Tests of the middleware in FOCA apps."""
 
     def test_default(self) -> None:
-        """Apps echo identifiers, also for routes that don't exist."""
+        """Apps don't take identifiers from clients by default."""
         app = create_connexion_app(Config()).app
+        response = app.test_client().get("/missing", headers={"X-Request-ID": "abc-1"})
+        assert response.status_code == 404
+        assert _is_generated(response.headers["X-Request-ID"])
+
+    def test_trusted(self) -> None:
+        """Apps that opt in echo identifiers, also for routes that don't exist."""
+        config = Config(
+            server=ServerConfig(request_id=RequestIdConfig(trust_incoming=True))
+        )
+        app = create_connexion_app(config).app
         response = app.test_client().get("/missing", headers={"X-Request-ID": "abc-1"})
         assert response.status_code == 404
         assert response.headers["X-Request-ID"] == "abc-1"
