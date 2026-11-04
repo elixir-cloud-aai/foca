@@ -157,7 +157,7 @@ jobs:
         run: twine check --strict dist/*
 
   # The hashed requirements of the image fit `pyproject.toml`
-  constraints:
+  image-constraints:
     name: Image constraints
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -755,7 +755,7 @@ jobs:
     needs:
       - title
       - lint
-      - constraints
+      - image-constraints
       - test
       - test-lowest
       - integration

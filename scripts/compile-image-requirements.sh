@@ -14,8 +14,8 @@
 set -eu
 
 PYTHON_VERSIONS="3.11 3.12 3.13 3.14 3.15"
-# As in `docker/Dockerfile`; images of Python 3.11 and 3.12 ship an old pip with
-# known vulnerabilities
+# See the builder stage of `docker/Dockerfile`: images of Python 3.11 and 3.12
+# ship an old pip with known vulnerabilities
 PIP_REQUIREMENT="pip>=26.2"
 TARGET=docker/requirements
 # Resolving for a Python version doesn't need that version

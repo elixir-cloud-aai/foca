@@ -28,11 +28,10 @@ LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 # isolated environments, so remove them for the same contents on all versions
 RUN pip uninstall --yes --no-cache-dir setuptools wheel
 
-# Build image: installs FOCA with the pip of the Python image, which is
-# upgraded first, as images of Python 3.11 and 3.12 ship an old pip (24.0 and
-# 25.0.1) with known vulnerabilities (fixed by 26.2: CVE-2025-8869,
-# CVE-2026-1703, CVE-2026-3219, CVE-2026-6357, CVE-2026-8643,
-# CVE-2026-13346)
+# Build image: installs FOCA with pip from `docker/requirements/build.txt`, as
+# images of Python 3.11 and 3.12 ship an old pip (24.0 and 25.0.1) with known
+# vulnerabilities (fixed by 26.2: CVE-2025-8869, CVE-2026-1703, CVE-2026-3219,
+# CVE-2026-6357, CVE-2026-8643, CVE-2026-13346)
 FROM base AS builder
 
 # Install general dependencies
@@ -45,11 +44,12 @@ WORKDIR /app
 # Install pip and the build tools, and FOCA's dependencies, as compiled in
 # `docker/requirements/` with their hashes (only the latter go into the final
 # image), then FOCA alone; files copied here must be in the allowlist of
-# `.dockerignore`
+# `.dockerignore`; dependencies that are also build tools (`packaging`) must be
+# installed again, for the final image
 COPY docker/requirements/ ./requirements/
 ARG PY_IMAGE
 RUN pip install --no-cache-dir --require-hashes -r requirements/build.txt
-RUN pip install --no-cache-dir --require-hashes --no-deps \
+RUN pip install --no-cache-dir --require-hashes --no-deps --ignore-installed \
         --no-warn-script-location \
         --prefix="/install" \
         -r "requirements/py${PY_IMAGE%%-*}.txt"
