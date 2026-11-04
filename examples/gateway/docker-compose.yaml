@@ -1,7 +1,9 @@
 # The gateway example with its worker, MongoDB and RabbitMQ, for the
 # integration tests (`tests/integration_gateway_tests.py`). The values below
 # are for this example only: don't use them for anything else. The app is
-# published on port 8081, so that it can run next to the petstore example
+# published on port 8081, so that it can run next to the petstore example, and
+# a second app (see below) on port 8082
+
 x-gateway-environment: &gateway-environment
   # The tests compute hashes with this value
   FOCA_PLUGINS_STORE_KEY_SECRET: not-a-secret-for-the-example-only

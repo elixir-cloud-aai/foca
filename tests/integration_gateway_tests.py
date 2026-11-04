@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from typing import Any
 
 import pytest
@@ -65,10 +66,12 @@ def test_request_id_header(url: str, trusted: bool) -> None:
     client_id = "client-id_1.2:3"
     generated = _request_id()
     assert generated != client_id
+    assert re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", generated)
     assert generated != _request_id()
     taken = _request_id({"X-Request-ID": client_id})
     assert (taken == client_id) is trusted
-    assert _request_id({"X-Request-ID": "a" * 129}) != "a" * 129
+    replaced = _request_id({"X-Request-ID": "a" * 129})
+    assert re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", replaced)
 
 
 def test_plugin_changes_request_in_app() -> None:

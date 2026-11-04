@@ -10,7 +10,7 @@ change if:
 - they rely on other [errors of creating indexes](#errors-of-creating-indexes) being
   `ValueError`s;
 - their [`log` section names filters or handlers that it doesn't
-  configure](#invalid-log-sections-stop-the-app);
+  configure](#unknown-filters-and-handlers-in-log-stop-the-app);
 - their [requests or stored data don't fit declared formats](#stricter-request-checks);
 - they use [`is_admin()` with a model of their own](#is_admin-with-other-models);
 - they use the [plugins of foca-plugins](#plugins-of-foca-plugins);
@@ -66,14 +66,15 @@ are, instead of a `ValueError` claiming a conflict.
 `Foca.create_app()` does ([startup checks](configuration/jobs.md#startup-checks)). So a
 worker with such settings doesn't start anymore.
 
-### Invalid `log` sections stop the app
+### Unknown filters and handlers in `log` stop the app
 
 A handler or logger in `log`, or its `root`, that names a filter or handler the section
 doesn't configure now fails validation, so the app doesn't start. Until now, FOCA fell
 back to its default logging with a warning. The error lists what's unknown, e.g.,
 `root: console` for an app that sets `handlers` to its own handler `stream`, as the
-default of `root` still names `console`. Add the missing entry, or set `root.handlers`
-as well:
+default of `root` still names `console`. Other errors of logging settings, such as an
+unknown formatter or a handler class that can't be loaded, still fall back with a
+warning. Add the missing entry, or set `root.handlers` as well:
 
 ```yaml
 log:
@@ -148,10 +149,12 @@ go to the logger `foca.audit`, with who made them (see [Audit
 log](configuration/log.md#audit-log)). Configured rules don't: what the startup,
 `foca sync-policies` or `policies_force` store, including grants such as
 `[g, user:alice, admin]`, leaves no audit event, so review changes of these in your
-configuration. This isn't breaking, but log texts change: the permissions API no longer logs `Policy rule '...' added.`, `updated.` or
-`deleted.` on its own logger. Adapt filters and alerts that match them. Role changes
-via the operations on owners keep their log lines and now also have audit events. The
-actor is personal data, so check where these logs go.
+configuration. The actor is personal data, so check where these logs go.
+
+This isn't breaking, but log texts change: the permissions API no longer logs
+`Policy rule '...' added.`, `updated.` or `deleted.` on its own logger. Adapt filters
+and alerts that match them. Role changes via the operations on owners keep their log
+lines and now also have audit events.
 
 ## Log of invalid responses
 
@@ -180,7 +183,8 @@ is 0.4.0, tag `chart-v0.4.0`). Wait for it if you want what it adds; apps can st
 0.4.0 with FOCA 0.21.
 
 foca-common 0.5.0 has autoscaling and topology spread constraints of the app's
-pods, `extraEnv`, `extraEnvFrom` and `rolloutOnSecrets`. Copy
+pods, `extraEnv`, `extraEnvFrom`, `rolloutOnSecrets`, and templates for [gateway
+apps](helm-chart.md#gateway-apps) and [Flower](helm-chart.md#flower). Copy
 `app-values.schema.json` again so that their values are checked.
 Autoscaling also needs a template file with `foca-common.hpa`; without it,
 enabling it leaves the app with one pod (see [Several replicas](helm-chart.md#several-replicas)).
@@ -191,7 +195,9 @@ Two things change without setting anything:
   which rolls its pods once. Setting `PORT` in `extraEnv` fails when rendering, and in
   `extraEnvFrom`, the chart's value wins.
 - Charts that add `extraEnv` in their own templates now render these variables twice,
-  e.g., proTES with `protes.extraEnv`. Remove that when adopting 0.5.0.
+  e.g., proTES with `protes.extraEnv`. Remove that when adopting 0.5.0. The library's
+  checks then apply to these values, and rendering fails on them otherwise: remove
+  variables that the chart sets, and move secrets in literal values to `valueFrom`.
 
 ## Building the FOCA image
 

@@ -288,25 +288,28 @@ def _validates_optional_token(operation: AbstractOperation) -> bool:
 
 
 def _other_token_validators(operation: AbstractOperation) -> set[str]:
-    """Get the functions other than FOCA's validating an operation's optional tokens.
+    """Get the functions validating an operation's optional tokens otherwise.
 
     Args:
         operation: Connexion operation, for which
             :py:func:`_validates_optional_token` is `False`.
 
     Returns:
-        Names of the functions in `x-bearerInfoFunc` of its schemes, if its
-        effective security requirements have an empty alternative.
+        Names of the functions in `x-bearerInfoFunc` and `x-tokenInfoFunc` of
+        its schemes, if its effective security requirements have an empty
+        alternative.
     """
     security = operation.security or []
     if all(security):
         return set()
     schemes = operation.security_schemes or {}
     return {
-        schemes.get(name, {}).get("x-bearerInfoFunc")
+        function
         for alternative in security
         for name in alternative
-    } - {None}
+        for field in ("x-bearerInfoFunc", "x-tokenInfoFunc")
+        if (function := schemes.get(name, {}).get(field)) is not None
+    }
 
 
 class InvalidTokenResolver(Resolver):
@@ -319,8 +322,8 @@ class InvalidTokenResolver(Resolver):
     `[{bearerAuth: []}, {}]`) are wrapped, so that invalid tokens are
     rejected. Other operations are not changed; a warning names other
     functions that validate optional tokens (e.g., wrappers of
-    :py:func:`validate_token`), once per function, as the setting doesn't
-    reach them.
+    :py:func:`validate_token`), once per function and resolver, i.e., API
+    specification, as the setting doesn't reach them.
 
     Args:
         resolver: Resolver to resolve functions with (any object with a
@@ -349,8 +352,8 @@ class InvalidTokenResolver(Resolver):
             logger.warning(
                 "'security.auth.reject_invalid_tokens' has no effect on operations "
                 "with optional authentication by '%s': it only applies to schemes "
-                "naming %s in 'x-bearerInfoFunc'. Reject invalid tokens in that "
-                "function, or name FOCA's directly.",
+                "of type 'http' and scheme 'bearer' naming %s in 'x-bearerInfoFunc'. "
+                "Use such a scheme, or reject invalid tokens in your own function.",
                 function,
                 _VALIDATE_TOKEN_FUNCTION,
             )

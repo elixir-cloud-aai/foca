@@ -348,6 +348,20 @@ def _operation_mock(security: list[dict[str, Any]]) -> MagicMock:
 class TestOtherValidationFunctionWarning:
     """Tests of the warning that the option doesn't reach other functions."""
 
+    @pytest.mark.parametrize(
+        "function", ["app.check", "foca.security.auth.validate_token"]
+    )
+    def test_token_info_function(
+        self, caplog: pytest.LogCaptureFixture, function: str
+    ) -> None:
+        """Functions of OAuth 2.0 schemes aren't reached, even FOCA's."""
+        operation = _operation_mock([{"oauth": []}, {}])
+        operation.security_schemes = {"oauth": {"x-tokenInfoFunc": function}}
+        resolver = InvalidTokenResolver(lambda operation_id: controller)
+        with caplog.at_level(logging.WARNING, logger=auth.logger.name):
+            resolver.resolve(operation)
+        assert f"by '{function}'" in caplog.text
+
     def test_warns_once_per_function(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
