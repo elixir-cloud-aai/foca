@@ -523,6 +523,16 @@ def test_invalid_verification_identifiers(
     assert "Skipped 1 verifications" in caplog.text
 
 
+def test_api_type_spelling(registry: Registry) -> None:
+    """API types match as in Cloud Registry: ignoring case and outer spaces."""
+    api_type = {"group": " ORG.ga4gh", "artifact": "TES ", "version": "1.1.0"}
+    registry.services = [
+        {"id": "s1", "url": "https://tes-a.example.org", "type": api_type}
+    ]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    assert backends.get_cache(entry, "tes").urls() == ["https://tes-a.example.org"]
+
+
 def test_max_stale(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
     """Old lists are not used while the registry cannot be read."""
     registry.services = [service("s1", "https://tes-a.example.org")]

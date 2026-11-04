@@ -53,16 +53,17 @@ class _Selection:
 
 
 def _same(first: object, second: str) -> bool:
-    """Compare parts of API types, case-insensitively.
+    """Compare parts of API types, as the Cloud Registry does.
 
     Args:
         first: Part of an API type, as listed.
         second: Expected part.
 
     Returns:
-        Whether the first is a string equal to the second, ignoring case.
+        Whether the first is a string equal to the second, ignoring case and
+        surrounding whitespace.
     """
-    return isinstance(first, str) and first.casefold() == second.casefold()
+    return isinstance(first, str) and first.strip().casefold() == second.casefold()
 
 
 def _version(api_type: object) -> object:
@@ -200,7 +201,8 @@ def select_services(
             not isinstance(url, str)
             or url != verified_url
             or not _is_api(verified_type, api)
-            # the version verified is the version offered
+            # the versions listed agree; the Cloud Registry lists a service's
+            # current version in both, as updating it keeps the verification
             or _version(verified_type) != _version(api_type)
         ):
             selection.rejected.append(

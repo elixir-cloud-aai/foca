@@ -32,7 +32,7 @@ registry is the trust anchor, configured by the deployment: it is read
 without access token, over `https` (unless `url_schemes` allows `http`),
 at public addresses (unless `registry_allow_private_addresses`), without
 following redirects (cf. :py:mod:`foca.utils.http`). Registries that require
-login for reads therefore yield no candidates.
+login for reads therefore count as unreachable.
 
 Each process caches the backends of each registry entry, refreshing them
 every `refresh_interval` seconds; it keeps the last good list while the
