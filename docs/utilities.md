@@ -182,6 +182,14 @@ allow them in identifiers that are part of public URLs. Call
 handled) for paths with dot segments (`.` or `..`, e.g., identifiers from
 clients), which clients would resolve, e.g., to URLs outside of the app.
 
+## Building paths of APIs and resources
+
+`get_api_base_path()` and `get_resource_path()` return paths as used in
+[access control policies](access-control.md#checking-other-paths), i.e., as
+request paths, not percent-encoded. They work during requests and on startup.
+See [checking other paths](access-control.md#checking-other-paths) for
+examples.
+
 ## Logging requests and responses
 
 Decorate controllers with `log_traffic` to log requests and responses:

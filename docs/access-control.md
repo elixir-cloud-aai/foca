@@ -318,6 +318,30 @@ above).
     permissions API, which then exposes all rules to any authenticated user.
     Limit rules to the paths they are meant for.
 
+Rules can use the placeholder `{base_path}` instead of the base path of the
+app's API, so that a change of the base path (e.g., for a new version of the
+specification) doesn't mean rewriting every rule:
+
+```yaml
+security:
+  access_control:
+    policies:
+      - [p, "*", "{base_path}/services", POST]
+      - [p, owner, "{base_path}/services/:id", "(PUT)|(DELETE)"]
+```
+
+FOCA replaces the placeholder on startup, before validating and storing the
+rules, so stored rules have the actual paths. If the app has several APIs
+(`api.specs`), a rule with the placeholder stands for one rule per API. For an
+API at the root, the base path is empty (a value of only `{base_path}` becomes
+`/`). The permissions API isn't one of the app's APIs, so rules with the
+placeholder aren't meant for it: if one matches it anyway (e.g., `{base_path}/*`
+for an API at the root), the app refuses to start (`ValueError`), so that moving
+an API doesn't open up who may manage policies. The check matches paths as the
+default model does (`keyMatch2`), so review such rules yourself if your model
+matches paths differently. If the app has no API, rules with the placeholder make
+it refuse to start, too.
+
 Rules that depend on the app's data, such as roles on resources, are better
 managed by the app (cf. [resource-scoped roles](#resource-scoped-roles)).
 
@@ -363,8 +387,8 @@ policy allows them.
 
 * Operations with `security: []` are not enforced, i.e., they are public.
   The same applies to operations with optional authentication, i.e., with an
-  empty security requirement alternative (e.g., `security: [{}, {bearerAuth:
-  []}]`).
+  empty security requirement alternative (e.g., `security: [{bearerAuth: []},
+  {}]`; see [optional tokens](authentication.md#optional-tokens)).
 * Single operations can opt out via `x-foca-access-control: false`.
 * Operations are selected as resolved by Connexion, so operations of path
   items defined via `$ref` are enforced, too.
@@ -377,6 +401,80 @@ policy allows them.
   permissions API and on controllers decorated with
   `foca.security.access_control.enforce_access_control`, which applies the
   same checks to a single controller.
+
+### Checking other paths
+
+`foca.security.access_control.is_permitted_for()` asks "may the current caller
+do this on that path?", e.g., to show only the actions a client can take or
+the resources it can open. `foca.utils.urls.get_resource_path()` builds the
+path of a resource below the base path of the API, as used in policies, and
+`foca.utils.urls.get_api_base_path()` returns the base path itself:
+
+```python
+from foca.security.access_control import is_permitted_for
+from foca.utils.urls import get_resource_path
+
+
+def getPet(id: str) -> dict:
+    pet = ...
+    pet["can_delete"] = is_permitted_for(get_resource_path("pets", id), "DELETE")
+    return pet
+```
+
+`is_permitted_for(path, method="GET")` makes the decision for the token and
+the [opt-in roles](#opt-in-roles) of the current request:
+
+* It is `False` if no route serves the path and method directly (e.g., if the
+  request would be redirected), and `True` if the route doesn't enforce
+  policies (e.g., public or self-service operations, and those with
+  `x-foca-access-control: false`).
+* On routes that enforce policies, it is the decision of the policies. Callers
+  who can't be identified (e.g., without a token) are not permitted; there is
+  no `401`, unlike with `is_permitted()`.
+* It decides on policies only: an operation that doesn't enforce policies may
+  still require a token, and its controller may check more. `OPTIONS` requests,
+  which Flask answers itself, aren't decided this way.
+* The caller is who the current operation validated. Public operations
+  (`security: []`) don't validate tokens, so callers count as anonymous there;
+  use [optional authentication](authentication.md) (`security: [{bearerAuth:
+  []}, {}]`) instead.
+* Denials are logged as `DEBUG`, as no request was denied. Each call on a route
+  enforcing policies checks the database for changes of rules, so avoid calling
+  it for many resources in one request; for listings, see
+  `resource_filter()` under [resource ownership](#resource-ownership).
+
+Paths aren't percent-encoded, as in policies: `is_permitted_for()` takes the
+request path of the resource as Flask sees it.
+
+`get_api_base_path()` and `get_resource_path()` work during requests and on
+startup (in an app context), when there is no request:
+
+```python
+from foca.utils.urls import get_api_base_path, get_resource_path
+
+get_api_base_path()  # "/ga4gh/registry/v1"
+get_resource_path("services", "abc")  # "/ga4gh/registry/v1/services/abc"
+```
+
+The API is the one handling the current request, or else the app's only API
+(`api.specs`). Apps with several APIs that call them without a request name an
+operation of the API (`get_api_base_path("getServices")`,
+`get_resource_path("services", operation_id="getServices")`, with the
+`operationId` as in the specification); otherwise, they raise a
+`RuntimeError`, and a `LookupError` if no API has the operation. An API at the
+root has an empty base path, so that paths can be appended.
+`get_resource_path()` raises a `ValueError` for segments that are empty, dot
+segments (`.`, `..`) or wildcards of policy rules (`*`, or starting with `:`),
+or have slashes.
+
+Use the path for [roles on resources](#resource-scoped-roles) and with
+`is_permitted_for()`, which match it literally. Don't add a path with identifiers
+from clients to the policies yourself (`add_policy()`): values of policy rules
+are patterns, including regular expressions, so a rule for a resource called `.*`
+would apply to all others.
+
+`is_permitted_for()` works without a request, too, but there is no caller
+then: only routes that don't enforce policies are permitted.
 
 ### Requiring login for reads
 
