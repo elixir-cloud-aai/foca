@@ -344,11 +344,12 @@ def get_mongo_uri(
 
     auth = ""
     user = get_env("MONGO_USERNAME")
+    # Read also without a username, so that a wrong source is reported
+    password = get_env("MONGO_PASSWORD")
     if user:
         # An unset password is passed as 'None', as in previous versions;
         # PyMongo refuses to create clients with a username but no password
-        password = str(get_env("MONGO_PASSWORD"))
-        auth = f"{quote_plus(user)}:{quote_plus(password)}@"
+        auth = f"{quote_plus(user)}:{quote_plus(str(password))}@"
     host = os.environ.get("MONGO_HOST", host)
     port_str = os.environ.get("MONGO_PORT", str(port))
     return f"mongodb://{auth}{host}:{port_str}/{get_mongo_db_name(db)}"

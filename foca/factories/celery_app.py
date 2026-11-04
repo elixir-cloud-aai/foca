@@ -105,7 +105,7 @@ def create_celery_app(app: Flask) -> Celery:
     logger.info(
         "Celery app created with broker '%s' and result backend '%s'.",
         _redact_url(broker),
-        _redact_url(backend),
+        _redact_url(celery.conf.result_backend),
     )
 
     # Update Celery app configuration with Flask app configuration

@@ -309,6 +309,23 @@ class TestUses:
         monkeypatch.setenv("MONGO_URI_FILE", str(path))
         assert get_mongo_uri() == "mongodb://elsewhere:2/"
 
+    def test_mongo_password_both_no_user(
+        self, secret: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Conflicting passwords are an error also without a username."""
+        monkeypatch.setenv("MONGO_PASSWORD", "other")
+        monkeypatch.setenv("MONGO_PASSWORD_FILE", str(secret))
+        with pytest.raises(ValueError, match="must not both"):
+            get_mongo_uri()
+
+    def test_mongo_password_unreadable_no_user(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unreadable password file is an error also without a username."""
+        monkeypatch.setenv("MONGO_PASSWORD_FILE", str(tmp_path / "missing"))
+        with pytest.raises(ValueError, match="could not be read"):
+            get_mongo_uri()
+
     def test_mongo_both(self, secret: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Setting both is an error."""
         monkeypatch.setenv("MONGO_URI", "mongodb://elsewhere:2/")
