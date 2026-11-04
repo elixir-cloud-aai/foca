@@ -11,6 +11,7 @@ import yaml
 from casbin.util import key_match2
 from connexion import App
 from connexion.resolver import Resolver
+from flask import Flask
 from pymongo.errors import PyMongoError
 
 from foca.api.register_openapi import (
@@ -556,8 +557,24 @@ def register_permission_specs(
     Returns:
         Connexion app with updated permission specifications.
     """
+    if not access_control_config.api_enabled:
+        if access_control_config.api_specs is not None:
+            logger.warning(
+                "'security.access_control.api_specs' has no effect, as "
+                "'security.access_control.api_enabled' is false."
+            )
+        if access_control_config.self_service:
+            logger.warning(
+                "'security.access_control.self_service' has no effect, as "
+                "'security.access_control.api_enabled' is false."
+            )
+        logger.info("Permission management API not registered.")
+        return app
     specification: Path | dict[str, Any]
+    base_path: dict[str, str] = {}
     if access_control_config.api_specs is None:
+        _check_api_base_path(app.app, access_control_config.api_base_path)
+        base_path["base_path"] = access_control_config.api_base_path
         spec_path = str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH))
         specification = Path(spec_path)
         media_type = _get_error_media_type(app)
@@ -570,6 +587,12 @@ def register_permission_specs(
     else:
         spec_path = access_control_config.api_specs
         specification = Path(spec_path)
+        if "api_base_path" in access_control_config.model_fields_set:
+            logger.warning(
+                "'security.access_control.api_base_path' has no effect, as the "
+                "specification in 'security.access_control.api_specs' sets the "
+                "base path of the permissions API."
+            )
 
     resolver: Resolver = StrictParametersResolver(
         resolver=AccessControlResolver(
@@ -593,6 +616,7 @@ def register_permission_specs(
     api = app.add_api(
         specification=specification,
         **_connexion_add_api_kwargs(options),
+        **base_path,
     )
     _register_api(
         app.app,
@@ -603,6 +627,34 @@ def register_permission_specs(
     )
     logger.info("Permission management API registered from '%s'.", spec_path)
     return app
+
+
+def _check_api_base_path(app: Flask, api_base_path: str) -> None:
+    """Check the base path of the permissions API against the app's APIs.
+
+    Args:
+        app: Flask app, with the app's APIs registered.
+        api_base_path: Base path of the permissions API.
+
+    Raises:
+        ValueError: It is the base path of an API of the app.
+    """
+    for base_path in _get_api_base_paths(app):
+        if api_base_path == base_path:
+            raise ValueError(
+                "'security.access_control.api_base_path' must differ from the "
+                f"base paths of the app's APIs: '{base_path}'"
+            )
+        if (base_path and api_base_path.startswith(f"{base_path}/")) or (
+            base_path.startswith(f"{api_base_path}/")
+        ):
+            logger.warning(
+                "'security.access_control.api_base_path' overlaps with the base "
+                "path of an API of the app, '%s': policy rules for the paths of "
+                "one API may also grant access to the other, and the operations "
+                "of each can shadow those of the other.",
+                base_path,
+            )
 
 
 def _with_error_media_type(spec_path: Path, media_type: str) -> dict[str, Any]:
@@ -669,6 +721,7 @@ def register_casbin_enforcer(
     app.app.config["casbin_adapter"] = adapter
     if access_control_config.policies is not None:
         named = access_control_config.named_policies
+        _warn_default_base_path(access_control_config)
         _add_policies(
             adapter=adapter,
             policies=access_control_config.policies,
@@ -687,6 +740,36 @@ def register_casbin_enforcer(
     logger.info("Casbin enforcer registered.")
 
     return app
+
+
+def _warn_default_base_path(access_control_config: AccessControlConfig) -> None:
+    """Warn about configured rules for the former path of the permissions API.
+
+    Args:
+        access_control_config: Access control configuration, with policy rules.
+    """
+    default = AccessControlConfig.model_fields["api_base_path"].default
+    base_path = access_control_config.api_base_path
+    if (
+        not access_control_config.api_enabled
+        or access_control_config.api_specs is not None
+        or base_path == default
+    ):
+        return
+    for rule in access_control_config.policies or []:
+        if rule[0] != "p" or len(rule) < 3:
+            continue
+        # Paths below the base paths: rules for all paths apply to both
+        if (
+            rule[2].startswith(f"{default}/") or key_match2(f"{default}/x", rule[2])
+        ) and not key_match2(f"{base_path}/x", rule[2]):
+            logger.warning(
+                "Policy rule %r names the default path of the permissions API, "
+                "which is at '%s' ('security.access_control.api_base_path'): "
+                "the rule doesn't apply to it.",
+                rule,
+                base_path,
+            )
 
 
 def _remove_policies(adapter: Adapter) -> None:
@@ -796,15 +879,17 @@ def _expand_base_path(
             `/permissions/{id}`).
 
     Returns:
-        The rule if it has no placeholder; otherwise, a rule for each base
-        path. A value that is only the placeholder is the path `/` for an API
-        at the root.
+        The rule if it has no placeholder, with a warning if it matches one of
+        `protected_paths` (it may be meant to, e.g., for delegating the
+        management of rules); otherwise, a rule for each base path. A value
+        that is only the placeholder is the path `/` for an API at the root.
 
     Raises:
         ValueError: The rule has the placeholder, but the app has no API, or
             it matches one of `protected_paths`.
     """
     if not any(BASE_PATH_PLACEHOLDER in value for value in rule[1:]):
+        _warn_if_matches_api(rule, protected_paths)
         return [rule]
     if not base_paths:
         raise ValueError(
@@ -818,23 +903,65 @@ def _expand_base_path(
         ]
         for base in base_paths
     ]
-    for path in protected_paths:
+    for base in base_paths:
+        for value in rule[1:]:
+            if BASE_PATH_PLACEHOLDER not in value:
+                continue
+            expanded_value = value.replace(BASE_PATH_PLACEHOLDER, base)
+            path = _get_matching_path(expanded_value, protected_paths)
+            if path is not None:
+                raise ValueError(
+                    f"Policy rule {rule!r} has the placeholder "
+                    f"'{BASE_PATH_PLACEHOLDER}', but with the base paths of "
+                    f"the app's APIs, it also matches the permissions API "
+                    f"('{path}'): limit it to the paths it is meant for"
+                )
+    return expanded
+
+
+def _warn_if_matches_api(rule: list[str], protected_paths: list[str]) -> None:
+    """Warn about a rule that grants access to the permissions API.
+
+    Only rules of the type `p`, with the values subject, object and action, grant
+    access. It isn't refused, as it may be meant to, e.g., for delegating the
+    management of rules; those for admins, who have access anyway, are left out.
+
+    Args:
+        rule: Policy rule: its policy type, followed by its values.
+        protected_paths: Paths of the permissions API (cf.
+            :py:func:`_expand_base_path`).
+    """
+    if rule[0:1] != ["p"] or len(rule) < 3 or rule[1] == ADMIN_ROLE:
+        return
+    try:
+        path = _get_matching_path(rule[2], protected_paths)
+    except re.error:  # Not a valid pattern, which isn't a matter of this check
+        return
+    if path is not None:
+        logger.warning(
+            "Policy rule %r matches the permissions API ('%s'): whoever it applies "
+            "to can use it with the rule's methods, and with write access, can make "
+            "themselves admins.",
+            rule,
+            path,
+        )
+
+
+def _get_matching_path(value: str, paths: list[str]) -> str | None:
+    """Get the first path of a specification that a value of a rule matches.
+
+    Args:
+        value: Value of a policy rule.
+        paths: Paths, as in a specification (e.g., `/permissions/{id}`).
+
+    Returns:
+        The path, or `None` if it matches none of them.
+    """
+    for path in paths:
         # Any value of a path parameter: the rule may cover all of them (the
         # sample), or one of them (the pattern)
         sample = _PATH_PARAMETER.sub("id", path)
         pattern = _PATH_PARAMETER.sub(r":\1", path)
-        for base in base_paths:
-            for value in rule[1:]:
-                if BASE_PATH_PLACEHOLDER not in value:
-                    continue
-                expanded_value = value.replace(BASE_PATH_PLACEHOLDER, base)
-                if key_match2(sample, expanded_value) or key_match2(
-                    expanded_value, pattern
-                ):
-                    raise ValueError(
-                        f"Policy rule {rule!r} has the placeholder "
-                        f"'{BASE_PATH_PLACEHOLDER}', but with the base paths of "
-                        f"the app's APIs, it also matches the permissions API "
-                        f"('{path}'): limit it to the paths it is meant for"
-                    )
-    return expanded
+        if key_match2(sample, value) or key_match2(value, pattern):
+            return path
+    return None
