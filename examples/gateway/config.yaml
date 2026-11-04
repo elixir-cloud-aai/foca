@@ -3,6 +3,8 @@ server:
     port: 8080
     debug: False
     testing: False
+    # Bytes; refuse larger requests before they are parsed
+    max_content_length: 65536
 
 api:
     specs:

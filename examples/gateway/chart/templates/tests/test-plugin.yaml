@@ -2,7 +2,7 @@
 Test of the release (`helm test`, run by chart-testing in CI): sends messages
 to the app, which runs the installed plugin in its own process and in the
 worker, and checks that both share the plugin's store in MongoDB and key it
-with the secret of `pluginStore.existingSecret`.
+with the secret of `pluginStore.existingSecret`, which the test requires.
 */ -}}
 {{- $context := dict "root" . "settings" (include "gateway.settings" . | fromYaml) -}}
 {{- $fullname := include "foca-common.fullname" . -}}
@@ -28,11 +28,16 @@ spec:
     env:
     - name: GATEWAY_URL
       value: {{ printf "http://%s:8080" $fullname | quote }}
+    - name: STORE_KEY_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: {{ required "pluginStore.existingSecret is required by the test" .Values.pluginStore.existingSecret | quote }}
+          key: store-key-secret
     command:
     - python
     - -c
     - |
-      import json, os, time, urllib.error, urllib.request
+      import hashlib, hmac, json, os, time, urllib.error, urllib.request
 
       def send(path):
           request = urllib.request.Request(
@@ -43,6 +48,12 @@ spec:
           with urllib.request.urlopen(request, timeout=60) as response:
               return json.load(response)
 
+      # As `ctx.store.key_for("example")` of the plugin's distribution
+      expected_key = "hk:" + hmac.new(
+          os.environb[b"STORE_KEY_SECRET"],
+          json.dumps(["foca-gateway-example-plugin", "example"]).encode(),
+          hashlib.sha256,
+      ).hexdigest()
       in_app = send("/messages")
       # The worker has no probes, so it may still connect to the broker when
       # the release is ready: the app answers 503 until it gets a result
@@ -61,10 +72,9 @@ spec:
           payload = result["payload"]
           assert payload["stamp"] == "stamped by the plugin", payload
           assert payload["store_mode"] == "shared", payload
-          assert payload["store_key"].startswith("hk:"), payload
+          assert payload["store_key"] == expected_key, payload
           plugins = result["provenance"]["plugins"]
           assert "org.example.gateway.stamp" in plugins.values(), plugins
-      assert in_app["payload"]["store_key"] == in_worker["payload"]["store_key"]
       assert in_app["payload"]["count"] < in_worker["payload"]["count"]
       print("the plugin ran in the app and the worker")
     securityContext:

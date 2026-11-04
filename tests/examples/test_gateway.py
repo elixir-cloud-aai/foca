@@ -11,7 +11,9 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from celery.exceptions import TimeoutError as ResultTimeout
 from flask.testing import FlaskClient
+from kombu.exceptions import OperationalError
 
 from foca import Foca
 from foca.plugins import runtime
@@ -71,10 +73,23 @@ def test_worker_not_answering(
 ) -> None:
     """A worker that doesn't answer in time gives 503, not an error in the logs."""
     import controllers  # noqa: PLC0415
-    from celery.exceptions import TimeoutError as ResultTimeout  # noqa: PLC0415
 
     celery = mock.Mock()
     celery.send_task.return_value.get.side_effect = ResultTimeout
+    monkeypatch.setattr(controllers, "_celery_client", lambda: celery)
+    response = client.post("/messages/worker", json={"message": "hi"})
+    assert response.status_code == 503
+    assert response.json == {"title": "Service Unavailable", "status": 503}
+
+
+def test_broker_not_reachable(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broker that can't be reached gives 503, too."""
+    import controllers  # noqa: PLC0415
+
+    celery = mock.Mock()
+    celery.send_task.side_effect = OperationalError
     monkeypatch.setattr(controllers, "_celery_client", lambda: celery)
     response = client.post("/messages/worker", json={"message": "hi"})
     assert response.status_code == 503

@@ -3,7 +3,8 @@
 A minimal gateway app on [FOCA](https://foca.readthedocs.io/) with a real
 plugin, for FOCA's integration tests and chart installation in CI. It shows how
 the parts of a gateway fit together; start from the [petstore
-example](../petstore/README.md) for what FOCA does otherwise.
+example](../petstore/README.md) for what FOCA does otherwise. It accepts
+requests without authentication, so don't expose it.
 
 - `plugin/`: the plugin, a distribution with an entry point of the group
   `foca.plugins`. The image builds it as a wheel and installs it. It adds a

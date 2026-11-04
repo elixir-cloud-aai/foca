@@ -1,16 +1,20 @@
 """Controllers of the gateway example app."""
 
 import functools
+import logging
 import os
 from typing import Any
 
 from celery import Celery
 from celery.exceptions import TimeoutError as ResultTimeout
 from flask import current_app
+from kombu.exceptions import OperationalError
 from service import run_pipeline
 from tasks import TASK_NAME
 
 from foca.plugins.adapter import current_principal, inbound_from_request, request_id
+
+logger = logging.getLogger(__name__)
 
 # Seconds to wait for the result of the worker
 WORKER_TIMEOUT = 30
@@ -62,12 +66,13 @@ def addWorkerMessage(
 
     Returns:
         Payload after the plugins, and the run's provenance record; or
-        problem details and status 503 if the worker didn't answer in time,
-        e.g., as it is still starting.
+        problem details and status 503 if the broker can't be reached, or
+        the worker didn't answer in time, e.g., as it is still starting.
     """
-    result = _celery_client().send_task(TASK_NAME, args=[body])
     try:
+        result = _celery_client().send_task(TASK_NAME, args=[body])
         data: dict[str, Any] = result.get(timeout=WORKER_TIMEOUT)
-    except ResultTimeout:
+    except (OperationalError, ResultTimeout) as error:
+        logger.warning("Worker not available: %s", type(error).__name__)
         return {"title": "Service Unavailable", "status": 503}, 503
     return data
