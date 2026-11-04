@@ -120,7 +120,8 @@ and the settings (`settings`), one per file:
 | --- | --- |
 | `foca-common.configMap` | `ConfigMap` with the config overlay; also checks the values, so every app chart must include it |
 | `foca-common.deployment` | the app's `Deployment` |
-| `foca-common.podDisruptionBudget` | the app's `PodDisruptionBudget`, if `<valuesKey>.replicas` is more than 1, unless `<valuesKey>.podDisruptionBudget.enabled` is false (new in 0.3.0: app charts moving to it add a template file for it; see [Several replicas](#several-replicas)) |
+| `foca-common.hpa` | the app's `HorizontalPodAutoscaler`, if `<valuesKey>.autoscaling.enabled` |
+| `foca-common.podDisruptionBudget` | the app's `PodDisruptionBudget`, if `<valuesKey>.replicas` (with autoscaling, `minReplicas`) is more than 1, unless `<valuesKey>.podDisruptionBudget.enabled` is false (new in 0.3.0: app charts moving to it add a template file for it; see [Several replicas](#several-replicas)) |
 | `foca-common.service` | the app's `Service` (port 8080) |
 | `foca-common.ingress` | `Ingress`, if `<valuesKey>.ingress.enabled` |
 | `foca-common.httpRoute` | Gateway API `HTTPRoute`, if `<valuesKey>.httpRoute.enabled` |
@@ -167,7 +168,7 @@ your app's `valuesKey`:
 | `hostName` | Public host name of the Ingress, HTTPRoute or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
 | `pluginStore` | Secrets of the plugin store of gateway apps: `existingSecret` (its key secret; none if empty). The library chart doesn't read top-level `plugins` values, which stay the app chart's own |
-| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `startupProbe`, `readinessProbe`, `livenessProbe`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn` |
+| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `autoscaling`, `topologySpreadConstraints`, `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `startupProbe`, `readinessProbe`, `livenessProbe`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn`, `extraEnv`, `extraEnvFrom`, `rolloutOnSecrets` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `persistence` (`volumeSize`, its size up to 0.1.0, is a deprecated alias of `persistence.size`), `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
 | `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `persistence`, `dataSizeLimit`, `tmpSizeLimit` |
@@ -750,6 +751,60 @@ for cloud load balancers, see [Cloud load balancers](#cloud-load-balancers).
     map and render as before; copy `app-values.schema.json` again (see
     [Values](#values)) and add `pluginStore.existingSecret: ""` to the
     values to use it.
+- **Environment variables and Secrets of your own:** `<valuesKey>.extraEnv`
+  (a list of EnvVar) and `<valuesKey>.extraEnvFrom` (a list of EnvFromSource)
+  apply to the app's and the worker's containers, not to the bundled broker or
+  MongoDB, e.g., for a connection string from your own Secret:
+
+    ```yaml
+    myApp:
+      extraEnv:
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: my-mongodb
+              key: uri
+      rolloutOnSecrets:
+        - my-mongodb
+    mongodb:
+      enabled: false
+      auth:
+        enabled: false
+    config:
+      db:
+        # Required with `mongodb.enabled: false`; `MONGO_URI` takes precedence
+        host: external
+    ```
+
+    Rendering fails if `extraEnv` sets a variable that the chart sets:
+    `FOCA_CONFIG_OVERLAY`, `PORT` (the chart's ports are 8080; `foca.gunicorn_config`
+    reads it), and, if the chart's settings for them are in use,
+    `GUNICORN_CMD_ARGS`, `MONGO_USERNAME` and `MONGO_PASSWORD`,
+    `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND`, and
+    `FOCA_PLUGINS_STORE_KEY_SECRET`. It also fails if `extraEnv` has a secret
+    as a literal value, which would be readable in the Deployment:
+    `MONGO_PASSWORD` and `FOCA_PLUGINS_STORE_KEY_SECRET`, and `MONGO_URI`,
+    `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` with credentials (an `@`);
+    use `valueFrom` for them. Kubernetes gives variables in `env` precedence
+    over those from `envFrom`, so the chart's also win over `extraEnvFrom`
+    (except `CELERY_RESULT_BACKEND` if the broker's Secret lacks that optional
+    key). New in 0.5.0; values of older app charts render as before;
+    copy `app-values.schema.json` again (see [Values](#values)) to use them.
+- **Rollouts on changes of Secrets:** Pods restart when the config overlay
+  changes, but not when a Secret that they read changes. With the names of
+  Secrets in `<valuesKey>.rolloutOnSecrets`, a checksum of their data becomes
+  an annotation of the app's and the worker's pods (`checksum/secrets`), so an
+  upgrade after a change rolls them. Helm's `lookup` reads the Secrets at that
+  time, so the user running Helm must be allowed to read them, nothing happens
+  until the next upgrade, and Secrets not found are ignored (deleting one rolls
+  the pods as well). As `lookup` reads them before Helm applies anything, a change
+  of a Secret in the same release only counts on the next upgrade. The annotation is an unsalted hash of the data, which those
+  who can read Deployments can test guesses against, so use it for Secrets with
+  long random values, not for weak passwords. `helm template` and
+  Argo CD don't read from the cluster, so they render no annotation, without an
+  error. There, and to roll pods right on changes, use a controller such as
+  [Stakater Reloader](https://github.com/stakater/Reloader), for which the chart
+  needs no support.
 - **Network policies:** MongoDB's NetworkPolicy, enabled by default, admits
   only the app's pods of the release (and the worker's, if enabled); the
   broker's admits only the app's and the worker's pods. The app's
@@ -837,7 +892,56 @@ later), so that they don't block drains.
 Kubernetes' scheduler spreads the pods of a Deployment across nodes and
 zones where it can (as a preference, not a rule), so check that they run
 on different nodes (`kubectl get pods -o wide`), as a node failure
-otherwise takes down all of them.
+otherwise takes down all of them. For rules of your own, set
+`<valuesKey>.topologySpreadConstraints`; a `labelSelector` is filled in with the
+selector of the app's pods where none is given:
+
+```yaml
+petstore:
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+```
+
+With `<valuesKey>.autoscaling.enabled`, a `HorizontalPodAutoscaler` sets the
+number of the app's pods instead of `replicas`, which isn't rendered:
+
+```yaml
+petstore:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+  resources:
+    requests:
+      cpu: 200m
+```
+
+It scales on CPU and memory only, by default on CPU at 80%; to scale on memory
+only, set `targetCPUUtilizationPercentage: null`. This needs
+[metrics-server](https://github.com/kubernetes-sigs/metrics-server) in the
+cluster and `resources.requests` of what is measured, as the percentages refer to
+these. `minReplicas` defaults to 2 and `maxReplicas` to 4, and a
+`PodDisruptionBudget` is rendered if `minReplicas` is more than 1. If an
+autoscaler takes over from `replicas` on an upgrade, Helm removes the field, so
+the number of pods can drop to one until the autoscaler acts. The caveats below
+on several replicas apply, and autoscaling adds pods at any time: each new pod
+runs the startup work of the app, until the `foca` CLI and its switches take that
+over. The chart doesn't manage the number of pods with autoscaling: after scaling
+the app to 0 (e.g., for an upgrade that needs it stopped), the autoscaler stays
+inactive, and `helm upgrade` doesn't restore the pods, so scale it up again
+(`kubectl scale deployment/my-app --replicas=2`).
+
+App charts written for versions before foca-common 0.5.0 copy
+`app-values.schema.json` again, so that `autoscaling` and
+`topologySpreadConstraints` are checked. For autoscaling, they must also add a
+template file with `foca-common.hpa` (see the petstore example): without it,
+`autoscaling.enabled` still removes `replicas` from the Deployment, with no
+autoscaler, so the app ends up with one pod. Nothing changes if these values
+aren't used.
 
 App charts written for versions before foca-common 0.3.0 copy
 `app-values.schema.json` again (see [Values](#values)), add `replicas` and
@@ -911,7 +1015,9 @@ pet and reads it back, so that the app, its MongoDB and the app user are
 checked. A second installation (`ci/celery-values.yaml`) adds the Celery
 worker and the bundled broker; CI checks that the worker logs that it is
 ready, i.e., connected to the broker, and that a task queued while no
-worker runs survives a restart of the broker and then reaches it. A third one
+worker runs survives a restart of the broker and then reaches it; this one also
+has `rolloutOnSecrets`, and CI checks that the app and the worker have the
+annotation. A third one
 (`ci/access-control-values.yaml`) enables access control with configured
 policies, which FOCA stores on startup, so that the app user's access to the
 access-control database is checked. A fourth one (`ci/gateway-values.yaml`)

@@ -1,9 +1,10 @@
 {{/*
-Deployment of the app: `<valuesKey>.replicas` pods (1 if not set) with the
-app's container (port 8080, `http`), the config overlay mounted at
-`configDir` (see `foca-common.checkSettings`), MongoDB credentials from the
-existing Secret if authentication is enabled, and a writable `emptyDir` at
-`/tmp`. Call with the context dict.
+Deployment of the app: `<valuesKey>.replicas` pods (1 if not set, and not
+rendered with autoscaling, cf. `foca-common.hpa`) with the app's container
+(port 8080, `http`), the config overlay mounted at `configDir` (see
+`foca-common.checkSettings`), MongoDB credentials from the existing Secret if
+authentication is enabled, and a writable `emptyDir` at `/tmp`. Call with the
+context dict.
 */}}
 {{- define "foca-common.deployment" -}}
 {{- include "foca-common.checkSettings" . -}}
@@ -18,7 +19,9 @@ metadata:
     {{- include "foca-common.labels" (dict "root" $root "component" "app") | nindent 4 }}
 spec:
   progressDeadlineSeconds: 600
+  {{- if ne (include "foca-common.autoscalingEnabled" .) "true" }}
   replicas: {{ include "foca-common.replicas" . }}
+  {{- end }}
   revisionHistoryLimit: 10
   selector:
     matchLabels:
@@ -33,6 +36,10 @@ spec:
       annotations:
         # Roll the pods when the config changes
         checksum/config: {{ include "foca-common.configMap" . | sha256sum }}
+        {{- with include "foca-common.rolloutChecksum" . }}
+        # Roll the pods when the Secrets in `rolloutOnSecrets` change
+        checksum/secrets: {{ . }}
+        {{- end }}
       labels:
         {{- include "foca-common.selectorLabels" (dict "root" $root "component" "app") | nindent 8 }}
     spec:
@@ -42,6 +49,10 @@ spec:
       # FOCA reads some as configuration (e.g., `MONGO_PORT` of a Service
       # `mongo`, which isn't a port)
       enableServiceLinks: false
+      {{- with include "foca-common.topologySpreadConstraints" . }}
+      topologySpreadConstraints:
+        {{- . | nindent 8 }}
+      {{- end }}
       containers:
       - image: {{ include "foca-common.image" . | quote }}
         imagePullPolicy: {{ $values.imagePullPolicy | default "Always" }}
@@ -49,6 +60,9 @@ spec:
         env:
         - name: FOCA_CONFIG_OVERLAY
           value: {{ printf "%s/overlay.yaml" $configDir }}
+        # The port of the Service and the probes, also over `extraEnvFrom`
+        - name: PORT
+          value: "8080"
         {{- if $values.gunicorn }}
         # Settings of Gunicorn (the image's command), overriding the image's
         # defaults; options are split like shell words, so `extraArgs` are
@@ -66,6 +80,13 @@ spec:
         {{- . | nindent 8 }}
         {{- end }}
         {{- with include "foca-common.pluginsEnv" $root | trim }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "foca-common.extraEnv" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "foca-common.extraEnvFrom" . }}
+        envFrom:
         {{- . | nindent 8 }}
         {{- end }}
         ports:

@@ -17,6 +17,7 @@ from chart_helpers import (
     REQUIRED_VALUES,
     Docs,
     Manifest,
+    build_chart,
     helm,
     index,
     template,
@@ -1932,7 +1933,9 @@ def test_worker(render: Callable[..., Docs]) -> None:
     env = _env(worker)
     assert {name: env[name] for name in CELERY_ENV} == CELERY_ENV
     assert env == {
-        name: value for name, value in _env(app).items() if name != "GUNICORN_CMD_ARGS"
+        name: value
+        for name, value in _env(app).items()
+        if name not in ("GUNICORN_CMD_ARGS", "PORT")
     }
     spec = _pod_spec(docs, WORKER)
     assert spec["securityContext"] == _pod_spec(docs)["securityContext"]
@@ -2433,3 +2436,464 @@ def test_schema_rejects_invalid_plugin_store_values(
     """The schema rejects invalid plugin store values."""
     assert "schema" in render_error("--set-json", "pluginStore.existingSecret=1")
     assert "schema" in render_error("--set", "pluginStore.unknown=true")
+
+
+EXTRA_ENV = [
+    {"name": "MONGO_URI", "valueFrom": {"secretKeyRef": {"name": "db", "key": "uri"}}},
+    {"name": "OTHER", "value": "x"},
+]
+EXTRA_ENV_FROM = [{"secretRef": {"name": "more"}}, {"configMapRef": {"name": "cm"}}]
+
+
+def _deployment_container(docs: Docs, name: str) -> dict[str, Any]:
+    """Get the container of a Deployment.
+
+    Args:
+        docs: Rendered manifests.
+        name: Name of the Deployment.
+
+    Returns:
+        First container of its pods.
+    """
+    container: dict[str, Any] = docs["Deployment", name]["spec"]["template"]["spec"][
+        "containers"
+    ][0]
+    return container
+
+
+def test_extra_env_default(render: Callable[..., Docs]) -> None:
+    """Without extra settings, containers have no `envFrom`."""
+    docs = render(*CELERY)
+    for name in (APP, WORKER):
+        container = docs["Deployment", name]["spec"]["template"]["spec"]["containers"][
+            0
+        ]
+        assert "envFrom" not in container
+        assert "OTHER" not in _env(container)
+
+
+def test_port_set(render: Callable[..., Docs]) -> None:
+    """The app's port is set, so `extraEnvFrom` can't change it."""
+    assert _env(_container(render()))["PORT"] == "8080"
+
+
+def test_extra_env(render: Callable[..., Docs]) -> None:
+    """Extra settings apply to the app and the worker, not to other containers."""
+    docs = render(
+        *CELERY,
+        "--set-json",
+        f"petstore.extraEnv={json.dumps(EXTRA_ENV)}",
+        "--set-json",
+        f"petstore.extraEnvFrom={json.dumps(EXTRA_ENV_FROM)}",
+    )
+    for name in (APP, WORKER):
+        container = docs["Deployment", name]["spec"]["template"]["spec"]["containers"][
+            0
+        ]
+        env = _env(container)
+        assert env["OTHER"] == "x"
+        assert env["MONGO_URI"] == EXTRA_ENV[0]["valueFrom"]
+        assert container["envFrom"] == EXTRA_ENV_FROM
+    for key, doc in docs.items():
+        if key not in {("Deployment", APP), ("Deployment", WORKER)}:
+            assert "OTHER" not in json.dumps(doc)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "FOCA_CONFIG_OVERLAY",
+        "PORT",
+        "GUNICORN_CMD_ARGS",
+        "MONGO_USERNAME",
+        "MONGO_PASSWORD",
+    ],
+)
+def test_extra_env_reserved(render_error: Callable[..., str], name: str) -> None:
+    """Variables that the chart sets can't be set."""
+    error = render_error(
+        "--set-json", f"petstore.extraEnv={json.dumps([{'name': name, 'value': 'x'}])}"
+    )
+    assert f"petstore.extraEnv must not set {name}" in error
+
+
+@pytest.mark.parametrize("name", ["CELERY_BROKER_URL", "CELERY_RESULT_BACKEND"])
+def test_extra_env_reserved_broker(render_error: Callable[..., str], name: str) -> None:
+    """The broker's variables can't be set if the chart sets them."""
+    error = render_error(
+        *CELERY,
+        "--set-json",
+        f"petstore.extraEnv={json.dumps([{'name': name, 'value': 'x'}])}",
+    )
+    assert f"petstore.extraEnv must not set {name}" in error
+
+
+def test_extra_env_reserved_plugins(render_error: Callable[..., str]) -> None:
+    """The key secret of the plugin store can't be set if the chart sets it."""
+    name = "FOCA_PLUGINS_STORE_KEY_SECRET"
+    error = render_error(
+        "--set",
+        "pluginStore.existingSecret=store",
+        "--set-json",
+        f"petstore.extraEnv={json.dumps([{'name': name, 'value': 'x'}])}",
+    )
+    assert f"petstore.extraEnv must not set {name}" in error
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("GUNICORN_CMD_ARGS", ("--set-json", "petstore.gunicorn=null")),
+        (
+            "MONGO_USERNAME",
+            ("--set", "mongodb.auth.enabled=false"),
+        ),
+        ("CELERY_BROKER_URL", ()),
+        ("OTHER_SECRET", ()),
+    ],
+)
+def test_extra_env_allowed(
+    render: Callable[..., Docs], name: str, args: tuple[str, ...]
+) -> None:
+    """Variables are free if the chart doesn't set them."""
+    docs = render(
+        *args,
+        "--set-json",
+        f"petstore.extraEnv={json.dumps([{'name': name, 'value': 'x'}])}",
+    )
+    assert name in _env(_container(docs))
+
+
+@pytest.mark.parametrize("extra_env", [{"value": "x"}, {"name": ""}, "x"])
+def test_extra_env_schema(render_error: Callable[..., str], extra_env: object) -> None:
+    """Items without a name are rejected."""
+    assert "extraEnv" in render_error(
+        "--set-json", f"petstore.extraEnv={json.dumps([extra_env])}"
+    )
+
+
+def test_rollout_on_secrets_template(render: Callable[..., Docs]) -> None:
+    """`helm template` renders without an annotation, as it finds no Secrets."""
+    docs = render(*CELERY, "--set-json", 'petstore.rolloutOnSecrets=["db"]')
+    for name in (APP, WORKER):
+        annotations = docs["Deployment", name]["spec"]["template"]["metadata"][
+            "annotations"
+        ]
+        assert "checksum/secrets" not in annotations
+        assert "checksum/config" in annotations
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("MONGO_PASSWORD", "hunter2"),
+        ("FOCA_PLUGINS_STORE_KEY_SECRET", "hunter2"),
+        ("MONGO_URI", "mongodb://u:hunter2@db/"),
+        ("CELERY_BROKER_URL", "amqp://u:hunter2@broker//"),
+        ("CELERY_RESULT_BACKEND", "rpc://u:hunter2@broker//"),
+    ],
+)
+def test_extra_env_literal_secret(
+    render_error: Callable[..., str], name: str, value: str
+) -> None:
+    """Secrets as literal values are refused, without showing them."""
+    error = render_error(
+        "--set",
+        "mongodb.auth.enabled=false",
+        "--set-json",
+        f"petstore.extraEnv={json.dumps([{'name': name, 'value': value}])}",
+    )
+    assert f"must take {name} from a Secret" in error
+    assert "hunter2" not in error
+
+
+@pytest.mark.parametrize(
+    "var",
+    [
+        {"name": "MONGO_URI", "value": "mongodb://db/"},
+        {
+            "name": "MONGO_URI",
+            "valueFrom": {"secretKeyRef": {"name": "db", "key": "uri"}},
+        },
+        {
+            "name": "FOCA_PLUGINS_STORE_KEY_SECRET",
+            "valueFrom": {"secretKeyRef": {"name": "s", "key": "k"}},
+        },
+        {"name": "OTHER", "value": "a@b"},
+        {"name": "NUMBER", "value": "1"},
+    ],
+)
+def test_extra_env_no_literal_secret(
+    render: Callable[..., Docs], var: dict[str, Any]
+) -> None:
+    """References and values without credentials pass."""
+    docs = render("--set-json", f"petstore.extraEnv={json.dumps([var])}")
+    assert var["name"] in _env(_container(docs))
+
+
+def test_extra_env_duplicate(render_error: Callable[..., str]) -> None:
+    """A variable can't be set twice."""
+    extra_env = [{"name": "A", "value": "1"}, {"name": "A", "value": "2"}]
+    error = render_error("--set-json", f"petstore.extraEnv={json.dumps(extra_env)}")
+    assert "must not set A twice" in error
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("extraEnv", {"a": {"name": "B"}}, "extraEnv must be a list"),
+        ("extraEnv", False, "extraEnv must be a list"),
+        ("extraEnv", {}, "extraEnv must be a list"),
+        ("extraEnvFrom", 0, "extraEnvFrom must be a list"),
+        ("extraEnvFrom", "", "extraEnvFrom must be a list"),
+        ("rolloutOnSecrets", False, "rolloutOnSecrets must be a list"),
+        ("rolloutOnSecrets", {}, "rolloutOnSecrets must be a list"),
+        ("extraEnv", [{}], "extraEnv must be a list"),
+        ("extraEnv", ["x"], "extraEnv must be a list"),
+        ("extraEnvFrom", {"secretRef": {"name": "x"}}, "extraEnvFrom must be a list"),
+        ("extraEnvFrom", [3], "extraEnvFrom must be a list"),
+        ("rolloutOnSecrets", "x", "rolloutOnSecrets must be a list"),
+        ("rolloutOnSecrets", [""], "rolloutOnSecrets must be a list"),
+        ("rolloutOnSecrets", [1], "rolloutOnSecrets must be a list"),
+    ],
+)
+def test_extra_settings_without_schema(
+    tmp_path: Path, key: str, value: object, message: str
+) -> None:
+    """Without the schema, wrong types fail on rendering."""
+    chart = build_chart(tmp_path)
+    (chart / "values.schema.json").unlink()
+    error = template_error(chart, "--set-json", f"petstore.{key}={json.dumps(value)}")
+    assert message in error
+
+
+# Autoscaling and topology spread constraints
+
+
+AUTOSCALING = ("--set", "petstore.autoscaling.enabled=true")
+
+
+def _hpa(docs: Docs) -> dict[str, Any]:
+    hpa: dict[str, Any] = docs[("HorizontalPodAutoscaler", APP)]
+    return hpa
+
+
+def test_no_autoscaling_by_default(render: Callable[..., Docs]) -> None:
+    """Without autoscaling, nothing changes."""
+    docs = render()
+    assert ("HorizontalPodAutoscaler", APP) not in docs
+    assert docs[("Deployment", APP)]["spec"]["replicas"] == 1
+    pod = docs[("Deployment", APP)]["spec"]["template"]["spec"]
+    assert "topologySpreadConstraints" not in pod
+
+
+def test_autoscaling(render: Callable[..., Docs]) -> None:
+    """With autoscaling, the autoscaler sets the number of pods."""
+    docs = render(*AUTOSCALING, "--set", "petstore.replicas=7")
+    assert "replicas" not in docs[("Deployment", APP)]["spec"]
+    hpa = _hpa(docs)
+    assert hpa["apiVersion"] == "autoscaling/v2"
+    assert hpa["spec"]["scaleTargetRef"] == {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "name": APP,
+    }
+    assert hpa["spec"]["minReplicas"] == 2
+    assert hpa["spec"]["maxReplicas"] == 4
+    assert hpa["spec"]["metrics"] == [
+        {
+            "type": "Resource",
+            "resource": {
+                "name": "cpu",
+                "target": {"type": "Utilization", "averageUtilization": 80},
+            },
+        }
+    ]
+
+
+def test_autoscaling_memory(render: Callable[..., Docs]) -> None:
+    """Memory can be used instead of or with CPU."""
+    only = _hpa(
+        render(
+            *AUTOSCALING,
+            "--set-json",
+            "petstore.autoscaling.targetCPUUtilizationPercentage=null",
+            "--set",
+            "petstore.autoscaling.targetMemoryUtilizationPercentage=70",
+        )
+    )
+    assert [m["resource"]["name"] for m in only["spec"]["metrics"]] == ["memory"]
+    both = _hpa(
+        render(
+            *AUTOSCALING,
+            "--set",
+            "petstore.autoscaling.targetMemoryUtilizationPercentage=70",
+        )
+    )
+    assert [m["resource"]["name"] for m in both["spec"]["metrics"]] == [
+        "cpu",
+        "memory",
+    ]
+
+
+def test_autoscaling_no_target_means_cpu(render: Callable[..., Docs]) -> None:
+    """Without a target, CPU at 80% is used, as in `helm create`."""
+    hpa = _hpa(
+        render(
+            *AUTOSCALING,
+            "--set-json",
+            "petstore.autoscaling.targetCPUUtilizationPercentage=null",
+        )
+    )
+    metric = hpa["spec"]["metrics"][0]["resource"]
+    assert metric["name"] == "cpu"
+    assert metric["target"]["averageUtilization"] == 80
+
+
+@pytest.mark.parametrize(
+    ("replicas", "minimum", "budget"),
+    [(1, 2, True), (5, 1, False), (5, 2, True), (1, 1, False)],
+)
+def test_autoscaling_budget(
+    render: Callable[..., Docs], replicas: int, minimum: int, budget: bool
+) -> None:
+    """The fewest pods decide whether a budget is rendered, not `replicas`."""
+    docs = render(
+        *AUTOSCALING,
+        "--set",
+        f"petstore.autoscaling.minReplicas={minimum}",
+        "--set",
+        f"petstore.replicas={replicas}",
+    )
+    assert (("PodDisruptionBudget", APP) in docs) is budget
+
+
+def test_autoscaling_max_below_min(render_error: Callable[..., str]) -> None:
+    """More pods at least than at most are refused."""
+    error = render_error(*AUTOSCALING, "--set", "petstore.autoscaling.maxReplicas=1")
+    assert "maxReplicas must not be less than minReplicas" in error
+
+
+@pytest.mark.parametrize(
+    ("values", "error"),
+    [
+        ('{"autoscaling": 1}', "autoscaling must be a map"),
+        ('{"autoscaling": {"enabled": "yes"}}', "enabled must be true or false"),
+        (
+            '{"autoscaling": {"enabled": true, "minReplicas": 0}}',
+            "minReplicas must be a whole number",
+        ),
+        (
+            '{"autoscaling": {"enabled": true, "maxReplicas": 1.5}}',
+            "maxReplicas must be a whole number",
+        ),
+        (
+            '{"autoscaling": {"enabled": true, "targetCPUUtilizationPercentage": "a"}}',
+            "targetCPUUtilizationPercentage must be a whole number",
+        ),
+        ('{"topologySpreadConstraints": {}}', "must be a list"),
+        ('{"topologySpreadConstraints": ["a"]}', "must be a list"),
+        ('{"topologySpreadConstraints": [{}]}', "must be a list"),
+        (
+            '{"topologySpreadConstraints": [{"maxSkew": 0, "topologyKey": "a", '
+            '"whenUnsatisfiable": "DoNotSchedule"}]}',
+            "maxSkew of at least 1",
+        ),
+        (
+            '{"topologySpreadConstraints": [{"maxSkew": 1, "topologyKey": "a", '
+            '"whenUnsatisfiable": "DoNotSchedule", "labelSelector": "x"}]}',
+            "labelSelector must be a map",
+        ),
+    ],
+)
+def test_autoscaling_invalid_without_schema(
+    chart: Path, tmp_path: Path, values: str, error: str
+) -> None:
+    """Invalid values are refused, also for app charts without the schema."""
+    chart_copy = _chart_without_schema(chart, tmp_path)
+    assert error in template_error(chart_copy, "--set-json", f"petstore={values}")
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        '{"autoscaling": {"minReplicas": 0}}',
+        '{"autoscaling": {"maxReplicas": 0}}',
+        '{"autoscaling": {"targetCPUUtilizationPercentage": 0}}',
+        '{"autoscaling": {"targetMemoryUtilizationPercentage": "a"}}',
+        '{"autoscaling": {"unknown": 1}}',
+        '{"autoscaling": {"enabled": "yes"}}',
+        '{"topologySpreadConstraints": {}}',
+        '{"topologySpreadConstraints": ["a"]}',
+        '{"topologySpreadConstraints": [{}]}',
+        *(
+            '{"topologySpreadConstraints": [{"maxSkew": 1, "topologyKey": "a", '
+            f'"whenUnsatisfiable": "DoNotSchedule", {field}}}]}}'
+            for field in (
+                '"maxSkew": 0',
+                '"maxSkew": 1.5',
+                '"maxSkew": "1"',
+                '"topologyKey": ""',
+                '"whenUnsatisfiable": "Nope"',
+                '"labelSelector": "x"',
+            )
+        ),
+    ],
+)
+def test_autoscaling_schema(render_error: Callable[..., str], values: str) -> None:
+    """The schema refuses invalid values."""
+    assert "schema" in render_error("--set-json", f"petstore={values}")
+
+
+def test_autoscaling_without_values(chart: Path, tmp_path: Path) -> None:
+    """Older app charts without the values are unchanged."""
+    chart_copy = _chart_without_schema(chart, tmp_path)
+    docs = index(
+        template(
+            chart_copy,
+            "--set-json",
+            "petstore.autoscaling=null",
+            "--set-json",
+            "petstore.topologySpreadConstraints=null",
+        )
+    )
+    assert docs[("Deployment", APP)]["spec"]["replicas"] == 1
+    assert ("HorizontalPodAutoscaler", APP) not in docs
+
+
+def test_topology_spread_selector(render: Callable[..., Docs]) -> None:
+    """The selector of the app's pods is filled in; given ones are kept."""
+    constraint = {
+        "maxSkew": 1,
+        "topologyKey": "zone",
+        "whenUnsatisfiable": "ScheduleAnyway",
+    }
+    given = {**constraint, "labelSelector": {"matchLabels": {"a": "b"}}}
+    expressions = {
+        **constraint,
+        "labelSelector": {
+            "matchExpressions": [{"key": "a", "operator": "Exists"}],
+        },
+    }
+    empties = [
+        {**constraint, "labelSelector": selector}
+        for selector in ({}, {"matchLabels": {}}, {"matchExpressions": []})
+    ]
+    constraints = [constraint, given, expressions, *empties]
+    docs = render(
+        "--set-json",
+        f"petstore.topologySpreadConstraints={json.dumps(constraints)}",
+    )
+    template_spec = docs[("Deployment", APP)]["spec"]["template"]
+    default = {
+        **constraint,
+        "labelSelector": {"matchLabels": template_spec["metadata"]["labels"]},
+    }
+    assert template_spec["spec"]["topologySpreadConstraints"] == [
+        default,
+        given,
+        expressions,
+        default,
+        default,
+        default,
+    ]

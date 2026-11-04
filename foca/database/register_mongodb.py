@@ -2,16 +2,26 @@
 
 import logging
 import os
+from collections.abc import Mapping
 from typing import Any
-from urllib.parse import quote_plus, urlsplit, urlunsplit
+from urllib.parse import quote_plus, urlsplit
 
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
+from pymongo.uri_parser import split_options
 
 from foca.models.config import DBConfig, MongoConfig
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+# Options of MongoDB clients unless set otherwise, in milliseconds: with
+# MongoDB down, requests and the startup of the app fail after this time, not
+# after PyMongo's default of 30 seconds
+DEFAULT_CLIENT_OPTIONS = {
+    "serverSelectionTimeoutMS": 5000,
+    "connectTimeoutMS": 5000,
+}
 
 
 def register_mongodb(conf: MongoConfig) -> MongoConfig:
@@ -37,7 +47,42 @@ def register_mongodb(conf: MongoConfig) -> MongoConfig:
     return conf
 
 
-def get_mongo_client(conf: MongoConfig) -> MongoClient[dict[str, Any]]:
+def reopen_mongodb(conf: MongoConfig) -> None:
+    """Replace the MongoDB client of an app, for processes that fork.
+
+    A client's threads don't survive a fork, and a client used across one may
+    hang (cf. https://dochub.mongodb.org/core/pymongo-fork-deadlock). The
+    current client is closed, and databases and collections are set to a new
+    client, which only connects on first use, so that this doesn't block and
+    forked processes can inherit the new client safely until it is used.
+    Nothing is done if no client was created yet.
+
+    Anything taken from the previous client (e.g., a collection kept in a
+    variable, or the adapter of the access control) can't be used afterwards.
+
+    Args:
+        conf: :py:class:`foca.models.config.MongoConfig` instance whose
+            clients of databases and collections are replaced.
+    """
+    previous = conf._client
+    if previous is None:
+        return
+    conf._client = None
+    client = get_mongo_client(conf, connect=False)
+    for db_conf in (conf.dbs or {}).values():
+        if db_conf.client is None:
+            continue
+        db_conf.client = client[db_conf.client.name]
+        for coll_conf in (db_conf.collections or {}).values():
+            if coll_conf.client is not None:
+                coll_conf.client = db_conf.client[coll_conf.client.name]
+    previous.close()
+    logger.debug("Reopened MongoDB client.")
+
+
+def get_mongo_client(
+    conf: MongoConfig, connect: bool = True
+) -> MongoClient[dict[str, Any]]:
     """Get the MongoDB client of an app, creating it on first use.
 
     If credentials are configured via environment variables, the client
@@ -48,6 +93,8 @@ def get_mongo_client(conf: MongoConfig) -> MongoClient[dict[str, Any]]:
     Args:
         conf: :py:class:`foca.models.config.MongoConfig` instance describing
             the MongoDB server and databases.
+        connect: Whether a client created here connects in the background
+            right away, rather than on first use.
 
     Returns:
         MongoDB client, shared by all databases of `conf`.
@@ -57,6 +104,9 @@ def get_mongo_client(conf: MongoConfig) -> MongoClient[dict[str, Any]]:
             host=conf.host,
             port=conf.port,
             db=next(iter(conf.dbs or {}), None),
+            connect=connect,
+            options=conf.client_options,
+            appname=conf._default_appname,
         )
     return conf._client
 
@@ -65,26 +115,95 @@ def create_mongo_client(
     host: str = "mongodb",
     port: int = 27017,
     db: str | None = None,
+    connect: bool = True,
+    options: Mapping[str, Any] | None = None,
+    appname: str | None = None,
 ) -> MongoClient[dict[str, Any]]:
     """Create MongoDB client.
 
     Cf. :py:func:`get_mongo_uri` for how the connection string is built,
     including environment variables. Select databases via the client, e.g.,
-    ``client[get_mongo_db_name("my_db")]``.
+    ``client[get_mongo_db_name("my_db")]``. Options in the connection string
+    win over `options`, with a warning, and over defaults (cf.
+    :py:func:`_get_client_options`).
 
     Args:
         host: Host at which MongoDB is exposed.
         port: Port at which MongoDB is exposed.
         db: Name of the database named in the connection string, i.e., the
             database to authenticate against, if credentials are given.
+        connect: Whether the client connects in the background right away,
+            rather than on first use.
+        options: Options of the client, with PyMongo's names.
+        appname: Name of the app in MongoDB's logs, unless `options` or the
+            connection string set one.
 
     Returns:
         MongoDB client.
+
+    Raises:
+        pymongo.errors.PyMongoError: An option is unknown, or options conflict.
+        TypeError: An option has a value of the wrong type.
+        ValueError: An option has an invalid value.
     """
     uri = get_mongo_uri(host=host, port=port, db=db or "")
-    client: MongoClient[dict[str, Any]] = MongoClient(uri)
+    client: MongoClient[dict[str, Any]] = MongoClient(
+        uri,
+        connect=connect,
+        **_get_client_options(uri=uri, options=options or {}, appname=appname),
+    )
     logger.info("Created MongoDB client for '%s'.", _redact_uri(uri))
     return client
+
+
+def _get_client_options(
+    uri: str, options: Mapping[str, Any], appname: str | None
+) -> dict[str, Any]:
+    """Get the keyword arguments for a MongoDB client.
+
+    PyMongo gives keyword arguments precedence over the connection string, but
+    the connection string of a deployment should win over the configuration of
+    an app, so options it sets are left out. Names of options are not
+    case-sensitive, as in PyMongo.
+
+    Args:
+        uri: Connection string.
+        options: Configured options.
+        appname: Name of the app, if not set otherwise.
+
+    Returns:
+        Defaults (cf. `DEFAULT_CLIENT_OPTIONS`), the name of the app and the
+        configured options, in order of precedence and with lowercase names,
+        without those in the connection string.
+    """
+    # As PyMongo parses it (e.g., `#` isn't special, `;` separates options);
+    # names only, as `MongoClient` validates the values
+    query = uri.partition("?")[2]
+    in_uri = (
+        {
+            name.lower()
+            for name in split_options(
+                query, validate=False, warn=False, normalize=False
+            )
+        }
+        if query
+        else set()
+    )
+    overridden = sorted(name for name in options if name.lower() in in_uri)
+    if overridden:
+        # Only the names, as values may be sensitive
+        logger.warning(
+            "MongoDB client options %s are also set in the connection string, "
+            "which takes precedence.",
+            ", ".join(overridden),
+        )
+    merged: dict[str, Any] = {
+        name.lower(): value for name, value in DEFAULT_CLIENT_OPTIONS.items()
+    }
+    if appname is not None:
+        merged["appname"] = appname
+    merged.update({name.lower(): value for name, value in options.items()})
+    return {name: value for name, value in merged.items() if name not in in_uri}
 
 
 def _register_database(
@@ -201,6 +320,7 @@ def _redact_uri(uri: str) -> str:
     Returns:
         MongoDB connection string without credentials and options.
     """
-    parts = urlsplit(uri)
-    netloc = parts.netloc.rsplit("@", 1)[-1]
-    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+    # As PyMongo splits it: for `urlsplit()`, a `#` in a password would start
+    # a fragment
+    scheme, _, rest = uri.partition("://")
+    return f"{scheme}://{rest.partition('?')[0].rpartition('@')[2]}"

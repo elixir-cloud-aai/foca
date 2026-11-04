@@ -49,6 +49,7 @@ class Registry:
         services: Services.
         verifications: Verifications; by default, of all services.
         error: Error to raise, if any.
+        services_error: Error to raise for reads of the services only, if any.
         reads: Number of reads of the services.
         options: Options of the last request.
     """
@@ -58,6 +59,7 @@ class Registry:
         self.services: Any = []
         self.verifications: Any = None
         self.error: Exception | None = None
+        self.services_error: Exception | None = None
         self.reads = 0
         self.options: dict[str, Any] = {}
 
@@ -82,10 +84,12 @@ class Registry:
             if self.verifications is not None:
                 return self.verifications
             return [
-                {"service_id": s["id"], "url": s["url"], "type": s["type"]}
+                {"serviceId": s["id"], "url": s["url"], "type": s["type"]}
                 for s in self.services
                 if isinstance(s, dict)
             ]
+        if self.services_error is not None:
+            raise self.services_error
         self.reads += 1
         return self.services
 
@@ -298,7 +302,7 @@ def test_verified_version(registry: Registry) -> None:
     registry.services = [service("s1", "https://tes-a.example.org")]
     registry.verifications = [
         {
-            "service_id": "s1",
+            "serviceId": "s1",
             "url": "https://tes-a.example.org",
             "type": {**TES, "version": "1.0.0"},
         }
@@ -407,12 +411,12 @@ def test_filters(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
         service(7, "https://n.example.org", environment="prod"),  # type: ignore[arg-type]
     ]
     registry.verifications = [
-        {"service_id": s["id"], "url": s["url"], "type": s["type"]}
+        {"serviceId": s["id"], "url": s["url"], "type": s["type"]}
         for s in registry.services[1:]
         if s["id"] != "unverified" and isinstance(s["id"], str)
     ]
     for verification in registry.verifications:
-        if verification["service_id"] == "changed":
+        if verification["serviceId"] == "changed":
             verification["url"] = "https://other.example.org"
     entry = RegistryEntry(
         type="ga4gh-service-registry",
@@ -465,7 +469,7 @@ def test_malformed_verifications(
     assert len(cache.urls()) == 2
     # s2 is revoked, and the registry lists a malformed item
     registry.verifications = [
-        {"service_id": "s1", "url": "https://tes-a.example.org", "type": TES},
+        {"serviceId": "s1", "url": "https://tes-a.example.org", "type": TES},
         {"id": 1},
         "x",
     ]
@@ -473,6 +477,66 @@ def test_malformed_verifications(
     with caplog.at_level(logging.WARNING):
         assert cache.urls() == ["https://tes-a.example.org"]
     assert "Skipped 2 verifications" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        {"serviceId": "s1"},  # Cloud Registry 1.0.0rc2 and later
+        {"service_id": "s1"},  # before
+        {"serviceId": "s1", "service_id": "other"},
+    ],
+)
+def test_verification_identifiers(
+    registry: Registry, identifier: dict[str, str]
+) -> None:
+    """Verifications name their service by `serviceId` or `service_id`."""
+    tes = service("s1", "https://tes-a.example.org")
+    registry.services = [tes]
+    registry.verifications = [
+        {
+            **identifier,
+            "url": tes["url"],
+            "type": tes["type"],
+            "verifiedAt": "2026-10-20T12:34:56.789Z",
+        }
+    ]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    assert backends.get_cache(entry, "tes").urls() == ["https://tes-a.example.org"]
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        {"serviceId": 1},
+        {"serviceId": ""},
+        {"serviceId": "", "service_id": "s1"},
+        {"serviceId": None, "service_id": "s1"},
+        {"serviceId": 1, "service_id": "s1"},
+        {"service_id": 1},
+    ],
+)
+def test_invalid_verification_identifiers(
+    registry: Registry, identifier: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    """`service_id` doesn't stand in for an invalid `serviceId`."""
+    tes = service("s1", "https://tes-a.example.org")
+    registry.services = [tes]
+    registry.verifications = [{**identifier, "url": tes["url"], "type": tes["type"]}]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    with caplog.at_level(logging.WARNING):
+        assert backends.get_cache(entry, "tes").urls() == []
+    assert "Skipped 1 verifications" in caplog.text
+
+
+def test_api_type_spelling(registry: Registry) -> None:
+    """API types match as in Cloud Registry: ignoring case and outer spaces."""
+    api_type = {"group": " ORG.ga4gh", "artifact": "TES ", "version": "1.1.0"}
+    registry.services = [
+        {"id": "s1", "url": "https://tes-a.example.org", "type": api_type}
+    ]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    assert backends.get_cache(entry, "tes").urls() == ["https://tes-a.example.org"]
 
 
 def test_max_stale(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
@@ -502,6 +566,241 @@ def test_max_stale(registry: Registry, caplog: pytest.LogCaptureFixture) -> None
             refresh_interval=60,
             max_stale=30,
         )
+
+
+def verification(service_id: str, url: str | None, **kwargs: Any) -> dict[str, Any]:
+    """Build a verification, by default of the API type `TES`.
+
+    Args:
+        service_id: Identifier of the service.
+        url: URL of the service.
+        kwargs: Other fields.
+
+    Returns:
+        Verification.
+    """
+    return {"serviceId": service_id, "url": url, "type": TES, **kwargs}
+
+
+@pytest.fixture
+def two_backends(registry: Registry) -> Any:
+    """Create a cache that has read two verified backends.
+
+    Args:
+        registry: Fake registry.
+
+    Returns:
+        Cache.
+    """
+    registry.services = [
+        service("s1", "https://tes-a.example.org/ga4gh/tes/v1"),
+        service("s2", "https://tes-b.example.org/ga4gh/tes/v1"),
+    ]
+    entry = RegistryEntry(
+        type="ga4gh-service-registry", url=REGISTRY, refresh_interval=10, max_stale=20
+    )
+    cache = backends.get_cache(entry, "tes")
+    assert cache.urls() == ["https://tes-a.example.org", "https://tes-b.example.org"]
+    return cache
+
+
+@pytest.mark.parametrize(
+    "error",
+    [HttpError("down"), {}, RuntimeError("bug")],
+    ids=["unreachable", "invalid", "bug"],
+)
+def test_revocation_without_services(
+    registry: Registry,
+    two_backends: Any,
+    error: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Revocations apply when the verifications are read and the services not."""
+    cache = two_backends
+    read_at, read_good = cache.read_at, cache._read_good
+    if isinstance(error, Exception):
+        registry.services_error = error
+    else:
+        registry.services = error
+    registry.verifications = [
+        verification("s1", "https://tes-a.example.org/ga4gh/tes/v1")
+    ]
+    cache._next_read = 0
+    with caplog.at_level(logging.WARNING):
+        assert cache.urls() == ["https://tes-a.example.org"]
+    assert "not used any more: https://tes-b.example.org\n" in caplog.text
+    assert "keeping 1 backends" in caplog.text
+    # it isn't a good read: its time and the limit of the staleness stay
+    assert cache.read_at == read_at
+    assert cache._read_good == read_good
+    assert cache._next_read <= time.monotonic() + backends.RETRY_INTERVAL
+    cache._read_good -= 21
+    assert cache.urls() == []
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        verification("s2", "https://tes-b.example.org/ga4gh/tes/v1"),
+        # another URL, or none
+        verification("s1", "https://tes-a.example.org/other"),
+        verification("s1", "https://tes-x.example.org/ga4gh/tes/v1"),
+        verification("s1", "http://tes-a.example.org/ga4gh/tes/v1"),
+        verification("s1", "not a url"),
+        verification("s1", None),
+        # another API, a version that isn't accepted, or no API type
+        verification(
+            "s1",
+            "https://tes-a.example.org/ga4gh/tes/v1",
+            type={"group": "org.ga4gh", "artifact": "wes", "version": "1.1.0"},
+        ),
+        verification(
+            "s1",
+            "https://tes-a.example.org/ga4gh/tes/v1",
+            type={"group": "org.ga4gh", "artifact": "tes", "version": "2.0.0"},
+        ),
+        verification("s1", "https://tes-a.example.org/ga4gh/tes/v1", type=None),
+    ],
+)
+def test_changed_verification_without_services(
+    registry: Registry, two_backends: Any, item: dict[str, Any]
+) -> None:
+    """Backends must still be verified with their URL and API type."""
+    cache = two_backends
+    registry.services_error = HttpError("down")
+    registry.verifications = [item]
+    cache._next_read = 0
+    expected = ["https://tes-b.example.org"] if item["serviceId"] == "s2" else []
+    assert cache.urls() == expected
+
+
+def test_verification_spelling_without_services(
+    registry: Registry, two_backends: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Backends with unchanged verifications stay, in the order of the read."""
+    cache = two_backends
+    registry.services_error = HttpError("down")
+    registry.verifications = [
+        verification("s2", "https://TES-B.example.org:443/ga4gh/tes/v1/"),
+        verification(
+            "s1",
+            "https://tes-a.example.org/ga4gh/tes/v1",
+            # updating a service to another accepted version keeps its verification
+            type={"group": " ORG.ga4gh", "artifact": "TES ", "version": "1.1.1"},
+        ),
+    ]
+    cache._next_read = 0
+    with caplog.at_level(logging.WARNING):
+        assert cache.urls() == [
+            "https://tes-a.example.org",
+            "https://tes-b.example.org",
+        ]
+    assert "no longer verified" not in caplog.text
+
+
+@pytest.mark.parametrize("document", [{}, None, "x"])
+def test_invalid_verifications_keep_backends(
+    registry: Registry,
+    two_backends: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    document: Any,
+) -> None:
+    """Verifications that can't be read revoke nothing, with services or without."""
+    cache = two_backends
+    urls = cache.urls()
+    read_at = cache.read_at
+    fetch = registry.fetch
+
+    def invalid(url: str, timeout: float, **options: Any) -> Any:
+        if url.endswith("/verifications"):
+            return document
+        return fetch(url, timeout, **options)
+
+    monkeypatch.setattr(discovery, "fetch_json", invalid)
+    cache._next_read = 0
+    assert cache.urls() == urls
+    assert cache.read_at == read_at
+    assert registry.reads == 1  # the services aren't read either
+
+
+def test_malformed_verifications_without_services(
+    registry: Registry, two_backends: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Malformed items are skipped, and logged once, as in a good read."""
+    cache = two_backends
+    registry.services_error = HttpError("down")
+    registry.verifications = [
+        verification("s1", "https://tes-a.example.org/ga4gh/tes/v1"),
+        {"id": 1},
+    ]
+    cache._next_read = 0
+    with caplog.at_level(logging.WARNING):
+        assert cache.urls() == ["https://tes-a.example.org"]
+    assert caplog.text.count("Skipped 1 verifications") == 1
+    # and once per read, if the services can be read too
+    caplog.clear()
+    registry.services_error = None
+    cache._next_read = 0
+    with caplog.at_level(logging.WARNING):
+        assert cache.urls() == ["https://tes-a.example.org"]
+    assert caplog.text.count("Skipped 1 verifications") == 1
+
+
+def test_same_url_without_services(registry: Registry) -> None:
+    """Of services with the same URL, the verification of the listed one decides."""
+    url = "https://tes-a.example.org/ga4gh/tes/v1"
+    registry.services = [service("s1", url), service("s2", url)]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    cache = backends.get_cache(entry, "tes")
+    assert cache.urls() == ["https://tes-a.example.org"]
+    registry.services_error = HttpError("down")
+    registry.verifications = [verification("s2", url)]
+    cache._next_read = 0
+    assert cache.urls() == []
+    registry.services_error = None
+    cache._next_read = 0
+    assert cache.urls() == ["https://tes-a.example.org"]
+
+
+def test_verified_again(registry: Registry, two_backends: Any) -> None:
+    """Revoked backends come back with the next good read, not before."""
+    cache = two_backends
+    verifications = [
+        verification("s1", "https://tes-a.example.org/ga4gh/tes/v1"),
+        verification("s2", "https://tes-b.example.org/ga4gh/tes/v1"),
+    ]
+    registry.services_error = HttpError("down")
+    registry.verifications = verifications[:1]
+    cache._next_read = 0
+    assert cache.urls() == ["https://tes-a.example.org"]
+    registry.verifications = verifications
+    cache._next_read = 0
+    assert cache.urls() == ["https://tes-a.example.org"]
+    registry.services_error = None
+    cache._next_read = 0
+    assert cache.urls() == ["https://tes-a.example.org", "https://tes-b.example.org"]
+
+
+def test_revocation_during_read(
+    registry: Registry, two_backends: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Other threads don't get revoked backends while the services are read."""
+    cache = two_backends
+    registry.verifications = [
+        verification("s1", "https://tes-a.example.org/ga4gh/tes/v1")
+    ]
+    during: list[list[str]] = []
+    fetch = registry.fetch
+
+    def recording(url: str, timeout: float, **options: Any) -> Any:
+        if url.endswith("/services"):
+            during.append(cache._current()[0])
+        return fetch(url, timeout, **options)
+
+    monkeypatch.setattr(discovery, "fetch_json", recording)
+    cache._next_read = 0
+    assert cache.urls() == ["https://tes-a.example.org"]
+    assert during == [["https://tes-a.example.org"]]
 
 
 def test_registry_options(registry: Registry) -> None:
@@ -535,7 +834,12 @@ class RegistryHandler(BaseHTTPRequestHandler):
         tes = service("s1", "https://tes.example.org/ga4gh/tes/v1")
         if self.path.endswith("/verifications"):
             document: Any = [
-                {"service_id": "s1", "url": tes["url"], "type": tes["type"]}
+                {
+                    "serviceId": "s1",
+                    "url": tes["url"],
+                    "type": tes["type"],
+                    "verifiedAt": "2026-10-20T12:34:56.789Z",
+                }
             ]
         else:
             document = [tes]
@@ -564,6 +868,48 @@ def test_local_registry() -> None:
         assert backends.get_cache(entry, "tes").urls() == ["https://tes.example.org"]
         private = entry.model_copy(update={"registry_allow_private_addresses": False})
         assert backends.get_cache(private, "tes").urls() == []
+    finally:
+        backends.clear_caches()
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_local_registry_revocation() -> None:
+    """A revocation applies when the real client gets an error for the services."""
+
+    class Handler(RegistryHandler):
+        """Registry that has revoked its verification and fails for the services."""
+
+        def do_GET(self) -> None:
+            """Answer `GET /verifications` with no items, else with an error."""
+            status = 200 if self.path.endswith("/verifications") else 503
+            body = b"[]"
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), RegistryHandler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    backends.clear_caches()
+    try:
+        entry = RegistryEntry(
+            type="ga4gh-service-registry",
+            url=f"http://127.0.0.1:{httpd.server_address[1]}/ga4gh/registry/v1",
+            url_schemes=["http"],
+            registry_allow_private_addresses=True,
+            allow_private_addresses=True,  # no DNS for the TES host
+            timeout=5,
+        )
+        cache = backends.get_cache(entry, "tes")
+        assert cache.urls() == ["https://tes.example.org"]
+        read_at = cache.read_at
+        # requests from now on are answered by the other handler
+        httpd.RequestHandlerClass = Handler
+        cache._next_read = 0
+        assert cache.urls() == []
+        assert cache.read_at == read_at
     finally:
         backends.clear_caches()
         httpd.shutdown()

@@ -26,6 +26,7 @@ import os
 from pathlib import Path
 
 __all__ = [
+    "access_log_format",
     "accesslog",
     "bind",
     "control_socket_disable",
@@ -42,9 +43,44 @@ __all__ = [
     "workers",
 ]
 
-# Address of the app; the Helm chart's Service and probes expect port 8080
-# (the app config's `server` settings apply to the development server only)
-bind = ["0.0.0.0:8080"]
+# Port of the app if the environment doesn't set `PORT`; the Helm chart's
+# Service and probes expect it, and the chart doesn't set `PORT`
+_DEFAULT_PORT = 8080
+_MAX_PORT = 65535
+
+
+def _get_port() -> int:
+    """Get the port of the app from the environment.
+
+    Platforms such as Cloud Run, Knative and Heroku-style PaaS set ``PORT``.
+
+    Returns:
+        Value of ``PORT``, or the default port if it is not set.
+
+    Raises:
+        ValueError: ``PORT`` is not an integer between 1 and 65535.
+    """
+    value = os.environ.get("PORT")
+    if value is None:
+        return _DEFAULT_PORT
+    # `isascii()`, as `int()` also takes other digits, signs and whitespace;
+    # the length first, as `int()` refuses very long strings with its own error
+    if not (
+        len(value) <= len(str(_MAX_PORT))
+        and value.isascii()
+        and value.isdigit()
+        and 1 <= int(value) <= _MAX_PORT
+    ):
+        raise ValueError(
+            f"Environment variable PORT must be an integer between 1 and "
+            f"{_MAX_PORT}, not {value!r}"
+        )
+    return int(value)
+
+
+# Address of the app (the app config's `server` settings apply to the
+# development server only)
+bind = [f"0.0.0.0:{_get_port()}"]
 
 # One process with a few threads, as each worker loads the whole app
 worker_class = "gthread"
@@ -79,6 +115,11 @@ limit_request_field_size = 8190
 # decorated with `log_traffic`); enable it with `--access-logfile -`
 accesslog = None
 errorlog = "-"
+# Gunicorn's default with the identifier of the request, at its default header
+# (`server.request_id.header`), for finding the logs of a request
+access_log_format = (
+    '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %({x-request-id}o)s'
+)
 
 # No control socket (`gunicornc`), which would be created in the home
 # directory, i.e., on the (possibly read-only) root file system

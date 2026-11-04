@@ -1,4 +1,18 @@
 hostName: petstore.example.org
+# Autoscaling and spreading of the app's pods (without metrics-server in CI, the
+# autoscaler only raises the pods to `minReplicas`)
+petstore:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+  resources:
+    requests:
+      cpu: 50m
 mongodb:
   auth:
     existingSecret: mongodb

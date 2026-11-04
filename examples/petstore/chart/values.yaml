@@ -63,6 +63,20 @@ petstore:
   # support several pods (see the chart docs for the caveats,
   # https://foca.readthedocs.io/en/latest/helm-chart/#several-replicas)
   replicas: 1
+  # Autoscaling of the app's pods on CPU and memory, instead of `replicas`. Needs
+  # metrics-server in the cluster and `resources.requests` of what is measured
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+  # Rules for spreading the app's pods across nodes and zones
+  # (TopologySpreadConstraint); `labelSelector` defaults to the app's pods, e.g.:
+  # - maxSkew: 1
+  #   topologyKey: topology.kubernetes.io/zone
+  #   whenUnsatisfiable: ScheduleAnyway
+  topologySpreadConstraints: []
   # PodDisruptionBudget of the app's pods, so that voluntary disruptions
   # (e.g., node drains) evict at most `maxUnavailable` pods at once (1 if
   # neither it nor `minAvailable` is set), or keep at least `minAvailable`
@@ -73,6 +87,17 @@ petstore:
     enabled: true
     minAvailable: null
     maxUnavailable: null
+  # Further environment variables of the app and the worker (EnvVar), e.g.,
+  # `MONGO_URI` from a Secret of your own; rendering fails if one sets a
+  # variable that the chart sets
+  extraEnv: []
+  # Secrets and ConfigMaps whose keys become environment variables of the app
+  # and the worker (EnvFromSource); variables that the chart sets win
+  extraEnvFrom: []
+  # Secrets whose changes roll the pods of the app and the worker: names of
+  # Secrets, whose data checksum becomes an annotation. Needs Helm to read
+  # them from the cluster, so it does nothing with `helm template` and Argo CD
+  rolloutOnSecrets: []
   # The app is exposed for `hostName` via one of: an Ingress (`ingress`), a
   # Gateway API HTTPRoute (`httpRoute`; disable the Ingress to enable it) or,
   # if neither is enabled and the cluster serves Routes, an OpenShift Route

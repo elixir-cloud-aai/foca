@@ -8,13 +8,18 @@ from typing import Any
 
 import pymongo
 import yaml
+from casbin.util import key_match2
 from connexion import App
+from connexion.resolver import Resolver
+from flask import Flask
 from pymongo.errors import PyMongoError
 
 from foca.api.register_openapi import (
     _connexion_add_api_kwargs,
     _get_error_media_type,
     _iter_operations,
+    _iter_resolved_operations,
+    _rejects_invalid_tokens,
     _set_error_media_type,
 )
 from foca.config.access import get_app_config
@@ -36,6 +41,7 @@ from foca.models.config import (
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     ADMIN_ROLE,
+    BASE_PATH_PLACEHOLDER,
     CHANGES_COLLECTION_SUFFIX,
     CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
@@ -47,7 +53,9 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
 )
 from foca.security.access_control.ownership_server import _check_routes_enforced
+from foca.security.auth import InvalidTokenResolver
 from foca.utils.logging import escape_log_value
+from foca.utils.urls import _get_api_base_paths, _get_apis, _register_api
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +87,14 @@ def register_access_control(
             mappings from applying (cf. :py:func:`_check_group_config`), or
             no group or configured policy rule grants the role `admin` and
             `access_control.require_admin` is set (cf.
-            :py:func:`_check_admin_role`).
+            :py:func:`_check_admin_role`), or a role of
+            `access_control.required_roles` doesn't exist (cf.
+            :py:func:`_check_required_roles`).
     """
     auth_config = get_app_config(cnx_app.app).security.auth
     _check_group_config(access_control_config, auth_config)
     _check_admin_role(access_control_config, auth_config)
+    _check_required_roles(access_control_config)
 
     # Group claim values of several issuers could collide
     if sum(map(bool, _get_group_claims(access_control_config, auth_config))) > 1:
@@ -100,6 +111,7 @@ def register_access_control(
     # Set default db attributes if config not present.
     if mongo_config is None:
         mongo_config = MongoConfig()
+        get_app_config(cnx_app.app)._name_mongo_clients(mongo_config)
     if mongo_config.dbs is None:
         mongo_config.dbs = {}
 
@@ -404,6 +416,39 @@ def _allows(entry: str, header: str) -> bool:
         return False
 
 
+def _check_required_roles(access_control_config: AccessControlConfig) -> None:
+    """Check that the required roles exist.
+
+    Only the configuration is checked, as the database may not be available yet.
+
+    Args:
+        access_control_config: Access control configuration.
+
+    Raises:
+        ValueError: A role of `required_roles` is neither the role of
+            `group_mapping` or `client_mapping`, nor one of `resource_roles`,
+            nor granted by a rule of `policies`.
+    """
+    conf = access_control_config
+    existing = {
+        *(conf.group_mapping or {}).values(),
+        *(conf.client_mapping or {}).values(),
+        *conf.resource_roles,
+        *(
+            rule[2]
+            for rule in conf.policies or []
+            if len(rule) > 2 and rule[0] in ("g", "g2")
+        ),
+    }
+    missing = sorted(set(conf.required_roles) - existing)
+    if missing:
+        raise ValueError(
+            f"The roles {missing} of 'security.access_control.required_roles' "
+            "don't exist: add them to 'security.access_control.group_mapping', "
+            "'client_mapping' or 'resource_roles', or grant them in 'policies'."
+        )
+
+
 def _check_admin_role(
     access_control_config: AccessControlConfig,
     auth_config: AuthConfig | None = None,
@@ -547,8 +592,24 @@ def register_permission_specs(
     Returns:
         Connexion app with updated permission specifications.
     """
+    if not access_control_config.api_enabled:
+        if access_control_config.api_specs is not None:
+            logger.warning(
+                "'security.access_control.api_specs' has no effect, as "
+                "'security.access_control.api_enabled' is false."
+            )
+        if access_control_config.self_service:
+            logger.warning(
+                "'security.access_control.self_service' has no effect, as "
+                "'security.access_control.api_enabled' is false."
+            )
+        logger.info("Permission management API not registered.")
+        return app
     specification: Path | dict[str, Any]
+    base_path: dict[str, str] = {}
     if access_control_config.api_specs is None:
+        _check_api_base_path(app.app, access_control_config.api_base_path)
+        base_path["base_path"] = access_control_config.api_base_path
         spec_path = str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_API_SPEC_PATH))
         specification = Path(spec_path)
         media_type = _get_error_media_type(app)
@@ -561,7 +622,20 @@ def register_permission_specs(
     else:
         spec_path = access_control_config.api_specs
         specification = Path(spec_path)
+        if "api_base_path" in access_control_config.model_fields_set:
+            logger.warning(
+                "'security.access_control.api_base_path' has no effect, as the "
+                "specification in 'security.access_control.api_specs' sets the "
+                "base path of the permissions API."
+            )
 
+    resolver: Resolver = AccessControlResolver(
+        enforce_all=True,
+        self_service=access_control_config.self_service,
+    )
+    # As for the app's APIs; custom specifications may have optional tokens
+    if _rejects_invalid_tokens(app):
+        resolver = InvalidTokenResolver(resolver=resolver)
     options = ConnexionOptions(
         strict_validation=True,
         validate_responses=True,
@@ -570,17 +644,50 @@ def register_permission_specs(
         serve_spec=(
             access_control_config.api_serve_spec or access_control_config.api_swagger_ui
         ),
-        resolver=AccessControlResolver(
-            enforce_all=True,
-            self_service=access_control_config.self_service,
-        ),
+        resolver=resolver,
     )
-    app.add_api(
+    api = app.add_api(
         specification=specification,
         **_connexion_add_api_kwargs(options),
+        **base_path,
+    )
+    _register_api(
+        app.app,
+        api.base_path,
+        _iter_resolved_operations(api.specification.raw),
+        is_app_api=False,
+        paths=list(api.specification.raw.get("paths", {})),
     )
     logger.info("Permission management API registered from '%s'.", spec_path)
     return app
+
+
+def _check_api_base_path(app: Flask, api_base_path: str) -> None:
+    """Check the base path of the permissions API against the app's APIs.
+
+    Args:
+        app: Flask app, with the app's APIs registered.
+        api_base_path: Base path of the permissions API.
+
+    Raises:
+        ValueError: It is the base path of an API of the app.
+    """
+    for base_path in _get_api_base_paths(app):
+        if api_base_path == base_path:
+            raise ValueError(
+                "'security.access_control.api_base_path' must differ from the "
+                f"base paths of the app's APIs: '{base_path}'"
+            )
+        if (base_path and api_base_path.startswith(f"{base_path}/")) or (
+            base_path.startswith(f"{api_base_path}/")
+        ):
+            logger.warning(
+                "'security.access_control.api_base_path' overlaps with the base "
+                "path of an API of the app, '%s': policy rules for the paths of "
+                "one API may also grant access to the other, and the operations "
+                "of each can shadow those of the other.",
+                base_path,
+            )
 
 
 def _with_error_media_type(spec_path: Path, media_type: str) -> dict[str, Any]:
@@ -611,7 +718,8 @@ def register_casbin_enforcer(
     """Method to add casbin permission enforcer.
 
     The stored configured policy rules are replaced with those of
-    `access_control.policies`. If it is not set, stored configured rules
+    `access_control.policies`, with `{base_path}` replaced by the base path of
+    each API of the app's specifications. If it is not set, stored configured rules
     (e.g., set via a config overlay that was removed since) are removed,
     with a warning.
 
@@ -646,20 +754,66 @@ def register_casbin_enforcer(
     app.app.config["casbin_adapter"] = adapter
     if access_control_config.policies is not None:
         named = access_control_config.named_policies
+        _warn_default_base_path(access_control_config)
         _add_policies(
             adapter=adapter,
             policies=access_control_config.policies,
+            revision=access_control_config.policies_revision,
+            force=access_control_config.policies_force,
             names=None if named is None else list(named),
+            base_paths=_get_api_base_paths(app.app),
+            protected_paths=[
+                f"{api.base_path}{path}"
+                for api in _get_apis(app.app)
+                if not api.is_app_api
+                for path in api.paths
+            ],
         )
     else:
-        _remove_policies(adapter=adapter)
+        _remove_policies(
+            adapter=adapter,
+            revision=access_control_config.policies_revision,
+            force=access_control_config.policies_force,
+        )
     _check_stored_group_subjects(adapter, access_control_config)
     logger.info("Casbin enforcer registered.")
 
     return app
 
 
-def _remove_policies(adapter: Adapter) -> None:
+def _warn_default_base_path(access_control_config: AccessControlConfig) -> None:
+    """Warn about configured rules for the former path of the permissions API.
+
+    Args:
+        access_control_config: Access control configuration, with policy rules.
+    """
+    default = AccessControlConfig.model_fields["api_base_path"].default
+    base_path = access_control_config.api_base_path
+    if (
+        not access_control_config.api_enabled
+        or access_control_config.api_specs is not None
+        or base_path == default
+    ):
+        return
+    for rule in access_control_config.policies or []:
+        if rule[0] != "p" or len(rule) < 3:
+            continue
+        # Paths below the base paths: rules for all paths apply to both
+        if (
+            rule[2].startswith(f"{default}/") or key_match2(f"{default}/x", rule[2])
+        ) and not key_match2(f"{base_path}/x", rule[2]):
+            logger.warning(
+                "Policy rule %r names the default path of the permissions API, "
+                "which is at '%s' ('security.access_control.api_base_path'): "
+                "the rule doesn't apply to it.",
+                rule,
+                base_path,
+            )
+
+
+def _remove_policies(
+    adapter: Adapter, revision: int | None = None, force: bool = False
+) -> None:
     """Remove stored configured policy rules, if any.
 
     Apps refuse to start if stored configured rules cannot be checked for or
@@ -671,6 +825,9 @@ def _remove_policies(adapter: Adapter) -> None:
 
     Args:
         adapter: Casbin adapter of the app.
+        revision: Revision of the configuration, if any (cf.
+            :py:meth:`Adapter.set_configured_policies`).
+        force: Remove the rules also if their revision is newer.
 
     Raises:
         pymongo.errors.PyMongoError: Checking for or removing stored
@@ -681,13 +838,16 @@ def _remove_policies(adapter: Adapter) -> None:
         # default)
         with pymongo.timeout(CONFIGURED_POLICIES_CHECK_TIMEOUT):
             configured = adapter.has_configured_policies()
-        if configured:
-            # E.g., set via a config overlay that was removed since
+        # E.g., set via a config overlay that was removed since; if forced, also
+        # without rules, for the revision
+        applied = (configured or force) and adapter.set_configured_policies(
+            [], revision, force
+        )
+        if configured and applied:
             logger.warning(
-                "Removing stored configured policy rules, as "
+                "Removed stored configured policy rules, as "
                 "'security.access_control.policies' is not set."
             )
-            adapter.set_configured_policies([])
     except PyMongoError as exc:
         logger.error(
             "Could not check for or remove stored configured policy rules, "
@@ -702,7 +862,11 @@ def _remove_policies(adapter: Adapter) -> None:
 def _add_policies(
     adapter: Adapter,
     policies: list[list[str]],
+    revision: int | None = None,
+    force: bool = False,
     names: list[str] | None = None,
+    base_paths: list[str] | None = None,
+    protected_paths: list[str] | None = None,
 ) -> None:
     """Replace the stored configured policy rules with the configured ones.
 
@@ -713,20 +877,143 @@ def _add_policies(
         adapter: Casbin adapter of the app.
         policies: Policy rules, each given as its policy type followed by its
             values.
+        revision: Revision of the configuration, if any (cf.
+            :py:meth:`Adapter.set_configured_policies`).
+        force: Replace the rules also if their revision is newer.
         names: Names of the rules, if given as named rules; used in errors
             and logged.
+        base_paths: Base paths of the app's APIs, for rules with the
+            placeholder `{base_path}` (cf. :py:func:`_expand_base_path`).
+        protected_paths: Paths that rules with the placeholder must not match
+            (cf. :py:func:`_expand_base_path`).
 
     Raises:
         ValueError: A rule is invalid for the adapter's model (cf.
-            :py:func:`validate_rule`).
+            :py:func:`validate_rule`), or has the placeholder `{base_path}`
+            and the app has no API, or it matches a protected path.
     """
+    expanded: list[list[str]] = []
     for index, rule in enumerate(policies):
         try:
-            validate_rule(rule[0] if rule else None, rule[1:], adapter.model)
+            rules = _expand_base_path(rule, base_paths or [], protected_paths or [])
+            for _rule in rules:
+                validate_rule(_rule[0] if _rule else None, _rule[1:], adapter.model)
         except ValueError as exc:
             if names is None:
                 raise
             raise ValueError(f"Invalid policy rule '{names[index]}': {exc}") from exc
-    adapter.set_configured_policies(policies)
-    if names is not None:
+        expanded.extend(rules)
+    applied = adapter.set_configured_policies(expanded, revision, force)
+    if applied and names is not None:
         logger.info("Named policy rules applied: %s", ", ".join(names) or "none")
+
+
+_PATH_PARAMETER = re.compile(r"\{([^{}]+)\}")
+
+
+def _expand_base_path(
+    rule: list[str], base_paths: list[str], protected_paths: list[str]
+) -> list[list[str]]:
+    """Replace the placeholder `{base_path}` in the values of a policy rule.
+
+    An API at the root has an empty base path, so a value such as
+    `{base_path}/*` then matches all paths of the app. Rules with the
+    placeholder are meant for the app's APIs, so they must not match the
+    permissions API that way: moving an API to the root must not silently
+    open up who may manage policies. The check uses `keyMatch2`, as the default
+    model does; custom models that match paths differently aren't covered.
+
+    Args:
+        rule: Policy rule: its policy type, followed by its values.
+        base_paths: Base paths of the app's APIs.
+        protected_paths: Paths that the rule must not match, i.e., those of
+            the permissions API, as in its specification (e.g.,
+            `/permissions/{id}`).
+
+    Returns:
+        The rule if it has no placeholder, with a warning if it matches one of
+        `protected_paths` (it may be meant to, e.g., for delegating the
+        management of rules); otherwise, a rule for each base path. A value
+        that is only the placeholder is the path `/` for an API at the root.
+
+    Raises:
+        ValueError: The rule has the placeholder, but the app has no API, or
+            it matches one of `protected_paths`.
+    """
+    if not any(BASE_PATH_PLACEHOLDER in value for value in rule[1:]):
+        _warn_if_matches_api(rule, protected_paths)
+        return [rule]
+    if not base_paths:
+        raise ValueError(
+            f"Policy rule {rule!r} has the placeholder "
+            f"'{BASE_PATH_PLACEHOLDER}', but the app has no API (`api.specs`)"
+        )
+    expanded = [
+        [
+            rule[0],
+            *(value.replace(BASE_PATH_PLACEHOLDER, base) or "/" for value in rule[1:]),
+        ]
+        for base in base_paths
+    ]
+    for base in base_paths:
+        for value in rule[1:]:
+            if BASE_PATH_PLACEHOLDER not in value:
+                continue
+            expanded_value = value.replace(BASE_PATH_PLACEHOLDER, base)
+            path = _get_matching_path(expanded_value, protected_paths)
+            if path is not None:
+                raise ValueError(
+                    f"Policy rule {rule!r} has the placeholder "
+                    f"'{BASE_PATH_PLACEHOLDER}', but with the base paths of "
+                    f"the app's APIs, it also matches the permissions API "
+                    f"('{path}'): limit it to the paths it is meant for"
+                )
+    return expanded
+
+
+def _warn_if_matches_api(rule: list[str], protected_paths: list[str]) -> None:
+    """Warn about a rule that grants access to the permissions API.
+
+    Only rules of the type `p`, with the values subject, object and action, grant
+    access. It isn't refused, as it may be meant to, e.g., for delegating the
+    management of rules; those for admins, who have access anyway, are left out.
+
+    Args:
+        rule: Policy rule: its policy type, followed by its values.
+        protected_paths: Paths of the permissions API (cf.
+            :py:func:`_expand_base_path`).
+    """
+    if rule[0:1] != ["p"] or len(rule) < 3 or rule[1] == ADMIN_ROLE:
+        return
+    try:
+        path = _get_matching_path(rule[2], protected_paths)
+    except re.error:  # Not a valid pattern, which isn't a matter of this check
+        return
+    if path is not None:
+        logger.warning(
+            "Policy rule %r matches the permissions API ('%s'): whoever it applies "
+            "to can use it with the rule's methods, and with write access, can make "
+            "themselves admins.",
+            rule,
+            path,
+        )
+
+
+def _get_matching_path(value: str, paths: list[str]) -> str | None:
+    """Get the first path of a specification that a value of a rule matches.
+
+    Args:
+        value: Value of a policy rule.
+        paths: Paths, as in a specification (e.g., `/permissions/{id}`).
+
+    Returns:
+        The path, or `None` if it matches none of them.
+    """
+    for path in paths:
+        # Any value of a path parameter: the rule may cover all of them (the
+        # sample), or one of them (the pattern)
+        sample = _PATH_PARAMETER.sub("id", path)
+        pattern = _PATH_PARAMETER.sub(r":\1", path)
+        if key_match2(sample, value) or key_match2(value, pattern):
+            return path
+    return None

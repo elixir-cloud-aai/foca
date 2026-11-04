@@ -33,11 +33,15 @@ from foca.security.access_control.constants import (
     DEFAULT_ID_CHARSET,
     DEFAULT_ID_LENGTH,
     DEFAULT_MODEL_FILE,
+    GRANTED_RIGHTS_MODEL_FILE,
     MAINTAINER_ROLE,
     MIN_ID_SPACE,
     OWNER_ROLE,
+    PACKAGED_MODEL_PREFIX,
+    RESOURCE_ROLE_MODEL_FILE,
     SUBJECT_TYPE_PREFIXES,
 )
+from foca.utils.misc import generate_id
 from foca.utils.service_info import (
     import_runtime_function,
     lookup_package_version,
@@ -125,6 +129,127 @@ class FOCABaseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
 
+class IdConfig(FOCABaseConfig):
+    """Model for generating identifiers of resources of an app.
+
+    For the custom configuration of apps; use it with
+    :py:func:`foca.utils.misc.generate_id`.
+
+    Args:
+        charset: The allowed characters (duplicates are ignored).
+        length: Length of generated identifiers.
+
+    Attributes:
+        charset: The allowed characters.
+        length: Length of generated identifiers.
+
+    Raises:
+        pydantic.ValidationError: `length` is not positive, or `charset` is
+            empty, an expression (such as `string.digits`), which FOCA no
+            longer evaluates, contains `/` or consists of dots only, as
+            identifiers are URL path segments.
+
+    Examples:
+        >>> IdConfig(charset="ABC123", length=6)
+        IdConfig(charset='ABC123', length=6)
+    """
+
+    charset: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    length: PositiveInt = 6
+
+    @field_validator("charset")
+    @classmethod
+    def _check_charset(cls, charset: str) -> str:
+        """Reject character sets unfit for identifiers.
+
+        Args:
+            charset: Character set of identifiers.
+
+        Returns:
+            The character set.
+
+        Raises:
+            ValueError: Identifiers can't be generated from the character set,
+                or would not be URL path segments.
+        """
+        if "/" in charset:
+            raise ValueError("Identifier character sets must not contain '/'")
+        if charset and not charset.strip("."):
+            raise ValueError("Identifier character sets must not be dots only")
+        try:
+            generate_id(charset=charset, length=1)
+        except TypeError as exc:  # pydantic only reports `ValueError`s
+            raise ValueError(str(exc)) from exc
+        return charset
+
+
+# Headers that the middleware of request IDs would replace or not find
+_RESERVED_HEADERS = frozenset(
+    {
+        "authorization",
+        "connection",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "cookie",
+        "host",
+        "location",
+        "set-cookie",
+        "transfer-encoding",
+        "www-authenticate",
+    }
+)
+
+
+class RequestIdConfig(FOCABaseConfig):
+    """Model for the identifiers of requests.
+
+    Args:
+        header: Name of the request and response header with the identifier.
+        trust_incoming: Whether to take the identifier from the request header,
+            if it's valid (at most 128 letters, digits and `._:-`); otherwise,
+            each request gets a new random one.
+
+    Attributes:
+        header: Name of the request and response header with the identifier.
+        trust_incoming: Whether to take the identifier from the request header.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type, or `header` is not a header name.
+
+    Examples:
+        >>> RequestIdConfig().header
+        'X-Request-ID'
+        >>> RequestIdConfig().trust_incoming
+        True
+    """
+
+    header: str = Field(default="X-Request-ID", pattern=r"^[A-Za-z0-9-]+$")
+    trust_incoming: bool = True
+
+    @field_validator("header")
+    @classmethod
+    def validate_header(cls, value: str) -> str:
+        """Ensure that the header isn't one with another purpose.
+
+        Args:
+            value: Name of the header.
+
+        Returns:
+            The name of the header.
+
+        Raises:
+            ValueError: It's the name of a header that requests or responses
+                need, e.g., `Content-Length`.
+        """
+        if value.lower() in _RESERVED_HEADERS:
+            raise ValueError(
+                f"'server.request_id.header' must not be a standard header: {value}"
+            )
+        return value
+
+
 class ServerConfig(FOCABaseConfig):
     """Model for configuration parameters of a Flask or Connexion app.
 
@@ -156,6 +281,8 @@ class ServerConfig(FOCABaseConfig):
             no trailing slash); must not have a query or fragment. If
             ``None``, the app has no public URL, and
             :py:func:`foca.utils.urls.get_public_url` raises an error.
+        request_id: How requests get their identifiers (cf.
+            :py:func:`foca.context.request_id`).
 
     Attributes:
         host: Host at which the application is exposed.
@@ -184,6 +311,7 @@ class ServerConfig(FOCABaseConfig):
     testing: bool = False
     max_content_length: PositiveInt | None = None
     public_url: str | None = None
+    request_id: RequestIdConfig = RequestIdConfig()
 
     @field_validator("public_url")
     @classmethod
@@ -755,6 +883,11 @@ class AccessControlConfig(FOCABaseConfig):
             Casbin adapter and the permissions API. Required for all other
             options to take effect; requires trusted token issuers
             (`AuthConfig.issuers`).
+        api_enabled: Register the permissions API. If `False`, policies are
+            still enforced, including stored ones (e.g., added via the API
+            before), which `policies` doesn't remove.
+        api_base_path: Base path of the default specification of the permissions
+            API. A custom one (`api_specs`) wins, with a warning.
         api_specs: Path to a custom API specification of the permissions
             API. If None, the default specification is used. Controllers are
             resolved via the `operationId` of each operation.
@@ -819,6 +952,12 @@ class AccessControlConfig(FOCABaseConfig):
             roles, as a comma-separated list (e.g., `X-Request-Roles:
             admin`). Must be a valid header name without `_` (which servers
             such as Gunicorn drop), other than `auth.on_behalf_of_header`.
+        require_enforced: Refuse to start (`ValidationError`) if `enforce` isn't
+            set, for apps that must not run without enforcing access control.
+        required_roles: Roles that must exist: refuse to start (`ValueError`)
+            if one isn't the role of `group_mapping` or `client_mapping`, of
+            `resource_roles`, or granted by a rule of `policies`. Roles granted
+            via stored policy rules aren't checked.
         require_admin: Refuse to start (`ValueError`) if no group (via
             `group_mapping`, with `claim_groups` set) or service client (via
             `client_mapping`) is mapped to the role `admin` and no rule of
@@ -831,6 +970,11 @@ class AccessControlConfig(FOCABaseConfig):
             the role of the client, if mapped. Clients that are not service
             clients cannot be mapped. Roles are restricted as for
             `group_mapping`.
+        resource_roles_cover_custom_methods: Whether resource-scoped roles also
+            apply to custom methods of their resources (AIP-136), e.g., to
+            `/tasks/1:cancel` for a role on `/tasks/1`. Don't use it if
+            identifiers of resources may contain `:`, as `/tasks/1:2` would
+            then count as a custom method of `/tasks/1`.
         resource_roles_cover_subpaths: Whether resource-scoped roles (role
             definitions with three fields, e.g., `g2 = _, _, _`) granted on
             a resource path also apply to its sub-paths (e.g., a role on
@@ -859,6 +1003,9 @@ class AccessControlConfig(FOCABaseConfig):
             operations are not affected.
         policies: Policy rules the app relies on, each given as its policy
             type followed by its values (e.g., `["p", "*", "/pets", "GET"]`).
+            Values may contain the placeholder `{base_path}`, replaced on
+            startup by the base path of the app's API (with several APIs, a
+            rule for each).
             If set, they are validated against the model on startup, and the
             stored rules set via the configuration are made to match them:
             missing rules are added, and rules removed from the
@@ -871,12 +1018,23 @@ class AccessControlConfig(FOCABaseConfig):
             or remove single rules (cf.
             :py:class:`foca.config.config_parser.ConfigParser`); `None`
             values remove rules.
+        policies_revision: Revision of `policies`, a number that grows with each
+            release that changes them. If set, app instances with an older
+            revision than the stored one, or none, don't change the stored rules
+            on startup (with a warning), so that old instances restarting
+            during a rolling upgrade don't bring back old rules. Without it,
+            and if none is stored, the last instance to start wins.
+        policies_force: Change the stored rules also if their revision is newer,
+            for rollbacks; `policies_revision` becomes the stored revision.
         log_traffic: Whether requests to the permissions API and their
             responses are logged (cf.
             :py:func:`foca.utils.logging.log_traffic`).
 
     Attributes:
         enabled: Register access control.
+        api_enabled: Whether the permissions API is registered.
+        api_base_path: Base path of the default specification of the
+            permissions API.
         api_specs: Path to a custom API specification of the permissions
             API.
         api_swagger_ui: Serve the Swagger UI of the permissions API.
@@ -896,6 +1054,10 @@ class AccessControlConfig(FOCABaseConfig):
             requests that ask for them.
         opt_in_header: Request header in which requests ask for opt-in
             roles.
+        require_enforced: Refuse to start if `enforce` isn't set.
+        required_roles: Roles that must exist.
+        resource_roles_cover_custom_methods: Whether resource-scoped roles apply
+            to custom methods of their resources.
         require_admin: Refuse to start if no group, service client or
             configured policy rule is granted the role `admin`.
         client_mapping: Mapping of service clients to roles.
@@ -910,6 +1072,8 @@ class AccessControlConfig(FOCABaseConfig):
         policies: Policy rules the app relies on, managed on startup, as a
             list (names of named rules are kept in `named_policies`). If not
             set, stored configured rules are removed on startup.
+        policies_revision: Revision of `policies`.
+        policies_force: Change the stored rules also if their revision is newer.
         log_traffic: Whether requests to the permissions API and their
             responses are logged.
 
@@ -930,6 +1094,8 @@ class AccessControlConfig(FOCABaseConfig):
     """
 
     enabled: bool = False
+    api_enabled: bool = True
+    api_base_path: str = "/admin/access-control"
     api_specs: str | None = None
     api_swagger_ui: bool = False
     api_serve_spec: bool = False
@@ -944,6 +1110,9 @@ class AccessControlConfig(FOCABaseConfig):
     keep_group_subjects: bool = False
     opt_in_roles: list[str] = []
     opt_in_header: str = "X-Request-Roles"
+    require_enforced: bool = False
+    required_roles: list[str] = Field(default_factory=list)
+    resource_roles_cover_custom_methods: bool = False
     require_admin: bool = False
     client_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
@@ -954,6 +1123,9 @@ class AccessControlConfig(FOCABaseConfig):
     id_length: int = Field(default=DEFAULT_ID_LENGTH, ge=4, le=64)
     self_service: bool = False
     policies: list[list[str]] | None = None
+    # In the range of MongoDB's integers; not `true` for 1
+    policies_revision: int | None = Field(default=None, ge=0, le=2**63 - 1, strict=True)
+    policies_force: bool = False
     log_traffic: bool = True
     # Database and collection names of the policy collection added by FOCA,
     # and whether FOCA also added the database; set on registration
@@ -1030,6 +1202,34 @@ class AccessControlConfig(FOCABaseConfig):
             return None
         return {name: list(rule) for name, rule in named.items()}
 
+    @field_validator("api_base_path")
+    @classmethod
+    def validate_api_base_path(cls, value: str) -> str:
+        """Ensure that the base path of the permissions API is usable.
+
+        Args:
+            value: Base path.
+
+        Returns:
+            The base path.
+
+        Raises:
+            ValueError: It is not an absolute path of at least one segment,
+                without trailing slash or dot segments.
+        """
+        segments = value.split("/")[1:]
+        if (
+            not value.startswith("/")
+            or not all(re.fullmatch(r"[A-Za-z0-9._~-]+", item) for item in segments)
+            or {".", ".."} & set(segments)
+        ):
+            raise ValueError(
+                "'api_base_path' must be an absolute path of unreserved "
+                "characters (e.g., '/admin/access-control'), without trailing "
+                "slash or dot segments"
+            )
+        return value
+
     @field_validator("subject_prefix")
     @classmethod
     def validate_subject_prefix(cls, v: str) -> str:
@@ -1061,6 +1261,24 @@ class AccessControlConfig(FOCABaseConfig):
         return v
 
     @model_validator(mode="after")
+    def validate_require_enforced(self) -> Self:
+        """Ensure that access control is enforced if that is required.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: `require_enforced` is set, but `enforce` isn't.
+        """
+        if self.require_enforced and not self.enforce:
+            raise ValueError(
+                "'security.access_control.require_enforced' is set, but "
+                "'security.access_control.enforce' isn't: this app must not run "
+                "without enforcing access control"
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_swagger_ui(self) -> Self:
         """Ensure that the specification is served if the Swagger UI is.
 
@@ -1068,12 +1286,13 @@ class AccessControlConfig(FOCABaseConfig):
             Validated access control configuration.
 
         Raises:
-            ValueError: `api_swagger_ui` is enabled, but `api_serve_spec` is
-                set to `False` (the specification is served with the UI
-                unless it is set).
+            ValueError: The permissions API is enabled and `api_swagger_ui`
+                too, but `api_serve_spec` is set to `False` (the specification
+                is served with the UI unless it is set).
         """
         if (
-            self.api_swagger_ui
+            self.api_enabled
+            and self.api_swagger_ui
             and not self.api_serve_spec
             and "api_serve_spec" in self.model_fields_set
         ):
@@ -1280,10 +1499,27 @@ class AccessControlConfig(FOCABaseConfig):
             Absolute model path as string; relative paths are resolved
             against the directory of the base config file, if available,
             otherwise against the current working directory. If no path is
-            provided, return default model path.
+            provided, return default model path. `foca:<file>` is one of the
+            models that FOCA ships.
+
+        Raises:
+            ValueError: `foca:<file>` names no model that FOCA ships.
         """
         if v is None:
             return str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE))
+        if isinstance(v, str) and v.startswith(PACKAGED_MODEL_PREFIX):
+            name = v.removeprefix(PACKAGED_MODEL_PREFIX)
+            packaged = (
+                DEFAULT_MODEL_FILE,
+                RESOURCE_ROLE_MODEL_FILE,
+                GRANTED_RIGHTS_MODEL_FILE,
+            )
+            if name not in packaged:
+                raise ValueError(
+                    f"'security.access_control.model': FOCA ships {packaged}, "
+                    f"not '{name}'"
+                )
+            return str(files(ACCESS_CONTROL_BASE_PATH).joinpath(name))
         return str(_resolve_path(v, info))
 
     @field_validator("api_specs")
@@ -1600,7 +1836,7 @@ class AuthConfig(FOCABaseConfig):
             `access_control.claim_groups`) with identity providers that
             only provide them via user info. Claims of the token are never
             replaced. The user info needs to report the token's subject; it
-            is cached per token for `cache_ttl` seconds (unless
+            is cached per token for `userinfo_cache_ttl` seconds (unless
             `validate_userinfo` is set), but not beyond the token's expiry.
             The claims `client_id` and `azp` cannot be added, as they
             identify the client that obtained the token (cf. `clients` and
@@ -1610,6 +1846,10 @@ class AuthConfig(FOCABaseConfig):
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
+        userinfo_cache_ttl: Time (in seconds) for which user info is cached.
+            If `None`, `cache_ttl`. Each process caches separately, so a
+            change of a user's groups can take this long to apply, at
+            different times in different processes.
         service_clients: Service clients, whose client-credentials tokens
             (service tokens) represent the client, not a user (cf.
             :py:class:`ServiceClientConfig`). No user info is requested for
@@ -1622,6 +1862,10 @@ class AuthConfig(FOCABaseConfig):
             act for (e.g., `X-On-Behalf-Of`). If `None`, only the app can
             pass a named user (e.g., from a request field) to
             :py:func:`foca.security.access_control.get_on_behalf_of_user`.
+        reject_invalid_tokens: Whether to reject invalid tokens (`401`, with
+            an RFC 6750 challenge) also on operations with optional
+            authentication, where they are otherwise handled as anonymous.
+            Requests without a token stay anonymous.
 
     Attributes:
         issuers: Trusted token issuers.
@@ -1643,9 +1887,12 @@ class AuthConfig(FOCABaseConfig):
         timeout: Timeout (in seconds) for requests to identity providers.
         cache_ttl: Time (in seconds) for which identity providers' discovery
             documents and public keys, and user info, are cached.
+        userinfo_cache_ttl: Time (in seconds) for which user info is cached.
         service_clients: Service clients.
         on_behalf_of_header: Request header in which service clients name
             the user they act for.
+        reject_invalid_tokens: Whether to reject invalid tokens also on
+            operations with optional authentication.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -1686,8 +1933,10 @@ class AuthConfig(FOCABaseConfig):
     userinfo_claims: list[str] = []
     timeout: float = Field(default=10, gt=0)
     cache_ttl: float = Field(default=300, ge=0)
+    userinfo_cache_ttl: float | None = Field(default=None, ge=0)
     service_clients: list[ServiceClientConfig] = []
     on_behalf_of_header: str | None = Field(default=None, min_length=1)
+    reject_invalid_tokens: bool = False
     # Whether warnings about the settings were logged, i.e., on the first
     # token validation
     _warnings_logged: bool = PrivateAttr(default=False)
@@ -1835,6 +2084,16 @@ class AuthConfig(FOCABaseConfig):
         if conf is None or conf.audience is None:
             return self.audience
         return conf.audience
+
+    def get_userinfo_cache_ttl(self) -> float:
+        """Get the time for which user info is cached.
+
+        Returns:
+            `userinfo_cache_ttl`, or `cache_ttl` if unset.
+        """
+        if self.userinfo_cache_ttl is None:
+            return self.cache_ttl
+        return self.userinfo_cache_ttl
 
     def get_userinfo_claims(self, issuer: str) -> list[str]:
         """Get the claims to add from the user info of an issuer.
@@ -2134,9 +2393,23 @@ class SecurityConfig(FOCABaseConfig):
                     ("enforce", access_control.enforce),
                     ("api_specs", access_control.api_specs),
                     ("self_service", access_control.self_service),
+                    ("api_enabled", not access_control.api_enabled),
+                    (
+                        "api_base_path",
+                        access_control.api_base_path
+                        != AccessControlConfig.model_fields["api_base_path"].default,
+                    ),
                     ("policies", access_control.policies),
+                    ("policies_revision", access_control.policies_revision is not None),
+                    ("policies_force", access_control.policies_force),
                     ("client_mapping", access_control.client_mapping),
                     ("require_admin", access_control.require_admin),
+                    ("require_enforced", access_control.require_enforced),
+                    ("required_roles", access_control.required_roles),
+                    (
+                        "resource_roles_cover_custom_methods",
+                        access_control.resource_roles_cover_custom_methods,
+                    ),
                 ]
                 if value
             ]
@@ -2275,6 +2548,12 @@ class DBConfig(FOCABaseConfig):
     client: database.Database[dict[str, Any]] | None = None
 
 
+# Options of a MongoDB client, as far as they can be set in configuration files
+ClientOptions = dict[str, str | int | float | bool]
+# Longest name of an app that PyMongo accepts
+MAX_MONGO_APPNAME_BYTES = 128
+
+
 class MongoConfig(FOCABaseConfig):
     """Model for a MongoDB instance attached to a Flask/Connexion app.
 
@@ -2283,12 +2562,21 @@ class MongoConfig(FOCABaseConfig):
         port: Port at which the database is exposed.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
+        client_options: Options of the MongoDB client (PyMongo's names, e.g.,
+            `maxPoolSize`), passed to `MongoClient`, which fails on unknown
+            ones. By default, `serverSelectionTimeoutMS` and `connectTimeoutMS`
+            are 5000, and `appname` is the identifier of the service info or
+            else the name of its package. Options in `MONGO_URI` win, with a
+            warning. Not `host`, `port` and `connect`, which FOCA sets, and not
+            `username` and `password`, which belong in `MONGO_USERNAME` and
+            `MONGO_PASSWORD` or `MONGO_URI`.
 
     Attributes:
         host: Host at which the database is exposed.
         port: Port at which the database is exposed.
         dbs: Mapping of database names (keys) and configuration objects
             (values).
+        client_options: Options of the MongoDB client.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2305,8 +2593,47 @@ class MongoConfig(FOCABaseConfig):
     host: str = "mongodb"
     port: int = 27017
     dbs: dict[str, DBConfig] | None = None
+    client_options: ClientOptions = Field(default_factory=dict)
     # MongoDB client shared by all databases; set on registration
     _client: MongoClient[dict[str, Any]] | None = PrivateAttr(default=None)
+    # Name of the app in MongoDB's logs by default; set from the service info
+    # when `Config` is validated
+    _default_appname: str = PrivateAttr(default="foca")
+
+    @field_validator("client_options")
+    @classmethod
+    def _check_client_options(cls, value: ClientOptions) -> ClientOptions:
+        """Reject client options that are set elsewhere.
+
+        Args:
+            value: Options of the client.
+
+        Returns:
+            The options.
+
+        Raises:
+            ValueError: An option is `host`, `port`, `connect`, `username` or
+                `password`. The latter would override the connection string
+                and put credentials in the configuration. Or an option is set
+                twice, as PyMongo's names are not case-sensitive.
+        """
+        reserved = sorted(
+            name
+            for name in value
+            if name.lower() in {"host", "port", "connect", "username", "password"}
+        )
+        if reserved:
+            raise ValueError(
+                f"Options {reserved} can't be set in `db.client_options`: use "
+                "`db.host`, `db.port`, `MONGO_URI`, `MONGO_USERNAME` or "
+                "`MONGO_PASSWORD`; FOCA decides when clients connect"
+            )
+        if len({name.lower() for name in value}) < len(value):
+            raise ValueError(
+                f"Options {sorted(value)} of `db.client_options` set an option "
+                "twice: their names are not case-sensitive"
+            )
+        return value
 
 
 class JobsConfig(FOCABaseConfig):
@@ -2351,11 +2678,15 @@ class LogFormatterConfig(FOCABaseConfig):
         class: Name of logging formatter class.
         style: Determines how the format string will be merged with its data.
         format: Format string any log messages.
+        datefmt: Format string of dates and times in messages.
+        defaults: Values of fields of the format string that a record may lack.
 
     Attributes:
         class: Name of logging formatter class.
         style: Determines how the format string will be merged with its data.
         format: Format string any log messages.
+        datefmt: Format string of dates and times in messages.
+        defaults: Values of fields of the format string that a record may lack.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2375,6 +2706,8 @@ class LogFormatterConfig(FOCABaseConfig):
     )
     style: str = "{"
     format: str = "[{asctime}: {levelname:<8}] {message} [{name}]"
+    datefmt: str | None = None
+    defaults: dict[str, Any] | None = None
 
 
 class LogHandlerConfig(FOCABaseConfig):
@@ -2385,12 +2718,15 @@ class LogHandlerConfig(FOCABaseConfig):
         level: Numeric value of logging level.
         formatter: Name of logging formatter.
         stream: Devide to which log is streamed.
+        filters: Names of the filters of the handler. Unless set, in a
+            :py:class:`LogConfig`, the built-in filter `context`.
 
     Attributes:
         class: Name of logging handler class.
         level: Numeric value of logging level.
         formatter: Name of logging formatter.
         stream: Devide to which log is streamed.
+        filters: Names of the filters of the handler.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2412,8 +2748,84 @@ class LogHandlerConfig(FOCABaseConfig):
     level: int = 20
     formatter: str = "standard"
     stream: str = "ext://sys.stderr"
+    filters: list[str] | None = None
 
     _validate_level = field_validator("level")(_validate_log_level_choices)
+
+
+class LogFilterConfig(FOCABaseConfig):
+    """Model for a filter of log records.
+
+    Args:
+        factory: Name of the callable creating the filter, given as `()`; further
+            fields are passed to it. If not set, the filter is a
+            :py:class:`logging.Filter` of the logger `name`.
+        name: Name of the logger whose records pass.
+
+    Attributes:
+        factory: Name of the callable creating the filter.
+        name: Name of the logger whose records pass.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Examples:
+        >>> LogFilterConfig(name="foca").name
+        'foca'
+        >>> LogFilterConfig.model_validate({"()": "my_app.Filter"}).factory
+        'my_app.Filter'
+    """
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    factory: str | None = Field(None, alias="()")
+    name: str | None = None
+
+
+class LogLoggerConfig(FOCABaseConfig):
+    """Model for the configuration of a logger.
+
+    Args:
+        level: Numeric value of logging level.
+        handlers: Names of the handlers of the logger.
+        propagate: Whether records are passed on to the handlers of parent
+            loggers.
+        filters: Names of the filters of the logger. They only see the records
+            of this very logger, not those of its children.
+
+    Attributes:
+        level: Numeric value of logging level.
+        handlers: Names of the handlers of the logger.
+        propagate: Whether records are passed on to the handlers of parents.
+        filters: Names of the filters of the logger.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Examples:
+        >>> LogLoggerConfig(level=30).level
+        30
+    """
+
+    level: int | None = None
+    handlers: list[str] | None = None
+    propagate: bool | None = None
+    filters: list[str] | None = None
+
+    @field_validator("level")
+    @classmethod
+    def _validate_level(cls, level: int | None) -> int | None:
+        """Ensure that a valid logging level is set, if any.
+
+        Args:
+            level: Logging level.
+
+        Returns:
+            Unmodified logging level.
+        """
+        return level if level is None else _validate_log_level_choices(cls, level)
 
 
 class LogRootConfig(FOCABaseConfig):
@@ -2458,8 +2870,12 @@ class LogConfig(FOCABaseConfig):
             configuration parameters.
         handlers: A dictionary of logging handlers, where keys represent
             handler names and values represent the corresponding configuration
-            parameters.
+            parameters. Handlers without `filters` get the built-in filter
+            `context`.
         root: Configuration of the root logger.
+        filters: Filters of log records by name, in addition to the built-in
+            `context` (cf. :py:class:`foca.utils.logging.ContextFilter`).
+        loggers: Configuration of other loggers by name.
 
     Attributes:
         version: Represents current schema version.
@@ -2472,10 +2888,13 @@ class LogConfig(FOCABaseConfig):
             handler names and values represent the corresponding configuration
             parameters.
         root: Configuration of the root logger.
+        filters: Filters of log records by name.
+        loggers: Configuration of other loggers by name.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type.
+            data type, or a logger or handler names a filter or handler that
+            isn't configured.
 
     Examples:
         >>> import logging
@@ -2497,6 +2916,61 @@ class LogConfig(FOCABaseConfig):
         "console": LogHandlerConfig.model_validate({}),
     }
     root: LogRootConfig | None = LogRootConfig()
+    filters: dict[str, LogFilterConfig] = Field(default_factory=dict)
+    loggers: dict[str, LogLoggerConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _add_builtins_and_check_names(self) -> "LogConfig":
+        """Add the built-in formatter and filter, and check names of the sections.
+
+        Returns:
+            The config.
+
+        Raises:
+            ValueError: A logger or handler names a filter or handler that isn't
+                configured.
+        """
+        if self.formatters is not None:
+            self.formatters.setdefault(
+                "json",
+                LogFormatterConfig.model_validate(
+                    {"class": "foca.utils.logging.JsonFormatter"}
+                ),
+            )
+        self.filters.setdefault(
+            "context",
+            LogFilterConfig.model_validate({"()": "foca.utils.logging.ContextFilter"}),
+        )
+        handlers = self.handlers or {}
+        for handler in handlers.values():
+            if handler.filters is None:
+                handler.filters = ["context"]
+        users: list[tuple[str, LogHandlerConfig | LogLoggerConfig]] = [
+            *handlers.items(),
+            *self.loggers.items(),
+        ]
+        unknown = sorted(
+            {
+                f"{user}: {name}"
+                for user, conf in users
+                for name in conf.filters or []
+                if name not in self.filters
+            }
+            | {
+                f"{user}: {name}"
+                for user, conf in self.loggers.items()
+                for name in conf.handlers or []
+                if name not in handlers
+            }
+            | {
+                f"root: {name}"
+                for name in (self.root.handlers if self.root else None) or []
+                if name not in handlers
+            }
+        )
+        if unknown:
+            raise ValueError(f"Unknown filters or handlers in `log`: {unknown}")
+        return self
 
 
 class ServiceInfoConfig(FOCABaseConfig):
@@ -2532,6 +3006,9 @@ class ServiceInfoConfig(FOCABaseConfig):
         log_traffic: Whether requests for the service info and their
             responses are logged (cf.
             :py:func:`foca.utils.logging.log_traffic`).
+        locked_fields: Names of top-level fields that only `runtime_fields`
+            may set, e.g., as they are computed from the config, so that
+            `service` can't override them. The function must return them.
 
     Attributes:
         service: Service info, as per the GA4GH `Service` schema.
@@ -2540,6 +3017,8 @@ class ServiceInfoConfig(FOCABaseConfig):
             at runtime.
         log_traffic: Whether requests for the service info and their
             responses are logged.
+        locked_fields: Names of top-level fields that only `runtime_fields`
+            may set.
         package_version: Version of `package`, if used for `version` (set on
             validation).
         runtime_function: Function imported from `runtime_fields`, if set
@@ -2579,6 +3058,7 @@ class ServiceInfoConfig(FOCABaseConfig):
     package: str | None = None
     runtime_fields: str | None = None
     log_traffic: bool = True
+    locked_fields: list[str] = Field(default_factory=list)
     # Version of `package`, if used; set on validation
     _package_version: str | None = PrivateAttr(default=None)
     # Function imported from `runtime_fields`; set on validation
@@ -2606,11 +3086,22 @@ class ServiceInfoConfig(FOCABaseConfig):
 
         Raises:
             ValueError: `package` is needed but not installed, the runtime
-                fields function cannot be imported or is not callable, or the
-                service info is invalid, naming the first invalid field.
-                Missing required fields are ignored if `runtime_fields` is
-                set.
+                fields function cannot be imported or is not callable, the
+                service info is invalid, naming the first invalid field, or
+                `locked_fields` are set in `service` or without
+                `runtime_fields`. Missing required fields are ignored if
+                `runtime_fields` is set.
         """
+        if self.locked_fields and self.runtime_fields is None:
+            raise ValueError(
+                "`service_info.locked_fields` need `service_info.runtime_fields`"
+            )
+        locked = sorted(set(self.locked_fields) & self.service.keys())
+        if locked:
+            raise ValueError(
+                f"Fields {locked} of `service_info.service` are computed by the "
+                "app (`service_info.locked_fields`) and can't be set"
+            )
         self._runtime_function = (
             None
             if self.runtime_fields is None
@@ -2682,3 +3173,32 @@ class Config(FOCABaseConfig):
     # secrets (e.g., `plugins.defaults.store.key_secret`) that are masked
     # only once validated; the outermost model's setting applies
     model_config = ConfigDict(extra="allow", hide_input_in_errors=True)
+
+    def _name_mongo_clients(self, mongo_config: MongoConfig) -> None:
+        """Name the app in MongoDB's logs after its service info.
+
+        Args:
+            mongo_config: Database configuration whose clients to name.
+        """
+        if self.service_info is None:
+            return
+        service_id = self.service_info.service.get("id")
+        name = service_id or self.service_info.package
+        # A default mustn't stop the app: PyMongo rejects longer names
+        if (
+            isinstance(name, str)
+            and name
+            and len(name.encode()) <= MAX_MONGO_APPNAME_BYTES
+        ):
+            mongo_config._default_appname = name
+
+    @model_validator(mode="after")
+    def _set_mongo_appname(self) -> "Config":
+        """Name the app in MongoDB's logs, if it has a database configuration.
+
+        Returns:
+            The config.
+        """
+        if self.db is not None:
+            self._name_mongo_clients(self.db)
+        return self

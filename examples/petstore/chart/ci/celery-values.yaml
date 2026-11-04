@@ -5,6 +5,8 @@ fullnameOverride: petstore-celery
 hostName: petstore-celery.example.org
 # Room for the CI step that sends a task from the app's pod
 petstore:
+  rolloutOnSecrets:
+    - mongodb
   resources:
     limits:
       memory: 256Mi

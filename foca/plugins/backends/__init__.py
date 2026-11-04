@@ -24,21 +24,24 @@ backends:
 :py:class:`BackendList` expands the entries, in order, into the candidates
 of a request (:py:class:`foca.plugins.Backend`). Registry entries yield the
 backends of the app's API that the registry lists as **verified** (`GET
-/verifications`, an extension of the Cloud Registry) with their
-current URL and API type, of an accepted version and environment, with
+/verifications`, an extension of the Cloud Registry, whose items name their
+service by `serviceId`, or `service_id` before its version 1.0.0rc2) with
+their current URL and API type, of an accepted version and environment, with
 `https` URLs whose hosts have public addresses only (unless allowed). The
 registry is the trust anchor, configured by the deployment: it is read
 without access token, over `https` (unless `url_schemes` allows `http`),
 at public addresses (unless `registry_allow_private_addresses`), without
-following redirects (cf. :py:mod:`foca.utils.http`).
+following redirects (cf. :py:mod:`foca.utils.http`). Registries that require
+login for reads therefore count as unreachable.
 
 Each process caches the backends of each registry entry, refreshing them
 every `refresh_interval` seconds; it keeps the last good list while the
 registry is unreachable or answers invalidly (retrying after
 `RETRY_INTERVAL` seconds at most), for `max_stale` seconds at most, and,
 for one more read, backends whose hosts cannot be resolved for the time
-being. Before the first good read, and after `max_stale`, a registry yields
-no candidates.
+being. Verifications that can be read apply in any case: backends that they
+no longer list, with the same URL and API type, are not kept. Before the
+first good read, and after `max_stale`, a registry yields no candidates.
 
 Plain pydantic models and the guarded HTTP client; no web framework.
 """

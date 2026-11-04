@@ -53,16 +53,17 @@ class _Selection:
 
 
 def _same(first: object, second: str) -> bool:
-    """Compare parts of API types, case-insensitively.
+    """Compare parts of API types, as the Cloud Registry does.
 
     Args:
         first: Part of an API type, as listed.
         second: Expected part.
 
     Returns:
-        Whether the first is a string equal to the second, ignoring case.
+        Whether the first is a string equal to the second, ignoring case and
+        surrounding whitespace.
     """
-    return isinstance(first, str) and first.casefold() == second.casefold()
+    return isinstance(first, str) and first.strip().casefold() == second.casefold()
 
 
 def _version(api_type: object) -> object:
@@ -85,7 +86,7 @@ def _is_api(api_type: object, api: ApiType) -> bool:
         api: API type.
 
     Returns:
-        Whether group and artifact match, ignoring case.
+        Whether group and artifact match (cf. :py:func:`_same`).
     """
     return (
         isinstance(api_type, Mapping)
@@ -117,9 +118,11 @@ def _verifications(document: object) -> dict[str, tuple[object, object]]:
     Args:
         document: Response of `GET /verifications`.
 
-    Items that are no objects with string identifiers are skipped (and
-    logged), like invalid services: one invalid item must not keep the last
-    good list, with backends whose verification was revoked, in use.
+    Items name their service by `serviceId`, or by `service_id` in Cloud
+    Registry versions before 1.0.0rc2. Items that are no objects with
+    non-empty string identifiers are skipped (and logged), like invalid
+    services: one invalid item must not keep the last good list, with backends
+    whose verification was revoked, in use.
 
     Returns:
         URL and API type of each verified service, as verified.
@@ -132,13 +135,69 @@ def _verifications(document: object) -> dict[str, tuple[object, object]]:
     verified: dict[str, tuple[object, object]] = {}
     skipped = 0
     for item in document:
-        if not isinstance(item, dict) or not isinstance(item.get("service_id"), str):
+        service_id = (
+            item.get("serviceId", item.get("service_id"))
+            if isinstance(item, dict)
+            else None
+        )
+        if not service_id or not isinstance(service_id, str):
             skipped += 1
             continue
-        verified[item["service_id"]] = (item.get("url"), item.get("type"))
+        verified[service_id] = (item.get("url"), item.get("type"))
     if skipped:
         logger.warning("Skipped %d verifications without service identifier", skipped)
     return verified
+
+
+def _base_url(url: object, api: ApiType) -> str:
+    """Get the base URL of a backend from the URL of its service.
+
+    Args:
+        url: URL of the service.
+        api: API type of the backend.
+
+    Returns:
+        Normalized URL, without the API's path.
+
+    Raises:
+        InvalidURL: The URL is invalid, or not an `https` URL.
+    """
+    return normalize_url(url, schemes=["https"], name="Service URLs").removesuffix(
+        api.path
+    )
+
+
+def _still_verified(
+    base: str,
+    verification: tuple[object, object],
+    entry: RegistryEntry,
+    api: ApiType,
+) -> bool:
+    """Check a backend of an earlier read against its verification.
+
+    Without the services of the registry, only what the verifications list can
+    be compared: the URL and the API type (cf. :py:func:`_select`).
+
+    Args:
+        base: Base URL of the backend, as discovered.
+        verification: URL and API type of its service, as verified.
+        entry: Registry entry.
+        api: API type of the backends.
+
+    Returns:
+        Whether the service is verified with the same URL, for the API and an
+        accepted version.
+    """
+    url, api_type = verification
+    try:
+        same_url = _base_url(url, api) == base
+    except InvalidURL:
+        return False
+    return (
+        same_url
+        and _is_api(api_type, api)
+        and _version_accepted(_version(api_type), entry.versions)
+    )
 
 
 def select_services(
@@ -165,9 +224,33 @@ def select_services(
     Raises:
         RegistryError: A response is not a list.
     """
+    return _select(services, _verifications(verifications), entry, api, previous)
+
+
+def _select(
+    services: object,
+    verified: Mapping[str, tuple[object, object]],
+    entry: RegistryEntry,
+    api: ApiType,
+    previous: Mapping[str, str] | None = None,
+) -> _Selection:
+    """Select the backends to use from the services of a registry.
+
+    Args:
+        services: Response of `GET /services`.
+        verified: URL and API type of each verified service, as verified.
+        entry: Registry entry.
+        api: API type of the backends.
+        previous: Cf. :py:func:`select_services`.
+
+    Returns:
+        Selected backends, cf. :py:func:`select_services`.
+
+    Raises:
+        RegistryError: The services are not a list.
+    """
     if not isinstance(services, list):
         raise RegistryError("Services are not a list")
-    verified = _verifications(verifications)
     previous = previous or {}
     selection = _Selection()
     for service in services:
@@ -193,7 +276,9 @@ def select_services(
             not isinstance(url, str)
             or url != verified_url
             or not _is_api(verified_type, api)
-            # the version verified is the version offered
+            # the versions listed agree; the Cloud Registry lists a service's
+            # current version in both, as updating it usually keeps the
+            # verification (not if that makes the service pending)
             or _version(verified_type) != _version(api_type)
         ):
             selection.rejected.append(
@@ -201,8 +286,7 @@ def select_services(
             )
             continue
         try:
-            base = normalize_url(url, schemes=["https"], name="Service URLs")
-            base = base.removesuffix(api.path)
+            base = _base_url(url, api)
             if not entry.allow_private_addresses:
                 _check_host(service_id, base, previous, selection)
         except (InvalidURL, AddressNotAllowed, HostNotResolved) as exc:
@@ -247,7 +331,8 @@ class RegistryCache:
     read within `entry.max_stale` seconds), else they wait for the read
     (e.g., the first one, or the first after an idle gap). Backends of a
     good read are used for `entry.max_stale` seconds at most while the
-    registry cannot be read.
+    registry cannot be read, and only as long as its verifications, whenever
+    they can be read, still list them.
 
     Attributes:
         entry: Registry entry.
@@ -373,6 +458,10 @@ class RegistryCache:
     def _refresh(self) -> None:
         """Read the registry, keeping the last good backends on errors.
 
+        Verifications that are read apply at once, also if the services then
+        can't be read, or while they are being read. That is not a good read:
+        its time and `entry.max_stale` still count from the last one.
+
         Errors of any kind are logged, so that registry responses never fail
         the requests that read the registry.
         """
@@ -384,13 +473,14 @@ class RegistryCache:
             "allow_http": "http" in entry.url_schemes,
         }
         try:
-            verifications = fetch_json(
-                f"{entry.url}/verifications", entry.timeout, **options
+            verified = _verifications(
+                fetch_json(f"{entry.url}/verifications", entry.timeout, **options)
             )
+            self._drop_unverified(verified)
             services = fetch_json(f"{entry.url}/services", entry.timeout, **options)
-            selection = select_services(
+            selection = _select(
                 services,
-                verifications,
+                verified,
                 entry,
                 self.api,
                 # backends kept once already are not kept again
@@ -432,6 +522,28 @@ class RegistryCache:
         self._good = (selection.urls, read_at)
         self._read = True
         self._read_good = now
+
+    def _drop_unverified(self, verified: Mapping[str, tuple[object, object]]) -> None:
+        """Stop using cached backends that are no longer verified.
+
+        Args:
+            verified: URL and API type of each verified service, as verified.
+        """
+        urls, read_at = self._good
+        kept = {
+            service_id: base
+            for service_id, base in urls.items()
+            if service_id in verified
+            and _still_verified(base, verified[service_id], self.entry, self.api)
+        }
+        if len(kept) == len(urls):
+            return
+        self._good = (kept, read_at)
+        logger.warning(
+            "Backends no longer verified at registry %s, not used any more: %s",
+            self.entry.url,
+            ", ".join(url for url in urls.values() if url not in kept.values()),
+        )
 
 
 # Caches of this process, by API and registry entry

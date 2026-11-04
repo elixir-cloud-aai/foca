@@ -6,6 +6,8 @@ from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
+from unittest import mock
+from unittest.mock import MagicMock
 
 import mongomock
 import pytest
@@ -26,6 +28,9 @@ from foca.models.config import (
     MongoConfig,
     SecurityConfig,
 )
+from foca.security.access_control import (
+    register_access_control as register_access_control_module,
+)
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
@@ -39,6 +44,7 @@ from foca.security.access_control.register_access_control import (
     register_access_control,
     register_permission_specs,
 )
+from foca.security.auth import InvalidTokenResolver
 from tests.mock_data import MongoClients
 
 DEFAULT_SPEC = Path(
@@ -98,11 +104,14 @@ def test_register_permission_specs_without_config(
     """Apps without FOCA configuration get the specification unchanged."""
     cnx_app = App(__name__)
     specs = []
-    monkeypatch.setattr(
-        cnx_app,
-        "add_api",
-        lambda specification, **kwargs: specs.append(specification),
-    )
+
+    def add_api(specification: Any, **kwargs: Any) -> Any:
+        specs.append(specification)
+        api = mock.Mock(base_path="/test")
+        api.specification.raw = {"paths": {}}
+        return api
+
+    monkeypatch.setattr(cnx_app, "add_api", add_api)
     register_permission_specs(
         app=cnx_app,
         access_control_config=AccessControlConfig(api_specs=api_specs),
@@ -132,11 +141,14 @@ def test_register_permission_specs_media_type(
         Config(exceptions=ExceptionConfig(media_type=media_type))
     )
     specs = []
-    monkeypatch.setattr(
-        cnx_app,
-        "add_api",
-        lambda specification, **kwargs: specs.append(specification),
-    )
+
+    def add_api(specification: Any, **kwargs: Any) -> Any:
+        specs.append(specification)
+        api = mock.Mock(base_path="/test")
+        api.specification.raw = {"paths": {}}
+        return api
+
+    monkeypatch.setattr(cnx_app, "add_api", add_api)
     register_permission_specs(
         app=cnx_app,
         access_control_config=AccessControlConfig(api_specs=api_specs),
@@ -884,3 +896,67 @@ class TestRegisterAccessControlSetup:
             self._register(None)
         assert "Casbin enforcer registered." in caplog.text
         assert "Permission management API registered" in caplog.text
+
+
+@pytest.mark.parametrize("reject", [True, False])
+def test_register_permission_specs_invalid_tokens(
+    monkeypatch: pytest.MonkeyPatch, reject: bool
+) -> None:
+    """The permissions API rejects invalid tokens like the app's APIs do."""
+    cnx_app = create_connexion_app(
+        Config.model_validate(
+            {
+                "security": {
+                    "auth": {
+                        "issuers": ["https://idp.example.org"],
+                        "audience": ["foca"],
+                        "reject_invalid_tokens": reject,
+                    }
+                }
+            }
+        )
+    )
+    add_api = MagicMock()
+    monkeypatch.setattr(cnx_app, "add_api", add_api)
+    register_permission_specs(app=cnx_app, access_control_config=AccessControlConfig())
+    resolver = add_api.call_args.kwargs["resolver"]
+    assert isinstance(resolver, InvalidTokenResolver) is reject
+
+
+class TestWarnDefaultBasePath:
+    """Tests for the warning about rules for the former path of the API."""
+
+    @pytest.mark.parametrize(
+        ("base_path", "rule", "warned"),
+        [
+            ("/acl", ["p", "admin", "/admin/access-control/policies", "GET"], True),
+            ("/acl", ["p", "admin", "/admin/*", "GET"], True),
+            ("/acl", ["p", "admin", "/*", "GET"], False),
+            ("/acl", ["p", "/admin/access-control/x", "/tasks", "GET"], False),
+            ("/acl", ["g", "alice", "/admin/access-control/x"], False),
+            ("/acl", ["p", "admin"], False),
+            (
+                "/admin/access-control/v2",
+                ["p", "admin", "/admin/access-control/policies", "GET"],
+                True,
+            ),
+            (
+                "/admin/access-control/v2",
+                ["p", "admin", "/admin/access-control/*", "GET"],
+                False,
+            ),
+        ],
+    )
+    def test_rules(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        base_path: str,
+        rule: list[str],
+        warned: bool,
+    ) -> None:
+        """Only rules whose object applied to the former path are named."""
+        conf = AccessControlConfig.model_construct(
+            api_enabled=True, api_specs=None, api_base_path=base_path, policies=[rule]
+        )
+        register_access_control_module._warn_default_base_path(conf)
+        assert ("names the default path" in caplog.text) is warned

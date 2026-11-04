@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import mongomock
 import pytest
 from connexion import App
+from pydantic import ValidationError
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import (
@@ -143,7 +144,7 @@ class TestPolicies:
         Registrations thus behave as with a persistent database.
         """
         client: MongoClient[dict[str, Any]] = mongomock.MongoClient()
-        monkeypatch.setattr(register_mongodb, "MongoClient", lambda uri: client)
+        monkeypatch.setattr(register_mongodb, "MongoClient", lambda uri, **_: client)
         return client
 
     def test_added(self, clients: MongoClient[dict[str, Any]]) -> None:
@@ -176,7 +177,7 @@ class TestPolicies:
         with caplog.at_level(logging.WARNING, logger=module.logger.name):
             _, rules = _register_policies(None)
         assert rules == [["p", "a", "/b", "GET"]]
-        assert "Removing stored configured policy rules" in caplog.text
+        assert "Removed stored configured policy rules" in caplog.text
 
     def test_unset_removes_legacy(self, clients: MongoClient[dict[str, Any]]) -> None:
         """Configured rules stored by FOCA 0.16 are removed if not set."""
@@ -283,7 +284,7 @@ class TestPolicies:
         """
         _register_policies(POLICIES)
 
-        def fail(self: Any, rules: list[list[str]]) -> None:
+        def fail(self: Any, *_args: Any) -> None:
             raise error
 
         monkeypatch.setattr(module.Adapter, "set_configured_policies", fail)
@@ -422,3 +423,82 @@ class TestPolicies:
         _register_policies({"read-write": POLICIES[0]})
         _, rules = _register_policies({"read-write": None})
         assert rules == []
+
+
+class TestPoliciesRevision:
+    """Tests of `policies_revision` and `policies_force` at startup."""
+
+    @staticmethod
+    def _start(
+        collection: Any, policies: list[list[str]] | None, **options: Any
+    ) -> set[str]:
+        """Apply the policies as on startup.
+
+        Args:
+            collection: Policy collection.
+            policies: Configured rules.
+            **options: Arguments of the functions.
+
+        Returns:
+            Subjects of the rules in effect.
+        """
+        adapter = module.Adapter(collection)
+        if policies is None:
+            module._remove_policies(adapter, **options)
+        else:
+            module._add_policies(adapter, policies, **options)
+        return {document["v0"] for document in collection.find(adapter.rules_query())}
+
+    def test_old_pod_after_new_pod(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An old pod leaves the rules alone."""
+        collection: Collection[dict[str, Any]] = (
+            mongomock.MongoClient().db.revisions_old
+        )
+        new, old = [["p", "new", "/a", "GET"]], [["p", "old", "/a", "GET"]]
+        assert self._start(collection, new, revision=2) == {"new"}
+        caplog.clear()
+        assert self._start(collection, old, revision=1, names=["a"]) == {"new"}
+        assert "not replaced" in caplog.text
+        assert "Named policy rules applied" not in caplog.text
+
+    def test_old_pod_without_policies(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An old pod without policies doesn't remove the rules."""
+        collection: Collection[dict[str, Any]] = (
+            mongomock.MongoClient().db.revisions_remove
+        )
+        new = [["p", "new", "/a", "GET"]]
+        assert self._start(collection, new, revision=2) == {"new"}
+        assert self._start(collection, None, revision=1) == {"new"}
+        assert "Removed stored" not in caplog.text
+        assert self._start(collection, None, revision=1, force=True) == set()
+        assert "Removed stored" in caplog.text
+
+    def test_forced_without_rules(self) -> None:
+        """Forcing also stores the revision if there are no rules to remove."""
+        collection: Collection[dict[str, Any]] = (
+            mongomock.MongoClient().db.revisions_empty
+        )
+        self._start(collection, [], revision=3)
+        assert self._start(collection, None, revision=1, force=True) == set()
+        old = [["p", "old", "/a", "GET"]]
+        assert self._start(collection, old, revision=0) == set()
+        rules = [["p", "new", "/a", "GET"]]
+        assert self._start(collection, rules, revision=2) == {"new"}
+
+    def test_rollback(self) -> None:
+        """Forced rules are written."""
+        collection: Collection[dict[str, Any]] = (
+            mongomock.MongoClient().db.revisions_force
+        )
+        new, old = [["p", "new", "/a", "GET"]], [["p", "old", "/a", "GET"]]
+        self._start(collection, new, revision=2)
+        assert self._start(collection, old, revision=1, force=True) == {"old"}
+
+    def test_config(self) -> None:
+        """The revision isn't negative, and nothing is set by default."""
+        conf = AccessControlConfig()
+        assert conf.policies_revision is None
+        assert conf.policies_force is False
+        for value in (-1, 2**63, True):
+            with pytest.raises(ValidationError):
+                AccessControlConfig(policies_revision=value)

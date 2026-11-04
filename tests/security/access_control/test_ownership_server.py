@@ -1,5 +1,6 @@
 """Tests for the controllers managing roles on owned resources."""
 
+from collections.abc import Callable
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
@@ -27,12 +28,14 @@ from foca.security.access_control import (
     ownership_server,
     remove_resource,
 )
+from foca.security.access_control import ownership_server as module
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     RESOURCE_ROLE_MODEL_FILE,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.auth import _unauthorized
+from foca.utils import pagination
 
 ISSUER = "https://login.example.org/oidc/"
 OTHER_ISSUER = "https://login.example.com/oidc/"
@@ -121,7 +124,14 @@ SPEC: dict[str, Any] = {
     "paths": {
         "/tasks/{taskId}/permissions": {
             "parameters": [_parameter("taskId")],
-            "get": _operation("getResourceRoles"),
+            "get": _operation(
+                "getResourceRoles",
+                parameters=[
+                    {"name": "q", "in": "query", "schema": {"type": "string"}},
+                    {"name": "limit", "in": "query", "schema": {"type": "integer"}},
+                    {"name": "offset", "in": "query", "schema": {"type": "integer"}},
+                ],
+            ),
         },
         "/tasks/{taskId}/permissions/users/{userId}": {
             # namespaced users (several issuers) may contain slashes
@@ -262,6 +272,198 @@ class TestGetResourceRoles:
         assert response.json == [
             {"subject_type": "user", "subject": "alice", "role": "owner"}
         ]
+
+
+class TestResourceRolesListing:
+    """Tests of paging and searching the roles of a resource."""
+
+    @pytest.fixture(autouse=True)
+    def _roles(self, app: Flask) -> None:
+        """Grant roles to users and groups."""
+        self.client = app.test_client()
+        self.app = app
+        self.url = f"{TASK}/permissions"
+        with app.app_context():
+            adapter = app.config["casbin_adapter"]
+            for subject in ("user:Bob", "user:bobby", "user:carol", "group:bob-team"):
+                adapter.add_policy("g", "g2", [subject, "maintainer", TASK])
+
+    def _get(self, **query: str) -> Any:
+        """List the roles as the owner.
+
+        Args:
+            **query: Query parameters.
+
+        Returns:
+            Response.
+        """
+        return self.client.get(
+            self.url,
+            query_string=query,
+            headers={"Authorization": "Bearer alice"},
+        )
+
+    def test_default(self) -> None:
+        """Without parameters, the response is as before: all roles."""
+        response = self._get()
+        assert response.status_code == 200
+        assert len(response.json) == 5
+        assert "Link" not in response.headers
+
+    @pytest.mark.parametrize(
+        ("q", "subjects"),
+        [
+            ("nobody", []),
+            ("carol", ["carol"]),
+            ("BOB", ["Bob", "bobby", "bob-team"]),
+            ("", ["alice", "Bob", "bobby", "carol", "bob-team"]),
+        ],
+    )
+    def test_q(self, q: str, subjects: list[str]) -> None:
+        """Roles of users and groups are searched, in any case."""
+        response = self._get(q=q)
+        assert response.status_code == 200
+        assert sorted(role["subject"] for role in response.json) == sorted(subjects)
+
+    @staticmethod
+    def _subjects(response: Any) -> list[str]:
+        """Get the subjects of a response.
+
+        Args:
+            response: Response.
+
+        Returns:
+            Subjects, in the order of the response.
+        """
+        return [role["subject"] for role in response.json]
+
+    def test_page(self) -> None:
+        """Pages are sorted, and hold what they should, with no overlap."""
+        first = self._get(limit="2")
+        second = self._get(limit="2", offset="2")
+        third = self._get(limit="2", offset="4")
+        assert first.status_code == second.status_code == third.status_code == 200
+        assert self._subjects(first) == ["bob-team", "Bob"]
+        assert self._subjects(second) == ["alice", "bobby"]
+        assert self._subjects(third) == ["carol"]
+        assert "Link" not in first.headers
+
+    def test_offset_only(self) -> None:
+        """An offset alone asks for a page, of the default size."""
+        response = self._get(offset="4")
+        assert self._subjects(response) == ["carol"]
+
+    def test_limit_only(self) -> None:
+        """A limit alone asks for the first page."""
+        assert self._subjects(self._get(limit="1")) == ["bob-team"]
+
+    def test_limit_reduced(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The limit has a maximum."""
+        monkeypatch.setattr(
+            module,
+            "get_page",
+            lambda offset, limit: pagination.get_page(offset, limit, max_limit=3),
+        )
+        assert len(self._get(limit="100000").json) == 3
+
+    def test_default_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without a limit, a page has the default size."""
+        monkeypatch.setattr(
+            module,
+            "get_page",
+            lambda offset, limit: pagination.get_page(offset, limit, default_limit=3),
+        )
+        assert len(self._get(offset="0").json) == 3
+
+    def test_service_client(self, app: Flask) -> None:
+        """Service clients are searched, too."""
+        with app.app_context():
+            app.config["casbin_adapter"].add_policy(
+                "g", "g2", ["client:worker", "maintainer", TASK]
+            )
+        assert self._subjects(self._get(q="work")) == ["worker"]
+
+    @pytest.mark.parametrize(
+        "schema", [{"type": "integer"}, {"type": "array", "items": {"type": "string"}}]
+    )
+    def test_q_of_other_type(self, tmp_path: Path, schema: dict[str, Any]) -> None:
+        """A `q` declared with another type is refused, instead of failing."""
+        spec = _spec_with(
+            "/tasks/{taskId}/permissions",
+            "get",
+            parameters=[{"name": "q", "in": "query", "schema": schema}],
+        )
+        response = (
+            _create_app(tmp_path, spec)
+            .test_client()
+            .get(
+                f"{TASK}/permissions?q=5",
+                headers={"Authorization": "Bearer alice"},
+            )
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.parametrize("name", ["q", "limit", "offset"])
+    def test_path_parameter_names(self, tmp_path: Path, name: str) -> None:
+        """Path parameters of these names only name the resource."""
+        spec = deepcopy(SPEC)
+        spec["paths"]["/tasks/{" + name + "}/permissions"] = {
+            "parameters": [_parameter(name)],
+            "get": _operation("getResourceRoles"),
+        }
+        del spec["paths"]["/tasks/{taskId}/permissions"]
+        app = _create_app(tmp_path, spec)
+        with app.app_context():
+            app.config["casbin_adapter"].add_policy(
+                "g", "g2", ["user:bob", "maintainer", TASK]
+            )
+        response = app.test_client().get(
+            f"{TASK}/permissions", headers={"Authorization": "Bearer alice"}
+        )
+        assert response.status_code == 200
+        assert sorted(self._subjects(response)) == ["alice", "bob"]
+
+    def test_offset_beyond_end(self) -> None:
+        """A page beyond the end is empty."""
+        response = self._get(offset="50")
+        assert response.status_code == 200
+        assert response.json == []
+
+    @pytest.mark.parametrize("query", [{"limit": "0"}, {"offset": "-1"}])
+    def test_invalid(self, query: dict[str, str]) -> None:
+        """Invalid values are refused."""
+        assert self._get(**query).status_code == 400
+
+    def test_links(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Pages have links with the right values, if the app has a public URL."""
+        monkeypatch.setattr(
+            get_app_config(self.app).server, "public_url", "https://api.example.org"
+        )
+        response = self._get(limit="1", offset="1", q="b")
+        assert response.status_code == 200
+        link = response.headers["Link"]
+        base = f"https://api.example.org{self.url}"
+        for rel, offset in (("first", 0), ("prev", 0), ("next", 2), ("last", 2)):
+            assert any(
+                base in part
+                and f'rel="{rel}"' in part
+                and f"offset={offset}" in part
+                and "limit=1" in part
+                and "q=b" in part
+                for part in link.split(", ")
+            ), f"{rel}: {link}"
+
+    def test_filter_before_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The page and its links are those of the matching roles."""
+        monkeypatch.setattr(
+            get_app_config(self.app).server, "public_url", "https://api.example.org"
+        )
+        response = self._get(q="bob", limit="2")
+        assert self._subjects(response) == ["bob-team", "Bob"]
+        assert 'rel="next"' in response.headers["Link"]
+        response = self._get(q="carol", limit="2")
+        assert self._subjects(response) == ["carol"]
+        assert 'rel="next"' not in response.headers["Link"]
 
 
 class TestUserRoles:
@@ -474,6 +676,175 @@ def _spec_with(path: str, method: str, **fields: Any) -> dict[str, Any]:
 
 USER_ROLE = "/tasks/{taskId}/permissions/users/{userId}"
 USER_ROUTE = "PUT /api/tasks/<taskId>/permissions/users/<path:userId> (putUserRole)"
+
+
+# Tasks that exist, as an app would know
+EXISTING_TASKS = {"1", "7"}
+OWNERLESS = "/api/tasks/7"
+
+
+def _task_exists(taskId: str) -> Callable[[], bool]:
+    """Build an existence check of a task, as apps pass to the controllers."""
+    return lambda: taskId in EXISTING_TASKS
+
+
+def getTaskRoles(**kwargs: Any) -> Any:
+    """List roles, with an existence check."""
+    return ownership_server.getResourceRoles(
+        exists=_task_exists(kwargs["taskId"]), **kwargs
+    )
+
+
+def putTaskUserRole(**kwargs: Any) -> Any:
+    """Grant a role to a user, with an existence check."""
+    return ownership_server.putUserRole(exists=_task_exists(kwargs["taskId"]), **kwargs)
+
+
+def deleteTaskUserRole(**kwargs: Any) -> Any:
+    """Revoke the roles of a user, with an existence check."""
+    return ownership_server.deleteUserRole(
+        exists=_task_exists(kwargs["taskId"]), **kwargs
+    )
+
+
+def putTaskGroupRole(**kwargs: Any) -> Any:
+    """Grant a role to a group, with an existence check."""
+    return ownership_server.putGroupRole(
+        exists=_task_exists(kwargs["taskId"]), **kwargs
+    )
+
+
+class TestOwnerlessResources:
+    """Tests for admins managing resources that have no owner yet."""
+
+    @pytest.fixture
+    def wrapped(self, tmp_path: Path) -> Flask:
+        """App whose role operations pass existence checks."""
+        spec = deepcopy(SPEC)
+        paths = spec["paths"]
+        for path, method, name in (
+            ("/tasks/{taskId}/permissions", "get", "getTaskRoles"),
+            (USER_ROLE, "put", "putTaskUserRole"),
+            (USER_ROLE, "delete", "deleteTaskUserRole"),
+            ("/tasks/{taskId}/permissions/groups/{group}", "put", "putTaskGroupRole"),
+        ):
+            paths[path][method]["operationId"] = f"{__name__}.{name}"
+        return _create_app(tmp_path, spec)
+
+    def test_admin_lists(self, wrapped: Flask) -> None:
+        """Admins list the (no) roles of an existing resource."""
+        response = _call(wrapped, "get", f"{OWNERLESS}/permissions", "carol")
+        assert response.status_code == 200
+        assert response.get_json() == []
+
+    def test_admin_grants_first_owner(self, wrapped: Flask) -> None:
+        """Admins assign the first owner, who can then manage the resource."""
+        path = f"{OWNERLESS}/permissions/users/bob"
+        response = _call(wrapped, "put", path, "carol", "owner")
+        assert response.status_code == 200
+        assert _roles(wrapped, OWNERLESS) == [ResourceRole("user", "bob", "owner")]
+        response = _call(wrapped, "get", f"{OWNERLESS}/permissions", "bob")
+        assert response.status_code == 200
+
+    def test_admin_grants_group_owner(self, wrapped: Flask) -> None:
+        """Groups can be the first owner, too."""
+        path = f"{OWNERLESS}/permissions/groups/devs"
+        response = _call(wrapped, "put", path, "carol", "owner")
+        assert response.status_code == 200
+        assert _roles(wrapped, OWNERLESS) == [ResourceRole("group", "devs", "owner")]
+
+    def test_other_role_needs_owner(self, wrapped: Flask) -> None:
+        """The first role is `owner`; others are refused as for any resource."""
+        path = f"{OWNERLESS}/permissions/users/bob"
+        response = _call(wrapped, "put", path, "carol", "maintainer")
+        assert response.status_code == 400
+        assert _roles(wrapped, OWNERLESS) == []
+
+    def test_admin_revokes_after_first_owner(self, wrapped: Flask) -> None:
+        """Leftover roles are revoked once the resource has an owner."""
+        with wrapped.app_context():
+            wrapped.config["casbin_adapter"].save_policy_line(
+                ptype="g2", rule=["user:dave", "maintainer", OWNERLESS]
+            )
+        path = f"{OWNERLESS}/permissions/users/dave"
+        response = _call(wrapped, "get", f"{OWNERLESS}/permissions", "carol")
+        assert response.get_json() == [
+            {"subject_type": "user", "subject": "dave", "role": "maintainer"}
+        ]
+        assert _call(wrapped, "delete", path, "carol").status_code == 404
+        owner = f"{OWNERLESS}/permissions/users/bob"
+        assert _call(wrapped, "put", owner, "carol", "owner").status_code == 200
+        assert _call(wrapped, "delete", path, "carol").status_code == 200
+
+    @pytest.mark.parametrize("user", ["alice", "bob"])
+    def test_others_forbidden(self, wrapped: Flask, user: str) -> None:
+        """Others are refused by policies, as they have no role on it."""
+        path = f"{OWNERLESS}/permissions"
+        assert _call(wrapped, "get", path, user).status_code == 403
+        path = f"{OWNERLESS}/permissions/users/{user}"
+        assert _call(wrapped, "put", path, user, "owner").status_code == 403
+        assert _roles(wrapped, OWNERLESS) == []
+
+    def test_non_admin_allowed_by_policies_not_found(self, tmp_path: Path) -> None:
+        """Callers that policies let through, but no admins, get `404`."""
+        spec = deepcopy(SPEC)
+        spec["paths"]["/tasks/{taskId}/permissions"]["get"]["operationId"] = (
+            f"{__name__}.getTaskRoles"
+        )
+        app = _create_app(tmp_path, spec)
+        with app.app_context():
+            adapter = app.config["casbin_adapter"]
+            adapter.save_policy_line(
+                ptype="p", rule=["user:bob", f"{OWNERLESS}/permissions", "GET"]
+            )
+        check = mock.Mock(return_value=True)
+        with mock.patch(f"{__name__}._task_exists", return_value=check):
+            response = _call(app, "get", f"{OWNERLESS}/permissions", "bob")
+        assert response.status_code == 404
+        check.assert_not_called()
+
+    def test_missing_resource_not_found(self, wrapped: Flask) -> None:
+        """Admins get `404` for resources that don't exist."""
+        assert (
+            _call(wrapped, "get", "/api/tasks/8/permissions", "carol").status_code
+            == 404
+        )
+        path = "/api/tasks/8/permissions/users/bob"
+        assert _call(wrapped, "put", path, "carol", "owner").status_code == 404
+        assert _roles(wrapped, "/api/tasks/8") == []
+
+    def test_without_existence_check_not_found(self, app: Flask) -> None:
+        """Without an existence check, resources without owners aren't found."""
+        path = f"{OWNERLESS}/permissions"
+        assert _call(app, "get", path, "carol").status_code == 404
+        path = f"{OWNERLESS}/permissions/users/bob"
+        assert _call(app, "put", path, "carol", "owner").status_code == 404
+
+    def test_resource_with_roles_unchanged(self, wrapped: Flask) -> None:
+        """Resources with owners work as before, without calling the check."""
+        check = mock.Mock(return_value=True)
+        with mock.patch(f"{__name__}._task_exists", return_value=check):
+            response = _call(wrapped, "get", f"{TASK}/permissions", "alice")
+            assert response.status_code == 200
+            assert response.get_json() == [
+                {"subject_type": "user", "subject": "alice", "role": "owner"}
+            ]
+            response = _call(wrapped, "get", f"{TASK}/permissions", "carol")
+            assert response.status_code == 200
+        check.assert_not_called()
+
+    def test_deleted_during_grant(self, wrapped: Flask) -> None:
+        """A role granted while the resource is deleted is revoked again."""
+        calls: list[int] = []
+
+        def _exists_once() -> bool:
+            calls.append(1)
+            return len(calls) == 1
+
+        with mock.patch(f"{__name__}._task_exists", return_value=_exists_once):
+            path = f"{OWNERLESS}/permissions/users/bob"
+            assert _call(wrapped, "put", path, "carol", "owner").status_code == 404
+        assert _roles(wrapped, OWNERLESS) == []
 
 
 class TestEnforcementRequired:

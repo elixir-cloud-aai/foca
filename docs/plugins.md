@@ -159,7 +159,8 @@ passed through verbatim, plus the gateway's name (`plugins.gateway_id`, by
 default the host and port of `server.public_url`). Inbound requests whose
 `Via` header already names this gateway are refused (`508 Loop Detected`),
 as are `Via` headers that would exceed 1024 characters with the gateway's
-entry (`400`). Backends at or below the gateway's own public URL are
+entry (`400`). A gateway with neither `plugins.gateway_id` nor
+`server.public_url` can't detect loops, and FOCA logs a warning on startup. Backends at or below the gateway's own public URL are
 never candidates. Credentials of backends are added by the app after the
 `forward` phase, so plugins never see them; the client's own credentials
 are never forwarded by the engine.
@@ -225,18 +226,34 @@ entries into the candidates of a request, in order:
   candidate, without credentials, e.g., for the service info.
 
 Registries are the trust anchor: only services that the registry lists as
-verified (`GET /verifications`, an extension of the Cloud Registry)
-with their current URL and API type are used, if their version and
+verified (`GET /verifications`, an extension of the Cloud Registry, whose
+items name their service by `serviceId`, or `service_id` before its version
+1.0.0rc2) with their current URL and API type are used, if their version and
 environment are accepted, their URLs are `https` and their hosts have public
 addresses only (unless `allow_private_addresses`); malformed items are
-skipped and logged. Registries are read without access token and without
+skipped and logged. A verification doesn't cover the version and environment:
+the Cloud Registry keeps it when the owner or a maintainer of a service changes
+them (unless a new version makes the service pending, which removes it), so
+these filters select by what the registry lists now, not by what an admin
+checked. Registries are read without access token and without
 following redirects, at public addresses only unless
-`registry_allow_private_addresses` (e.g., a registry in the same cluster).
+`registry_allow_private_addresses` (e.g., a registry in the same cluster), so
+a registry that requires login for reads can't be used: it answers `401`,
+which is logged, and counts as unreachable.
 Each process caches the backends of each registry for `refresh_interval`
 seconds and keeps the last good list while a registry is unreachable or
 answers invalidly (retrying after 30 s at most), for `max_stale` seconds at
 most, so that revoked backends are not used for long; before the first good
 read, and after `max_stale`, a registry yields no candidates.
+Verifications apply as soon as they are read, also if `GET /services` then
+fails. A backend of the last good list stays only if its service is still
+verified with the same URL and API type, of an accepted version. Backends that
+are not are dropped and logged as a warning. Of services with the same URL, the
+list has the first only, so that its verification decides. Such a read is not a
+good read: `max_stale` and the times from `snapshots()` still count from the
+last good one, and new or re-verified backends are only added by the next one.
+If `GET /verifications` itself fails or doesn't answer with a list, the whole
+last good list stays.
 
 ## Default routing
 
@@ -618,8 +635,8 @@ after `OutcomeUnknown` without raising, with `run.final_reason` set to
 
 `foca.plugins.adapter` is the only module that uses Connexion and Flask: it
 builds the plain request model (`inbound_from_request()`), the caller
-(`current_principal()`), the request ID (`request_id()`: a safe
-`X-Request-ID` header of the client, or a new one), and problem responses
+(`current_principal()`), the request ID (`request_id()`: the [identifier of
+the request](configuration/server.md#request-ids), or a new one), and problem responses
 for gateway errors (`problem()`).
 
 The caller (`Principal`) is identified as by access control and its

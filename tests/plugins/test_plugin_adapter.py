@@ -1,11 +1,13 @@
 """Tests of the Connexion 2 / Flask glue (`foca.plugins.adapter`)."""
 
 import json
+import re
 
 import pytest
 from connexion.exceptions import Forbidden
 from flask import Flask
 
+from foca.context import RequestIdMiddleware
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
 from foca.plugins import Rejected, adapter
@@ -26,13 +28,25 @@ from tests.security.access_control.callers import (
 
 
 def test_request_id() -> None:
-    """Request IDs come from safe client headers or are generated."""
+    """Requests have the identifier of the middleware, else a random one."""
     app = Flask(__name__)
-    assert len(adapter.request_id()) == 32
-    with app.test_request_context(headers={"X-Request-ID": "abc-1"}):
-        assert adapter.request_id() == "abc-1"
-    with app.test_request_context(headers={"X-Request-ID": "a b"}):
-        assert len(adapter.request_id()) == 32
+    assert re.fullmatch("[0-9a-f]{32}", adapter.request_id())
+    assert adapter.request_id() != adapter.request_id()
+    with app.test_request_context():
+        assert re.fullmatch("[0-9a-f]{32}", adapter.request_id())
+    seen = []
+
+    @app.route("/")
+    def _view() -> str:
+        """Keep the identifier."""
+        seen.append(adapter.request_id())
+        return ""
+
+    app.wsgi_app = RequestIdMiddleware(app.wsgi_app)  # type: ignore[method-assign]
+    app.test_client().get("/", headers={"X-Request-ID": "abc-1"})
+    app.test_client().get("/", headers={"X-Request-ID": "a b"})
+    assert seen[0] == "abc-1"
+    assert len(seen[1]) == 32
 
 
 def test_inbound_from_request() -> None:

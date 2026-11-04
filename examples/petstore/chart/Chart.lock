@@ -1,6 +1,6 @@
 dependencies:
 - name: foca-common
   repository: file://../../../charts/foca-common
-  version: 0.4.0
-digest: sha256:d8e2b717c315d3ddb1b7bf05d2d2c6c2cffcbd4d84dbaefbdcaed9c2147f6efe
-generated: "2026-11-02T07:21:44.576756708+01:00"
+  version: 0.5.0
+digest: sha256:ea88a44d05685cf264ef8bc7611499721b53586f10e2855470e8c9d9b32c364e
+generated: "2026-11-04T04:42:08.253897971+01:00"

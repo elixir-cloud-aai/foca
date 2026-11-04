@@ -163,6 +163,93 @@ older schema). Call with the context dict.
 {{- end -}}
 
 {{/*
+A value that must be a whole number of at least 1, as such; fails otherwise
+(for app charts with an older schema). Call with a dict with the `value` and
+its `key`, for the message.
+*/}}
+{{- define "foca-common.checkPositive" -}}
+{{- $integer := or (kindIs "int" .value) (kindIs "int64" .value) (and (kindIs "float64" .value) (eq .value (floor .value))) -}}
+{{- if not (and $integer (ge (int .value) 1)) -}}
+{{- fail (printf "%s must be a whole number of at least 1" .key) -}}
+{{- end -}}
+{{- int .value -}}
+{{- end -}}
+
+{{/*
+`true` if `<valuesKey>.autoscaling.enabled` is, else `false`; fails unless it
+is a boolean or not set, or `autoscaling` isn't a map (for app charts with an
+older schema). Call with the context dict.
+*/}}
+{{- define "foca-common.autoscalingEnabled" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $autoscaling := (index .root.Values $key).autoscaling -}}
+{{- if not (or (kindIs "invalid" $autoscaling) (kindIs "map" $autoscaling)) -}}
+{{- fail (printf "%s.autoscaling must be a map" $key) -}}
+{{- end -}}
+{{- $enabled := false -}}
+{{- if $autoscaling -}}
+{{- $enabled = $autoscaling.enabled -}}
+{{- end -}}
+{{- if not (or (kindIs "invalid" $enabled) (kindIs "bool" $enabled)) -}}
+{{- fail (printf "%s.autoscaling.enabled must be true or false" $key) -}}
+{{- end -}}
+{{- if $enabled -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{/*
+Number of pods that the app has at least with autoscaling:
+`<valuesKey>.autoscaling.minReplicas`, 2 if not set. Call with the context
+dict.
+*/}}
+{{- define "foca-common.minReplicas" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $min := (index .root.Values $key).autoscaling.minReplicas -}}
+{{- if kindIs "invalid" $min -}}
+{{- $min = 2 -}}
+{{- end -}}
+{{- include "foca-common.checkPositive" (dict "key" (printf "%s.autoscaling.minReplicas" $key) "value" $min) -}}
+{{- end -}}
+
+{{/*
+`<valuesKey>.topologySpreadConstraints` of the app's pods, as YAML, with the
+selector of the app's pods as `labelSelector` where none is given (an empty one
+would mean all pods of the namespace); empty if there are none. Fails if it isn't
+a list of maps with the required fields (for app charts without the schema). Call
+with the context dict.
+*/}}
+{{- define "foca-common.topologySpreadConstraints" -}}
+{{- $root := .root -}}
+{{- $key := .settings.valuesKey -}}
+{{- $constraints := (index $root.Values $key).topologySpreadConstraints -}}
+{{- if not (or (kindIs "invalid" $constraints) (kindIs "slice" $constraints)) -}}
+{{- fail (printf "%s.topologySpreadConstraints must be a list of TopologySpreadConstraint" $key) -}}
+{{- end -}}
+{{- $selector := include "foca-common.selectorLabels" (dict "root" $root "component" "app") | fromYaml -}}
+{{- $filled := list -}}
+{{- range $constraints -}}
+{{- if not (and (kindIs "map" .) .maxSkew .topologyKey .whenUnsatisfiable) -}}
+{{- fail (printf "%s.topologySpreadConstraints must be a list of TopologySpreadConstraint, each with maxSkew of at least 1, topologyKey and whenUnsatisfiable" $key) -}}
+{{- end -}}
+{{- $constraint := deepCopy . -}}
+{{- $given := $constraint.labelSelector -}}
+{{- if not (or (kindIs "invalid" $given) (kindIs "map" $given)) -}}
+{{- fail (printf "%s.topologySpreadConstraints: labelSelector must be a map" $key) -}}
+{{- end -}}
+{{- if not (and $given (or $given.matchLabels $given.matchExpressions)) -}}
+{{- $_ := set $constraint "labelSelector" (dict "matchLabels" $selector) -}}
+{{- end -}}
+{{- $filled = append $filled $constraint -}}
+{{- end -}}
+{{- with $filled -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Whether the Celery worker is deployed ("true") or not (empty):
 `worker.enabled`, false if not set (also without a `worker` map).
 */}}
@@ -230,6 +317,128 @@ plugin store (`plugins.defaults.store.key_secret` of FOCA), if
       name: {{ . | quote }}
       key: store-key-secret
 {{- end }}
+{{- end -}}
+
+{{/*
+Further environment variables of the app and the worker from
+`<valuesKey>.extraEnv` (a list of EnvVar). Fails if it isn't such a list (for
+app charts without the schema), sets a name twice or a variable that the chart
+sets (see `foca-common.reservedEnv`), as the last one with a name would win, or
+has a secret as a literal value (see `foca-common.checkExtraEnvSecret`). Call
+with the context dict.
+*/}}
+{{- define "foca-common.extraEnv" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $values := index .root.Values $key -}}
+{{- $extraEnv := $values.extraEnv -}}
+{{- if not (or (kindIs "invalid" $extraEnv) (kindIs "slice" $extraEnv)) -}}
+{{- fail (printf "%s.extraEnv must be a list of EnvVar" $key) -}}
+{{- end -}}
+{{- $reserved := include "foca-common.reservedEnv" . | splitList " " -}}
+{{- $seen := list -}}
+{{- range $extraEnv -}}
+{{- if not (and (kindIs "map" .) (kindIs "string" .name) .name) -}}
+{{- fail (printf "%s.extraEnv must be a list of EnvVar, each with a name" $key) -}}
+{{- end -}}
+{{- if has .name $reserved -}}
+{{- fail (printf "%s.extraEnv must not set %s, which the chart sets" $key .name) -}}
+{{- end -}}
+{{- if has .name $seen -}}
+{{- fail (printf "%s.extraEnv must not set %s twice" $key .name) -}}
+{{- end -}}
+{{- $seen = append $seen .name -}}
+{{- include "foca-common.checkExtraEnvSecret" (dict "key" $key "var" .) -}}
+{{- end -}}
+{{- with $extraEnv -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Refuse secrets as literal values in `<valuesKey>.extraEnv`, which would be
+readable in the Deployment, like `foca-common.checkStoreKeySecret` for the
+overlay: variables that hold only a secret, and connection strings with
+credentials (with an `@`). Use `valueFrom` for them. The value is not shown.
+Call with a dict of the values key (`key`) and the EnvVar (`var`).
+*/}}
+{{- define "foca-common.checkExtraEnvSecret" -}}
+{{- $value := toString (get .var "value" | default "") -}}
+{{- $secret := and $value (has .var.name (list "MONGO_PASSWORD" "FOCA_PLUGINS_STORE_KEY_SECRET")) -}}
+{{- $credentials := and (contains "@" $value) (has .var.name (list "MONGO_URI" "CELERY_BROKER_URL" "CELERY_RESULT_BACKEND")) -}}
+{{- if or $secret $credentials -}}
+{{- fail (printf "%s.extraEnv must take %s from a Secret (valueFrom), not as a literal value" .key .var.name) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Sources of environment variables of the app and the worker from
+`<valuesKey>.extraEnvFrom` (a list of EnvFromSource). Fails if it isn't such a
+list (for app charts without the schema). Call with the context dict.
+*/}}
+{{- define "foca-common.extraEnvFrom" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $extraEnvFrom := (index .root.Values $key).extraEnvFrom -}}
+{{- if not (or (kindIs "invalid" $extraEnvFrom) (kindIs "slice" $extraEnvFrom)) -}}
+{{- fail (printf "%s.extraEnvFrom must be a list of EnvFromSource" $key) -}}
+{{- end -}}
+{{- range $extraEnvFrom -}}
+{{- if not (kindIs "map" .) -}}
+{{- fail (printf "%s.extraEnvFrom must be a list of EnvFromSource" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- with $extraEnvFrom -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Names of the environment variables that the chart sets for the app or the
+worker, separated by spaces. Call with the context dict.
+*/}}
+{{- define "foca-common.reservedEnv" -}}
+{{- $root := .root -}}
+{{- $names := list "FOCA_CONFIG_OVERLAY" "PORT" -}}
+{{- if (index $root.Values .settings.valuesKey).gunicorn -}}
+{{- $names = append $names "GUNICORN_CMD_ARGS" -}}
+{{- end -}}
+{{- if $root.Values.mongodb.auth.enabled -}}
+{{- $names = concat $names (list "MONGO_USERNAME" "MONGO_PASSWORD") -}}
+{{- end -}}
+{{- if $root.Values.broker | default dict | dig "existingSecret" "" -}}
+{{- $names = concat $names (list "CELERY_BROKER_URL" "CELERY_RESULT_BACKEND") -}}
+{{- end -}}
+{{- if include "foca-common.pluginsEnv" $root | trim -}}
+{{- $names = append $names "FOCA_PLUGINS_STORE_KEY_SECRET" -}}
+{{- end -}}
+{{- join " " $names -}}
+{{- end -}}
+
+{{/*
+Checksum of the data of the Secrets in `<valuesKey>.rolloutOnSecrets`, for an
+annotation that rolls the pods when they change; empty if none of them is
+found. `lookup` finds nothing in `helm template` and in Argo CD, as they don't
+read from a cluster. Call with the context dict.
+*/}}
+{{- define "foca-common.rolloutChecksum" -}}
+{{- $root := .root -}}
+{{- $key := .settings.valuesKey -}}
+{{- $names := (index $root.Values $key).rolloutOnSecrets -}}
+{{- if not (or (kindIs "invalid" $names) (kindIs "slice" $names)) -}}
+{{- fail (printf "%s.rolloutOnSecrets must be a list of names of Secrets" $key) -}}
+{{- end -}}
+{{- $data := dict -}}
+{{- range $names -}}
+{{- if not (and (kindIs "string" .) .) -}}
+{{- fail (printf "%s.rolloutOnSecrets must be a list of names of Secrets" $key) -}}
+{{- end -}}
+{{- $secret := lookup "v1" "Secret" $root.Release.Namespace . -}}
+{{- if $secret -}}
+{{- $_ := set $data . $secret.data -}}
+{{- end -}}
+{{- end -}}
+{{- if $data -}}
+{{- toJson $data | sha256sum -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

@@ -1,7 +1,9 @@
 """Check and normalize URLs, e.g., of resources stored by an app.
 
 Also builds public URLs of the app (cf. :py:func:`get_public_url`), e.g., for
-`Location` headers.
+`Location` headers, and the paths of its APIs and resources, as used in access
+control policies (cf. :py:func:`get_api_base_path` and
+:py:func:`get_resource_path`).
 
 Apps decide which of their fields hold URLs, and which schemes each field
 allows (cf. :py:func:`check_url_fields`): FOCA does not know their data.
@@ -14,11 +16,13 @@ import ipaddress
 import re
 import string
 import unicodedata
-from collections.abc import Collection, Mapping
-from typing import Any, Literal, get_args
+from collections.abc import Collection, Iterable, Mapping
+from typing import Any, Literal, NamedTuple, get_args
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 import idna
+from connexion.apis.flask_utils import flaskify_endpoint
+from flask import current_app, has_request_context, request
 
 URLScheme = Literal["http", "https", "mailto"]
 """Supported URL schemes, e.g., for app configuration models."""
@@ -299,6 +303,220 @@ def get_public_url(path: str = "") -> str:
         ) from exc
     url_path = "/".join(filter(None, (segment.strip("/") for segment in segments)))
     return urlunsplit((parts.scheme, parts.netloc, f"/{url_path}", "", ""))
+
+
+class _RegisteredApi(NamedTuple):
+    """API registered with an app (cf. :py:func:`_register_api`).
+
+    Attributes:
+        base_path: Base path of the API, empty for an API at the root.
+        operation_ids: Identifiers of the operations of the API, as in its
+            specification.
+        paths: Paths of the API, relative to its base path, as in its
+            specification; only known for the permissions API.
+        is_app_api: Whether the API is one of the app's specifications
+            (`api.specs`), rather than one that FOCA adds (the permissions
+            API).
+    """
+
+    base_path: str
+    operation_ids: frozenset[str]
+    is_app_api: bool
+    paths: tuple[str, ...] = ()
+
+
+# Key of the app's extensions holding the APIs registered with it
+_APIS_EXTENSION = "foca_apis"
+# Key of the app's extensions mapping names of Flask endpoints to operations
+_OPERATIONS_EXTENSION = "foca_operations"
+
+
+def get_operation_id() -> str:
+    """Get the identifier of the operation of the current request.
+
+    Returns:
+        Identifier of the operation, as in the specification (or else the name
+        of the endpoint); empty outside of requests and for requests that don't
+        match a route.
+    """
+    if not has_request_context() or request.endpoint is None:
+        return ""
+    # Connexion prefixes the endpoints of an API with the name of its blueprint
+    name = request.endpoint.rsplit(".", 1)[-1]
+    operations = current_app.extensions.get(_OPERATIONS_EXTENSION, {})
+    return str(operations.get(name, name))
+
+
+def _register_api(
+    app: Any,
+    base_path: str,
+    operations: Iterable[dict[str, Any]],
+    *,
+    is_app_api: bool = True,
+    paths: Iterable[str] = (),
+) -> None:
+    """Remember an API of an app, for the helpers for paths.
+
+    Args:
+        app: Flask app.
+        base_path: Base path of the API.
+        operations: Operation Objects of the API.
+        is_app_api: Whether the API is one of the app's specifications.
+        paths: Paths of the API, relative to its base path.
+    """
+    operations = list(operations)
+    app.extensions.setdefault(_OPERATIONS_EXTENSION, {}).update(
+        {
+            flaskify_endpoint(operation["operationId"]): operation["operationId"]
+            for operation in operations
+            if isinstance(operation.get("operationId"), str)
+        }
+    )
+    app.extensions.setdefault(_APIS_EXTENSION, []).append(
+        _RegisteredApi(
+            base_path=base_path.rstrip("/"),
+            operation_ids=frozenset(
+                operation["operationId"]
+                for operation in operations
+                if isinstance(operation.get("operationId"), str)
+            ),
+            is_app_api=is_app_api,
+            paths=tuple(paths),
+        )
+    )
+
+
+def _get_api_base_paths(app: Any, is_app_api: bool = True) -> list[str]:
+    """Get the base paths of the APIs of an app.
+
+    Args:
+        app: Flask app.
+        is_app_api: Whether to get those of the app's specifications, or those
+            that FOCA adds (the permissions API).
+
+    Returns:
+        Base paths, in the order of registration.
+    """
+    return [api.base_path for api in _get_apis(app) if api.is_app_api is is_app_api]
+
+
+def _get_apis(app: Any) -> list[_RegisteredApi]:
+    """Get the APIs registered with an app.
+
+    Args:
+        app: Flask app.
+
+    Returns:
+        APIs, in the order of registration.
+    """
+    return app.extensions.get(_APIS_EXTENSION, [])
+
+
+def get_api_base_path(operation_id: str | None = None) -> str:
+    """Get the base path of an API of the current app.
+
+    Works during requests and on startup, when there is no request; must be
+    called in an app context. The API is the one with the operation, if
+    given (of several with the operation, the one handling the current
+    request); otherwise, the API handling the current request, or the only API
+    of the app's specifications (`api.specs`).
+
+    Args:
+        operation_id: Identifier of an operation of the API, as in its
+            specification (`operationId`). Needed if the app has several APIs
+            and there is no request handled by one of them.
+
+    Returns:
+        Base path, e.g., `/ga4gh/registry/v1`, without trailing slash; empty
+        for an API at the root, so that paths can be appended.
+
+    Raises:
+        LookupError: No API has the operation. Operations in Path Item Objects
+            in other files (`$ref`) aren't known.
+        RuntimeError: There is no operation and no request handled by an API,
+            and the app has no or several APIs, or several APIs have the
+            operation and no request is handled by one of them.
+    """
+    # Flask only here, so that the other functions work without it (e.g.,
+    # in `foca.plugins`)
+    from flask import current_app, has_request_context, request  # noqa: PLC0415
+
+    apis = _get_apis(current_app)
+    prefix = None
+    if has_request_context() and request.blueprint is not None:
+        # Connexion registers each API as a blueprint with its base path as
+        # URL prefix
+        blueprint = current_app.blueprints[request.blueprint]
+        prefix = (blueprint.url_prefix or "").rstrip("/")
+    if operation_id is not None:
+        base_paths = [
+            api.base_path for api in apis if operation_id in api.operation_ids
+        ]
+        if not base_paths:
+            raise LookupError(f"No API of the app has the operation '{operation_id}'")
+        if prefix in base_paths:
+            return str(prefix)
+        if len(set(base_paths)) > 1:
+            raise RuntimeError(
+                f"Several APIs of the app have the operation '{operation_id}', "
+                "and no request is handled by one of them"
+            )
+        return base_paths[0]
+    if prefix is not None and any(api.base_path == prefix for api in apis):
+        return prefix
+    base_paths = _get_api_base_paths(current_app)
+    if not base_paths:
+        raise RuntimeError("The app has no API to get the base path of")
+    if len(base_paths) > 1:
+        raise RuntimeError(
+            "The app has several APIs: name an operation of the API to get the "
+            "base path of"
+        )
+    return base_paths[0]
+
+
+def get_resource_path(*segments: str, operation_id: str | None = None) -> str:
+    """Get the path of a resource of an API of the current app.
+
+    The path as used in access control policies and for roles on resources,
+    i.e., as the request path of the resource: not percent-encoded. Works
+    during requests and on startup (cf. :py:func:`get_api_base_path`).
+
+    Use the path for roles on resources and to check permissions, where it
+    is matched literally. Values of policy rules are patterns (e.g., regular
+    expressions), so don't add it to policies if segments come from clients,
+    as `.*` would match other resources.
+
+    Args:
+        *segments: Path segments below the base path of the API, e.g.,
+            `"services", service_id`.
+        operation_id: Identifier of an operation of the API (cf.
+            :py:func:`get_api_base_path`).
+
+    Returns:
+        Path, e.g., `/ga4gh/registry/v1/services/abc`.
+
+    Raises:
+        LookupError: No API has the operation.
+        RuntimeError: The API cannot be determined (cf.
+            :py:func:`get_api_base_path`).
+        ValueError: No segment is given, or a segment is empty, a dot segment
+            (`.` or `..`), has a slash, is `*` or starts with `:` (wildcards of
+            policy rules), so that the path would address other resources.
+    """
+    if not segments or any(
+        not segment
+        or segment in (".", "..", "*")
+        or segment.startswith(":")
+        or "/" in segment
+        for segment in segments
+    ):
+        raise ValueError(
+            "Resource paths need at least one segment, and each segment must "
+            "be non-empty, without slashes, no dot segment and no wildcard of "
+            f"policy rules: {segments!r}"
+        )
+    return "/".join((get_api_base_path(operation_id), *segments))
 
 
 def _check_schemes(

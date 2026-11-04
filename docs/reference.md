@@ -25,6 +25,7 @@ configuration models, see [Configuration](configuration/index.md).
         - get_token_client
         - get_service_client
         - require_no_service_clients
+        - InvalidTokenResolver
 
 ## Access control
 
@@ -33,6 +34,7 @@ configuration models, see [Configuration](configuration/index.md).
       members:
         - enforce_access_control
         - is_permitted
+        - is_permitted_for
         - get_current_subject
         - get_current_groups
         - get_current_roles
@@ -263,10 +265,13 @@ configuration models, see [Configuration](configuration/index.md).
         - get_mongo_client
         - get_mongo_db_name
         - register_mongodb
+        - reopen_mongodb
 
 ::: foca.utils.db
 
 ## Utilities
+
+::: foca.context
 
 ::: foca.utils.misc
 
@@ -277,6 +282,8 @@ configuration models, see [Configuration](configuration/index.md).
         - check_url_fields
         - normalize_url
         - get_public_url
+        - get_api_base_path
+        - get_resource_path
         - InvalidURL
         - URLScheme
         - HTTP_SCHEMES
@@ -290,3 +297,10 @@ configuration models, see [Configuration](configuration/index.md).
         - log_traffic
         - log_traffic_if
         - escape_log_value
+
+## Testing
+
+::: foca.testing.issuer
+
+::: foca.testing.pytest_plugin
+::: foca.utils.pagination
