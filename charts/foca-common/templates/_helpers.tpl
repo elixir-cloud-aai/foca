@@ -163,6 +163,88 @@ older schema). Call with the context dict.
 {{- end -}}
 
 {{/*
+A value that must be a whole number of at least 1, as such; fails otherwise
+(for app charts with an older schema). Call with a dict with the `value` and
+its `key`, for the message.
+*/}}
+{{- define "foca-common.checkPositive" -}}
+{{- $integer := or (kindIs "int" .value) (kindIs "int64" .value) (and (kindIs "float64" .value) (eq .value (floor .value))) -}}
+{{- if not (and $integer (ge (int .value) 1)) -}}
+{{- fail (printf "%s must be a whole number of at least 1" .key) -}}
+{{- end -}}
+{{- int .value -}}
+{{- end -}}
+
+{{/*
+`true` if `<valuesKey>.autoscaling.enabled` is, else `false`; fails unless it
+is a boolean or not set, or `autoscaling` isn't a map (for app charts with an
+older schema). Call with the context dict.
+*/}}
+{{- define "foca-common.autoscalingEnabled" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $autoscaling := (index .root.Values $key).autoscaling -}}
+{{- if not (or (kindIs "invalid" $autoscaling) (kindIs "map" $autoscaling)) -}}
+{{- fail (printf "%s.autoscaling must be a map" $key) -}}
+{{- end -}}
+{{- $enabled := false -}}
+{{- if $autoscaling -}}
+{{- $enabled = $autoscaling.enabled -}}
+{{- end -}}
+{{- if not (or (kindIs "invalid" $enabled) (kindIs "bool" $enabled)) -}}
+{{- fail (printf "%s.autoscaling.enabled must be true or false" $key) -}}
+{{- end -}}
+{{- if $enabled -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{/*
+Number of pods that the app has at least with autoscaling:
+`<valuesKey>.autoscaling.minReplicas`, 2 if not set. Call with the context
+dict.
+*/}}
+{{- define "foca-common.minReplicas" -}}
+{{- $key := .settings.valuesKey -}}
+{{- $min := (index .root.Values $key).autoscaling.minReplicas -}}
+{{- if kindIs "invalid" $min -}}
+{{- $min = 2 -}}
+{{- end -}}
+{{- include "foca-common.checkPositive" (dict "key" (printf "%s.autoscaling.minReplicas" $key) "value" $min) -}}
+{{- end -}}
+
+{{/*
+`<valuesKey>.topologySpreadConstraints` of the app's pods, as YAML, with the
+selector of the app's pods as `labelSelector` where none is given; empty if
+there are none. Fails if it isn't a list of maps (for app charts without the
+schema). Call with the context dict.
+*/}}
+{{- define "foca-common.topologySpreadConstraints" -}}
+{{- $root := .root -}}
+{{- $key := .settings.valuesKey -}}
+{{- $constraints := (index $root.Values $key).topologySpreadConstraints -}}
+{{- if not (or (kindIs "invalid" $constraints) (kindIs "slice" $constraints)) -}}
+{{- fail (printf "%s.topologySpreadConstraints must be a list of TopologySpreadConstraint" $key) -}}
+{{- end -}}
+{{- $selector := include "foca-common.selectorLabels" (dict "root" $root "component" "app") | fromYaml -}}
+{{- $filled := list -}}
+{{- range $constraints -}}
+{{- if not (kindIs "map" .) -}}
+{{- fail (printf "%s.topologySpreadConstraints must be a list of TopologySpreadConstraint" $key) -}}
+{{- end -}}
+{{- $constraint := deepCopy . -}}
+{{- if kindIs "invalid" $constraint.labelSelector -}}
+{{- $_ := set $constraint "labelSelector" (dict "matchLabels" $selector) -}}
+{{- end -}}
+{{- $filled = append $filled $constraint -}}
+{{- end -}}
+{{- with $filled -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Whether the Celery worker is deployed ("true") or not (empty):
 `worker.enabled`, false if not set (also without a `worker` map).
 */}}

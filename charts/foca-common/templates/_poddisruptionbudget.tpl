@@ -1,6 +1,7 @@
 {{/*
 PodDisruptionBudget of the app, if `<valuesKey>.podDisruptionBudget.enabled`
-(true if not set) and the app has more than one pod (`<valuesKey>.replicas`):
+(true if not set) and the app has more than one pod (`<valuesKey>.replicas`,
+or at least with autoscaling, `minReplicas`):
 voluntary disruptions (e.g., node drains) evict at most `maxUnavailable` pods
 at once (1 if neither it nor `minAvailable` is set), or keep at least
 `minAvailable`. With one pod, no budget is rendered, as a budget cannot keep
@@ -26,7 +27,13 @@ here, too, for app charts with an older schema. Call with the context dict.
 {{- if not (kindIs "bool" $enabled) -}}
 {{- fail (printf "%s.podDisruptionBudget.enabled must be true or false" $key) -}}
 {{- end -}}
-{{- if and $enabled (gt (int (include "foca-common.replicas" .)) 1) -}}
+{{- $pods := 0 -}}
+{{- if eq (include "foca-common.autoscalingEnabled" .) "true" -}}
+{{- $pods = include "foca-common.minReplicas" . | int -}}
+{{- else -}}
+{{- $pods = include "foca-common.replicas" . | int -}}
+{{- end -}}
+{{- if and $enabled (gt $pods 1) -}}
 {{- range $name := list "minAvailable" "maxUnavailable" -}}
 {{- $bound := index $budget $name -}}
 {{- if not (kindIs "invalid" $bound) -}}

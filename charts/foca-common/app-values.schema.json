@@ -109,6 +109,59 @@
           "minimum": 1,
           "description": "Number of the app's pods"
         },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "Create a HorizontalPodAutoscaler of the app's pods, instead of the fixed number of replicas; false if null"
+            },
+            "minReplicas": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "description": "Fewest pods; 2 if null"
+            },
+            "maxReplicas": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "description": "Most pods; 4 if null"
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "description": "Average CPU usage to keep, as a percentage of the requests of the pods; 80 if null and targetMemoryUtilizationPercentage too"
+            },
+            "targetMemoryUtilizationPercentage": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "description": "Average memory usage to keep, as a percentage of the requests of the pods; not used if null"
+            }
+          },
+          "description": "Autoscaling of the app's pods on CPU and memory; needs metrics-server"
+        },
+        "topologySpreadConstraints": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "topologySpreadConstraints of the app's pods; labelSelector defaults to the selector of the pods"
+        },
         "podDisruptionBudget": {
           "type": "object",
           "additionalProperties": false,

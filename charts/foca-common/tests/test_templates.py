@@ -2665,3 +2665,168 @@ def test_extra_settings_without_schema(
     (chart / "values.schema.json").unlink()
     error = template_error(chart, "--set-json", f"petstore.{key}={json.dumps(value)}")
     assert message in error
+
+
+# Autoscaling and topology spread constraints
+
+
+AUTOSCALING = ("--set", "petstore.autoscaling.enabled=true")
+
+
+def _hpa(docs: Docs) -> dict[str, Any]:
+    hpa: dict[str, Any] = docs[("HorizontalPodAutoscaler", APP)]
+    return hpa
+
+
+def test_no_autoscaling_by_default(render: Callable[..., Docs]) -> None:
+    """Without autoscaling, nothing changes."""
+    docs = render()
+    assert ("HorizontalPodAutoscaler", APP) not in docs
+    assert docs[("Deployment", APP)]["spec"]["replicas"] == 1
+    pod = docs[("Deployment", APP)]["spec"]["template"]["spec"]
+    assert "topologySpreadConstraints" not in pod
+
+
+def test_autoscaling(render: Callable[..., Docs]) -> None:
+    """With autoscaling, the autoscaler sets the number of pods."""
+    docs = render(*AUTOSCALING, "--set", "petstore.replicas=7")
+    assert "replicas" not in docs[("Deployment", APP)]["spec"]
+    hpa = _hpa(docs)
+    assert hpa["apiVersion"] == "autoscaling/v2"
+    assert hpa["spec"]["scaleTargetRef"] == {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "name": APP,
+    }
+    assert hpa["spec"]["minReplicas"] == 2
+    assert hpa["spec"]["maxReplicas"] == 4
+    assert hpa["spec"]["metrics"] == [
+        {
+            "type": "Resource",
+            "resource": {
+                "name": "cpu",
+                "target": {"type": "Utilization", "averageUtilization": 80},
+            },
+        }
+    ]
+
+
+def test_autoscaling_memory(render: Callable[..., Docs]) -> None:
+    """Memory can be used instead of or with CPU."""
+    only = _hpa(
+        render(
+            *AUTOSCALING,
+            "--set-json",
+            "petstore.autoscaling.targetCPUUtilizationPercentage=null",
+            "--set",
+            "petstore.autoscaling.targetMemoryUtilizationPercentage=70",
+        )
+    )
+    assert [m["resource"]["name"] for m in only["spec"]["metrics"]] == ["memory"]
+    both = _hpa(
+        render(
+            *AUTOSCALING,
+            "--set",
+            "petstore.autoscaling.targetMemoryUtilizationPercentage=70",
+        )
+    )
+    assert [m["resource"]["name"] for m in both["spec"]["metrics"]] == [
+        "cpu",
+        "memory",
+    ]
+
+
+def test_autoscaling_no_target_means_cpu(render: Callable[..., Docs]) -> None:
+    """Without a target, CPU at 80% is used, as in `helm create`."""
+    hpa = _hpa(
+        render(
+            *AUTOSCALING,
+            "--set-json",
+            "petstore.autoscaling.targetCPUUtilizationPercentage=null",
+        )
+    )
+    metric = hpa["spec"]["metrics"][0]["resource"]
+    assert metric["name"] == "cpu"
+    assert metric["target"]["averageUtilization"] == 80
+
+
+@pytest.mark.parametrize(("minimum", "budget"), [(2, True), (1, False)])
+def test_autoscaling_budget(
+    render: Callable[..., Docs], minimum: int, budget: bool
+) -> None:
+    """The fewest pods decide whether a budget is rendered."""
+    docs = render(*AUTOSCALING, "--set", f"petstore.autoscaling.minReplicas={minimum}")
+    assert (("PodDisruptionBudget", APP) in docs) is budget
+
+
+def test_autoscaling_max_below_min(render_error: Callable[..., str]) -> None:
+    """More pods at least than at most are refused."""
+    error = render_error(*AUTOSCALING, "--set", "petstore.autoscaling.maxReplicas=1")
+    assert "maxReplicas must not be less than minReplicas" in error
+
+
+@pytest.mark.parametrize(
+    ("values", "error"),
+    [
+        ('{"autoscaling": 1}', "autoscaling must be a map"),
+        ('{"autoscaling": {"enabled": "yes"}}', "enabled must be true or false"),
+        (
+            '{"autoscaling": {"enabled": true, "minReplicas": 0}}',
+            "minReplicas must be a whole number",
+        ),
+        (
+            '{"autoscaling": {"enabled": true, "maxReplicas": 1.5}}',
+            "maxReplicas must be a whole number",
+        ),
+        (
+            '{"autoscaling": {"enabled": true, "targetCPUUtilizationPercentage": "a"}}',
+            "targetCPUUtilizationPercentage must be a whole number",
+        ),
+        ('{"topologySpreadConstraints": {}}', "must be a list"),
+        ('{"topologySpreadConstraints": ["a"]}', "must be a list"),
+    ],
+)
+def test_autoscaling_invalid_without_schema(
+    chart: Path, tmp_path: Path, values: str, error: str
+) -> None:
+    """Invalid values are refused, also for app charts without the schema."""
+    chart_copy = _chart_without_schema(chart, tmp_path)
+    assert error in template_error(chart_copy, "--set-json", f"petstore={values}")
+
+
+def test_autoscaling_without_values(chart: Path, tmp_path: Path) -> None:
+    """Older app charts without the values are unchanged."""
+    chart_copy = _chart_without_schema(chart, tmp_path)
+    docs = index(
+        template(
+            chart_copy,
+            "--set-json",
+            "petstore.autoscaling=null",
+            "--set-json",
+            "petstore.topologySpreadConstraints=null",
+        )
+    )
+    assert docs[("Deployment", APP)]["spec"]["replicas"] == 1
+    assert ("HorizontalPodAutoscaler", APP) not in docs
+
+
+def test_topology_spread_selector(render: Callable[..., Docs]) -> None:
+    """The selector of the app's pods is filled in; given ones are kept."""
+    constraint = {
+        "maxSkew": 1,
+        "topologyKey": "zone",
+        "whenUnsatisfiable": "ScheduleAnyway",
+    }
+    given = {**constraint, "labelSelector": {"matchLabels": {"a": "b"}}}
+    docs = render(
+        "--set-json",
+        f"petstore.topologySpreadConstraints={json.dumps([constraint, given])}",
+    )
+    template_spec = docs[("Deployment", APP)]["spec"]["template"]
+    filled, kept = template_spec["spec"]["topologySpreadConstraints"]
+    assert filled == {
+        **constraint,
+        "labelSelector": {"matchLabels": template_spec["metadata"]["labels"]},
+    }
+    assert kept == given
+    assert ("Deployment", f"{APP}-worker") not in docs

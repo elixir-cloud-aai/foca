@@ -120,7 +120,8 @@ and the settings (`settings`), one per file:
 | --- | --- |
 | `foca-common.configMap` | `ConfigMap` with the config overlay; also checks the values, so every app chart must include it |
 | `foca-common.deployment` | the app's `Deployment` |
-| `foca-common.podDisruptionBudget` | the app's `PodDisruptionBudget`, if `<valuesKey>.replicas` is more than 1, unless `<valuesKey>.podDisruptionBudget.enabled` is false (new in 0.3.0: app charts moving to it add a template file for it; see [Several replicas](#several-replicas)) |
+| `foca-common.hpa` | the app's `HorizontalPodAutoscaler`, if `<valuesKey>.autoscaling.enabled` |
+| `foca-common.podDisruptionBudget` | the app's `PodDisruptionBudget`, if `<valuesKey>.replicas` (with autoscaling, `minReplicas`) is more than 1, unless `<valuesKey>.podDisruptionBudget.enabled` is false (new in 0.3.0: app charts moving to it add a template file for it; see [Several replicas](#several-replicas)) |
 | `foca-common.service` | the app's `Service` (port 8080) |
 | `foca-common.ingress` | `Ingress`, if `<valuesKey>.ingress.enabled` |
 | `foca-common.httpRoute` | Gateway API `HTTPRoute`, if `<valuesKey>.httpRoute.enabled` |
@@ -167,7 +168,7 @@ your app's `valuesKey`:
 | `hostName` | Public host name of the Ingress, HTTPRoute or Route |
 | `config` | Config overlay, merged by FOCA into the base config in the image |
 | `pluginStore` | Secrets of the plugin store of gateway apps: `existingSecret` (its key secret; none if empty). The library chart doesn't read top-level `plugins` values, which stay the app chart's own |
-| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `startupProbe`, `readinessProbe`, `livenessProbe`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn`, `extraEnv`, `extraEnvFrom`, `rolloutOnSecrets` |
+| `<valuesKey>` | The app's container: `image` and `tag` (by default the chart's `appVersion`), `imagePullPolicy`, `replicas` (1 if not set), `autoscaling`, `topologySpreadConstraints`, `podDisruptionBudget` (`enabled`, true if not set, and `minAvailable` or `maxUnavailable`), `probePath`, `startupProbe`, `readinessProbe`, `livenessProbe`, `ingress`, `httpRoute`, `route`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit`, `preStopSleepSeconds`, `gunicorn`, `extraEnv`, `extraEnvFrom`, `rolloutOnSecrets` |
 | `mongodb` | MongoDB: `enabled`, `image`, `imagePullPolicy`, `auth`, `networkPolicy`, `persistence` (`volumeSize`, its size up to 0.1.0, is a deprecated alias of `persistence.size`), `podSecurityContext`, `securityContext`, `resources`, `tmpSizeLimit` |
 | `worker` | Optional Celery worker: `enabled` (false if not set), `command`, `replicas`, `readinessProbe`, `livenessProbe` (none by default), `terminationGracePeriodSeconds`, `resources`, `tmpSizeLimit` |
 | `broker` | Optional broker: `enabled` (the bundled RabbitMQ; false if not set), `existingSecret`, `image`, `imagePullPolicy`, `networkPolicy`, `podSecurityContext`, `securityContext`, `resources`, `persistence`, `dataSizeLimit`, `tmpSizeLimit` |
@@ -891,7 +892,48 @@ later), so that they don't block drains.
 Kubernetes' scheduler spreads the pods of a Deployment across nodes and
 zones where it can (as a preference, not a rule), so check that they run
 on different nodes (`kubectl get pods -o wide`), as a node failure
-otherwise takes down all of them.
+otherwise takes down all of them. For rules of your own, set
+`<valuesKey>.topologySpreadConstraints`; a `labelSelector` is filled in with the
+selector of the app's pods where none is given:
+
+```yaml
+petstore:
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+```
+
+With `<valuesKey>.autoscaling.enabled`, a `HorizontalPodAutoscaler` sets the
+number of the app's pods instead of `replicas`, which isn't rendered:
+
+```yaml
+petstore:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+  resources:
+    requests:
+      cpu: 200m
+```
+
+It scales on CPU and memory only, by default on CPU at 80%; to scale on memory
+only, set `targetCPUUtilizationPercentage: null`. This needs
+[metrics-server](https://github.com/kubernetes-sigs/metrics-server) in the
+cluster and `resources.requests` of what is measured, as the percentages refer to
+these. A `PodDisruptionBudget` is rendered if `minReplicas` is more than 1. If an
+autoscaler takes over from `replicas` on an upgrade, Helm removes the field, so
+the number of pods can drop to one until the autoscaler acts. All the caveats
+below apply, and more so, as autoscaling adds pods at any time: each new pod
+runs the startup work of the app.
+
+App charts written for versions before foca-common 0.5.0 copy
+`app-values.schema.json` again and add a template file with `foca-common.hpa`
+for autoscaling (see the petstore example); without them, `autoscaling` has no
+effect or the schema refuses it, and nothing changes otherwise.
 
 App charts written for versions before foca-common 0.3.0 copy
 `app-values.schema.json` again (see [Values](#values)), add `replicas` and
