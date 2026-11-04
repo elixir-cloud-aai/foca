@@ -1092,8 +1092,9 @@ resource. So keep write access to a separate, trusted role, or set
 
 `is_admin()` is then always `False`, so that the helpers treat admins as anyone else:
 `resource_filter()` limits them to resources they have roles on, and they can't
-manage resources without owners. This goes for all models with the roles `g` and
-`g2` whose matcher doesn't have the override `g(r.sub, "admin")`.
+manage resources without owners. This goes for all models with global and
+resource-scoped roles whose matcher doesn't start with `g(r.sub, "admin") ||`, also
+if it has other rules for admins (e.g., only read access).
 
 For example, an app whose users only see their own tasks:
 

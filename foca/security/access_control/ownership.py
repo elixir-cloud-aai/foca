@@ -32,6 +32,7 @@ from contextlib import suppress
 from functools import lru_cache
 from typing import Any, NamedTuple
 
+from casbin.model import Model
 from flask import current_app
 from werkzeug.exceptions import Conflict, NotFound, Unauthorized
 
@@ -68,11 +69,8 @@ from foca.utils.logging import escape_log_value
 
 logger = logging.getLogger(__name__)
 
-_GLOBAL_ROLE_DEFINITION = re.compile(r"^\s*g\s*=\s*_\s*,\s*_\s*$", re.M)
-_RESOURCE_ROLE_DEFINITION = re.compile(r"^\s*g2\s*=\s*_\s*,\s*_\s*,\s*_\s*$", re.M)
-_ADMIN_OVERRIDE = re.compile(
-    rf"""^\s*m\s*=.*\bg\(\s*r\.sub\s*,\s*["']{ADMIN_ROLE}["']\s*\)""", re.M
-)
+# Override of admins in a parsed matcher, where Casbin writes `r_sub` for `r.sub`
+_ADMIN_OVERRIDE = re.compile(rf"""g\(r_\w+,\s*"{ADMIN_ROLE}"\)\s*\|\|""")
 
 # Types of subjects roles are granted to, in the order they are listed
 SUBJECT_TYPES: tuple[SubjectType, ...] = ("user", "group", "client")
@@ -205,23 +203,27 @@ def _get_listing_subjects(
 
 
 @lru_cache
-def _admins_have_all_rights(model: str) -> bool:
+def _admins_have_all_rights(model_path: str | None) -> bool:
     """Check whether a model lets admins do everything, as far as FOCA can tell.
 
     Args:
-        model: Path to the Casbin model file.
+        model_path: Path to the Casbin model file, if the app has one.
 
     Returns:
-        `False` for models with global and resource-scoped roles (`g` and `g2`)
-        whose matcher doesn't have the override of the reference model,
-        `g(r.sub, "admin")`; `True` otherwise, including for other kinds of models.
+        `False` for models with global and resource-scoped roles whose matcher
+        doesn't start with the override of the reference model,
+        `g(r.sub, "admin") ||`; `True` otherwise, including for other kinds of
+        models.
     """
-    with open(model, encoding="utf-8") as model_file:
-        text = model_file.read()
-    return (
-        _GLOBAL_ROLE_DEFINITION.search(text) is None
-        or _RESOURCE_ROLE_DEFINITION.search(text) is None
-        or _ADMIN_OVERRIDE.search(text) is not None
+    if model_path is None:
+        return True
+    model = Model()
+    model.load_model(model_path)
+    role_fields = {
+        assertion.value.count("_") for assertion in model.model.get("g", {}).values()
+    }
+    return not {2, 3} <= role_fields or bool(
+        _ADMIN_OVERRIDE.match(model.model["m"]["m"].value)
     )
 
 
@@ -238,12 +240,13 @@ def is_admin() -> bool:
         from its service client (`access_control.client_mapping`), or
         granted via global role rules (e.g., `g, user:alice, admin`),
         also transitively. `False` if the request has neither a user nor a
-        service client, and with models for resource-scoped roles without the
-        override of admins (e.g., `granted_rights_model.conf`), where they only
-        have the rights granted to them.
+        service client, and with models for resource-scoped roles whose matcher
+        doesn't start with the override of admins (e.g.,
+        `granted_rights_model.conf`), where they only have the rights granted to
+        them.
     """
     if not _get_current_subjects() or not _admins_have_all_rights(
-        current_app.config["CASBIN_MODEL"]
+        current_app.config.get("CASBIN_MODEL")
     ):
         return False
     subjects = _get_current_policy_subjects()

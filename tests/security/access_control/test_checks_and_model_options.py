@@ -207,6 +207,45 @@ class TestGrantedRightsModel:
         """The override is taken from the model."""
         assert ownership._admins_have_all_rights(model) is expected
 
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [
+            ("g = _, _\n", "g = _, _ # global\n"),
+            ("m = ", 'm = (g(r.sub, "admin") && r.act == "GET") || '),
+            ("m = ", 'm = !g(r.sub, "admin") && '),
+        ],
+    )
+    def test_edited_copies(self, tmp_path: Path, old: str, new: str) -> None:
+        """Edited copies without the plain override fail closed."""
+        path = tmp_path / "copy.conf"
+        text = Path(GRANTED_MODEL).read_text()
+        assert old in text
+        path.write_text(text.replace(old, new, 1))
+        assert ownership._admins_have_all_rights(str(path)) is False
+
+    def test_override_on_next_line(self, tmp_path: Path) -> None:
+        """The override is found in matchers over several lines."""
+        path = tmp_path / "copy.conf"
+        path.write_text(
+            Path(RESOURCE_MODEL).read_text().replace("m = g(", "m = \\\n  g(")
+        )
+        assert ownership._admins_have_all_rights(str(path)) is True
+
+    def test_other_name_of_request_field(self, tmp_path: Path) -> None:
+        """The override is found whatever the request field is called."""
+        path = tmp_path / "copy.conf"
+        path.write_text(
+            Path(RESOURCE_MODEL)
+            .read_text()
+            .replace("r.sub", "r.user")
+            .replace("r = sub,", "r = user,")
+        )
+        assert ownership._admins_have_all_rights(str(path)) is True
+
+    def test_no_model(self) -> None:
+        """Without a model, as without access control, nothing is limited."""
+        assert ownership._admins_have_all_rights(None) is True
+
     def test_copy_of_model(self, tmp_path: Path) -> None:
         """A copy of the model fails closed, too."""
         path = tmp_path / "copy.conf"
