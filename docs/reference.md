@@ -295,3 +295,5 @@ configuration models, see [Configuration](configuration/index.md).
         - log_traffic
         - log_traffic_if
         - escape_log_value
+
+::: foca.utils.pagination
