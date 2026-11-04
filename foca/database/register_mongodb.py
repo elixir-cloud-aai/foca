@@ -2,13 +2,13 @@
 
 import logging
 import os
-import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import quote_plus, urlsplit, urlunsplit
+from urllib.parse import quote_plus, urlsplit
 
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
+from pymongo.uri_parser import split_options
 
 from foca.models.config import DBConfig, MongoConfig
 
@@ -176,11 +176,19 @@ def _get_client_options(
         configured options, in order of precedence and with lowercase names,
         without those in the connection string.
     """
-    # As PyMongo parses it: `#` isn't special, and `;` also separates options
+    # As PyMongo parses it (e.g., `#` isn't special, `;` separates options);
+    # names only, as `MongoClient` validates the values
     query = uri.partition("?")[2]
-    in_uri = {
-        option.partition("=")[0].lower() for option in re.split("[&;]", query) if option
-    }
+    in_uri = (
+        {
+            name.lower()
+            for name in split_options(
+                query, validate=False, warn=False, normalize=False
+            )
+        }
+        if query
+        else set()
+    )
     overridden = sorted(name for name in options if name.lower() in in_uri)
     if overridden:
         # Only the names, as values may be sensitive
@@ -312,6 +320,7 @@ def _redact_uri(uri: str) -> str:
     Returns:
         MongoDB connection string without credentials and options.
     """
-    parts = urlsplit(uri)
-    netloc = parts.netloc.rsplit("@", 1)[-1]
-    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+    # As PyMongo splits it: for `urlsplit()`, a `#` in a password would start
+    # a fragment
+    scheme, _, rest = uri.partition("://")
+    return f"{scheme}://{rest.partition('?')[0].rpartition('@')[2]}"

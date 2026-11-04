@@ -13,6 +13,7 @@ from pymongo.errors import ConfigurationError, PyMongoError
 
 from foca.database import register_mongodb as module
 from foca.database.register_mongodb import (
+    _redact_uri,
     create_mongo_client,
     get_mongo_client,
     get_mongo_db_name,
@@ -480,9 +481,8 @@ class TestClientOptions:
         "query",
         [
             "maxPoolSize=2;connectTimeoutMS=1;appname=uri",
-            "maxPoolSize=2&connectTimeoutMS=1;appname=uri",
             "appname=a#b&connectTimeoutMS=1&maxPoolSize=2",
-            "&maxPoolSize=2&&connectTimeoutMS=1&appname=uri&",
+            "maxPoolSize=2 connectTimeoutMS=1 appname=uri",
         ],
     )
     def test_uri_parsed_as_in_pymongo(
@@ -599,3 +599,18 @@ class TestClientOptions:
         get_mongo_client(conf)
         reopen_mongodb(conf)
         assert options[1] == {**options[0], "connect": False}
+
+
+@pytest.mark.parametrize(
+    ("uri", "expected"),
+    [
+        ("mongodb://h:1/db", "mongodb://h:1/db"),
+        ("mongodb://u:p@h:1/db", "mongodb://h:1/db"),
+        ("mongodb://u:p#q@h:1,i:2/db", "mongodb://h:1,i:2/db"),
+        ("mongodb+srv://u:p@h/db?a=b", "mongodb+srv://h/db"),
+        ("mongodb://h/db?tlsCertificateKeyFilePassword=p@q", "mongodb://h/db"),
+    ],
+)
+def test_redact_uri(uri: str, expected: str) -> None:
+    """Credentials and options are removed, also with `#` in a password."""
+    assert _redact_uri(uri) == expected

@@ -72,7 +72,7 @@ FOCA sets these defaults:
 | --- | --- | --- |
 | `serverSelectionTimeoutMS` | `5000` | If MongoDB can't be reached, requests and the startup of the app fail after this time; PyMongo's default is 30 seconds. |
 | `connectTimeoutMS` | `5000` | Time allowed to open a connection; PyMongo's default is 20 seconds. |
-| `appname` | `service_info.service.id`, else `service_info.package`, else `foca` (the latter if longer than the 128 bytes that PyMongo allows) | Name of the app in MongoDB's logs. |
+| `appname` | `service_info.service.id`, else `service_info.package`, else `foca` (the latter if longer than the 128 bytes that PyMongo allows, and for clients of apps without a `db` section) | Name of the app in MongoDB's logs. |
 
 Options in the connection string of `MONGO_URI` win over `client_options`, and
 FOCA logs a warning naming them. Note that this differs from PyMongo itself, where
