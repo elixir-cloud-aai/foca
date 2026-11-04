@@ -6,14 +6,18 @@ import ipaddress
 import logging
 import threading
 import time
+from collections.abc import Callable
+from functools import wraps
 from typing import Any
 from urllib.parse import urlsplit
 
 import jwt
 import requests
 from connexion.exceptions import Unauthorized
+from connexion.operations import AbstractOperation
+from connexion.resolver import Resolution, Resolver
 from cryptography.hazmat.primitives import serialization
-from flask import Flask
+from flask import Flask, g, has_request_context, request
 from jwt.types import Options
 from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.http import quote_header_value
@@ -24,6 +28,7 @@ from foca.models.config import (
     AuthConfig,
     ServiceClientConfig,
 )
+from foca.security.resolvers import _normalize_resolver
 from foca.utils.http import _redact
 from foca.utils.logging import escape_log_value
 
@@ -51,6 +56,13 @@ CLIENT_CLAIMS = ("client_id", "azp")
 # deliberately generic, so that clients learn nothing about the identity
 # provider or why validation failed
 _INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"  # noqa: S105 (not a password)
+
+# Attribute of `flask.g` with the rejection of the token of the request
+_TOKEN_ERROR_ATTRIBUTE = "foca_token_error"  # noqa: S105 (attribute name)
+# Attribute of `flask.g` set if the token of the request was found valid
+_TOKEN_VALID_ATTRIBUTE = "foca_token_valid"  # noqa: S105 (attribute name)
+# Name of `validate_token()` in security schemes (`x-bearerInfoFunc`)
+_VALIDATE_TOKEN_FUNCTION = "foca.security.auth.validate_token"  # noqa: S105 (name)
 
 # OpenID Connect discovery documents and JWK sets, with time of retrieval,
 # by issuer and JWK set URL, respectively
@@ -158,7 +170,16 @@ def validate_token(token: str) -> dict[str, Any]:
     if not conf._warnings_logged:
         log_auth_config_warnings(conf)
         conf._warnings_logged = True
-    claims = _validate(token=token, conf=conf)
+    try:
+        claims = _validate(token=token, conf=conf)
+    except Unauthorized as exc:
+        # Kept, so that it needn't be validated again (cf.
+        # `_reject_invalid_token()`)
+        if has_request_context():
+            setattr(g, _TOKEN_ERROR_ATTRIBUTE, exc)
+        raise
+    if has_request_context():
+        setattr(g, _TOKEN_VALID_ATTRIBUTE, True)
     # Logs the issuer and subject only, not the token (a false positive of
     # semgrep's registry rules, `p/python`)
     # nosemgrep: python-logger-credential-disclosure
@@ -176,6 +197,137 @@ def validate_token(token: str) -> dict[str, Any]:
         "scope": claims.get("scope", ""),
         "service_client": None if service_client is None else service_client.client_id,
     }
+
+
+def _get_bearer_token() -> str | None:
+    """Get the bearer token sent with the current request.
+
+    Returns:
+        The token in the `Authorization` header if its scheme is `Bearer`
+        (in any case, cf. RFC 6750; empty if it has none), or `None`. Split
+        at any whitespace, as Connexion does.
+    """
+    parts = request.headers.get("Authorization", "").split(None, 1)
+    if not parts or parts[0].lower() != "bearer":
+        return None
+    return parts[1].strip() if len(parts) > 1 else ""
+
+
+def _reject_invalid_token(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Decorator rejecting invalid tokens on optional authentication.
+
+    Connexion handles requests whose token it can't validate as anonymous on
+    such operations. Here, those with a token that is invalid are rejected
+    (`401`, with an `invalid_token` challenge), as on operations requiring
+    tokens. The rejection of Connexion's validation is used, if any (cf.
+    :py:func:`validate_token`); tokens are validated only if Connexion didn't
+    (e.g., if the empty security requirement comes first, or another scheme
+    of the operation accepted the request). The decorator only
+    rejects: requests that Connexion left anonymous stay anonymous, also with
+    a valid token. If the token can't be validated for other reasons (e.g.,
+    the identity provider is unavailable), the request stays anonymous, so
+    that public operations keep working, and this is logged.
+
+    Args:
+        fn: Controller.
+
+    Returns:
+        The decorated controller.
+    """
+
+    @wraps(fn)
+    def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        token = _get_bearer_token()
+        # Not Connexion's `token_info`, which another security scheme may have
+        # set for the same request
+        if token is not None and not g.get(_TOKEN_VALID_ATTRIBUTE):
+            try:
+                error = g.pop(_TOKEN_ERROR_ATTRIBUTE, None)
+                if error is not None:
+                    raise error
+                validate_token(token)
+            except Unauthorized as exc:
+                challenges = exc.www_authenticate or []
+                if any(
+                    challenge.parameters.get("error") == "invalid_token"
+                    for challenge in challenges
+                ):
+                    raise
+                # Logs why the token was rejected, not the token (a false positive
+                # of semgrep's registry rules, `p/python`)
+                # nosemgrep: python-logger-credential-disclosure
+                logger.info(
+                    "Token not validated, request handled as anonymous: %s",
+                    escape_log_value(str(exc.description)),
+                )
+        return fn(*args, **kwargs)
+
+    return _wrapper
+
+
+def _validates_optional_token(operation: AbstractOperation) -> bool:
+    """Check whether an operation takes optional tokens validated by FOCA.
+
+    Args:
+        operation: Connexion operation.
+
+    Returns:
+        Whether its effective security requirements have an empty alternative
+        (allowing anonymous requests) and one with a scheme validated by
+        :py:func:`validate_token`. Tokens of operations with other schemes,
+        e.g., API keys or other validation functions, are not FOCA's to
+        judge.
+    """
+    security = operation.security or []
+    schemes = operation.security_schemes or {}
+    return not all(security) and any(
+        schemes.get(name, {}).get("x-bearerInfoFunc") == _VALIDATE_TOKEN_FUNCTION
+        for alternative in security
+        for name in alternative
+    )
+
+
+class InvalidTokenResolver(Resolver):
+    """Connexion resolver rejecting invalid tokens on optional authentication.
+
+    Used for all API specifications if `security.auth.reject_invalid_tokens`
+    is set: resolved functions of operations with optional authentication
+    by FOCA's token validation (security requirements with an empty
+    alternative and a scheme naming :py:func:`validate_token`, e.g.,
+    `[{bearerAuth: []}, {}]`) are wrapped, so that invalid tokens are
+    rejected. Other operations are not changed.
+
+    Args:
+        resolver: Resolver to resolve functions with (any object with a
+            `resolve()` method), or a function resolving operation
+            identifiers to functions, as accepted by Connexion. Defaults to
+            Connexion's default resolver.
+
+    Attributes:
+        resolver: Resolver to resolve functions with.
+    """
+
+    def __init__(self, resolver: Resolver | Callable[..., Any] | None = None):
+        """Construct resolver."""
+        super().__init__()
+        self.resolver = _normalize_resolver(resolver)
+
+    def resolve(self, operation: AbstractOperation) -> Resolution:
+        """Resolve operation and wrap function of optional authentication.
+
+        Args:
+            operation: Connexion operation to resolve.
+
+        Returns:
+            Resolution of the operation.
+        """
+        resolution = self.resolver.resolve(operation)
+        if not _validates_optional_token(operation):
+            return resolution
+        return Resolution(
+            function=_reject_invalid_token(resolution.function),
+            operation_id=resolution.operation_id,
+        )
 
 
 def get_token_client(claims: dict[str, Any]) -> str | None:
@@ -688,7 +840,8 @@ def _get_userinfo(
 
     With `validate_userinfo`, user info is fetched for every validation, so
     that revoked tokens are detected. Otherwise, it is cached per token for
-    `cache_ttl` seconds, but not beyond the token's expiry.
+    `userinfo_cache_ttl` seconds (by default, `cache_ttl`), but not beyond the
+    token's expiry.
 
     Args:
         token: JSON Web Token (JWT), already verified locally.
@@ -704,12 +857,17 @@ def _get_userinfo(
             be fetched or is not about the subject of the token.
     """
     key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    ttl = conf.get_userinfo_cache_ttl()
     if not conf.validate_userinfo:
         with _userinfo_cache_lock:
             cached = _userinfo_cache.get(key)
         now = time.monotonic()
-        if cached is not None and now < cached[1] and now - cached[0] < conf.cache_ttl:
+        if cached is not None and now < cached[1] and now - cached[0] < ttl:
             return cached[2]
+    # The age of the entry counts from before the request, and a slow response
+    # doesn't replace or take precedence over what a later request found (e.g.,
+    # after a revocation)
+    started = time.monotonic()
     userinfo = _fetch_json(
         url=url,
         conf=conf,
@@ -723,17 +881,21 @@ def _get_userinfo(
     ):
         raise _unauthorized("User info does not match JWT subject")
     try:
-        lifetime = min(conf.cache_ttl, float(claims["exp"]) - time.time())
+        lifetime = min(ttl, float(claims["exp"]) - time.time())
     except (TypeError, ValueError):
         lifetime = 0
     with _userinfo_cache_lock:
+        cached = _userinfo_cache.get(key)
+        if cached is not None and cached[0] > started:
+            return userinfo if conf.validate_userinfo else cached[2]
         _userinfo_cache.pop(key, None)
-        if not conf.validate_userinfo and lifetime > 0:
-            now = time.monotonic()
+        now = time.monotonic()
+        # Not if it expired during the request: it would evict a live entry
+        if not conf.validate_userinfo and started + lifetime > now:
             for cached_key, entry in list(_userinfo_cache.items()):
                 if entry[1] <= now:
                     del _userinfo_cache[cached_key]
             while len(_userinfo_cache) >= USERINFO_CACHE_SIZE:
                 del _userinfo_cache[next(iter(_userinfo_cache))]
-            _userinfo_cache[key] = (now, now + lifetime, userinfo)
+            _userinfo_cache[key] = (started, started + lifetime, userinfo)
     return userinfo

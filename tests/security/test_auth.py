@@ -1,5 +1,6 @@
 """Tests for authentication module."""
 
+import hashlib
 import logging
 import time
 from collections.abc import Iterator
@@ -795,6 +796,112 @@ class TestUserinfoClaims:
         validate(app, token)
         validate(app, token)
         assert urls(idp).count(USERINFO_URI) == 2
+
+    def test_userinfo_cache_ttl_inherited(self) -> None:
+        """By default, user info is cached for `cache_ttl` seconds."""
+        conf = AuthConfig(cache_ttl=42)
+        assert conf.userinfo_cache_ttl is None
+        assert conf.get_userinfo_cache_ttl() == 42
+
+    def test_userinfo_cache_ttl_inherited_applies(self, idp: MagicMock) -> None:
+        """Validation uses `cache_ttl` for user info by default."""
+        app = make_app(userinfo_claims=["eduperson_entitlement"], cache_ttl=0)
+        token = make_token()
+        validate(app, token)
+        validate(app, token)
+        assert urls(idp).count(USERINFO_URI) == 2
+
+    def test_userinfo_slow_response_keeps_newer_entry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A slow response doesn't replace what a later request found."""
+        token = "token"  # noqa: S105
+        key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        slow = {"sub": "alice", "groups": ["admins"]}
+        newer = {"sub": "alice", "groups": []}
+
+        def fetch(**_: Any) -> dict[str, Any]:
+            """Respond after a later request has stored its result."""
+            now = time.monotonic()
+            auth._userinfo_cache[key] = (now + 1, now + 60, newer)
+            return slow
+
+        monkeypatch.setattr(auth, "_fetch_json", fetch)
+        claims = {"sub": "alice", "exp": time.time() + 60}
+        result = auth._get_userinfo(token, claims, "https://url", AuthConfig())
+        assert result == newer
+        assert auth._userinfo_cache[key][2] == newer
+
+    def test_userinfo_expired_during_request_not_cached(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A response slower than the TTL doesn't evict live entries."""
+        key = hashlib.sha256(b"token").hexdigest()
+        now = time.monotonic()
+        live = {
+            str(number): (now, now + 60, {"sub": "other"})
+            for number in range(auth.USERINFO_CACHE_SIZE)
+        }
+        monkeypatch.setattr(auth, "_userinfo_cache", live)
+        times = iter([now, now])
+        monkeypatch.setattr(auth.time, "monotonic", lambda: next(times, now + 2))
+        monkeypatch.setattr(auth, "_fetch_json", lambda **_: {"sub": "alice"})
+        result = auth._get_userinfo(
+            "token",
+            {"sub": "alice", "exp": time.time() + 60},
+            "https://url",
+            AuthConfig(userinfo_cache_ttl=1),
+        )
+        assert result == {"sub": "alice"}
+        assert key not in live
+        assert len(live) == auth.USERINFO_CACHE_SIZE
+
+    def test_userinfo_age_counts_from_request(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The age of cached user info counts from before the request."""
+        token = "token"  # noqa: S105
+        key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        started = time.monotonic()
+
+        def fetch(**_: Any) -> dict[str, Any]:
+            """Respond after a delay."""
+            times["fetched"] = time.monotonic()
+            return {"sub": "alice"}
+
+        times: dict[str, float] = {}
+        monkeypatch.setattr(auth, "_fetch_json", fetch)
+        claims = {"sub": "alice", "exp": time.time() + 60}
+        auth._get_userinfo(token, claims, "https://url", AuthConfig())
+        assert started <= auth._userinfo_cache[key][0] <= times["fetched"]
+
+    def test_userinfo_cache_ttl_shorter(self, idp: MagicMock) -> None:
+        """User info can expire sooner than discovery documents and keys."""
+        app = make_app(userinfo_claims=["eduperson_entitlement"], userinfo_cache_ttl=0)
+        token = make_token()
+        validate(app, token)
+        validate(app, token)
+        assert urls(idp).count(USERINFO_URI) == 2
+        assert urls(idp).count(DISCOVERY_URI) == 1
+        assert urls(idp).count(JWKS_URI) == 1
+
+    def test_userinfo_cache_ttl_longer(self, idp: MagicMock) -> None:
+        """User info can be cached longer than discovery documents and keys."""
+        app = make_app(
+            userinfo_claims=["eduperson_entitlement"],
+            cache_ttl=0,
+            userinfo_cache_ttl=60,
+        )
+        token = make_token()
+        validate(app, token)
+        validate(app, token)
+        assert urls(idp).count(USERINFO_URI) == 1
+        assert urls(idp).count(JWKS_URI) == 2
+
+    def test_userinfo_cache_ttl_negative(self) -> None:
+        """Negative times are invalid."""
+        with pytest.raises(ValidationError):
+            AuthConfig(userinfo_cache_ttl=-1)
 
     def test_not_cached_beyond_expiry(self, idp: MagicMock) -> None:
         """User info is not cached beyond the token's expiry."""
