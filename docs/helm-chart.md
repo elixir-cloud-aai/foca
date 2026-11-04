@@ -251,11 +251,13 @@ setup below:
   they reach the app; its configuration depends on the proxy, so the chart
   sets none (see the examples below; keep it at or above the app's limit).
 - **Rate limiting:** configured at the proxy only, if at all.
-- **Request IDs:** the app ignores the `X-Request-ID` of requests and generates
-  its own, also behind a proxy. To take the proxy's, set
+- **Request IDs:** the app generates its own identifiers rather than using the
+  `X-Request-ID` of requests, also behind a proxy. To take the proxy's, set
   `config.server.request_id.trust_incoming`, but only if the proxy sets or checks
-  the header (see [request IDs](configuration/server.md#request-ids)); the chart
-  doesn't configure that for any proxy.
+  the header and clients can't reach the app past it, e.g., with
+  `<valuesKey>.networkPolicy` (see [request
+  IDs](configuration/server.md#request-ids)); the chart doesn't configure that for
+  any proxy.
 - **NetworkPolicy peers:** `<valuesKey>.networkPolicy.ingressFrom` must
   match the pods of the proxy that forwards requests to the app; NetworkPolicy
   peers select pods by labels and namespaces, or IP ranges (`ipBlock`).

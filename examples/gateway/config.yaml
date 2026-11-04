@@ -6,7 +6,9 @@ server:
     # Bytes; refuse larger requests before they are parsed
     max_content_length: 65536
     # Set explicitly, as `tests/integration_gateway_tests.py` checks it; the
-    # service `app-no-trust` of `docker-compose.yaml` turns it off
+    # service `app-no-trust` of `docker-compose.yaml` turns it off. For that test
+    # only: don't copy this without a proxy that sets or checks the header, as
+    # clients could otherwise choose the identifiers in logs and audit events
     request_id:
         trust_incoming: True
 

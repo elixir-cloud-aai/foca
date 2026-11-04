@@ -640,8 +640,8 @@ class ProvenanceStore:
         Never raises: errors of the collection are logged. Idempotent: the
         record's `_id` is `run-` and the run's random identifier (cf.
         `PipelineRun.run_id`), never the request identifier, which clients
-        may choose and which is kept as the field `request_id`; storing again
-        replaces it.
+        can choose with `server.request_id.trust_incoming` and which is kept
+        as the field `request_id`; storing again replaces it.
 
         Args:
             run: Pipeline run.

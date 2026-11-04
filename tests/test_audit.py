@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from copy import deepcopy
 from inspect import unwrap
 from pathlib import Path
@@ -293,14 +294,15 @@ class TestLog:
         assert _events(caplog)[0]["request_id"] == "req-2"
 
     @pytest.mark.parametrize(
-        ("kwargs", "taken"), [({}, False), ({"trust_incoming": True}, True)]
+        ("kwargs", "expected"),
+        [({}, "[0-9a-f]{32}"), ({"trust_incoming": True}, "chosen")],
     )
     def test_request_id_of_client(
         self,
         app: Flask,
         caplog: pytest.LogCaptureFixture,
         kwargs: dict[str, Any],
-        taken: bool,
+        expected: str,
     ) -> None:
         """Clients choose the identifier in events only if it's trusted."""
 
@@ -314,7 +316,7 @@ class TestLog:
             app.wsgi_app, **kwargs
         )
         app.test_client().get("/", headers={"X-Request-ID": "chosen"})
-        assert (_events(caplog)[0]["request_id"] == "chosen") is taken
+        assert re.fullmatch(expected, _events(caplog)[0]["request_id"])
 
     def test_reserved_fields(
         self, app: Flask, caplog: pytest.LogCaptureFixture

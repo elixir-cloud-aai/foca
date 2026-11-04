@@ -637,7 +637,9 @@ after `OutcomeUnknown` without raising, with `run.final_reason` set to
 builds the plain request model (`inbound_from_request()`), the caller
 (`current_principal()`), the request ID (`request_id()`: the [identifier of
 the request](configuration/server.md#request-ids), or a new one), and problem responses
-for gateway errors (`problem()`).
+for gateway errors (`problem()`). A client's `X-Request-ID` stays in the headers of the
+inbound request whatever `trust_incoming` says, so plugins should use the request ID of
+their context rather than that header.
 
 The caller (`Principal`) is identified as by access control and its
 ownership helpers:
@@ -769,7 +771,7 @@ except GatewayError as error:
   default) for the retention you need. Failure records hold the same data
   as other records, plus the time and the error type; their `_id` is
   `run-` and the run's random ID (not the request ID, which clients can
-  reuse with [`trust_incoming`](configuration/server.md#request-ids); it
+  choose with [`trust_incoming`](configuration/server.md#request-ids); it
   is kept as the field `request_id`), so storing a
   record of the same run again replaces it. Records written by FOCA 0.19
   are keyed by request ID and keep their keys until they expire.
