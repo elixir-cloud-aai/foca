@@ -39,8 +39,9 @@ every `refresh_interval` seconds; it keeps the last good list while the
 registry is unreachable or answers invalidly (retrying after
 `RETRY_INTERVAL` seconds at most), for `max_stale` seconds at most, and,
 for one more read, backends whose hosts cannot be resolved for the time
-being. Before the first good read, and after `max_stale`, a registry yields
-no candidates.
+being. Verifications that can be read apply in any case: backends that they
+no longer list, with the same URL and API type, are not kept. Before the
+first good read, and after `max_stale`, a registry yields no candidates.
 
 Plain pydantic models and the guarded HTTP client; no web framework.
 """
