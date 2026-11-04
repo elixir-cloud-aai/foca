@@ -6,6 +6,7 @@
 !MANIFEST.in
 !NOTICE
 !README.md
+!docker/requirements/
 !foca/
 !pyproject.toml
 
