@@ -68,6 +68,8 @@ configuration models, see [Configuration](configuration/index.md).
         - ResourceRole
         - SubjectResourceRole
 
+::: foca.security.access_control.me
+
 ::: foca.security.access_control.ownership_server
     options:
       members:

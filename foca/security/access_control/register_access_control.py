@@ -13,6 +13,7 @@ from connexion import App
 from connexion.resolver import Resolver
 from flask import Flask
 from pymongo.errors import PyMongoError
+from werkzeug.exceptions import HTTPException
 
 from foca.api.register_openapi import (
     _connexion_add_api_kwargs,
@@ -47,12 +48,14 @@ from foca.security.access_control.constants import (
     CONFIGURED_POLICIES_CHECK_TIMEOUT,
     DEFAULT_API_SPEC_PATH,
     GROUP_PREFIX,
+    ME_API_SPEC_PATH,
 )
 from foca.security.access_control.enforcement import AccessControlResolver
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule,
 )
+from foca.security.access_control.me import import_me_hook
 from foca.security.access_control.ownership_server import _check_routes_enforced
 from foca.security.auth import InvalidTokenResolver
 from foca.utils.logging import escape_log_value
@@ -191,6 +194,9 @@ def register_access_control(
         app=cnx_app, access_control_config=access_control_config
     )
     _check_routes_enforced(cnx_app.app)
+    cnx_app = register_me_endpoint(
+        app=cnx_app, access_control_config=access_control_config
+    )
 
     cnx_app = register_casbin_enforcer(
         app=cnx_app,
@@ -664,6 +670,95 @@ def register_permission_specs(
     )
     logger.info("Permission management API registered from '%s'.", spec_path)
     return app
+
+
+def register_me_endpoint(app: App, access_control_config: AccessControlConfig) -> App:
+    """Register the endpoint telling callers who they are, if configured.
+
+    Any caller with a valid token may call it, as policies aren't enforced on it.
+
+    Args:
+        app: Connexion application instance.
+        access_control_config:
+            :py:class:`foca.models.config.AccessControlConfig` instance
+            with the options of the endpoint (`me_enabled`, `me_path`, `me_hook`).
+
+    Returns:
+        Connexion app, with the endpoint if it is enabled.
+
+    Raises:
+        ValueError: The function of `me_hook` can't be used, the path is taken,
+            or an API has the base path `/`, which the endpoint needs.
+    """
+    # Also for routes of the app to the controller
+    if access_control_config.me_hook is not None:
+        import_me_hook(access_control_config.me_hook)
+    path = access_control_config.me_path
+    if not access_control_config.me_enabled:
+        if "me_path" in access_control_config.model_fields_set:
+            logger.warning(
+                "'security.access_control.me_path' has no effect, as "
+                "'security.access_control.me_enabled' is false."
+            )
+        return app
+    # Connexion names blueprints after the base paths of APIs
+    if any(api.base_path == "" for api in _get_apis(app.app)):
+        raise ValueError(
+            "'security.access_control.me_enabled' can't be used with an API at the "
+            "base path '/'. Declare the endpoint in that API instead (cf. "
+            "`foca.security.access_control.me.getMe`)."
+        )
+    _check_me_path(app.app, path)
+    spec_file = Path(str(files(ACCESS_CONTROL_BASE_PATH).joinpath(ME_API_SPEC_PATH)))
+    specification = _with_error_media_type(
+        spec_path=spec_file, media_type=_get_error_media_type(app)
+    )
+    specification["paths"] = {path: specification["paths"]["/me"]}
+    resolver: Resolver | None = None
+    if _rejects_invalid_tokens(app):
+        resolver = InvalidTokenResolver()
+    options = ConnexionOptions(
+        strict_validation=True,
+        validate_responses=True,
+        swagger_ui=False,
+        serve_spec=False,
+        resolver=resolver,
+    )
+    # Not remembered as an API (cf. `_register_api()`): the helpers for paths stay
+    # with those of the app, also in hooks, and rules aren't checked against it, as
+    # they don't apply to it
+    app.add_api(specification=specification, **_connexion_add_api_kwargs(options))
+    logger.info("Endpoint for the current caller registered at '%s'.", path)
+    return app
+
+
+def _check_me_path(app: Flask, path: str) -> None:
+    """Check the path of `GET /me` against the routes of the app.
+
+    Args:
+        app: Flask app, with the app's APIs registered.
+        path: Path of the endpoint.
+
+    Raises:
+        ValueError: It is the path of a `GET` route of the app.
+    """
+    if any(
+        rule.rule == path and "GET" in (rule.methods or ())
+        for rule in app.url_map.iter_rules()
+    ):
+        raise ValueError(
+            f"'security.access_control.me_path' is taken by another route: '{path}'"
+        )
+    try:
+        rule, _ = app.url_map.bind("").match(path, method="GET", return_rule=True)
+    except HTTPException:
+        return
+    logger.warning(
+        "'security.access_control.me_path' ('%s') takes precedence over the route "
+        "'%s' for that path.",
+        path,
+        rule.rule,
+    )
 
 
 def _check_api_base_path(app: Flask, api_base_path: str) -> None:
