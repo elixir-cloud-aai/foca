@@ -82,7 +82,7 @@ class Registry:
             if self.verifications is not None:
                 return self.verifications
             return [
-                {"service_id": s["id"], "url": s["url"], "type": s["type"]}
+                {"serviceId": s["id"], "url": s["url"], "type": s["type"]}
                 for s in self.services
                 if isinstance(s, dict)
             ]
@@ -298,7 +298,7 @@ def test_verified_version(registry: Registry) -> None:
     registry.services = [service("s1", "https://tes-a.example.org")]
     registry.verifications = [
         {
-            "service_id": "s1",
+            "serviceId": "s1",
             "url": "https://tes-a.example.org",
             "type": {**TES, "version": "1.0.0"},
         }
@@ -407,12 +407,12 @@ def test_filters(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
         service(7, "https://n.example.org", environment="prod"),  # type: ignore[arg-type]
     ]
     registry.verifications = [
-        {"service_id": s["id"], "url": s["url"], "type": s["type"]}
+        {"serviceId": s["id"], "url": s["url"], "type": s["type"]}
         for s in registry.services[1:]
         if s["id"] != "unverified" and isinstance(s["id"], str)
     ]
     for verification in registry.verifications:
-        if verification["service_id"] == "changed":
+        if verification["serviceId"] == "changed":
             verification["url"] = "https://other.example.org"
     entry = RegistryEntry(
         type="ga4gh-service-registry",
@@ -465,7 +465,7 @@ def test_malformed_verifications(
     assert len(cache.urls()) == 2
     # s2 is revoked, and the registry lists a malformed item
     registry.verifications = [
-        {"service_id": "s1", "url": "https://tes-a.example.org", "type": TES},
+        {"serviceId": "s1", "url": "https://tes-a.example.org", "type": TES},
         {"id": 1},
         "x",
     ]
@@ -473,6 +473,54 @@ def test_malformed_verifications(
     with caplog.at_level(logging.WARNING):
         assert cache.urls() == ["https://tes-a.example.org"]
     assert "Skipped 2 verifications" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        {"serviceId": "s1"},  # Cloud Registry 1.0.0rc2 and later
+        {"service_id": "s1"},  # before
+        {"serviceId": "s1", "service_id": "other"},
+    ],
+)
+def test_verification_identifiers(
+    registry: Registry, identifier: dict[str, str]
+) -> None:
+    """Verifications name their service by `serviceId` or `service_id`."""
+    tes = service("s1", "https://tes-a.example.org")
+    registry.services = [tes]
+    registry.verifications = [
+        {
+            **identifier,
+            "url": tes["url"],
+            "type": tes["type"],
+            "verifiedAt": "2026-10-20T12:34:56.789Z",
+        }
+    ]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    assert backends.get_cache(entry, "tes").urls() == ["https://tes-a.example.org"]
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        {"serviceId": 1},
+        {"serviceId": None, "service_id": "s1"},
+        {"serviceId": 1, "service_id": "s1"},
+        {"service_id": 1},
+    ],
+)
+def test_invalid_verification_identifiers(
+    registry: Registry, identifier: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    """`service_id` doesn't stand in for an invalid `serviceId`."""
+    tes = service("s1", "https://tes-a.example.org")
+    registry.services = [tes]
+    registry.verifications = [{**identifier, "url": tes["url"], "type": tes["type"]}]
+    entry = RegistryEntry(type="ga4gh-service-registry", url=REGISTRY)
+    with caplog.at_level(logging.WARNING):
+        assert backends.get_cache(entry, "tes").urls() == []
+    assert "Skipped 1 verifications" in caplog.text
 
 
 def test_max_stale(registry: Registry, caplog: pytest.LogCaptureFixture) -> None:
@@ -535,7 +583,12 @@ class RegistryHandler(BaseHTTPRequestHandler):
         tes = service("s1", "https://tes.example.org/ga4gh/tes/v1")
         if self.path.endswith("/verifications"):
             document: Any = [
-                {"service_id": "s1", "url": tes["url"], "type": tes["type"]}
+                {
+                    "serviceId": "s1",
+                    "url": tes["url"],
+                    "type": tes["type"],
+                    "verifiedAt": "2026-10-20T12:34:56.789Z",
+                }
             ]
         else:
             document = [tes]
