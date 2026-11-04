@@ -28,6 +28,13 @@ LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 # isolated environments, so remove them for the same contents on all versions
 RUN pip uninstall --yes --no-cache-dir setuptools wheel
 
+# The pinned base images have a vulnerable apt (CVE-2026-109518; fixed by 3.0.4
+# in `trixie-security`), which images built on this one use too; can go once all
+# of them have the fix
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends --only-upgrade apt libapt-pkg7.0 && \
+    rm -rf /var/lib/apt/lists/*
+
 # Build image: installs FOCA with pip from `docker/requirements/build.txt`, as
 # images of Python 3.11 and 3.12 ship an old pip (24.0 and 25.0.1) with known
 # vulnerabilities (fixed by 26.2: CVE-2025-8869, CVE-2026-1703, CVE-2026-3219,

@@ -130,7 +130,9 @@ requests, and passes without the secrets. In all forks, Codecov upload errors
 don't fail CI. If a scan fails:
 
 1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
-   in `pyproject.toml` or update the base image (Dependabot's PRs do both).
+   in `pyproject.toml` or update the base image (Dependabot's PRs do both). If
+   no base image has the fix of a system package yet, upgrade that package in
+   the stage `base` of `docker/Dockerfile`, until they do.
    The image has no pip, so scans don't report packages vendored by pip;
    CI fails if pip is back (`scripts/check-no-pip.sh`).
 2. Otherwise (e.g., no fixed version yet, or a vulnerability that does not
