@@ -157,9 +157,9 @@ or restored are logged, too.
 | `permission.create` | `ptype`, `rule` |
 | `permission.update` | `ptype`, `rule`, `previous` (its `ptype` and `rule`) |
 | `permission.delete` | `ptype`, `rule`, unless the rule was stored only just before |
-| `resource_role.grant` | `subject`, `subject_type`, `role`, `ptype`; for `grant_role()`, also `replacing` (roles it replaces, if the subject has them) and `already_granted` |
+| `resource_role.grant` | `subject`, `subject_type`, `role`, `ptype`; for `grant_role()`, also `replacing` (the roles it replaces, as the subject held them just before) and `already_granted` |
 | `resource_role.revoke` | `subject`, `subject_type`, `role`, `ptype` |
-| `resource_role.revoke_all` | `rules` (with their prefixed subjects), `ptype`, `swept` (whether rules that grant no role were removed, e.g., invalid ones or stored copies of configured ones, or rules stored meanwhile) |
+| `resource_role.revoke_all` | `rules` (with their prefixed subjects), `ptype`, `swept` (whether rules that grant no role were removed, e.g., invalid ones or stored copies of configured ones, or rules stored meanwhile), `part` and `parts` (the rules come in events of up to 50), `incomplete` (whether removing failed, so the rest may remain), `uncertain` (the rule being removed when that happened, which may be gone) |
 
 Each event also has:
 

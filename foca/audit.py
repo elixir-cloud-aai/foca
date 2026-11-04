@@ -21,7 +21,7 @@ _failure_logger = logging.getLogger("foca.audit_failures")
 
 
 def _try(get: Callable[[], str | None]) -> str | None:
-    """Get a part of the actor; logging an event must not fail.
+    """Get a part of an event; logging an event must not fail.
 
     Args:
         get: Function getting the part.
@@ -34,7 +34,8 @@ def _try(get: Callable[[], str | None]) -> str | None:
     try:
         return get()
     except Exception:
-        logger.debug("Part of the actor not available", exc_info=True)
+        with suppress(Exception):
+            logger.debug("Part of the audit event not available", exc_info=True)
         return None
 
 
@@ -114,10 +115,10 @@ def log(action: str, target: object, /, **fields: Any) -> None:
     values can't forge fields or log lines. Values that JSON doesn't have are
     replaced with their text.
 
-    This never fails, as what it logs has happened: not if the actor can't be
-    determined, and not if a handler or filter raises, which is logged to the logger
-    `foca.audit_failures`. Handlers of Python's `logging` don't raise, but report
-    failures themselves (cf. `logging.raiseExceptions`).
+    This never fails, as what it logs has happened: not if the actor or request
+    can't be determined, and not if a handler or filter raises, which is logged to
+    the logger `foca.audit_failures`. Handlers of Python's `logging` don't raise, but
+    report failures themselves (cf. `logging.raiseExceptions`).
 
     Args:
         action: What was done, e.g., `permission.create`.
@@ -133,7 +134,7 @@ def log(action: str, target: object, /, **fields: Any) -> None:
         "action": action,
         "target": _to_json_value(target),
         "actor": _get_actor(),
-        "request_id": request_id() or None,
+        "request_id": _try(request_id) or None,
     }
     event.update(
         {

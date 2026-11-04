@@ -20,6 +20,7 @@ from werkzeug.exceptions import BadRequest, Conflict, NotFound
 from foca import audit, context
 from foca.config.access import set_app_config
 from foca.models.config import AccessControlConfig, Config, LogConfig, MongoConfig
+from foca.security.access_control import ownership
 from foca.security.access_control.access_control_server import (
     deletePermission,
     postPermission,
@@ -32,7 +33,6 @@ from foca.security.access_control.enforcement import (
     remove_resource_role,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
-from foca.security.access_control import ownership
 from foca.security.access_control.ownership import (
     LastOwner,
     add_owner,
@@ -217,7 +217,34 @@ class TestLog:
         with as_caller(app, claims, headers={HEADER: "bob"}):
             audit.log("thing.create", "/things/1")
         assert _events(caplog)[0]["actor"]["on_behalf_of"] is None
+        assert "bob" not in caplog.text
         assert "rejected" not in caplog.text
+
+    def test_failing_debug_log(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Failures of logging why a lookup failed don't fail the logging."""
+        with (
+            as_caller(app, ALICE),
+            mock.patch.object(audit.logger, "debug", side_effect=RuntimeError),
+            mock.patch(
+                "foca.security.access_control.enforcement.get_current_subject",
+                side_effect=ValueError,
+            ),
+        ):
+            audit.log("thing.create", "/things/1")
+        assert _events(caplog)[0]["actor"]["subject"] is None
+
+    def test_failing_request_id(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Failures of getting the request ID don't fail the logging."""
+        with (
+            as_caller(app, ALICE),
+            mock.patch("foca.audit.request_id", side_effect=RuntimeError),
+        ):
+            audit.log("thing.create", "/things/1")
+        assert _events(caplog)[0]["request_id"] is None
 
     def test_on_behalf_of_invalid(
         self, app: Flask, caplog: pytest.LogCaptureFixture
@@ -299,7 +326,7 @@ class TestLog:
         [
             'x\nforged action="other"',
             "x\r\nforged",
-            "x forged",
+            "x\u2028forged",
             "x\x1b[31mforged",
             "x\ud800forged",
             'x" role="admin',
@@ -615,6 +642,9 @@ class TestResourceRoles:
             adapter = app.config["casbin_adapter"]
             adapter.set_configured_policies([["g2", "user:bob", "owner", TASK]])
             assert remove_resource_role("bob", "owner", TASK) is False
+            assert adapter.get_filtered_rules("g2", 2, TASK, configured=True) == [
+                ["user:bob", "owner", TASK]
+            ]
         assert _events(caplog) == []
 
     def test_remove_resource(
@@ -637,6 +667,27 @@ class TestResourceRoles:
             ["user:bob", "owner", TASK],
         ]
         assert events[0]["swept"] is False
+        assert (events[0]["part"], events[0]["parts"]) == (1, 1)
+        assert events[0]["incomplete"] is False
+        assert events[0]["uncertain"] is None
+
+    def test_remove_resource_batches(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Many rules are logged in several events."""
+        with (
+            as_caller(app, ALICE),
+            mock.patch(
+                "foca.security.access_control.enforcement._MAX_RULES_PER_AUDIT_EVENT", 2
+            ),
+        ):
+            for user in ("a", "b", "c"):
+                add_resource_role(user, "owner", TASK)
+            caplog.clear()
+            assert remove_resource(TASK) is True
+        events = _events(caplog)
+        assert [(event["part"], event["parts"]) for event in events] == [(1, 2), (2, 2)]
+        assert [len(event["rules"]) for event in events] == [2, 1]
 
     def test_remove_resource_swept(
         self, app: Flask, caplog: pytest.LogCaptureFixture
@@ -670,6 +721,7 @@ class TestResourceRoles:
         assert len(events) == 1
         assert events[0]["rules"] == []
         assert events[0]["swept"] is True
+        assert adapter._collection.count_documents({"ptype": "g2"}) == 0
 
     def test_remove_resource_failure(
         self, app: Flask, caplog: pytest.LogCaptureFixture
@@ -701,7 +753,62 @@ class TestResourceRoles:
                 remove_resource(TASK)
         events = _events(caplog)
         assert len(events) == 1
+        remaining = adapter.get_filtered_rules("g2", 2, TASK, configured=False)
+        assert len(remaining) == 1
         assert len(events[0]["rules"]) == 1
+        assert events[0]["rules"][0] not in remaining
+        assert events[0]["incomplete"] is True
+        assert events[0]["uncertain"] == remaining[0]
+
+    def test_remove_resource_failed_write_may_have_removed(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failing write is logged, as it may have removed its rule."""
+        adapter = app.config["casbin_adapter"]
+        with as_caller(app, ALICE):
+            add_resource_role("bob", "owner", TASK)
+            caplog.clear()
+            with (
+                mock.patch.object(adapter, "remove_policy", side_effect=PyMongoError),
+                pytest.raises(PyMongoError),
+            ):
+                remove_resource(TASK)
+        events = _events(caplog)
+        assert events[0]["rules"] == []
+        assert events[0]["uncertain"] == ["user:bob", "owner", TASK]
+        assert events[0]["incomplete"] is True
+
+    def test_remove_resource_failed_sweep(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failing removal of the rest is logged, as it may have removed some."""
+        adapter = app.config["casbin_adapter"]
+        with (
+            as_caller(app, ALICE),
+            mock.patch.object(
+                adapter, "remove_filtered_policy", side_effect=PyMongoError
+            ),
+            pytest.raises(PyMongoError),
+        ):
+            remove_resource(TASK)
+        events = _events(caplog)
+        assert events[0]["rules"] == []
+        assert events[0]["uncertain"] is None
+        assert events[0]["incomplete"] is True
+
+    def test_remove_resource_failed_read(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Nothing is logged if nothing can have been removed."""
+        adapter = app.config["casbin_adapter"]
+        with as_caller(app, ALICE):
+            calls = iter([[], PyMongoError()])
+            with (
+                mock.patch.object(adapter, "get_filtered_rules", side_effect=calls),
+                pytest.raises(PyMongoError),
+            ):
+                remove_resource(TASK)
+        assert _events(caplog) == []
 
     def test_replace_keeps_configured(
         self, app: Flask, caplog: pytest.LogCaptureFixture
@@ -709,13 +816,18 @@ class TestResourceRoles:
         """Configured roles, which are kept, aren't listed as replaced."""
         with as_caller(app, ALICE):
             adapter = app.config["casbin_adapter"]
+            add_resource_role("bob", "x", TASK)
             adapter.set_configured_policies([["g2", "user:bob", "owner", TASK]])
+            caplog.clear()
             _replace_resource_role("bob", "viewer", TASK, ["owner", "viewer", "x"])
         assert _events(caplog)[0]["replacing"] == ["x"]
 
     def test_replace(self, app: Flask, caplog: pytest.LogCaptureFixture) -> None:
         """Replacing roles is logged, also if the role was there."""
         with as_caller(app, ALICE):
+            add_resource_role("bob", "x", TASK)
+            add_resource_role("carol", "y", TASK)
+            caplog.clear()
             assert _replace_resource_role("bob", "owner", TASK, ["owner", "x"]) is True
             assert _replace_resource_role("bob", "owner", TASK, ["owner", "x"]) is False
         events = _events(caplog)
@@ -727,6 +839,8 @@ class TestResourceRoles:
         assert events[0]["replacing"] == ["x"]
         assert events[0]["already_granted"] is False
         assert events[1]["already_granted"] is True
+        # Not held any more
+        assert events[1]["replacing"] == []
 
     def test_ownership(self, app: Flask, caplog: pytest.LogCaptureFixture) -> None:
         """Operations on owners are logged via the helpers."""
