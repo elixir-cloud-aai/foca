@@ -47,8 +47,8 @@ def _get_integer(value: int | str, name: str, minimum: int) -> int:
         Value as an integer.
 
     Raises:
-        werkzeug.exceptions.BadRequest: The value is not an integer of at
-            least `minimum` and fitting into 8 bytes. The message doesn't quote
+        werkzeug.exceptions.BadRequest: The value is not an integer from
+            `minimum` to the largest one of 8 bytes. The message doesn't quote
             the value.
     """
     if isinstance(value, str) and (
@@ -60,7 +60,7 @@ def _get_integer(value: int | str, name: str, minimum: int) -> int:
         or isinstance(value, bool)
         or not minimum <= value <= _MAX_VALUE
     ):
-        raise BadRequest(f"'{name}' must be an integer of at least {minimum}.")
+        raise BadRequest(f"'{name}' must be an integer from {minimum} to {_MAX_VALUE}.")
     return value
 
 
@@ -85,8 +85,8 @@ def get_page(
         The page.
 
     Raises:
-        werkzeug.exceptions.BadRequest: `offset` is not an integer of at
-            least 0, or `limit` is not one of at least 1.
+        werkzeug.exceptions.BadRequest: `offset` is not an integer from 0, or
+            `limit` from 1, to the largest one of 8 bytes.
         ValueError: `default_limit` or `max_limit` is less than 1.
     """
     if default_limit < 1 or max_limit < 1:
@@ -141,8 +141,9 @@ def get_page_links(page: Page, total: int | None = None) -> dict[str, str]:
         previous = max(page.offset - page.limit, 0)
         # Not an empty page, if the current one starts past the end
         links["prev"] = link(previous if last is None else min(previous, last))
-    if total is None or page.offset + page.limit < total:
-        links["next"] = link(page.offset + page.limit)
+    following = page.offset + page.limit
+    if following <= _MAX_VALUE and (total is None or following < total):
+        links["next"] = link(following)
     if last is not None:
         links["last"] = link(last)
     return links

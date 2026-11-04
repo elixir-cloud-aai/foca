@@ -82,7 +82,7 @@ class TestGetPage:
             get_page(**kwargs)  # type: ignore[arg-type]
         name, value = next(iter(kwargs.items()))
         description = str(exc_info.value.description)
-        assert description.startswith(f"'{name}' must be an integer of at least")
+        assert description.startswith(f"'{name}' must be an integer from")
         if isinstance(value, str) and value not in ("", "0", "1"):
             assert value not in description
 
@@ -151,6 +151,12 @@ class TestGetPageLinks:
         with app.test_request_context("/pets"):
             links = get_page_links(Page(0, 10))
         assert set(links) == {"first", "next"}
+
+    def test_no_next_beyond_largest_offset(self, app: Flask) -> None:
+        """Links only have offsets that are accepted."""
+        with app.test_request_context("/pets"):
+            links = get_page_links(Page(2**63 - 1, 10))
+        assert "next" not in links
 
     def test_query_kept(self, app: Flask) -> None:
         """Other query parameters are kept, encoded, and the old page isn't."""
