@@ -208,6 +208,12 @@ class Foca:
         # plugins are instantiated (`setup()`) once more there
         if self.gateway is not None:
             host = runtime.create_host()
+            if host.gateway_id is None:
+                logger.warning(
+                    "Routing loops are not detected, as this gateway has no name "
+                    "for 'Via' headers: set 'server.public_url' or "
+                    "'plugins.gateway_id'."
+                )
             try:
                 # the plugins' store: its indexes (writes to the store
                 # create them too, so the app may start without them) and

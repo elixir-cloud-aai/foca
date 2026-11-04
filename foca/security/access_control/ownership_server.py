@@ -15,9 +15,11 @@ The resource is taken from the route of the request: its path up to the last
 path parameter before the subject's (e.g., `/tasks/1` for
 `/tasks/1/permissions/users/alice`), or up to the last path parameter for
 :py:func:`getResourceRoles`. Path parameters may have any names; the subject
-is the last one. Resources without owners are not found. Who may call the
-endpoints is decided by the app's policies, which must be enforced on them, as
-the controllers do not check the caller themselves: apps routing operations
+is the last one. Resources without owners are not found, unless the caller is
+an admin and an existence check finds them, so that admins can assign the
+first owner of resources stored before an app adopted ownership. Who may call
+the endpoints is decided by the app's policies, which must be enforced on
+them, as the controllers do not check the caller themselves: apps routing operations
 that do not enforce policies to the controllers do not start, and requests on
 which policies were not enforced (e.g., via wrappers of the controllers, or
 routes added later) are refused. Requests and responses are logged unless
@@ -175,21 +177,44 @@ def _get_subject() -> str:
     return str(route.values[route.variables[-1][0]])
 
 
-def _get_owned_resource(with_subject: bool) -> str:
-    """Get the resource of the current request, which must have owners.
+def _is_manageable(resource: str, exists: Callable[[], bool] | None) -> bool:
+    """Check whether the caller may manage the roles of a resource.
+
+    Args:
+        resource: Path of the resource.
+        exists: Function checking whether the resource exists, if any; only
+            called for admins, on resources without owners.
+
+    Returns:
+        Whether the resource has owners (whose role applies) or, if not, the
+        caller is an admin and `exists` finds the resource.
+    """
+    return bool(_get_owners(resource, RESOURCE_ROLE_PTYPE)) or (
+        exists is not None and is_admin() and exists()
+    )
+
+
+def _get_owned_resource(
+    with_subject: bool, exists: Callable[[], bool] | None = None
+) -> str:
+    """Get the resource of the current request, which must be manageable.
 
     Args:
         with_subject: Whether the last path parameter is the subject.
+        exists: Function checking whether the resource exists, for admins
+            managing resources without owners. Not called for others.
 
     Returns:
         Path of the resource (cf. :py:func:`_get_resource`).
 
     Raises:
         werkzeug.exceptions.NotFound: The resource has no owners (whose
-            role applies), i.e., it does not exist (anymore).
+            role applies), and either the caller is not an admin, or there is
+            no function checking whether the resource exists, or it found
+            that the resource doesn't exist.
     """
     resource = _get_resource(with_subject)
-    if not _get_owners(resource, RESOURCE_ROLE_PTYPE):
+    if not _is_manageable(resource, exists):
         raise NotFound
     return resource
 
@@ -236,19 +261,20 @@ def _put_role(
             `access_control.resource_roles`, or the role cannot be granted to
             the subject (cf.
             :py:func:`foca.security.access_control.grant_role`).
-        werkzeug.exceptions.NotFound: The resource has no owners, or `exists`
+        werkzeug.exceptions.NotFound: The resource has no owners (unless the
+            caller is an admin and `exists` returned `True`), or `exists`
             returned `False` after the role was granted.
         foca.security.access_control.LastOwner: The subject is the last
             owner of the resource, and the role is not `owner`.
     """
     role = _get_role(body)
-    resource = _get_owned_resource(with_subject=True)
+    resource = _get_owned_resource(with_subject=True, exists=exists)
     try:
         grant_role(resource, subject, role, subject_type=subject_type, exists=exists)
     # Messages may name configuration options, so they are only logged
     except ValueError as exc:
         # The resource may have been deleted since it was checked
-        if not _get_owners(resource, RESOURCE_ROLE_PTYPE):
+        if not _is_manageable(resource, exists):
             raise NotFound from exc
         logger.info(
             "Role '%s' on '%s' not granted to %s: %s",
@@ -291,10 +317,15 @@ def _delete_roles(
 
 @log_traffic_if(_permissions_traffic_logged)
 @_require_enforcement
-def getResourceRoles(**kwargs: Any) -> list[dict[str, str]]:
+def getResourceRoles(
+    exists: Callable[[], bool] | None = None, **kwargs: Any
+) -> list[dict[str, str]]:
     """List the roles granted on the resource of the route.
 
     Args:
+        exists: Function checking whether the resource exists, so that admins
+            can list the roles of a resource without owners (cf.
+            :py:func:`putUserRole`).
         **kwargs: Path parameters and further arguments that Connexion
             passes (e.g., `user`, `token_info`); unused, as the resource is
             taken from the route.
@@ -304,9 +335,10 @@ def getResourceRoles(**kwargs: Any) -> list[dict[str, str]]:
         (cf. :py:func:`foca.security.access_control.list_roles`).
 
     Raises:
-        werkzeug.exceptions.NotFound: The resource has no owners.
+        werkzeug.exceptions.NotFound: The resource has no owners, unless the
+            caller is an admin and `exists` returned `True`.
     """
-    resource = _get_owned_resource(with_subject=False)
+    resource = _get_owned_resource(with_subject=False, exists=exists)
     return [
         granted._asdict() for granted in list_roles(resource, ptype=RESOURCE_ROLE_PTYPE)
     ]
@@ -328,7 +360,8 @@ def putUserRole(
     Args:
         body: Request body, with the role to grant (`{"role": "owner"}`).
         exists: Function checking whether the resource exists, so that a
-            role granted while the resource is deleted is revoked again;
+            role granted while the resource is deleted is revoked again, and
+            admins can assign the first owner of a resource without owners;
             passed by apps that route to a wrapper of the controller. Not
             checked if `None`.
         **kwargs: Path parameters and further arguments that Connexion

@@ -1,12 +1,15 @@
 """Unit tests for Celery app factory module."""
 
+from unittest.mock import MagicMock
+
 import pytest
 from celery import Celery
+from celery.signals import worker_init, worker_process_init
 
 from foca.factories import celery_app as module
 from foca.factories.celery_app import create_celery_app
 from foca.factories.connexion_app import create_connexion_app
-from foca.models.config import Config, JobsConfig
+from foca.models.config import Config, JobsConfig, MongoConfig
 
 CONFIG = Config()
 CONFIG.jobs = JobsConfig()
@@ -62,3 +65,43 @@ def test_create_celery_app_without_jobs(logged: list[str]) -> None:
     cnx_app = create_connexion_app(Config())
     with pytest.raises(ValueError):
         create_celery_app(cnx_app.app)
+
+
+def test_worker_signals_reopen_mongodb(
+    logged: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Workers replace the client before forks, and processes after them."""
+    reopen = MagicMock()
+    monkeypatch.setattr(module, "reopen_mongodb", reopen)
+    config = Config(jobs=JobsConfig(), db=MongoConfig())
+    create_celery_app(create_connexion_app(config).app)
+    for signal in (worker_init, worker_process_init):
+        reopen.reset_mock()
+        signal.send(sender=None)
+        reopen.assert_any_call(config.db)
+
+
+def test_no_database_no_signals(
+    logged: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Workers of apps without a database have no client to replace."""
+    connected = MagicMock()
+    monkeypatch.setattr(worker_init, "connect", connected)
+    monkeypatch.setattr(worker_process_init, "connect", connected)
+    create_celery_app(create_connexion_app(CONFIG).app)
+    connected.assert_not_called()
+
+
+def test_worker_signals_reopen_once_per_config(
+    logged: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Creating the Celery app of a configuration again adds no handler."""
+    reopen = MagicMock()
+    monkeypatch.setattr(module, "reopen_mongodb", reopen)
+    config = Config(jobs=JobsConfig(), db=MongoConfig())
+    app = create_connexion_app(config).app
+    create_celery_app(app)
+    create_celery_app(app)
+    worker_process_init.send(sender=None)
+    calls = [call for call in reopen.call_args_list if call.args[0] is config.db]
+    assert len(calls) == 1
