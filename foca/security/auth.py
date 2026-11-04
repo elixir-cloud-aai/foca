@@ -831,7 +831,8 @@ def _get_userinfo(
 
     With `validate_userinfo`, user info is fetched for every validation, so
     that revoked tokens are detected. Otherwise, it is cached per token for
-    `cache_ttl` seconds, but not beyond the token's expiry.
+    `userinfo_cache_ttl` seconds (by default, `cache_ttl`), but not beyond the
+    token's expiry.
 
     Args:
         token: JSON Web Token (JWT), already verified locally.
@@ -847,12 +848,17 @@ def _get_userinfo(
             be fetched or is not about the subject of the token.
     """
     key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    ttl = conf.get_userinfo_cache_ttl()
     if not conf.validate_userinfo:
         with _userinfo_cache_lock:
             cached = _userinfo_cache.get(key)
         now = time.monotonic()
-        if cached is not None and now < cached[1] and now - cached[0] < conf.cache_ttl:
+        if cached is not None and now < cached[1] and now - cached[0] < ttl:
             return cached[2]
+    # The age of the entry counts from before the request, and a slow response
+    # doesn't replace or take precedence over what a later request found (e.g.,
+    # after a revocation)
+    started = time.monotonic()
     userinfo = _fetch_json(
         url=url,
         conf=conf,
@@ -866,17 +872,21 @@ def _get_userinfo(
     ):
         raise _unauthorized("User info does not match JWT subject")
     try:
-        lifetime = min(conf.cache_ttl, float(claims["exp"]) - time.time())
+        lifetime = min(ttl, float(claims["exp"]) - time.time())
     except (TypeError, ValueError):
         lifetime = 0
     with _userinfo_cache_lock:
+        cached = _userinfo_cache.get(key)
+        if cached is not None and cached[0] > started:
+            return userinfo if conf.validate_userinfo else cached[2]
         _userinfo_cache.pop(key, None)
-        if not conf.validate_userinfo and lifetime > 0:
-            now = time.monotonic()
+        now = time.monotonic()
+        # Not if it expired during the request: it would evict a live entry
+        if not conf.validate_userinfo and started + lifetime > now:
             for cached_key, entry in list(_userinfo_cache.items()):
                 if entry[1] <= now:
                     del _userinfo_cache[cached_key]
             while len(_userinfo_cache) >= USERINFO_CACHE_SIZE:
                 del _userinfo_cache[next(iter(_userinfo_cache))]
-            _userinfo_cache[key] = (now, now + lifetime, userinfo)
+            _userinfo_cache[key] = (started, started + lifetime, userinfo)
     return userinfo
