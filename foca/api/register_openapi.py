@@ -569,7 +569,13 @@ def register_openapi(
                     label,
                 )
             raise
-        _register_api(app.app, api.base_path, _iter_resolved_operations(spec_parsed))
+        _register_api(
+            app.app,
+            api.base_path,
+            _iter_resolved_operations(spec_parsed),
+            name=spec.name,
+            specification=api.specification.raw,
+        )
         logger.info("API endpoints added from spec: %s", label)
 
     _check_routes_enforced(app.app)

@@ -151,6 +151,7 @@ def register_access_control(
             client=get_mongo_client(mongo_config),
             db_name=access_control_db,
             db_conf=access_db_conf,
+            create_indexes=mongo_config.create_indexes_on_startup,
         )
     else:
         # Add policy collection to app database of the same name, keeping
@@ -164,6 +165,7 @@ def register_access_control(
                 client=get_mongo_client(mongo_config),
                 db_name=access_control_db,
                 db_conf=app_db_conf,
+                create_indexes=mongo_config.create_indexes_on_startup,
             )
         else:
             policy_collection.client = app_db_conf.client[access_control_collection]
@@ -740,11 +742,8 @@ def register_casbin_enforcer(
 ) -> App:
     """Method to add casbin permission enforcer.
 
-    The stored configured policy rules are replaced with those of
-    `access_control.policies`, with `{base_path}` replaced by the base path of
-    each API of the app's specifications. If it is not set, stored configured rules
-    (e.g., set via a config overlay that was removed since) are removed,
-    with a warning.
+    Unless `access_control.sync_policies_on_startup` is unset, the stored configured
+    policy rules are replaced (cf. :py:func:`sync_policies`).
 
     Args:
         app: Connexion app.
@@ -775,6 +774,28 @@ def register_casbin_enforcer(
         model=casbin_model,
     )
     app.app.config["casbin_adapter"] = adapter
+    if access_control_config.sync_policies_on_startup:
+        sync_policies(app.app, access_control_config)
+    logger.info("Casbin enforcer registered.")
+
+    return app
+
+
+def sync_policies(app: Flask, access_control_config: AccessControlConfig) -> None:
+    """Replace the stored configured policy rules with the configured ones.
+
+    The stored configured policy rules are replaced with those of
+    `access_control.policies`, with `{base_path}` replaced by the base path of
+    each API of the app's specifications. If it is not set, stored configured rules
+    (e.g., set via a config overlay that was removed since) are removed,
+    with a warning.
+
+    Args:
+        app: Flask app, with access control registered.
+        access_control_config:
+            :py:class:`foca.models.config.AccessControlConfig` instance of the app.
+    """
+    adapter = app.config["casbin_adapter"]
     if access_control_config.policies is not None:
         named = access_control_config.named_policies
         _warn_default_base_path(access_control_config)
@@ -784,10 +805,10 @@ def register_casbin_enforcer(
             revision=access_control_config.policies_revision,
             force=access_control_config.policies_force,
             names=None if named is None else list(named),
-            base_paths=_get_api_base_paths(app.app),
+            base_paths=_get_api_base_paths(app),
             protected_paths=[
                 f"{api.base_path}{path}"
-                for api in _get_apis(app.app)
+                for api in _get_apis(app)
                 if not api.is_app_api
                 for path in api.paths
             ],
@@ -799,9 +820,6 @@ def register_casbin_enforcer(
             force=access_control_config.policies_force,
         )
     _check_stored_group_subjects(adapter, access_control_config)
-    logger.info("Casbin enforcer registered.")
-
-    return app
 
 
 def _warn_default_base_path(access_control_config: AccessControlConfig) -> None:

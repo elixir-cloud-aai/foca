@@ -208,6 +208,9 @@ class Foca:
         # each process creates its own host on first use (after forks), so
         # plugins are instantiated (`setup()`) once more there
         if self.gateway is not None:
+            create_indexes = self.conf.db is None or (
+                self.conf.db.create_indexes_on_startup
+            )
             host = runtime.create_host()
             if host.gateway_id is None:
                 logger.warning(
@@ -219,7 +222,8 @@ class Foca:
                 # the plugins' store: its indexes (writes to the store
                 # create them too, so the app may start without them) and
                 # expiry capped at the current max_ttl; errors are logged
-                host.setup_store()
+                if create_indexes:
+                    host.setup_store()
             finally:
                 host.close()
             if self.gateway.backends is not None:
@@ -233,6 +237,29 @@ class Foca:
             )
 
         return cnx_app
+
+    def create_indexes(self) -> None:
+        """Create the configured indexes, and set up the store of gateway plugins.
+
+        This is what `Foca.create_app()` does on startup, unless
+        `db.create_indexes_on_startup` is unset.
+
+        Raises:
+            foca.database.register_mongodb.IndexConflictError: A configured index
+                conflicts with an existing one, or stored documents violate it.
+            pymongo.errors.PyMongoError: Indexes can't be created for another reason.
+            ValueError: No databases are configured.
+        """
+        if self.conf.db is None or not self.conf.db.dbs:
+            raise ValueError("No databases configured ('db.dbs')")
+        register_mongodb(self.conf.db, create_indexes=True)
+        if self.gateway is not None:
+            runtime.configure(self.gateway, self.conf, serve=True)
+            host = runtime.create_host()
+            try:
+                host.setup_store()
+            finally:
+                host.close()
 
     def _check_worker_config(self) -> None:
         """Run the checks of the configuration that apps run on startup.

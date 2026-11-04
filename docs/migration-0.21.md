@@ -64,6 +64,13 @@ The `request_id()` of `foca.plugins.adapter` follows
 [`server.request_id`](configuration/server.md#request-ids), rather than always
 reading `X-Request-ID`.
 
+## Command-line tool
+
+FOCA now installs the console script [`foca`](cli.md). If your app installs a script of
+that name, one of them replaces the other. Startup does the same as before, unless you
+set the new switches `db.create_indexes_on_startup` and
+`security.access_control.sync_policies_on_startup`.
+
 ## Changed defaults
 
 ### Shorter MongoDB timeouts
