@@ -1,8 +1,8 @@
 apiVersion: v2
 name: foca-common
 description: >-
-  Library chart for FOCA apps by ELIXIR On-Cloud: the app's Deployment and
-  PodDisruptionBudget, config overlay, Service, Ingress, Gateway API
+  Library chart for FOCA apps by ELIXIR On-Cloud: the app's Deployment,
+  HorizontalPodAutoscaler and PodDisruptionBudget, config overlay, Service, Ingress, Gateway API
   HTTPRoute or OpenShift Route and NetworkPolicy, an optional MongoDB, and
   an optional Celery worker and broker (RabbitMQ)
 type: library
