@@ -12,11 +12,16 @@ registries:
     replaces-base: true
 
 updates:
-  # Python packages: FOCA's, those of the tools (`requirements/`) and those
-  # that the images of the examples install (`examples/petstore`,
-  # `examples/gateway`)
+  # Python packages: FOCA's, those of the tools (`requirements/`), of the
+  # FOCA image (`docker/requirements`) and those that the images of the
+  # examples install (`examples/petstore`, `examples/gateway`)
   - package-ecosystem: pip
-    directories: ["/", "/requirements", "/examples/petstore", "/examples/gateway"]
+    directories:
+      - /
+      - /requirements
+      - /docker/requirements
+      - /examples/petstore
+      - /examples/gateway
     target-branch: dev
     schedule:
       interval: weekly
@@ -57,12 +62,20 @@ updates:
       github-actions:
         patterns: ["*"]
 
+  # Digests of the Python images in the Dockerfile of the FOCA image; its
+  # Python versions are chosen deliberately (see the Python version policy)
   - package-ecosystem: docker
     directory: /docker
     target-branch: dev
     registries: [dockerhub]
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      python-images:
+        patterns: [python]
 
   # uv in the petstore example's image (`ghcr.io`, tag and digest); its base
   # image is the FOCA image built locally
