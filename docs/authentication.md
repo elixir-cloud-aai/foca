@@ -87,8 +87,8 @@ With this option:
   validation function) don't change, as FOCA can't judge their tokens, nor do
   operations that require a token or are public (`security: []`). This includes
   functions that wrap `validate_token`. For operations with optional
-  authentication, startup logs a warning, once per API specification, naming
-  any other function in `x-bearerInfoFunc` and any function in
+  authentication that the option doesn't apply to, startup logs a warning, once
+  per API specification, naming any function in `x-bearerInfoFunc` and any in
   `x-tokenInfoFunc`, even `validate_token`, as it's not used as a bearer scheme
   there. Reject invalid tokens in your own function, or use a scheme of type
   `http` and scheme `bearer` that names `validate_token` in `x-bearerInfoFunc`.
