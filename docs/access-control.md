@@ -808,6 +808,14 @@ maintainers may not, as no rule allows them to. Trailing slashes in resource
 paths are ignored, and roles granted on `/` only apply to `/` itself. Set
 `resource_roles_cover_subpaths: False` to only match the exact resource path.
 
+Set `resource_roles_cover_custom_methods: True` for [custom
+methods](https://google.aip.dev/136) such as `POST /tasks/1:cancel`: roles on
+`/tasks/1` then also apply to them. As with sub-paths, what a role may do is
+decided by `p` rules, and `/tasks/:id` also matches `/tasks/1:cancel`, as `:id`
+matches a whole segment; use the methods to tell them apart. It's off by default,
+and not for apps whose resource identifiers may contain `:`, as `/tasks/1:2` would
+then count as a custom method of `/tasks/1`.
+
 Which subjects get which roles on which resources depends on your app's
 domain and is up to your app. FOCA provides helpers to manage resource-scoped
 roles (`g2` rules) in your controllers, e.g., to make the creator of a
@@ -1058,6 +1066,25 @@ not apply (e.g., groups granted the role before `keep_group_subjects` was
 unset) do not count as owners for the last-owner rule. Every role change is
 logged on level `INFO`, naming the resource, the subject, the caller and the
 previous roles, for auditing.
+
+In `resource_role_model.conf`, admins may do everything. For apps where
+operators must not see all user data, use the model `foca:granted_rights_model.conf`
+(`model: foca:granted_rights_model.conf`; the prefix names a model that FOCA
+ships) instead. It's the same but for that: admins only have the rights that rules
+grant them, so give them those they need, e.g., to manage rules:
+
+```yaml
+security:
+  access_control:
+    model: foca:granted_rights_model.conf
+    policies:
+      - [p, admin, "/admin/access-control/*", "(GET)|(POST)|(PUT)|(DELETE)"]
+```
+
+`is_admin()` is then always `False`, so that the helpers treat them as anyone else:
+`resource_filter()` limits them to resources they have roles on, and they can't
+manage resources without owners. A custom model without the override of admins
+doesn't have this effect on `is_admin()`.
 
 For example, an app whose users only see their own tasks:
 

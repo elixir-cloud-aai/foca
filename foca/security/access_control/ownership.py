@@ -28,13 +28,17 @@ the operations using the helpers is decided by the app's policies.
 import logging
 from collections.abc import Callable, MutableMapping
 from contextlib import suppress
+from importlib.resources import files
 from typing import Any, NamedTuple
 
+from flask import current_app
 from werkzeug.exceptions import Conflict, NotFound, Unauthorized
 
 from foca.config.access import get_config
 from foca.security.access_control.constants import (
+    ACCESS_CONTROL_BASE_PATH,
     ADMIN_ROLE,
+    GRANTED_RIGHTS_MODEL_FILE,
     GROUP_PREFIX,
     OWNER_FIELD,
     OWNER_ROLE,
@@ -208,9 +212,12 @@ def is_admin() -> bool:
         from its service client (`access_control.client_mapping`), or
         granted via global role rules (e.g., `g, user:alice, admin`),
         also transitively. `False` if the request has neither a user nor a
-        service client.
+        service client, and with `granted_rights_model.conf`, where admins only
+        have the rights granted to them.
     """
-    if not _get_current_subjects():
+    if not _get_current_subjects() or current_app.config["CASBIN_MODEL"] == str(
+        files(ACCESS_CONTROL_BASE_PATH).joinpath(GRANTED_RIGHTS_MODEL_FILE)
+    ):
         return False
     subjects = _get_current_policy_subjects()
     if ADMIN_ROLE in subjects:

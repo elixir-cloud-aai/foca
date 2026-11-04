@@ -12,6 +12,7 @@ changes were made since the last check than are recorded.
 """
 
 import logging
+import re
 import threading
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
@@ -46,6 +47,10 @@ _UPDATE_NOT_SUPPORTED = (
 )
 
 
+# The custom method in the last segment of a path, after a resource identifier
+_CUSTOM_METHOD = re.compile(r"(?<=[^/]):[^/:]+$")
+
+
 def is_within_path(request_path: str, resource_path: str) -> bool:
     """Check whether a request path is a resource path or a sub-path.
 
@@ -62,6 +67,47 @@ def is_within_path(request_path: str, resource_path: str) -> bool:
     if not resource_path:
         return request_path == "/"
     return request_path == resource_path or request_path.startswith(f"{resource_path}/")
+
+
+def _strip_custom_method(path: str) -> str:
+    """Remove a custom method (AIP-136) from a request path.
+
+    Args:
+        path: Request path, e.g., `/tasks/1:cancel`.
+
+    Returns:
+        The path without a custom method in its last segment, e.g., `/tasks/1`.
+    """
+    return _CUSTOM_METHOD.sub("", path)
+
+
+def is_within_path_or_custom_method(request_path: str, resource_path: str) -> bool:
+    """Check whether a request path is within a resource, or a custom method of it.
+
+    Args:
+        request_path: Request path.
+        resource_path: Resource path a role was granted on.
+
+    Returns:
+        Whether :py:func:`is_within_path` holds for the path with or without a
+        custom method.
+    """
+    return is_within_path(request_path, resource_path) or is_within_path(
+        _strip_custom_method(request_path), resource_path
+    )
+
+
+def is_resource_or_custom_method(request_path: str, resource_path: str) -> bool:
+    """Check whether a request path is a resource or a custom method of it.
+
+    Args:
+        request_path: Request path.
+        resource_path: Resource path a role was granted on.
+
+    Returns:
+        Whether the path equals it, with or without a custom method.
+    """
+    return resource_path in (request_path, _strip_custom_method(request_path))
 
 
 def get_resource_role_ptypes(model: Model) -> list[str]:
@@ -333,12 +379,28 @@ class ResourceRoleManager(DomainManager):
         """
         if self.domain_matching_func is None:
             return []
+        if self.domain_matching_func is is_within_path_or_custom_method:
+            return [
+                *self._get_domains_within_path(domain),
+                *self._get_domains_within_path(_strip_custom_method(domain)),
+            ]
         if self.domain_matching_func is not is_within_path:
             return [
                 other
                 for other in list(self.all_links)
                 if match_error_handler(self.domain_matching_func, domain, other)
             ]
+        return self._get_domains_within_path(domain)
+
+    def _get_domains_within_path(self, domain: str) -> list[str]:
+        """Get the domains with links that a path is within.
+
+        Args:
+            domain: Domain, i.e., a request path.
+
+        Returns:
+            Domains for which :py:func:`is_within_path` is true.
+        """
         # The path itself and its prefixes followed by `/`, without trailing
         # slashes; the root path only matches itself
         paths = {
@@ -367,6 +429,8 @@ class EnforcerCache:
     Args:
         model: Path to the Casbin model file.
         adapter: Adapter of the stored rules.
+        resource_roles_cover_custom_methods: Whether resource-scoped roles also
+            apply to custom methods of their resources.
         resource_roles_cover_subpaths: Whether resource-scoped roles also
             apply to sub-paths of the resource they were granted on (cf.
             :py:func:`is_within_path`).
@@ -380,19 +444,28 @@ class EnforcerCache:
     """
 
     def __init__(
-        self, model: str, adapter: Adapter, resource_roles_cover_subpaths: bool
+        self,
+        model: str,
+        adapter: Adapter,
+        resource_roles_cover_subpaths: bool,
+        resource_roles_cover_custom_methods: bool = False,
     ) -> None:
         """Create cache; the enforcer is created when first used."""
         self.model = model
         self.adapter = adapter
         self.resource_roles_cover_subpaths = resource_roles_cover_subpaths
+        self.resource_roles_cover_custom_methods = resource_roles_cover_custom_methods
         self.lock = threading.RLock()
         self._enforcer: Enforcer | None = None
         self._epoch: str | None = None
         self._version = 0
 
     def is_for(
-        self, model: str, adapter: Adapter, resource_roles_cover_subpaths: bool
+        self,
+        model: str,
+        adapter: Adapter,
+        resource_roles_cover_subpaths: bool,
+        resource_roles_cover_custom_methods: bool = False,
     ) -> bool:
         """Check whether the cache is for a model, adapter and setting.
 
@@ -401,6 +474,8 @@ class EnforcerCache:
             adapter: Adapter of the stored rules.
             resource_roles_cover_subpaths: Whether resource-scoped roles apply
                 to sub-paths.
+            resource_roles_cover_custom_methods: Whether resource-scoped roles
+                apply to custom methods of their resources.
 
         Returns:
             Whether the cache was created with these arguments.
@@ -409,6 +484,8 @@ class EnforcerCache:
             self.model == model
             and self.adapter is adapter
             and self.resource_roles_cover_subpaths == resource_roles_cover_subpaths
+            and self.resource_roles_cover_custom_methods
+            == resource_roles_cover_custom_methods
         )
 
     def get_enforcer(self) -> Enforcer:
@@ -456,9 +533,19 @@ class EnforcerCache:
                 enforcer.set_named_role_manager(
                     ptype, ResourceRoleManager(role_manager.max_hierarchy_level)
                 )
-        if self.resource_roles_cover_subpaths:
+        matching_func = {
+            (True, False): is_within_path,
+            (True, True): is_within_path_or_custom_method,
+            (False, True): is_resource_or_custom_method,
+        }.get(
+            (
+                self.resource_roles_cover_subpaths,
+                self.resource_roles_cover_custom_methods,
+            )
+        )
+        if matching_func is not None:
             for ptype in get_resource_role_ptypes(enforcer.get_model()):
-                enforcer.add_named_domain_matching_func(ptype, is_within_path)
+                enforcer.add_named_domain_matching_func(ptype, matching_func)
         enforcer.set_adapter(self.adapter)
         enforcer.load_policy()
 

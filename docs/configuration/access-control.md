@@ -23,6 +23,9 @@ security:
       "urn:example:group:my-app-admins#login.example.org": admin
     keep_group_subjects: true
     require_admin: true
+    require_enforced: true
+    required_roles: [admin, submitter]
+    resource_roles_cover_custom_methods: false
     client_mapping:
       conquest-client-id: submitter
     resource_roles: [owner, maintainer]
@@ -73,6 +76,12 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   start (`ValueError`) instead, before anything is stored; set it if the
   app needs admins, e.g., to manage resources of others. It defaults to
   `false` and requires `enabled: true`.
+- **Enforcement:** with `require_enforced: true`, the app refuses to start unless
+  `enforce: true` is set, for apps that must not run without it.
+- **Required roles:** the app refuses to start (`ValueError`) if a role of
+  `required_roles` isn't mapped from a group or service client, one of
+  `resource_roles`, or granted by a rule of `policies`. Roles granted via stored
+  policy rules aren't checked, as the database may not be available yet.
 - **Group claim:** the app refuses to start (`ValueError`) if
   `group_mapping` maps groups, but no group claim is set, neither
   `claim_groups` nor that of any trusted issuer

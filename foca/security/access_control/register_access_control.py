@@ -86,11 +86,14 @@ def register_access_control(
             mappings from applying (cf. :py:func:`_check_group_config`), or
             no group or configured policy rule grants the role `admin` and
             `access_control.require_admin` is set (cf.
-            :py:func:`_check_admin_role`).
+            :py:func:`_check_admin_role`), or a role of
+            `access_control.required_roles` doesn't exist (cf.
+            :py:func:`_check_required_roles`).
     """
     auth_config = get_app_config(cnx_app.app).security.auth
     _check_group_config(access_control_config, auth_config)
     _check_admin_role(access_control_config, auth_config)
+    _check_required_roles(access_control_config)
 
     # Group claim values of several issuers could collide
     if sum(map(bool, _get_group_claims(access_control_config, auth_config))) > 1:
@@ -409,6 +412,35 @@ def _allows(entry: str, header: str) -> bool:
         return re.match(entry, header, re.IGNORECASE) is not None
     except re.error:
         return False
+
+
+def _check_required_roles(access_control_config: AccessControlConfig) -> None:
+    """Check that the required roles exist.
+
+    Only the configuration is checked, as the database may not be available yet.
+
+    Args:
+        access_control_config: Access control configuration.
+
+    Raises:
+        ValueError: A role of `required_roles` is neither the role of
+            `group_mapping` or `client_mapping`, nor one of `resource_roles`,
+            nor granted by a rule of `policies`.
+    """
+    conf = access_control_config
+    existing = {
+        *(conf.group_mapping or {}).values(),
+        *(conf.client_mapping or {}).values(),
+        *conf.resource_roles,
+        *(rule[2] for rule in conf.policies or [] if rule[0] in ("g", "g2")),
+    }
+    missing = sorted(set(conf.required_roles) - existing)
+    if missing:
+        raise ValueError(
+            f"The roles {missing} of 'security.access_control.required_roles' "
+            "don't exist: add them to 'security.access_control.group_mapping', "
+            "'client_mapping' or 'resource_roles', or grant them in 'policies'."
+        )
 
 
 def _check_admin_role(
