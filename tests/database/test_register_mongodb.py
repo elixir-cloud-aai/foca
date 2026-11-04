@@ -1,6 +1,7 @@
 """Tests for `register_mongodb.py`."""
 
 from typing import Any
+from unittest.mock import MagicMock
 from urllib.parse import unquote, urlsplit
 
 import pytest
@@ -10,11 +11,13 @@ from pymongo.database import Database
 from foca.database import register_mongodb as module
 from foca.database.register_mongodb import (
     create_mongo_client,
+    get_mongo_client,
     get_mongo_db_name,
     get_mongo_uri,
     register_mongodb,
+    reopen_mongodb,
 )
-from foca.models.config import MongoConfig
+from foca.models.config import CollectionConfig, DBConfig, MongoConfig
 from tests.mock_data import MongoClients
 
 MONGO_ENV_VARS = [
@@ -264,3 +267,83 @@ class TestRegisterMongodb:
         register_mongodb(conf)
         collection = _collection(conf, "db1", "c1")
         assert set(collection.index_information()) <= {"_id_"}
+
+
+class TestReopenMongodb:
+    """Tests for `reopen_mongodb()`."""
+
+    def test_replaces_client(self, clients: MongoClients) -> None:
+        """Handles of all databases and collections use a new client."""
+        conf = MongoConfig(
+            dbs={
+                "a": DBConfig(collections={"c": CollectionConfig()}),
+                "b": DBConfig(),
+            },
+            host="db",
+        )
+        register_mongodb(conf)
+        previous = conf._client
+        reopen_mongodb(conf)
+        assert len(clients) == 2
+        client = clients[1][1]
+        assert conf._client is client
+        assert client is not previous
+        dbs = conf.dbs or {}
+        assert dbs["a"].client == client["a"]
+        assert dbs["b"].client == client["b"]
+        assert (dbs["a"].collections or {})["c"].client == client["a"]["c"]
+
+    def test_keeps_database_names(
+        self, clients: MongoClients, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Names set through the environment stay the same."""
+        monkeypatch.setenv("MONGO_DBNAME", "other")
+        conf = MongoConfig(dbs={"a": DBConfig()})
+        register_mongodb(conf)
+        reopen_mongodb(conf)
+        db = (conf.dbs or {})["a"].client
+        assert db is not None
+        assert db.name == "other"
+
+    def test_closes_previous_client(self, clients: MongoClients) -> None:
+        """The previous client is closed."""
+        conf = MongoConfig(dbs={"a": DBConfig()})
+        register_mongodb(conf)
+        previous = MagicMock()
+        conf._client = previous
+        reopen_mongodb(conf)
+        previous.close.assert_called_once_with()
+
+    def test_skips_unregistered(self, clients: MongoClients) -> None:
+        """Databases and collections without clients stay without one."""
+        conf = MongoConfig(dbs={"a": DBConfig(collections={"c": CollectionConfig()})})
+        get_mongo_client(conf)
+        reopen_mongodb(conf)
+        db_conf = (conf.dbs or {})["a"]
+        assert db_conf.client is None
+        assert (db_conf.collections or {})["c"].client is None
+        register_mongodb(conf)
+        (db_conf.collections or {})["c"].client = None
+        reopen_mongodb(conf)
+        assert db_conf.client is not None
+        assert (db_conf.collections or {})["c"].client is None
+
+    def test_no_client(self, clients: MongoClients) -> None:
+        """Nothing happens without a client."""
+        conf = MongoConfig(dbs={"a": DBConfig()})
+        reopen_mongodb(conf)
+        assert conf._client is None
+        assert not clients
+
+    def test_new_client_connects_on_first_use(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The new client doesn't connect, nor start threads, until used."""
+        for var in MONGO_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        created = MagicMock()
+        monkeypatch.setattr(module, "MongoClient", created)
+        conf = MongoConfig(dbs={"a": DBConfig()})
+        conf._client = MagicMock()
+        reopen_mongodb(conf)
+        assert created.call_args.kwargs == {"connect": False}

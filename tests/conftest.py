@@ -40,7 +40,7 @@ def mongo_clients(
         monkeypatch.delenv(var, raising=False)
     created: MongoClients = []
 
-    def mongo_client(uri: str) -> MongoClient[dict[str, Any]]:
+    def mongo_client(uri: str, connect: bool = True) -> MongoClient[dict[str, Any]]:
         client: MongoClient[dict[str, Any]] = mongomock.MongoClient()
         created.append((uri, client))
         return client
