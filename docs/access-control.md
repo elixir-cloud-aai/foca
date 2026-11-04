@@ -1266,7 +1266,7 @@ choice:
 
 | Controller | Example operation | Response |
 | --- | --- | --- |
-| `getResourceRoles` | `GET /tasks/{id}/permissions` | roles on the resource, as `subject_type`, `subject` and `role` (cf. `list_roles()`) |
+| `getResourceRoles` | `GET /tasks/{id}/permissions` | roles on the resource, as `subject_type`, `subject` and `role` (cf. `list_roles()`); paged and filtered on request (see below) |
 | `putUserRole` | `PUT /tasks/{id}/permissions/users/{userId}` | the granted role, replacing others (cf. `grant_role()`) |
 | `deleteUserRole` | `DELETE /tasks/{id}/permissions/users/{userId}` | the user identifier (a JSON string), after revoking their roles (cf. `revoke_roles()`) |
 | `putGroupRole` | `PUT /tasks/{id}/permissions/groups/{group}` | as `putUserRole`, for a group |
@@ -1336,6 +1336,16 @@ role to a user called `groups`.
   `putFileUserRole = ownership_server.putUserRole` in a module of your
   app).
 
+Resources with many users are easier to manage if `getResourceRoles` is paged and
+searchable. Declare the query parameters to offer them; the response stays a list:
+
+* `q` only lists the roles of subjects (users, groups and service clients) with
+  this text in their identifier, in any case.
+* `limit` (default: 100, at most 1000) and `offset` ask for a page. The header
+  `Link`, if the app has a [public URL](utilities.md#building-public-urls), has the
+  links to the other pages. Invalid values are rejected with `400`. Without both,
+  all roles are returned.
+
 For example, with the base path `/api`:
 
 ```yaml
@@ -1347,6 +1357,10 @@ paths:
       - {name: id, in: path, required: true, schema: {type: string}}
     get:
       operationId: foca.security.access_control.ownership_server.getResourceRoles
+      parameters:
+        - {name: q, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
         "200": {description: Roles on the task}
   /tasks/{id}/permissions/users/{userId}:

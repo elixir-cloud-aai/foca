@@ -122,7 +122,14 @@ SPEC: dict[str, Any] = {
     "paths": {
         "/tasks/{taskId}/permissions": {
             "parameters": [_parameter("taskId")],
-            "get": _operation("getResourceRoles"),
+            "get": _operation(
+                "getResourceRoles",
+                parameters=[
+                    {"name": "q", "in": "query", "schema": {"type": "string"}},
+                    {"name": "limit", "in": "query", "schema": {"type": "integer"}},
+                    {"name": "offset", "in": "query", "schema": {"type": "integer"}},
+                ],
+            ),
         },
         "/tasks/{taskId}/permissions/users/{userId}": {
             # namespaced users (several issuers) may contain slashes
@@ -263,6 +270,107 @@ class TestGetResourceRoles:
         assert response.json == [
             {"subject_type": "user", "subject": "alice", "role": "owner"}
         ]
+
+
+class TestResourceRolesListing:
+    """Tests of paging and searching the roles of a resource."""
+
+    @pytest.fixture(autouse=True)
+    def _roles(self, app: Flask) -> None:
+        """Grant roles to users and groups."""
+        self.client = app.test_client()
+        self.app = app
+        self.url = f"{TASK}/permissions"
+        with app.app_context():
+            adapter = app.config["casbin_adapter"]
+            for subject in ("user:Bob", "user:bobby", "user:carol", "group:bob-team"):
+                adapter.add_policy("g", "g2", [subject, "maintainer", TASK])
+
+    def _get(self, **query: str) -> Any:
+        """List the roles as the owner.
+
+        Args:
+            **query: Query parameters.
+
+        Returns:
+            Response.
+        """
+        return self.client.get(
+            self.url,
+            query_string=query,
+            headers={"Authorization": "Bearer alice"},
+        )
+
+    def test_default(self) -> None:
+        """Without parameters, the response is as before: all roles."""
+        response = self._get()
+        assert response.status_code == 200
+        assert len(response.json) == 5
+        assert "Link" not in response.headers
+
+    @pytest.mark.parametrize(
+        ("q", "subjects"),
+        [
+            ("nobody", []),
+            ("carol", ["carol"]),
+            ("BOB", ["Bob", "bobby", "bob-team"]),
+            ("", ["alice", "Bob", "bobby", "carol", "bob-team"]),
+        ],
+    )
+    def test_q(self, q: str, subjects: list[str]) -> None:
+        """Roles of users and groups are searched, in any case."""
+        response = self._get(q=q)
+        assert response.status_code == 200
+        assert sorted(role["subject"] for role in response.json) == sorted(subjects)
+
+    def test_page(self) -> None:
+        """A page has its limit, and the total."""
+        response = self._get(limit="2", offset="1")
+        assert response.status_code == 200
+        assert len(response.json) == 2
+        assert "Link" not in response.headers
+
+    def test_offset_only(self) -> None:
+        """An offset alone asks for a page, of the default size."""
+        response = self._get(offset="4")
+        assert len(response.json) == 1
+
+    def test_limit_reduced(self) -> None:
+        """The limit has a maximum."""
+        response = self._get(limit="100000")
+        assert len(response.json) == 5
+
+    def test_offset_beyond_end(self) -> None:
+        """A page beyond the end is empty."""
+        response = self._get(offset="50")
+        assert response.status_code == 200
+        assert response.json == []
+
+    @pytest.mark.parametrize("query", [{"limit": "0"}, {"offset": "-1"}])
+    def test_invalid(self, query: dict[str, str]) -> None:
+        """Invalid values are refused."""
+        assert self._get(**query).status_code == 400
+
+    def test_links(self) -> None:
+        """Pages have links if the app has a public URL."""
+        conf = get_app_config(self.app)
+        conf.server.public_url = "https://api.example.org"
+        response = self._get(limit="2", offset="2", q="b")
+        assert response.status_code == 200
+        link = response.headers["Link"]
+        assert 'rel="first"' in link
+        assert 'rel="prev"' in link
+        assert 'rel="next"' not in link
+        assert "q=b" in link
+
+    def test_filter_before_page(self) -> None:
+        """The page and its links are those of the matching roles."""
+        get_app_config(self.app).server.public_url = "https://api.example.org"
+        response = self._get(q="bob", limit="2")
+        assert len(response.json) == 2
+        assert 'rel="next"' in response.headers["Link"]
+        response = self._get(q="carol", limit="2")
+        assert 'rel="next"' not in response.headers["Link"]
 
 
 class TestUserRoles:
