@@ -505,6 +505,8 @@ def test_verification_identifiers(
     "identifier",
     [
         {"serviceId": 1},
+        {"serviceId": ""},
+        {"serviceId": "", "service_id": "s1"},
         {"serviceId": None, "service_id": "s1"},
         {"serviceId": 1, "service_id": "s1"},
         {"service_id": 1},

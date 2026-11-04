@@ -119,10 +119,10 @@ def _verifications(document: object) -> dict[str, tuple[object, object]]:
         document: Response of `GET /verifications`.
 
     Items name their service by `serviceId`, or by `service_id` in Cloud
-    Registry versions before 1.0.0rc2. Items that are no objects with string
-    identifiers are skipped (and logged), like invalid services: one invalid
-    item must not keep the last good list, with backends whose verification
-    was revoked, in use.
+    Registry versions before 1.0.0rc2. Items that are no objects with
+    non-empty string identifiers are skipped (and logged), like invalid
+    services: one invalid item must not keep the last good list, with backends
+    whose verification was revoked, in use.
 
     Returns:
         URL and API type of each verified service, as verified.
@@ -140,7 +140,7 @@ def _verifications(document: object) -> dict[str, tuple[object, object]]:
             if isinstance(item, dict)
             else None
         )
-        if not isinstance(service_id, str):
+        if not service_id or not isinstance(service_id, str):
             skipped += 1
             continue
         verified[service_id] = (item.get("url"), item.get("type"))
