@@ -44,9 +44,10 @@ def test_base_stage_upgrades_apt() -> None:
     text = (ROOT / "docker/Dockerfile").read_text()
     base_stage = text.partition(" AS base\n")[2].partition(" AS builder\n")[0]
     assert re.search(
-        r"apt-get install -y --no-install-recommends --only-upgrade "
+        r"^\s*apt-get install -y --no-install-recommends --only-upgrade "
         r"apt libapt-pkg7\.0\b",
         base_stage,
+        re.M,
     )
 
 
