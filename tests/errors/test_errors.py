@@ -3,6 +3,7 @@
 import json
 import logging
 import sys
+from collections import deque
 from collections.abc import Iterator
 from http import HTTPStatus
 from types import ModuleType, SimpleNamespace
@@ -13,11 +14,14 @@ from connexion import App
 from connexion.exceptions import (
     BadRequestProblem,
     ExtraParameterProblem,
+    NonConformingResponse,
+    NonConformingResponseBody,
     OAuthProblem,
     ProblemException,
 )
 from flask import Response
 from flask.testing import FlaskClient
+from jsonschema import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError
 from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.exceptions import (
@@ -459,6 +463,232 @@ SPEC = {
 }
 
 
+BODY_VALUE = "value-of-the-body"
+VALIDATED_RESPONSE = {
+    "200": {
+        "description": "OK",
+        "headers": {
+            "X-Required": {"required": True, "schema": {"type": "string"}},
+        },
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                        "labels": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
+
+
+def get_invalid_body() -> tuple[dict[str, Any], int, dict[str, str]]:
+    """Respond with a body that does not match the specification."""
+    return {"name": 1, "secret": BODY_VALUE}, 200, {"X-Required": "x"}
+
+
+def get_invalid_item() -> tuple[dict[str, Any], int, dict[str, str]]:
+    """Respond with an invalid item of a list."""
+    return {"tags": ["a", 1], "secret": BODY_VALUE}, 200, {"X-Required": "x"}
+
+
+def get_invalid_key() -> tuple[dict[str, Any], int, dict[str, str]]:
+    """Respond with an invalid value under a key taken from the data."""
+    return {"labels": {BODY_VALUE: 1}}, 200, {"X-Required": "x"}
+
+
+def get_invalid_root() -> tuple[str, int, dict[str, str]]:
+    """Respond with a body whose root does not match the specification."""
+    return BODY_VALUE, 200, {"X-Required": "x"}
+
+
+def get_invalid_headers() -> dict[str, Any]:
+    """Respond without a required header."""
+    return {"name": BODY_VALUE}
+
+
+def get_nonconforming() -> NoReturn:
+    """Raise Connexion's exception without a validator's error."""
+    raise NonConformingResponse(reason="Custom reason", message=BODY_VALUE)
+
+
+RESPONSE_SPEC = {
+    "openapi": "3.0.2",
+    "info": {"title": "Test API", "version": "1.0.0"},
+    "paths": {
+        f"/{name}": {
+            "get": {
+                "operationId": f"{THIS_MODULE}.{name}",
+                "responses": VALIDATED_RESPONSE,
+            }
+        }
+        for name in (
+            "get_invalid_body",
+            "get_invalid_item",
+            "get_invalid_key",
+            "get_invalid_root",
+            "get_invalid_headers",
+            "get_nonconforming",
+        )
+    },
+}
+
+
+def _remove_validation_filters(validation_logger: logging.Logger) -> None:
+    """Remove FOCA's filters of Connexion's validation logger.
+
+    Apps of other tests add them for the whole process.
+
+    Args:
+        validation_logger: Connexion's validation logger.
+    """
+    validation_logger.removeFilter(exceptions_module._drop_request_validation_records)
+    validation_logger.removeFilter(exceptions_module._drop_response_validation_records)
+
+
+class TestResponseValidation:
+    """Tests for responses that fail validation."""
+
+    @pytest.fixture(autouse=True)
+    def validation_logger(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> Iterator[logging.Logger]:
+        """Connexion's validation logger, enabled for the test."""
+        validation_logger = logging.getLogger(exceptions_module._VALIDATION_LOGGER)
+        filters = list(validation_logger.filters)
+        # other tests may (re)configure logging
+        monkeypatch.setattr(validation_logger, "disabled", False)
+        monkeypatch.setattr(validation_logger, "propagate", True)
+        _remove_validation_filters(validation_logger)
+        yield validation_logger
+        validation_logger.filters[:] = filters
+
+    @staticmethod
+    def _client(conf: ExceptionConfig) -> FlaskClient:
+        """Client of an app that validates its responses."""
+        app = App(__name__, skip_error_handlers=True)
+        register_exception_handler(app, conf)
+        app.add_api(RESPONSE_SPEC, validate_responses=True)
+        client: FlaskClient = app.app.test_client()
+        return client
+
+    @pytest.mark.parametrize(
+        ("path", "error"),
+        [
+            ("/get_invalid_body", "failed at schema path '/properties/name/type'"),
+            (
+                "/get_invalid_item",
+                "failed at schema path '/properties/tags/items/type'",
+            ),
+            (
+                "/get_invalid_key",
+                "failed at schema path '/properties/labels/additionalProperties/type'",
+            ),
+            ("/get_invalid_root", "failed at schema path '/type'"),
+            ("/get_invalid_headers", "Difference: X-Required"),
+            ("/get_nonconforming", "Custom reason"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "logging_format",
+        [
+            ExceptionLoggingEnum.oneline,
+            ExceptionLoggingEnum.minimal,
+            ExceptionLoggingEnum.regular,
+        ],
+    )
+    def test_logs_without_body(
+        self,
+        conf: ExceptionConfig,
+        logged: list[str],
+        caplog: pytest.LogCaptureFixture,
+        validation_logger: logging.Logger,
+        logging_format: ExceptionLoggingEnum,
+        path: str,
+        error: str,
+    ) -> None:
+        """The operation and error are logged, nothing of the response."""
+        conf.logging = logging_format
+        client = self._client(conf)
+        with caplog.at_level(logging.DEBUG, logger=validation_logger.name):
+            response = client.get(path)
+        assert response.status_code == 500
+        assert json.loads(response.data) == {
+            "title": "Internal Server Error",
+            "status": 500,
+        }
+        assert response.content_type == conf.media_type
+        (message,) = logged
+        assert error in message
+        assert path.lstrip("/") in message
+        assert BODY_VALUE not in message
+        assert BODY_VALUE not in caplog.text
+        assert "\n" not in message
+
+    def test_required_names_missing(self) -> None:
+        """Missing properties are named, other keys of the body are not."""
+        exc = NonConformingResponseBody(message=BODY_VALUE)
+        exc.__context__ = JsonSchemaValidationError(
+            BODY_VALUE,
+            validator="required",
+            validator_value=["name", "id"],
+            instance={"id": 1, BODY_VALUE: 2},
+            schema_path=deque(["required"]),
+        )
+        assert exceptions_module._response_validation_error(exc) == (
+            "failed at schema path '/required': missing name"
+        )
+
+    def test_mapping_wins(self, conf: ExceptionConfig, logged: list[str]) -> None:
+        """App mappings apply to the response and the logged problem details."""
+        problem = {"title": "Bad implementation", "status": 502}
+        conf._problems = {**conf.problems, NonConformingResponse: problem}
+        response = self._client(conf).get("/get_invalid_body")
+        assert response.status_code == 502
+        assert json.loads(response.data) == problem
+        (message,) = logged
+        assert message.startswith(json.dumps(problem))
+
+    def test_logging_none(self, conf: ExceptionConfig, logged: list[str]) -> None:
+        """Nothing is logged with logging switched off."""
+        conf.logging = ExceptionLoggingEnum.none
+        assert self._client(conf).get("/get_invalid_body").status_code == 500
+        assert logged == []
+
+    def test_shortened_and_escaped(
+        self, conf: ExceptionConfig, logged: list[str]
+    ) -> None:
+        """Logged errors are shortened, keeping the failed location."""
+        conf.max_detail_length = 40
+        self._client(conf).get("/get_invalid_body")
+        (message,) = logged
+        assert "…" in message
+        assert message.endswith("/name/type'")
+
+    def test_filter_without_validation_details(
+        self, conf: ExceptionConfig, validation_logger: logging.Logger
+    ) -> None:
+        """Connexion's messages on responses are filtered out without details."""
+        conf.validation_details = False
+        self._client(conf)
+
+        def record(**extra: Any) -> logging.LogRecord:
+            """Log record of Connexion's validation logger."""
+            return validation_logger.makeRecord(
+                validation_logger.name, logging.ERROR, "", 0, "x", (), None, extra=extra
+            )
+
+        assert not validation_logger.filter(record(validator="response"))
+        assert validation_logger.filter(record(validator="body"))
+
+
 class TestHandler:
     """Tests for error responses of an app."""
 
@@ -765,9 +995,7 @@ class TestValidationDetails:
         """
         validation_logger = logging.getLogger(exceptions_module._VALIDATION_LOGGER)
         filters = list(validation_logger.filters)
-        validation_logger.removeFilter(
-            exceptions_module._keep_response_validation_records
-        )
+        _remove_validation_filters(validation_logger)
         yield validation_logger
         validation_logger.filters[:] = filters
 
@@ -859,7 +1087,7 @@ class TestValidationDetails:
         assert infos == []
         validation_logger = logging.getLogger(exceptions_module._VALIDATION_LOGGER)
         assert (
-            exceptions_module._keep_response_validation_records
+            exceptions_module._drop_request_validation_records
             not in validation_logger.filters
         )
 
@@ -894,7 +1122,7 @@ class TestValidationDetails:
         """Connexion's request validation messages are filtered out, once."""
         self._client(conf_details)
         self._client(conf_details)
-        keep = exceptions_module._keep_response_validation_records
+        keep = exceptions_module._drop_request_validation_records
         assert validation_logger.filters.count(keep) == 1
 
         def record(**extra: Any) -> logging.LogRecord:
@@ -905,7 +1133,7 @@ class TestValidationDetails:
 
         assert not validation_logger.filter(record(validator="body"))
         assert not validation_logger.filter(record())
-        assert validation_logger.filter(record(validator="response"))
+        assert not validation_logger.filter(record(validator="response"))
 
     def test_long_detail(self, conf_details: ExceptionConfig, infos: list[str]) -> None:
         """Long reasons are shortened and escaped in logs."""
