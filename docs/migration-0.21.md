@@ -16,8 +16,13 @@ change if:
 - their [requests or stored data don't fit declared formats](#stricter-request-checks);
 - they use [`is_admin()` with a model of their own](#is_admin-with-other-models);
 - they use the [plugins of foca-plugins](#plugins-of-foca-plugins);
+- their configuration files have [`${` or `$$` in string
+  values](#references-to-environment-variables-in-configuration-files);
+- their code reads [`jobs.backend`](#secrets-in-the-configuration), which is now a
+  `SecretStr`;
 - their filters or alerts match log texts that changed, of [changes of access
-  rights](#audit-log) or [invalid responses](#log-of-invalid-responses).
+  rights](#audit-log), [invalid responses](#log-of-invalid-responses) or [new MongoDB
+  clients](#log-of-new-mongodb-clients).
 
 Upgrading from 0.19 or earlier? Start with [Migrating to
 0.20.0](migration-0.20.md).
@@ -125,6 +130,22 @@ next `foca<0.21`. Apps with these plugins (e.g., proTES) can't install FOCA 0.21
 then, as dependency resolution or `uv pip check` fails. So the order is the FOCA tag,
 then foca-plugins with `foca<0.22`, tested against 0.21, then the apps.
 
+### References to environment variables in configuration files
+
+String values in configuration files now [reference environment
+variables](configuration/index.md#references-to-environment-variables). What you wrote as
+`${...}` now means that: an unset variable stops the app, and invalid forms do too, naming
+the key. `$$` now means a literal `$`. Write `$$` for each `$` that's meant literally in
+these two cases, e.g., `$${...}`. Other uses of `$`, such as at the end of a regular
+expression, stay as they are. API specifications aren't affected.
+
+### Secrets in the configuration
+
+`jobs.backend` is now a `SecretStr`, as are the `client_options`
+`authMechanismProperties` and `tlsCertificateKeyFilePassword`, so that they don't show up
+in `repr()`. Code reading them must call `.get_secret_value()`. Don't read them outside
+of what needs them.
+
 ## Request IDs
 
 Responses now have the header `X-Request-ID`, and [log
@@ -183,6 +204,23 @@ responses, which has the whole response body, is now filtered out. Instead, the 
 `foca.errors.exceptions` logs the operation and the validation error on level `ERROR`
 (see [Invalid responses](configuration/exceptions.md#invalid-responses)). Adapt filters
 and alerts that match Connexion's message.
+
+## Log of new MongoDB clients
+
+The message on level `INFO` for a new MongoDB client no longer derives from the connection
+string as such. It was `Created MongoDB client for 'mongodb://mongodb:27017/my_db'.`, and is
+now `Created MongoDB client for 'mongodb:27017/my_db'.`, with the hosts and ports as
+PyMongo understands them (e.g., sorted, with default ports, and for `mongodb+srv` the
+name or the resolved hosts) and the first configured database, even if `MONGO_URI` names
+another, which is only used to authenticate.
+
+The hosts show as `unknown` if the connection string has an `@` after them, as an
+unescaped credential or a value of an option can look like hosts then, and for stand-ins
+of clients in tests, such as mongomock. So escape credentials in connection strings as
+PyMongo requires: other forms of unescaped credentials can't always be recognized, and
+a part of one can still be taken for a host. A `MONGO_DBNAME` with other characters than
+word characters and hyphens shows as `(name not shown)`. Adapt filters and alerts that
+match the message.
 
 ## Changed defaults
 

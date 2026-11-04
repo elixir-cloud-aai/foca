@@ -17,6 +17,7 @@ from pydantic import (
     Field,
     PositiveInt,
     PrivateAttr,
+    SecretStr,
     ValidationInfo,
     ValidatorFunctionWrapHandler,
     field_validator,
@@ -2591,7 +2592,10 @@ class CollectionConfig(FOCABaseConfig):
     """
 
     indexes: list[IndexConfig] | None = None
-    client: collection.Collection[dict[str, Any]] | None = None
+    # Not in `repr()` and dumps: the repr of clients shows their credentials
+    client: collection.Collection[dict[str, Any]] | None = Field(
+        default=None, repr=False, exclude=True
+    )
 
 
 class DBConfig(FOCABaseConfig):
@@ -2626,11 +2630,18 @@ class DBConfig(FOCABaseConfig):
     """
 
     collections: dict[str, CollectionConfig] | None = None
-    client: database.Database[dict[str, Any]] | None = None
+    # Not in `repr()` and dumps: the repr of clients shows their credentials
+    client: database.Database[dict[str, Any]] | None = Field(
+        default=None, repr=False, exclude=True
+    )
 
 
 # Options of a MongoDB client, as far as they can be set in configuration files
-ClientOptions = dict[str, str | int | float | bool]
+ClientOptions = dict[str, str | int | float | bool | SecretStr]
+# Lowercase names of options of MongoDB clients that hold secrets
+_SECRET_CLIENT_OPTIONS = frozenset(
+    {"authmechanismproperties", "tlscertificatekeyfilepassword"}
+)
 # Longest name of an app that PyMongo accepts
 MAX_MONGO_APPNAME_BYTES = 128
 
@@ -2650,7 +2661,9 @@ class MongoConfig(FOCABaseConfig):
             else the name of its package. Options in `MONGO_URI` win, with a
             warning. Not `host`, `port` and `connect`, which FOCA sets, and not
             `username` and `password`, which belong in `MONGO_USERNAME` and
-            `MONGO_PASSWORD` or `MONGO_URI`.
+            `MONGO_PASSWORD` or `MONGO_URI`. String values of `authMechanismProperties`
+            and `tlsCertificateKeyFilePassword` become
+            :py:class:`pydantic.SecretStr`.
         create_indexes_on_startup: Create the configured indexes on startup. If
             `False`, run `foca create-indexes` instead (cf. :py:mod:`foca.cli`).
 
@@ -2718,7 +2731,14 @@ class MongoConfig(FOCABaseConfig):
                 f"Options {sorted(value)} of `db.client_options` set an option "
                 "twice: their names are not case-sensitive"
             )
-        return value
+        return {
+            name: (
+                SecretStr(option)
+                if name.lower() in _SECRET_CLIENT_OPTIONS and isinstance(option, str)
+                else option
+            )
+            for name, option in value.items()
+        }
 
 
 class PeriodicCronConfig(FOCABaseConfig):
@@ -2814,7 +2834,8 @@ class JobsConfig(FOCABaseConfig):
     Args:
         host: Host at which the broker is exposed.
         port: Port at which the broker is exposed.
-        backend: Backend used to store background task results.
+        backend: Backend used to store background task results; a URL, which may
+            hold credentials, so read it with `.get_secret_value()`.
         include: List of modules to import when workers start.
         periodic: Jobs that Celery beat starts periodically, by name.
 
@@ -2833,13 +2854,13 @@ class JobsConfig(FOCABaseConfig):
         >>> jobs = JobsConfig(host="rabbitmq", include=["myapp.tasks"])
         >>> jobs.include
         ['myapp.tasks']
-        >>> jobs.backend
+        >>> jobs.backend.get_secret_value()
         'rpc://'
     """
 
     host: str = "rabbitmq"
     port: int = 5672
-    backend: str = "rpc://"
+    backend: SecretStr = SecretStr("rpc://")
     include: list[str] | None = None
     periodic: dict[str, PeriodicJobConfig] = {}
 

@@ -411,10 +411,10 @@ worker, separated by spaces. Call with the context dict.
 {{- $names = append $names "GUNICORN_CMD_ARGS" -}}
 {{- end -}}
 {{- if $root.Values.mongodb.auth.enabled -}}
-{{- $names = concat $names (list "MONGO_USERNAME" "MONGO_PASSWORD") -}}
+{{- $names = concat $names (list "MONGO_USERNAME" "MONGO_PASSWORD" "MONGO_USERNAME_FILE" "MONGO_PASSWORD_FILE") -}}
 {{- end -}}
 {{- if $root.Values.broker | default dict | dig "existingSecret" "" -}}
-{{- $names = concat $names (list "CELERY_BROKER_URL" "CELERY_RESULT_BACKEND") -}}
+{{- $names = concat $names (list "CELERY_BROKER_URL" "CELERY_RESULT_BACKEND" "CELERY_BROKER_URL_FILE" "CELERY_RESULT_BACKEND_FILE") -}}
 {{- end -}}
 {{- if include "foca-common.pluginsEnv" $root | trim -}}
 {{- $names = append $names "FOCA_PLUGINS_STORE_KEY_SECRET" -}}

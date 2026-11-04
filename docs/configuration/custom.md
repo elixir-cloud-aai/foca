@@ -67,6 +67,28 @@ is another class.
 Without `custom_config_model`, the section (like any other unknown top-level
 section) is passed through as is, as a dictionary.
 
-Do not put secrets into configuration files; read them from environment
-variables instead (e.g., with
+Do not put secrets into configuration files; [reference environment
+variables](#secrets) instead, or read them directly (e.g., with
 [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)).
+
+## Secrets
+
+Use [`SecretStr`](https://docs.pydantic.dev/latest/api/types/#pydantic.types.SecretStr)
+for fields with secrets, so that they don't show up in `repr()`, logs or tracebacks, and
+take their values [from the environment](index.md#references-to-environment-variables):
+
+```yaml title="config.yaml"
+custom:
+  storage:
+    secret_key: ${STORAGE_SECRET_KEY}
+```
+
+```python title="my_app/config.py"
+from pydantic import BaseModel, SecretStr
+
+
+class StorageConfig(BaseModel):
+    secret_key: SecretStr
+```
+
+Read them with `.get_secret_value()`.

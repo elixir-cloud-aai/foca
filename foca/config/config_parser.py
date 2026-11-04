@@ -13,6 +13,7 @@ import yaml
 from addict import Dict as Addict
 from pydantic import BaseModel
 
+from foca.config.environment import interpolate
 from foca.models.config import Config, LogConfig
 from foca.utils.misc import describe_validation_error
 
@@ -132,7 +133,9 @@ def get_overlay_files() -> list[Path]:
 class ConfigParser:
     """Parse FOCA config files.
 
-    Config files are merged in order (cf. :py:func:`deep_merge`), followed by
+    References to environment variables in each file are replaced (cf.
+    :py:func:`foca.config.environment.interpolate`). Config files are merged in order
+    (cf. :py:func:`deep_merge`), followed by
     any files listed in environment variable `FOCA_CONFIG_OVERLAY`, and the
     result is validated. Sections of `NAMED_ENTRY_SECTIONS` (API specs and
     access control policies) can be given as mappings of names to entries,
@@ -200,6 +203,7 @@ class ConfigParser:
             if not isinstance(content, dict):
                 raise ValueError(f"file '{path}' is not a YAML mapping")
             try:
+                content = interpolate(content)
                 _check_named_entries(data, content)
             except ValueError as exc:
                 raise ValueError(f"file '{path}': {exc}") from exc

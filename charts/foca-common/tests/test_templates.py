@@ -2509,6 +2509,8 @@ def test_extra_env(render: Callable[..., Docs]) -> None:
         "GUNICORN_CMD_ARGS",
         "MONGO_USERNAME",
         "MONGO_PASSWORD",
+        "MONGO_USERNAME_FILE",
+        "MONGO_PASSWORD_FILE",
     ],
 )
 def test_extra_env_reserved(render_error: Callable[..., str], name: str) -> None:
@@ -2519,7 +2521,15 @@ def test_extra_env_reserved(render_error: Callable[..., str], name: str) -> None
     assert f"petstore.extraEnv must not set {name}" in error
 
 
-@pytest.mark.parametrize("name", ["CELERY_BROKER_URL", "CELERY_RESULT_BACKEND"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CELERY_BROKER_URL",
+        "CELERY_RESULT_BACKEND",
+        "CELERY_BROKER_URL_FILE",
+        "CELERY_RESULT_BACKEND_FILE",
+    ],
+)
 def test_extra_env_reserved_broker(render_error: Callable[..., str], name: str) -> None:
     """The broker's variables can't be set if the chart sets them."""
     error = render_error(
