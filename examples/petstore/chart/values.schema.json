@@ -518,6 +518,14 @@
         }
       }
     },
+    "publicUrl": {
+      "type": "string",
+      "description": "Public URL of the app, if the settings have backendsKey; by default https://<hostName>/"
+    },
+    "plugins": {
+      "type": "object",
+      "description": "Settings of plugins in camelCase, if the app's settings have plugins: true"
+    },
     "pluginStore": {
       "type": "object",
       "additionalProperties": false,
@@ -645,6 +653,56 @@
         "resources": {
           "type": "object",
           "description": "Resource requests and limits of the container"
+        },
+        "tmpSizeLimit": {
+          "$ref": "#/$defs/tmpSizeLimit"
+        }
+      }
+    },
+    "flower": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Deploy Flower, the monitoring UI of the Celery worker; requires its template files in the app chart, broker.existingSecret and flower.existingSecret"
+        },
+        "existingSecret": {
+          "type": "string",
+          "description": "Secret with the key basic-auth (<user>:<password>), Flower's basic authentication"
+        },
+        "image": {
+          "type": "string",
+          "description": "Image of Flower"
+        },
+        "imagePullPolicy": {
+          "enum": ["Always", "IfNotPresent", "Never"]
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Create a NetworkPolicy allowing connections to Flower only from ingressFrom"
+            },
+            "ingressFrom": {
+              "type": "array",
+              "description": "NetworkPolicy peers allowed to connect to Flower",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "podSecurityContext": {
+          "type": "object"
+        },
+        "securityContext": {
+          "type": "object"
+        },
+        "resources": {
+          "type": "object"
         },
         "tmpSizeLimit": {
           "$ref": "#/$defs/tmpSizeLimit"

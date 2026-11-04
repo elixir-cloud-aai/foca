@@ -103,6 +103,15 @@ settings are a dict with the keys:
   `foca-common.maxContentLength`);
 - `requireAudience`: whether rendering fails without an audience for tokens
   (`config.security.auth.audience`), as the app requires one;
+- `requireAccessControl`: whether rendering fails without enforced access control and
+  the settings it needs (see `foca-common.checkAccessControl`), as the app requires
+  them;
+- `plugins`: whether the values `plugins` are rendered into the overlay's section
+  `plugins`, with keys in snake_case (see `foca-common.pluginsConfig`);
+- `backendsKey`: top-level key of the values with the app's backends
+  (`<backendsKey>.backends`), rendered into `custom.<backendsKey>.backends`, with keys
+  in snake_case; also sets `server.public_url` from `publicUrl` or `hostName` (see
+  `foca-common.gatewayConfig`);
 - `mongodb.databases`: databases of the app's base config (`db.dbs`), the
   first of which FOCA authenticates against; required for the bundled
   MongoDB with authentication, which creates the app user;
@@ -503,6 +512,18 @@ ConfigMap template, which every app chart renders.
 {{- end -}}
 {{- if and $httpRoute (dig "httpRoute" "httpsRedirect" "enabled" false $values) (eq $fullname (include "foca-common.httpsRedirectFullname" .root)) -}}
 {{- fail (printf "the app's HTTPRoute and the HTTPS redirect would both be named %s: choose a fullnameOverride that does not end in -https-redirect" $fullname) -}}
+{{- end -}}
+{{- if include "foca-common.flowerEnabled" .root -}}
+{{- include "foca-common.checkFlower" .root -}}
+{{- end -}}
+{{- if .settings.plugins -}}
+{{- include "foca-common.checkPluginValues" .root -}}
+{{- end -}}
+{{- with .settings.backendsKey -}}
+{{- include "foca-common.checkBackends" (dict "root" $.root "key" .) -}}
+{{- end -}}
+{{- if .settings.requireAccessControl -}}
+{{- include "foca-common.checkAccessControl" .root -}}
 {{- end -}}
 {{- $_ := include "foca-common.brokerSecret" .root -}}
 {{- $_ = include "foca-common.maxContentLength" . -}}
