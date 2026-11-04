@@ -61,7 +61,10 @@ def test_keys_complete() -> None:
 
 
 def test_backend_keys_rendered() -> None:
-    """The chart's test of backend lists covers all fields with several words."""
+    """New fields with several words are added to the chart's test of backend lists.
+
+    A check of the test's text, as that test needs Helm, unlike this one.
+    """
     tests = TEMPLATE.parents[1] / "tests" / "test_templates.py"
     text = tests.read_text()
     for field in _fields(backends_config):

@@ -1101,3 +1101,18 @@ def test_fork_resets_locks(registry: Registry) -> None:
     discovery._reset_after_fork()
     assert cache._lock is not lock
     assert discovery._caches_lock is not caches_lock
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"type": "ga4gh-tes", "url": "https://t", "basic": {"password": "hunter2"}},
+        {"type": "ga4gh-tes", "url": "https://u:hunter2@t.example.org"},
+        {"type": "other", "url": "https://u:hunter2@t.example.org"},
+    ],
+)
+def test_errors_leave_out_values(entry: dict[str, Any]) -> None:
+    """Validation errors of backend lists don't show what entries hold."""
+    with pytest.raises(ValidationError) as info:
+        BackendListConfig.model_validate([entry])
+    assert "hunter2" not in str(info.value)

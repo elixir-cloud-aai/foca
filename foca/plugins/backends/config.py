@@ -263,6 +263,9 @@ class BackendListConfig(RootModel[list[BackendEntry]]):
         'https://tes.example.org'
     """
 
+    # Of the outermost model, so that errors leave out what entries hold
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     root: list[BackendEntry] = []
 
     @model_validator(mode="after")

@@ -603,8 +603,9 @@ and of their `basic` in camelCase in the values (e.g., `urlSchemes`,
 The public URL of the app
 (`server.public_url`) is set to `publicUrl`, or else to `https://<hostName>/`.
 Rendering fails if `config.custom.tes.backends` is set too, if `config.custom.tes` is no
-map, for credentials in entries (in a `url`, or in `basic` other than the names of
-variables), which would be readable in the ConfigMap, and for service registries without
+map, for credentials in entries that it recognizes (in a `url`, in `basic` other than
+the names of variables, or in keys named like `password` or `token`), which would be
+readable in the ConfigMap, and for service registries without
 a public URL in the overlay, as FOCA refuses to start then; a public URL of the base
 config in the image doesn't count, so set it in the setting `config`. Keys with `_` are
 kept as they are; Sprig's `snakecase` separates digits, so write such keys that way
@@ -621,7 +622,7 @@ by default in their base configs. As the app on startup, rendering fails
   that the app refuses;
 - with a `group_mapping` but no group claim (`claim_groups`, global or of an issuer);
 - unless a group (`group_mapping`), a service client (`client_mapping`) or a rule in
-  `policies` (`[g, <subject>, admin]`; for `group:` subjects, as far as the app applies
+  `policies` (`[g, <subject>, admin]`, also by name; for `group:` subjects, as far as the app applies
   them) has the role `admin`, or `require_admin` is false.
 
 These are the checks that catch a deployment that would refuse to start, not all of
@@ -630,10 +631,12 @@ FOCA's validation: the app checks the rest of its configuration on startup.
 ## Flower
 
 [Flower](https://flower.readthedocs.io/) shows the Celery worker's tasks, including
-their arguments. New in 0.5.0: app charts that offer it add the template files and the
-values `flower`; it's off by default and needs basic authentication: create a Secret
-with the key `basic-auth` (`<user>:<password>`), and set the following. The chart's
-defaults are the same as these for the security contexts and the NetworkPolicy.
+their arguments. App charts can offer it since 0.5.0, by adding the template files and
+the values `flower`. It's off by default and needs basic authentication: create a Secret
+with the key `basic-auth` (`<user>:<password>`), and set `enabled`, `existingSecret` and
+`image`. The NetworkPolicy and the security contexts below are the defaults; other
+contexts replace them as a whole, and `networkPolicy.enabled: false` turns the policy
+off.
 
 ```yaml title="values.yaml"
 flower:

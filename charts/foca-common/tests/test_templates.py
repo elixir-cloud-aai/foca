@@ -3228,8 +3228,20 @@ def test_registry_with_public_url_of_settings(
             "must not hold credentials",
         ),
         (
+            {"type": "ga4gh-tes", "url": " https://u:hunter2@tes.example.org/"},
+            "must not hold credentials",
+        ),
+        (
             {"type": "ga4gh-tes", "url": "https://t", "basic": {"password": "hunter2"}},
             "not password",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t", "basic": "u:hunter2"},
+            "must only name the environment variables",
+        ),
+        (
+            {"type": "ga4gh-tes", "url": "https://t", "password": "hunter2"},
+            "must not hold credentials (password)",
         ),
     ],
 )
@@ -3306,6 +3318,11 @@ def test_access_control_accepted(chart_with_settings: Callable[[str], Path]) -> 
     assert index(template(chart, *rule))
     group = _security(group_mapping=None, policies=[["g", "group:a", "admin"]])
     assert index(template(chart, *group))
+    named = _security(
+        group_mapping=None,
+        policies={"admins": ["g", "user:alice", "admin"], "other": None},
+    )
+    assert index(template(chart, *named))
     kept = _security(
         group_mapping={"a": "user"},
         keep_group_subjects=True,

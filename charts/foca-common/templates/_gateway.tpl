@@ -176,10 +176,18 @@ with a dict of the root context (`root`), the settings (`settings`) and the key
 {{- end -}}
 {{- range $entry := $backends -}}
 {{- if kindIs "map" $entry -}}
-{{- if and (kindIs "string" (get $entry "url")) (regexMatch "^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*@" (get $entry "url")) -}}
+{{- if and (kindIs "string" (get $entry "url")) (regexMatch "://[^/?#]*@" (get $entry "url")) -}}
 {{- fail (printf "the url of an entry of %s.backends must not hold credentials, which would be readable in the ConfigMap: use auth and basic.usernameEnv and basic.passwordEnv" $key) -}}
 {{- end -}}
+{{- range $name := keys $entry | sortAlpha -}}
+{{- if and (regexMatch "(?i)password|secret|token|credential" $name) (not (hasSuffix "_env" $name)) -}}
+{{- fail (printf "an entry of %s.backends must not hold credentials (%s), which would be readable in the ConfigMap: use auth and basic.usernameEnv and basic.passwordEnv" $key $name) -}}
+{{- end -}}
+{{- end -}}
 {{- $basic := get $entry "basic" -}}
+{{- if and (hasKey $entry "basic") (not (kindIs "invalid" $basic)) (not (kindIs "map" $basic)) -}}
+{{- fail (printf "basic of an entry of %s.backends must only name the environment variables with the credentials (usernameEnv, passwordEnv)" $key) -}}
+{{- end -}}
 {{- if kindIs "map" $basic -}}
 {{- range $name := keys $basic | sortAlpha -}}
 {{- if not (has $name (list "username_env" "password_env")) -}}
@@ -411,7 +419,12 @@ issuer
 {{- /* As the app: rules for groups count only if group subjects are in use */ -}}
 {{- $admin := or (has "admin" (values $mapping)) (and (kindIs "map" $clientMapping) (has "admin" (values $clientMapping))) -}}
 {{- $groupSubjects := and $anyClaim (or (not $groupMappingSet) (eq $keepGroupSubjects "true")) -}}
-{{- range $rule := ternary $policies (list) (kindIs "slice" $policies) -}}
+{{- /* Rules by name, or a list of rules; null names remove rules of other files */ -}}
+{{- $rules := $policies -}}
+{{- if kindIs "map" $policies -}}
+{{- $rules = values $policies -}}
+{{- end -}}
+{{- range $rule := ternary $rules (list) (kindIs "slice" $rules) -}}
 {{- if and (kindIs "slice" $rule) (eq (len $rule) 3) (eq (index $rule 0 | toString) "g") (eq (index $rule 2 | toString) "admin") -}}
 {{- if or (not (hasPrefix "group:" (index $rule 1 | toString))) $groupSubjects -}}
 {{- $admin = true -}}

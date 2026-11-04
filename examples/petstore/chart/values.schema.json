@@ -684,7 +684,7 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Create a NetworkPolicy allowing connections to Flower only from ingressFrom"
+              "description": "Create a NetworkPolicy allowing connections to Flower only from ingressFrom; true if not set"
             },
             "ingressFrom": {
               "type": "array",
