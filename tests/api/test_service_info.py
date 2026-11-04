@@ -330,7 +330,7 @@ def test_check_service_info_dev_version(log: pytest.LogCaptureFixture) -> None:
 def test_check_service_info_released_version(log: pytest.LogCaptureFixture) -> None:
     """Other versions are not warned about."""
     check_service_info(_app({"service": {**DEPLOYED, "version": "1.2.3.dev0"}}))
-    assert PLACEHOLDER_VERSION not in log.text
+    assert not [r for r in log.records if r.levelno == logging.WARNING]
 
 
 def test_check_service_info_placeholders(log: pytest.LogCaptureFixture) -> None:
