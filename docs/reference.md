@@ -273,6 +273,8 @@ configuration models, see [Configuration](configuration/index.md).
 
 ## Utilities
 
+::: foca.context
+
 ::: foca.utils.misc
 
 ::: foca.utils.urls

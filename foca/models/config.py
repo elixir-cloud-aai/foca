@@ -33,9 +33,12 @@ from foca.security.access_control.constants import (
     DEFAULT_ID_CHARSET,
     DEFAULT_ID_LENGTH,
     DEFAULT_MODEL_FILE,
+    GRANTED_RIGHTS_MODEL_FILE,
     MAINTAINER_ROLE,
     MIN_ID_SPACE,
     OWNER_ROLE,
+    PACKAGED_MODEL_PREFIX,
+    RESOURCE_ROLE_MODEL_FILE,
     SUBJECT_TYPE_PREFIXES,
 )
 from foca.utils.misc import generate_id
@@ -180,6 +183,73 @@ class IdConfig(FOCABaseConfig):
         return charset
 
 
+# Headers that the middleware of request IDs would replace or not find
+_RESERVED_HEADERS = frozenset(
+    {
+        "authorization",
+        "connection",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "cookie",
+        "host",
+        "location",
+        "set-cookie",
+        "transfer-encoding",
+        "www-authenticate",
+    }
+)
+
+
+class RequestIdConfig(FOCABaseConfig):
+    """Model for the identifiers of requests.
+
+    Args:
+        header: Name of the request and response header with the identifier.
+        trust_incoming: Whether to take the identifier from the request header,
+            if it's valid (at most 128 letters, digits and `._:-`); otherwise,
+            each request gets a new random one.
+
+    Attributes:
+        header: Name of the request and response header with the identifier.
+        trust_incoming: Whether to take the identifier from the request header.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type, or `header` is not a header name.
+
+    Examples:
+        >>> RequestIdConfig().header
+        'X-Request-ID'
+        >>> RequestIdConfig().trust_incoming
+        True
+    """
+
+    header: str = Field(default="X-Request-ID", pattern=r"^[A-Za-z0-9-]+$")
+    trust_incoming: bool = True
+
+    @field_validator("header")
+    @classmethod
+    def validate_header(cls, value: str) -> str:
+        """Ensure that the header isn't one with another purpose.
+
+        Args:
+            value: Name of the header.
+
+        Returns:
+            The name of the header.
+
+        Raises:
+            ValueError: It's the name of a header that requests or responses
+                need, e.g., `Content-Length`.
+        """
+        if value.lower() in _RESERVED_HEADERS:
+            raise ValueError(
+                f"'server.request_id.header' must not be a standard header: {value}"
+            )
+        return value
+
+
 class ServerConfig(FOCABaseConfig):
     """Model for configuration parameters of a Flask or Connexion app.
 
@@ -211,6 +281,8 @@ class ServerConfig(FOCABaseConfig):
             no trailing slash); must not have a query or fragment. If
             ``None``, the app has no public URL, and
             :py:func:`foca.utils.urls.get_public_url` raises an error.
+        request_id: How requests get their identifiers (cf.
+            :py:func:`foca.context.request_id`).
 
     Attributes:
         host: Host at which the application is exposed.
@@ -239,6 +311,7 @@ class ServerConfig(FOCABaseConfig):
     testing: bool = False
     max_content_length: PositiveInt | None = None
     public_url: str | None = None
+    request_id: RequestIdConfig = RequestIdConfig()
 
     @field_validator("public_url")
     @classmethod
@@ -885,6 +958,12 @@ class AccessControlConfig(FOCABaseConfig):
             roles, as a comma-separated list (e.g., `X-Request-Roles:
             admin`). Must be a valid header name without `_` (which servers
             such as Gunicorn drop), other than `auth.on_behalf_of_header`.
+        require_enforced: Refuse to start (`ValidationError`) if `enforce` isn't
+            set, for apps that must not run without enforcing access control.
+        required_roles: Roles that must exist: refuse to start (`ValueError`)
+            if one isn't the role of `group_mapping` or `client_mapping`, of
+            `resource_roles`, or granted by a rule of `policies`. Roles granted
+            via stored policy rules aren't checked.
         require_admin: Refuse to start (`ValueError`) if no group (via
             `group_mapping`, with `claim_groups` set) or service client (via
             `client_mapping`) is mapped to the role `admin` and no rule of
@@ -897,6 +976,11 @@ class AccessControlConfig(FOCABaseConfig):
             the role of the client, if mapped. Clients that are not service
             clients cannot be mapped. Roles are restricted as for
             `group_mapping`.
+        resource_roles_cover_custom_methods: Whether resource-scoped roles also
+            apply to custom methods of their resources (AIP-136), e.g., to
+            `/tasks/1:cancel` for a role on `/tasks/1`. Don't use it if
+            identifiers of resources may contain `:`, as `/tasks/1:2` would
+            then count as a custom method of `/tasks/1`.
         resource_roles_cover_subpaths: Whether resource-scoped roles (role
             definitions with three fields, e.g., `g2 = _, _, _`) granted on
             a resource path also apply to its sub-paths (e.g., a role on
@@ -976,6 +1060,10 @@ class AccessControlConfig(FOCABaseConfig):
             requests that ask for them.
         opt_in_header: Request header in which requests ask for opt-in
             roles.
+        require_enforced: Refuse to start if `enforce` isn't set.
+        required_roles: Roles that must exist.
+        resource_roles_cover_custom_methods: Whether resource-scoped roles apply
+            to custom methods of their resources.
         require_admin: Refuse to start if no group, service client or
             configured policy rule is granted the role `admin`.
         client_mapping: Mapping of service clients to roles.
@@ -1031,6 +1119,9 @@ class AccessControlConfig(FOCABaseConfig):
     keep_group_subjects: bool = False
     opt_in_roles: list[str] = []
     opt_in_header: str = "X-Request-Roles"
+    require_enforced: bool = False
+    required_roles: list[str] = Field(default_factory=list)
+    resource_roles_cover_custom_methods: bool = False
     require_admin: bool = False
     client_mapping: dict[str, str] | None = None
     resource_roles_cover_subpaths: bool = True
@@ -1178,6 +1269,24 @@ class AccessControlConfig(FOCABaseConfig):
                     f"subjects could otherwise collide with {subject_type}s"
                 )
         return v
+
+    @model_validator(mode="after")
+    def validate_require_enforced(self) -> Self:
+        """Ensure that access control is enforced if that is required.
+
+        Returns:
+            Validated access control configuration.
+
+        Raises:
+            ValueError: `require_enforced` is set, but `enforce` isn't.
+        """
+        if self.require_enforced and not self.enforce:
+            raise ValueError(
+                "'security.access_control.require_enforced' is set, but "
+                "'security.access_control.enforce' isn't: this app must not run "
+                "without enforcing access control"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_swagger_ui(self) -> Self:
@@ -1400,10 +1509,27 @@ class AccessControlConfig(FOCABaseConfig):
             Absolute model path as string; relative paths are resolved
             against the directory of the base config file, if available,
             otherwise against the current working directory. If no path is
-            provided, return default model path.
+            provided, return default model path. `foca:<file>` is one of the
+            models that FOCA ships.
+
+        Raises:
+            ValueError: `foca:<file>` names no model that FOCA ships.
         """
         if v is None:
             return str(files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE))
+        if isinstance(v, str) and v.startswith(PACKAGED_MODEL_PREFIX):
+            name = v.removeprefix(PACKAGED_MODEL_PREFIX)
+            packaged = (
+                DEFAULT_MODEL_FILE,
+                RESOURCE_ROLE_MODEL_FILE,
+                GRANTED_RIGHTS_MODEL_FILE,
+            )
+            if name not in packaged:
+                raise ValueError(
+                    f"'security.access_control.model': FOCA ships {packaged}, "
+                    f"not '{name}'"
+                )
+            return str(files(ACCESS_CONTROL_BASE_PATH).joinpath(name))
         return str(_resolve_path(v, info))
 
     @field_validator("api_specs")
@@ -2291,6 +2417,12 @@ class SecurityConfig(FOCABaseConfig):
                     ("policies_force", access_control.policies_force),
                     ("client_mapping", access_control.client_mapping),
                     ("require_admin", access_control.require_admin),
+                    ("require_enforced", access_control.require_enforced),
+                    ("required_roles", access_control.required_roles),
+                    (
+                        "resource_roles_cover_custom_methods",
+                        access_control.resource_roles_cover_custom_methods,
+                    ),
                 ]
                 if value
             ]
@@ -2559,11 +2691,15 @@ class LogFormatterConfig(FOCABaseConfig):
         class: Name of logging formatter class.
         style: Determines how the format string will be merged with its data.
         format: Format string any log messages.
+        datefmt: Format string of dates and times in messages.
+        defaults: Values of fields of the format string that a record may lack.
 
     Attributes:
         class: Name of logging formatter class.
         style: Determines how the format string will be merged with its data.
         format: Format string any log messages.
+        datefmt: Format string of dates and times in messages.
+        defaults: Values of fields of the format string that a record may lack.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2583,6 +2719,8 @@ class LogFormatterConfig(FOCABaseConfig):
     )
     style: str = "{"
     format: str = "[{asctime}: {levelname:<8}] {message} [{name}]"
+    datefmt: str | None = None
+    defaults: dict[str, Any] | None = None
 
 
 class LogHandlerConfig(FOCABaseConfig):
@@ -2593,12 +2731,15 @@ class LogHandlerConfig(FOCABaseConfig):
         level: Numeric value of logging level.
         formatter: Name of logging formatter.
         stream: Devide to which log is streamed.
+        filters: Names of the filters of the handler. Unless set, in a
+            :py:class:`LogConfig`, the built-in filter `context`.
 
     Attributes:
         class: Name of logging handler class.
         level: Numeric value of logging level.
         formatter: Name of logging formatter.
         stream: Devide to which log is streamed.
+        filters: Names of the filters of the handler.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
@@ -2620,8 +2761,84 @@ class LogHandlerConfig(FOCABaseConfig):
     level: int = 20
     formatter: str = "standard"
     stream: str = "ext://sys.stderr"
+    filters: list[str] | None = None
 
     _validate_level = field_validator("level")(_validate_log_level_choices)
+
+
+class LogFilterConfig(FOCABaseConfig):
+    """Model for a filter of log records.
+
+    Args:
+        factory: Name of the callable creating the filter, given as `()`; further
+            fields are passed to it. If not set, the filter is a
+            :py:class:`logging.Filter` of the logger `name`.
+        name: Name of the logger whose records pass.
+
+    Attributes:
+        factory: Name of the callable creating the filter.
+        name: Name of the logger whose records pass.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Examples:
+        >>> LogFilterConfig(name="foca").name
+        'foca'
+        >>> LogFilterConfig.model_validate({"()": "my_app.Filter"}).factory
+        'my_app.Filter'
+    """
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    factory: str | None = Field(None, alias="()")
+    name: str | None = None
+
+
+class LogLoggerConfig(FOCABaseConfig):
+    """Model for the configuration of a logger.
+
+    Args:
+        level: Numeric value of logging level.
+        handlers: Names of the handlers of the logger.
+        propagate: Whether records are passed on to the handlers of parent
+            loggers.
+        filters: Names of the filters of the logger. They only see the records
+            of this very logger, not those of its children.
+
+    Attributes:
+        level: Numeric value of logging level.
+        handlers: Names of the handlers of the logger.
+        propagate: Whether records are passed on to the handlers of parents.
+        filters: Names of the filters of the logger.
+
+    Raises:
+        pydantic.ValidationError: The class was instantianted with an illegal
+            data type.
+
+    Examples:
+        >>> LogLoggerConfig(level=30).level
+        30
+    """
+
+    level: int | None = None
+    handlers: list[str] | None = None
+    propagate: bool | None = None
+    filters: list[str] | None = None
+
+    @field_validator("level")
+    @classmethod
+    def _validate_level(cls, level: int | None) -> int | None:
+        """Ensure that a valid logging level is set, if any.
+
+        Args:
+            level: Logging level.
+
+        Returns:
+            Unmodified logging level.
+        """
+        return level if level is None else _validate_log_level_choices(cls, level)
 
 
 class LogRootConfig(FOCABaseConfig):
@@ -2666,8 +2883,12 @@ class LogConfig(FOCABaseConfig):
             configuration parameters.
         handlers: A dictionary of logging handlers, where keys represent
             handler names and values represent the corresponding configuration
-            parameters.
+            parameters. Handlers without `filters` get the built-in filter
+            `context`.
         root: Configuration of the root logger.
+        filters: Filters of log records by name, in addition to the built-in
+            `context` (cf. :py:class:`foca.utils.logging.ContextFilter`).
+        loggers: Configuration of other loggers by name.
 
     Attributes:
         version: Represents current schema version.
@@ -2680,10 +2901,13 @@ class LogConfig(FOCABaseConfig):
             handler names and values represent the corresponding configuration
             parameters.
         root: Configuration of the root logger.
+        filters: Filters of log records by name.
+        loggers: Configuration of other loggers by name.
 
     Raises:
         pydantic.ValidationError: The class was instantianted with an illegal
-            data type.
+            data type, or a logger or handler names a filter or handler that
+            isn't configured.
 
     Examples:
         >>> import logging
@@ -2705,6 +2929,61 @@ class LogConfig(FOCABaseConfig):
         "console": LogHandlerConfig.model_validate({}),
     }
     root: LogRootConfig | None = LogRootConfig()
+    filters: dict[str, LogFilterConfig] = Field(default_factory=dict)
+    loggers: dict[str, LogLoggerConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _add_builtins_and_check_names(self) -> "LogConfig":
+        """Add the built-in formatter and filter, and check names of the sections.
+
+        Returns:
+            The config.
+
+        Raises:
+            ValueError: A logger or handler names a filter or handler that isn't
+                configured.
+        """
+        if self.formatters is not None:
+            self.formatters.setdefault(
+                "json",
+                LogFormatterConfig.model_validate(
+                    {"class": "foca.utils.logging.JsonFormatter"}
+                ),
+            )
+        self.filters.setdefault(
+            "context",
+            LogFilterConfig.model_validate({"()": "foca.utils.logging.ContextFilter"}),
+        )
+        handlers = self.handlers or {}
+        for handler in handlers.values():
+            if handler.filters is None:
+                handler.filters = ["context"]
+        users: list[tuple[str, LogHandlerConfig | LogLoggerConfig]] = [
+            *handlers.items(),
+            *self.loggers.items(),
+        ]
+        unknown = sorted(
+            {
+                f"{user}: {name}"
+                for user, conf in users
+                for name in conf.filters or []
+                if name not in self.filters
+            }
+            | {
+                f"{user}: {name}"
+                for user, conf in self.loggers.items()
+                for name in conf.handlers or []
+                if name not in handlers
+            }
+            | {
+                f"root: {name}"
+                for name in (self.root.handlers if self.root else None) or []
+                if name not in handlers
+            }
+        )
+        if unknown:
+            raise ValueError(f"Unknown filters or handlers in `log`: {unknown}")
+        return self
 
 
 class ServiceInfoConfig(FOCABaseConfig):

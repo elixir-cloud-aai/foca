@@ -26,6 +26,7 @@ import os
 from pathlib import Path
 
 __all__ = [
+    "access_log_format",
     "accesslog",
     "bind",
     "control_socket_disable",
@@ -114,6 +115,11 @@ limit_request_field_size = 8190
 # decorated with `log_traffic`); enable it with `--access-logfile -`
 accesslog = None
 errorlog = "-"
+# Gunicorn's default with the identifier of the request, at its default header
+# (`server.request_id.header`), for finding the logs of a request
+access_log_format = (
+    '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %({x-request-id}o)s'
+)
 
 # No control socket (`gunicornc`), which would be created in the home
 # directory, i.e., on the (possibly read-only) root file system

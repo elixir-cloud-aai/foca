@@ -23,6 +23,9 @@ security:
       "urn:example:group:my-app-admins#login.example.org": admin
     keep_group_subjects: true
     require_admin: true
+    require_enforced: true
+    required_roles: [admin, submitter]
+    resource_roles_cover_custom_methods: false
     client_mapping:
       conquest-client-id: submitter
     resource_roles: [owner, maintainer]
@@ -51,6 +54,11 @@ specification, while policies are still enforced. `api_base_path` moves it, unle
 API](../access-control.md#configuring-the-api)). `me_enabled`, `me_path` and `me_hook`
 configure an endpoint telling callers who they are (cf. [The current
 caller](../access-control.md#the-current-caller)).
+
+`resource_roles_cover_custom_methods` is off by default. Set to `true`, roles on a
+resource also cover its custom methods (e.g., a role on `/tasks/1` covers
+`POST /tasks/1:cancel`; cf. [resource-scoped
+roles](../access-control.md#resource-scoped-roles)).
 
 Access control requires `enabled: true` and trusted token
 [`issuers`](auth.md); the other options are rejected otherwise. With
@@ -91,6 +99,17 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   start (`ValueError`) instead, before anything is stored; set it if the
   app needs admins, e.g., to manage resources of others. It defaults to
   `false` and requires `enabled: true`.
+- **Model:** `model` is a path, or `foca:<file>` for a model that FOCA ships:
+  `default_model.conf`, `resource_role_model.conf` or, for admins with only granted
+  rights, `granted_rights_model.conf` (see [configuring the
+  model](../access-control.md#configuring-the-access-control-model)).
+- **Enforcement:** with `require_enforced: true`, the app refuses to start unless
+  `enforce: true` is set, for apps that must not run without it. It requires
+  `enabled: true`.
+- **Required roles:** the app refuses to start (`ValueError`) if a role of
+  `required_roles` isn't mapped from a group or service client, one of
+  `resource_roles`, or granted by a `g` or `g2` rule of `policies`. Roles granted via
+  stored policy rules aren't checked, as the database may not be available yet.
 - **Group claim:** the app refuses to start (`ValueError`) if
   `group_mapping` maps groups, but no group claim is set, neither
   `claim_groups` nor that of any trusted issuer
