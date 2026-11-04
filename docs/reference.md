@@ -301,3 +301,4 @@ configuration models, see [Configuration](configuration/index.md).
 ::: foca.testing.issuer
 
 ::: foca.testing.pytest_plugin
+::: foca.utils.pagination
