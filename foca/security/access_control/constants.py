@@ -26,6 +26,9 @@ RULE_GENERATIONS_FIELD = "generations"
 # names the active generation, in field `MARKER_GENERATION_FIELD`
 GENERATION_MARKER_ID = "configured_policies"
 MARKER_GENERATION_FIELD = "generation"
+# Revision of the configured rules of the active generation (cf.
+# `security.access_control.policies_revision`)
+MARKER_REVISION_FIELD = "revision"
 # Generation of configured rules stored by FOCA 0.16 and earlier, i.e.,
 # without generations; active as long as no other generation is
 LEGACY_GENERATION = "legacy"

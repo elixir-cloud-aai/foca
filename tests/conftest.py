@@ -40,7 +40,9 @@ def mongo_clients(
         monkeypatch.delenv(var, raising=False)
     created: MongoClients = []
 
-    def mongo_client(uri: str, connect: bool = True) -> MongoClient[dict[str, Any]]:
+    def mongo_client(
+        uri: str, connect: bool = True, **_: Any
+    ) -> MongoClient[dict[str, Any]]:
         client: MongoClient[dict[str, Any]] = mongomock.MongoClient()
         created.append((uri, client))
         return client
@@ -69,4 +71,4 @@ def log(
     logging.getLogger().removeHandler(caplog.handler)
 
 
-pytest_plugins = ["foca.plugins.pytest_plugin"]
+pytest_plugins = ["foca.plugins.pytest_plugin", "foca.testing.pytest_plugin"]
