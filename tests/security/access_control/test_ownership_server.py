@@ -1,5 +1,6 @@
 """Tests for the controllers managing roles on owned resources."""
 
+from collections.abc import Callable
 from copy import deepcopy
 from importlib.resources import path as resource_path
 from pathlib import Path
@@ -474,6 +475,175 @@ def _spec_with(path: str, method: str, **fields: Any) -> dict[str, Any]:
 
 USER_ROLE = "/tasks/{taskId}/permissions/users/{userId}"
 USER_ROUTE = "PUT /api/tasks/<taskId>/permissions/users/<path:userId> (putUserRole)"
+
+
+# Tasks that exist, as an app would know
+EXISTING_TASKS = {"1", "7"}
+OWNERLESS = "/api/tasks/7"
+
+
+def _task_exists(taskId: str) -> Callable[[], bool]:
+    """Build an existence check of a task, as apps pass to the controllers."""
+    return lambda: taskId in EXISTING_TASKS
+
+
+def getTaskRoles(**kwargs: Any) -> Any:
+    """List roles, with an existence check."""
+    return ownership_server.getResourceRoles(
+        exists=_task_exists(kwargs["taskId"]), **kwargs
+    )
+
+
+def putTaskUserRole(**kwargs: Any) -> Any:
+    """Grant a role to a user, with an existence check."""
+    return ownership_server.putUserRole(exists=_task_exists(kwargs["taskId"]), **kwargs)
+
+
+def deleteTaskUserRole(**kwargs: Any) -> Any:
+    """Revoke the roles of a user, with an existence check."""
+    return ownership_server.deleteUserRole(
+        exists=_task_exists(kwargs["taskId"]), **kwargs
+    )
+
+
+def putTaskGroupRole(**kwargs: Any) -> Any:
+    """Grant a role to a group, with an existence check."""
+    return ownership_server.putGroupRole(
+        exists=_task_exists(kwargs["taskId"]), **kwargs
+    )
+
+
+class TestOwnerlessResources:
+    """Tests for admins managing resources that have no owner yet."""
+
+    @pytest.fixture
+    def wrapped(self, tmp_path: Path) -> Flask:
+        """App whose role operations pass existence checks."""
+        spec = deepcopy(SPEC)
+        paths = spec["paths"]
+        for path, method, name in (
+            ("/tasks/{taskId}/permissions", "get", "getTaskRoles"),
+            (USER_ROLE, "put", "putTaskUserRole"),
+            (USER_ROLE, "delete", "deleteTaskUserRole"),
+            ("/tasks/{taskId}/permissions/groups/{group}", "put", "putTaskGroupRole"),
+        ):
+            paths[path][method]["operationId"] = f"{__name__}.{name}"
+        return _create_app(tmp_path, spec)
+
+    def test_admin_lists(self, wrapped: Flask) -> None:
+        """Admins list the (no) roles of an existing resource."""
+        response = _call(wrapped, "get", f"{OWNERLESS}/permissions", "carol")
+        assert response.status_code == 200
+        assert response.get_json() == []
+
+    def test_admin_grants_first_owner(self, wrapped: Flask) -> None:
+        """Admins assign the first owner, who can then manage the resource."""
+        path = f"{OWNERLESS}/permissions/users/bob"
+        response = _call(wrapped, "put", path, "carol", "owner")
+        assert response.status_code == 200
+        assert _roles(wrapped, OWNERLESS) == [ResourceRole("user", "bob", "owner")]
+        response = _call(wrapped, "get", f"{OWNERLESS}/permissions", "bob")
+        assert response.status_code == 200
+
+    def test_admin_grants_group_owner(self, wrapped: Flask) -> None:
+        """Groups can be the first owner, too."""
+        path = f"{OWNERLESS}/permissions/groups/devs"
+        response = _call(wrapped, "put", path, "carol", "owner")
+        assert response.status_code == 200
+        assert _roles(wrapped, OWNERLESS) == [ResourceRole("group", "devs", "owner")]
+
+    def test_other_role_needs_owner(self, wrapped: Flask) -> None:
+        """The first role is `owner`; others are refused as for any resource."""
+        path = f"{OWNERLESS}/permissions/users/bob"
+        response = _call(wrapped, "put", path, "carol", "maintainer")
+        assert response.status_code == 400
+        assert _roles(wrapped, OWNERLESS) == []
+
+    def test_admin_revokes_after_first_owner(self, wrapped: Flask) -> None:
+        """Leftover roles are revoked once the resource has an owner."""
+        with wrapped.app_context():
+            wrapped.config["casbin_adapter"].save_policy_line(
+                ptype="g2", rule=["user:dave", "maintainer", OWNERLESS]
+            )
+        path = f"{OWNERLESS}/permissions/users/dave"
+        response = _call(wrapped, "get", f"{OWNERLESS}/permissions", "carol")
+        assert response.get_json() == [
+            {"subject_type": "user", "subject": "dave", "role": "maintainer"}
+        ]
+        assert _call(wrapped, "delete", path, "carol").status_code == 404
+        owner = f"{OWNERLESS}/permissions/users/bob"
+        assert _call(wrapped, "put", owner, "carol", "owner").status_code == 200
+        assert _call(wrapped, "delete", path, "carol").status_code == 200
+
+    @pytest.mark.parametrize("user", ["alice", "bob"])
+    def test_others_forbidden(self, wrapped: Flask, user: str) -> None:
+        """Others are refused by policies, as they have no role on it."""
+        path = f"{OWNERLESS}/permissions"
+        assert _call(wrapped, "get", path, user).status_code == 403
+        path = f"{OWNERLESS}/permissions/users/{user}"
+        assert _call(wrapped, "put", path, user, "owner").status_code == 403
+        assert _roles(wrapped, OWNERLESS) == []
+
+    def test_non_admin_allowed_by_policies_not_found(self, tmp_path: Path) -> None:
+        """Callers that policies let through, but no admins, get `404`."""
+        spec = deepcopy(SPEC)
+        spec["paths"]["/tasks/{taskId}/permissions"]["get"]["operationId"] = (
+            f"{__name__}.getTaskRoles"
+        )
+        app = _create_app(tmp_path, spec)
+        with app.app_context():
+            adapter = app.config["casbin_adapter"]
+            adapter.save_policy_line(
+                ptype="p", rule=["user:bob", f"{OWNERLESS}/permissions", "GET"]
+            )
+        check = mock.Mock(return_value=True)
+        with mock.patch(f"{__name__}._task_exists", return_value=check):
+            response = _call(app, "get", f"{OWNERLESS}/permissions", "bob")
+        assert response.status_code == 404
+        check.assert_not_called()
+
+    def test_missing_resource_not_found(self, wrapped: Flask) -> None:
+        """Admins get `404` for resources that don't exist."""
+        assert (
+            _call(wrapped, "get", "/api/tasks/8/permissions", "carol").status_code
+            == 404
+        )
+        path = "/api/tasks/8/permissions/users/bob"
+        assert _call(wrapped, "put", path, "carol", "owner").status_code == 404
+        assert _roles(wrapped, "/api/tasks/8") == []
+
+    def test_without_existence_check_not_found(self, app: Flask) -> None:
+        """Without an existence check, resources without owners aren't found."""
+        path = f"{OWNERLESS}/permissions"
+        assert _call(app, "get", path, "carol").status_code == 404
+        path = f"{OWNERLESS}/permissions/users/bob"
+        assert _call(app, "put", path, "carol", "owner").status_code == 404
+
+    def test_resource_with_roles_unchanged(self, wrapped: Flask) -> None:
+        """Resources with owners work as before, without calling the check."""
+        check = mock.Mock(return_value=True)
+        with mock.patch(f"{__name__}._task_exists", return_value=check):
+            response = _call(wrapped, "get", f"{TASK}/permissions", "alice")
+            assert response.status_code == 200
+            assert response.get_json() == [
+                {"subject_type": "user", "subject": "alice", "role": "owner"}
+            ]
+            response = _call(wrapped, "get", f"{TASK}/permissions", "carol")
+            assert response.status_code == 200
+        check.assert_not_called()
+
+    def test_deleted_during_grant(self, wrapped: Flask) -> None:
+        """A role granted while the resource is deleted is revoked again."""
+        calls: list[int] = []
+
+        def _exists_once() -> bool:
+            calls.append(1)
+            return len(calls) == 1
+
+        with mock.patch(f"{__name__}._task_exists", return_value=_exists_once):
+            path = f"{OWNERLESS}/permissions/users/bob"
+            assert _call(wrapped, "put", path, "carol", "owner").status_code == 404
+        assert _roles(wrapped, OWNERLESS) == []
 
 
 class TestEnforcementRequired:
