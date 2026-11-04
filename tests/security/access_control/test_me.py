@@ -348,10 +348,14 @@ class TestRegistration:
         with pytest.raises(ValidationError, match="'me_path' must be"):
             AccessControlConfig(me_path=path)
 
-    def test_needs_access_control(self) -> None:
-        """Without access control, the endpoint is refused."""
+    @pytest.mark.parametrize(
+        "options",
+        [{"me_enabled": True}, {"me_hook": "a.b"}, {"me_path": "/whoami"}],
+    )
+    def test_needs_access_control(self, options: dict[str, Any]) -> None:
+        """Without access control, the options are refused."""
         with pytest.raises(ValidationError, match=r"require 'access_control\.enabled'"):
-            SecurityConfig(access_control=AccessControlConfig(me_enabled=True))
+            SecurityConfig(access_control=AccessControlConfig(**options))
 
     @pytest.mark.parametrize(
         ("servers", "paths"),

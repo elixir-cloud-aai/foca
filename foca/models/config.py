@@ -2265,6 +2265,8 @@ class SecurityConfig(FOCABaseConfig):
                     ("api_specs", access_control.api_specs),
                     ("self_service", access_control.self_service),
                     ("me_enabled", access_control.me_enabled),
+                    ("me_hook", access_control.me_hook),
+                    ("me_path", "me_path" in access_control.model_fields_set),
                     ("api_enabled", not access_control.api_enabled),
                     (
                         "api_base_path",
