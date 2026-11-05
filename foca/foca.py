@@ -290,7 +290,7 @@ class Foca:
 
     def disable_startup_writes(self) -> None:
         """Turn off the steps of startup that write to the database."""
-        # Apart from `db`, as the store of gateway plugins may work without it
+        # Not only via `db`: gateway apps without that section have a plugin store
         self._startup_writes = False
         if self.conf.db is not None:
             self.conf.db.create_indexes_on_startup = False

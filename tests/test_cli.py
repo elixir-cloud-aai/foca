@@ -851,10 +851,11 @@ class TestSwitches:
         host.warn_store_settings.assert_called_once_with()
         runtime.create_host.return_value.close.assert_called_once_with()
 
-    def test_no_store_of_gateway_without_db(self) -> None:
-        """Without startup writes, a gateway app without `db` leaves its store alone."""
+    @pytest.mark.parametrize("db", [None, MongoConfig(create_indexes_on_startup=True)])
+    def test_no_store_of_gateway_without_writes(self, db: MongoConfig | None) -> None:
+        """Without startup writes, gateway apps leave their store alone."""
         foca = Foca()
-        foca.conf.db = None
+        foca.conf.db = db
         foca.gateway = MagicMock(backends=None)
         foca.disable_startup_writes()
         with mock.patch("foca.foca.runtime") as runtime:
