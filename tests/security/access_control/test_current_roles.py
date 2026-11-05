@@ -4,6 +4,7 @@ import itertools
 
 from flask import Flask
 
+from foca.config.access import _get_app_config
 from foca.security.access_control import get_current_roles
 from foca.security.access_control.constants import DEFAULT_MODEL_FILE
 from foca.security.access_control.enforcement import locked_enforcer
@@ -101,6 +102,6 @@ def test_without_access_control() -> None:
     """Without access control, no rules apply."""
     app = create_app()
     _add_rules(app, ("group:devs", "editor"))
-    app.config.foca.security.access_control.enabled = False  # type: ignore[attr-defined]  # dynamic attribute
+    _get_app_config(app).security.access_control.enabled = False
     with as_caller(app, ALICE):
         assert get_current_roles() == ["group:devs"]

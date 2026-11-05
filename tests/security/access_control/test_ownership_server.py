@@ -16,7 +16,7 @@ from werkzeug.exceptions import BadRequest, NotFound
 from werkzeug.test import TestResponse
 
 from foca.api.register_openapi import register_openapi
-from foca.config.access import get_app_config
+from foca.config.access import _get_app_config
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, SpecConfig
@@ -438,7 +438,7 @@ class TestResourceRolesListing:
     def test_links(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Pages have links with the right values, if the app has a public URL."""
         monkeypatch.setattr(
-            get_app_config(self.app).server, "public_url", "https://api.example.org"
+            _get_app_config(self.app).server, "public_url", "https://api.example.org"
         )
         response = self._get(limit="1", offset="1", q="b")
         assert response.status_code == 200
@@ -457,7 +457,7 @@ class TestResourceRolesListing:
     def test_filter_before_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The page and its links are those of the matching roles."""
         monkeypatch.setattr(
-            get_app_config(self.app).server, "public_url", "https://api.example.org"
+            _get_app_config(self.app).server, "public_url", "https://api.example.org"
         )
         response = self._get(q="bob", limit="2")
         assert self._subjects(response) == ["bob-team", "Bob"]
@@ -1019,7 +1019,7 @@ def test_traffic_logged(
     app: Flask, log_traffic: bool, method: str, path: str, role: str | None
 ) -> None:
     """Controllers log traffic as the permissions API does, if enabled."""
-    get_app_config(app).security.access_control.log_traffic = log_traffic
+    _get_app_config(app).security.access_control.log_traffic = log_traffic
     with mock.patch("foca.utils.logging.logger") as logger:
         _call(app, method, path, "alice", role)
     messages = [str(call) for call in logger.log.call_args_list]

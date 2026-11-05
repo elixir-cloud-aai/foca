@@ -15,6 +15,7 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from werkzeug.exceptions import Conflict, NotFound
 
+from foca.config.access import _get_app_config
 from foca.models.config import AccessControlConfig
 from foca.security.access_control import (
     LastOwner,
@@ -866,7 +867,7 @@ class TestOwnerField:
     def test_client_by_client_id(self) -> None:
         """Service clients are identified by client ID, not by subject."""
         app = create_app()
-        app.config.foca.security.auth.service_clients[1].subject = "account-1"  # type: ignore[attr-defined]  # dynamic attribute
+        _get_app_config(app).security.auth.service_clients[1].subject = "account-1"
         with as_caller(app, {**PROTES, "sub": "account-1"}):
             assert set_owner_field({}) == {
                 "iss": ISSUER,

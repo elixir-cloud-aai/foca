@@ -17,10 +17,27 @@ from yaml import (
 )
 
 from foca import Foca
+from foca.config.access import _get_app_config
 from foca.models.config import AccessControlConfig, CORSConfig
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import check_opt_in_roles
 from tests.mock_data import MongoClients
+
+
+def _dbs(app: Any) -> dict[str, Any]:
+    """Get the configured databases of an app.
+
+    Args:
+        app: Connexion app.
+
+    Returns:
+        Configured databases, by name.
+    """
+    db = _get_app_config(app.app).db
+    assert db is not None
+    assert db.dbs is not None
+    return db.dbs
+
 
 DIR = Path(__file__).parent / "test_files"
 PATH_SPECS_2_YAML_ORIGINAL = str(DIR / "openapi_2_petstore.original.yaml")
@@ -94,7 +111,7 @@ def test_foca_create_app_output_defaults() -> None:
     """
     foca = Foca()
     app = foca.create_app()
-    assert app.app.config.foca is foca.conf
+    assert _get_app_config(app.app) is foca.conf
     response = app.app.test_client().get(
         "/unknown", headers={"Origin": "https://example.org"}
     )
@@ -156,7 +173,7 @@ def test_foca_create_app_no_access_control() -> None:
     """Ensure access control is not registered by default."""
     foca = Foca(config_file=VALID_DB_CONF)
     app = foca.create_app()
-    assert set(app.app.config.foca.db.dbs) == {"my-db"}
+    assert set(_dbs(app)) == {"my-db"}
     assert "casbin_adapter" not in app.app.config
     assert not any("permissions" in rule.rule for rule in app.app.url_map.iter_rules())
 
@@ -166,7 +183,7 @@ def test_foca_create_app_access_control() -> None:
     """Ensure access control is registered if enabled."""
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
     app = foca.create_app()
-    assert "test_db" in app.app.config.foca.db.dbs
+    assert "test_db" in _dbs(app)
     assert "casbin_adapter" in app.app.config
     assert any(
         rule.rule == "/admin/access-control/permissions"
@@ -179,7 +196,7 @@ def test_foca_create_app_access_control_defaults() -> None:
     """Ensure access control is registered with defaults if only enabled."""
     foca = Foca(config_file=ACCESS_CONTROL_ENABLED_CONF)
     app = foca.create_app()
-    dbs = app.app.config.foca.db.dbs
+    dbs = _dbs(app)
     assert set(dbs) == {"access_control_db"}
     assert set(dbs["access_control_db"].collections) == {"policy_rules"}
 
@@ -254,7 +271,7 @@ def test_foca_create_app_twice() -> None:
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
     foca.create_app()
     app = foca.create_app()
-    dbs = app.app.config.foca.db.dbs
+    dbs = _dbs(app)
     assert set(dbs) == {"test_db"}
     assert set(dbs["test_db"].collections) == {"test_collection"}
 
@@ -263,7 +280,7 @@ def test_foca_create_app_jobs() -> None:
     """Ensure a Connexion app instance is returned; valid 'jobs' field."""
     foca = Foca(config_file=JOBS_CONF)
     app = foca.create_app()
-    assert app.app.config.foca.jobs == foca.conf.jobs
+    assert _get_app_config(app.app).jobs == foca.conf.jobs
     assert foca.conf.jobs is not None
 
 
@@ -284,7 +301,7 @@ def test_foca_db() -> None:
     """Ensure a Connexion app instance is returned; valid 'db' field."""
     foca = Foca(config_file=VALID_DB_CONF)
     app = foca.create_app()
-    my_db = app.app.config.foca.db.dbs["my-db"]
+    my_db = _dbs(app)["my-db"]
     my_coll = my_db.collections["my-col-1"]
     assert isinstance(my_db.client, Database)
     assert isinstance(my_coll.client, Collection)
@@ -299,7 +316,7 @@ def test_foca_cors(config_file: Path, enabled: bool) -> None:
     """Ensures CORS is enabled or disabled as configured."""
     foca = Foca(config_file=config_file)
     app = foca.create_app()
-    assert app.app.config.foca.security.cors.enabled is enabled
+    assert _get_app_config(app.app).security.cors.enabled is enabled
     response = app.app.test_client().get(
         "/unknown", headers={"Origin": "https://example.org"}
     )
@@ -330,7 +347,7 @@ def test_foca_valid_access_control(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Adapter, "has_configured_policies", lambda self: False)
     foca = Foca(config_file=VALID_ACCESS_CONTROL_CONF)
     app = foca.create_app()
-    my_db = app.app.config.foca.db.dbs["test_db"]
+    my_db = _dbs(app)["test_db"]
     my_coll = my_db.collections["test_collection"]
     assert isinstance(my_db.client, Database)
     assert isinstance(my_coll.client, Collection)
@@ -363,7 +380,7 @@ def test_foca_one_mongo_client(
     app = foca.create_app()
     assert len(mongo_clients) == 1
     client = mongo_clients[0][1]
-    dbs = app.app.config.foca.db.dbs
+    dbs = _dbs(app)
     assert set(dbs) == {"my-db", "access_control_db"}
     assert all(db.client.client is client for db in dbs.values())
     adapter = app.app.config["casbin_adapter"]

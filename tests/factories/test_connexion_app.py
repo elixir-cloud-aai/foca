@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from werkzeug.routing import BuildError
 from werkzeug.test import TestResponse
 
-from foca.config.access import get_app_config
+from foca.config.access import _get_app_config
 from foca.errors.exceptions import register_exception_handler
 from foca.factories import connexion_app as module
 from foca.factories.connexion_app import (
@@ -40,21 +40,21 @@ def test_add_config_to_connexion_app() -> None:
     """Test if app config is updated."""
     cnx_app = App(__name__)
     cnx_app = __add_config_to_connexion_app(cnx_app, CONFIG)
-    assert cnx_app.app.config.foca is CONFIG
+    assert _get_app_config(cnx_app.app) is CONFIG
 
 
 def test_create_connexion_app_without_config() -> None:
     """Test Connexion app creation without config."""
     cnx_app = create_connexion_app()
     with pytest.raises(RuntimeError):
-        get_app_config(cnx_app.app)
+        _get_app_config(cnx_app.app)
 
 
 def test_create_connexion_app_with_config() -> None:
     """Test Connexion app creation with config; server settings applied."""
     config = Config(server=ServerConfig(host="127.0.0.1", port=1234, testing=True))
     cnx_app = create_connexion_app(config)
-    assert get_app_config(cnx_app.app) is config
+    assert _get_app_config(cnx_app.app) is config
     assert (cnx_app.host, cnx_app.port, cnx_app.debug) == (
         "127.0.0.1",
         1234,

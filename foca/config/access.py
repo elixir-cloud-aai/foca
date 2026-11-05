@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, TypeVar
 
+from flask import Config as FlaskConfig
 from flask import Flask, current_app, has_app_context
 from pydantic import BaseModel
 from pymongo.collection import Collection
@@ -19,22 +21,124 @@ _configs: dict[str, Config] = {}
 _T = TypeVar("_T", bound=BaseModel)
 
 
+# Name of the attribute of Flask configurations holding FOCA's configuration
+_ATTRIBUTE = "foca"
+
+
+class _DeprecatingConfig(FlaskConfig):
+    """Flask configuration whose attribute `foca` is deprecated.
+
+    The attribute is a property, which takes precedence over the attribute of
+    the instance, where the configuration stays (cf.
+    :py:func:`_find_app_config`).
+    """
+
+    @property
+    def foca(self) -> Any:
+        """FOCA's configuration, deprecated.
+
+        Raises:
+            AttributeError: No configuration is attached.
+        """
+        try:
+            value = vars(self)[_ATTRIBUTE]
+        except KeyError:
+            raise AttributeError(_ATTRIBUTE) from None
+        warnings.warn(
+            "'app.config.foca' is deprecated; use 'foca.get_config()' or "
+            "'foca.get_custom_config()'.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return value
+
+    @foca.setter
+    def foca(self, value: Any) -> None:
+        """Set FOCA's configuration, deprecated.
+
+        Args:
+            value: FOCA's configuration.
+        """
+        warnings.warn(
+            "Setting 'app.config.foca' is deprecated; change the configuration "
+            "that 'foca.get_config()' returns.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        vars(self)[_ATTRIBUTE] = value
+
+    @foca.deleter
+    def foca(self) -> None:
+        """Remove FOCA's configuration, deprecated.
+
+        Raises:
+            AttributeError: No configuration is attached.
+        """
+        warnings.warn(
+            "Deleting 'app.config.foca' is deprecated.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        try:
+            del vars(self)[_ATTRIBUTE]
+        except KeyError:
+            raise AttributeError(_ATTRIBUTE) from None
+
+
+def _deprecate_attribute(app: Flask) -> None:
+    """Make access to `app.config.foca` emit a deprecation warning.
+
+    Flask configurations of Flask's own class, as Connexion creates them, get
+    a subclass whose attribute `foca` warns. A class for Flask configurations
+    (`Flask.config_class`) can't do this, as Connexion creates the app, with
+    its configuration. Apps with configuration classes of their own keep
+    them, and their attribute doesn't warn.
+
+    Args:
+        app: Flask application instance.
+    """
+    if type(app.config) is FlaskConfig:
+        app.config.__class__ = _DeprecatingConfig
+
+
 def set_app_config(app: Flask, config: Config) -> None:
     """Attach configuration to a Flask app.
 
-    The configuration is available as `app.config.foca` and via
-    :py:func:`get_config`, also outside an app context.
+    The configuration is available via :py:func:`get_config`, also outside an
+    app context.
 
     Args:
         app: Flask application instance.
         config: App configuration.
     """
-    setattr(app.config, "foca", config)
+    vars(app.config)[_ATTRIBUTE] = config
+    _deprecate_attribute(app)
     _configs["latest"] = config
 
 
-def get_app_config(app: Flask) -> Config:
+def _find_app_config(app: Flask) -> Config | None:
+    """Find the configuration attached to a Flask app.
+
+    For FOCA's own use, where the app is known but not current, e.g., while it
+    is created.
+
+    Args:
+        app: Flask application instance.
+
+    Returns:
+        App configuration, or `None` if none is attached.
+    """
+    from foca.models.config import Config  # noqa: PLC0415 (import cycle)
+
+    config = vars(app.config).get(_ATTRIBUTE)
+    return config if isinstance(config, Config) else None
+
+
+def _get_app_config(app: Flask) -> Config:
     """Get the configuration attached to a Flask app.
+
+    For FOCA's own use, where the app is known but not current, e.g., while it
+    is created.
 
     Args:
         app: Flask application instance.
@@ -45,16 +149,41 @@ def get_app_config(app: Flask) -> Config:
     Raises:
         RuntimeError: No FOCA configuration is attached to `app`.
     """
-    from foca.models.config import Config  # noqa: PLC0415 (import cycle)
-
-    config = getattr(app.config, "foca", None)
-    if not isinstance(config, Config):
+    config = _find_app_config(app)
+    if config is None:
         raise RuntimeError(f"No FOCA configuration attached to app '{app}'")
     return config
 
 
+def get_app_config(app: Flask) -> Config:
+    """Get the configuration attached to a Flask app.
+
+    Deprecated: use :py:func:`get_config`, in the app context of `app` if it
+    isn't the current app.
+
+    Args:
+        app: Flask application instance.
+
+    Returns:
+        App configuration.
+
+    Raises:
+        RuntimeError: No FOCA configuration is attached to `app`.
+    """
+    warnings.warn(
+        "'get_app_config()' is deprecated; use 'foca.get_config()'.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _get_app_config(app)
+
+
 def get_config() -> Config:
     """Get the configuration of the current FOCA app.
+
+    Use it, or :py:func:`get_custom_config`, to read the configuration in
+    apps, rather than `current_app.config.foca` or `get_app_config()`, which
+    are deprecated.
 
     Returns:
         Configuration of the app of the current app context, if any,
@@ -64,12 +193,10 @@ def get_config() -> Config:
     Raises:
         RuntimeError: No FOCA app has been created.
     """
-    from foca.models.config import Config  # noqa: PLC0415 (import cycle)
-
-    if has_app_context():
-        config = getattr(current_app.config, "foca", None)
-        if isinstance(config, Config):
-            return config
+    # Apps without FOCA configuration get that of the latest FOCA app
+    config = _find_app_config(current_app) if has_app_context() else None
+    if config is not None:
+        return config
     if "latest" not in _configs:
         raise RuntimeError(
             "No FOCA configuration available: no FOCA app has been created"

@@ -6,11 +6,11 @@ from typing import Any
 
 from celery import Celery
 from celery.exceptions import TimeoutError as ResultTimeout
-from flask import current_app
 from kombu.exceptions import OperationalError
 from service import run_pipeline
 from tasks import TASK_NAME
 
+from foca import get_config
 from foca.config.environment import get_env
 from foca.plugins.adapter import current_principal, inbound_from_request, request_id
 
@@ -32,7 +32,7 @@ def _celery_client() -> Celery:
     Returns:
         Celery client.
     """
-    jobs = current_app.config.foca.jobs
+    jobs = get_config().jobs
     return Celery(
         broker=get_env("CELERY_BROKER_URL", f"pyamqp://{jobs.host}:{jobs.port}//"),
         backend=get_env("CELERY_RESULT_BACKEND", jobs.backend.get_secret_value()),

@@ -13,7 +13,7 @@ from flask.testing import FlaskClient
 from pymongo.collection import Collection
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
-from foca.config.access import get_app_config, set_app_config
+from foca.config.access import _get_app_config, set_app_config
 from foca.models.config import AccessControlConfig, Config, MongoConfig
 from foca.security.access_control import access_control_server as module
 from foca.security.access_control.access_control_server import (
@@ -484,7 +484,7 @@ class TestTrafficLogging:
         The setting is applied as configured at request time.
         """
         if log_traffic is not None:
-            config = get_app_config(app)
+            config = _get_app_config(app)
             config.security.access_control.log_traffic = log_traffic
         response = getattr(client, method)(path, json=deepcopy(MOCK_PERMISSION))
         assert response.status_code == 200

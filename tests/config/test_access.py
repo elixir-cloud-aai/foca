@@ -1,7 +1,10 @@
 """Tests for typed access to app configuration."""
 
+import pickle
+import warnings
 from typing import Any
 
+import flask
 import mongomock
 import pytest
 from flask import Flask
@@ -67,12 +70,102 @@ def test_get_config_app_without_foca_config(no_apps: None) -> None:
 
 
 def test_get_app_config() -> None:
-    """Configuration attached to a Flask app is returned or an error."""
+    """Configuration attached to a Flask app is returned or an error, deprecated."""
     config = Config()
     app = create_connexion_app(config).app
-    assert access.get_app_config(app) is config
-    with pytest.raises(RuntimeError):
+    with pytest.deprecated_call(match="get_config"):
+        assert access.get_app_config(app) is config
+    with pytest.raises(RuntimeError), pytest.deprecated_call(match="get_config"):
         access.get_app_config(Flask(__name__))
+
+
+def test_internal_app_config(recwarn: pytest.WarningsRecorder) -> None:
+    """FOCA's own access to the configuration of an app isn't deprecated."""
+    config = Config()
+    app = create_connexion_app(config).app
+    assert access._get_app_config(app) is config
+    with pytest.raises(RuntimeError, match="No FOCA configuration"):
+        access._get_app_config(Flask(__name__))
+    with app.app_context():
+        assert get_config() is config
+    assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning)]
+
+
+def test_config_attribute_deprecated() -> None:
+    """Reading and setting `app.config.foca` works, deprecated."""
+    config = Config()
+    app = create_connexion_app(config).app
+    with pytest.deprecated_call(match="get_config"):
+        assert app.config.foca is config
+    other = Config()
+    with pytest.deprecated_call(match="Setting 'app.config.foca'"):
+        app.config.foca = other
+    assert access._get_app_config(app) is other
+    assert isinstance(app.config, flask.Config)
+    app.config["KEY"] = "value"
+    assert app.config["KEY"] == "value"
+
+
+def test_config_attribute_deleted() -> None:
+    """Deleting `app.config.foca` works, deprecated."""
+    app = create_connexion_app(Config()).app
+    with pytest.deprecated_call(match="Deleting 'app.config.foca'"):
+        del app.config.foca
+    with pytest.raises(AttributeError), pytest.deprecated_call():
+        del app.config.foca
+    with pytest.raises(RuntimeError):
+        access._get_app_config(app)
+
+
+@pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
+def test_config_pickled(protocol: int) -> None:
+    """Flask configurations are pickled with their items and FOCA's."""
+    config = Config()
+    app = create_connexion_app(config).app
+    app.config["KEY"] = "value"
+    copied = pickle.loads(pickle.dumps(app.config, protocol))  # noqa: S301 (own data)
+    assert isinstance(copied, flask.Config)
+    assert copied["KEY"] == "value"
+    assert copied.root_path == app.config.root_path
+    assert vars(copied)["foca"] == config
+
+
+def test_config_attribute_missing() -> None:
+    """Without a configuration, the attribute is missing, without warning."""
+    app = create_connexion_app(Config()).app
+    del vars(app.config)["foca"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert not hasattr(app.config, "foca")
+
+
+def test_config_attribute_class_reused() -> None:
+    """Apps share the class of their Flask configurations."""
+    first = create_connexion_app(Config()).app
+    second = create_connexion_app(Config()).app
+    assert type(first.config) is type(second.config)
+    access.set_app_config(first, Config())
+    assert type(first.config) is type(second.config)
+
+
+def test_custom_config_class(recwarn: pytest.WarningsRecorder) -> None:
+    """Apps with their own class of Flask configuration keep it, without warning."""
+
+    class AppConfig(flask.Config):
+        """Flask configuration of an app."""
+
+    class App(Flask):
+        """Flask app with its own configuration class."""
+
+        config_class = AppConfig
+
+    app = App(__name__)
+    config = Config()
+    access.set_app_config(app, config)
+    assert type(app.config) is AppConfig
+    assert app.config.foca is config  # type: ignore[attr-defined]  # dynamic attribute
+    assert access._get_app_config(app) is config
+    assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning)]
 
 
 @pytest.fixture

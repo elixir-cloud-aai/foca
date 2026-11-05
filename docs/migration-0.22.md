@@ -55,6 +55,44 @@ class, except for `werkzeug.exceptions.Forbidden`, which is the same class as
 `AccessDeniedProblem` for now, so replace it yourself; they stop working with the first
 release candidate on ASGI.
 
+## Configuration access
+
+`foca.get_config()` and `foca.get_custom_config()` are the only supported ways
+to read the configuration in apps. Nothing breaks in this release, but the
+following are deprecated, emit a `DeprecationWarning` and are removed with the
+first release candidate on ASGI, which has no Flask app to attach the
+configuration to:
+
+| Instead of | Use |
+| --- | --- |
+| `current_app.config.foca`, `app.config.foca` | `get_config()`, in the app context of the app if it isn't the current one |
+| `foca.config.access.get_app_config(app)` | `get_config()`, as above |
+| `current_app.config.foca.custom` | `get_custom_config(MyCustomConfig)`, typed |
+| Setting `app.config.foca` | Change the configuration that `get_config()` returns, e.g., `get_config().db = ...` |
+
+`get_config()` returns the configuration of the current app, or, outside app
+contexts (e.g., in Celery workers or scripts), that of the most recently
+created FOCA app. Where you passed an app that isn't the current one, e.g., in
+tests, enter its app context:
+
+```python
+# Before
+config = get_app_config(app)
+# After
+with app.app_context():
+    config = get_config()
+```
+
+To find remaining uses, run your tests with
+`-W error::DeprecationWarning` or search for `config.foca` and
+`get_app_config`.
+
+To warn, FOCA gives Flask configurations of Flask's own class (as Connexion
+creates them) a subclass of it until the attribute is removed:
+`isinstance(app.config, flask.Config)` holds, but `type(app.config) is
+flask.Config` doesn't. Apps with a configuration class of their own
+(`config_class`) keep it, and `app.config.foca` doesn't warn there.
+
 ## Request and claims accessors
 
 Nothing breaks. To prepare for the release on ASGI, where Flask's request and

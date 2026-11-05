@@ -23,7 +23,7 @@ from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.exceptions import Unauthorized as AnyUnauthorized
 from werkzeug.http import quote_header_value
 
-from foca.config.access import get_app_config, get_config
+from foca.config.access import _get_app_config, get_config
 from foca.errors import Unauthorized
 from foca.models.config import (
     NAMESPACE_SEPARATOR,
@@ -650,7 +650,7 @@ def require_no_service_clients(app: Flask | None = None) -> None:
         RuntimeError: Service clients or the header naming the users they
             act for are configured for the app.
     """
-    config = get_config() if app is None else get_app_config(app)
+    config = get_config() if app is None else _get_app_config(app)
     auth = config.security.auth
     if auth.service_clients or auth.on_behalf_of_header is not None:
         raise RuntimeError(

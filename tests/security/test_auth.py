@@ -18,7 +18,7 @@ from flask.globals import request_ctx
 from pydantic import ValidationError
 
 from foca.config import access
-from foca.config.access import get_app_config, set_app_config
+from foca.config.access import _get_app_config, set_app_config
 from foca.models.config import AuthConfig, Config, ServiceClientConfig
 from foca.security import auth
 from foca.security.auth import (
@@ -142,9 +142,8 @@ def make_app(**auth_conf: Any) -> Flask:
     """Create Flask app with FOCA config."""
     app = Flask(__name__)
     auth_conf = {"issuers": [ISSUER], "audience": [AUDIENCE], **auth_conf}
-    app.config.foca = Config.model_validate(  # type: ignore[attr-defined]  # dynamic attribute
-        {"security": {"auth": auth_conf}}
-    )
+    conf = Config.model_validate({"security": {"auth": auth_conf}})
+    set_app_config(app, conf)
     return app
 
 
@@ -181,7 +180,7 @@ class TestValidateToken:
         app = make_app()
         validate(app, make_token())
         validate(app, make_token())
-        assert calls == [get_app_config(app).security.auth]
+        assert calls == [_get_app_config(app).security.auth]
 
     def test_no_claims_logged(
         self, idp: MagicMock, monkeypatch: pytest.MonkeyPatch

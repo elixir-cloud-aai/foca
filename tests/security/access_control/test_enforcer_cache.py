@@ -18,6 +18,7 @@ from flask.globals import request_ctx
 from pymongo import MongoClient
 from pymongo.collection import Collection
 
+from foca.config.access import set_app_config
 from foca.models.config import Config
 from foca.security.access_control import (
     add_resource_role,
@@ -982,7 +983,7 @@ def test_policy_changes_default() -> None:
 def _create_app(collection: Collection[dict[str, Any]]) -> Flask:
     """Create an app instance with policies in a collection."""
     app = Flask(__name__)
-    app.config.foca = Config.model_validate(  # type: ignore[attr-defined]  # dynamic attribute
+    conf = Config.model_validate(
         {
             "security": {
                 "auth": {"issuers": [ISSUER], "audience": ["foca"]},
@@ -990,6 +991,7 @@ def _create_app(collection: Collection[dict[str, Any]]) -> Flask:
             }
         }
     )
+    set_app_config(app, conf)
     app.config["CASBIN_MODEL"] = RESOURCE_ROLE_MODEL
     app.config["casbin_adapter"] = Adapter(
         collection=collection, model=RESOURCE_ROLE_MODEL

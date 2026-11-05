@@ -220,7 +220,10 @@ Inside an application context, `get_config()` returns the configuration of
 that app; otherwise (e.g., in Celery workers or scripts), that of the most
 recently created FOCA app. It raises a `RuntimeError` if no FOCA app has been
 created. Outside of apps, the configuration is also available as
-`Foca(...).conf`, and inside apps also as `current_app.config.foca`.
+`Foca(...).conf`. Read it in apps only via `get_config()` and
+`get_custom_config()`: `current_app.config.foca` and
+`foca.config.access.get_app_config()` are deprecated (see [Migrating to
+0.22.0](../migration-0.22.md#configuration-access)).
 
 ::: foca.models.config.Config
     options:

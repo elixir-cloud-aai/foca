@@ -37,10 +37,10 @@ from functools import wraps
 from inspect import unwrap
 from typing import Any, NamedTuple
 
-from flask import Flask, current_app, g, request
+from flask import Flask, g, request
 
 from foca.api.routes import get_routes, match
-from foca.config.access import get_app_config
+from foca.config.access import get_config
 from foca.errors import BadRequest, Forbidden, NotFound
 
 # Internal helpers of the same package: whether traffic is logged (as for
@@ -384,7 +384,7 @@ def getResourceRoles(
         return roles
     roles.sort(key=lambda role: (role["subject_type"], role["subject"], role["role"]))
     headers: dict[str, str] = {}
-    if get_app_config(current_app).server.public_url is not None:
+    if get_config().server.public_url is not None:
         headers["Link"] = get_link_header(get_page_links(page, total=len(roles)))
     return roles[page.offset : page.offset + page.limit], 200, headers
 

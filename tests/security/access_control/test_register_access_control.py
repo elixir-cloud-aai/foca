@@ -16,6 +16,7 @@ from connexion import App
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
+from foca.config.access import _get_app_config
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
     AccessControlConfig,
@@ -548,7 +549,7 @@ class TestRegisterAccessControlSetup:
                 mongo_config=mongo_config,
                 access_control_config=access_control_config,
             )
-            mongo_config = cnx_app.app.config.foca.db
+            mongo_config = _get_app_config(cnx_app.app).db
         assert mongo_config is not None
         return mongo_config
 

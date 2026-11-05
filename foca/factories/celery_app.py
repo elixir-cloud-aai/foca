@@ -10,7 +10,7 @@ from celery.schedules import ParseException, crontab
 from celery.signals import worker_init, worker_process_init
 from flask import Flask
 
-from foca.config.access import get_app_config
+from foca.config.access import _get_app_config
 from foca.config.environment import get_env
 from foca.database.register_mongodb import reopen_mongodb
 from foca.models.config import PeriodicJobConfig
@@ -88,7 +88,7 @@ def create_celery_app(app: Flask) -> Celery:
     Returns:
         Celery application instance.
     """
-    config = get_app_config(app)
+    config = _get_app_config(app)
     conf = config.jobs
     if conf is None:
         raise ValueError("No background task support configured")
