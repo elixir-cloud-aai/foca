@@ -132,10 +132,8 @@ def _unauthorized(description: str, invalid_token: bool = True) -> Unauthorized:
         if invalid_token
         else None
     )
-    return Unauthorized(
-        description,
-        www_authenticate=_BearerChallenge("bearer", parameters),
-    )
+    challenge = _BearerChallenge("bearer", parameters).to_header()
+    return Unauthorized(description, headers={"WWW-Authenticate": challenge})
 
 
 def validate_token(token: str) -> dict[str, Any]:

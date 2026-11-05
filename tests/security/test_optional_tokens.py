@@ -470,9 +470,12 @@ def test_raw_unauthorized_of_validation(exception: Any, kept: bool) -> None:
                 wrapped()
 
 
-def test_unauthorized_keeps_werkzeug_challenge() -> None:
-    """Apps can read the challenge from `www_authenticate`, as in Werkzeug."""
-    challenge = auth._unauthorized("rejected").www_authenticate
-    assert challenge is not None
-    assert next(iter(challenge)).parameters["error"] == "invalid_token"
-    assert auth._unauthorized("down", invalid_token=False).www_authenticate
+def test_unauthorized_challenge_in_headers(recwarn: pytest.WarningsRecorder) -> None:
+    """The challenge is in `headers`, not in the deprecated `www_authenticate`."""
+    exc = auth._unauthorized("rejected")
+    assert [name for name, _ in exc.headers] == ["WWW-Authenticate"]
+    assert auth._has_invalid_token_challenge(exc)
+    assert not auth._has_invalid_token_challenge(
+        auth._unauthorized("down", invalid_token=False)
+    )
+    assert not recwarn.list

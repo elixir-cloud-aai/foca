@@ -24,8 +24,26 @@ Raise and map the classes of `foca.errors` rather than those of Werkzeug and Con
 | `connexion.exceptions.ExtraParameterProblem` | `foca.errors.ExtraParameterProblem` |
 | `connexion.exceptions.OAuthProblem` | `foca.errors.AuthenticationProblem` |
 
-Other arguments of the Werkzeug classes (`valid_methods`, `www_authenticate`,
-`retry_after`) are keywords in the new classes, e.g., `MethodNotAllowed(valid_methods=["GET"])`.
+Other arguments of the Werkzeug classes (`valid_methods`, `retry_after`) are
+keywords in the new classes, e.g., `MethodNotAllowed(valid_methods=["GET"])`.
+
+### Challenges in `headers`
+
+`foca.errors.Unauthorized` carries its `WWW-Authenticate` challenges in
+`headers`, like any other header, also those of FOCA's token validation and
+access control. Werkzeug's `www_authenticate` is deprecated on this class:
+
+- Pass challenges as headers, e.g.,
+  `Unauthorized(headers={"WWW-Authenticate": 'Bearer error="invalid_token"'})`,
+  instead of `Unauthorized(www_authenticate=...)`.
+- Read them from `exc.get_headers()` instead of `exc.www_authenticate`, e.g.,
+  to tell an invalid token (`Bearer error="invalid_token"`) from other
+  rejections.
+
+Both still work, with a `DeprecationWarning`: the argument adds its
+challenges to `headers`, and the attribute returns those of `headers`
+(`None` if there are none). They are removed with the first release
+candidate on ASGI.
 
 Exception maps with raw Werkzeug classes keep working, but FOCA logs a warning, once per
 class, except for `werkzeug.exceptions.Forbidden`, which is the same class as
