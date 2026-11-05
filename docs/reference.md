@@ -299,6 +299,14 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.utils.misc
 
+::: foca.api.routes
+    options:
+      members:
+        - Route
+        - RouteMatch
+        - get_routes
+        - match
+
 ::: foca.utils.urls
     options:
       members:

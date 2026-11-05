@@ -40,6 +40,7 @@ from typing import Any, NamedTuple
 from flask import Flask, current_app, request
 from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
+from foca.api.routes import get_routes, match
 from foca.config.access import get_app_config
 
 # Internal helpers of the same package: whether traffic is logged (as for
@@ -97,12 +98,11 @@ def _require_enforcement(fn: Callable[..., Any]) -> Callable[..., Any]:
 
     @wraps(fn)
     def _wrapper(*args: Any, **kwargs: Any) -> Any:
-        rule = request.url_rule
-        view = None if rule is None else current_app.view_functions.get(rule.endpoint)
-        if view is None or not _enforces_access_control(view):
+        found = match(request.path, request.method)
+        if found is None or not _enforces_access_control(found.route.function):
             message = (
                 "Access control policies are not enforced on route "
-                f"'{request.method} {getattr(rule, 'rule', None)}', so "
+                f"'{request.method} {found.route.rule if found else None}', so "
                 f"controller '{fn.__name__}' refuses requests"
             )
             logger.error(escape_log_value(message))
@@ -136,14 +136,15 @@ def _get_route() -> _Route:
     Raises:
         RuntimeError: The current request was not routed via a URL rule.
     """
-    rule = request.url_rule
-    if rule is None or request.view_args is None:
+    found = match(request.path, request.method)
+    if found is None:
         raise RuntimeError("The current request was not routed via a URL rule")
+    rule = found.route.rule
     variables = [
-        (match.group(1), match.start(), match.end())
-        for match in _RULE_VARIABLE.finditer(rule.rule)
+        (variable.group(1), variable.start(), variable.end())
+        for variable in _RULE_VARIABLE.finditer(rule)
     ]
-    return _Route(rule.rule, variables, request.view_args)
+    return _Route(rule, variables, found.params)
 
 
 def _get_resource(with_subject: bool) -> str:
@@ -518,18 +519,11 @@ def _check_routes_enforced(app: Flask) -> None:
     """
     controllers = {unwrap(controller): controller for controller in _CONTROLLERS}
     unenforced = []
-    for rule in app.url_map.iter_rules():
-        view = app.view_functions[rule.endpoint]
-        controller = controllers.get(unwrap(view))
-        if controller is None or _enforces_access_control(view):
+    for route in get_routes(app):
+        controller = controllers.get(unwrap(route.function))
+        if controller is None or _enforces_access_control(route.function):
             continue
-        # Methods of operations, without those Flask adds itself (`OPTIONS`,
-        # and `HEAD` for `GET`), unless the operation is one of them
-        methods = rule.methods or set()
-        for method in sorted(
-            methods - _AUTOMATIC_METHODS or methods - {"OPTIONS"} or methods
-        ):
-            unenforced.append(f"{method} {rule.rule} ({controller.__name__})")
+        unenforced.append(f"{route.method} {route.rule} ({controller.__name__})")
     if unenforced:
         raise ValueError(
             "Access control policies are not enforced on operations routed to "

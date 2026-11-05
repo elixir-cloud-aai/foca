@@ -13,7 +13,6 @@ from connexion import App
 from connexion.resolver import Resolver
 from flask import Flask
 from pymongo.errors import PyMongoError
-from werkzeug.exceptions import HTTPException
 
 from foca.api.register_openapi import (
     _connexion_add_api_kwargs,
@@ -23,6 +22,7 @@ from foca.api.register_openapi import (
     _rejects_invalid_tokens,
     _set_error_media_type,
 )
+from foca.api.routes import get_routes, match
 from foca.api.validation import BodyValidator, StrictParametersResolver
 from foca.config.access import get_app_config
 from foca.database.register_mongodb import (
@@ -767,22 +767,18 @@ def _check_me_path(app: Flask, path: str) -> None:
     Raises:
         ValueError: It is the path of a `GET` route of the app.
     """
-    if any(
-        rule.rule == path and "GET" in (rule.methods or ())
-        for rule in app.url_map.iter_rules()
-    ):
+    if any(route.rule == path and route.method == "GET" for route in get_routes(app)):
         raise ValueError(
             f"'security.access_control.me_path' is taken by another route: '{path}'"
         )
-    try:
-        rule, _ = app.url_map.bind("").match(path, method="GET", return_rule=True)
-    except HTTPException:
+    found = match(path, "GET", app)
+    if found is None:
         return
     logger.warning(
         "'security.access_control.me_path' ('%s') takes precedence over the route "
         "'%s' for that path.",
         path,
-        rule.rule,
+        found.route.rule,
     )
 
 

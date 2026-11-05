@@ -10,6 +10,7 @@ from connexion import App
 from flask import current_app, request, url_for
 from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 
+from foca.api.routes import _install_route_table
 from foca.config.access import set_app_config
 from foca.context import RequestIdMiddleware
 from foca.models.config import Config
@@ -43,6 +44,7 @@ def create_connexion_app(config: Config | None = None) -> App:
         skip_error_handlers=True,
     )
     app.app.url_build_error_handlers.append(_build_root_spec_url)
+    _install_route_table(app)
     logger.debug("Connexion app created.")
 
     # Configure Connexion app

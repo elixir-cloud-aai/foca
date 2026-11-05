@@ -190,6 +190,32 @@ request paths, not percent-encoded. They work during requests and on startup.
 See [checking other paths](access-control.md#checking-other-paths) for
 examples.
 
+## Finding the route of a path
+
+`foca.api.routes` knows the routes to the operations of an app's specifications, from
+the moment they are registered, so also on startup and outside of requests (with the
+Flask app as last argument, or in its context). Use it rather than the routes of the web
+framework, which won't be there in later versions:
+
+```python
+from foca.api.routes import get_routes, match
+
+found = match("/ga4gh/tes/v1/tasks/123", "GET")
+if found is not None:
+    found.route.path  # "/ga4gh/tes/v1/tasks/{id}"
+    found.route.operation_id  # "GetTask"
+    found.params  # {"id": "123"}
+```
+
+`match()` returns what a request would be routed to, or `None`, e.g., if the path would
+redirect. Path templates include the base path of the API and exclude the root path of
+the app (`SCRIPT_NAME` or ASGI's `root_path`); paths to match are request paths, with the
+same parts and not percent-encoded, as in [access control
+policies](access-control.md#checking-other-paths). A route's `function` is what the
+resolver returned, with FOCA's wrappers: `inspect.unwrap()` gives the controller. Routes
+that aren't operations, e.g., of the Swagger UI or added to Flask directly, aren't
+included.
+
 ## Logging requests and responses
 
 Decorate controllers with `log_traffic` to log requests and responses:

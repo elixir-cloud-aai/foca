@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from flask import Flask
 from werkzeug.exceptions import InternalServerError
 
+from foca.api.routes import get_routes
 from foca.config.access import get_config
 from foca.utils.logging import log_traffic_if
 from foca.utils.service_info import (
@@ -171,9 +172,7 @@ def _routes_to_controller(app: Flask) -> list[str]:
     """
     controller = unwrap(getServiceInfo)
     return sorted(
-        rule.rule
-        for rule in app.url_map.iter_rules()
-        if unwrap(app.view_functions[rule.endpoint]) is controller
+        route.rule for route in get_routes(app) if unwrap(route.function) is controller
     )
 
 

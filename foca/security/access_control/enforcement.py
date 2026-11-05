@@ -16,9 +16,8 @@ from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, Response, current_app, has_request_context, request
 from flask.globals import request_ctx
-from werkzeug.exceptions import HTTPException
-from werkzeug.routing.exceptions import RoutingException
 
+from foca.api.routes import _match_rule
 from foca.audit import log as audit_log
 from foca.config.access import get_config
 from foca.security.access_control.constants import (
@@ -60,7 +59,6 @@ _ENFORCER_CACHE_KEY = "foca_enforcer_cache"
 _enforcer_cache_lock = threading.Lock()
 
 # End of the rule of Connexion's route for authenticating all paths
-_CATCH_ALL_RULE_SUFFIX = "/<path:invalid_path>"
 
 # Attribute marking the wrappers of `enforce_access_control()`
 _ENFORCING_ATTRIBUTE = "_foca_enforces_access_control"
@@ -863,23 +861,11 @@ def is_permitted_for(path: str, method: str = "GET") -> bool:
         start with one slash).
     """
     method = method.upper()
-    # Werkzeug would normalize these, unlike requests
-    if not method or not path.startswith("/") or path.startswith("//"):
+    found = _match_rule(path, method)
+    if found is None:
         return False
-    # No host-specific routes: FOCA's APIs don't have any
-    try:
-        rule, _ = current_app.url_map.bind("localhost").match(
-            path, method=method, return_rule=True
-        )
-    except (HTTPException, RoutingException):
-        return False
-    # Connexion's route for authenticating all paths (`auth_all_paths`) serves
-    # no operation, it only responds with `404`
-    if rule.rule.endswith(_CATCH_ALL_RULE_SUFFIX):
-        return False
-    if (method == "OPTIONS" and getattr(rule, "provide_automatic_options", False)) or (
-        not _enforces_access_control(current_app.view_functions[rule.endpoint])
-    ):
+    (route, _), automatic = found
+    if automatic or not _enforces_access_control(route.function):
         return True
     client = _get_current_service_client()
     subject = get_current_subject() if client is None else client.client_id
