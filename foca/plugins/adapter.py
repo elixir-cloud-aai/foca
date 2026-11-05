@@ -8,14 +8,17 @@ The plugin host itself is reached without the framework (cf.
 Flask) replaces this module and keeps its function names and signatures.
 """
 
+import codecs
 import uuid
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
-from flask import has_request_context, request
 from flask.wrappers import Response
 from werkzeug.exceptions import HTTPException
+from werkzeug.http import parse_options_header
 
 from foca.api.routes import match
+from foca.context import _get_request_key, current_request
 from foca.context import request_id as get_request_id
 from foca.errors.exceptions import problem_response
 from foca.plugins.engine import GatewayError
@@ -27,6 +30,31 @@ from foca.security.access_control.enforcement import (
     get_current_subject,
     get_on_behalf_of_user,
 )
+
+# Error handler leaving bytes that aren't UTF-8 percent-encoded, as Werkzeug
+# does for query parameters
+_INVALID_UTF8 = "foca.plugins.percent_encode"
+
+
+def _percent_encode(exc: UnicodeError) -> tuple[str, int]:
+    """Percent-encode bytes that can't be decoded.
+
+    Args:
+        exc: Error of decoding.
+
+    Returns:
+        The bytes, percent-encoded, and where to continue decoding.
+
+    Raises:
+        UnicodeError: Raised for errors other than of decoding.
+    """
+    if not isinstance(exc, UnicodeDecodeError):
+        raise exc
+    invalid = exc.object[exc.start : exc.end]
+    return "".join(f"%{byte:02X}" for byte in invalid), exc.end
+
+
+codecs.register_error(_INVALID_UTF8, _percent_encode)
 
 
 def request_id() -> str:
@@ -56,10 +84,11 @@ def current_principal() -> Principal:
         foca.errors.Forbidden: A service client names a user, but
             is not allowed to act for users (`403`).
     """
-    if not has_request_context():
+    if _get_request_key() is None:
         return Principal()
     claims = get_current_claims()
-    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+    authorization = current_request().headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
     issuer = claims.get("iss")
     client = get_current_client()
     return Principal(
@@ -83,36 +112,56 @@ def inbound_from_request(payload: Any, route: str | None = None) -> InboundReque
     Args:
         payload: Parsed body, as injected by Connexion (e.g., the `body`
             argument of the controller).
-        route: Path template of the operation; defaults to Flask's URL rule.
+        route: Path template of the operation; defaults to its URL rule
+            (e.g., `/tasks/<id>`), else the request path.
 
     Returns:
         Inbound request, with a copy of the query parameters and of the
-        headers (repeated fields combined) without credentials (cf.
+        headers (repeated fields combined, names in title case, as WSGI
+        servers give them) without credentials (cf.
         :py:data:`foca.plugins.model.CREDENTIAL_HEADERS`).
     """
+    request = current_request()
     # repeated field lines are combined (RFC 9110, section 5.3)
-    fields: dict[str, list[str]] = {}
-    names: dict[str, str] = {}
-    for name, value in request.headers.items():
-        key = name.lower()
-        if key not in CREDENTIAL_HEADERS:
-            names.setdefault(key, name)
-            fields.setdefault(key, []).append(value)
-    headers = Headers({names[key]: ", ".join(values) for key, values in fields.items()})
+    headers = Headers(
+        {
+            name.title(): ", ".join(request.headers.getlist(name))
+            for name in request.headers
+            if name not in CREDENTIAL_HEADERS
+        }
+    )
     found = match(request.path, request.method)
     rule = found.route.rule if found is not None else request.path
     return InboundRequest(
-        method=request.method.upper(),
+        method=request.method,
         path=request.path,
         route=route if route is not None else rule,
-        path_params={
-            key: str(value) for key, value in (request.view_args or {}).items()
-        },
-        query={key: request.args.getlist(key) for key in request.args},
+        path_params={key: str(value) for key, value in request.path_params.items()},
+        query=_get_query(request.url),
         headers=headers,
-        media_type=request.mimetype or "",
+        media_type=parse_options_header(request.headers.get("Content-Type", ""))[
+            0
+        ].lower(),
         payload=payload,
     )
+
+
+def _get_query(url: str) -> dict[str, list[str]]:
+    """Get the query parameters of a URL.
+
+    Args:
+        url: URL, percent-encoded (cf. :py:attr:`foca.context.RequestSnapshot.url`).
+
+    Returns:
+        Values of each parameter, in order, decoded as by Werkzeug: `+` as
+        space, blank values kept, invalid UTF-8 left percent-encoded.
+    """
+    query: dict[str, list[str]] = {}
+    for key, value in parse_qsl(
+        urlsplit(url).query, keep_blank_values=True, errors=_INVALID_UTF8
+    ):
+        query.setdefault(key, []).append(value)
+    return query
 
 
 def problem(exc: GatewayError) -> Response:

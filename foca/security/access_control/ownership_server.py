@@ -37,10 +37,11 @@ from functools import wraps
 from inspect import unwrap
 from typing import Any, NamedTuple
 
-from flask import Flask, g, request
+from flask import Flask, g
 
 from foca.api.routes import get_routes, match
 from foca.config.access import get_config
+from foca.context import _get_request_key, current_request
 from foca.errors import BadRequest, Forbidden, NotFound
 
 # Internal helpers of the same package: whether traffic is logged (as for
@@ -97,13 +98,14 @@ def _require_enforcement(fn: Callable[..., Any]) -> Callable[..., Any]:
 
     @wraps(fn)
     def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        request = current_request()
         found = match(request.path, request.method)
         # The mark, as a route outside of the table may have the same path, so
         # that the route found isn't the one that served the request
         if (
             found is None
             or not _enforces_access_control(found.route.function)
-            or getattr(g, _ENFORCED_MARK, None) is not request._get_current_object()  # type: ignore[attr-defined]
+            or getattr(g, _ENFORCED_MARK, None) is not _get_request_key()
         ):
             message = (
                 "Access control policies are not enforced on route "
@@ -141,6 +143,7 @@ def _get_route() -> _Route:
     Raises:
         RuntimeError: The current request was not routed via a URL rule.
     """
+    request = current_request()
     found = match(request.path, request.method)
     if found is None:
         raise RuntimeError("The current request was not routed via a URL rule")
@@ -366,7 +369,7 @@ def getResourceRoles(
             caller is an admin and `exists` returned `True`.
     """
     # Parameters of the path name the resource, whatever they are called
-    path_parameters = request.view_args or {}
+    path_parameters = current_request().path_params
     q = None if "q" in path_parameters else q
     limit = None if "limit" in path_parameters else limit
     offset = None if "offset" in path_parameters else offset

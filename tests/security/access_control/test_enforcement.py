@@ -988,6 +988,25 @@ class TestSelfService:
         assert client.put(url, json=payload, headers=headers).status_code == 403
         assert client.delete(url, headers=headers).status_code == 403
 
+    def test_writes_get_body(self, app: Flask) -> None:
+        """Admins add and change rules with the body that Connexion passes."""
+        client = app.test_client()
+        headers = _headers("carol")
+        rule = {"v0": "user:x", "v1": "/a", "v2": "GET"}
+        response = client.post(
+            self.url, json={"policy_type": "p", "rule": rule}, headers=headers
+        )
+        assert response.status_code == 200
+        rule_id = _json(response)
+        assert self._id(app, v0="user:x", v1="/a") == rule_id
+        response = client.put(
+            f"{self.url}/{rule_id}",
+            json={"policy_type": "p", "rule": {**rule, "v2": "PUT"}},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert self._id(app, v0="user:x", v2="PUT") == rule_id
+
     @pytest.mark.parametrize("self_service", [False, True])
     def test_owners_manage_access(self, tmp_path: Path, self_service: bool) -> None:
         """Owners grant roles on their resources via app endpoints."""

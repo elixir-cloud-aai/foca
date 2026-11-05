@@ -16,14 +16,14 @@ import requests
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from cryptography.hazmat.primitives import serialization
-from flask import Flask, g, has_request_context, request
-from flask.globals import request_ctx
+from flask import Flask, g
 from jwt.types import Options
 from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.exceptions import Unauthorized as AnyUnauthorized
 from werkzeug.http import quote_header_value
 
 from foca.config.access import _get_app_config, get_config
+from foca.context import _get_request_key, _get_token_info, current_request
 from foca.errors import Unauthorized
 from foca.models.config import (
     NAMESPACE_SEPARATOR,
@@ -137,27 +137,6 @@ def _unauthorized(description: str, invalid_token: bool = True) -> Unauthorized:
     return Unauthorized(description, headers={"WWW-Authenticate": challenge})
 
 
-def _get_token_info() -> dict[str, Any]:
-    """Get the token info of the current request, without copying it.
-
-    For FOCA's own reads; callers must not change it.
-
-    Returns:
-        Token info that Connexion's security handler got for the current
-        request, or an empty dictionary if there is no request, the request
-        was not handled by Connexion, or no token was validated.
-    """
-    if not has_request_context():
-        return {}
-    # Connexion stores the request's context (including validated token
-    # info) on Flask's request context (cf. `connexion.context`)
-    connexion_context = getattr(request_ctx, "connexion_context", None)
-    if connexion_context is None:
-        return {}
-    token_info = connexion_context.get("token_info")
-    return token_info if isinstance(token_info, dict) else {}
-
-
 def _get_claims() -> dict[str, Any]:
     """Get the claims of the current request, without copying them.
 
@@ -238,10 +217,10 @@ def validate_token(token: str) -> dict[str, Any]:
     except AnyUnauthorized as exc:
         # Kept, so that it needn't be validated again (cf.
         # `_reject_invalid_token()`)
-        if has_request_context():
+        if _get_request_key() is not None:
             setattr(g, _TOKEN_ERROR_ATTRIBUTE, exc)
         raise
-    if has_request_context():
+    if _get_request_key() is not None:
         setattr(g, _TOKEN_VALID_ATTRIBUTE, True)
     # Logs the issuer and subject only, not the token (a false positive of
     # semgrep's registry rules, `p/python`)
@@ -270,7 +249,7 @@ def _get_bearer_token() -> str | None:
         (in any case, cf. RFC 6750; empty if it has none), or `None`. Split
         at any whitespace, as Connexion does.
     """
-    parts = request.headers.get("Authorization", "").split(None, 1)
+    parts = current_request().headers.get("Authorization", "").split(None, 1)
     if not parts or parts[0].lower() != "bearer":
         return None
     return parts[1].strip() if len(parts) > 1 else ""

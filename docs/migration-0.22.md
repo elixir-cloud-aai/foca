@@ -110,6 +110,13 @@ Take path, query and body parameters, e.g., instead of `request.json` or
 `request.args`, from the arguments that Connexion passes to controllers. See
 [Reading the current request](utilities.md#reading-the-current-request).
 
+FOCA's own access control, resource ownership, token validation and plugin
+gateway read the request in the same way. The controllers of the permissions
+API, `postPermission()` and `putPermission()`, take the rule as the request
+body that Connexion passes as `body`: apps that route operations of their own
+specifications to them must keep the default name of the body, i.e., not set
+`x-body-name`, and tests calling them directly pass the rule as `body`.
+
 ## Invalid fields in `400` responses
 
 Nothing breaks: responses to invalid requests keep their `title`, `status`

@@ -9,7 +9,7 @@ from math import ceil
 from typing import Any, NoReturn
 
 from casbin.model import Model
-from flask import current_app, request
+from flask import current_app
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -104,8 +104,11 @@ def _get_visibility_filter() -> dict[str, Any]:
     return {"v0": {"$in": [*_get_current_policy_subjects(), "*"]}}
 
 
-def _get_rule() -> tuple[str, list[str]]:
-    """Get and validate policy rule from request payload.
+def _get_rule(body: Any) -> tuple[str, list[str]]:
+    """Get and validate the policy rule of a request body.
+
+    Args:
+        body: Request body, as Connexion passes it.
 
     Returns:
         Policy type and values of the rule.
@@ -118,14 +121,11 @@ def _get_rule() -> tuple[str, list[str]]:
             or values are missing, or it is a role rule that grants an
             opt-in role (cf. :py:func:`grants_opt_in_role`).
     """
-    request_json = request.get_json(silent=True)
-    if not isinstance(request_json, dict) or not isinstance(
-        request_json.get("rule"), dict
-    ):
+    if not isinstance(body, dict) or not isinstance(body.get("rule"), dict):
         logger.error("Invalid request payload.")
         raise BadRequest
-    ptype = request_json.get("policy_type")
-    rule = request_json["rule"]
+    ptype = body.get("policy_type")
+    rule = body["rule"]
     keys = [f"v{index}" for index in range(MAX_RULE_VALUES)][: len(rule)]
     try:
         if set(rule) != set(keys):
@@ -211,13 +211,19 @@ def _to_permission(document: dict[str, Any]) -> dict[str, Any]:
 
 
 @log_traffic_if(_permissions_traffic_logged)
-def postPermission() -> str:
+def postPermission(body: Any = None) -> str:
     """Method to register new permissions.
+
+    Args:
+        body: Permission to add, as Connexion passes the request body.
 
     Returns:
         Identifier of the new permission added.
+
+    Raises:
+        foca.errors.BadRequest: The rule is invalid.
     """
-    ptype, values = _get_rule()
+    ptype, values = _get_rule(body)
     permission_id = current_app.config["casbin_adapter"].save_policy_line(
         ptype=ptype,
         rule=values,
@@ -229,11 +235,13 @@ def postPermission() -> str:
 @log_traffic_if(_permissions_traffic_logged)
 def putPermission(
     id: str,
+    body: Any = None,
 ) -> str:
     """Update permission with a user-supplied ID.
 
     Args:
         id: Identifier of permission to be updated.
+        body: Permission, as Connexion passes the request body.
 
     Returns:
         Identifier of updated permission.
@@ -249,7 +257,7 @@ def putPermission(
     if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
         logger.error("Invalid policy rule identifier: '%s'", escape_log_value(id))
         raise BadRequest
-    ptype, values = _get_rule()
+    ptype, values = _get_rule(body)
     _check_not_configured(id)
     previous = _get_stored_rule(id)
     try:

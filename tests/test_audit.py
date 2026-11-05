@@ -497,8 +497,8 @@ class TestPermissionsApi:
         self, permissions_app: Flask, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Added rules are logged."""
-        with permissions_app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
-            permission_id = unwrap(postPermission)()
+        with permissions_app.test_request_context():
+            permission_id = unwrap(postPermission)(body=deepcopy(MOCK_PERMISSION))
         event = _events(caplog)[0]
         assert event["action"] == "permission.create"
         assert event["target"] == permission_id
@@ -509,8 +509,8 @@ class TestPermissionsApi:
         self, permissions_app: Flask, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Updated rules are logged."""
-        with permissions_app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
-            unwrap(putPermission)(id=MOCK_ID)
+        with permissions_app.test_request_context():
+            unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
         event = _events(caplog)[0]
         assert event["action"] == "permission.create"
         assert event["target"] == MOCK_ID
@@ -527,8 +527,8 @@ class TestPermissionsApi:
         collection.insert_one(
             {"id": MOCK_ID, "ptype": "p", "v0": "bob", "v1": "x", "v2": "GET"}
         )
-        with permissions_app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
-            unwrap(putPermission)(id=MOCK_ID)
+        with permissions_app.test_request_context():
+            unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
         event = _events(caplog)[0]
         assert event["action"] == "permission.update"
         assert event["rule"] == ["alice", "data1", "POST"]
@@ -565,18 +565,18 @@ class TestPermissionsApi:
         collection.insert_one(
             {**deepcopy(MOCK_RULE), "id": "configured", "configured": True}
         )
-        with permissions_app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
+        with permissions_app.test_request_context():
             with pytest.raises(BadRequest):
-                unwrap(putPermission)(id="x")
+                unwrap(putPermission)(id="x", body=deepcopy(MOCK_PERMISSION))
             with pytest.raises(NotFound):
                 unwrap(deletePermission)(id=MOCK_ID)
             with pytest.raises(Conflict):
                 unwrap(deletePermission)(id="configured")
         with (
-            permissions_app.test_request_context(json={"policy_type": "p"}),
+            permissions_app.test_request_context(),
             pytest.raises(BadRequest),
         ):
-            unwrap(postPermission)()
+            unwrap(postPermission)(body={"policy_type": "p"})
         assert _events(caplog) == []
 
     def test_values_keep_positions(
