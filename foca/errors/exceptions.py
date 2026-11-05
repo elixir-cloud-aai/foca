@@ -19,7 +19,14 @@ from foca.config.access import get_config
 from foca.errors.classes import (
     AccessDeniedProblem,
     ExtraParameterProblem,
+    InvalidFieldsProblem,
     RequestValidationProblem,
+)
+from foca.errors.fields import (
+    FieldError,
+    add_field_errors,
+    describe_field_errors,
+    unknown_parameters,
 )
 from foca.errors.problems import (
     _RFC_9110_PHRASES,
@@ -281,10 +288,12 @@ def _validation_handler_json(
     """JSON problem handler for Connexion's request validation exceptions.
 
     Registered with `conf.validation_details` (cf.
-    :py:func:`register_exception_handler`). Logs the reason at `INFO`,
-    shortened and escaped (unless disabled via `conf.logging`), instead of
-    the exception, and responds like :py:func:`_problem_handler_json`, with
-    the reason as `detail`.
+    :py:func:`register_exception_handler`). Logs the invalid fields by
+    location and code, if known, otherwise the reason, at `INFO`, shortened
+    and escaped (unless disabled via `conf.logging`), instead of the
+    exception, and responds like :py:func:`_problem_handler_json`, with the
+    reason as `detail` and the invalid fields, if known, as `errors` (cf.
+    :py:func:`foca.errors.fields.add_field_errors`).
 
     Args:
         exception: Exception of Connexion's request validation.
@@ -292,17 +301,27 @@ def _validation_handler_json(
 
     Returns:
         JSON-formatted error response, with the problem details mapped to
-        the exception (cf. :py:func:`build_problem`) and the reason as
-        `detail` (shortened to `conf.max_detail_length`), if any.
+        the exception (cf. :py:func:`build_problem`), the reason as
+        `detail` (shortened to `conf.max_detail_length`), if any, and the
+        invalid fields, if any.
     """
     problem = _resolve_problem(exc=exception, conf=conf)
     reason = _validation_reason(exception)
     if reason is not None:
         problem["detail"] = _shorten(reason, conf.max_detail_length)
+    errors = _field_errors(exception)
+    add_field_errors(problem=problem, errors=errors, max_length=conf.max_detail_length)
     if conf.logging is not ExceptionLoggingEnum.none:
         # Escaped before shortening, so that the logged reason stays within
-        # the maximum length
-        logged = reason if reason is not None else problem.get("detail")
+        # the maximum length; invalid fields are logged without the reason,
+        # which may quote the rejected values
+        logged = (
+            describe_field_errors(errors)
+            if errors
+            else reason
+            if reason is not None
+            else problem.get("detail")
+        )
         logger.info(
             "Request rejected: %s",
             _shorten(
@@ -311,6 +330,25 @@ def _validation_handler_json(
             ),
         )
     return _response(exc=exception, problem=problem, conf=conf)
+
+
+def _field_errors(exception: ProblemException) -> tuple[FieldError, ...]:
+    """Get the invalid fields of a request validation exception.
+
+    Args:
+        exception: Exception of request validation.
+
+    Returns:
+        The invalid fields of an :py:class:`foca.errors.InvalidFieldsProblem`,
+        the unknown parameters of an `ExtraParameterProblem`, otherwise none.
+    """
+    if isinstance(exception, InvalidFieldsProblem):
+        return exception.field_errors
+    if isinstance(exception, ExtraParameterProblem):
+        return tuple(
+            unknown_parameters([*exception.extra_query, *exception.extra_formdata])
+        )
+    return ()
 
 
 def _response_validation_handler_json(
