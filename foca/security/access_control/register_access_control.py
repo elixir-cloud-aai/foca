@@ -23,7 +23,11 @@ from foca.api.register_openapi import (
     _set_error_media_type,
 )
 from foca.api.routes import _install_route_table, get_routes, match
-from foca.api.validation import BodyValidator, StrictParametersResolver
+from foca.api.validation import (
+    BodyValidator,
+    ParameterValidator,
+    StrictParametersResolver,
+)
 from foca.config.access import get_app_config
 from foca.database.register_mongodb import (
     _register_database,
@@ -683,7 +687,7 @@ def register_permission_specs(
     _install_route_table(app)
     api = app.add_api(
         specification=specification,
-        validator_map={"body": BodyValidator},
+        validator_map={"body": BodyValidator, "parameter": ParameterValidator},
         **_connexion_add_api_kwargs(options),
         **base_path,
     )

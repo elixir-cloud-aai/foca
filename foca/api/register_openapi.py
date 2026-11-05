@@ -12,7 +12,11 @@ from connexion import App
 from connexion.exceptions import InvalidSpecification
 
 from foca.api.routes import _install_route_table
-from foca.api.validation import BodyValidator, StrictParametersResolver
+from foca.api.validation import (
+    BodyValidator,
+    ParameterValidator,
+    StrictParametersResolver,
+)
 from foca.config.config_parser import ConfigParser, deep_merge
 from foca.models.config import (
     DEFAULT_ERROR_MEDIA_TYPE,
@@ -560,6 +564,7 @@ def register_openapi(
         # Custom validators of apps win
         connexion_kwargs["validator_map"] = {
             "body": BodyValidator,
+            "parameter": ParameterValidator,
             **connexion_kwargs.get("validator_map", {}),
         }
         try:

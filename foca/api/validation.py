@@ -11,6 +11,11 @@ r"""Stricter checks of requests than those of Connexion 2.
 - Query parameters of operations without parameters are refused with
   `strict_validation`, as Connexion only checks them for operations with
   parameters.
+- All invalid fields of the body, and all invalid parameters, are collected,
+  not only the first (cf. :py:mod:`foca.errors.fields`): rejected requests
+  raise :py:class:`foca.errors.InvalidFieldsProblem`, with the message of
+  Connexion's validator on the first error as `detail`, as before. Parameters
+  are checked before the body, as by Connexion.
 
 To be revisited when moving to Connexion 3 (#188).
 """
@@ -19,12 +24,24 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
-from connexion.decorators.validation import RequestBodyValidator
+from connexion.decorators.validation import (
+    ParameterValidator as ConnexionParameterValidator,
+)
+from connexion.decorators.validation import (
+    RequestBodyValidator,
+    TypeValidationError,
+    coerce_type,
+)
 from connexion.resolver import Resolution, Resolver
 from flask import request
-from jsonschema import Draft4Validator
+from jsonschema import Draft4Validator, draft4_format_checker
 
-from foca.errors import ExtraParameterProblem, RequestValidationProblem
+from foca.errors import (
+    ExtraParameterProblem,
+    InvalidFieldsProblem,
+    RequestValidationProblem,
+)
+from foca.errors.fields import FieldError, schema_field_errors
 from foca.security.resolvers import _normalize_resolver
 from foca.utils.service_info import is_date, is_date_time, is_uri
 
@@ -66,7 +83,10 @@ def _has_unpaired_surrogates(data: object) -> bool:
 
 
 class BodyValidator(RequestBodyValidator):
-    """Validator of request bodies that also refuses unpaired surrogates."""
+    """Validator of request bodies that also refuses unpaired surrogates.
+
+    Collects all invalid fields of bodies that don't match their schema.
+    """
 
     def validate_schema(self, data: Any, url: str) -> Any:
         """Validate a body.
@@ -82,12 +102,143 @@ class BodyValidator(RequestBodyValidator):
             foca.errors.RequestValidationProblem: The body has unpaired
                 surrogates. Doesn't quote them, as the response couldn't be
                 encoded.
+            foca.errors.InvalidFieldsProblem: The body doesn't match its
+                schema; with all invalid fields.
         """
         if _has_unpaired_surrogates(data):
             raise RequestValidationProblem(
                 detail="Request body must not contain unpaired surrogates."
             )
-        return super().validate_schema(data, url)
+        try:
+            return super().validate_schema(data, url)
+        except RequestValidationProblem as exc:
+            # Validated again for all errors only if the body is invalid; the
+            # detail stays Connexion's message on the first error
+            errors = schema_field_errors(self.validator.iter_errors(data))
+            raise InvalidFieldsProblem(errors, detail=exc.detail) from None
+
+
+def _parameter_errors(
+    parameter_type: str, value: Any, param: dict[str, Any]
+) -> list[FieldError]:
+    """Get the invalid fields of an invalid parameter.
+
+    Checks the parameter as Connexion's `ParameterValidator.validate_parameter()`
+    does, but collects all errors.
+
+    Args:
+        parameter_type: Location of the parameter, e.g., `query`.
+        value: Value of the parameter in the request, if any.
+        param: Parameter object of the specification.
+
+    Returns:
+        Entries naming the parameter; a generic one if no error is found
+        (e.g., for files).
+    """
+    name = param["name"]
+    if value is None:
+        return [FieldError(detail="Is required.", code="required", parameter=name)]
+    schema = param.get("schema", param)
+    try:
+        converted = coerce_type(param, value, parameter_type, name)
+    except TypeValidationError:
+        return [
+            FieldError(
+                detail=f"Must be of type {schema.get('type')}.",
+                code="invalid-type",
+                parameter=name,
+            )
+        ]
+    errors: list[FieldError] = []
+    if schema.get("type") != "file":
+        schema = {key: item for key, item in schema.items() if key != "required"}
+        validator = Draft4Validator(schema, format_checker=draft4_format_checker)
+        errors = schema_field_errors(validator.iter_errors(converted), parameter=name)
+    return errors or [FieldError(detail="Is invalid.", code="invalid", parameter=name)]
+
+
+class ParameterValidator(ConnexionParameterValidator):
+    """Validator of parameters that collects all invalid parameters.
+
+    Checks parameters like Connexion's validator, but rejects requests with
+    all invalid parameters, not only the first.
+    """
+
+    def __call__(self, function: Callable[..., Any]) -> Callable[..., Any]:
+        """Wrap a function with the validation of parameters.
+
+        Args:
+            function: Function to wrap.
+
+        Returns:
+            Function validating the parameters of a request first.
+        """
+
+        @wraps(function)
+        def wrapper(request: Any) -> Any:
+            """Validate the parameters of a request.
+
+            Args:
+                request: Connexion request.
+
+            Returns:
+                What the function returns.
+
+            Raises:
+                foca.errors.ExtraParameterProblem: The request has unknown
+                    parameters, with `strict_validation`.
+                foca.errors.InvalidFieldsProblem: Parameters are invalid; with
+                    Connexion's message on the first as `detail`.
+            """
+            if self.strict_validation:
+                query = self.validate_query_parameter_list(request)
+                formdata = self.validate_formdata_parameter_list(request)
+                if formdata or query:
+                    raise ExtraParameterProblem(formdata, query)
+            detail: str | None = None
+            errors: list[FieldError] = []
+            values = {
+                "query": request.query.get,
+                "path": lambda name: request.path_params.get(name.replace("-", "_")),
+                "header": request.headers.get,
+                "cookie": request.cookies.get,
+            }
+            for parameter_type, value_of in values.items():
+                for param in self.parameters.get(parameter_type, []):
+                    value = value_of(param["name"])
+                    error = self.validate_parameter(parameter_type, value, param)
+                    if error:
+                        detail = detail or error
+                        errors.extend(_parameter_errors(parameter_type, value, param))
+            for param in self.parameters.get("formData", []):
+                error = self.validate_formdata_parameter(param["name"], param, request)
+                if error:
+                    detail = detail or error
+                    errors.extend(
+                        _parameter_errors(
+                            "formdata", self._formdata_value(param, request), param
+                        )
+                    )
+            if detail is not None:
+                raise InvalidFieldsProblem(errors, detail=detail)
+            return function(request)
+
+        return wrapper
+
+    @staticmethod
+    def _formdata_value(param: dict[str, Any], request: Any) -> Any:
+        """Get the value of a form data parameter (Swagger 2), as Connexion does.
+
+        Args:
+            param: Parameter object of the specification.
+            request: Connexion request.
+
+        Returns:
+            The file or the value of the form field, if any.
+        """
+        if param.get("type") == "file" or param.get("format") == "binary":
+            return request.files.get(param["name"])
+        return request.form.get(param["name"])
 
 
 def _api_key_names(operation: Any) -> set[str]:
