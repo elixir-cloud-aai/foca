@@ -1800,7 +1800,7 @@ firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
 > The exact route at which endpoints are served depends on the `servers`
 > (or `basePath`) of the permissions API specification (cf. `api_specs`).
 
-[casbin-docs]: <https://casbin.org/docs/en/how-it-works>
+[casbin-docs]: <https://casbin.apache.org/docs/how-it-works/>
 [docs-models-access-control]: configuration/access-control.md
 [default-specs]: <https://github.com/elixir-cloud-aai/foca/blob/dev/foca/security/access_control/api/access-control-specs.yaml>
 [default-controllers]: <https://github.com/elixir-cloud-aai/foca/blob/dev/foca/security/access_control/access_control_server.py>
@@ -1808,7 +1808,7 @@ firefox http://<host>/admin/access-control/ui/  # or use your browser of choice
 [resource-role-model]: <https://github.com/elixir-cloud-aai/foca/blob/dev/foca/security/access_control/api/resource_role_model.conf>
 [img-casbin-flow]: images/casbin_model.jpeg
 [res-cloud-registry]: <https://github.com/elixir-cloud-aai/cloud-registry>
-[res-casbin-models]: <https://casbin.org/docs/en/supported-models>
+[res-casbin-models]: <https://casbin.apache.org/docs/supported-models/>
 [res-foca]: <https://pypi.org/project/foca/>
 [res-ga4gh-pagination]: <https://github.com/ga4gh/TASC/blob/main/recommendations/API%20pagination%20guide.md>
 [res-openapi]: <https://www.openapis.org/>

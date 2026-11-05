@@ -236,9 +236,8 @@ also report a name to MongoDB now (`appname`), which appears in its logs.
 
 ## App charts
 
-foca-common has releases of its own, and 0.5.0 isn't out with FOCA 0.21.0 (the latest
-is 0.4.0, tag `chart-v0.4.0`). Wait for it if you want what it adds; apps can stay on
-0.4.0 with FOCA 0.21.
+foca-common has releases of its own (see the tags `chart-v*`). Apps can stay on 0.4.0
+with FOCA 0.21.
 
 foca-common 0.5.0 has autoscaling and topology spread constraints of the app's
 pods, `extraEnv`, `extraEnvFrom`, `rolloutOnSecrets`, and templates for [gateway
