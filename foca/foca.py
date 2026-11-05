@@ -129,6 +129,7 @@ class Foca:
         self.config_files: list[Path] = parser.config_files
         self.config_dir: Path = parser.config_dir
         self.gateway = gateway
+        self._startup_writes = True
         if gateway is not None:
             runtime.configure(gateway, self.conf)
         logger.info("Log formatting configured.")
@@ -232,8 +233,8 @@ class Foca:
         # each process creates its own host on first use (after forks), so
         # plugins are instantiated (`setup()`) once more there
         if self.gateway is not None:
-            create_indexes = self.conf.db is None or (
-                self.conf.db.create_indexes_on_startup
+            create_indexes = self._startup_writes and (
+                self.conf.db is None or self.conf.db.create_indexes_on_startup
             )
             host = runtime.create_host()
             if host.gateway_id is None:
@@ -289,6 +290,8 @@ class Foca:
 
     def disable_startup_writes(self) -> None:
         """Turn off the steps of startup that write to the database."""
+        # Apart from `db`, as the store of gateway plugins may work without it
+        self._startup_writes = False
         if self.conf.db is not None:
             self.conf.db.create_indexes_on_startup = False
         self.conf.security.access_control.sync_policies_on_startup = False

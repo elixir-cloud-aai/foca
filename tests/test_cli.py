@@ -851,6 +851,19 @@ class TestSwitches:
         host.warn_store_settings.assert_called_once_with()
         runtime.create_host.return_value.close.assert_called_once_with()
 
+    def test_no_store_of_gateway_without_db(self) -> None:
+        """Without startup writes, a gateway app without `db` leaves its store alone."""
+        foca = Foca()
+        foca.conf.db = None
+        foca.gateway = MagicMock(backends=None)
+        foca.disable_startup_writes()
+        with mock.patch("foca.foca.runtime") as runtime:
+            foca.create_app()
+        host = runtime.create_host.return_value
+        host.setup_store.assert_not_called()
+        host.warn_store_settings.assert_called_once_with()
+        host.close.assert_called_once_with()
+
     def test_create_indexes_of_gateway(
         self, mongodb: MongoClient[dict[str, Any]]
     ) -> None:
