@@ -7,7 +7,7 @@ change what they derive from, not their names or attributes.
 """
 
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from connexion.exceptions import (
     BadRequestProblem,
@@ -19,6 +19,10 @@ from connexion.exceptions import (
 )
 from werkzeug import exceptions as _werkzeug
 from werkzeug.datastructures import Headers
+
+if TYPE_CHECKING:
+    # Only for type hints, as `foca.errors.fields` imports this module
+    from foca.errors.fields import FieldError
 
 # Stable names of Connexion's problems, for the exception maps of apps
 RequestValidationProblem = BadRequestProblem
@@ -34,6 +38,7 @@ __all__ = [
     "Forbidden",
     "HTTPError",
     "InternalServerError",
+    "InvalidFieldsProblem",
     "MethodNotAllowed",
     "NotFound",
     "PayloadTooLarge",
@@ -124,3 +129,53 @@ class InternalServerError(HTTPError, _werkzeug.InternalServerError):
 
 class ServiceUnavailable(HTTPError, _werkzeug.ServiceUnavailable):
     """`503 Service Unavailable`."""
+
+
+class InvalidFieldsProblem(BadRequestProblem):
+    """`400 Bad Request` for invalid fields of a request.
+
+    Raise it for checks of your own, e.g., of URLs, so that clients get the
+    invalid fields in the member `errors` of the problem details, like for
+    requests that fail FOCA's schema validation. It is a
+    `RequestValidationProblem`, so it is mapped and handled as one (cf.
+    `exceptions.validation_details`).
+
+    Args:
+        errors: Invalid fields (at least one).
+        detail: Description, served as `detail`; by default, the locations
+            and details of the invalid fields.
+
+    Attributes:
+        field_errors: Invalid fields.
+
+    Raises:
+        ValueError: No invalid field is given.
+
+    Examples:
+        >>> from foca.errors.fields import FieldError, json_pointer
+        >>> exc = InvalidFieldsProblem(
+        ...     [
+        ...         FieldError(
+        ...             detail="Must use HTTPS.",
+        ...             code="scheme-not-allowed",
+        ...             pointer=json_pointer("organization", "url"),
+        ...         )
+        ...     ]
+        ... )
+        >>> exc.detail
+        "'#/organization/url': Must use HTTPS."
+    """
+
+    def __init__(
+        self, errors: Iterable["FieldError"], detail: str | None = None
+    ) -> None:
+        """Create the problem."""
+        self.field_errors = tuple(errors)
+        if not self.field_errors:
+            raise ValueError("InvalidFieldsProblem needs at least one invalid field.")
+        if detail is None:
+            detail = "; ".join(
+                f"'{error.pointer or error.parameter}': {error.detail}"
+                for error in self.field_errors
+            )
+        super().__init__(detail=detail)

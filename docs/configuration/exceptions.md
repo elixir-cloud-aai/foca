@@ -126,22 +126,48 @@ form data, the reasons joined by `; `), with the title and status as mapped
 }
 ```
 
+Responses also list all invalid fields of the request in the member
+`errors`, with `type` and `code` of the problem type
+[Invalid request](../problems/invalid-request.md), so that clients can show
+each message at its field; raise `foca.errors.InvalidFieldsProblem` to list
+the invalid fields of checks of your own the same way:
+
+```json
+{
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "'abcd' is too long - 'name'",
+  "type": "https://foca.readthedocs.io/en/latest/problems/invalid-request/",
+  "code": "invalid-request",
+  "errors": [
+    {
+      "detail": "Must be at most 3 characters long.",
+      "pointer": "#/name",
+      "code": "too-long"
+    }
+  ]
+}
+```
+
 Like all error responses, they have the configured media type and only the
 public members (without `detail` in `public_members`, the reason is not
-sent). The reason is logged at `INFO`, shortened and escaped (unless
-`logging` is `none`), instead of the exception; as validators quote rejected
-values, these may appear in the logs (shortened), e.g., of query parameters
-and headers. Connexion's validation logger (`connexion.decorators.validation`)
-logs the validator's message in full and unescaped (and rejected values can
-be as large as the request body), so its messages on rejected requests are
-filtered out, for all apps of the process.
+sent; list `type`, `code` and `errors` there to send the invalid fields). The
+invalid fields are logged at `INFO` by location and code (e.g., `Request
+rejected: #/name (too-long)`), otherwise the reason, shortened and escaped
+(unless `logging` is `none`), instead of the exception; as validators quote
+rejected values in their reasons, these may appear in the logs (shortened)
+for requests rejected without invalid fields. Connexion's validation logger
+(`connexion.decorators.validation`) logs the validator's message in full
+and unescaped (and rejected values can be as large as the request body), so
+its messages on rejected requests are filtered out, for all apps of the
+process.
 Exceptions that your app raises as `BadRequestProblem` (e.g., FOCA's
 [access control](../access-control.md) for an invalid user acted for) get
 their `detail` as well, so keep internals out of it. Set
 `validation_details: false` to respond with the problem details mapped to
-the exception class instead, whatever was wrong with the request, and to
-log the exception (Connexion's validation logger then logs its messages
-too, unless another app of the process has validation details on).
+the exception class instead (without `errors`), whatever was wrong with the
+request, and to log the exception (Connexion's validation logger then logs
+its messages too, unless another app of the process has validation details on).
 
 Details longer than `max_detail_length` (by default 500 characters, at least
 1) are shortened in the middle, keeping their start and end (e.g., the field

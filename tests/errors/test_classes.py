@@ -12,6 +12,7 @@ from connexion import exceptions as connexion_exceptions
 
 import foca.errors
 from foca.errors import exceptions as adapter
+from foca.errors import fields
 from foca.errors import problems as core
 from foca.errors.classes import (
     AccessDeniedProblem,
@@ -22,6 +23,7 @@ from foca.errors.classes import (
     Forbidden,
     HTTPError,
     InternalServerError,
+    InvalidFieldsProblem,
     MethodNotAllowed,
     NotFound,
     PayloadTooLarge,
@@ -31,6 +33,7 @@ from foca.errors.classes import (
     UnprocessableContent,
 )
 from foca.errors.exceptions import _warn_werkzeug_mappings
+from foca.errors.fields import FieldError
 from foca.errors.problems import build_headers, build_problem
 from foca.models.config import ExceptionConfig
 
@@ -236,7 +239,7 @@ class TestDeprecation:
 
 def test_core_without_flask() -> None:
     """The core and the classes don't import Flask."""
-    for module in (core, foca.errors.classes):
+    for module in (core, fields, foca.errors.classes):
         tree = ast.parse(Path(module.__file__ or "").read_text(encoding="utf-8"))
         names = {
             alias.name.split(".")[0]
@@ -272,3 +275,34 @@ def test_no_raw_raises() -> None:
             if isinstance(node, ast.Raise) and node.exc is not None
         }
         assert not imported & raised, path
+
+
+class TestInvalidFieldsProblem:
+    """Tests of `InvalidFieldsProblem`."""
+
+    ERROR = FieldError(
+        detail="Must use HTTPS.", code="scheme-not-allowed", pointer="#/url"
+    )
+
+    def test_validation_problem(self) -> None:
+        """It is a request validation problem, mapped and handled as one."""
+        exc = InvalidFieldsProblem([self.ERROR], detail="Invalid URL")
+        assert isinstance(exc, RequestValidationProblem)
+        assert exc.status == 400
+        assert exc.title == "Bad Request"
+        assert exc.detail == "Invalid URL"
+        assert exc.field_errors == (self.ERROR,)
+        assert foca.errors.InvalidFieldsProblem is InvalidFieldsProblem
+        assert foca.errors.FieldError is FieldError
+        assert foca.errors.json_pointer is fields.json_pointer
+
+    def test_default_detail(self) -> None:
+        """Without detail, it lists the invalid fields."""
+        other = FieldError(detail="Is too long.", code="too-long", parameter="q")
+        exc = InvalidFieldsProblem([self.ERROR, other])
+        assert exc.detail == "'#/url': Must use HTTPS.; 'q': Is too long."
+
+    def test_empty(self) -> None:
+        """At least one field must be invalid."""
+        with pytest.raises(ValueError, match="invalid field"):
+            InvalidFieldsProblem([])

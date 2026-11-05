@@ -231,6 +231,8 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.errors.classes
 
+::: foca.errors.fields
+
 ::: foca.errors.problems
 
 ::: foca.errors.exceptions

@@ -39,6 +39,7 @@ from werkzeug.exceptions import (
 from werkzeug.routing import RequestRedirect
 
 from foca.errors import exceptions as exceptions_module
+from foca.errors.classes import InvalidFieldsProblem
 from foca.errors.exceptions import (
     _RFC_9110_PHRASES,
     DEFAULT_PROBLEM,
@@ -52,6 +53,7 @@ from foca.errors.exceptions import (
     register_exception_handler,
     shorten_detail,
 )
+from foca.errors.fields import INVALID_REQUEST_TYPE, FieldError
 from foca.models.config import ExceptionConfig, ExceptionLoggingEnum
 
 THIS_MODULE = __name__
@@ -1045,20 +1047,32 @@ class TestValidationDetails:
         return conf
 
     @pytest.mark.parametrize(
-        "method,path,kwargs,detail",
+        "method,path,kwargs,detail,members",
         [
-            ("get", "/validated", {}, "Missing query parameter 'limit'"),
+            ("get", "/validated", {}, "Missing query parameter 'limit'", {}),
             (
                 "get",
                 "/validated",
                 {"query_string": {"limit": 1, "extra": 1}},
                 "Extra query parameter(s) extra not in spec",
+                {
+                    "type": INVALID_REQUEST_TYPE,
+                    "code": "invalid-request",
+                    "errors": [
+                        {
+                            "detail": "Is not allowed.",
+                            "parameter": "extra",
+                            "code": "unknown-parameter",
+                        }
+                    ],
+                },
             ),
             (
                 "post",
                 "/validated-body",
                 {"json": {"name": "abcd"}},
                 "'abcd' is too long - 'name'",
+                {},
             ),
         ],
     )
@@ -1071,8 +1085,13 @@ class TestValidationDetails:
         path: str,
         kwargs: dict[str, Any],
         detail: str,
+        members: dict[str, Any],
     ) -> None:
-        """Responses have the reason as detail, logged at `INFO`."""
+        """Responses have the reason as detail, logged at `INFO`.
+
+        Connexion's own validators (without FOCA's `register_openapi()`) give
+        no invalid fields, except for unknown parameters.
+        """
         conf_details.media_type = "application/json"
         response = self._client(conf_details).open(path, method=method, **kwargs)
         assert response.status_code == 400
@@ -1081,8 +1100,10 @@ class TestValidationDetails:
             "title": "Bad Request",
             "status": 400,
             "detail": detail,
+            **members,
         }
-        assert infos == [f"Request rejected: {detail}"]
+        logged_reason = "extra (unknown-parameter)" if members else detail
+        assert infos == [f"Request rejected: {logged_reason}"]
         assert logged == []
 
     def test_default(self, infos: list[str]) -> None:
@@ -1233,3 +1254,107 @@ class TestValidationDetails:
             "Missing query parameter 'limit'"
         )
         assert infos == []
+
+
+class TestInvalidFields:
+    """Tests for responses with invalid fields (`errors`)."""
+
+    ERRORS = (
+        FieldError(
+            detail="Must use HTTPS.", code="scheme-not-allowed", pointer="#/url"
+        ),
+        FieldError(detail="Is required.", code="required", parameter="limit"),
+    )
+
+    @classmethod
+    def _client(cls, conf: ExceptionConfig) -> FlaskClient:
+        """Client of an app whose route raises `InvalidFieldsProblem`."""
+        app = App(__name__, skip_error_handlers=True)
+        register_exception_handler(app, conf)
+
+        @app.app.route("/invalid")
+        def invalid() -> NoReturn:
+            """Raise an exception with invalid fields."""
+            raise InvalidFieldsProblem(cls.ERRORS, detail="Invalid URL")
+
+        return app.app.test_client()
+
+    def test_errors(self, conf: ExceptionConfig) -> None:
+        """Responses list the invalid fields, with type and code."""
+        response = self._client(conf).get("/invalid")
+        assert response.status_code == 400
+        assert json.loads(response.data) == {
+            "title": "Bad Request",
+            "status": 400,
+            "detail": "Invalid URL",
+            "type": INVALID_REQUEST_TYPE,
+            "code": "invalid-request",
+            "errors": [error.to_dict() for error in self.ERRORS],
+        }
+
+    def test_logged(
+        self, conf: ExceptionConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The invalid fields are logged by location and code, not the reason."""
+        infos: list[str] = []
+        monkeypatch.setattr(
+            exceptions_module.logger, "info", lambda msg, *a: infos.append(msg % a)
+        )
+        self._client(conf).get("/invalid")
+        assert infos == [
+            "Request rejected: #/url (scheme-not-allowed); limit (required)"
+        ]
+
+    def test_shortened(self, conf: ExceptionConfig) -> None:
+        """Entries are shortened to `max_detail_length`."""
+        conf.max_detail_length = 5
+        response = self._client(conf).get("/invalid")
+        errors = json.loads(response.data)["errors"]
+        assert errors[0] == {
+            "detail": "Mu…S.",
+            "pointer": "#/url",
+            "code": "scheme-not-allowed",
+        }
+
+    def test_public_members(self, conf: ExceptionConfig) -> None:
+        """Only public members are sent."""
+        conf.public_members = ["title", "status", "errors"]
+        response = self._client(conf).get("/invalid")
+        assert set(json.loads(response.data)) == {"title", "status", "errors"}
+
+    def test_mapped_type(
+        self, conf: ExceptionConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A mapped `type` wins."""
+        mapped = {"title": "Bad Request", "status": 400, "type": "about:blank"}
+        monkeypatch.setitem(PROBLEMS, BadRequestProblem, mapped)
+        data = json.loads(self._client(conf).get("/invalid").data)
+        assert data["type"] == "about:blank"
+        assert data["code"] == "invalid-request"
+        assert len(data["errors"]) == 2
+
+    def test_off(self, conf: ExceptionConfig, logged: list[str]) -> None:
+        """Without validation details, responses are as mapped."""
+        conf.validation_details = False
+        response = self._client(conf).get("/invalid")
+        assert json.loads(response.data) == {"title": "Bad Request", "status": 400}
+        assert len(logged) == 1
+
+    def test_extra_form_fields(self, conf: ExceptionConfig) -> None:
+        """Unknown form fields are named as parameters, like by Connexion."""
+        app = App(__name__, skip_error_handlers=True)
+        register_exception_handler(app, conf)
+
+        @app.app.route("/extra")
+        def extra() -> NoReturn:
+            """Raise an exception for an unknown form field."""
+            raise ExtraParameterProblem(["field"], [])
+
+        data = json.loads(app.app.test_client().get("/extra").data)
+        assert data["errors"] == [
+            {
+                "detail": "Is not allowed.",
+                "parameter": "field",
+                "code": "unknown-parameter",
+            }
+        ]

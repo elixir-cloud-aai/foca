@@ -1,7 +1,9 @@
 """Tests for the stricter checks of requests (`foca.api.validation`)."""
 
+import json
+import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, NoReturn
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,12 +13,22 @@ from connexion.resolver import Resolution
 from flask import Flask
 from werkzeug.test import TestResponse
 
+from foca.api import validation
 from foca.api.register_openapi import register_openapi
-from foca.api.validation import StrictParametersResolver, _has_unpaired_surrogates
+from foca.api.validation import (
+    BodyValidator,
+    ParameterValidator,
+    StrictParametersResolver,
+    _has_unpaired_surrogates,
+    _parameter_errors,
+)
+from foca.errors import exceptions as exceptions_module
 from foca.errors.exceptions import register_exception_handler
+from foca.errors.fields import INVALID_REQUEST_TYPE, FieldError
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, SpecConfig
 from foca.utils.service_info import is_date
+from tests.api.test_problem_details import problem_validator
 
 DATE_TIME = {"type": "string", "format": "date-time"}
 SPEC: dict[str, Any] = {
@@ -65,6 +77,84 @@ SPEC: dict[str, Any] = {
                     }
                 ],
                 "responses": {"200": {"description": "Items"}},
+            },
+        },
+        "/things/{thingId}": {
+            "put": {
+                "operationId": f"{__name__}.putThing",
+                "parameters": [
+                    {
+                        "name": "thingId",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "pattern": "^[a-z]+$"},
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {"type": "integer", "maximum": 10},
+                    },
+                    {
+                        "name": "tag",
+                        "in": "query",
+                        "required": True,
+                        "schema": {"type": "string"},
+                    },
+                    {
+                        "name": "X-Mode",
+                        "in": "header",
+                        "schema": {"type": "string", "enum": ["a", "b"]},
+                    },
+                    {
+                        "name": "session",
+                        "in": "cookie",
+                        "schema": {"type": "string", "maxLength": 3},
+                    },
+                    {
+                        "name": "note",
+                        "in": "query",
+                        "schema": {"type": "string", "nullable": True, "maxLength": 1},
+                    },
+                    {
+                        "name": "arr",
+                        "in": "query",
+                        "schema": {"type": "array", "items": {"enum": ["x"]}},
+                    },
+                    {
+                        "name": "ids",
+                        "in": "query",
+                        "schema": {
+                            "type": "array",
+                            "items": {"type": "integer", "minimum": 1},
+                        },
+                    },
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["name", "url"],
+                                "additionalProperties": False,
+                                "properties": {
+                                    "id": {"type": "string", "readOnly": True},
+                                    "name": {"type": "string", "maxLength": 3},
+                                    "url": {"type": "string", "format": "uri"},
+                                    "organization": {
+                                        "type": "object",
+                                        "properties": {
+                                            "url": {
+                                                "type": "string",
+                                                "format": "uri",
+                                            }
+                                        },
+                                    },
+                                },
+                            }
+                        }
+                    }
+                },
+                "responses": {"200": {"description": "Thing"}},
             },
         },
         "/items/{itemId}": {
@@ -128,6 +218,32 @@ def getItem(itemId: str) -> dict[str, str]:
         The identifier.
     """
     return {"id": itemId}
+
+
+def putThing(thingId: str, body: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    """Controller with parameters and a body.
+
+    Args:
+        thingId: Identifier of the thing.
+        body: Body of the request.
+        **kwargs: Query parameters.
+
+    Returns:
+        The body.
+    """
+    return body
+
+
+def postForm(**kwargs: Any) -> str:
+    """Controller with form data.
+
+    Args:
+        **kwargs: Form data.
+
+    Returns:
+        Text.
+    """
+    return "ok"
 
 
 def getLog() -> dict[str, str]:
@@ -454,3 +570,355 @@ class TestDate:
     def test_is_date(self, value: object, valid: bool) -> None:
         """Valid dates and non-strings pass."""
         assert is_date(value) is valid
+
+
+class TestFieldErrors:
+    """Tests of the invalid fields of rejected requests (`errors`)."""
+
+    URL = "/things/abc?tag=t"
+    VALID: ClassVar[dict[str, str]] = {"name": "abc", "url": "https://example.org"}
+
+    def test_valid(self, tmp_path: Path) -> None:
+        """Valid requests pass."""
+        client = _create_app(tmp_path).test_client()
+        client.set_cookie("session", "abc")
+        response = client.put(
+            self.URL + "&limit=1&ids=1&ids=2&note=null",
+            json=self.VALID,
+            headers={"X-Mode": "a"},
+        )
+        assert response.status_code == 200
+
+    def test_body(self, tmp_path: Path) -> None:
+        """All invalid fields of the body are listed; the detail stays."""
+        client = _create_app(tmp_path).test_client()
+        body = {
+            "id": "x",
+            "name": "abcd",
+            "organization": {"url": "not a uri"},
+            "other": 1,
+        }
+        response = client.put(self.URL, json=body)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["title"] == "Bad Request"
+        assert data["status"] == 400
+        # Connexion's message of the first error, as before
+        assert data["detail"] == (
+            "Additional properties are not allowed ('other' was unexpected)"
+        )
+        assert data["type"] == INVALID_REQUEST_TYPE
+        assert data["code"] == "invalid-request"
+        assert [(e["pointer"], e["code"]) for e in data["errors"]] == [
+            ("#/other", "unknown-property"),
+            ("#/id", "read-only"),
+            ("#/name", "too-long"),
+            ("#/organization/url", "invalid-format"),
+            ("#/url", "required"),
+        ]
+        problem_validator().validate(data)
+
+    def test_parameters(self, tmp_path: Path) -> None:
+        """All invalid parameters are listed; the detail stays."""
+        client = _create_app(tmp_path).test_client()
+        client.set_cookie("session", "abcd")
+        response = client.put(
+            "/things/ABC?limit=11&ids=0&ids=x",
+            json=self.VALID,
+            headers={"X-Mode": "c"},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        # Connexion's message on the first, as before
+        assert data["detail"].startswith("11 is greater than the maximum of 10")
+        assert data["code"] == "invalid-request"
+        assert data["errors"] == [
+            {
+                "detail": "Must be at most 10.",
+                "parameter": "limit",
+                "code": "too-large",
+            },
+            {"detail": "Is required.", "parameter": "tag", "code": "required"},
+            {"detail": "Must be at least 1.", "parameter": "ids", "code": "too-small"},
+            {
+                "detail": "Must be of type integer.",
+                "parameter": "ids",
+                "code": "invalid-type",
+            },
+            {
+                "detail": "Must match the pattern '^[a-z]+$'.",
+                "parameter": "thingId",
+                "code": "pattern-mismatch",
+            },
+            {
+                "detail": 'Must be one of: "a", "b".',
+                "parameter": "X-Mode",
+                "code": "invalid-value",
+            },
+            {
+                "detail": "Must be at most 3 characters long.",
+                "parameter": "session",
+                "code": "too-long",
+            },
+        ]
+
+    def test_parameter_type(self, tmp_path: Path) -> None:
+        """Parameters that can't be converted have the wrong type."""
+        client = _create_app(tmp_path).test_client()
+        response = client.put(self.URL + "&limit=x", json=self.VALID)
+        data = response.get_json()
+        assert data["detail"] == (
+            "Wrong type, expected 'integer' for query parameter 'limit'"
+        )
+        assert data["errors"] == [
+            {
+                "detail": "Must be of type integer.",
+                "parameter": "limit",
+                "code": "invalid-type",
+            }
+        ]
+
+    def test_extra_parameters(self, tmp_path: Path) -> None:
+        """Unknown query parameters are listed."""
+        client = _create_app(tmp_path).test_client()
+        response = client.put(self.URL + "&b=1&a=2", json=self.VALID)
+        assert [e["parameter"] for e in response.get_json()["errors"]] == ["a", "b"]
+
+    def test_extra_and_invalid_parameters(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Unknown and invalid declared parameters are listed together."""
+        client = _create_app(tmp_path).test_client()
+        with caplog.at_level(logging.DEBUG):
+            response = client.put("/things/abc?limit=s3cr3t&b=1", json=self.VALID)
+        data = response.get_json()
+        assert data["detail"] == "Extra query parameter(s) b not in spec"
+        assert [(e["parameter"], e["code"]) for e in data["errors"]] == [
+            ("b", "unknown-parameter"),
+            ("limit", "invalid-type"),
+            ("tag", "required"),
+        ]
+        assert "s3cr3t" not in caplog.text
+
+    def test_values_not_echoed(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Invalid fields and logs don't quote rejected values."""
+        leaky = "https://user:s3cr3t@example.org/ x"
+        client = _create_app(tmp_path).test_client()
+        with caplog.at_level(logging.DEBUG):
+            response = client.put(
+                self.URL,
+                json={"name": "abc", "url": leaky, "organization": {"url": leaky}},
+            )
+        data = response.get_json()
+        assert len(data["errors"]) == 2
+        assert "s3cr3t" not in json.dumps(data["errors"])
+        assert "s3cr3t" not in caplog.text
+
+    def test_no_details(self, tmp_path: Path) -> None:
+        """Without validation details, responses are as before."""
+        path = tmp_path / "spec.yaml"
+        path.write_text(yaml.safe_dump(SPEC))
+        config = Config()
+        config.exceptions.validation_details = False
+        cnx_app = register_exception_handler(
+            create_connexion_app(config), config.exceptions
+        )
+        spec = SpecConfig.model_validate(
+            {
+                "path": path,
+                "disable_auth": True,
+                "connexion": {"strict_validation": True},
+            }
+        )
+        client = register_openapi(cnx_app, specs=[spec]).app.test_client()
+        response = client.put(self.URL, json={})
+        assert response.get_json() == {"title": "Bad Request", "status": 400}
+
+    def test_null_body(self, tmp_path: Path) -> None:
+        """Nullable bodies may be null."""
+        validator = BodyValidator(
+            {"type": "object", "nullable": True}, ["application/json"], None, True
+        )
+        assert validator.validate_schema(None, "/") is None
+
+    def test_form_data(self, tmp_path: Path) -> None:
+        """Invalid form data parameters (Swagger 2) are listed."""
+        path = tmp_path / "swagger.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "swagger": "2.0",
+                    "info": {"title": "Forms", "version": "1.0"},
+                    "paths": {
+                        "/forms": {
+                            "post": {
+                                "operationId": f"{__name__}.postForm",
+                                "consumes": ["multipart/form-data"],
+                                "parameters": [
+                                    {
+                                        "name": "name",
+                                        "in": "formData",
+                                        "type": "string",
+                                        "maxLength": 2,
+                                    },
+                                    {
+                                        "name": "upload",
+                                        "in": "formData",
+                                        "type": "file",
+                                        "required": True,
+                                    },
+                                ],
+                                "responses": {"200": {"description": "Form"}},
+                            }
+                        }
+                    },
+                }
+            )
+        )
+        cnx_app = register_exception_handler(create_connexion_app(Config()))
+        spec = SpecConfig.model_validate({"path": path, "disable_auth": True})
+        client = register_openapi(cnx_app, specs=[spec]).app.test_client()
+        response = client.post("/forms", data={"name": "abc"})
+        assert response.status_code == 400
+        assert response.get_json()["errors"] == [
+            {
+                "detail": "Must be at most 2 characters long.",
+                "parameter": "name",
+                "code": "too-long",
+            },
+            {"detail": "Is required.", "parameter": "upload", "code": "required"},
+        ]
+
+    def test_parameter_without_error(self) -> None:
+        """Parameters rejected without a schema error get a generic entry."""
+        param = {"name": "upload", "in": "formData", "type": "file"}
+        assert _parameter_errors("formdata", object(), param) == []
+        validator = ParameterValidator([param], None)
+        reason = validator.validate_parameter("formdata", object(), param)
+        assert reason
+        assert getattr(reason, "field_errors", None) == [
+            FieldError(detail="Is invalid.", code="invalid", parameter="upload")
+        ]
+
+    def test_later_parameter_fails(self, tmp_path: Path) -> None:
+        """Parameters that Connexion can't check after the first invalid one.
+
+        Connexion's check of `arr` raises (its items have no type), but only
+        the first invalid parameter is checked by Connexion, as before. As
+        the fields of `arr` can't be listed, none are.
+        """
+        client = _create_app(tmp_path).test_client()
+        response = client.put("/things/abc?limit=11&tag=t&arr=x", json=self.VALID)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["detail"].startswith("11 is greater than the maximum of 10")
+        assert "errors" not in data
+
+    def test_later_parameters_not_logged(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Values of invalid parameters after the first aren't logged."""
+        client = _create_app(tmp_path).test_client()
+        with caplog.at_level(logging.DEBUG):
+            response = client.put(
+                "/things/abc?limit=11&note=null",
+                json=self.VALID,
+                headers={"X-Mode": "s3cr3t"},
+            )
+        assert [e["parameter"] for e in response.get_json()["errors"]] == [
+            "limit",
+            "tag",
+            "X-Mode",
+        ]
+        assert "s3cr3t" not in caplog.text
+
+
+class TestListingFails:
+    """Requests are rejected as before if their invalid fields can't be listed."""
+
+    @staticmethod
+    def _fail(*args: Any, **kwargs: Any) -> NoReturn:
+        """Fail to list invalid fields.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise TypeError("unexpected")
+
+    def test_body(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Invalid bodies are rejected without invalid fields."""
+        monkeypatch.setattr(validation, "schema_field_errors", self._fail)
+        response = _create_app(tmp_path).test_client().put(TestFieldErrors.URL, json={})
+        assert response.status_code == 400
+        assert "errors" not in response.get_json()
+
+    def test_parameters(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Invalid parameters are rejected without invalid fields."""
+        monkeypatch.setattr(validation, "_parameter_errors", self._fail)
+        client = _create_app(tmp_path).test_client()
+        response = client.put("/things/abc?limit=11", json=TestFieldErrors.VALID)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "errors" not in data
+        assert data["detail"].startswith("11 is greater than the maximum of 10")
+
+    def test_later_parameter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fields aren't listed in part if those of a parameter can't be."""
+        calls: list[str] = []
+        listed = validation._parameter_errors
+
+        def _fail_once(*args: Any) -> list[FieldError]:
+            """Fail for the first invalid parameter only.
+
+            Args:
+                *args: Arguments of `_parameter_errors()`.
+
+            Returns:
+                Invalid fields.
+
+            Raises:
+                TypeError: On the first call.
+            """
+            calls.append("call")
+            if len(calls) == 1:
+                raise TypeError("unexpected")
+            return listed(*args)
+
+        monkeypatch.setattr(validation, "_parameter_errors", _fail_once)
+        client = _create_app(tmp_path).test_client()
+        response = client.put("/things/abc?limit=11", json=TestFieldErrors.VALID)
+        assert response.status_code == 400
+        assert "errors" not in response.get_json()
+        assert len(calls) > 1
+
+    def test_extra_parameters(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unknown parameters are listed alone if declared ones can't be."""
+        monkeypatch.setattr(validation, "_parameter_errors", self._fail)
+        client = _create_app(tmp_path).test_client()
+        response = client.put("/things/abc?limit=11&b=1", json=TestFieldErrors.VALID)
+        assert [e["parameter"] for e in response.get_json()["errors"]] == ["b"]
+
+    def test_handler(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Responses keep their status if the handler can't list the fields."""
+        monkeypatch.setattr(exceptions_module, "add_field_errors", self._fail)
+        response = _create_app(tmp_path).test_client().put(TestFieldErrors.URL, json={})
+        assert response.status_code == 400
+        assert set(response.get_json()) == {"title", "status", "detail"}
+
+    def test_empty_parameter_name(self, tmp_path: Path) -> None:
+        """Unknown parameters without name are listed."""
+        response = _create_app(tmp_path).test_client().get("/items?=1")
+        assert response.status_code == 400
+        assert response.get_json()["errors"] == [
+            {"detail": "Is not allowed.", "parameter": "", "code": "unknown-parameter"}
+        ]
