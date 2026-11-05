@@ -60,9 +60,9 @@ app's functions run on startup (e.g., [fields of the service info computed at
 runtime](configuration/service-info.md)) run too, and what they need must be available.
 Configured policy rules are checked. The startup steps that the
 [switches](#startup-switches) cover aren't run, so this doesn't find conflicting indexes
-or stored documents, nor stored rules of a newer revision. One exception: in a gateway
-app without a `db` section, no switch covers the store of plugins, so the command sets
-it up as on startup, which writes to its backend, and only logs database errors.
+or stored documents, nor stored rules of a newer revision. The store of gateway plugins
+isn't set up either, with or without a `db` section. Plugins are still loaded, so their
+`setup()` runs: FOCA gives it no store, but whatever else a plugin does there is up to it.
 
 ### `create-indexes`
 
