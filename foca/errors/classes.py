@@ -6,6 +6,7 @@ existing handlers and `except` clauses keep working. Releases on Connexion 3
 change what they derive from, not their names or attributes.
 """
 
+import warnings
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -18,7 +19,7 @@ from connexion.exceptions import (
     Forbidden as ConnexionForbidden,
 )
 from werkzeug import exceptions as _werkzeug
-from werkzeug.datastructures import Headers
+from werkzeug.datastructures import Headers, WWWAuthenticate
 
 if TYPE_CHECKING:
     # Only for type hints, as `foca.errors.fields` imports this module
@@ -95,8 +96,129 @@ class BadRequest(HTTPError, _werkzeug.BadRequest):
     """`400 Bad Request`."""
 
 
+# Name of the header with the challenges of `401 Unauthorized` (RFC 9110)
+_CHALLENGE_HEADER = "WWW-Authenticate"
+# Challenges of the deprecated `www_authenticate`: one (also as a string) or
+# several
+_Challenges = str | WWWAuthenticate | Iterable[WWWAuthenticate | str]
+
+
 class Unauthorized(HTTPError, _werkzeug.Unauthorized):
-    """`401 Unauthorized`."""
+    """`401 Unauthorized`.
+
+    Give challenges as headers, e.g.,
+    `Unauthorized(headers={"WWW-Authenticate": "Bearer"})`, and read them
+    with :py:meth:`get_headers`. Werkzeug's `www_authenticate` (argument and
+    attribute) is deprecated; it reads and writes the challenges of
+    `headers`.
+
+    Args:
+        description: Description; by default, that of the class.
+        response: Response to use instead of problem details, as in Werkzeug.
+        headers: Headers of the error response, e.g., `WWW-Authenticate`.
+        www_authenticate: Deprecated; challenges, added to `headers`.
+        **kwargs: Other arguments of the Werkzeug class, by keyword only.
+    """
+
+    def __init__(
+        self,
+        description: str | None = None,
+        response: Any = None,
+        *,
+        headers: Mapping[str, Any] | Iterable[tuple[str, str]] | None = None,
+        www_authenticate: _Challenges | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Create the error."""
+        super().__init__(description, response, headers=headers, **kwargs)
+        if www_authenticate is not None:
+            _warn_www_authenticate()
+            self.headers.extend(_challenge_headers(www_authenticate))
+
+    @property
+    def www_authenticate(self) -> tuple[WWWAuthenticate, ...] | None:
+        """Deprecated: challenges of `headers`; read :py:meth:`get_headers`.
+
+        Returns:
+            Copies of the challenges of the `WWW-Authenticate` headers that
+            could be parsed (changes are not kept; set them anew), or `None`
+            if there are none, as in Werkzeug.
+        """
+        warnings.warn(
+            "'Unauthorized.www_authenticate' is deprecated; read the "
+            "'WWW-Authenticate' headers of 'get_headers()'.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        challenges = tuple(
+            challenge
+            for name, value in self.headers
+            if name.lower() == _CHALLENGE_HEADER.lower()
+            and (challenge := WWWAuthenticate.from_header(value)) is not None
+        )
+        return challenges or None
+
+    @www_authenticate.setter
+    def www_authenticate(self, value: _Challenges | None) -> None:
+        """Deprecated: replace the challenges of `headers`.
+
+        Args:
+            value: Challenges; `None` removes them.
+        """
+        # Werkzeug's initializer sets the attribute before `headers` exists,
+        # always to `None`, as challenges are passed as headers
+        if "headers" not in vars(self):
+            return
+        _warn_www_authenticate()
+        # Built first, so that the challenges are kept if building fails
+        challenges = [] if value is None else _challenge_headers(value)
+        self.headers = [
+            (name, header)
+            for name, header in self.headers
+            if name.lower() != _CHALLENGE_HEADER.lower()
+        ] + challenges
+
+    def get_headers(self, *args: Any, **kwargs: Any) -> list[tuple[str, str]]:
+        """Get the headers of the error response.
+
+        Args:
+            *args: Arguments of the method of Werkzeug.
+            **kwargs: Keyword arguments of the method of Werkzeug.
+
+        Returns:
+            Headers of the Werkzeug base class (without its deprecated
+            challenges, which are in `headers`) and those of `headers`.
+        """
+        return [
+            *_werkzeug.HTTPException.get_headers(self, *args, **kwargs),
+            *self.headers,
+        ]
+
+
+def _warn_www_authenticate() -> None:
+    """Warn that `www_authenticate` of `Unauthorized` is deprecated."""
+    warnings.warn(
+        "'www_authenticate' of 'Unauthorized' is deprecated; pass challenges "
+        "as headers, e.g., headers={'WWW-Authenticate': 'Bearer'}.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+def _challenge_headers(
+    challenges: _Challenges,
+) -> list[tuple[str, str]]:
+    """Build `WWW-Authenticate` headers of challenges.
+
+    Args:
+        challenges: Challenge or challenges; a string is one challenge.
+
+    Returns:
+        A header per challenge, as in Werkzeug.
+    """
+    if isinstance(challenges, (str, WWWAuthenticate)):
+        return [(_CHALLENGE_HEADER, str(challenges))]
+    return [(_CHALLENGE_HEADER, str(challenge)) for challenge in challenges]
 
 
 class Forbidden(HTTPError, _werkzeug.Forbidden):

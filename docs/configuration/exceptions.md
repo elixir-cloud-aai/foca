@@ -283,7 +283,7 @@ body (`Content-Type`, cf. [Media type](#media-type), `Content-Length`,
 - `Allow` for `405 Method Not Allowed` (unknown methods, or
   `MethodNotAllowed(valid_methods=[...])`)
 - `WWW-Authenticate` for `401 Unauthorized`
-  (`Unauthorized(www_authenticate=...)`)
+  (`Unauthorized(headers={"WWW-Authenticate": "Basic realm=x"})`)
 - `Retry-After` for, e.g., `503 Service Unavailable`, if set
   (`ServiceUnavailable(retry_after=120)`)
 
@@ -307,7 +307,9 @@ Security errors raised by Connexion without a challenge of their own (e.g.,
 for a missing token) get `WWW-Authenticate: Bearer`, as FOCA supports Bearer
 tokens only. For operations secured with other schemes (e.g., HTTP Basic),
 raise exceptions with their own challenge in your security functions
-(`Unauthorized(www_authenticate=...)`).
+(`Unauthorized(headers={"WWW-Authenticate": "Basic realm=x"})`). To tell
+why a token was rejected, read the challenges from `exc.get_headers()`;
+`www_authenticate` of `foca.errors.Unauthorized` is deprecated.
 
 ::: foca.models.config.ExceptionConfig
     options:

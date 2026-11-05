@@ -2,6 +2,7 @@
 
 import ast
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 import werkzeug.exceptions as wz
 from connexion import exceptions as connexion_exceptions
+from werkzeug.datastructures import WWWAuthenticate
 
 import foca.errors
 from foca.errors import exceptions as adapter
@@ -191,6 +193,94 @@ class TestHeaders:
         assert build_headers(AuthenticationProblem(), 401) == [
             ("WWW-Authenticate", "Bearer")
         ]
+
+
+class TestUnauthorizedChallenge:
+    """Tests for the challenge of `Unauthorized`, in its `headers`."""
+
+    def test_keyword_deprecated(self) -> None:
+        """`www_authenticate` warns and goes into `headers`, sent once."""
+        with pytest.warns(DeprecationWarning, match="www_authenticate"):
+            exc = Unauthorized(
+                www_authenticate=WWWAuthenticate("basic", {"realm": "x"}),
+                headers={"X-A": "1"},
+            )
+        assert exc.headers == [("X-A", "1"), ("WWW-Authenticate", "Basic realm=x")]
+        assert build_headers(exc, 401) == exc.headers
+
+    def test_keyword_several(self) -> None:
+        """Several challenges give several headers."""
+        challenges = [WWWAuthenticate("basic"), WWWAuthenticate("bearer")]
+        with pytest.warns(DeprecationWarning):
+            exc = Unauthorized(www_authenticate=challenges)
+        assert exc.headers == [
+            ("WWW-Authenticate", "Basic"),
+            ("WWW-Authenticate", "Bearer"),
+        ]
+
+    def test_keyword_string(self) -> None:
+        """A string is one challenge, not one per character."""
+        with pytest.warns(DeprecationWarning):
+            exc = Unauthorized(www_authenticate="Bearer")
+        assert exc.headers == [("WWW-Authenticate", "Bearer")]
+
+    def test_attribute_deprecated(self) -> None:
+        """Reading `www_authenticate` warns and parses `headers`."""
+        exc = Unauthorized(headers={"WWW-Authenticate": 'Bearer error="x"'})
+        with pytest.warns(DeprecationWarning, match="get_headers"):
+            challenges = exc.www_authenticate
+        assert challenges is not None
+        assert [(c.type, c.parameters) for c in challenges] == [
+            ("bearer", {"error": "x"})
+        ]
+
+    def test_attribute_without_challenge(self) -> None:
+        """Without a challenge, the attribute is `None`, as in Werkzeug."""
+        with pytest.warns(DeprecationWarning):
+            assert Unauthorized().www_authenticate is None
+
+    def test_setting_attribute_deprecated(self) -> None:
+        """Setting `www_authenticate` warns and replaces the challenges."""
+        exc = Unauthorized(headers={"WWW-Authenticate": "Basic", "X-A": "1"})
+        with pytest.warns(DeprecationWarning, match="www_authenticate"):
+            exc.www_authenticate = WWWAuthenticate("bearer")
+        assert exc.headers == [("X-A", "1"), ("WWW-Authenticate", "Bearer")]
+        with pytest.warns(DeprecationWarning):
+            exc.www_authenticate = None
+        assert exc.headers == [("X-A", "1")]
+
+    def test_failed_setting_keeps_challenges(self) -> None:
+        """Challenges are kept if the new ones can't be read."""
+
+        def _broken() -> Iterator[WWWAuthenticate]:
+            """Fail while challenges are read.
+
+            Yields:
+                Nothing; raises instead.
+
+            Raises:
+                RuntimeError: Always.
+            """
+            raise RuntimeError("broken")
+            yield WWWAuthenticate("bearer")  # pragma: no cover
+
+        exc = Unauthorized(headers={"WWW-Authenticate": "Basic"})
+        with pytest.warns(DeprecationWarning), pytest.raises(RuntimeError):
+            exc.www_authenticate = _broken()
+        assert exc.headers == [("WWW-Authenticate", "Basic")]
+
+    def test_no_challenge(self, recwarn: pytest.WarningsRecorder) -> None:
+        """Errors without challenges have no headers and don't warn."""
+        exc = Unauthorized("Log in.")
+        assert exc.headers == []
+        assert build_headers(exc, 401) == []
+        assert not recwarn.list
+
+    def test_no_warning_by_default(self, recwarn: pytest.WarningsRecorder) -> None:
+        """Errors with the challenge in `headers` don't warn."""
+        exc = Unauthorized(headers={"WWW-Authenticate": "Bearer"})
+        assert build_headers(exc, 401) == [("WWW-Authenticate", "Bearer")]
+        assert not recwarn.list
 
 
 class TestDeprecation:
