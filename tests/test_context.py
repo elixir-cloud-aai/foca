@@ -497,3 +497,21 @@ class TestTokenInfo:
     def test_outside_request(self) -> None:
         """Outside requests, there is no token info."""
         assert context._get_token_info() == {}
+
+    @pytest.mark.parametrize(
+        ("connexion_context", "expected"),
+        [
+            (None, {}),
+            ({}, {}),
+            ({"token_info": "invalid"}, {}),
+            ({"token_info": {"sub": "a"}}, {"sub": "a"}),
+        ],
+    )
+    def test_in_request(self, connexion_context: Any, expected: Any) -> None:
+        """In requests, it's the token info of Connexion's context, if a dict."""
+        app = Flask(__name__)
+        with app.test_request_context():
+            if connexion_context is not None:
+                # set by Connexion
+                context.request_ctx.connexion_context = connexion_context  # type: ignore[attr-defined]
+            assert context._get_token_info() == expected

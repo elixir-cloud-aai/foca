@@ -223,7 +223,9 @@ OpenAPI 3.x][res-openapi] definition for `/permissions` endpoints via
 set: its `servers` (or `basePath`) define where the endpoints are
 served, and the `operationId` of each operation which controller handles it
 (e.g., FOCA's default controllers in
-`foca.security.access_control.access_control_server`, or your own).
+`foca.security.access_control.access_control_server`, or your own). FOCA's
+controllers that add or change rules take the request body as `body`, so don't
+rename it via `x-body-name`.
 
 The Swagger UI and the specification of the permissions API are not served
 by default. Set `api_swagger_ui: True` to serve the Swagger UI, together with

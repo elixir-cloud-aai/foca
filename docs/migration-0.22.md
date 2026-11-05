@@ -113,9 +113,13 @@ Take path, query and body parameters, e.g., instead of `request.json` or
 FOCA's own access control, resource ownership, token validation and plugin
 gateway read the request in the same way. The controllers of the permissions
 API, `postPermission()` and `putPermission()`, take the rule as the request
-body that Connexion passes as `body`: apps that route operations of their own
-specifications to them must keep the default name of the body, i.e., not set
-`x-body-name`, and tests calling them directly pass the rule as `body`.
+body that Connexion passes as `body`:
+
+- If you route operations of your own specification to them (e.g., via
+  `access_control.api_specs`, copied from FOCA's), remove
+  `x-body-name: permission` from their request bodies, as FOCA's
+  specification now does; otherwise they fail (`500`).
+- Pass the rule as `body` when you call them directly, e.g., in tests.
 
 ## Invalid fields in `400` responses
 

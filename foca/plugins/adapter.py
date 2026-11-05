@@ -112,8 +112,14 @@ def inbound_from_request(payload: Any, route: str | None = None) -> InboundReque
     Args:
         payload: Parsed body, as injected by Connexion (e.g., the `body`
             argument of the controller).
-        route: Path template of the operation; defaults to its URL rule
-            (e.g., `/tasks/<id>`), else the request path.
+        route: Path template of the operation; defaults to the Flask-style
+            URL rule of its route (`Route.rule`, e.g., `/tasks/<id>`, not
+            the `{id}` of :py:attr:`foca.context.RequestSnapshot.route`),
+            else the request path.
+
+    Path parameters and the default route are those of the operations of the
+    app's API specifications (cf. :py:func:`foca.api.routes.match`); for other
+    routes (e.g., added via Flask), path parameters are empty.
 
     Returns:
         Inbound request, with a copy of the query parameters and of the

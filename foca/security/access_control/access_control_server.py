@@ -211,11 +211,13 @@ def _to_permission(document: dict[str, Any]) -> dict[str, Any]:
 
 
 @log_traffic_if(_permissions_traffic_logged)
-def postPermission(body: Any = None) -> str:
+def postPermission(body: Any) -> str:
     """Method to register new permissions.
 
     Args:
-        body: Permission to add, as Connexion passes the request body.
+        body: Permission to add: the request body, which Connexion passes
+            as `body` (operations routed here must not rename it via
+            `x-body-name`).
 
     Returns:
         Identifier of the new permission added.
@@ -235,13 +237,14 @@ def postPermission(body: Any = None) -> str:
 @log_traffic_if(_permissions_traffic_logged)
 def putPermission(
     id: str,
-    body: Any = None,
+    body: Any,
 ) -> str:
     """Update permission with a user-supplied ID.
 
     Args:
         id: Identifier of permission to be updated.
-        body: Permission, as Connexion passes the request body.
+        body: Permission: the request body, which Connexion passes as
+            `body` (cf. :py:func:`postPermission`).
 
     Returns:
         Identifier of updated permission.
