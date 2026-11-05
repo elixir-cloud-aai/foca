@@ -1,7 +1,7 @@
 """Petstore exceptions, mapped to problem details (RFC 9457).
 
 Exceptions that are not listed are handled like their closest listed base
-class (e.g., `connexion.exceptions.AuthenticationProblem` like `Unauthorized`), or
+class (e.g., `foca.errors.AuthenticationProblem` like `Unauthorized`), or
 else according to their HTTP status code.
 """
 

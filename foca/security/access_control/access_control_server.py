@@ -95,7 +95,7 @@ def _get_visibility_filter() -> dict[str, Any]:
         group claims, or `*`.
 
     Raises:
-        connexion.exceptions.Unauthorized: The subject could not be
+        foca.errors.Unauthorized: The subject could not be
             identified.
     """
     conf = get_config().security.access_control
@@ -159,7 +159,7 @@ def _check_not_configured(id: str) -> None:
         id: Identifier of the rule.
 
     Raises:
-        werkzeug.exceptions.Conflict: The rule is set via the app's
+        foca.errors.Conflict: The rule is set via the app's
             configuration (`access_control.policies`), so that changes via
             the permissions API would be reverted on startup.
     """
@@ -175,7 +175,7 @@ def _raise_configured(id: str, cause: Exception | None = None) -> NoReturn:
         cause: Error indicating that the rule is configured, if any.
 
     Raises:
-        werkzeug.exceptions.Conflict: Always.
+        foca.errors.Conflict: Always.
     """
     logger.error("Policy rule '%s' is set via the configuration", escape_log_value(id))
     raise Conflict(
@@ -242,7 +242,7 @@ def putPermission(
         foca.errors.exceptions.BadRequest: The identifier does not have the
             length and characters configured via `access_control.id_length`
             and `access_control.id_charset`, or the rule is invalid.
-        werkzeug.exceptions.Conflict: The rule is set via the app's
+        foca.errors.Conflict: The rule is set via the app's
             configuration (`access_control.policies`).
     """
     conf = get_config().security.access_control
@@ -363,9 +363,9 @@ def deletePermission(
         Delete permission identifier.
 
     Raises:
-        werkzeug.exceptions.Conflict: The rule is set via the app's
+        foca.errors.Conflict: The rule is set via the app's
             configuration (`access_control.policies`).
-        werkzeug.exceptions.NotFound: No rule with the identifier is stored,
+        foca.errors.NotFound: No rule with the identifier is stored,
             other than configured rules not in effect (e.g., of a generation
             that is not active yet), as for getting it.
     """

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import ipaddress
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -19,6 +20,7 @@ from cryptography.hazmat.primitives import serialization
 from flask import Flask, g, has_request_context, request
 from jwt.types import Options
 from werkzeug.datastructures import WWWAuthenticate
+from werkzeug.exceptions import Unauthorized as AnyUnauthorized
 from werkzeug.http import quote_header_value
 
 from foca.config.access import get_app_config, get_config
@@ -55,6 +57,8 @@ CLIENT_CLAIMS = ("client_id", "azp")
 # Description of the `invalid_token` error of `WWW-Authenticate` challenges,
 # deliberately generic, so that clients learn nothing about the identity
 # provider or why validation failed
+# Error code in the challenge of an invalid token, quoted or not
+_INVALID_TOKEN_ERROR = re.compile(r'\berror="?invalid_token"?')
 _INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"  # noqa: S105 (not a password)
 
 # Attribute of `flask.g` with the rejection of the token of the request
@@ -165,7 +169,7 @@ def validate_token(token: str) -> dict[str, Any]:
         other tokens).
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if the JWT could not be
+        foca.errors.Unauthorized: Raised if the JWT could not be
             successfully validated.
     """
     conf: AuthConfig = get_config().security.auth
@@ -174,7 +178,7 @@ def validate_token(token: str) -> dict[str, Any]:
         conf._warnings_logged = True
     try:
         claims = _validate(token=token, conf=conf)
-    except Unauthorized as exc:
+    except AnyUnauthorized as exc:
         # Kept, so that it needn't be validated again (cf.
         # `_reject_invalid_token()`)
         if has_request_context():
@@ -248,10 +252,10 @@ def _reject_invalid_token(fn: Callable[..., Any]) -> Callable[..., Any]:
                 if error is not None:
                     raise error
                 validate_token(token)
-            except Unauthorized as exc:
+            except AnyUnauthorized as exc:
                 if any(
                     name.lower() == "www-authenticate"
-                    and 'error="invalid_token"' in value
+                    and _INVALID_TOKEN_ERROR.search(value)
                     for name, value in exc.get_headers()
                 ):
                     raise
@@ -591,7 +595,7 @@ def _validate(token: str, conf: AuthConfig) -> dict[str, Any]:
         Verified token claims.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if the JWT could not be
+        foca.errors.Unauthorized: Raised if the JWT could not be
             successfully validated.
     """
     # Reject tokens of untrusted issuers before any network request; the
@@ -672,7 +676,7 @@ def _fetch_json(
         Parsed JSON document.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if the document could not
+        foca.errors.Unauthorized: Raised if the document could not
             be fetched.
     """
     if not isinstance(url, str) or not url:
@@ -723,7 +727,7 @@ def _get_oidc_config(issuer: str, conf: AuthConfig) -> dict[str, Any]:
         OpenID Connect discovery document.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if the discovery document
+        foca.errors.Unauthorized: Raised if the discovery document
             could not be fetched or was not issued for `issuer`.
     """
     cached = _oidc_configs.get(issuer)
@@ -757,7 +761,7 @@ def _get_jwk_set(url: Any, conf: AuthConfig, refetch: bool = False) -> jwt.PyJWK
         JWK set.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if the JWK set could not
+        foca.errors.Unauthorized: Raised if the JWK set could not
             be fetched or is invalid (e.g., not a JSON object).
     """
     cached = _jwk_sets.get(url)
@@ -802,7 +806,7 @@ def _verify_signature(
         Verified token claims.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if the JWT could not be
+        foca.errors.Unauthorized: Raised if the JWT could not be
             verified.
     """
     # Header can be decoded, as the token was decoded before
@@ -871,7 +875,7 @@ def _verify_client(claims: dict[str, Any], conf: AuthConfig) -> None:
         conf: Authentication settings; `clients` is set.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if the client is not
+        foca.errors.Unauthorized: Raised if the client is not
             accepted or the token has neither claim.
     """
     client = get_token_client(claims)
@@ -902,7 +906,7 @@ def _get_userinfo(
         User info.
 
     Raises:
-        connexion.exceptions.Unauthorized: Raised if the user info could not
+        foca.errors.Unauthorized: Raised if the user info could not
             be fetched or is not about the subject of the token.
     """
     key = hashlib.sha256(token.encode("utf-8")).hexdigest()

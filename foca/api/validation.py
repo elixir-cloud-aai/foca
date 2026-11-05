@@ -79,7 +79,7 @@ class BodyValidator(RequestBodyValidator):
             What Connexion's validator returns.
 
         Raises:
-            connexion.exceptions.RequestValidationProblem: The body has unpaired
+            foca.errors.RequestValidationProblem: The body has unpaired
                 surrogates. Doesn't quote them, as the response couldn't be
                 encoded.
         """

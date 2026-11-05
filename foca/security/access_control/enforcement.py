@@ -221,11 +221,11 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
         name users of their issuer; or `None` if the caller names no user.
 
     Raises:
-        connexion.exceptions.RequestValidationProblem: The named user is not a
+        foca.errors.RequestValidationProblem: The named user is not a
             string, is empty or blank, has surrounding whitespace, or
             cannot be namespaced (cf.
             :py:func:`foca.security.auth.namespace_subject`).
-        connexion.exceptions.Forbidden: The caller names a user, but is not a
+        foca.errors.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
     if user is None:
@@ -710,9 +710,9 @@ def enforce_access_control(fn: Callable[..., Any]) -> Callable[..., Any]:
         The decorated function.
 
     Raises:
-        connexion.exceptions.Unauthorized: The subject could not be
+        foca.errors.Unauthorized: The subject could not be
             identified.
-        connexion.exceptions.Forbidden: The subject is not allowed to access
+        foca.errors.Forbidden: The subject is not allowed to access
             the resource, or it is not a valid value for policy rules (cf.
             :py:func:`validate_rule_value`).
     """
@@ -762,7 +762,7 @@ def is_permitted() -> bool:
         policy rules (cf. :py:func:`validate_rule_value`).
 
     Raises:
-        connexion.exceptions.Unauthorized: The subject of a token that is not
+        foca.errors.Unauthorized: The subject of a token that is not
             a service token could not be identified.
     """
     client = _get_current_service_client()

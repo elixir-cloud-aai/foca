@@ -142,7 +142,7 @@ def getServiceInfo() -> dict[str, Any]:
         Service info of the current app.
 
     Raises:
-        werkzeug.exceptions.InternalServerError: The service info cannot be
+        foca.errors.InternalServerError: The service info cannot be
             built (the error is logged), whatever exceptions apps map to
             other problem details (e.g., `ValueError`).
     """

@@ -16,6 +16,7 @@ from connexion.exceptions import (
 )
 from jsonschema import ValidationError
 from werkzeug import exceptions as _werkzeug
+from werkzeug.datastructures import Headers
 
 from foca.errors.classes import (
     AuthenticationProblem,
@@ -68,6 +69,8 @@ _BODY_HEADERS = (
     "Transfer-Encoding",
 )
 
+_BASES = (HTTPError, _werkzeug.HTTPException)
+
 # Classes of `foca.errors` for the Werkzeug classes they derive from, so that
 # a mapping of either applies to both, e.g., to the `404` of unknown routes
 _COUNTERPARTS: dict[type, type] = {
@@ -118,14 +121,17 @@ def _resolve_problem(exc: BaseException, conf: ExceptionConfig) -> dict[str, Any
         Copy of the problem details, unfiltered.
     """
     problems = conf.problems
+    # Bases of all HTTP errors last, as they come before Werkzeug's classes in
+    # the method resolution order of the classes of `foca.errors`
+    keys = [
+        key
+        for cls in type(exc).__mro__
+        for key in (cls, _COUNTERPARTS.get(cls))
+        if key in problems and key not in _CATCH_ALL
+    ]
     problem = next(
-        (
-            problems[key]
-            for cls in type(exc).__mro__
-            for key in (cls, _COUNTERPARTS.get(cls))
-            if key in problems and key not in _CATCH_ALL
-        ),
-        None,
+        (problems[key] for key in keys if key not in _BASES),
+        next((problems[key] for key in keys), None),
     )
     if problem is None:
         status = _get_status(exc)
@@ -292,8 +298,7 @@ def build_headers(exc: BaseException, status: int) -> list[tuple[str, str]]:
     if isinstance(exc, _werkzeug.HTTPException):
         headers.extend(exc.get_headers())
     elif isinstance(exc, ProblemException) and exc.headers:
-        fields = exc.headers
-        headers.extend(fields.items() if hasattr(fields, "items") else fields)
+        headers.extend(Headers(exc.headers).to_wsgi_list())
     body_headers = {name.lower() for name in _BODY_HEADERS}
     headers = [item for item in headers if item[0].lower() not in body_headers]
     if (

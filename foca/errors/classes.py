@@ -18,6 +18,7 @@ from connexion.exceptions import (
     Forbidden as ConnexionForbidden,
 )
 from werkzeug import exceptions as _werkzeug
+from werkzeug.datastructures import Headers
 
 # Stable names of Connexion's problems, for the exception maps of apps
 RequestValidationProblem = BadRequestProblem
@@ -50,8 +51,9 @@ class HTTPError(_werkzeug.HTTPException):
         description: Description; by default, that of the class.
         response: Response to use instead of problem details, as in Werkzeug.
         headers: Headers of the error response, e.g., `Retry-After`.
-        **kwargs: Other arguments of the Werkzeug class, e.g., `valid_methods`
-            of :py:class:`MethodNotAllowed`.
+        **kwargs: Other arguments of the Werkzeug class, by keyword only, e.g.,
+            `valid_methods` of :py:class:`MethodNotAllowed`; give each header
+            in one way, as both are sent.
 
     Attributes:
         code: HTTP status code.
@@ -64,14 +66,12 @@ class HTTPError(_werkzeug.HTTPException):
         description: str | None = None,
         response: Any = None,
         *,
-        headers: Mapping[str, str] | Iterable[tuple[str, str]] | None = None,
+        headers: Mapping[str, Any] | Iterable[tuple[str, str]] | None = None,
         **kwargs: Any,
     ) -> None:
         """Create the error."""
         super().__init__(description=description, response=response, **kwargs)
-        self.headers: list[tuple[str, str]] = list(
-            headers.items() if isinstance(headers, Mapping) else headers or ()
-        )
+        self.headers: list[tuple[str, str]] = Headers(headers).to_wsgi_list()
 
     def get_headers(self, *args: Any, **kwargs: Any) -> list[tuple[str, str]]:
         """Get the headers of the error response.

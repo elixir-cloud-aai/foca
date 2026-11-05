@@ -125,9 +125,9 @@ def _check_body_size() -> None:
     without a limit.
 
     Raises:
-        werkzeug.exceptions.BadRequest: The declared size of the request body
+        foca.errors.BadRequest: The declared size of the request body
             is invalid.
-        werkzeug.exceptions.PayloadTooLarge: The request body is larger
+        foca.errors.PayloadTooLarge: The request body is larger
             than `MAX_CONTENT_LENGTH`.
     """
     limit = current_app.config["MAX_CONTENT_LENGTH"]

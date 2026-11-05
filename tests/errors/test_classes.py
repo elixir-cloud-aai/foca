@@ -107,6 +107,21 @@ class TestPairs:
         assert build_problem(base(), conf) == (problem, code)
 
 
+class TestResolution:
+    """Tests for the order of classes in exception maps."""
+
+    @pytest.mark.parametrize("base", [HTTPError, wz.HTTPException])
+    @pytest.mark.parametrize("specific", [NotFound, wz.NotFound])
+    def test_specific_before_base(self, base: type[Any], specific: type[Any]) -> None:
+        """Specific classes win over the bases of all HTTP errors, for both kinds."""
+        generic = {"title": "Generic", "status": 500}
+        mapped = {"title": "Specific", "status": 404}
+        conf = _conf({base: generic, specific: mapped})
+        assert build_problem(NotFound(), conf)[0] == mapped
+        assert build_problem(wz.NotFound(), conf)[0] == mapped
+        assert build_problem(Conflict(), conf)[0] == generic
+
+
 class TestHeaders:
     """Tests for the headers of errors."""
 
@@ -118,6 +133,14 @@ class TestHeaders:
         exc = ServiceUnavailable(headers=headers)
         assert exc.headers == [("Retry-After", "120")]
         assert build_headers(exc, 503) == [("Retry-After", "120")]
+
+    def test_several_values(self) -> None:
+        """Lists of values give several headers."""
+        fields = {"X-A": ["1", "2"]}
+        expected = [("X-A", "1"), ("X-A", "2")]
+        assert build_headers(NotFound(headers=fields), 404) == expected
+        exc = connexion_exceptions.ProblemException(status=400, headers=fields)
+        assert build_headers(exc, 400) == expected
 
     def test_other_status(self) -> None:
         """Headers aren't kept for other statuses."""

@@ -194,7 +194,7 @@ def _get_listing_subjects(
 
     Raises:
         connexion.exceptions.BadRequestProblem: The named user is invalid.
-        connexion.exceptions.Forbidden: The caller names a user, but is not a
+        foca.errors.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
     user = get_on_behalf_of_user(on_behalf_of)
@@ -278,9 +278,9 @@ def _get_creator(on_behalf_of: str | None = None) -> tuple[SubjectType, str]:
 
     Raises:
         connexion.exceptions.BadRequestProblem: The named user is invalid.
-        connexion.exceptions.Forbidden: The caller names a user, but is not a
+        foca.errors.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
-        connexion.exceptions.Unauthorized: The current request has neither a
+        foca.errors.Unauthorized: The current request has neither a
             user nor a service client.
     """
     user = get_on_behalf_of_user(on_behalf_of)
@@ -347,9 +347,9 @@ def add_owner(
     Raises:
         connexion.exceptions.BadRequestProblem: The user named by a service
             client is invalid.
-        connexion.exceptions.Forbidden: The caller names a user to act for,
+        foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
-        connexion.exceptions.Unauthorized: `subject` is `None`, and the
+        foca.errors.Unauthorized: `subject` is `None`, and the
             current request has neither a user nor a service client.
         ValueError: Both `subject` and `on_behalf_of` are given, the role
             would not apply to the subject (cf. :py:func:`grant_role`), or
@@ -541,7 +541,7 @@ def _grant(
             not leave the resource without owners.
 
     Raises:
-        werkzeug.exceptions.NotFound: The resource was deleted meanwhile.
+        foca.errors.NotFound: The resource was deleted meanwhile.
         Exception: Any exception raised by `exists`; the role is revoked
             again if `revoke_on_error` is set and the role was not granted
             before.
@@ -599,7 +599,7 @@ def _restore_owner_if_none(
 
     Raises:
         LastOwner: The resource had no owners left.
-        werkzeug.exceptions.NotFound: The resource was deleted meanwhile.
+        foca.errors.NotFound: The resource was deleted meanwhile.
     """
     if _get_owners(resource, ptype):
         return
@@ -661,7 +661,7 @@ def grant_role(
     Raises:
         LastOwner: The subject is the last owner of the resource, and the
             role is not `owner`.
-        werkzeug.exceptions.NotFound: `exists` returned `False` after the
+        foca.errors.NotFound: `exists` returned `False` after the
             role was granted; the role was revoked again.
         ValueError: The role is not one of `access_control.resource_roles`,
             the role is not `owner` and the resource has no owner (whose
@@ -741,7 +741,7 @@ def revoke_roles(
 
     Raises:
         LastOwner: The subject is the last owner of the resource.
-        werkzeug.exceptions.NotFound: `exists` returned `False` when an
+        foca.errors.NotFound: `exists` returned `False` when an
             owner role was restored.
         ValueError: The model does not define resource-scoped roles, the
             subject type is not supported, or the resource is not a valid
@@ -818,7 +818,7 @@ def list_subject_roles(
     Raises:
         connexion.exceptions.BadRequestProblem: The user named by a service
             client is invalid.
-        connexion.exceptions.Forbidden: The caller names a user to act for,
+        foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
         ValueError: The model does not define resource-scoped roles.
     """
@@ -892,7 +892,7 @@ def resource_filter(
     Raises:
         connexion.exceptions.BadRequestProblem: The user named by a service
             client is invalid.
-        connexion.exceptions.Forbidden: The caller names a user to act for,
+        foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
         ValueError: The model does not define resource-scoped roles.
     """
@@ -946,7 +946,7 @@ def _get_owner(on_behalf_of: str | None = None) -> dict[str, str] | None:
 
     Raises:
         connexion.exceptions.BadRequestProblem: The named user is invalid.
-        connexion.exceptions.Forbidden: The caller names a user, but is not a
+        foca.errors.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
     # The subject the request is attributed to comes first, before groups
@@ -991,9 +991,9 @@ def set_owner_field(
     Raises:
         connexion.exceptions.BadRequestProblem: The user named by a service
             client is invalid.
-        connexion.exceptions.Forbidden: The caller names a user to act for,
+        foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
-        connexion.exceptions.Unauthorized: The token of the current request
+        foca.errors.Unauthorized: The token of the current request
             has no issuer, or the request has neither a user nor a service
             client.
         ValueError: The field is not a valid top-level field name.
@@ -1035,7 +1035,7 @@ def owner_filter(
     Raises:
         connexion.exceptions.BadRequestProblem: The user named by a service
             client is invalid.
-        connexion.exceptions.Forbidden: The caller names a user to act for,
+        foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
         ValueError: The field is not a valid top-level field name.
     """

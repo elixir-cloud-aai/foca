@@ -24,7 +24,12 @@ Raise and map the classes of `foca.errors` rather than those of Werkzeug and Con
 | `connexion.exceptions.ExtraParameterProblem` | `foca.errors.ExtraParameterProblem` |
 | `connexion.exceptions.OAuthProblem` | `foca.errors.AuthenticationProblem` |
 
+Other arguments of the Werkzeug classes (`valid_methods`, `www_authenticate`,
+`retry_after`) are keywords in the new classes, e.g., `MethodNotAllowed(valid_methods=["GET"])`.
+
 Exception maps with raw Werkzeug classes keep working, but FOCA logs a warning, once per
-class; they stop working with the first release candidate on ASGI. `www_authenticate` of
+class, except for `werkzeug.exceptions.Forbidden`, which is the same class as
+`AccessDeniedProblem` for now, so replace it yourself; they stop working with the first
+release candidate on ASGI. `www_authenticate` of
 `Unauthorized` exceptions that FOCA raises for tokens is no longer set: the challenge is
 in `get_headers()`, which is what goes into responses.
