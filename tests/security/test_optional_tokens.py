@@ -450,3 +450,11 @@ def test_raw_unauthorized_of_validation(exception: Any, kept: bool) -> None:
         else:
             with pytest.raises(wz.Unauthorized):
                 wrapped()
+
+
+def test_unauthorized_keeps_werkzeug_challenge() -> None:
+    """Apps can read the challenge from `www_authenticate`, as in Werkzeug."""
+    challenge = auth._unauthorized("rejected").www_authenticate
+    assert challenge is not None
+    assert next(iter(challenge)).parameters["error"] == "invalid_token"
+    assert auth._unauthorized("down", invalid_token=False).www_authenticate

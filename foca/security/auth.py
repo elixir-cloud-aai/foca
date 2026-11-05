@@ -138,9 +138,7 @@ def _unauthorized(description: str, invalid_token: bool = True) -> Unauthorized:
     )
     return Unauthorized(
         description,
-        headers={
-            "WWW-Authenticate": _BearerChallenge("bearer", parameters).to_header()
-        },
+        www_authenticate=_BearerChallenge("bearer", parameters),
     )
 
 

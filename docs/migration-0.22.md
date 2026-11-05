@@ -30,6 +30,4 @@ Other arguments of the Werkzeug classes (`valid_methods`, `www_authenticate`,
 Exception maps with raw Werkzeug classes keep working, but FOCA logs a warning, once per
 class, except for `werkzeug.exceptions.Forbidden`, which is the same class as
 `AccessDeniedProblem` for now, so replace it yourself; they stop working with the first
-release candidate on ASGI. `www_authenticate` of
-`Unauthorized` exceptions that FOCA raises for tokens is no longer set: the challenge is
-in `get_headers()`, which is what goes into responses.
+release candidate on ASGI.
