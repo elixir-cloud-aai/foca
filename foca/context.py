@@ -7,10 +7,10 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
+from urllib.parse import quote
 
 from celery import current_task
 from flask import has_request_context, request
-from werkzeug.urls import iri_to_uri
 
 from foca.api.routes import match
 
@@ -20,6 +20,10 @@ DEFAULT_REQUEST_ID_HEADER = "X-Request-ID"
 _REQUEST_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 
 _request_id: ContextVar[str | None] = ContextVar("foca_request_id", default=None)
+
+# Characters of URLs kept as they are when non-ASCII and unsafe ones are
+# percent-encoded (reserved characters, `%` of existing escapes, `~`)
+_URL_SAFE = "/:;@!$&'()*+,=?%#[]~"
 
 
 def request_id() -> str:
@@ -123,8 +127,10 @@ class RequestSnapshot:
             policies and the ownership of resources are keyed by it.
         root_path: Root path of the app (`SCRIPT_NAME`), empty if there is
             none, e.g., `/tes`.
-        url: Full URL of the request, with root path and query string,
-            percent-encoded; left out of the representation of the snapshot,
+        url: Full URL of the request, with root path and query string, as
+            the server reconstructs it (not necessarily as sent), with the
+            host as the server gives it and other non-ASCII and unsafe
+            characters percent-encoded; left out of the representation of the snapshot,
             as queries may hold credentials.
         headers: Headers of the request, case-insensitive and read-only.
         content_length: Length of the request body in bytes, as declared, or
@@ -149,6 +155,21 @@ class RequestSnapshot:
     client_address: str | None
     route: str | None
     path_params: Mapping[str, Any]
+
+
+def _encode_url(url: str, host_url: str) -> str:
+    """Percent-encode the non-ASCII and unsafe characters of a URL.
+
+    Args:
+        url: URL, as an IRI.
+        host_url: Its scheme and host, with or without a trailing slash.
+
+    Returns:
+        The URL, with the scheme and host as they are, as clients choose the
+        host and not all hosts can be IDNA-encoded.
+    """
+    prefix = host_url.rstrip("/")
+    return prefix + quote(url[len(prefix) :], safe=_URL_SAFE)
 
 
 def current_request() -> RequestSnapshot:
@@ -176,7 +197,7 @@ def current_request() -> RequestSnapshot:
         method=request.method,
         path=request.path,
         root_path=request.script_root,
-        url=iri_to_uri(request.url),
+        url=_encode_url(request.url, request.host_url),
         headers=Headers(request.headers.items()),
         content_length=request.content_length,
         client_address=request.remote_addr,

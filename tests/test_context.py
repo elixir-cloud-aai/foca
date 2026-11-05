@@ -441,6 +441,13 @@ class TestCurrentRequest:
         assert snapshot.url == "http://localhost/api/v1/items/%E2%82%AC/1?q=%C3%BC"
         assert snapshot.path == "/api/v1/items/\u20ac/1"
 
+    @pytest.mark.parametrize("host", ["a..b", "a" * 64 + ".org"])
+    def test_url_host_as_sent(self, request_app: Flask, host: str) -> None:
+        """Hosts are kept, also those that can't be IDNA-encoded."""
+        with request_app.test_request_context("/x/%E2%82%AC", headers=[("Host", host)]):
+            snapshot = current_request()
+        assert snapshot.url == f"http://{host}/x/%E2%82%AC"
+
     def test_repr_without_credentials(self, request_app: Flask) -> None:
         """Representations leave out header values and the URL."""
         headers = [("Authorization", "Bearer secret"), ("Cookie", "s=secret")]
