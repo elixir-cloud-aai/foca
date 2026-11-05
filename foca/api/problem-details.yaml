@@ -63,6 +63,7 @@ components:
           description: >-
             JSON Pointer (RFC 6901) to the field in the request body, as a
             URI fragment, e.g., `#/organization/url`.
+          pattern: '^#(/([A-Za-z0-9_.!$&''()*+,;=:@-]|%[0-9A-Fa-f]{2}|~[01])*)*$'
         parameter:
           type: string
           description: >-

@@ -75,6 +75,10 @@ class TestFieldError:
             {"pointer": "#/a", "parameter": "a"},
             {"pointer": "/a"},
             {"pointer": ""},
+            {"pointer": "#abc"},
+            {"pointer": "#/a b"},
+            {"pointer": "#/a~2"},
+            {"pointer": "#/%zz"},
         ],
     )
     def test_location(self, kwargs: dict[str, str]) -> None:
@@ -108,6 +112,11 @@ class TestFieldError:
         """Maximum lengths are at least 1."""
         with pytest.raises(ValueError, match="at least 1"):
             FieldError(detail="d", code="c", pointer="#").to_dict(max_length=0)
+
+    @pytest.mark.parametrize("pointer", ["#", "#/", "#/a~0b~1c/0/%C3%A4", "#//x"])
+    def test_valid_pointers(self, pointer: str) -> None:
+        """Pointers as built by `json_pointer()` are accepted."""
+        assert FieldError(detail="d", code="c", pointer=pointer).pointer == pointer
 
     def test_long_pointer(self) -> None:
         """Long pointers are replaced by the closest one that fits."""

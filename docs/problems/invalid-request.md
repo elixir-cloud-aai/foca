@@ -104,12 +104,13 @@ Apps add codes of their own for their own checks (see below), e.g.,
 All invalid fields of the request body (JSON or form data, against the
 schema of the request body) are listed, and all invalid parameters.
 The body is checked first: a request with an invalid body lists its fields
-only. The app's own checks run on valid requests only. Requests rejected
+only. With `strict_validation`, unknown parameters are listed together with
+the invalid declared ones. The app's own checks run on valid requests only. Requests rejected
 for other reasons, e.g., a body that is not valid JSON or has unpaired
 surrogates, or form fields of an OpenAPI 3 request body that can't be
-converted to their type, get no `errors`, but `detail` as before. If the
-invalid fields can't be listed (e.g., for an unexpected schema), the request
-is rejected as before, without them, and a warning is logged.
+converted to their type, get no `errors`, but `detail` as before. If any
+invalid field can't be listed (e.g., for an unexpected schema), the request
+is rejected as before, without `errors`, and a warning is logged.
 
 ## Checks of your app
 

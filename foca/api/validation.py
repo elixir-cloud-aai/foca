@@ -44,7 +44,7 @@ from foca.errors import (
     InvalidFieldsProblem,
     RequestValidationProblem,
 )
-from foca.errors.fields import FieldError, schema_field_errors
+from foca.errors.fields import FieldError, schema_field_errors, unknown_parameters
 from foca.security.resolvers import _normalize_resolver
 from foca.utils.service_info import is_date, is_date_time, is_uri
 
@@ -127,7 +127,9 @@ class BodyValidator(RequestBodyValidator):
             raise InvalidFieldsProblem(errors, detail=exc.detail) from None
 
 
-def _list_fields(convert: Callable[[], list[FieldError]]) -> list[FieldError]:
+def _list_fields(
+    convert: Callable[[], list[FieldError]],
+) -> list[FieldError] | None:
     """List invalid fields, without failing the rejection of the request.
 
     Listing invalid fields only adds to responses: if it fails (e.g., for
@@ -137,7 +139,7 @@ def _list_fields(convert: Callable[[], list[FieldError]]) -> list[FieldError]:
         convert: Function listing the invalid fields.
 
     Returns:
-        The invalid fields, or none if listing them failed.
+        The invalid fields, or `None` if listing them failed.
     """
     try:
         return convert()
@@ -146,7 +148,7 @@ def _list_fields(convert: Callable[[], list[FieldError]]) -> list[FieldError]:
             "Invalid fields of a rejected request could not be listed: %s",
             type(exc).__name__,
         )
-        return []
+        return None
 
 
 def _parameter_errors(
@@ -195,10 +197,11 @@ class _Reason(str):
     """Reason of Connexion's validator for an invalid parameter.
 
     Attributes:
-        field_errors: Invalid fields of the parameter.
+        field_errors: Invalid fields of the parameter, or `None` if they
+            could not be listed.
     """
 
-    field_errors: list[FieldError]
+    field_errors: list[FieldError] | None
 
 
 # Whether the parameters of the current request are checked after the first
@@ -242,7 +245,7 @@ class ParameterValidator(ConnexionParameterValidator):
             errors = _list_fields(
                 lambda: _parameter_errors(parameter_type, value, param)
             )
-            if not errors:
+            if errors == []:
                 return None
             reason = _Reason()
         else:
@@ -297,38 +300,21 @@ class ParameterValidator(ConnexionParameterValidator):
                 query = self.validate_query_parameter_list(request)
                 formdata = self.validate_formdata_parameter_list(request)
                 if formdata or query:
-                    raise ExtraParameterProblem(formdata, query)
-            checks = [
-                *(
-                    (validate, param)
-                    for location, validate in (
-                        ("query", self.validate_query_parameter),
-                        ("path", self.validate_path_parameter),
-                        ("header", self.validate_header_parameter),
-                        ("cookie", self.validate_cookie_parameter),
-                    )
-                    for param in self.parameters.get(location, [])
-                ),
-                *(
-                    (self._validate_formdata, param)
-                    for param in self.parameters.get("formData", [])
-                ),
-            ]
-            first: str | None = None
-            errors: list[FieldError] = []
-            token = None
-            try:
-                for validate, param in checks:
-                    reason = validate(param, request)
-                    if reason is None:
-                        continue
-                    errors.extend(getattr(reason, "field_errors", ()))
-                    if first is None:
-                        first = str(reason)
-                        token = _after_first_reason.set(True)
-            finally:
-                if token is not None:
-                    _after_first_reason.reset(token)
+                    # Declared parameters are checked by FOCA only, as
+                    # Connexion didn't check them for these requests
+                    token = _after_first_reason.set(True)
+                    try:
+                        _, errors = self._check(request)
+                    finally:
+                        _after_first_reason.reset(token)
+                    exc = ExtraParameterProblem(formdata, query)
+                    if errors is not None:
+                        exc.field_errors = (
+                            *unknown_parameters([*query, *formdata]),
+                            *errors,
+                        )
+                    raise exc
+            first, errors = self._check(request)
             if first is None:
                 return function(request)
             if not errors:
@@ -336,6 +322,56 @@ class ParameterValidator(ConnexionParameterValidator):
             raise InvalidFieldsProblem(errors, detail=first)
 
         return wrapper
+
+    def _check(self, request: Any) -> tuple[str | None, list[FieldError] | None]:
+        """Check the declared parameters of a request.
+
+        Connexion checks them until the first invalid one, FOCA the rest (cf.
+        `validate_parameter()`).
+
+        Args:
+            request: Connexion request.
+
+        Returns:
+            Connexion's reason for the first invalid parameter (`None` if all
+            are valid), and the invalid fields (`None` if any could not be
+            listed).
+        """
+        checks = [
+            *(
+                (validate, param)
+                for location, validate in (
+                    ("query", self.validate_query_parameter),
+                    ("path", self.validate_path_parameter),
+                    ("header", self.validate_header_parameter),
+                    ("cookie", self.validate_cookie_parameter),
+                )
+                for param in self.parameters.get(location, [])
+            ),
+            *(
+                (self._validate_formdata, param)
+                for param in self.parameters.get("formData", [])
+            ),
+        ]
+        first: str | None = None
+        errors: list[FieldError] | None = []
+        token = None
+        try:
+            for validate, param in checks:
+                reason = validate(param, request)
+                if reason is None:
+                    continue
+                listed = getattr(reason, "field_errors", None)
+                # Fields of all parameters, or none (cf. `_list_fields()`)
+                errors = None if listed is None or errors is None else errors + listed
+                if first is None:
+                    first = str(reason)
+                    if not _after_first_reason.get():
+                        token = _after_first_reason.set(True)
+        finally:
+            if token is not None:
+                _after_first_reason.reset(token)
+        return first, errors
 
     def _validate_formdata(self, param: dict[str, Any], request: Any) -> str | None:
         """Validate a form data parameter (Swagger 2), as Connexion does.

@@ -56,6 +56,11 @@ _CODE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 # digits and `_.-~`; `/` is escaped as per RFC 6901 before
 _FRAGMENT_SAFE = "!$&'()*+,;=:@"
 
+# JSON Pointers as URI fragments: `#`, then segments of fragment characters
+# (percent-encoded otherwise), with `~` only in the escapes `~0` and `~1`
+_SEGMENT_CHAR = r"(?:[A-Za-z0-9_.\-!$&'()*+,;=:@]|%[0-9A-Fa-f]{2}|~[01])"
+_POINTER = re.compile(rf"#(?:/{_SEGMENT_CHAR}*)*")
+
 # Names of formats in messages
 _FORMATS = {
     "date-time": "date and time",
@@ -88,7 +93,8 @@ class FieldError:
 
     Raises:
         ValueError: The detail is empty, the code is not kebab-case, or there
-            is not exactly one of `pointer` (starting with ``#``) and
+            is not exactly one of `pointer` (a JSON Pointer as a URI
+            fragment, cf. :py:func:`json_pointer`) and
             `parameter`.
 
     Examples:
@@ -113,9 +119,10 @@ class FieldError:
             raise ValueError(f"Code of field error is not kebab-case: '{self.code}'")
         if (self.pointer is None) is (self.parameter is None):
             raise ValueError("Field errors need either a pointer or a parameter.")
-        if self.pointer is not None and not self.pointer.startswith("#"):
+        if self.pointer is not None and not _POINTER.fullmatch(self.pointer):
             raise ValueError(
-                f"Pointer of field error is not a URI fragment: '{self.pointer}'"
+                "Pointer of field error is not a JSON Pointer as a URI fragment "
+                f"(cf. json_pointer()): '{self.pointer}'"
             )
 
     def to_dict(self, max_length: int | None = None) -> dict[str, str]:

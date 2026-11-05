@@ -684,6 +684,22 @@ class TestFieldErrors:
         response = client.put(self.URL + "&b=1&a=2", json=self.VALID)
         assert [e["parameter"] for e in response.get_json()["errors"]] == ["a", "b"]
 
+    def test_extra_and_invalid_parameters(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Unknown and invalid declared parameters are listed together."""
+        client = _create_app(tmp_path).test_client()
+        with caplog.at_level(logging.DEBUG):
+            response = client.put("/things/abc?limit=s3cr3t&b=1", json=self.VALID)
+        data = response.get_json()
+        assert data["detail"] == "Extra query parameter(s) b not in spec"
+        assert [(e["parameter"], e["code"]) for e in data["errors"]] == [
+            ("b", "unknown-parameter"),
+            ("limit", "invalid-type"),
+            ("tag", "required"),
+        ]
+        assert "s3cr3t" not in caplog.text
+
     def test_values_not_echoed(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -790,12 +806,15 @@ class TestFieldErrors:
         """Parameters that Connexion can't check after the first invalid one.
 
         Connexion's check of `arr` raises (its items have no type), but only
-        the first invalid parameter is checked by Connexion, as before.
+        the first invalid parameter is checked by Connexion, as before. As
+        the fields of `arr` can't be listed, none are.
         """
         client = _create_app(tmp_path).test_client()
         response = client.put("/things/abc?limit=11&tag=t&arr=x", json=self.VALID)
         assert response.status_code == 400
-        assert [e["parameter"] for e in response.get_json()["errors"]] == ["limit"]
+        data = response.get_json()
+        assert data["detail"].startswith("11 is greater than the maximum of 10")
+        assert "errors" not in data
 
     def test_later_parameters_not_logged(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -848,6 +867,46 @@ class TestListingFails:
         data = response.get_json()
         assert "errors" not in data
         assert data["detail"].startswith("11 is greater than the maximum of 10")
+
+    def test_later_parameter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fields aren't listed in part if those of a parameter can't be."""
+        calls: list[str] = []
+        listed = validation._parameter_errors
+
+        def _fail_once(*args: Any) -> list[FieldError]:
+            """Fail for the first invalid parameter only.
+
+            Args:
+                *args: Arguments of `_parameter_errors()`.
+
+            Returns:
+                Invalid fields.
+
+            Raises:
+                TypeError: On the first call.
+            """
+            calls.append("call")
+            if len(calls) == 1:
+                raise TypeError("unexpected")
+            return listed(*args)
+
+        monkeypatch.setattr(validation, "_parameter_errors", _fail_once)
+        client = _create_app(tmp_path).test_client()
+        response = client.put("/things/abc?limit=11", json=TestFieldErrors.VALID)
+        assert response.status_code == 400
+        assert "errors" not in response.get_json()
+        assert len(calls) > 1
+
+    def test_extra_parameters(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unknown parameters are listed alone if declared ones can't be."""
+        monkeypatch.setattr(validation, "_parameter_errors", self._fail)
+        client = _create_app(tmp_path).test_client()
+        response = client.put("/things/abc?limit=11&b=1", json=TestFieldErrors.VALID)
+        assert [e["parameter"] for e in response.get_json()["errors"]] == ["b"]
 
     def test_handler(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Responses keep their status if the handler can't list the fields."""

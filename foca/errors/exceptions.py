@@ -356,6 +356,10 @@ def _field_errors(exception: ProblemException) -> tuple[FieldError, ...]:
     if isinstance(exception, InvalidFieldsProblem):
         return exception.field_errors
     if isinstance(exception, ExtraParameterProblem):
+        # Set by FOCA's parameter validator, with the declared parameters
+        listed = getattr(exception, "field_errors", None)
+        if listed is not None:
+            return tuple(listed)
         return tuple(
             unknown_parameters([*exception.extra_query, *exception.extra_formdata])
         )

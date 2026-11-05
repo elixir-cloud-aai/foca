@@ -59,6 +59,7 @@ def test_valid() -> None:
         {"detail": "d", "code": "c"},
         {"detail": "d", "code": "c", "pointer": "#", "parameter": "p"},
         {"detail": "d", "code": "Not_Kebab", "pointer": "#"},
+        {"detail": "d", "code": "c", "pointer": "#abc"},
     ],
 )
 def test_invalid_entries(entry: dict[str, str]) -> None:
