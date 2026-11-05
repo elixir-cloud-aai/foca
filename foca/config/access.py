@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import copyreg
-import threading
 import warnings
-from typing import TYPE_CHECKING, Any, SupportsIndex, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from flask import Config as FlaskConfig
 from flask import Flask, current_app, has_app_context
@@ -26,173 +24,81 @@ _T = TypeVar("_T", bound=BaseModel)
 # Name of the attribute of Flask configurations holding FOCA's configuration
 _ATTRIBUTE = "foca"
 
-# Marks the subclasses of Flask configuration classes with the deprecated
-# attribute
-_DEPRECATING_MARKER = "_foca_deprecates_attribute"
 
-# Subclasses of Flask configuration classes with the deprecated attribute, by
-# class
-_deprecating_classes: dict[type[FlaskConfig], type[FlaskConfig]] = {}
-_deprecating_classes_lock = threading.Lock()
+class _DeprecatingConfig(FlaskConfig):
+    """Flask configuration whose attribute `foca` is deprecated.
 
-
-def _get_foca_attribute(flask_config: FlaskConfig) -> Any:
-    """Get FOCA's configuration from a Flask configuration, deprecated.
-
-    Args:
-        flask_config: Flask configuration.
-
-    Returns:
-        FOCA's configuration.
-
-    Raises:
-        AttributeError: No configuration is attached.
+    The attribute is a property, which takes precedence over the attribute of
+    the instance, where the configuration stays (cf.
+    :py:func:`_find_app_config`).
     """
-    try:
-        value = vars(flask_config)[_ATTRIBUTE]
-    except KeyError:
-        raise AttributeError(_ATTRIBUTE) from None
-    warnings.warn(
-        "'app.config.foca' is deprecated; use 'foca.get_config()' or "
-        "'foca.get_custom_config()'.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return value
 
+    @property
+    def foca(self) -> Any:
+        """FOCA's configuration, deprecated.
 
-def _set_foca_attribute(flask_config: FlaskConfig, value: Any) -> None:
-    """Set FOCA's configuration of a Flask configuration, deprecated.
+        Raises:
+            AttributeError: No configuration is attached.
+        """
+        try:
+            value = vars(self)[_ATTRIBUTE]
+        except KeyError:
+            raise AttributeError(_ATTRIBUTE) from None
+        warnings.warn(
+            "'app.config.foca' is deprecated; use 'foca.get_config()' or "
+            "'foca.get_custom_config()'.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return value
 
-    Args:
-        flask_config: Flask configuration.
-        value: FOCA's configuration.
-    """
-    warnings.warn(
-        "Setting 'app.config.foca' is deprecated; change the configuration "
-        "that 'foca.get_config()' returns.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    vars(flask_config)[_ATTRIBUTE] = value
+    @foca.setter
+    def foca(self, value: Any) -> None:
+        """Set FOCA's configuration, deprecated.
 
+        Args:
+            value: FOCA's configuration.
+        """
+        warnings.warn(
+            "Setting 'app.config.foca' is deprecated; change the configuration "
+            "that 'foca.get_config()' returns.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        vars(self)[_ATTRIBUTE] = value
 
-def _delete_foca_attribute(flask_config: FlaskConfig) -> None:
-    """Remove FOCA's configuration from a Flask configuration, deprecated.
+    @foca.deleter
+    def foca(self) -> None:
+        """Remove FOCA's configuration, deprecated.
 
-    Args:
-        flask_config: Flask configuration.
-
-    Raises:
-        AttributeError: No configuration is attached.
-    """
-    warnings.warn(
-        "Deleting 'app.config.foca' is deprecated.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    try:
-        del vars(flask_config)[_ATTRIBUTE]
-    except KeyError:
-        raise AttributeError(_ATTRIBUTE) from None
-
-
-def _reduce_ex(flask_config: FlaskConfig, protocol: SupportsIndex) -> Any:
-    """Pickle a Flask configuration as one of its original class.
-
-    Args:
-        flask_config: Flask configuration, of a deprecating subclass.
-        protocol: Pickle protocol.
-
-    Returns:
-        What the original class would return, with that class instead of the
-        subclass; what its own `__reduce__()` returns otherwise.
-    """
-    cls = type(flask_config)
-    original = cls.__mro__[1]
-    reduced = super(cls, flask_config).__reduce_ex__(protocol)
-    if isinstance(reduced, str):
-        return reduced
-    function, args, *rest = cast("tuple[Any, ...]", reduced)
-    # E.g., `__reduce__()` returning `type(self)` and its arguments
-    if function is cls:
-        return (original, args, *rest)
-    # The class is the first argument of `copyreg._reconstructor` (protocols 0
-    # and 1) and of `copyreg.__newobj__` (2+), which insists on the class of
-    # the instance
-    if function is copyreg.__newobj__:  # type: ignore[attr-defined]  # not in typeshed
-        return (_new_instance, (original, *args[1:]), *rest)
-    # With keyword arguments, from `__getnewargs_ex__()` (protocols 4+)
-    if function is copyreg.__newobj_ex__:  # type: ignore[attr-defined]  # not in typeshed
-        return (_new_instance_ex, (original, *args[1:]), *rest)
-    if function is copyreg._reconstructor and args[0] is cls:  # type: ignore[attr-defined]  # not in typeshed
-        return (function, (original, *args[1:]), *rest)
-    return reduced
-
-
-def _new_instance(cls: type[Any], *args: Any) -> Any:
-    """Create an instance of a class without initializing it, for unpickling.
-
-    Args:
-        cls: Class.
-        *args: Arguments of `__new__()`.
-
-    Returns:
-        New instance.
-    """
-    return cls.__new__(cls, *args)
-
-
-def _new_instance_ex(
-    cls: type[Any], args: tuple[Any, ...], kwargs: dict[str, Any]
-) -> Any:
-    """Create an instance of a class without initializing it, for unpickling.
-
-    Args:
-        cls: Class.
-        args: Positional arguments of `__new__()`.
-        kwargs: Keyword arguments of `__new__()`.
-
-    Returns:
-        New instance.
-    """
-    return cls.__new__(cls, *args, **kwargs)
+        Raises:
+            AttributeError: No configuration is attached.
+        """
+        warnings.warn(
+            "Deleting 'app.config.foca' is deprecated.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        try:
+            del vars(self)[_ATTRIBUTE]
+        except KeyError:
+            raise AttributeError(_ATTRIBUTE) from None
 
 
 def _deprecate_attribute(app: Flask) -> None:
     """Make access to `app.config.foca` emit a deprecation warning.
 
-    The class of the Flask configuration is replaced by a subclass of it
-    whose attribute `foca` is a property, which takes precedence over the
-    attribute of the instance, where the configuration stays. A class of
-    FOCA's for Flask configurations (`Flask.config_class`) can't do this, as
-    Connexion creates the app, with its configuration, and apps may have
-    classes of their own. The subclass is pickled as the original class.
+    Flask configurations of Flask's own class, as Connexion creates them, get
+    a subclass whose attribute `foca` warns. A class for Flask configurations
+    (`Flask.config_class`) can't do this, as Connexion creates the app, with
+    its configuration. Apps with configuration classes of their own keep
+    them, and their attribute doesn't warn.
 
     Args:
         app: Flask application instance.
     """
-    cls = type(app.config)
-    if getattr(cls, _DEPRECATING_MARKER, False):
-        return
-    with _deprecating_classes_lock:
-        if cls not in _deprecating_classes:
-            _deprecating_classes[cls] = type(
-                cls.__name__,
-                (cls,),
-                {
-                    "__module__": cls.__module__,
-                    "__qualname__": cls.__qualname__,
-                    "__reduce_ex__": _reduce_ex,
-                    _DEPRECATING_MARKER: True,
-                    _ATTRIBUTE: property(
-                        _get_foca_attribute,
-                        _set_foca_attribute,
-                        _delete_foca_attribute,
-                    ),
-                },
-            )
-    app.config.__class__ = _deprecating_classes[cls]
+    if type(app.config) is FlaskConfig:
+        app.config.__class__ = _DeprecatingConfig
 
 
 def set_app_config(app: Flask, config: Config) -> None:

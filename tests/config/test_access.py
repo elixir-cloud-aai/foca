@@ -119,105 +119,15 @@ def test_config_attribute_deleted() -> None:
 
 @pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
 def test_config_pickled(protocol: int) -> None:
-    """Flask configurations are pickled as their original class."""
+    """Flask configurations are pickled with their items and FOCA's."""
     config = Config()
     app = create_connexion_app(config).app
     app.config["KEY"] = "value"
     copied = pickle.loads(pickle.dumps(app.config, protocol))  # noqa: S301 (own data)
-    assert type(copied) is flask.Config
+    assert isinstance(copied, flask.Config)
     assert copied["KEY"] == "value"
     assert copied.root_path == app.config.root_path
     assert vars(copied)["foca"] == config
-
-
-class ReducedConfig(flask.Config):
-    """Flask configuration pickled by its own `__reduce__()`."""
-
-    def __reduce__(self) -> tuple[Any, ...]:
-        """Pickle the configuration by its class, root path and items.
-
-        Returns:
-            Class, and its arguments.
-        """
-        return (type(self), (self.root_path, dict(self)))
-
-
-def _make_config(root_path: str, items: dict[str, Any]) -> "FactoryConfig":
-    """Create a Flask configuration, for unpickling.
-
-    Args:
-        root_path: Root path.
-        items: Items.
-
-    Returns:
-        Flask configuration.
-    """
-    return FactoryConfig(root_path, items)
-
-
-class FactoryConfig(flask.Config):
-    """Flask configuration pickled by a function of its own."""
-
-    def __reduce__(self) -> tuple[Any, ...]:
-        """Pickle the configuration by a factory.
-
-        Returns:
-            Factory, and its arguments.
-        """
-        return (_make_config, (self.root_path, dict(self)))
-
-
-class NamedConfig(flask.Config):
-    """Flask configuration pickled as a global."""
-
-    def __reduce__(self) -> str:
-        """Pickle the configuration by name.
-
-        Returns:
-            Name of the global.
-        """
-        return "NAMED_CONFIG"
-
-
-NAMED_CONFIG = NamedConfig("/named")
-
-
-class KeywordsConfig(flask.Config):
-    """Flask configuration created with keyword arguments when unpickled."""
-
-    def __getnewargs_ex__(self) -> tuple[tuple[Any, ...], dict[str, Any]]:
-        """Get the arguments of `__new__()`.
-
-        Returns:
-            Positional and keyword arguments.
-        """
-        return (), {"kind": "keywords"}
-
-
-@pytest.mark.parametrize("cls", [ReducedConfig, FactoryConfig, KeywordsConfig])
-def test_config_pickled_own_reduce(cls: type[flask.Config]) -> None:
-    """Configuration classes pickled their own way keep their way."""
-
-    class App(Flask):
-        """Flask app with its own configuration class."""
-
-        config_class = cls
-
-    app = App(__name__)
-    access.set_app_config(app, Config())
-    app.config["KEY"] = "value"
-    copied = pickle.loads(pickle.dumps(app.config, pickle.HIGHEST_PROTOCOL))  # noqa: S301 (own data)
-    assert type(copied) is cls
-    assert copied.root_path == app.config.root_path
-    assert copied["KEY"] == "value"
-
-
-def test_config_pickled_as_global() -> None:
-    """Configurations pickled as globals are."""
-    app = Flask(__name__)
-    app.config = NAMED_CONFIG
-    access.set_app_config(app, Config())
-    assert pickle.loads(pickle.dumps(app.config)) is NAMED_CONFIG  # noqa: S301 (own data)
 
 
 def test_config_attribute_missing() -> None:
@@ -230,7 +140,7 @@ def test_config_attribute_missing() -> None:
 
 
 def test_config_attribute_class_reused() -> None:
-    """Apps with the same class of Flask configuration share its subclass."""
+    """Apps share the class of their Flask configurations."""
     first = create_connexion_app(Config()).app
     second = create_connexion_app(Config()).app
     assert type(first.config) is type(second.config)
@@ -238,8 +148,8 @@ def test_config_attribute_class_reused() -> None:
     assert type(first.config) is type(second.config)
 
 
-def test_custom_config_class() -> None:
-    """Apps with their own class of Flask configuration keep it."""
+def test_custom_config_class(recwarn: pytest.WarningsRecorder) -> None:
+    """Apps with their own class of Flask configuration keep it, without warning."""
 
     class AppConfig(flask.Config):
         """Flask configuration of an app."""
@@ -252,9 +162,10 @@ def test_custom_config_class() -> None:
     app = App(__name__)
     config = Config()
     access.set_app_config(app, config)
-    assert isinstance(app.config, AppConfig)
-    with pytest.deprecated_call():
-        assert app.config.foca is config  # type: ignore[attr-defined]  # dynamic attribute
+    assert type(app.config) is AppConfig
+    assert app.config.foca is config  # type: ignore[attr-defined]  # dynamic attribute
+    assert access._get_app_config(app) is config
+    assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning)]
 
 
 @pytest.fixture

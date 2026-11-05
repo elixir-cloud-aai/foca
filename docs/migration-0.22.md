@@ -87,10 +87,11 @@ To find remaining uses, run your tests with
 `-W error::DeprecationWarning` or search for `config.foca` and
 `get_app_config`.
 
-To warn, FOCA gives the Flask configuration of each app a subclass of its
-class, of the same name, until the attribute is removed: `isinstance()` holds,
-but `type(app.config) is flask.Config` doesn't. Pickled and copied
-configurations are of the original class, without the warning.
+To warn, FOCA gives Flask configurations of Flask's own class (as Connexion
+creates them) a subclass of it until the attribute is removed:
+`isinstance(app.config, flask.Config)` holds, but `type(app.config) is
+flask.Config` doesn't. Apps with a configuration class of their own
+(`config_class`) keep it, and `app.config.foca` doesn't warn there.
 
 ## Invalid fields in `400` responses
 
