@@ -5,11 +5,11 @@ import os
 import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import quote_plus, urlsplit
+from urllib.parse import quote_plus
 
 from pydantic import SecretStr
 from pymongo import MongoClient
-from pymongo.errors import OperationFailure
+from pymongo.errors import InvalidURI, OperationFailure
 from pymongo.uri_parser import split_options
 
 from foca.config.environment import get_env
@@ -24,6 +24,19 @@ _DUPLICATE_KEY_CODE = 11000
 
 # Names of databases that logs tell as they are
 _PLAIN_DB_NAME = re.compile(r"[\w-]*")
+
+# Starts of messages of `InvalidURI` that only name PyMongo's own options; all
+# others are replaced, as they may quote parts of the connection string
+# (wording checked against PyMongo 4.19; the tests pin it, and a changed one
+# only makes such a message generic)
+_OPTION_ERRORS = (
+    "URI option",
+    "Can not mix",
+    "Can not specify conflicting values for URI options",
+    "MongoDB URI options",
+    "You cannot specify",
+    "the authSource database",
+)
 
 # Options of MongoDB clients unless set otherwise, in milliseconds: with
 # MongoDB down, requests and the startup of the app fail after this time, not
@@ -159,16 +172,34 @@ def create_mongo_client(
         MongoDB client.
 
     Raises:
-        pymongo.errors.PyMongoError: An option is unknown, or options conflict.
+        pymongo.errors.InvalidURI: The connection string is malformed, with a
+            fixed message and no chain, as PyMongo's may quote a part of it,
+            e.g., of a password with unescaped characters. Options conflict,
+            with PyMongo's message.
+        pymongo.errors.PyMongoError: An option is unknown.
         TypeError: An option has a value of the wrong type.
         ValueError: An option has an invalid value.
     """
     uri = get_mongo_uri(host=host, port=port, db=db or "")
-    client: MongoClient[dict[str, Any]] = MongoClient(
-        uri,
-        connect=connect,
-        **_get_client_options(uri=uri, options=options or {}, appname=appname),
-    )
+    malformed = False
+    try:
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            uri,
+            connect=connect,
+            **_get_client_options(uri=uri, options=options or {}, appname=appname),
+        )
+    except InvalidURI as exc:
+        if str(exc).startswith(_OPTION_ERRORS):
+            raise
+        malformed = True
+    # Out of the handler, as the original would stay available as context
+    if malformed:
+        raise InvalidURI(
+            "The MongoDB connection string, e.g., in 'MONGO_URI', is malformed. "
+            "Check that username and password are percent-escaped (a '/', ':', "
+            "'@' or '%' in them breaks it), and its hosts and database name; "
+            "PyMongo's message isn't shown, as it may quote credentials."
+        )
     logger.info(
         "Created MongoDB client for '%s/%s'.",
         _get_client_hosts(client, uri),
@@ -343,7 +374,8 @@ def get_mongo_uri(
     """
     uri = get_env("MONGO_URI")
     if uri:
-        if urlsplit(uri).scheme not in ("mongodb", "mongodb+srv"):
+        # Not via `urlsplit()`, whose errors may quote credentials
+        if not uri.startswith(("mongodb://", "mongodb+srv://")):
             raise ValueError(
                 "Environment variable 'MONGO_URI' must start with "
                 "'mongodb://' or 'mongodb+srv://'."

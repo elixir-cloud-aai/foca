@@ -110,6 +110,17 @@ mounted secrets.
 | `MONGO_PASSWORD` | Password. |
 | `MONGO_DBNAME` | Database name; overrides the names of _all_ configured databases, i.e., all of them (including the access control database) point to this one database. Useful for deployments with a single database per app. |
 
+Username and password in `MONGO_URI` must be percent-escaped (FOCA does that for
+`MONGO_USERNAME` and `MONGO_PASSWORD`). As PyMongo's errors about a malformed
+connection string may quote parts of it, and so of a password, FOCA replaces them
+with a fixed message of the same type (`pymongo.errors.InvalidURI`), without the
+original as cause; errors about options keep their messages, as they name only the
+options.
+
+An unescaped `?` in a password makes the rest look like options, which PyMongo's
+warnings about options, and the error about a missing file of an option like
+`tlsCAFile`, can quote: these aren't changed, as they are what tells of wrong options.
+
 If credentials are given via `MONGO_USERNAME` and `MONGO_PASSWORD`, the client
 authenticates against the database in `MONGO_DBNAME`, if set, otherwise
 against the first configured database. For other setups, use `MONGO_URI`
