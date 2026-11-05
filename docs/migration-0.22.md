@@ -40,9 +40,14 @@ access control. Werkzeug's `www_authenticate` is deprecated on this class:
   to tell an invalid token (`Bearer error="invalid_token"`) from other
   rejections.
 
+Give several challenges as one header each, e.g.,
+`headers=[("WWW-Authenticate", "Basic"), ("WWW-Authenticate", "Bearer")]`;
+FOCA reads one challenge per header.
+
 Both still work, with a `DeprecationWarning`: the argument adds its
-challenges to `headers`, and the attribute returns those of `headers`
-(`None` if there are none). They are removed with the first release
+challenges to `headers`, and the attribute returns copies of those of
+`headers` (`None` if there are none), so changes to them are lost unless
+they are set again. They are removed with the first release
 candidate on ASGI.
 
 Exception maps with raw Werkzeug classes keep working, but FOCA logs a warning, once per

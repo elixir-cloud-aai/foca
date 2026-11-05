@@ -217,6 +217,12 @@ class TestUnauthorizedChallenge:
             ("WWW-Authenticate", "Bearer"),
         ]
 
+    def test_keyword_string(self) -> None:
+        """A string is one challenge, not one per character."""
+        with pytest.warns(DeprecationWarning):
+            exc = Unauthorized(www_authenticate="Bearer")  # type: ignore[arg-type]
+        assert exc.headers == [("WWW-Authenticate", "Bearer")]
+
     def test_attribute_deprecated(self) -> None:
         """Reading `www_authenticate` warns and parses `headers`."""
         exc = Unauthorized(headers={"WWW-Authenticate": 'Bearer error="x"'})
@@ -241,6 +247,13 @@ class TestUnauthorizedChallenge:
         with pytest.warns(DeprecationWarning):
             exc.www_authenticate = None
         assert exc.headers == [("X-A", "1")]
+
+    def test_no_challenge(self, recwarn: pytest.WarningsRecorder) -> None:
+        """Errors without challenges have no headers and don't warn."""
+        exc = Unauthorized("Log in.")
+        assert exc.headers == []
+        assert build_headers(exc, 401) == []
+        assert not recwarn.list
 
     def test_no_warning_by_default(self, recwarn: pytest.WarningsRecorder) -> None:
         """Errors with the challenge in `headers` don't warn."""

@@ -137,8 +137,9 @@ class Unauthorized(HTTPError, _werkzeug.Unauthorized):
         """Deprecated: challenges of `headers`; read :py:meth:`get_headers`.
 
         Returns:
-            Challenges of the `WWW-Authenticate` headers that could be parsed,
-            or `None` if there are none, as in Werkzeug.
+            Copies of the challenges of the `WWW-Authenticate` headers that
+            could be parsed (changes are not kept; set them anew), or `None`
+            if there are none, as in Werkzeug.
         """
         warnings.warn(
             "'Unauthorized.www_authenticate' is deprecated; read the "
@@ -209,12 +210,12 @@ def _challenge_headers(
     """Build `WWW-Authenticate` headers of challenges.
 
     Args:
-        challenges: Challenge or challenges.
+        challenges: Challenge or challenges; a string is one challenge.
 
     Returns:
         A header per challenge, as in Werkzeug.
     """
-    if isinstance(challenges, WWWAuthenticate):
+    if isinstance(challenges, (str, WWWAuthenticate)):
         challenges = (challenges,)
     return [(_CHALLENGE_HEADER, str(challenge)) for challenge in challenges]
 
