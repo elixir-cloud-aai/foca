@@ -1,6 +1,7 @@
 """Tests for `register_mongodb.py`."""
 
 from pathlib import Path
+from traceback import format_exception
 from typing import Any
 from unittest.mock import MagicMock, Mock
 from urllib.parse import unquote, urlsplit
@@ -811,3 +812,80 @@ def _create_failing_index(code: int | None) -> type[Exception]:
     with pytest.raises(Exception) as info:
         _register_database(client, "db", conf)
     return info.type
+
+
+class TestConnectionStringErrors:
+    """Tests for errors of connection strings that PyMongo rejects."""
+
+    @pytest.mark.parametrize(
+        "rest",
+        [
+            f"u:a/{SECRET}@h/db",
+            f"u:a%2F/{SECRET}@h/db",
+            f"u:{SECRET}%@h",
+            f"u:a%{SECRET}",
+            f"u:a/URI option {SECRET}@h/db",
+        ],
+    )
+    def test_message_replaced(self, clean_env: pytest.MonkeyPatch, rest: str) -> None:
+        """Messages that may quote credentials are replaced, chain included."""
+        clean_env.setenv("MONGO_URI", f"{SCHEME}{rest}")
+        with pytest.raises(InvalidURI, match="MONGO_URI") as excinfo:
+            create_mongo_client(connect=False)
+        assert SECRET not in "".join(
+            format_exception(excinfo.type, excinfo.value, excinfo.tb)
+        )
+
+    def test_netloc_not_quoted(self, clean_env: pytest.MonkeyPatch) -> None:
+        """The check of the scheme doesn't fail with an error quoting credentials."""
+        clean_env.setenv("MONGO_URI", f"{SCHEME}u:{SECRET}℀@h/db")
+        assert get_mongo_uri() == f"{SCHEME}u:{SECRET}\u2100@h/db"
+
+    @pytest.mark.parametrize(
+        ("query", "match"),
+        [
+            ("tlsInsecure=true&tlsAllowInvalidCertificates=true", "tlsInsecure"),
+            ("tls=true&ssl=false", "ssl and tls"),
+            ("a=b&c", "key=value"),
+        ],
+    )
+    def test_uri_option_message_kept(
+        self, clean_env: pytest.MonkeyPatch, query: str, match: str
+    ) -> None:
+        """Conflicts of options in the connection string are told as they are."""
+        clean_env.setenv("MONGO_URI", f"{SCHEME}{AUTH}h/?{query}")
+        with pytest.raises(InvalidURI, match=match):
+            create_mongo_client(connect=False)
+
+    def test_conflicting_client_options(self, clean_env: pytest.MonkeyPatch) -> None:
+        """Conflicts of `client_options`, which PyMongo reports alike, stay useful."""
+        with pytest.raises(InvalidURI, match=r"(?i)tlsInsecure and tlsAllow"):
+            create_mongo_client(
+                connect=False,
+                options={"tlsInsecure": True, "tlsAllowInvalidCertificates": True},
+            )
+
+    @pytest.mark.parametrize(
+        ("error", "options", "match"),
+        [
+            (ValueError, {"maxPoolSize": "x"}, "maxpoolsize"),
+            (ConfigurationError, {"nonsense": 1}, "nonsense"),
+        ],
+    )
+    def test_other_errors_kept(
+        self,
+        clean_env: pytest.MonkeyPatch,
+        error: type[Exception],
+        options: dict[str, Any],
+        match: str,
+    ) -> None:
+        """Other errors of options keep their messages."""
+        with pytest.raises(error, match=match):
+            create_mongo_client(connect=False, options=options)
+
+    def test_port_error_kept(self, clean_env: pytest.MonkeyPatch) -> None:
+        """Errors of hosts that quote nothing keep their hint on escaping."""
+        clean_env.setenv("MONGO_URI", f"{SCHEME}u:{SECRET}")
+        with pytest.raises(ValueError, match="must be escaped") as excinfo:
+            create_mongo_client(connect=False)
+        assert SECRET not in str(excinfo.value)
