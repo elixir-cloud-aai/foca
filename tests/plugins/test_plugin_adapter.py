@@ -8,6 +8,7 @@ from connexion.exceptions import Forbidden
 from flask import Flask
 
 from foca.api.routes import Route, _add_route
+from foca.config.access import _get_app_config
 from foca.context import RequestIdMiddleware
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
@@ -212,7 +213,7 @@ class TestPrincipalIdentity:
     def test_without_access_control(self) -> None:
         """Without access control, roles come from group claims only."""
         app = create_app()
-        app.config.foca.security.access_control.enabled = False  # type: ignore[attr-defined]  # dynamic attribute
+        _get_app_config(app).security.access_control.enabled = False
         del app.config["CASBIN_MODEL"]
         with as_caller(app, CAROL):
             principal = adapter.current_principal()

@@ -25,7 +25,7 @@ from pymongo.collection import Collection
 from werkzeug.test import TestResponse
 
 from foca.api.register_openapi import register_openapi
-from foca.config.access import get_app_config
+from foca.config.access import _get_app_config
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -1261,7 +1261,7 @@ class TestCurrentSubject:
         self, helper_app: Flask, claims: dict[str, Any], subject: str | None
     ) -> None:
         """Subjects are namespaced by issuer, if it has a namespace."""
-        get_app_config(helper_app).security.auth = AuthConfig.model_validate(
+        _get_app_config(helper_app).security.auth = AuthConfig.model_validate(
             {
                 "issuers": [
                     {"issuer": ISSUER, "namespace": ""},
@@ -1296,7 +1296,7 @@ class TestCurrentSubject:
         self, helper_app: Flask, issuer: Any, claim: str | None, values: list[str]
     ) -> None:
         """Groups are taken from the group claim of the token's issuer."""
-        get_app_config(helper_app).security.auth = AuthConfig.model_validate(
+        _get_app_config(helper_app).security.auth = AuthConfig.model_validate(
             {
                 "issuers": [
                     {"issuer": ISSUER, "claim_groups": "roles"},
@@ -1316,7 +1316,7 @@ class TestCurrentSubject:
 
     def test_custom_identity_claim(self, helper_app: Flask) -> None:
         """Subject is taken from the configured identity claim."""
-        get_app_config(helper_app).security.access_control.claim_identity = "id"
+        _get_app_config(helper_app).security.access_control.claim_identity = "id"
         ctx = self._context(helper_app, {"sub": "x", "id": "y"})
         try:
             assert get_current_subject() == "y"
@@ -1325,7 +1325,7 @@ class TestCurrentSubject:
 
     def test_identity_claim_from_auth_config(self, helper_app: Flask) -> None:
         """Identity claim defaults to that of the auth configuration."""
-        get_app_config(helper_app).security.auth.claim_identity = "email"
+        _get_app_config(helper_app).security.auth.claim_identity = "email"
         ctx = self._context(helper_app, {"sub": "x", "email": "y"})
         try:
             assert get_current_subject() == "y"
@@ -1334,8 +1334,8 @@ class TestCurrentSubject:
 
     def test_identity_claim_overrides_auth_config(self, helper_app: Flask) -> None:
         """Configured identity claim overrides that of the auth configuration."""
-        get_app_config(helper_app).security.auth.claim_identity = "email"
-        get_app_config(helper_app).security.access_control.claim_identity = "sub"
+        _get_app_config(helper_app).security.auth.claim_identity = "email"
+        _get_app_config(helper_app).security.access_control.claim_identity = "sub"
         ctx = self._context(helper_app, {"sub": "x", "email": "y"})
         try:
             assert get_current_subject() == "x"
@@ -1352,7 +1352,7 @@ class TestCurrentSubject:
 
     def test_groups_without_mapping(self, helper_app: Flask) -> None:
         """Without a mapping, group claim values are prefixed."""
-        get_app_config(helper_app).security.access_control.group_mapping = None
+        _get_app_config(helper_app).security.access_control.group_mapping = None
         ctx = self._context(helper_app, {"sub": "x", "groups": ["a", "b"]})
         try:
             assert get_current_groups() == ["group:a", "group:b"]
@@ -1394,7 +1394,7 @@ class TestCurrentSubject:
         self, helper_app: Flask, group_mapping: dict[str, str] | None
     ) -> None:
         """Group claim values are kept as subjects, if configured."""
-        conf = get_app_config(helper_app).security.access_control
+        conf = _get_app_config(helper_app).security.access_control
         conf.keep_group_subjects = True
         if group_mapping is None:
             conf.group_mapping = None
@@ -1462,7 +1462,7 @@ class TestCurrentSubject:
 
     def test_no_group_claim_configured(self, helper_app: Flask) -> None:
         """Without a configured group claim, there are no groups."""
-        get_app_config(helper_app).security.access_control.claim_groups = None
+        _get_app_config(helper_app).security.access_control.claim_groups = None
         ctx = self._context(helper_app, mock_token_info("carol"))
         try:
             assert get_current_groups() == []
@@ -1488,7 +1488,7 @@ class TestOptInRoles:
         return ctx
 
     def _opt_in(self, app: Flask, **kwargs: Any) -> None:
-        app.config.foca.security.access_control = _access_control_config(  # type: ignore[attr-defined]  # dynamic attribute
+        _get_app_config(app).security.access_control = _access_control_config(
             opt_in_roles=["admin"], **kwargs
         )
 
@@ -2044,7 +2044,7 @@ class TestResourceRoles:
 
     def test_subject_like_roles_custom_prefix(self, helper_app: Flask) -> None:
         """Roles starting with a custom subject prefix are rejected, too."""
-        get_app_config(helper_app).security.access_control.subject_prefix = "u/"
+        _get_app_config(helper_app).security.access_control.subject_prefix = "u/"
         with helper_app.app_context():
             for role in ["u/alice", "group:auditors"]:
                 with pytest.raises(ValueError, match="must not start with"):
@@ -2076,7 +2076,7 @@ class TestResourceRoles:
         warned: bool,
     ) -> None:
         """Granting roles to groups that are not subjects is warned about."""
-        conf = get_app_config(helper_app).security.access_control
+        conf = _get_app_config(helper_app).security.access_control
         conf.group_mapping = group_mapping
         conf.keep_group_subjects = keep_group_subjects
         with helper_app.app_context(), caplog.at_level(logging.WARNING):
@@ -2193,7 +2193,7 @@ class TestResourceRoles:
 
     def test_custom_subject_prefix(self, helper_app: Flask) -> None:
         """Users are stored with the configured subject prefix."""
-        get_app_config(helper_app).security.access_control.subject_prefix = "u/"
+        _get_app_config(helper_app).security.access_control.subject_prefix = "u/"
         with helper_app.app_context():
             add_resource_role("alice", "owner", "/items/1")
             collection = helper_app.config["casbin_adapter"]._collection

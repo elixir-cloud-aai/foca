@@ -108,7 +108,7 @@ class TestRequiredRoles:
 
     def test_checked_when_registering(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Registering access control fails for a missing role."""
-        for name in ("get_app_config", "_check_group_config", "_check_admin_role"):
+        for name in ("_get_app_config", "_check_group_config", "_check_admin_role"):
             monkeypatch.setattr(module, name, MagicMock())
         with pytest.raises(ValueError, match=r"'ops'.*required_roles"):
             module.register_access_control(

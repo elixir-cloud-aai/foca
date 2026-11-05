@@ -55,6 +55,27 @@ class, except for `werkzeug.exceptions.Forbidden`, which is the same class as
 `AccessDeniedProblem` for now, so replace it yourself; they stop working with the first
 release candidate on ASGI.
 
+## Configuration access
+
+`foca.get_config()` and `foca.get_custom_config()` are the only supported ways
+to read the configuration in apps. Nothing breaks in this release, but the
+following are deprecated, emit a `DeprecationWarning` and are removed with the
+first release candidate on ASGI, which has no Flask app to attach the
+configuration to:
+
+| Instead of | Use |
+| --- | --- |
+| `current_app.config.foca`, `app.config.foca` | `get_config()`, in the app context of the app if it isn't the current one |
+| `foca.config.access.get_app_config(app)` | `get_config()`, as above |
+| `current_app.config.foca.custom` | `get_custom_config(MyCustomConfig)`, typed |
+| Setting `app.config.foca` | Change the configuration that `get_config()` returns, e.g., `get_config().db = ...` |
+
+`get_config()` returns the configuration of the current app, or, outside app
+contexts (e.g., in Celery workers or scripts), that of the most recently
+created FOCA app. To find remaining uses, run your tests with
+`-W error::DeprecationWarning` or search for `config.foca` and
+`get_app_config`.
+
 ## Invalid fields in `400` responses
 
 Nothing breaks: responses to invalid requests keep their `title`, `status`

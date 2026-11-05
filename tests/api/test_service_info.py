@@ -21,7 +21,7 @@ from foca.api.service_info import (
     getServiceInfo,
 )
 from foca.config import access
-from foca.config.access import set_app_config
+from foca.config.access import _get_app_config, set_app_config
 from foca.models.config import Config
 from foca.utils import service_info as utils
 from tests.test_files import service_info_fields
@@ -120,8 +120,10 @@ def test_get_service_info_runtime_fields() -> None:
     with app.app_context():
         assert get_service_info() == service(description="From runtime")
         # `foca` is set on the Flask config at runtime
-        app.config.foca.server.port = 9000  # type: ignore[attr-defined]
-        app.config.foca.service_info.service.pop("environment")  # type: ignore[attr-defined]
+        _get_app_config(app).server.port = 9000
+        info = _get_app_config(app).service_info
+        assert info is not None
+        info.service.pop("environment")
         assert get_service_info() == service(
             description="From runtime", environment="port-9000"
         )

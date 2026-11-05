@@ -11,6 +11,7 @@ from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from flask import Flask
 from flask.globals import request_ctx
 
+from foca.config.access import _get_app_config
 from foca.models.config import Config, IssuerConfig
 from foca.security.access_control import (
     add_resource_role,
@@ -167,7 +168,7 @@ class TestSubjects:
 
     def test_identity_claim_of_users(self, app: Flask) -> None:
         """Service tokens need not have the identity claim of users."""
-        conf = app.config.foca.security.access_control  # type: ignore[attr-defined]  # dynamic attribute
+        conf = _get_app_config(app).security.access_control
         conf.claim_identity = "email"
         with request(app, CONQUEST, method="POST"):
             assert is_permitted() is True
@@ -185,7 +186,7 @@ class TestSubjects:
         self, app: Flask, claims: dict[str, Any], subjects: list[str]
     ) -> None:
         """Self-service permissions are filtered by the policy subjects."""
-        conf = app.config.foca.security.access_control  # type: ignore[attr-defined]  # dynamic attribute
+        conf = _get_app_config(app).security.access_control
         conf.self_service = True
         with request(app, claims, path="/permissions"):
             assert _get_visibility_filter() == {"v0": {"$in": subjects}}
@@ -258,7 +259,7 @@ class TestOnBehalfOf:
 
     def test_namespaced(self, app: Flask) -> None:
         """Named users are namespaced by the issuer of the service client."""
-        auth = app.config.foca.security.auth  # type: ignore[attr-defined]  # dynamic attribute
+        auth = _get_app_config(app).security.auth
         auth.issuers = [ISSUER, IssuerConfig(issuer=OTHER_ISSUER, namespace="")]
         auth.service_clients[0].issuer = ISSUER
         with request(app, CONQUEST, headers={HEADER: "alice"}):
@@ -273,6 +274,6 @@ class TestOnBehalfOf:
 
     def test_header_not_configured(self, app: Flask) -> None:
         """Without a configured header, headers are ignored."""
-        app.config.foca.security.auth.on_behalf_of_header = None  # type: ignore[attr-defined]  # dynamic attribute
+        _get_app_config(app).security.auth.on_behalf_of_header = None
         with request(app, ALICE, headers={HEADER: "bob"}):
             assert get_on_behalf_of_user() is None

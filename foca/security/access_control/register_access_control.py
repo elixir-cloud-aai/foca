@@ -28,7 +28,7 @@ from foca.api.validation import (
     ParameterValidator,
     StrictParametersResolver,
 )
-from foca.config.access import get_app_config
+from foca.config.access import _get_app_config
 from foca.database.register_mongodb import (
     _register_database,
     get_mongo_client,
@@ -99,7 +99,7 @@ def register_access_control(
             `access_control.required_roles` doesn't exist (cf.
             :py:func:`_check_required_roles`).
     """
-    auth_config = get_app_config(cnx_app.app).security.auth
+    auth_config = _get_app_config(cnx_app.app).security.auth
     check_access_control_config(access_control_config, auth_config)
 
     # Group claim values of several issuers could collide
@@ -117,7 +117,7 @@ def register_access_control(
     # Set default db attributes if config not present.
     if mongo_config is None:
         mongo_config = MongoConfig()
-        get_app_config(cnx_app.app)._name_mongo_clients(mongo_config)
+        _get_app_config(cnx_app.app)._name_mongo_clients(mongo_config)
     if mongo_config.dbs is None:
         mongo_config.dbs = {}
 
@@ -189,7 +189,7 @@ def register_access_control(
         access_control_collection,
         added_db,
     )
-    get_app_config(cnx_app.app).db = mongo_config
+    _get_app_config(cnx_app.app).db = mongo_config
 
     # Register access control api specs and corresponding controller, and
     # check them before configured policies are stored, so that a failed

@@ -11,6 +11,7 @@ from connexion import App
 
 from foca.api.register_openapi import register_openapi
 from foca.api.service_info import check_service_info
+from foca.config.access import _get_app_config
 from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
 from foca.errors.exceptions import register_exception_handler
@@ -154,7 +155,7 @@ class Foca:
 
         # Register MongoDB
         if self.conf.db:
-            cnx_app.app.config.foca.db = register_mongodb(self.conf.db)
+            _get_app_config(cnx_app.app).db = register_mongodb(self.conf.db)
             logger.info("Database registered.")
         else:
             logger.info("No database support configured.")
