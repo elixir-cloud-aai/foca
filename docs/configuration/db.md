@@ -115,9 +115,11 @@ Username and password in `MONGO_URI` must be percent-escaped (FOCA does that for
 connection string may quote parts of it, and so of a password, FOCA replaces them
 with a fixed message of the same type (`pymongo.errors.InvalidURI`), without the
 original as cause; errors about options keep their messages, as they name only the
-options. PyMongo's warnings about options in the connection string aren't changed:
-an unescaped `?` in a password makes the rest look like options, which such a warning
-can quote.
+options.
+
+An unescaped `?` in a password makes the rest look like options, which PyMongo's
+warnings about options, and the error about a missing file of an option like
+`tlsCAFile`, can quote: these aren't changed, as they are what tells of wrong options.
 
 If credentials are given via `MONGO_USERNAME` and `MONGO_PASSWORD`, the client
 authenticates against the database in `MONGO_DBNAME`, if set, otherwise

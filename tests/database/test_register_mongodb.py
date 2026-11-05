@@ -828,13 +828,18 @@ class TestConnectionStringErrors:
         ],
     )
     def test_message_replaced(self, clean_env: pytest.MonkeyPatch, rest: str) -> None:
-        """Messages that may quote credentials are replaced, chain included."""
+        """Messages that may quote credentials are replaced, chain included.
+
+        The last case has the start of a kept message in a quoted part.
+        """
         clean_env.setenv("MONGO_URI", f"{SCHEME}{rest}")
         with pytest.raises(InvalidURI, match="MONGO_URI") as excinfo:
             create_mongo_client(connect=False)
         assert SECRET not in "".join(
             format_exception(excinfo.type, excinfo.value, excinfo.tb)
         )
+        assert excinfo.value.__context__ is None
+        assert excinfo.value.__cause__ is None
 
     def test_netloc_not_quoted(self, clean_env: pytest.MonkeyPatch) -> None:
         """The check of the scheme doesn't fail with an error quoting credentials."""
@@ -847,6 +852,8 @@ class TestConnectionStringErrors:
             ("tlsInsecure=true&tlsAllowInvalidCertificates=true", "tlsInsecure"),
             ("tls=true&ssl=false", "ssl and tls"),
             ("a=b&c", "key=value"),
+            ("authSource=", "authSource"),
+            ("a=1&b=2;c=3", "Can not mix"),
         ],
     )
     def test_uri_option_message_kept(
@@ -855,6 +862,13 @@ class TestConnectionStringErrors:
         """Conflicts of options in the connection string are told as they are."""
         clean_env.setenv("MONGO_URI", f"{SCHEME}{AUTH}h/?{query}")
         with pytest.raises(InvalidURI, match=match):
+            create_mongo_client(connect=False)
+
+    def test_srv_option_message_kept(self, clean_env: pytest.MonkeyPatch) -> None:
+        """Errors of SRV options, which need DNS with a real client, are kept."""
+        message = "You cannot specify replicaSet with srvMaxHosts"
+        clean_env.setattr(module, "MongoClient", Mock(side_effect=InvalidURI(message)))
+        with pytest.raises(InvalidURI, match=message):
             create_mongo_client(connect=False)
 
     def test_conflicting_client_options(self, clean_env: pytest.MonkeyPatch) -> None:

@@ -27,10 +27,15 @@ _PLAIN_DB_NAME = re.compile(r"[\w-]*")
 
 # Starts of messages of `InvalidURI` that only name PyMongo's own options; all
 # others are replaced, as they may quote parts of the connection string
+# (wording checked against PyMongo 4.19; the tests pin it, and a changed one
+# only makes such a message generic)
 _OPTION_ERRORS = (
     "URI option",
+    "Can not mix",
     "Can not specify conflicting values for URI options",
     "MongoDB URI options",
+    "You cannot specify",
+    "the authSource database",
 )
 
 # Options of MongoDB clients unless set otherwise, in milliseconds: with
@@ -169,12 +174,14 @@ def create_mongo_client(
     Raises:
         pymongo.errors.InvalidURI: The connection string is malformed, with a
             fixed message and no chain, as PyMongo's may quote a part of it,
-            e.g., of a password with unescaped characters; or options conflict.
+            e.g., of a password with unescaped characters. Options conflict,
+            with PyMongo's message.
         pymongo.errors.PyMongoError: An option is unknown.
         TypeError: An option has a value of the wrong type.
         ValueError: An option has an invalid value.
     """
     uri = get_mongo_uri(host=host, port=port, db=db or "")
+    malformed = False
     try:
         client: MongoClient[dict[str, Any]] = MongoClient(
             uri,
@@ -184,12 +191,15 @@ def create_mongo_client(
     except InvalidURI as exc:
         if str(exc).startswith(_OPTION_ERRORS):
             raise
+        malformed = True
+    # Out of the handler, as the original would stay available as context
+    if malformed:
         raise InvalidURI(
             "The MongoDB connection string, e.g., in 'MONGO_URI', is malformed. "
             "Check that username and password are percent-escaped (a '/', ':', "
             "'@' or '%' in them breaks it), and its hosts and database name; "
             "PyMongo's message isn't shown, as it may quote credentials."
-        ) from None
+        )
     logger.info(
         "Created MongoDB client for '%s/%s'.",
         _get_client_hosts(client, uri),
