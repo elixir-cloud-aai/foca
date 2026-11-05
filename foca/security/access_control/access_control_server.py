@@ -12,10 +12,10 @@ from casbin.model import Model
 from flask import current_app, request
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
-from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from foca.audit import log as audit_log
 from foca.config.access import get_collection, get_config
+from foca.errors import BadRequest, Conflict, NotFound
 from foca.security.access_control.constants import (
     CONFIGURED_FIELD,
     DEFAULT_PAGE_SIZE,

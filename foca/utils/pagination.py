@@ -10,8 +10,8 @@ from typing import NamedTuple
 from urllib.parse import urlencode
 
 from flask import request
-from werkzeug.exceptions import BadRequest
 
+from foca.errors import BadRequest
 from foca.utils.urls import get_public_url
 
 # Items per page unless set otherwise, and the most that clients can ask for

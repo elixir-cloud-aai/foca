@@ -8,11 +8,11 @@ from typing import Any
 
 from connexion import App
 from flask import current_app, request, url_for
-from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 
 from foca.api.routes import _install_route_table
 from foca.config.access import set_app_config
 from foca.context import RequestIdMiddleware
+from foca.errors import BadRequest, PayloadTooLarge
 from foca.models.config import Config
 
 # Get logger instance
@@ -127,7 +127,7 @@ def _check_body_size() -> None:
     Raises:
         werkzeug.exceptions.BadRequest: The declared size of the request body
             is invalid.
-        werkzeug.exceptions.RequestEntityTooLarge: The request body is larger
+        werkzeug.exceptions.PayloadTooLarge: The request body is larger
             than `MAX_CONTENT_LENGTH`.
     """
     limit = current_app.config["MAX_CONTENT_LENGTH"]
@@ -144,14 +144,14 @@ def _check_body_size() -> None:
         # `content_length` is `None` for chunked bodies
         if request.content_length is not None:
             if size > limit:
-                raise RequestEntityTooLarge()
+                raise PayloadTooLarge()
             return
     request.max_content_length = limit + 1
     # cached (`cache=True`, the default), so `get_data()`, `form` and
     # `files` (e.g., as read by Connexion) get the same data
     data = request.get_data()
     if len(data) > limit:
-        raise RequestEntityTooLarge()
+        raise PayloadTooLarge()
     # `stream` (a cached property) is consumed; clear it, so that it serves
     # the data again from a new input stream
     request.environ["wsgi.input"] = BytesIO(data)

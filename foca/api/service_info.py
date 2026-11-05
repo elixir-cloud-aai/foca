@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from flask import Flask
-from werkzeug.exceptions import InternalServerError
 
 from foca.api.routes import get_routes
 from foca.config.access import get_config
+from foca.errors import InternalServerError
 from foca.utils.logging import log_traffic_if
 from foca.utils.service_info import (
     InvalidServiceInfo,

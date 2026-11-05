@@ -13,7 +13,6 @@ from urllib.parse import urlsplit
 
 import jwt
 import requests
-from connexion.exceptions import Unauthorized
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from cryptography.hazmat.primitives import serialization
@@ -23,6 +22,7 @@ from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.http import quote_header_value
 
 from foca.config.access import get_app_config, get_config
+from foca.errors import Unauthorized
 from foca.models.config import (
     NAMESPACE_SEPARATOR,
     AuthConfig,
@@ -133,7 +133,9 @@ def _unauthorized(description: str, invalid_token: bool = True) -> Unauthorized:
     )
     return Unauthorized(
         description,
-        www_authenticate=_BearerChallenge("bearer", parameters),
+        headers={
+            "WWW-Authenticate": _BearerChallenge("bearer", parameters).to_header()
+        },
     )
 
 
@@ -247,10 +249,10 @@ def _reject_invalid_token(fn: Callable[..., Any]) -> Callable[..., Any]:
                     raise error
                 validate_token(token)
             except Unauthorized as exc:
-                challenges = exc.www_authenticate or []
                 if any(
-                    challenge.parameters.get("error") == "invalid_token"
-                    for challenge in challenges
+                    name.lower() == "www-authenticate"
+                    and 'error="invalid_token"' in value
+                    for name, value in exc.get_headers()
                 ):
                     raise
                 # Logs why the token was rejected, not the token (a false positive

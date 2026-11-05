@@ -1,10 +1,6 @@
 """Petstore exceptions, mapped to problem details (RFC 9457)."""
 
-from connexion.exceptions import BadRequestProblem
-from werkzeug.exceptions import (
-    InternalServerError,
-    NotFound,
-)
+from foca.errors import InternalServerError, NotFound, RequestValidationProblem
 
 exceptions = {
     Exception: {
@@ -14,7 +10,7 @@ exceptions = {
     },
     # Responses to requests rejected by Connexion's validation get the reason
     # as `detail` instead (`exceptions.validation_details`, on by default)
-    BadRequestProblem: {
+    RequestValidationProblem: {
         "title": "Bad Request",
         "status": 400,
         "detail": "We don't quite understand what it is you are looking for.",

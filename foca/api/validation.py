@@ -20,11 +20,11 @@ from functools import wraps
 from typing import Any
 
 from connexion.decorators.validation import RequestBodyValidator
-from connexion.exceptions import BadRequestProblem, ExtraParameterProblem
 from connexion.resolver import Resolution, Resolver
 from flask import request
 from jsonschema import Draft4Validator
 
+from foca.errors import ExtraParameterProblem, RequestValidationProblem
 from foca.security.resolvers import _normalize_resolver
 from foca.utils.service_info import is_date, is_date_time, is_uri
 
@@ -79,12 +79,12 @@ class BodyValidator(RequestBodyValidator):
             What Connexion's validator returns.
 
         Raises:
-            connexion.exceptions.BadRequestProblem: The body has unpaired
+            connexion.exceptions.RequestValidationProblem: The body has unpaired
                 surrogates. Doesn't quote them, as the response couldn't be
                 encoded.
         """
         if _has_unpaired_surrogates(data):
-            raise BadRequestProblem(
+            raise RequestValidationProblem(
                 detail="Request body must not contain unpaired surrogates."
             )
         return super().validate_schema(data, url)

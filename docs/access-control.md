@@ -1373,7 +1373,7 @@ security:
 ```
 
 ```python
-from werkzeug.exceptions import NotFound
+from foca.errors import NotFound
 
 from foca import get_collection
 from foca.security.access_control import owner_filter, set_owner_field

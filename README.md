@@ -167,7 +167,7 @@ mind our [code of conduct][code-of-conduct].
 [docs-config]: <https://foca.readthedocs.io/en/latest/configuration/>
 [docs-contributing]: <https://foca.readthedocs.io/en/latest/contributing/>
 [docs-getting-started]: <https://foca.readthedocs.io/en/latest/getting-started/>
-[docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.21/>
+[docs-migration]: <https://foca.readthedocs.io/en/latest/migration-0.22/>
 [docs-migration-0.14]: <https://foca.readthedocs.io/en/latest/migration-0.14/>
 [docs-migration-0.15]: <https://foca.readthedocs.io/en/latest/migration-0.15/>
 [docs-migration-0.16]: <https://foca.readthedocs.io/en/latest/migration-0.16/>

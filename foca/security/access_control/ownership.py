@@ -35,9 +35,9 @@ from typing import Any, NamedTuple
 
 from casbin.model import Model
 from flask import current_app
-from werkzeug.exceptions import Conflict, NotFound, Unauthorized
 
 from foca.config.access import get_config
+from foca.errors import Conflict, NotFound, Unauthorized
 from foca.security.access_control.constants import (
     ADMIN_ROLE,
     GROUP_PREFIX,

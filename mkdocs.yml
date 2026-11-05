@@ -124,6 +124,7 @@ nav:
   - Helm library chart: helm-chart.md
   - Utilities: utilities.md
   - Testing: testing.md
+  - Migrating to 0.22.0: migration-0.22.md
   - Migrating to 0.21.0: migration-0.21.md
   - Migrating to 0.20.0: migration-0.20.md
   - Migrating to 0.18.0: migration-0.18.md

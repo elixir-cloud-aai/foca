@@ -38,10 +38,10 @@ from inspect import unwrap
 from typing import Any, NamedTuple
 
 from flask import Flask, current_app, g, request
-from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
 from foca.api.routes import get_routes, match
 from foca.config.access import get_app_config
+from foca.errors import BadRequest, Forbidden, NotFound
 
 # Internal helpers of the same package: whether traffic is logged (as for
 # the permissions API), subject descriptions for logs and owners whose role
