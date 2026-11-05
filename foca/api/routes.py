@@ -33,7 +33,7 @@ _ROUTES_EXTENSION = "foca_routes"
 _EXTENSION_PREFIX = "x-foca-"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Route:
     """Route to an operation of an API specification.
 
@@ -101,7 +101,7 @@ class _RouteTable:
         self.rules.add(
             Rule(
                 route.rule,
-                endpoint=len(self.routes) - 1,
+                endpoint=route,
                 methods={route.method, "OPTIONS"},
             )
         )
@@ -154,6 +154,10 @@ def _install_route_table(cnx_app: Any) -> None:
             fields = self.specification.get_operation(path, method) or {}
             # Operations that failed to resolve have a function answering so
             resolution = getattr(operation, "_resolution", None)
+            # As apps may have changed them, which Flask's rules follow
+            table = flask_app.extensions.setdefault(_ROUTES_EXTENSION, _RouteTable())
+            table.rules.strict_slashes = flask_app.url_map.strict_slashes
+            table.rules.merge_slashes = flask_app.url_map.merge_slashes
             _add_route(
                 flask_app,
                 Route(
@@ -244,7 +248,7 @@ def _match_rule(
         endpoint, params = table.rules.bind("localhost").match(path, method=method)
     except (HTTPException, RoutingException):
         return None
-    route = table.routes[cast("int", endpoint)]
+    route = cast("Route", endpoint)
     return RouteMatch(
         route, dict(params)
     ), method == "OPTIONS" and route.method != "OPTIONS"

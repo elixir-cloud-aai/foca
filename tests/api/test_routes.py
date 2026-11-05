@@ -213,6 +213,13 @@ class TestMatch:
         """Other paths and methods, and those that redirect, have no route."""
         assert match(path, method, cnx_app.app) is None
 
+    def test_url_map_settings(self) -> None:
+        """Settings of an app for slashes apply, as for its requests."""
+        app = create_connexion_app()
+        app.app.url_map.strict_slashes = False
+        app.add_api(_spec())
+        assert match("/api/v1/slash", "GET", app.app) is not None
+
     def test_no_table(self) -> None:
         """Apps without routes match nothing."""
         assert match("/", "GET", Flask(__name__)) is None
