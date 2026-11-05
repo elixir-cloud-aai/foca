@@ -8,7 +8,8 @@ a query, path, header or cookie parameter) and a kebab-case `code`.
 
 Messages are written from the failed keyword of the JSON Schema and its value
 in the schema, never from the rejected value, which may hold secrets (e.g.,
-credentials in URLs). Locations in the body may have keys of the body.
+credentials in URLs). Locations may have keys of the body and names of
+parameters of the request (e.g., of unknown properties and parameters).
 
 Adapters convert the errors of their validators with
 :py:func:`schema_field_errors` and add the entries to problem details with
@@ -88,7 +89,7 @@ class FieldError:
     Raises:
         ValueError: The detail is empty, the code is not kebab-case, or there
             is not exactly one of `pointer` (starting with ``#``) and
-            `parameter` (not empty).
+            `parameter`.
 
     Examples:
         >>> FieldError(
@@ -116,8 +117,6 @@ class FieldError:
             raise ValueError(
                 f"Pointer of field error is not a URI fragment: '{self.pointer}'"
             )
-        if self.parameter == "":
-            raise ValueError("Parameter of field error must not be empty.")
 
     def to_dict(self, max_length: int | None = None) -> dict[str, str]:
         """Serialize the entry for the member `errors` of problem details.
@@ -130,31 +129,35 @@ class FieldError:
 
         Returns:
             Entry with `detail`, `pointer` or `parameter`, and `code`.
+
+        Raises:
+            ValueError: The maximum length is less than 1.
         """
-        limit = max_length if max_length is not None else -1
-        data = {"detail": self._fit(self.detail, limit)}
+        if max_length is not None and max_length < 1:
+            raise ValueError("Maximum length must be at least 1.")
+        data = {"detail": self._fit(self.detail, max_length)}
         if self.pointer is not None:
             pointer = self.pointer
-            while 0 < limit < len(pointer):
+            while max_length is not None and len(pointer) > max_length:
                 pointer = pointer.rsplit("/", 1)[0]
             data["pointer"] = pointer
         else:
-            data["parameter"] = self._fit(str(self.parameter), limit)
+            data["parameter"] = self._fit(str(self.parameter), max_length)
         data["code"] = self.code
         return data
 
     @staticmethod
-    def _fit(text: str, limit: int) -> str:
-        """Shorten a text, if there is a limit.
+    def _fit(text: str, max_length: int | None) -> str:
+        """Shorten a text, if there is a maximum length.
 
         Args:
             text: Text.
-            limit: Maximum length, or a negative number for none.
+            max_length: Maximum length, or `None` for none.
 
         Returns:
-            The text, shortened in the middle to `limit`, if not negative.
+            The text, shortened in the middle to `max_length`, if given.
         """
-        return text if limit < 0 else _shorten(text, limit)
+        return text if max_length is None else _shorten(text, max_length)
 
 
 def json_pointer(*segments: str | int) -> str:
@@ -189,7 +192,10 @@ def _type_message(error: ValidationError) -> str:
 
 def _enum_message(error: ValidationError) -> str:
     """Describe the allowed values (of the schema)."""
-    values = ", ".join(json.dumps(value) for value in error.validator_value)
+    # `default`: specifications in YAML may have, e.g., dates
+    values = ", ".join(
+        json.dumps(value, default=str) for value in error.validator_value
+    )
     return f"Must be one of: {values}."
 
 

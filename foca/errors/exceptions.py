@@ -309,19 +309,30 @@ def _validation_handler_json(
     reason = _validation_reason(exception)
     if reason is not None:
         problem["detail"] = _shorten(reason, conf.max_detail_length)
-    errors = _field_errors(exception)
-    add_field_errors(problem=problem, errors=errors, max_length=conf.max_detail_length)
+    errors: tuple[FieldError, ...]
+    try:
+        errors = _field_errors(exception)
+        add_field_errors(
+            problem=problem, errors=errors, max_length=conf.max_detail_length
+        )
+    except Exception as exc:
+        # Only adds to the response, which keeps its status without them
+        logger.warning(
+            "Invalid fields of a rejected request could not be listed: %s",
+            type(exc).__name__,
+        )
+        errors = ()
     if conf.logging is not ExceptionLoggingEnum.none:
         # Escaped before shortening, so that the logged reason stays within
         # the maximum length; invalid fields are logged without the reason,
         # which may quote the rejected values
-        logged = (
-            describe_field_errors(errors)
-            if errors
-            else reason
-            if reason is not None
-            else problem.get("detail")
-        )
+        logged: str | None
+        if errors:
+            logged = describe_field_errors(errors)
+        elif reason is not None:
+            logged = reason
+        else:
+            logged = problem.get("detail")
         logger.info(
             "Request rejected: %s",
             _shorten(

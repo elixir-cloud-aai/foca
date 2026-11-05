@@ -55,7 +55,9 @@ components:
       properties:
         detail:
           type: string
-          description: Readable message; never quotes the rejected value.
+          description: >-
+            Readable message; never quotes the rejected value (locations
+            may have keys and parameter names of the request).
         pointer:
           type: string
           description: >-

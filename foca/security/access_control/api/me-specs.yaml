@@ -80,6 +80,8 @@ components:
           type: boolean
           description: >-
             Whether the caller is an admin, or may opt in to the role admin.
+    # `Error` and `FieldError` are those of `foca/api/problem-details.yaml`
+    # (`Problem` there); keep them the same (tested)
     Error:
       description: >-
         Problem details (RFC 9457). Responses to invalid requests list the
@@ -129,7 +131,9 @@ components:
       properties:
         detail:
           type: string
-          description: Readable message; never quotes the rejected value.
+          description: >-
+            Readable message; never quotes the rejected value (locations
+            may have keys and parameter names of the request).
         pointer:
           type: string
           description: >-

@@ -54,7 +54,8 @@ Each entry of `errors` has:
 
 - `detail`: a readable message. Messages are written from the schema (e.g.,
   the maximum length), never from the rejected value, which may hold secrets,
-  e.g., credentials in URLs.
+  e.g., credentials in URLs. Locations, though, may have keys and parameter
+  names of the request, e.g., of unknown properties and parameters.
 - `pointer`: the field in the request body, as a
   [JSON Pointer](https://www.rfc-editor.org/rfc/rfc6901) in URI fragment form,
   e.g., `#/organization/url` or `#/tags/0` (`#` for the whole body); or
@@ -105,7 +106,10 @@ schema of the request body) are listed, and all invalid parameters.
 Parameters are checked first: a request with invalid parameters lists those
 only. The app's own checks run on valid requests only. Requests rejected
 for other reasons, e.g., a body that is not valid JSON or has unpaired
-surrogates, get no `errors`, but `detail` as before.
+surrogates, or form fields of an OpenAPI 3 request body that can't be
+converted to their type, get no `errors`, but `detail` as before. If the
+invalid fields can't be listed (e.g., for an unexpected schema), the request
+is rejected as before, without them, and a warning is logged.
 
 ## Checks of your app
 
@@ -114,8 +118,7 @@ your own, e.g., of URLs, so that clients get them like those of the schema
 validation:
 
 ```python
-from foca.errors import FieldError, InvalidFieldsProblem
-from foca.errors.fields import json_pointer
+from foca.errors import FieldError, InvalidFieldsProblem, json_pointer
 
 
 def post_service(body):
@@ -147,7 +150,8 @@ Invalid fields are part of the request-specific details of
 [`exceptions`](../configuration/exceptions.md#request-specific-details)):
 without them, responses have the problem details mapped to the exception
 class only. A `type` or `code` mapped to the exception class (e.g., to
-`RequestValidationProblem`) is kept. With `exceptions.public_members`, list
+`RequestValidationProblem`) is kept, e.g., for a problem type URI of your
+own. With `exceptions.public_members`, list
 `type`, `code` and `errors` there to send them.
 
 ## API specifications

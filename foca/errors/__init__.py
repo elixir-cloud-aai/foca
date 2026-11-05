@@ -18,7 +18,7 @@ from foca.errors.classes import (
     Unauthorized,
     UnprocessableContent,
 )
-from foca.errors.fields import FieldError
+from foca.errors.fields import FieldError, json_pointer
 
 __all__ = [
     "AccessDeniedProblem",
@@ -38,4 +38,5 @@ __all__ = [
     "ServiceUnavailable",
     "Unauthorized",
     "UnprocessableContent",
+    "json_pointer",
 ]

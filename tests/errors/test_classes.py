@@ -294,6 +294,7 @@ class TestInvalidFieldsProblem:
         assert exc.field_errors == (self.ERROR,)
         assert foca.errors.InvalidFieldsProblem is InvalidFieldsProblem
         assert foca.errors.FieldError is FieldError
+        assert foca.errors.json_pointer is fields.json_pointer
 
     def test_default_detail(self) -> None:
         """Without detail, it lists the invalid fields."""

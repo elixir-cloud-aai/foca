@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NoReturn
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,6 +13,7 @@ from connexion.resolver import Resolution
 from flask import Flask
 from werkzeug.test import TestResponse
 
+from foca.api import validation
 from foca.api.register_openapi import register_openapi
 from foca.api.validation import (
     BodyValidator,
@@ -20,6 +21,7 @@ from foca.api.validation import (
     _has_unpaired_surrogates,
     _parameter_errors,
 )
+from foca.errors import exceptions as exceptions_module
 from foca.errors.exceptions import register_exception_handler
 from foca.errors.fields import INVALID_REQUEST_TYPE, FieldError
 from foca.factories.connexion_app import create_connexion_app
@@ -106,6 +108,11 @@ SPEC: dict[str, Any] = {
                         "name": "session",
                         "in": "cookie",
                         "schema": {"type": "string", "maxLength": 3},
+                    },
+                    {
+                        "name": "note",
+                        "in": "query",
+                        "schema": {"type": "string", "nullable": True, "maxLength": 1},
                     },
                     {
                         "name": "ids",
@@ -570,7 +577,7 @@ class TestFieldErrors:
         client = _create_app(tmp_path).test_client()
         client.set_cookie("session", "abc")
         response = client.put(
-            self.URL + "&limit=1&ids=1&ids=2",
+            self.URL + "&limit=1&ids=1&ids=2&note=null",
             json=self.VALID,
             headers={"X-Mode": "a"},
         )
@@ -767,4 +774,53 @@ class TestFieldErrors:
         param = {"name": "upload", "in": "formData", "type": "file"}
         assert _parameter_errors("formdata", object(), param) == [
             FieldError(detail="Is invalid.", code="invalid", parameter="upload")
+        ]
+
+
+class TestListingFails:
+    """Requests are rejected as before if their invalid fields can't be listed."""
+
+    @staticmethod
+    def _fail(*args: Any, **kwargs: Any) -> NoReturn:
+        """Fail to list invalid fields.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise TypeError("unexpected")
+
+    def test_body(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Invalid bodies are rejected without invalid fields."""
+        monkeypatch.setattr(validation, "schema_field_errors", self._fail)
+        response = _create_app(tmp_path).test_client().put(TestFieldErrors.URL, json={})
+        assert response.status_code == 400
+        assert "errors" not in response.get_json()
+
+    def test_parameters(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Invalid parameters are rejected without invalid fields."""
+        monkeypatch.setattr(validation, "_parameter_errors", self._fail)
+        client = _create_app(tmp_path).test_client()
+        response = client.put("/things/abc?limit=11", json=TestFieldErrors.VALID)
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "errors" not in data
+        assert data["detail"].startswith("11 is greater than the maximum of 10")
+
+    def test_handler(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Responses keep their status if the handler can't list the fields."""
+        monkeypatch.setattr(exceptions_module, "add_field_errors", self._fail)
+        response = _create_app(tmp_path).test_client().put(TestFieldErrors.URL, json={})
+        assert response.status_code == 400
+        assert set(response.get_json()) == {"title", "status", "detail"}
+
+    def test_empty_parameter_name(self, tmp_path: Path) -> None:
+        """Unknown parameters without name are listed."""
+        response = _create_app(tmp_path).test_client().get("/items?=1")
+        assert response.status_code == 400
+        assert response.get_json()["errors"] == [
+            {"detail": "Is not allowed.", "parameter": "", "code": "unknown-parameter"}
         ]

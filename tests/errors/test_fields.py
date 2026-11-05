@@ -1,6 +1,7 @@
 """Tests for `foca.errors.fields`."""
 
 import json
+from datetime import date
 from typing import Any
 
 import pytest
@@ -74,7 +75,6 @@ class TestFieldError:
             {"pointer": "#/a", "parameter": "a"},
             {"pointer": "/a"},
             {"pointer": ""},
-            {"parameter": ""},
         ],
     )
     def test_location(self, kwargs: dict[str, str]) -> None:
@@ -88,6 +88,10 @@ class TestFieldError:
         with pytest.raises(ValueError, match="kebab-case"):
             FieldError(detail="d", code=code, pointer="#")
 
+    def test_empty_parameter(self) -> None:
+        """Parameter names may be empty, as in requests (e.g., `?=1`)."""
+        assert FieldError(detail="d", code="c", parameter="").parameter == ""
+
     def test_detail(self) -> None:
         """Entries have a detail."""
         with pytest.raises(ValueError, match="detail"):
@@ -99,6 +103,11 @@ class TestFieldError:
         data = error.to_dict(max_length=10)
         assert len(data["detail"]) == 10
         assert len(data["parameter"]) == 10
+
+    def test_max_length(self) -> None:
+        """Maximum lengths are at least 1."""
+        with pytest.raises(ValueError, match="at least 1"):
+            FieldError(detail="d", code="c", pointer="#").to_dict(max_length=0)
 
     def test_long_pointer(self) -> None:
         """Long pointers are replaced by the closest one that fits."""
@@ -156,6 +165,11 @@ class TestSchemaFieldErrors:
                 {"enum": ["a", 1]},
                 "b",
                 [("#", "invalid-value", 'Must be one of: "a", 1.')],
+            ),
+            (
+                {"enum": [date(2020, 1, 1)]},
+                "x",
+                [("#", "invalid-value", 'Must be one of: "2020-01-01".')],
             ),
             (
                 {"format": "uri"},

@@ -20,6 +20,7 @@ r"""Stricter checks of requests than those of Connexion 2.
 To be revisited when moving to Connexion 3 (#188).
 """
 
+import logging
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
@@ -44,6 +45,8 @@ from foca.errors import (
 from foca.errors.fields import FieldError, schema_field_errors
 from foca.security.resolvers import _normalize_resolver
 from foca.utils.service_info import is_date, is_date_time, is_uri
+
+logger = logging.getLogger(__name__)
 
 # The format checker that Connexion uses
 for _name, _check in (
@@ -114,8 +117,34 @@ class BodyValidator(RequestBodyValidator):
         except RequestValidationProblem as exc:
             # Validated again for all errors only if the body is invalid; the
             # detail stays Connexion's message on the first error
-            errors = schema_field_errors(self.validator.iter_errors(data))
+            errors = _list_fields(
+                lambda: schema_field_errors(self.validator.iter_errors(data))
+            )
+            if not errors:
+                raise
             raise InvalidFieldsProblem(errors, detail=exc.detail) from None
+
+
+def _list_fields(convert: Callable[[], list[FieldError]]) -> list[FieldError]:
+    """List invalid fields, without failing the rejection of the request.
+
+    Listing invalid fields only adds to responses: if it fails (e.g., for
+    an unexpected schema), the request is rejected as before, without them.
+
+    Args:
+        convert: Function listing the invalid fields.
+
+    Returns:
+        The invalid fields, or none if listing them failed.
+    """
+    try:
+        return convert()
+    except Exception as exc:
+        logger.warning(
+            "Invalid fields of a rejected request could not be listed: %s",
+            type(exc).__name__,
+        )
+        return []
 
 
 def _parameter_errors(
@@ -142,9 +171,10 @@ def _parameter_errors(
     try:
         converted = coerce_type(param, value, parameter_type, name)
     except TypeValidationError:
+        # Only raised for the types of Connexion's `TYPE_MAP`, so `type` is set
         return [
             FieldError(
-                detail=f"Must be of type {schema.get('type')}.",
+                detail=f"Must be of type {schema['type']}.",
                 code="invalid-type",
                 parameter=name,
             )
@@ -157,12 +187,54 @@ def _parameter_errors(
     return errors or [FieldError(detail="Is invalid.", code="invalid", parameter=name)]
 
 
+class _Reason(str):
+    """Reason of Connexion's validator for an invalid parameter.
+
+    Attributes:
+        field_errors: Invalid fields of the parameter.
+    """
+
+    field_errors: list[FieldError]
+
+
 class ParameterValidator(ConnexionParameterValidator):
     """Validator of parameters that collects all invalid parameters.
 
-    Checks parameters like Connexion's validator, but rejects requests with
-    all invalid parameters, not only the first.
+    Checks parameters with Connexion's validator, in its order, but rejects
+    requests with all invalid parameters, not only the first.
     """
+
+    def validate_parameter(
+        self,
+        parameter_type: str,
+        value: Any,
+        param: dict[str, Any],
+        param_name: str | None = None,
+    ) -> str | None:
+        """Validate a parameter as Connexion does, adding its invalid fields.
+
+        Called by Connexion's `validate_*_parameter()` methods.
+
+        Args:
+            parameter_type: Location of the parameter, e.g., `query`.
+            value: Value of the parameter in the request, if any.
+            param: Parameter object of the specification.
+            param_name: Name of the parameter, as for Connexion.
+
+        Returns:
+            Connexion's reason, with the invalid fields as `field_errors`, if
+            the parameter is invalid, otherwise `None`.
+        """
+        error = ConnexionParameterValidator.validate_parameter(
+            parameter_type, value, param, param_name
+        )
+        if not error:
+            return None
+        reason = _Reason(error)
+        reason.field_errors = _list_fields(
+            lambda: _parameter_errors(parameter_type, value, param)
+        )
+        return reason
 
     def __call__(self, function: Callable[..., Any]) -> Callable[..., Any]:
         """Wrap a function with the validation of parameters.
@@ -176,7 +248,7 @@ class ParameterValidator(ConnexionParameterValidator):
 
         @wraps(function)
         def wrapper(request: Any) -> Any:
-            """Validate the parameters of a request.
+            """Validate the parameters of a request, as Connexion does.
 
             Args:
                 request: Connexion request.
@@ -195,50 +267,35 @@ class ParameterValidator(ConnexionParameterValidator):
                 formdata = self.validate_formdata_parameter_list(request)
                 if formdata or query:
                     raise ExtraParameterProblem(formdata, query)
-            detail: str | None = None
-            errors: list[FieldError] = []
-            values = {
-                "query": request.query.get,
-                "path": lambda name: request.path_params.get(name.replace("-", "_")),
-                "header": request.headers.get,
-                "cookie": request.cookies.get,
-            }
-            for parameter_type, value_of in values.items():
-                for param in self.parameters.get(parameter_type, []):
-                    value = value_of(param["name"])
-                    error = self.validate_parameter(parameter_type, value, param)
-                    if error:
-                        detail = detail or error
-                        errors.extend(_parameter_errors(parameter_type, value, param))
-            for param in self.parameters.get("formData", []):
-                error = self.validate_formdata_parameter(param["name"], param, request)
-                if error:
-                    detail = detail or error
-                    errors.extend(
-                        _parameter_errors(
-                            "formdata", self._formdata_value(param, request), param
-                        )
+            checks = [
+                *(
+                    validate(param, request)
+                    for location, validate in (
+                        ("query", self.validate_query_parameter),
+                        ("path", self.validate_path_parameter),
+                        ("header", self.validate_header_parameter),
+                        ("cookie", self.validate_cookie_parameter),
                     )
-            if detail is not None:
-                raise InvalidFieldsProblem(errors, detail=detail)
-            return function(request)
+                    for param in self.parameters.get(location, [])
+                ),
+                *(
+                    self.validate_formdata_parameter(param["name"], param, request)
+                    for param in self.parameters.get("formData", [])
+                ),
+            ]
+            reasons = [reason for reason in checks if reason]
+            if not reasons:
+                return function(request)
+            errors = [
+                error
+                for reason in reasons
+                for error in getattr(reason, "field_errors", ())
+            ]
+            if not errors:
+                raise RequestValidationProblem(detail=str(reasons[0]))
+            raise InvalidFieldsProblem(errors, detail=str(reasons[0]))
 
         return wrapper
-
-    @staticmethod
-    def _formdata_value(param: dict[str, Any], request: Any) -> Any:
-        """Get the value of a form data parameter (Swagger 2), as Connexion does.
-
-        Args:
-            param: Parameter object of the specification.
-            request: Connexion request.
-
-        Returns:
-            The file or the value of the form field, if any.
-        """
-        if param.get("type") == "file" or param.get("format") == "binary":
-            return request.files.get(param["name"])
-        return request.form.get(param["name"])
 
 
 def _api_key_names(operation: Any) -> set[str]:
