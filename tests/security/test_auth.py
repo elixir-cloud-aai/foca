@@ -14,6 +14,7 @@ from connexion.exceptions import Unauthorized
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from flask import Flask
 from flask import request as auth_request
+from flask.globals import request_ctx
 from pydantic import ValidationError
 
 from foca.config import access
@@ -21,6 +22,8 @@ from foca.config.access import get_app_config, set_app_config
 from foca.models.config import AuthConfig, Config, ServiceClientConfig
 from foca.security import auth
 from foca.security.auth import (
+    current_claims,
+    current_token_info,
     log_auth_config_warnings,
     require_no_service_clients,
     validate_token,
@@ -1468,3 +1471,60 @@ def test_clear_caches() -> None:
     assert not auth._oidc_configs
     assert not auth._failed_fetches
     assert not auth._userinfo_cache
+
+
+class TestCurrentTokenInfo:
+    """Tests for `current_token_info()` and `current_claims()`."""
+
+    @contextmanager
+    def _request(self, connexion_context: Any = None) -> Iterator[None]:
+        """Handle a request with Connexion's context of it.
+
+        Args:
+            connexion_context: Context that Connexion stores; none if `None`.
+
+        Yields:
+            Nothing, while the request is handled.
+        """
+        with Flask(__name__).test_request_context():
+            if connexion_context is not None:
+                request_ctx.connexion_context = connexion_context  # type: ignore[attr-defined]  # set by Connexion
+            yield
+
+    def test_token_info(self) -> None:
+        """Token info and claims of FOCA's validation are returned as copies."""
+        token_info = {"jwt": "t", "claims": {"sub": "carol", "groups": ["a"]}}
+        with self._request({"token_info": token_info}):
+            info = current_token_info()
+            claims = current_claims()
+            assert info == token_info
+            assert claims == {"sub": "carol", "groups": ["a"]}
+            info["claims"]["sub"] = "mallory"
+            claims["groups"].append("b")
+            assert current_token_info() == token_info
+            assert current_claims() == {"sub": "carol", "groups": ["a"]}
+
+    def test_raw_claims(self) -> None:
+        """Token info without claims is taken as the claims."""
+        with self._request({"token_info": {"sub": "carol"}}):
+            assert current_claims() == {"sub": "carol"}
+
+    @pytest.mark.parametrize(
+        "connexion_context",
+        [None, {}, {"token_info": None}, {"token_info": "x"}],
+    )
+    def test_no_token(self, connexion_context: Any) -> None:
+        """Without a validated token, both are empty."""
+        with self._request(connexion_context):
+            assert current_token_info() == {}
+            assert current_claims() == {}
+
+    def test_invalid_claims(self) -> None:
+        """Claims that aren't a dictionary are none."""
+        with self._request({"token_info": {"claims": "x"}}):
+            assert current_claims() == {}
+
+    def test_outside_request(self) -> None:
+        """Outside requests, both are empty."""
+        assert current_token_info() == {}
+        assert current_claims() == {}

@@ -424,6 +424,19 @@ any claims added from user info), the subject (`user_id`), the token's
 `scope` and, for [service tokens](#service-tokens), the client ID of the
 service client (`service_client`).
 
+Elsewhere, e.g., in helpers that controllers call, `current_token_info()` and
+`current_claims()` of `foca.security.auth` return copies of the token info and
+its claims for the current request; they are empty if no token was validated,
+also outside requests:
+
+```python
+from foca.security.auth import current_claims
+
+
+def get_owner() -> str | None:
+    return current_claims().get("sub")
+```
+
 !!! tip "Claims from user info"
     Some identity providers include claims in their user info only, not in
     access tokens, e.g., group memberships (`eduperson_entitlement`). To
