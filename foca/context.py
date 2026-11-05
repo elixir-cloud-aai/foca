@@ -21,9 +21,14 @@ _REQUEST_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 
 _request_id: ContextVar[str | None] = ContextVar("foca_request_id", default=None)
 
-# Characters of URLs kept as they are when non-ASCII and unsafe ones are
-# percent-encoded (reserved characters, `%` of existing escapes, `~`)
-_URL_SAFE = "/:;@!$&'()*+,=?%#[]~"
+# Characters of decoded paths kept as they are in URLs (sub-delimiters, `:`,
+# `@`, `/`; cf. RFC 3986)
+_PATH_SAFE = "/:@!$&'()*+,;=~"
+# Characters of raw query strings kept as they are in URLs, also `%` of
+# escapes
+_QUERY_SAFE = _PATH_SAFE + "?%"
+# Percent signs that don't start escapes
+_INVALID_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
 def request_id() -> str:
@@ -127,11 +132,10 @@ class RequestSnapshot:
             policies and the ownership of resources are keyed by it.
         root_path: Root path of the app (`SCRIPT_NAME`), empty if there is
             none, e.g., `/tes`.
-        url: Full URL of the request, with root path and query string, as
-            the server reconstructs it (not necessarily as sent), with the
-            host as the server gives it and other non-ASCII and unsafe
-            characters percent-encoded; left out of the representation of the snapshot,
-            as queries may hold credentials.
+        url: Full URL of the request, with root path and query string,
+            percent-encoded: the host as the server gives it, the path
+            encoded anew from `root_path` and `path`, the query string as
+            sent, with non-ASCII and unsafe characters encoded.
         headers: Headers of the request, case-insensitive and read-only.
         content_length: Length of the request body in bytes, as declared, or
             `None` if not declared.
@@ -144,32 +148,37 @@ class RequestSnapshot:
         path_params: Values of the path parameters of the route, as passed to
             controllers, i.e., decoded and converted to their types, under the
             names of the route's rule; empty without a route.
+
+    The representation of a snapshot, e.g., in logs, leaves out the path, URL
+    and path parameters, and the values of headers, as they may hold
+    credentials; the route shows what was requested.
     """
 
     method: str
-    path: str
+    path: str = field(repr=False)
     root_path: str
     url: str = field(repr=False)
     headers: Headers
     content_length: int | None
     client_address: str | None
     route: str | None
-    path_params: Mapping[str, Any]
+    path_params: Mapping[str, Any] = field(repr=False)
 
 
-def _encode_url(url: str, host_url: str) -> str:
-    """Percent-encode the non-ASCII and unsafe characters of a URL.
-
-    Args:
-        url: URL, as an IRI.
-        host_url: Its scheme and host, with or without a trailing slash.
+def _get_url() -> str:
+    """Build the percent-encoded URL of the current request.
 
     Returns:
-        The URL, with the scheme and host as they are, as clients choose the
-        host and not all hosts can be IDNA-encoded.
+        The URL: the scheme and host as the server gives them, as clients
+        choose the host and not all hosts can be IDNA-encoded; the decoded
+        root path and path encoded anew, as Werkzeug's URL keeps their `%`;
+        the raw query string, with non-ASCII and unsafe characters and `%`
+        that don't start escapes encoded.
     """
-    prefix = host_url.rstrip("/")
-    return prefix + quote(url[len(prefix) :], safe=_URL_SAFE)
+    prefix = request.host_url.rstrip("/")
+    path = quote(request.script_root + request.path, safe=_PATH_SAFE)
+    query = _INVALID_ESCAPE.sub("%25", quote(request.query_string, safe=_QUERY_SAFE))
+    return f"{prefix}{path}?{query}" if query else f"{prefix}{path}"
 
 
 def current_request() -> RequestSnapshot:
@@ -197,7 +206,7 @@ def current_request() -> RequestSnapshot:
         method=request.method,
         path=request.path,
         root_path=request.script_root,
-        url=_encode_url(request.url, request.host_url),
+        url=_get_url(),
         headers=Headers(request.headers.items()),
         content_length=request.content_length,
         client_address=request.remote_addr,

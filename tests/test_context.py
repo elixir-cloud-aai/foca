@@ -441,6 +441,12 @@ class TestCurrentRequest:
         assert snapshot.url == "http://localhost/api/v1/items/%E2%82%AC/1?q=%C3%BC"
         assert snapshot.path == "/api/v1/items/\u20ac/1"
 
+    def test_url_invalid_escapes(self, request_app: Flask) -> None:
+        """Percent signs that don't start escapes are percent-encoded."""
+        with request_app.test_request_context("/a%2525b%zz?x=%zz&y=%&z=%2B%41"):
+            snapshot = current_request()
+        assert snapshot.url == "http://localhost/a%2525b%25zz?x=%25zz&y=%25&z=%2B%41"
+
     @pytest.mark.parametrize("host", ["a..b", "a" * 64 + ".org"])
     def test_url_host_as_sent(self, request_app: Flask, host: str) -> None:
         """Hosts are kept, also those that can't be IDNA-encoded."""
@@ -451,11 +457,14 @@ class TestCurrentRequest:
     def test_repr_without_credentials(self, request_app: Flask) -> None:
         """Representations leave out header values and the URL."""
         headers = [("Authorization", "Bearer secret"), ("Cookie", "s=secret")]
-        with request_app.test_request_context("/?token=secret", headers=headers):
+        with request_app.test_request_context(
+            "/api/v1/items/secret/1?token=secret", method="POST", headers=headers
+        ):
             snapshot = current_request()
         text = repr(snapshot)
         assert "secret" not in text
         assert "authorization" in text
+        assert "/api/v1/items/{item-id}/{count}" in text
 
     def test_outside_request(self, request_app: Flask) -> None:
         """Outside requests, a clear error is raised."""
