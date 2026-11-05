@@ -64,7 +64,25 @@ def _conf(problems: dict[type[BaseException], dict[str, Any]]) -> ExceptionConfi
 
 def test_exports() -> None:
     """All classes and aliases are exported."""
-    for name in foca.errors.__all__:
+    expected = {
+        "AccessDeniedProblem",
+        "AuthenticationProblem",
+        "BadRequest",
+        "Conflict",
+        "ExtraParameterProblem",
+        "Forbidden",
+        "HTTPError",
+        "InternalServerError",
+        "MethodNotAllowed",
+        "NotFound",
+        "PayloadTooLarge",
+        "RequestValidationProblem",
+        "ServiceUnavailable",
+        "Unauthorized",
+        "UnprocessableContent",
+    }
+    assert expected <= set(foca.errors.__all__)
+    for name in expected:
         assert hasattr(foca.errors, name)
 
 

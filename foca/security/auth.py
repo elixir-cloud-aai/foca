@@ -4,7 +4,6 @@ import copy
 import hashlib
 import ipaddress
 import logging
-import re
 import threading
 import time
 from collections.abc import Callable
@@ -53,9 +52,6 @@ USERINFO_CACHE_SIZE = 1000
 # precedence: `client_id` of access tokens as per RFC 9068,
 # `azp` (authorized party) of identity providers using OpenID Connect's claim
 CLIENT_CLAIMS = ("client_id", "azp")
-
-# Error code in the challenge of an invalid token, quoted or not
-_INVALID_TOKEN_ERROR = re.compile(r'\berror="?invalid_token"?')
 
 # Description of the `invalid_token` error of `WWW-Authenticate` challenges,
 # deliberately generic, so that clients learn nothing about the identity
@@ -252,11 +248,7 @@ def _reject_invalid_token(fn: Callable[..., Any]) -> Callable[..., Any]:
                     raise error
                 validate_token(token)
             except AnyUnauthorized as exc:
-                if any(
-                    name.lower() == "www-authenticate"
-                    and _INVALID_TOKEN_ERROR.search(value)
-                    for name, value in exc.get_headers()
-                ):
+                if _has_invalid_token_challenge(exc):
                     raise
                 # Logs why the token was rejected, not the token (a false positive
                 # of semgrep's registry rules, `p/python`)
@@ -268,6 +260,29 @@ def _reject_invalid_token(fn: Callable[..., Any]) -> Callable[..., Any]:
         return fn(*args, **kwargs)
 
     return _wrapper
+
+
+def _has_invalid_token_challenge(exc: AnyUnauthorized) -> bool:
+    """Check whether an error has a Bearer challenge for an invalid token.
+
+    Args:
+        exc: Error of the token validation.
+
+    Returns:
+        Whether a challenge has the scheme `Bearer` and the error code
+        `invalid_token`.
+    """
+    for name, value in exc.get_headers():
+        if name.lower() != "www-authenticate":
+            continue
+        challenge = WWWAuthenticate.from_header(value)
+        if (
+            challenge is not None
+            and challenge.type == "bearer"
+            and challenge.get("error") == "invalid_token"
+        ):
+            return True
+    return False
 
 
 def _validates_optional_token(operation: AbstractOperation) -> bool:

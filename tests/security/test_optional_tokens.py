@@ -435,6 +435,24 @@ class TestInvalidTokenResolver:
             False,
         ),
         (wz.Unauthorized(), True),
+        (
+            wz.Unauthorized(
+                www_authenticate=wz_challenge("basic", {"error": "invalid_token"})
+            ),
+            True,
+        ),
+        (
+            wz.Unauthorized(
+                www_authenticate=wz_challenge("bearer", {"error": "invalid_token_x"})
+            ),
+            True,
+        ),
+        (
+            wz.Unauthorized(
+                www_authenticate=wz_challenge("bearer", {"x_error": "invalid_token"})
+            ),
+            True,
+        ),
     ],
 )
 def test_raw_unauthorized_of_validation(exception: Any, kept: bool) -> None:
