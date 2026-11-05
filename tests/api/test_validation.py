@@ -17,6 +17,7 @@ from foca.api import validation
 from foca.api.register_openapi import register_openapi
 from foca.api.validation import (
     BodyValidator,
+    ParameterValidator,
     StrictParametersResolver,
     _has_unpaired_surrogates,
     _parameter_errors,
@@ -113,6 +114,11 @@ SPEC: dict[str, Any] = {
                         "name": "note",
                         "in": "query",
                         "schema": {"type": "string", "nullable": True, "maxLength": 1},
+                    },
+                    {
+                        "name": "arr",
+                        "in": "query",
+                        "schema": {"type": "array", "items": {"enum": ["x"]}},
                     },
                     {
                         "name": "ids",
@@ -772,9 +778,42 @@ class TestFieldErrors:
     def test_parameter_without_error(self) -> None:
         """Parameters rejected without a schema error get a generic entry."""
         param = {"name": "upload", "in": "formData", "type": "file"}
-        assert _parameter_errors("formdata", object(), param) == [
+        assert _parameter_errors("formdata", object(), param) == []
+        validator = ParameterValidator([param], None)
+        reason = validator.validate_parameter("formdata", object(), param)
+        assert reason
+        assert getattr(reason, "field_errors", None) == [
             FieldError(detail="Is invalid.", code="invalid", parameter="upload")
         ]
+
+    def test_later_parameter_fails(self, tmp_path: Path) -> None:
+        """Parameters that Connexion can't check after the first invalid one.
+
+        Connexion's check of `arr` raises (its items have no type), but only
+        the first invalid parameter is checked by Connexion, as before.
+        """
+        client = _create_app(tmp_path).test_client()
+        response = client.put("/things/abc?limit=11&tag=t&arr=x", json=self.VALID)
+        assert response.status_code == 400
+        assert [e["parameter"] for e in response.get_json()["errors"]] == ["limit"]
+
+    def test_later_parameters_not_logged(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Values of invalid parameters after the first aren't logged."""
+        client = _create_app(tmp_path).test_client()
+        with caplog.at_level(logging.DEBUG):
+            response = client.put(
+                "/things/abc?limit=11&note=null",
+                json=self.VALID,
+                headers={"X-Mode": "s3cr3t"},
+            )
+        assert [e["parameter"] for e in response.get_json()["errors"]] == [
+            "limit",
+            "tag",
+            "X-Mode",
+        ]
+        assert "s3cr3t" not in caplog.text
 
 
 class TestListingFails:

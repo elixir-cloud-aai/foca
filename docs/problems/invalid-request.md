@@ -103,7 +103,7 @@ Apps add codes of their own for their own checks (see below), e.g.,
 
 All invalid fields of the request body (JSON or form data, against the
 schema of the request body) are listed, and all invalid parameters.
-Parameters are checked first: a request with invalid parameters lists those
+The body is checked first: a request with an invalid body lists its fields
 only. The app's own checks run on valid requests only. Requests rejected
 for other reasons, e.g., a body that is not valid JSON or has unpaired
 surrogates, or form fields of an OpenAPI 3 request body that can't be

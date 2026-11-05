@@ -14,14 +14,15 @@ r"""Stricter checks of requests than those of Connexion 2.
 - All invalid fields of the body, and all invalid parameters, are collected,
   not only the first (cf. :py:mod:`foca.errors.fields`): rejected requests
   raise :py:class:`foca.errors.InvalidFieldsProblem`, with the message of
-  Connexion's validator on the first error as `detail`, as before. Parameters
-  are checked before the body, as by Connexion.
+  Connexion's validator on the first error as `detail`, as before. The body
+  is checked before the parameters, as by Connexion.
 
 To be revisited when moving to Connexion 3 (#188).
 """
 
 import logging
 from collections.abc import Callable
+from contextvars import ContextVar
 from functools import wraps
 from typing import Any
 
@@ -34,6 +35,7 @@ from connexion.decorators.validation import (
     coerce_type,
 )
 from connexion.resolver import Resolution, Resolver
+from connexion.utils import is_null, is_nullable
 from flask import request
 from jsonschema import Draft4Validator, draft4_format_checker
 
@@ -150,10 +152,10 @@ def _list_fields(convert: Callable[[], list[FieldError]]) -> list[FieldError]:
 def _parameter_errors(
     parameter_type: str, value: Any, param: dict[str, Any]
 ) -> list[FieldError]:
-    """Get the invalid fields of an invalid parameter.
+    """Get the invalid fields of a parameter, without logging.
 
     Checks the parameter as Connexion's `ParameterValidator.validate_parameter()`
-    does, but collects all errors.
+    does, but collects all errors and logs nothing.
 
     Args:
         parameter_type: Location of the parameter, e.g., `query`.
@@ -161,12 +163,15 @@ def _parameter_errors(
         param: Parameter object of the specification.
 
     Returns:
-        Entries naming the parameter; a generic one if no error is found
-        (e.g., for files).
+        Entries naming the parameter, if it is invalid.
     """
     name = param["name"]
     if value is None:
+        if not param.get("required"):
+            return []
         return [FieldError(detail="Is required.", code="required", parameter=name)]
+    if is_nullable(param) and is_null(value):
+        return []
     schema = param.get("schema", param)
     try:
         converted = coerce_type(param, value, parameter_type, name)
@@ -179,12 +184,11 @@ def _parameter_errors(
                 parameter=name,
             )
         ]
-    errors: list[FieldError] = []
-    if schema.get("type") != "file":
-        schema = {key: item for key, item in schema.items() if key != "required"}
-        validator = Draft4Validator(schema, format_checker=draft4_format_checker)
-        errors = schema_field_errors(validator.iter_errors(converted), parameter=name)
-    return errors or [FieldError(detail="Is invalid.", code="invalid", parameter=name)]
+    if schema.get("type") == "file":
+        return []
+    schema = {key: item for key, item in schema.items() if key != "required"}
+    validator = Draft4Validator(schema, format_checker=draft4_format_checker)
+    return schema_field_errors(validator.iter_errors(converted), parameter=name)
 
 
 class _Reason(str):
@@ -197,11 +201,19 @@ class _Reason(str):
     field_errors: list[FieldError]
 
 
+# Whether the parameters of the current request are checked after the first
+# invalid one, by FOCA only (cf. `ParameterValidator`)
+_after_first_reason: ContextVar[bool] = ContextVar("_after_first_reason", default=False)
+
+
 class ParameterValidator(ConnexionParameterValidator):
     """Validator of parameters that collects all invalid parameters.
 
-    Checks parameters with Connexion's validator, in its order, but rejects
-    requests with all invalid parameters, not only the first.
+    Checks parameters with Connexion's validator, in its order, until the
+    first invalid one, as before. The remaining parameters are then checked
+    by FOCA only (cf. :py:func:`_parameter_errors`), which logs nothing and
+    never fails the rejection, so that requests are rejected with all invalid
+    parameters, not only the first.
     """
 
     def validate_parameter(
@@ -222,18 +234,37 @@ class ParameterValidator(ConnexionParameterValidator):
             param_name: Name of the parameter, as for Connexion.
 
         Returns:
-            Connexion's reason, with the invalid fields as `field_errors`, if
-            the parameter is invalid, otherwise `None`.
+            Connexion's reason (after the first invalid parameter of the
+            request, an empty one), with the invalid fields as
+            `field_errors`, if the parameter is invalid, otherwise `None`.
         """
-        error = ConnexionParameterValidator.validate_parameter(
-            parameter_type, value, param, param_name
-        )
-        if not error:
-            return None
-        reason = _Reason(error)
-        reason.field_errors = _list_fields(
-            lambda: _parameter_errors(parameter_type, value, param)
-        )
+        if _after_first_reason.get():
+            errors = _list_fields(
+                lambda: _parameter_errors(parameter_type, value, param)
+            )
+            if not errors:
+                return None
+            reason = _Reason()
+        else:
+            error = ConnexionParameterValidator.validate_parameter(
+                parameter_type, value, param, param_name
+            )
+            if not error:
+                return None
+            reason = _Reason(error)
+            errors = _list_fields(
+                lambda: (
+                    _parameter_errors(parameter_type, value, param)
+                    or [
+                        FieldError(
+                            detail="Is invalid.",
+                            code="invalid",
+                            parameter=param["name"],
+                        )
+                    ]
+                )
+            )
+        reason.field_errors = errors
         return reason
 
     def __call__(self, function: Callable[..., Any]) -> Callable[..., Any]:
@@ -269,7 +300,7 @@ class ParameterValidator(ConnexionParameterValidator):
                     raise ExtraParameterProblem(formdata, query)
             checks = [
                 *(
-                    validate(param, request)
+                    (validate, param)
                     for location, validate in (
                         ("query", self.validate_query_parameter),
                         ("path", self.validate_path_parameter),
@@ -279,23 +310,44 @@ class ParameterValidator(ConnexionParameterValidator):
                     for param in self.parameters.get(location, [])
                 ),
                 *(
-                    self.validate_formdata_parameter(param["name"], param, request)
+                    (self._validate_formdata, param)
                     for param in self.parameters.get("formData", [])
                 ),
             ]
-            reasons = [reason for reason in checks if reason]
-            if not reasons:
+            first: str | None = None
+            errors: list[FieldError] = []
+            token = None
+            try:
+                for validate, param in checks:
+                    reason = validate(param, request)
+                    if reason is None:
+                        continue
+                    errors.extend(getattr(reason, "field_errors", ()))
+                    if first is None:
+                        first = str(reason)
+                        token = _after_first_reason.set(True)
+            finally:
+                if token is not None:
+                    _after_first_reason.reset(token)
+            if first is None:
                 return function(request)
-            errors = [
-                error
-                for reason in reasons
-                for error in getattr(reason, "field_errors", ())
-            ]
             if not errors:
-                raise RequestValidationProblem(detail=str(reasons[0]))
-            raise InvalidFieldsProblem(errors, detail=str(reasons[0]))
+                raise RequestValidationProblem(detail=first)
+            raise InvalidFieldsProblem(errors, detail=first)
 
         return wrapper
+
+    def _validate_formdata(self, param: dict[str, Any], request: Any) -> str | None:
+        """Validate a form data parameter (Swagger 2), as Connexion does.
+
+        Args:
+            param: Parameter object of the specification.
+            request: Connexion request.
+
+        Returns:
+            Reason, if the parameter is invalid (cf. `validate_parameter()`).
+        """
+        return self.validate_formdata_parameter(param["name"], param, request)
 
 
 def _api_key_names(operation: Any) -> set[str]:
