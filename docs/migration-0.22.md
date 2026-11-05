@@ -72,7 +72,17 @@ configuration to:
 
 `get_config()` returns the configuration of the current app, or, outside app
 contexts (e.g., in Celery workers or scripts), that of the most recently
-created FOCA app. To find remaining uses, run your tests with
+created FOCA app. Where you passed an app that isn't the current one, e.g., in
+tests, enter its app context:
+
+```python
+# Before
+config = get_app_config(app)
+# After
+with app.app_context():
+    config = get_config()
+```
+ To find remaining uses, run your tests with
 `-W error::DeprecationWarning` or search for `config.foca` and
 `get_app_config`.
 

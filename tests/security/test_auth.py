@@ -139,9 +139,8 @@ def make_app(**auth_conf: Any) -> Flask:
     """Create Flask app with FOCA config."""
     app = Flask(__name__)
     auth_conf = {"issuers": [ISSUER], "audience": [AUDIENCE], **auth_conf}
-    app.config.foca = Config.model_validate(  # type: ignore[attr-defined]  # dynamic attribute
-        {"security": {"auth": auth_conf}}
-    )
+    conf = Config.model_validate({"security": {"auth": auth_conf}})
+    set_app_config(app, conf)
     return app
 
 

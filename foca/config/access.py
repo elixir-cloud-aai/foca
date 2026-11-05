@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import copyreg
 import threading
 import warnings
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, SupportsIndex, TypeVar, cast
 
 from flask import Config as FlaskConfig
 from flask import Flask, current_app, has_app_context
@@ -24,6 +25,10 @@ _T = TypeVar("_T", bound=BaseModel)
 
 # Name of the attribute of Flask configurations holding FOCA's configuration
 _ATTRIBUTE = "foca"
+
+# Marks the subclasses of Flask configuration classes with the deprecated
+# attribute
+_DEPRECATING_MARKER = "_foca_deprecates_attribute"
 
 # Subclasses of Flask configuration classes with the deprecated attribute, by
 # class
@@ -72,18 +77,75 @@ def _set_foca_attribute(flask_config: FlaskConfig, value: Any) -> None:
     vars(flask_config)[_ATTRIBUTE] = value
 
 
+def _delete_foca_attribute(flask_config: FlaskConfig) -> None:
+    """Remove FOCA's configuration from a Flask configuration, deprecated.
+
+    Args:
+        flask_config: Flask configuration.
+
+    Raises:
+        AttributeError: No configuration is attached.
+    """
+    warnings.warn(
+        "Deleting 'app.config.foca' is deprecated.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    try:
+        del vars(flask_config)[_ATTRIBUTE]
+    except KeyError:
+        raise AttributeError(_ATTRIBUTE) from None
+
+
+def _reduce_ex(flask_config: FlaskConfig, protocol: SupportsIndex) -> Any:
+    """Pickle a Flask configuration as one of its original class.
+
+    Args:
+        flask_config: Flask configuration, of a deprecating subclass.
+        protocol: Pickle protocol.
+
+    Returns:
+        What the original class would return, with that class.
+    """
+    original = type(flask_config).__mro__[1]
+    reduced = super(type(flask_config), flask_config).__reduce_ex__(protocol)
+    # The class is the first argument of `copyreg._reconstructor` (protocols 0
+    # and 1) and of `copyreg.__newobj__` (2+), which insists on the class of
+    # the instance
+    function, args, *rest = cast("tuple[Any, ...]", reduced)
+    if function is copyreg.__newobj__:  # type: ignore[attr-defined]  # not in typeshed
+        function = _new_instance
+    return (function, (original, *args[1:]), *rest)
+
+
+def _new_instance(cls: type[Any], *args: Any) -> Any:
+    """Create an instance of a class without initializing it, for unpickling.
+
+    Args:
+        cls: Class.
+        *args: Arguments of `__new__()`.
+
+    Returns:
+        New instance.
+    """
+    return cls.__new__(cls, *args)
+
+
 def _deprecate_attribute(app: Flask) -> None:
     """Make access to `app.config.foca` emit a deprecation warning.
 
-    The class of the Flask configuration is replaced by a subclass whose
-    attribute `foca` is a property, which takes precedence over the attribute
-    of the instance, where the configuration stays.
+    The class of the Flask configuration is replaced by a subclass of it
+    whose attribute `foca` is a property, which takes precedence over the
+    attribute of the instance, where the configuration stays. A class of
+    FOCA's for Flask configurations (`Flask.config_class`) can't do this, as
+    Connexion creates the app, with its configuration, and apps may have
+    classes of their own. The subclass is pickled as the original class.
 
     Args:
         app: Flask application instance.
     """
     cls = type(app.config)
-    if cls in _deprecating_classes.values():
+    if getattr(cls, _DEPRECATING_MARKER, False):
         return
     with _deprecating_classes_lock:
         if cls not in _deprecating_classes:
@@ -93,7 +155,13 @@ def _deprecate_attribute(app: Flask) -> None:
                 {
                     "__module__": cls.__module__,
                     "__qualname__": cls.__qualname__,
-                    _ATTRIBUTE: property(_get_foca_attribute, _set_foca_attribute),
+                    "__reduce_ex__": _reduce_ex,
+                    _DEPRECATING_MARKER: True,
+                    _ATTRIBUTE: property(
+                        _get_foca_attribute,
+                        _set_foca_attribute,
+                        _delete_foca_attribute,
+                    ),
                 },
             )
     app.config.__class__ = _deprecating_classes[cls]
@@ -114,6 +182,24 @@ def set_app_config(app: Flask, config: Config) -> None:
     _configs["latest"] = config
 
 
+def _find_app_config(app: Flask) -> Config | None:
+    """Find the configuration attached to a Flask app.
+
+    For FOCA's own use, where the app is known but not current, e.g., while it
+    is created.
+
+    Args:
+        app: Flask application instance.
+
+    Returns:
+        App configuration, or `None` if none is attached.
+    """
+    from foca.models.config import Config  # noqa: PLC0415 (import cycle)
+
+    config = vars(app.config).get(_ATTRIBUTE)
+    return config if isinstance(config, Config) else None
+
+
 def _get_app_config(app: Flask) -> Config:
     """Get the configuration attached to a Flask app.
 
@@ -129,10 +215,8 @@ def _get_app_config(app: Flask) -> Config:
     Raises:
         RuntimeError: No FOCA configuration is attached to `app`.
     """
-    from foca.models.config import Config  # noqa: PLC0415 (import cycle)
-
-    config = vars(app.config).get(_ATTRIBUTE)
-    if not isinstance(config, Config):
+    config = _find_app_config(app)
+    if config is None:
         raise RuntimeError(f"No FOCA configuration attached to app '{app}'")
     return config
 
@@ -175,11 +259,10 @@ def get_config() -> Config:
     Raises:
         RuntimeError: No FOCA app has been created.
     """
-    if has_app_context():
-        try:
-            return _get_app_config(current_app)
-        except RuntimeError:
-            pass
+    # Apps without FOCA configuration get that of the latest FOCA app
+    config = _find_app_config(current_app) if has_app_context() else None
+    if config is not None:
+        return config
     if "latest" not in _configs:
         raise RuntimeError(
             "No FOCA configuration available: no FOCA app has been created"

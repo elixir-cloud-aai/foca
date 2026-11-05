@@ -1,5 +1,6 @@
 """Tests for typed access to app configuration."""
 
+import pickle
 import warnings
 from typing import Any
 
@@ -74,7 +75,7 @@ def test_get_app_config() -> None:
     app = create_connexion_app(config).app
     with pytest.deprecated_call(match="get_config"):
         assert access.get_app_config(app) is config
-    with pytest.raises(RuntimeError), pytest.deprecated_call():
+    with pytest.raises(RuntimeError), pytest.deprecated_call(match="get_config"):
         access.get_app_config(Flask(__name__))
 
 
@@ -97,12 +98,36 @@ def test_config_attribute_deprecated() -> None:
     with pytest.deprecated_call(match="get_config"):
         assert app.config.foca is config
     other = Config()
-    with pytest.deprecated_call(match="set_app_config|get_config"):
+    with pytest.deprecated_call(match="Setting 'app.config.foca'"):
         app.config.foca = other
     assert access._get_app_config(app) is other
     assert isinstance(app.config, flask.Config)
     app.config["KEY"] = "value"
     assert app.config["KEY"] == "value"
+
+
+def test_config_attribute_deleted() -> None:
+    """Deleting `app.config.foca` works, deprecated."""
+    app = create_connexion_app(Config()).app
+    with pytest.deprecated_call(match="Deleting 'app.config.foca'"):
+        del app.config.foca
+    with pytest.raises(AttributeError), pytest.deprecated_call():
+        del app.config.foca
+    with pytest.raises(RuntimeError):
+        access._get_app_config(app)
+
+
+@pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
+def test_config_pickled(protocol: int) -> None:
+    """Flask configurations are pickled as their original class."""
+    config = Config()
+    app = create_connexion_app(config).app
+    app.config["KEY"] = "value"
+    copied = pickle.loads(pickle.dumps(app.config, protocol))  # noqa: S301 (own data)
+    assert type(copied) is flask.Config
+    assert copied["KEY"] == "value"
+    assert copied.root_path == app.config.root_path
+    assert vars(copied)["foca"] == config
 
 
 def test_config_attribute_missing() -> None:

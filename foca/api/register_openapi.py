@@ -17,10 +17,10 @@ from foca.api.validation import (
     ParameterValidator,
     StrictParametersResolver,
 )
+from foca.config.access import _find_app_config
 from foca.config.config_parser import ConfigParser, deep_merge
 from foca.models.config import (
     DEFAULT_ERROR_MEDIA_TYPE,
-    Config,
     ConnexionOptions,
     SpecConfig,
 )
@@ -180,8 +180,8 @@ def _get_error_media_type(app: App) -> str:
         Configured media type (`exceptions.media_type`); the default one for
         apps without FOCA configuration.
     """
-    config = getattr(app.app.config, "foca", None)
-    if isinstance(config, Config):
+    config = _find_app_config(app.app)
+    if config is not None:
         return config.exceptions.media_type
     return DEFAULT_ERROR_MEDIA_TYPE
 
@@ -196,8 +196,8 @@ def _rejects_invalid_tokens(app: App) -> bool:
         Whether `security.auth.reject_invalid_tokens` is set; `False` for
         apps without FOCA configuration.
     """
-    config = getattr(app.app.config, "foca", None)
-    return isinstance(config, Config) and config.security.auth.reject_invalid_tokens
+    config = _find_app_config(app.app)
+    return config is not None and config.security.auth.reject_invalid_tokens
 
 
 def _set_error_media_type(operation: dict[str, Any], media_type: str) -> None:

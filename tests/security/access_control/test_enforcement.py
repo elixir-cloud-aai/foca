@@ -25,7 +25,7 @@ from pymongo.collection import Collection
 from werkzeug.test import TestResponse
 
 from foca.api.register_openapi import register_openapi
-from foca.config.access import _get_app_config
+from foca.config.access import _get_app_config, set_app_config
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -1065,12 +1065,13 @@ class TestSelfService:
 def helper_app() -> Flask:
     """Flask app with access control config and in-memory policies."""
     app = Flask(__name__)
-    app.config.foca = Config(  # type: ignore[attr-defined]  # dynamic attribute
+    conf = Config(
         security=SecurityConfig(
             auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
             access_control=_access_control_config(),
         ),
     )
+    set_app_config(app, conf)
     adapter = Adapter(collection=mongomock.MongoClient()[DB_NAME][COLLECTION_NAME])
     app.config["CASBIN_MODEL"] = _model_path()
     app.config["casbin_adapter"] = adapter
