@@ -10,7 +10,7 @@ from unittest import mock
 import mongomock
 import pytest
 import yaml
-from flask import Flask
+from flask import Flask, g, request
 from flask.globals import request_ctx
 from werkzeug.exceptions import BadRequest, NotFound
 from werkzeug.test import TestResponse
@@ -33,6 +33,7 @@ from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     RESOURCE_ROLE_MODEL_FILE,
 )
+from foca.security.access_control.enforcement import _ENFORCED_MARK
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.auth import _unauthorized
 from foca.utils import pagination
@@ -528,6 +529,7 @@ class TestUserRoles:
         put = getattr(ownership_server, f"put{subject_type.capitalize()}Role")
         path = f"{TASK}/permissions/{subject_type}s/devs"
         with app.test_request_context(path, method="PUT"):
+            setattr(g, _ENFORCED_MARK, request._get_current_object())  # type: ignore[attr-defined]
             # token info, as set by Connexion
             request_ctx.connexion_context = {  # type: ignore[attr-defined]
                 "token_info": mock_token_info("alice")
@@ -546,6 +548,7 @@ class TestUserRoles:
             mock.patch.object(ownership, "_check_other_owners"),
             pytest.raises(NotFound),
         ):
+            setattr(g, _ENFORCED_MARK, request._get_current_object())  # type: ignore[attr-defined]
             ownership_server.deleteUserRole(exists=lambda: False)
         assert _roles(app) == []
 

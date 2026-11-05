@@ -7,6 +7,7 @@ import pytest
 from connexion.exceptions import Forbidden
 from flask import Flask
 
+from foca.api.routes import Route, _add_route
 from foca.context import RequestIdMiddleware
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config
@@ -65,6 +66,10 @@ def test_inbound_from_request() -> None:
         """Unused view; only its URL rule matters."""
         return "ok"
 
+    _add_route(
+        app,
+        Route("POST", "/tasks/{task_id}", "/tasks/<task_id>", None, None, {}, view),
+    )
     with app.test_request_context(
         "/tasks/abc?view=FULL&view=BASIC&x=1",
         method="post",

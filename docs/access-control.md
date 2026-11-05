@@ -466,8 +466,9 @@ def getPet(id: str) -> dict:
 `is_permitted_for(path, method="GET")` makes the decision for the token and
 the [opt-in roles](#opt-in-roles) of the current request:
 
-* It is `False` if no route serves the path and method directly (e.g., if the
-  request would be redirected), and `True` if the route doesn't enforce
+* It is `False` if no route to an operation serves the path and method directly
+  (e.g., if the request would be redirected, and for the Swagger UI, the served
+  specification and routes added to Flask directly), and `True` if the route doesn't enforce
   policies (e.g., public or self-service operations, and those with
   `x-foca-access-control: false`).
 * On routes that enforce policies, it is the decision of the policies. Callers

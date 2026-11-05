@@ -15,6 +15,7 @@ from flask import has_request_context, request
 from flask.wrappers import Response
 from werkzeug.exceptions import HTTPException
 
+from foca.api.routes import match
 from foca.context import request_id as get_request_id
 from foca.errors.exceptions import problem_response
 from foca.plugins.engine import GatewayError
@@ -98,7 +99,8 @@ def inbound_from_request(payload: Any, route: str | None = None) -> InboundReque
             names.setdefault(key, name)
             fields.setdefault(key, []).append(value)
     headers = Headers({names[key]: ", ".join(values) for key, values in fields.items()})
-    rule = request.url_rule.rule if request.url_rule is not None else request.path
+    found = match(request.path, request.method)
+    rule = found.route.rule if found is not None else request.path
     return InboundRequest(
         method=request.method.upper(),
         path=request.path,

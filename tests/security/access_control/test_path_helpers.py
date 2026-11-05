@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 import foca as foca_module
 from foca.api.register_openapi import register_openapi
+from foca.api.routes import Route, _add_route
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -374,6 +375,10 @@ class TestIsPermittedFor:
     def test_redirect(self, app: Flask) -> None:
         """Paths that Flask would redirect aren't permitted."""
         app.add_url_rule("/plain/", view_func=controller)
+        _add_route(
+            app,
+            Route("GET", "/plain/", "/plain/", None, None, {}, controller),
+        )
         with app.app_context():
             assert is_permitted_for("/plain") is False
             assert is_permitted_for("/plain/") is True
