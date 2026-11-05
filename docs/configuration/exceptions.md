@@ -49,7 +49,8 @@ Each entry must have an integer `status` (400 to 599, used as the response's
 status code) and a string `title`; other members are optional. Exceptions
 that are not listed are handled like their closest listed base class, so a
 subclass of `PetNotFound` gets the problem details of `PetNotFound`, and other
-subclasses of `NotFound` those of `NotFound`. An entry for `Exception` is only
+subclasses of `NotFound` those of `NotFound`. The bases `HTTPError` and
+`HTTPException` come after all specific classes. An entry for `Exception` is only
 used for exceptions without status code. With `public_members`, only the
 listed members are returned to clients (by default, all are).
 

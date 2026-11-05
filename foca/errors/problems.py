@@ -164,7 +164,8 @@ def build_problem(
        (except for the catch-alls `Exception` and `BaseException`), i.e.,
        exceptions that are not listed are handled like their closest listed
        base class. A class of `foca.errors` and the Werkzeug class it derives
-       from count as one.
+       from count as one. The bases `HTTPError` and `HTTPException` come last,
+       so listing them doesn't override a more specific entry.
     2. Otherwise, if the exception has an HTTP error status code (attribute
        `code`, `status` or `status_code`, e.g., werkzeug and Connexion
        exceptions), problem details with that status and its standard

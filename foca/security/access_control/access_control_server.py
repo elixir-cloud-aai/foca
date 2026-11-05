@@ -111,7 +111,7 @@ def _get_rule() -> tuple[str, list[str]]:
         Policy type and values of the rule.
 
     Raises:
-        foca.errors.exceptions.BadRequest: The payload is not a valid rule
+        foca.errors.BadRequest: The payload is not a valid rule
             for the app's access control model (cf.
             :py:func:`validate_rule`), e.g., because the policy type is not
             defined in the model, the rule has keys other than `v0` to `v5`
@@ -239,7 +239,7 @@ def putPermission(
         Identifier of updated permission.
 
     Raises:
-        foca.errors.exceptions.BadRequest: The identifier does not have the
+        foca.errors.BadRequest: The identifier does not have the
             length and characters configured via `access_control.id_length`
             and `access_control.id_charset`, or the rule is invalid.
         foca.errors.Conflict: The rule is set via the app's
@@ -290,7 +290,7 @@ def getAllPermissions(
         (`pagination`).
 
     Raises:
-        foca.errors.exceptions.BadRequest: The page size is out of range, or
+        foca.errors.BadRequest: The page size is out of range, or
             the page does not exist (except page 0 if there are no
             permissions).
     """

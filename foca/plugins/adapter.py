@@ -51,9 +51,9 @@ def current_principal() -> Principal:
         token.
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The user named by a service
+        foca.errors.RequestValidationProblem: The user named by a service
             client in `auth.on_behalf_of_header` is invalid (`400`).
-        connexion.exceptions.Forbidden: A service client names a user, but
+        foca.errors.Forbidden: A service client names a user, but
             is not allowed to act for users (`403`).
     """
     if not has_request_context():

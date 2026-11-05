@@ -35,6 +35,7 @@ from typing import Any, NamedTuple
 
 from casbin.model import Model
 from flask import current_app
+from werkzeug.exceptions import NotFound as AnyNotFound
 
 from foca.config.access import get_config
 from foca.errors import Conflict, NotFound, Unauthorized
@@ -193,7 +194,7 @@ def _get_listing_subjects(
         subjects of the current request (cf. :py:func:`_get_current_subjects`).
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The named user is invalid.
+        foca.errors.RequestValidationProblem: The named user is invalid.
         foca.errors.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
@@ -277,7 +278,7 @@ def _get_creator(on_behalf_of: str | None = None) -> tuple[SubjectType, str]:
         otherwise the user of the current request.
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The named user is invalid.
+        foca.errors.RequestValidationProblem: The named user is invalid.
         foca.errors.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
         foca.errors.Unauthorized: The current request has neither a
@@ -345,7 +346,7 @@ def add_owner(
         The granted owner role.
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The user named by a service
+        foca.errors.RequestValidationProblem: The user named by a service
             client is invalid.
         foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
@@ -691,7 +692,7 @@ def grant_role(
     downgraded = OWNER_ROLE in previous and role != OWNER_ROLE
     try:
         _grant(resource, subject, role, subject_type, ptype, exists)
-    except NotFound:
+    except AnyNotFound:
         raise
     # The owner role may be gone (e.g., if the existence check failed), so
     # restore it if other owners were removed concurrently, and fail anyway
@@ -816,7 +817,7 @@ def list_subject_roles(
         Empty if the request has neither a user nor a service client.
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The user named by a service
+        foca.errors.RequestValidationProblem: The user named by a service
             client is invalid.
         foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
@@ -890,7 +891,7 @@ def resource_filter(
         :py:func:`list_subject_roles`.
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The user named by a service
+        foca.errors.RequestValidationProblem: The user named by a service
             client is invalid.
         foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
@@ -945,7 +946,7 @@ def _get_owner(on_behalf_of: str | None = None) -> dict[str, str] | None:
         request has neither a user nor a service client.
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The named user is invalid.
+        foca.errors.RequestValidationProblem: The named user is invalid.
         foca.errors.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
@@ -989,7 +990,7 @@ def set_owner_field(
         user (by `access_control.claim_identity`).
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The user named by a service
+        foca.errors.RequestValidationProblem: The user named by a service
             client is invalid.
         foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.
@@ -1033,7 +1034,7 @@ def owner_filter(
         `{"owner": {"$in": []}}`).
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The user named by a service
+        foca.errors.RequestValidationProblem: The user named by a service
             client is invalid.
         foca.errors.Forbidden: The caller names a user to act for,
             but is not a service client allowed to.

@@ -54,11 +54,12 @@ USERINFO_CACHE_SIZE = 1000
 # `azp` (authorized party) of identity providers using OpenID Connect's claim
 CLIENT_CLAIMS = ("client_id", "azp")
 
+# Error code in the challenge of an invalid token, quoted or not
+_INVALID_TOKEN_ERROR = re.compile(r'\berror="?invalid_token"?')
+
 # Description of the `invalid_token` error of `WWW-Authenticate` challenges,
 # deliberately generic, so that clients learn nothing about the identity
 # provider or why validation failed
-# Error code in the challenge of an invalid token, quoted or not
-_INVALID_TOKEN_ERROR = re.compile(r'\berror="?invalid_token"?')
 _INVALID_TOKEN_DESCRIPTION = "The access token could not be validated"  # noqa: S105 (not a password)
 
 # Attribute of `flask.g` with the rejection of the token of the request
