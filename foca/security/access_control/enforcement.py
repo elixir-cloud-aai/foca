@@ -60,7 +60,8 @@ _enforcer_cache_lock = threading.Lock()
 
 # Attribute marking the wrappers of `enforce_access_control()`
 _ENFORCING_ATTRIBUTE = "_foca_enforces_access_control"
-# Attribute of `flask.g` set once policies allowed the current request
+# Attribute of `flask.g` holding the request that policies allowed; the app
+# context can outlive a request
 _ENFORCED_MARK = "_foca_access_control_enforced"
 
 SubjectType = Literal["user", "group", "client"]
@@ -720,7 +721,7 @@ def enforce_access_control(fn: Callable[..., Any]) -> Callable[..., Any]:
     def _wrapper(*args: Any, **kwargs: Any) -> Any:
         if not is_permitted():
             raise Forbidden
-        setattr(g, _ENFORCED_MARK, True)
+        setattr(g, _ENFORCED_MARK, request._get_current_object())  # type: ignore[attr-defined]
         return fn(*args, **kwargs)
 
     setattr(_wrapper, _ENFORCING_ATTRIBUTE, True)

@@ -78,11 +78,11 @@ def _require_enforcement(fn: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator refusing requests on which policies were not enforced.
 
     The controllers do not check who is calling: without enforcement, any
-    caller could grant themselves roles. Policies are enforced if the view
-    function of the route enforces them (cf.
-    :py:func:`foca.security.access_control.enforce_access_control`), e.g.,
-    for wrappers of the controllers, which :py:func:`_check_routes_enforced`
-    cannot find.
+    caller could grant themselves roles. Policies are enforced if the function
+    of the request's route enforces them (cf.
+    :py:func:`foca.security.access_control.enforce_access_control`) and they
+    allowed this request, e.g., for wrappers of the controllers, which
+    :py:func:`_check_routes_enforced` cannot find.
 
     Args:
         fn: Controller.
@@ -103,7 +103,7 @@ def _require_enforcement(fn: Callable[..., Any]) -> Callable[..., Any]:
         if (
             found is None
             or not _enforces_access_control(found.route.function)
-            or not getattr(g, _ENFORCED_MARK, False)
+            or getattr(g, _ENFORCED_MARK, None) is not request._get_current_object()  # type: ignore[attr-defined]
         ):
             message = (
                 "Access control policies are not enforced on route "
