@@ -175,7 +175,9 @@ if the token has the groups, a change applies with the next token, whatever
 you set here, and also with `validate_userinfo: true`.
 
 A shorter time means more requests to the identity provider: one per token and
-interval, and one per request with `0`. These block the request for up to
+interval, and one per request with `0`. Concurrent requests with the same token
+that find no cached user info don't wait for each other: each fetches it, so a
+burst can cause up to one fetch per thread serving requests. These block the request for up to
 `timeout` seconds, and if the identity provider is down, requests that need the
 claims fail with `401` as soon as the cached user info has expired.
 

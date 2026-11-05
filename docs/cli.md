@@ -53,12 +53,16 @@ commands stays clean.
 
 Loads and validates the configuration and runs the startup checks of the app and, if
 `jobs` is set, of its workers. It runs `Foca.create_app()` without serving the app and
-without writing to the database, so it's fit as a CI or Helm test step. Checks that your
+without writing to the database, so it's fit as a CI or Helm test step. It does create
+the app, as the checks need it: specifications are checked by registering them with the
+app, and the checks of access control and the service info work on it. Checks that your
 app's functions run on startup (e.g., [fields of the service info computed at
 runtime](configuration/service-info.md)) run too, and what they need must be available.
 Configured policy rules are checked. The startup steps that the
 [switches](#startup-switches) cover aren't run, so this doesn't find conflicting indexes
-or stored documents, nor stored rules of a newer revision.
+or stored documents, nor stored rules of a newer revision. One exception: in a gateway
+app without a `db` section, no switch covers the store of plugins, so the command sets
+it up as on startup, which writes to its backend, and only logs database errors.
 
 ### `create-indexes`
 
