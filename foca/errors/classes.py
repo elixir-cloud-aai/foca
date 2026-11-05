@@ -98,6 +98,9 @@ class BadRequest(HTTPError, _werkzeug.BadRequest):
 
 # Name of the header with the challenges of `401 Unauthorized` (RFC 9110)
 _CHALLENGE_HEADER = "WWW-Authenticate"
+# Challenges of the deprecated `www_authenticate`: one (also as a string) or
+# several
+_Challenges = str | WWWAuthenticate | Iterable[WWWAuthenticate | str]
 
 
 class Unauthorized(HTTPError, _werkzeug.Unauthorized):
@@ -123,7 +126,7 @@ class Unauthorized(HTTPError, _werkzeug.Unauthorized):
         response: Any = None,
         *,
         headers: Mapping[str, Any] | Iterable[tuple[str, str]] | None = None,
-        www_authenticate: WWWAuthenticate | Iterable[WWWAuthenticate] | None = None,
+        www_authenticate: _Challenges | None = None,
         **kwargs: Any,
     ) -> None:
         """Create the error."""
@@ -156,9 +159,7 @@ class Unauthorized(HTTPError, _werkzeug.Unauthorized):
         return challenges or None
 
     @www_authenticate.setter
-    def www_authenticate(
-        self, value: WWWAuthenticate | Iterable[WWWAuthenticate] | None
-    ) -> None:
+    def www_authenticate(self, value: _Challenges | None) -> None:
         """Deprecated: replace the challenges of `headers`.
 
         Args:
@@ -169,13 +170,13 @@ class Unauthorized(HTTPError, _werkzeug.Unauthorized):
         if "headers" not in vars(self):
             return
         _warn_www_authenticate()
+        # Built first, so that the challenges are kept if building fails
+        challenges = [] if value is None else _challenge_headers(value)
         self.headers = [
             (name, header)
             for name, header in self.headers
             if name.lower() != _CHALLENGE_HEADER.lower()
-        ]
-        if value is not None:
-            self.headers.extend(_challenge_headers(value))
+        ] + challenges
 
     def get_headers(self, *args: Any, **kwargs: Any) -> list[tuple[str, str]]:
         """Get the headers of the error response.
@@ -205,7 +206,7 @@ def _warn_www_authenticate() -> None:
 
 
 def _challenge_headers(
-    challenges: WWWAuthenticate | Iterable[WWWAuthenticate],
+    challenges: _Challenges,
 ) -> list[tuple[str, str]]:
     """Build `WWW-Authenticate` headers of challenges.
 
@@ -216,7 +217,7 @@ def _challenge_headers(
         A header per challenge, as in Werkzeug.
     """
     if isinstance(challenges, (str, WWWAuthenticate)):
-        challenges = (challenges,)
+        return [(_CHALLENGE_HEADER, str(challenges))]
     return [(_CHALLENGE_HEADER, str(challenge)) for challenge in challenges]
 
 

@@ -2,6 +2,7 @@
 
 import ast
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -220,7 +221,7 @@ class TestUnauthorizedChallenge:
     def test_keyword_string(self) -> None:
         """A string is one challenge, not one per character."""
         with pytest.warns(DeprecationWarning):
-            exc = Unauthorized(www_authenticate="Bearer")  # type: ignore[arg-type]
+            exc = Unauthorized(www_authenticate="Bearer")
         assert exc.headers == [("WWW-Authenticate", "Bearer")]
 
     def test_attribute_deprecated(self) -> None:
@@ -247,6 +248,26 @@ class TestUnauthorizedChallenge:
         with pytest.warns(DeprecationWarning):
             exc.www_authenticate = None
         assert exc.headers == [("X-A", "1")]
+
+    def test_failed_setting_keeps_challenges(self) -> None:
+        """Challenges are kept if the new ones can't be read."""
+
+        def _broken() -> Iterator[WWWAuthenticate]:
+            """Fail while challenges are read.
+
+            Yields:
+                Nothing; raises instead.
+
+            Raises:
+                RuntimeError: Always.
+            """
+            raise RuntimeError("broken")
+            yield WWWAuthenticate("bearer")  # pragma: no cover
+
+        exc = Unauthorized(headers={"WWW-Authenticate": "Basic"})
+        with pytest.warns(DeprecationWarning), pytest.raises(RuntimeError):
+            exc.www_authenticate = _broken()
+        assert exc.headers == [("WWW-Authenticate", "Basic")]
 
     def test_no_challenge(self, recwarn: pytest.WarningsRecorder) -> None:
         """Errors without challenges have no headers and don't warn."""
