@@ -21,7 +21,7 @@ from typing import Any, NamedTuple, cast
 
 from connexion.apis.flask_api import FlaskApi
 from connexion.apis.flask_utils import flaskify_path
-from connexion.apps.flask_app import IntegerConverter, NumberConverter
+from connexion.apps.flask_app import FlaskApp, IntegerConverter, NumberConverter
 from flask import current_app
 from werkzeug.exceptions import HTTPException
 from werkzeug.routing import Map, Rule
@@ -117,16 +117,25 @@ def _add_route(app: Any, route: Route) -> None:
     app.extensions.setdefault(_ROUTES_EXTENSION, _RouteTable()).add(route)
 
 
+class _RecordingMarker:
+    """Marks the API classes that record their operations."""
+
+
 def _install_route_table(cnx_app: Any) -> None:
     """Make a Connexion 2 app record the operations of its APIs as routes.
 
     Args:
         cnx_app: Connexion app; this covers all calls of its `add_api()`, also
-            by apps.
+            by apps. Nothing is done if it is installed already, or for other
+            objects, e.g., stand-ins in tests.
     """
+    if not isinstance(cnx_app, FlaskApp) or issubclass(
+        cnx_app.api_cls, _RecordingMarker
+    ):
+        return
     flask_app = cnx_app.app
 
-    class _RecordingApi(cnx_app.api_cls):
+    class _RecordingApi(cnx_app.api_cls, _RecordingMarker):
         """API recording its operations in the route table of the app."""
 
         def _add_operation_internal(
@@ -179,7 +188,8 @@ def get_routes(app: Any = None) -> list[Route]:
 
     Returns:
         Routes, in the order of registration. Others that an app or Connexion
-        adds (e.g., the Swagger UI) have no operation, and aren't included.
+        adds (e.g., the Swagger UI) have no operation, and aren't included, so
+        checks on this table don't cover them.
     """
     table = _get_table(app)
     return [] if table is None else list(table.routes)
@@ -189,7 +199,9 @@ def match(path: str, method: str, app: Any = None) -> RouteMatch | None:
     """Find the route to the operation serving a path and method.
 
     It finds what a request would be routed to, e.g., for `HEAD` the route of
-    a `GET` operation.
+    a `GET` operation. Routes that aren't operations are unknown to it, so it
+    also doesn't see one taking precedence, e.g., the served specification over
+    `/{any}` in an API at `/`.
 
     Args:
         path: Request path: with the base path of the API, without the root

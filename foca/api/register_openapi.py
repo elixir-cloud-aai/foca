@@ -11,6 +11,7 @@ import yaml
 from connexion import App
 from connexion.exceptions import InvalidSpecification
 
+from foca.api.routes import _install_route_table
 from foca.api.validation import BodyValidator, StrictParametersResolver
 from foca.config.config_parser import ConfigParser, deep_merge
 from foca.models.config import (
@@ -463,6 +464,8 @@ def register_openapi(
             not a mapping, patches set fields of path items defined via
             `$ref`, or the specification is invalid after applying patches.
     """
+    _install_route_table(app)
+
     # Iterate over OpenAPI specs
     for spec in specs:
         # Merge specs

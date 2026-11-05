@@ -14,7 +14,7 @@ from casbin.model import Model
 from connexion.exceptions import BadRequestProblem, Forbidden
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
-from flask import Flask, Response, current_app, has_request_context, request
+from flask import Flask, Response, current_app, g, has_request_context, request
 from flask.globals import request_ctx
 
 from foca.api.routes import _match_rule
@@ -58,10 +58,10 @@ _subject_roles_check_lock = threading.Lock()
 _ENFORCER_CACHE_KEY = "foca_enforcer_cache"
 _enforcer_cache_lock = threading.Lock()
 
-# End of the rule of Connexion's route for authenticating all paths
-
 # Attribute marking the wrappers of `enforce_access_control()`
 _ENFORCING_ATTRIBUTE = "_foca_enforces_access_control"
+# Attribute of `flask.g` set once policies allowed the current request
+_ENFORCED_MARK = "_foca_access_control_enforced"
 
 SubjectType = Literal["user", "group", "client"]
 """Types of subjects of resource role helpers: users, groups or service clients."""
@@ -720,6 +720,7 @@ def enforce_access_control(fn: Callable[..., Any]) -> Callable[..., Any]:
     def _wrapper(*args: Any, **kwargs: Any) -> Any:
         if not is_permitted():
             raise Forbidden
+        setattr(g, _ENFORCED_MARK, True)
         return fn(*args, **kwargs)
 
     setattr(_wrapper, _ENFORCING_ATTRIBUTE, True)

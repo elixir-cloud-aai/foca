@@ -1,16 +1,25 @@
 """Tests for `foca.api.routes`."""
 
+from pathlib import Path
 from typing import Any
+from unittest import mock
+from unittest.mock import MagicMock
 
 import pytest
 from connexion import App
 from flask import Flask, request
 from werkzeug.routing import Map
 
-from foca.api.routes import get_routes, match
+from foca.api.register_openapi import register_openapi
+from foca.api.routes import _install_route_table, get_routes, match
 from foca.api.service_info import _routes_to_controller
 from foca.factories.connexion_app import create_connexion_app
-from foca.security.access_control.ownership_server import _check_routes_enforced
+from foca.models.config import SpecConfig
+from foca.security.access_control.enforcement import enforce_access_control
+from foca.security.access_control.ownership_server import (
+    _check_routes_enforced,
+    _require_enforcement,
+)
 
 SERVICE_INFO = "foca.api.service_info.getServiceInfo"
 OWNERSHIP = "foca.security.access_control.ownership_server"
@@ -229,14 +238,45 @@ class TestMatch:
         assert found is not None
         assert found.route.path == "/api/v1/items"
 
-    def test_same_as_request(self, cnx_app: App) -> None:
+    @pytest.mark.parametrize(
+        ("path", "script_name"),
+        [("/api/v1/items/x/1", ""), ("/api/v1/items/a%20b/1", "/root")],
+    )
+    def test_same_as_request(self, cnx_app: App, path: str, script_name: str) -> None:
         """A request reaches the operation that `match()` finds."""
-        with cnx_app.app.test_request_context("/api/v1/items/x/1", method="POST"):
+        with cnx_app.app.test_request_context(
+            path, method="POST", environ_overrides={"SCRIPT_NAME": script_name}
+        ):
             found = match(request.path, request.method)
             assert found is not None
             assert request.url_rule is not None
             assert found.route.rule == request.url_rule.rule
             assert found.params == request.view_args
+
+
+class TestInstall:
+    """Tests for `_install_route_table()`."""
+
+    def test_plain_app(self) -> None:
+        """Apps not made by FOCA's factory get a table on registering specs."""
+        app = App(__name__)
+        with mock.patch("foca.api.register_openapi.ConfigParser.merge_yaml") as parsed:
+            parsed.return_value = _spec()
+            register_openapi(app, [SpecConfig(path=Path("/spec.yaml"))])
+        assert len(get_routes(app.app)) == 5
+
+    def test_once(self, cnx_app: App) -> None:
+        """Installing again doesn't record operations twice."""
+        _install_route_table(cnx_app)
+        cnx_app.add_api(_spec("/again"))
+        assert len(get_routes(cnx_app.app)) == 10
+
+    def test_stand_in(self) -> None:
+        """Other objects are left alone."""
+        stand_in = MagicMock()
+        api_cls = stand_in.api_cls
+        _install_route_table(stand_in)
+        assert stand_in.api_cls is api_cls
 
 
 class TestWithoutFlaskRoutes:
@@ -263,3 +303,28 @@ class TestWithoutFlaskRoutes:
         cnx_app.add_api(spec)
         cnx_app.app.url_map = Map()
         assert _routes_to_controller(cnx_app.app) == ["/info/service-info"]
+
+
+class TestEnforcementMark:
+    """The route found must have enforced policies for the request."""
+
+    def test_route_outside_of_table_with_same_path(self, cnx_app: App) -> None:
+        """A route the table doesn't know can't borrow the enforcement of another."""
+        spec = _spec("/own")
+        spec["paths"] = {
+            "/{id}": {
+                "parameters": [_parameter("id")],
+                "get": _operation(f"{__name__}.view_a"),
+            }
+        }
+        table_app = create_connexion_app()
+        with mock.patch(f"{__name__}.view_a", enforce_access_control(view_a)):
+            table_app.add_api(spec)
+        guarded = _require_enforcement(view_b)
+        flask_app = table_app.app
+        flask_app.add_url_rule("/own/special", view_func=guarded)
+        with (
+            flask_app.test_request_context("/own/special"),
+            pytest.raises(RuntimeError, match="not enforced"),
+        ):
+            guarded()

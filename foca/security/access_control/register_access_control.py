@@ -22,7 +22,7 @@ from foca.api.register_openapi import (
     _rejects_invalid_tokens,
     _set_error_media_type,
 )
-from foca.api.routes import get_routes, match
+from foca.api.routes import _install_route_table, get_routes, match
 from foca.api.validation import BodyValidator, StrictParametersResolver
 from foca.config.access import get_app_config
 from foca.database.register_mongodb import (
@@ -680,6 +680,7 @@ def register_permission_specs(
         ),
         resolver=resolver,
     )
+    _install_route_table(app)
     api = app.add_api(
         specification=specification,
         validator_map={"body": BodyValidator},
@@ -752,6 +753,7 @@ def register_me_endpoint(app: App, access_control_config: AccessControlConfig) -
     # Not remembered as an API (cf. `_register_api()`): the helpers for paths stay
     # with those of the app, also in hooks, and rules aren't checked against it, as
     # they don't apply to it
+    _install_route_table(app)
     app.add_api(specification=specification, **_connexion_add_api_kwargs(options))
     logger.info("Endpoint for the current caller registered at '%s'.", path)
     return app

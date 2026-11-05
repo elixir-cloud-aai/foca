@@ -37,7 +37,7 @@ from functools import wraps
 from inspect import unwrap
 from typing import Any, NamedTuple
 
-from flask import Flask, current_app, request
+from flask import Flask, current_app, g, request
 from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
 from foca.api.routes import get_routes, match
@@ -50,6 +50,7 @@ from foca.security.access_control.access_control_server import (
     _permissions_traffic_logged,
 )
 from foca.security.access_control.enforcement import (
+    _ENFORCED_MARK,
     RESOURCE_ROLE_PTYPE,
     SubjectType,
     _enforces_access_control,
@@ -71,8 +72,6 @@ logger = logging.getLogger(__name__)
 
 # Variables of Flask URL rules, e.g., `<id>` or `<path:group>`
 _RULE_VARIABLE = re.compile(r"<(?:[^<>:]+:)?([^<>:]+)>")
-# Methods that Flask adds to routes itself
-_AUTOMATIC_METHODS = frozenset({"HEAD", "OPTIONS"})
 
 
 def _require_enforcement(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -99,7 +98,13 @@ def _require_enforcement(fn: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(fn)
     def _wrapper(*args: Any, **kwargs: Any) -> Any:
         found = match(request.path, request.method)
-        if found is None or not _enforces_access_control(found.route.function):
+        # The mark, as a route outside of the table may have the same path, so
+        # that the route found isn't the one that served the request
+        if (
+            found is None
+            or not _enforces_access_control(found.route.function)
+            or not getattr(g, _ENFORCED_MARK, False)
+        ):
             message = (
                 "Access control policies are not enforced on route "
                 f"'{request.method} {found.route.rule if found else None}', so "
