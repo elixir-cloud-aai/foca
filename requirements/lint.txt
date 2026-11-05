@@ -7,7 +7,7 @@
 # `ruff-pre-commit` in the same pull request. The ast-grep hook uses the
 # ast-grep of the dev dependencies instead; semgrep is pinned in
 # `semgrep.txt`.
-ast-grep-cli==0.51.0
+ast-grep-cli==0.51.1
 mypy==2.4.1
 ruff==0.17.3
 types-PyYAML==6.0.12.20261030
