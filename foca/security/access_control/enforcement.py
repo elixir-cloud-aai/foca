@@ -79,7 +79,8 @@ def _get_claims() -> dict[str, Any]:
         an empty dictionary if there are none (cf.
         :py:func:`foca.security.auth.current_claims`).
     """
-    from foca.security.auth import _get_claims  # noqa: PLC0415 (import cycle)
+    # Import cycle: `models.config` -> `access_control` -> here -> `auth`
+    from foca.security.auth import _get_claims  # noqa: PLC0415
 
     return _get_claims()
 

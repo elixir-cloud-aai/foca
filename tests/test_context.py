@@ -379,7 +379,7 @@ class TestCurrentRequest:
         assert snapshot.content_length is None
 
     def test_head(self, request_app: Flask) -> None:
-        """Methods are those of the request, routes those serving it."""
+        """`HEAD` requests to paths without `GET` operations have no route."""
         with request_app.test_request_context("/api/v1/items/a/1", method="HEAD"):
             snapshot = current_request()
         assert snapshot.method == "HEAD"
@@ -403,9 +403,10 @@ class TestCurrentRequest:
         assert 1 not in snapshot.headers
         assert snapshot.headers.get("missing") is None
         assert snapshot.headers.getlist("missing") == []
+        assert snapshot.headers.getlist(1) == []  # type: ignore[arg-type]  # invalid
         assert {"x-test", "accept"} <= set(snapshot.headers)
         assert len(snapshot.headers) == len(set(snapshot.headers))
-        assert "X-Test" in repr(snapshot.headers)
+        assert "x-test" in repr(snapshot.headers)
         with pytest.raises(TypeError):
             snapshot.headers["X-Test"] = "three"  # type: ignore[index]  # read-only
         with pytest.raises(TypeError):
@@ -415,9 +416,15 @@ class TestCurrentRequest:
 
     def test_snapshot(self, request_app: Flask) -> None:
         """Snapshots don't change with the request."""
-        with request_app.test_request_context("/", headers=[("X-Test", "one")]):
+        with request_app.test_request_context(
+            "/api/v1/items/a/1", method="POST", headers=[("X-Test", "one")]
+        ) as ctx:
             snapshot = current_request()
+            ctx.request.environ["HTTP_X_TEST"] = "two"
+            ctx.request.environ["PATH_INFO"] = "/other"
+            assert current_request().headers["x-test"] == "two"
         assert snapshot.headers["x-test"] == "one"
+        assert snapshot.path == "/api/v1/items/a/1"
 
     def test_headers_from_pairs(self) -> None:
         """Headers keep all values, in order."""
@@ -426,6 +433,22 @@ class TestCurrentRequest:
         assert list(headers) == ["a", "b"]
         assert dict(headers) == {"a": "1", "b": "2"}
         assert headers == {"a": "1", "b": "2"}
+
+    def test_url_encoded(self, request_app: Flask) -> None:
+        """URLs are percent-encoded, also non-ASCII characters."""
+        with request_app.test_request_context("/api/v1/items/%E2%82%AC/1?q=%C3%BC"):
+            snapshot = current_request()
+        assert snapshot.url == "http://localhost/api/v1/items/%E2%82%AC/1?q=%C3%BC"
+        assert snapshot.path == "/api/v1/items/\u20ac/1"
+
+    def test_repr_without_credentials(self, request_app: Flask) -> None:
+        """Representations leave out header values and the URL."""
+        headers = [("Authorization", "Bearer secret"), ("Cookie", "s=secret")]
+        with request_app.test_request_context("/?token=secret", headers=headers):
+            snapshot = current_request()
+        text = repr(snapshot)
+        assert "secret" not in text
+        assert "authorization" in text
 
     def test_outside_request(self, request_app: Flask) -> None:
         """Outside requests, a clear error is raised."""

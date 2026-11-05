@@ -4,12 +4,13 @@ import re
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
 from celery import current_task
 from flask import has_request_context, request
+from werkzeug.urls import iri_to_uri
 
 from foca.api.routes import match
 
@@ -52,9 +53,8 @@ class Headers(Mapping[str, str]):
         Args:
             items: Names and values of the headers, in order.
         """
-        self._items = tuple(items)
         self._values: dict[str, list[str]] = {}
-        for name, value in self._items:
+        for name, value in items:
             self._values.setdefault(name.lower(), []).append(value)
 
     def __getitem__(self, name: str) -> str:
@@ -98,15 +98,18 @@ class Headers(Mapping[str, str]):
         Returns:
             Values of the header, in order; empty if there is no such header.
         """
+        if not isinstance(name, str):
+            return []
         return list(self._values.get(name.lower(), []))
 
     def __repr__(self) -> str:
         """Represent the headers.
 
         Returns:
-            Representation with the names and values, in order.
+            Representation with the names only, in lower case, as values may
+            be credentials (e.g., `Authorization`, `Cookie`).
         """
-        return f"{type(self).__name__}({list(self._items)!r})"
+        return f"{type(self).__name__}({list(self._values)!r})"
 
 
 @dataclass(frozen=True)
@@ -121,7 +124,8 @@ class RequestSnapshot:
         root_path: Root path of the app (`SCRIPT_NAME`), empty if there is
             none, e.g., `/tes`.
         url: Full URL of the request, with root path and query string,
-            percent-encoded.
+            percent-encoded; left out of the representation of the snapshot,
+            as queries may hold credentials.
         headers: Headers of the request, case-insensitive and read-only.
         content_length: Length of the request body in bytes, as declared, or
             `None` if not declared.
@@ -139,7 +143,7 @@ class RequestSnapshot:
     method: str
     path: str
     root_path: str
-    url: str
+    url: str = field(repr=False)
     headers: Headers
     content_length: int | None
     client_address: str | None
@@ -157,6 +161,7 @@ def current_request() -> RequestSnapshot:
 
     Returns:
         Snapshot of the current request; it doesn't change with the request.
+        Each call takes a new one, matching the route again.
 
     Raises:
         RuntimeError: Raised if no request is being handled, e.g., on startup
@@ -171,7 +176,7 @@ def current_request() -> RequestSnapshot:
         method=request.method,
         path=request.path,
         root_path=request.script_root,
-        url=request.url,
+        url=iri_to_uri(request.url),
         headers=Headers(request.headers.items()),
         content_length=request.content_length,
         client_address=request.remote_addr,

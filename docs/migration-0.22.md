@@ -64,7 +64,7 @@ give), read the request in controllers and helpers via FOCA's accessors:
 | Instead of | Use |
 | --- | --- |
 | `flask.request.method`, `.path`, `.script_root`, `.url`, `.headers`, `.content_length`, `.remote_addr` | `foca.context.current_request()`: `method`, `path`, `root_path`, `url`, `headers`, `content_length`, `client_address` |
-| `flask.request.url_rule`, `.view_args` | `current_request().route` (the path template of the specification, e.g., `/tasks/{id}`), `.path_params` |
+| `flask.request.url_rule`, `.view_args` | `current_request().route` (the path template of the specification with the base path of the API, e.g., `/ga4gh/tes/v1/tasks/{id}`, not Flask's `<id>`), `.path_params` |
 | `request_ctx.connexion_context["token_info"]`, `connexion.context` | `foca.security.auth.current_token_info()` |
 | Claims from the token info | `foca.security.auth.current_claims()` (`get_current_claims()` returns the same) |
 

@@ -140,6 +140,8 @@ def _unauthorized(description: str, invalid_token: bool = True) -> Unauthorized:
 def _get_token_info() -> dict[str, Any]:
     """Get the token info of the current request, without copying it.
 
+    For FOCA's own reads; callers must not change it.
+
     Returns:
         Token info that Connexion's security handler got for the current
         request, or an empty dictionary if there is no request, the request
@@ -158,6 +160,8 @@ def _get_token_info() -> dict[str, Any]:
 
 def _get_claims() -> dict[str, Any]:
     """Get the claims of the current request, without copying them.
+
+    For FOCA's own reads; callers must not change them.
 
     Returns:
         Claims of the token info of the current request (cf.
