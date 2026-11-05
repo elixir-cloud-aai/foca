@@ -1,0 +1,79 @@
+# Reusable OpenAPI 3 schemas of FOCA's problem details (RFC 9457), with the
+# invalid fields of rejected requests (`errors`). Copy this file next to your
+# specification and merge it into it (`api.specs[].path`), or copy the
+# schemas, then reference them in your error responses, e.g.,
+# `$ref: '#/components/schemas/Problem'`. Documented in
+# docs/problems/invalid-request.md.
+components:
+  schemas:
+    Problem:
+      description: >-
+        Problem details (RFC 9457). Responses to invalid requests list the
+        invalid fields in `errors`.
+      type: object
+      required:
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          description: >-
+            URI identifying the problem type, e.g.,
+            `https://foca.readthedocs.io/en/latest/problems/invalid-request/`
+            for invalid requests.
+        title:
+          type: string
+          description: Short summary of the problem type.
+        status:
+          type: integer
+          format: int32
+          description: HTTP status code.
+        detail:
+          type: string
+          description: Explanation of this occurrence of the problem.
+        instance:
+          type: string
+          description: URI identifying this occurrence of the problem.
+        code:
+          type: string
+          description: >-
+            Stable, kebab-case code of the problem type, e.g.,
+            `invalid-request`.
+        errors:
+          type: array
+          description: Invalid fields of the request, one entry per field.
+          items:
+            $ref: '#/components/schemas/FieldError'
+    FieldError:
+      description: >-
+        Invalid field of a request, in the form of the example of RFC 9457,
+        section 3, with either `pointer` or `parameter`.
+      type: object
+      required:
+        - detail
+        - code
+      properties:
+        detail:
+          type: string
+          description: Readable message; never quotes the rejected value.
+        pointer:
+          type: string
+          description: >-
+            JSON Pointer (RFC 6901) to the field in the request body, as a
+            URI fragment, e.g., `#/organization/url`.
+        parameter:
+          type: string
+          description: >-
+            Name of the invalid query, path, header, cookie or form data
+            parameter.
+        code:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          description: >-
+            Stable, kebab-case code, e.g., `required` or `too-long`; FOCA's
+            generic codes and those of the app.
+      oneOf:
+        - required:
+            - pointer
+        - required:
+            - parameter

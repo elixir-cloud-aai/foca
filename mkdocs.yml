@@ -123,6 +123,8 @@ nav:
   - Deployment: deployment.md
   - Helm library chart: helm-chart.md
   - Utilities: utilities.md
+  - Problem types:
+      - Invalid request: problems/invalid-request.md
   - Testing: testing.md
   - Migrating to 0.22.0: migration-0.22.md
   - Migrating to 0.21.0: migration-0.21.md
