@@ -22,6 +22,8 @@ configuration models, see [Configuration](configuration/index.md).
     options:
       members:
         - validate_token
+        - current_token_info
+        - current_claims
         - get_token_client
         - get_service_client
         - require_no_service_clients

@@ -55,6 +55,23 @@ class, except for `werkzeug.exceptions.Forbidden`, which is the same class as
 `AccessDeniedProblem` for now, so replace it yourself; they stop working with the first
 release candidate on ASGI.
 
+## Request and claims accessors
+
+Nothing breaks. To prepare for the release on ASGI, where Flask's request and
+Connexion's context are gone or differ (e.g., in which part of the path they
+give), read the request in controllers and helpers via FOCA's accessors:
+
+| Instead of | Use |
+| --- | --- |
+| `flask.request.method`, `.path`, `.script_root`, `.url`, `.headers`, `.content_length`, `.remote_addr` | `foca.context.current_request()`: `method`, `path`, `root_path`, `url`, `headers`, `content_length`, `client_address` |
+| `flask.request.url_rule`, `.view_args` | `current_request().route` (the path template of the specification, e.g., `/tasks/{id}`), `.path_params` |
+| `request_ctx.connexion_context["token_info"]`, `connexion.context` | `foca.security.auth.current_token_info()` |
+| Claims from the token info | `foca.security.auth.current_claims()` (`get_current_claims()` returns the same) |
+
+Take path, query and body parameters, e.g., instead of `request.json` or
+`request.args`, from the arguments that Connexion passes to controllers. See
+[Reading the current request](utilities.md#reading-the-current-request).
+
 ## Invalid fields in `400` responses
 
 Nothing breaks: responses to invalid requests keep their `title`, `status`

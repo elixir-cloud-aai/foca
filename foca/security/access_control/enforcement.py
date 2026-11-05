@@ -1,6 +1,5 @@
 """Enforcement of access control policies and helpers for managing them."""
 
-import copy
 import inspect
 import logging
 import threading
@@ -14,7 +13,6 @@ from casbin.model import Model
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, Response, current_app, g, has_request_context, request
-from flask.globals import request_ctx
 
 from foca.api.routes import _match_rule
 from foca.audit import log as audit_log
@@ -77,35 +75,28 @@ def _get_claims() -> dict[str, Any]:
     """Get claims of the validated token of the current request.
 
     Returns:
-        Claims of the token validated by Connexion's security handler for the
-        current request, or an empty dictionary if not available, i.e., if
-        there is no request, the request was not handled by Connexion, or no
-        token was validated.
+        Claims of the token validated for the current request, not copied, or
+        an empty dictionary if there are none (cf.
+        :py:func:`foca.security.auth.current_claims`).
     """
-    if not has_request_context():
-        return {}
-    # Connexion stores the request's context (including validated token
-    # info) on Flask's request context (cf. `connexion.context`)
-    connexion_context = getattr(request_ctx, "connexion_context", None)
-    if connexion_context is None:
-        return {}
-    token_info = connexion_context.get("token_info")
-    if not isinstance(token_info, dict):
-        return {}
-    # FOCA's `validate_token()` returns claims under key `claims`
-    claims = token_info.get("claims", token_info)
-    return claims if isinstance(claims, dict) else {}
+    from foca.security.auth import _get_claims  # noqa: PLC0415 (import cycle)
+
+    return _get_claims()
 
 
 def get_current_claims() -> dict[str, Any]:
     """Get the claims of the current request.
+
+    Same as :py:func:`foca.security.auth.current_claims`.
 
     Returns:
         Copy of the claims of the token validated for the current request
         (including claims added from the user info, if configured), or an
         empty dictionary if there is none.
     """
-    return copy.deepcopy(_get_claims())
+    from foca.security.auth import current_claims  # noqa: PLC0415 (import cycle)
+
+    return current_claims()
 
 
 def get_current_subject() -> str | None:

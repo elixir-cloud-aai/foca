@@ -17,6 +17,7 @@ from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from cryptography.hazmat.primitives import serialization
 from flask import Flask, g, has_request_context, request
+from flask.globals import request_ctx
 from jwt.types import Options
 from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.exceptions import Unauthorized as AnyUnauthorized
@@ -134,6 +135,65 @@ def _unauthorized(description: str, invalid_token: bool = True) -> Unauthorized:
     )
     challenge = _BearerChallenge("bearer", parameters).to_header()
     return Unauthorized(description, headers={"WWW-Authenticate": challenge})
+
+
+def _get_token_info() -> dict[str, Any]:
+    """Get the token info of the current request, without copying it.
+
+    Returns:
+        Token info that Connexion's security handler got for the current
+        request, or an empty dictionary if there is no request, the request
+        was not handled by Connexion, or no token was validated.
+    """
+    if not has_request_context():
+        return {}
+    # Connexion stores the request's context (including validated token
+    # info) on Flask's request context (cf. `connexion.context`)
+    connexion_context = getattr(request_ctx, "connexion_context", None)
+    if connexion_context is None:
+        return {}
+    token_info = connexion_context.get("token_info")
+    return token_info if isinstance(token_info, dict) else {}
+
+
+def _get_claims() -> dict[str, Any]:
+    """Get the claims of the current request, without copying them.
+
+    Returns:
+        Claims of the token info of the current request (cf.
+        :py:func:`current_claims`), or an empty dictionary if there are none.
+    """
+    token_info = _get_token_info()
+    # FOCA's `validate_token()` returns claims under key `claims`
+    claims = token_info.get("claims", token_info)
+    return claims if isinstance(claims, dict) else {}
+
+
+def current_token_info() -> dict[str, Any]:
+    """Get the token info of the current request.
+
+    It means the same whatever the web framework that FOCA builds on. In
+    controllers, the `token_info` argument that Connexion passes is the same.
+
+    Returns:
+        Copy of the token info of the token validated for the current request:
+        for FOCA's :py:func:`validate_token`, what it returns, including the
+        token; for other functions validating tokens, what they return. Empty
+        if no token was validated, also outside requests.
+    """
+    return copy.deepcopy(_get_token_info())
+
+
+def current_claims() -> dict[str, Any]:
+    """Get the claims of the token of the current request.
+
+    Returns:
+        Copy of the claims of the token validated for the current request
+        (including claims added from the user info, if configured), i.e., the
+        `claims` of :py:func:`current_token_info`, or all of it if it has no
+        `claims`. Empty if no token was validated, also outside requests.
+    """
+    return copy.deepcopy(_get_claims())
 
 
 def validate_token(token: str) -> dict[str, Any]:

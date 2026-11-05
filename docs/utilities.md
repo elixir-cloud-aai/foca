@@ -190,6 +190,42 @@ request paths, not percent-encoded. They work during requests and on startup.
 See [checking other paths](access-control.md#checking-other-paths) for
 examples.
 
+## Reading the current request
+
+`foca.context.current_request()` returns a read-only snapshot of the request
+being handled. It means the same whatever the web framework that FOCA builds
+on, so use it rather than `flask.request`, `connexion.request` or
+`connexion.context`, which differ or are missing in later versions. Take path,
+query and body parameters from the arguments that Connexion passes to
+controllers, and claims from
+[`current_claims()`](authentication.md#using-token-claims):
+
+```python
+from foca.context import current_request
+
+
+def get_task(id: str) -> dict:
+    request = current_request()
+    request.method  # "GET"
+    request.path  # "/ga4gh/tes/v1/tasks/123"
+    request.root_path  # "/tes", the root path of the app (`SCRIPT_NAME`)
+    request.url  # "https://example.org/tes/ga4gh/tes/v1/tasks/123?view=FULL"
+    request.headers["accept"]  # case-insensitive; `getlist()` for all values
+    request.content_length  # `None` if not declared
+    request.client_address  # "203.0.113.5"
+    request.route  # "/ga4gh/tes/v1/tasks/{id}"
+    request.path_params  # {"id": "123"}
+    ...
+```
+
+`path` is below the root path of the app and not percent-encoded, as in
+[access control policies](access-control.md#checking-other-paths); `route` and
+`path_params` are those of [`match()`](#finding-the-route-of-a-path) for the
+path and method, or `None` and empty if no operation serves the request. The
+snapshot doesn't change with the request; take a new one where needed.
+Outside requests, e.g., on startup or in Celery tasks, `current_request()`
+raises a `RuntimeError`.
+
 ## Finding the route of a path
 
 `foca.api.routes` knows the routes to the operations of an app's specifications, from

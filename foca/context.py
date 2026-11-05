@@ -2,11 +2,16 @@
 
 import re
 import uuid
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextvars import ContextVar
+from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from celery import current_task
+from flask import has_request_context, request
+
+from foca.api.routes import match
 
 DEFAULT_REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -29,6 +34,150 @@ def request_id() -> str:
     if current_task:
         return str(current_task.request.id or "")
     return ""
+
+
+class Headers(Mapping[str, str]):
+    """Read-only headers of a request, with case-insensitive names.
+
+    As a mapping, names are in lower case and give their first value;
+    :py:meth:`getlist` gives all values of a name.
+
+    Args:
+        items: Names and values of the headers, in order.
+    """
+
+    def __init__(self, items: Iterable[tuple[str, str]]) -> None:
+        """Copy headers.
+
+        Args:
+            items: Names and values of the headers, in order.
+        """
+        self._items = tuple(items)
+        self._values: dict[str, list[str]] = {}
+        for name, value in self._items:
+            self._values.setdefault(name.lower(), []).append(value)
+
+    def __getitem__(self, name: str) -> str:
+        """Get the first value of a header.
+
+        Args:
+            name: Name of the header, in any case.
+
+        Returns:
+            First value of the header.
+
+        Raises:
+            KeyError: Raised if there is no such header.
+        """
+        if not isinstance(name, str):
+            raise KeyError(name)
+        return self._values[name.lower()][0]
+
+    def __iter__(self) -> Iterator[str]:
+        """Get the names of the headers.
+
+        Returns:
+            Iterator of the names, in lower case, each once.
+        """
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        """Count the headers.
+
+        Returns:
+            Number of names, each counted once.
+        """
+        return len(self._values)
+
+    def getlist(self, name: str) -> list[str]:
+        """Get all values of a header.
+
+        Args:
+            name: Name of the header, in any case.
+
+        Returns:
+            Values of the header, in order; empty if there is no such header.
+        """
+        return list(self._values.get(name.lower(), []))
+
+    def __repr__(self) -> str:
+        """Represent the headers.
+
+        Returns:
+            Representation with the names and values, in order.
+        """
+        return f"{type(self).__name__}({list(self._items)!r})"
+
+
+@dataclass(frozen=True)
+class RequestSnapshot:
+    """Read-only snapshot of the request being handled.
+
+    Attributes:
+        method: HTTP method, in upper case.
+        path: Request path below the root path of the app, not
+            percent-encoded, e.g., `/ga4gh/tes/v1/tasks/123`; access control
+            policies and the ownership of resources are keyed by it.
+        root_path: Root path of the app (`SCRIPT_NAME`), empty if there is
+            none, e.g., `/tes`.
+        url: Full URL of the request, with root path and query string,
+            percent-encoded.
+        headers: Headers of the request, case-insensitive and read-only.
+        content_length: Length of the request body in bytes, as declared, or
+            `None` if not declared.
+        client_address: Address of the client, as seen by the server (that of
+            the last proxy, unless the app trusts proxies' headers), or `None`
+            if unknown.
+        route: Path template of the operation serving the request, with the
+            base path of the API, e.g., `/ga4gh/tes/v1/tasks/{id}`, or `None`
+            if no operation serves it (cf. :py:func:`foca.api.routes.match`).
+        path_params: Values of the path parameters of the route, as passed to
+            controllers, i.e., decoded and converted to their types, under the
+            names of the route's rule; empty without a route.
+    """
+
+    method: str
+    path: str
+    root_path: str
+    url: str
+    headers: Headers
+    content_length: int | None
+    client_address: str | None
+    route: str | None
+    path_params: Mapping[str, Any]
+
+
+def current_request() -> RequestSnapshot:
+    """Get a snapshot of the request being handled.
+
+    It means the same whatever the web framework that FOCA builds on, so use
+    it rather than the request objects of Flask or Connexion, and take path,
+    query and body parameters from the arguments that Connexion passes to
+    controllers.
+
+    Returns:
+        Snapshot of the current request; it doesn't change with the request.
+
+    Raises:
+        RuntimeError: Raised if no request is being handled, e.g., on startup
+            or in Celery tasks.
+    """
+    if not has_request_context():
+        raise RuntimeError(
+            "No request: current_request() works only while a request is handled"
+        )
+    found = match(request.path, request.method)
+    return RequestSnapshot(
+        method=request.method,
+        path=request.path,
+        root_path=request.script_root,
+        url=request.url,
+        headers=Headers(request.headers.items()),
+        content_length=request.content_length,
+        client_address=request.remote_addr,
+        route=None if found is None else found.route.path,
+        path_params=MappingProxyType({} if found is None else found.params),
+    )
 
 
 class _ResponseBody:

@@ -1,15 +1,17 @@
 """Tests for `foca.context`."""
 
 from collections.abc import Callable, Iterable, Iterator
+from dataclasses import FrozenInstanceError
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from flask import Flask
 from pydantic import ValidationError
 from werkzeug.test import Client
 
 from foca import context
-from foca.context import RequestIdMiddleware, request_id
+from foca.context import Headers, RequestIdMiddleware, current_request, request_id
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, RequestIdConfig, ServerConfig
 
@@ -272,3 +274,162 @@ class TestApp:
         """Names of headers are checked."""
         with pytest.raises(ValidationError):
             RequestIdConfig(header=header)
+
+
+def view_request(**kwargs: Any) -> dict[str, Any]:
+    """Serve an operation with the snapshot of the current request.
+
+    Args:
+        **kwargs: Parameters of the operation.
+
+    Returns:
+        Fields of the snapshot.
+    """
+    snapshot = current_request()
+    return {
+        "method": snapshot.method,
+        "path": snapshot.path,
+        "root_path": snapshot.root_path,
+        "url": snapshot.url,
+        "headers": snapshot.headers.getlist("x-test"),
+        "content_length": snapshot.content_length,
+        "client_address": snapshot.client_address,
+        "route": snapshot.route,
+        "path_params": dict(snapshot.path_params),
+    }
+
+
+def _request_spec() -> dict[str, Any]:
+    """Build a specification with an operation returning the current request.
+
+    Returns:
+        OpenAPI 3 specification, with base path `/api/v1`.
+    """
+    operation = {
+        "operationId": f"{__name__}.view_request",
+        "responses": {"200": {"description": "OK"}},
+    }
+    return {
+        "openapi": "3.0.3",
+        "info": {"title": "Test", "version": "1"},
+        "servers": [{"url": "/api/v1"}],
+        "paths": {
+            "/items/{item-id}/{count}": {
+                "parameters": [
+                    {
+                        "name": name,
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": schema_type},
+                    }
+                    for name, schema_type in (
+                        ("item-id", "string"),
+                        ("count", "integer"),
+                    )
+                ],
+                "post": operation,
+            },
+        },
+    }
+
+
+@pytest.fixture
+def request_app() -> Flask:
+    """Create an app with an operation returning the current request.
+
+    Returns:
+        Flask app.
+    """
+    cnx_app = create_connexion_app()
+    cnx_app.add_api(_request_spec())
+    return cnx_app.app
+
+
+class TestCurrentRequest:
+    """Tests for `current_request()`."""
+
+    def test_in_request(self, request_app: Flask) -> None:
+        """Controllers get the request, below the root path, with its route."""
+        response = request_app.test_client().post(
+            "/api/v1/items/a%20b/3",
+            base_url="http://example.org/root/",
+            headers=[("x-TEST", "one")],
+            environ_base={"REMOTE_ADDR": "203.0.113.5"},
+            json={"name": "x"},
+        )
+        assert response.status_code == 200
+        assert response.json == {
+            "method": "POST",
+            "path": "/api/v1/items/a b/3",
+            "root_path": "/root",
+            "url": "http://example.org/root/api/v1/items/a%20b/3",
+            "headers": ["one"],
+            "content_length": 13,
+            "client_address": "203.0.113.5",
+            "route": "/api/v1/items/{item-id}/{count}",
+            "path_params": {"item_id": "a b", "count": 3},
+        }
+
+    def test_without_root_path(self, request_app: Flask) -> None:
+        """Without a root path, the path is the whole path."""
+        with request_app.test_request_context("/api/v1/items/a/1", method="POST"):
+            snapshot = current_request()
+        assert snapshot.root_path == ""
+        assert snapshot.path == "/api/v1/items/a/1"
+        assert snapshot.content_length is None
+
+    def test_head(self, request_app: Flask) -> None:
+        """Methods are those of the request, routes those serving it."""
+        with request_app.test_request_context("/api/v1/items/a/1", method="HEAD"):
+            snapshot = current_request()
+        assert snapshot.method == "HEAD"
+        assert snapshot.route is None
+
+    def test_no_route(self, request_app: Flask) -> None:
+        """Requests that no operation serves have no route."""
+        with request_app.test_request_context("/other", method="GET"):
+            snapshot = current_request()
+        assert snapshot.route is None
+        assert snapshot.path_params == {}
+
+    def test_headers(self, request_app: Flask) -> None:
+        """Headers are case-insensitive and read-only."""
+        headers = [("X-Test", "one"), ("Accept", "text/plain")]
+        with request_app.test_request_context("/", headers=headers):
+            snapshot = current_request()
+        assert snapshot.headers["X-TEST"] == "one"
+        assert snapshot.headers.get("accept") == "text/plain"
+        assert "Accept" in snapshot.headers
+        assert 1 not in snapshot.headers
+        assert snapshot.headers.get("missing") is None
+        assert snapshot.headers.getlist("missing") == []
+        assert {"x-test", "accept"} <= set(snapshot.headers)
+        assert len(snapshot.headers) == len(set(snapshot.headers))
+        assert "X-Test" in repr(snapshot.headers)
+        with pytest.raises(TypeError):
+            snapshot.headers["X-Test"] = "three"  # type: ignore[index]  # read-only
+        with pytest.raises(TypeError):
+            snapshot.path_params["x"] = 1  # type: ignore[index]  # read-only
+        with pytest.raises(FrozenInstanceError):
+            snapshot.path = "/x"  # type: ignore[misc]  # frozen
+
+    def test_snapshot(self, request_app: Flask) -> None:
+        """Snapshots don't change with the request."""
+        with request_app.test_request_context("/", headers=[("X-Test", "one")]):
+            snapshot = current_request()
+        assert snapshot.headers["x-test"] == "one"
+
+    def test_headers_from_pairs(self) -> None:
+        """Headers keep all values, in order."""
+        headers = Headers([("A", "1"), ("b", "2"), ("a", "3")])
+        assert headers.getlist("a") == ["1", "3"]
+        assert list(headers) == ["a", "b"]
+        assert dict(headers) == {"a": "1", "b": "2"}
+        assert headers == {"a": "1", "b": "2"}
+
+    def test_outside_request(self, request_app: Flask) -> None:
+        """Outside requests, a clear error is raised."""
+        with pytest.raises(RuntimeError, match="only while a request"):
+            current_request()
+        with request_app.app_context(), pytest.raises(RuntimeError):
+            current_request()
