@@ -38,10 +38,10 @@ from inspect import unwrap
 from typing import Any, NamedTuple
 
 from flask import Flask, current_app, g, request
-from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
 from foca.api.routes import get_routes, match
 from foca.config.access import get_app_config
+from foca.errors import BadRequest, Forbidden, NotFound
 
 # Internal helpers of the same package: whether traffic is logged (as for
 # the permissions API), subject descriptions for logs and owners whose role
@@ -217,7 +217,7 @@ def _get_owned_resource(
         Path of the resource (cf. :py:func:`_get_resource`).
 
     Raises:
-        werkzeug.exceptions.NotFound: The resource has no owners (whose
+        foca.errors.NotFound: The resource has no owners (whose
             role applies), and either the caller is not an admin, or there is
             no function checking whether the resource exists, or it found
             that the resource doesn't exist.
@@ -238,7 +238,7 @@ def _get_role(body: Any) -> str:
         Role.
 
     Raises:
-        werkzeug.exceptions.BadRequest: The body is not an object with a
+        foca.errors.BadRequest: The body is not an object with a
             role (a string).
     """
     role = body.get("role") if isinstance(body, dict) else None
@@ -266,11 +266,11 @@ def _put_role(
         Subject type, subject and granted role.
 
     Raises:
-        werkzeug.exceptions.BadRequest: The role is not one of
+        foca.errors.BadRequest: The role is not one of
             `access_control.resource_roles`, or the role cannot be granted to
             the subject (cf.
             :py:func:`foca.security.access_control.grant_role`).
-        werkzeug.exceptions.NotFound: The resource has no owners (unless the
+        foca.errors.NotFound: The resource has no owners (unless the
             caller is an admin and `exists` returned `True`), or `exists`
             returned `False` after the role was granted.
         foca.security.access_control.LastOwner: The subject is the last
@@ -313,7 +313,7 @@ def _delete_roles(
         The subject.
 
     Raises:
-        werkzeug.exceptions.NotFound: The resource has no owners, or the
+        foca.errors.NotFound: The resource has no owners, or the
             subject has no roles on it.
         foca.security.access_control.LastOwner: The subject is the last
             owner of the resource.
@@ -361,8 +361,8 @@ def getResourceRoles(
         app has a public URL (`server.public_url`).
 
     Raises:
-        werkzeug.exceptions.BadRequest: `q`, `limit` or `offset` is invalid.
-        werkzeug.exceptions.NotFound: The resource has no owners, unless the
+        foca.errors.BadRequest: `q`, `limit` or `offset` is invalid.
+        foca.errors.NotFound: The resource has no owners, unless the
             caller is an admin and `exists` returned `True`.
     """
     # Parameters of the path name the resource, whatever they are called
@@ -462,7 +462,7 @@ def putGroupRole(
         Subject type (`group`), group and granted role.
 
     Raises:
-        werkzeug.exceptions.Forbidden: The caller is neither a member of the
+        foca.errors.Forbidden: The caller is neither a member of the
             group nor an admin.
     """
     group = _get_subject()

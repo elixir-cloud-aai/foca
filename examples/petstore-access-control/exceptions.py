@@ -1,21 +1,19 @@
 """Petstore exceptions, mapped to problem details (RFC 9457).
 
 Exceptions that are not listed are handled like their closest listed base
-class (e.g., `connexion.exceptions.OAuthProblem` like `Unauthorized`), or
+class (e.g., `foca.errors.AuthenticationProblem` like `Unauthorized`), or
 else according to their HTTP status code.
 """
 
-from connexion.exceptions import (
-    BadRequestProblem,
+from foca.errors import (
+    AuthenticationProblem,
+    BadRequest,
     ExtraParameterProblem,
     Forbidden,
-    OAuthProblem,
-    Unauthorized,
-)
-from werkzeug.exceptions import (
-    BadRequest,
     InternalServerError,
     NotFound,
+    RequestValidationProblem,
+    Unauthorized,
 )
 
 # Problem details of bad requests; responses to requests rejected by
@@ -33,10 +31,10 @@ exceptions = {
         "status": 500,
         "detail": "Oops, something unexpected happened.",
     },
-    BadRequestProblem: BAD_REQUEST,
+    RequestValidationProblem: BAD_REQUEST,
     BadRequest: BAD_REQUEST,
     ExtraParameterProblem: BAD_REQUEST,
-    OAuthProblem: {
+    AuthenticationProblem: {
         "title": "Unauthorized",
         "status": 401,
         "detail": (

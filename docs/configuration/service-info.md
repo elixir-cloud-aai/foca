@@ -159,7 +159,7 @@ service-info specification, version 1.0.0, which is bundled with FOCA:
 - On each request, service info that has become invalid (via the function),
   or a failing function, is not served; the request fails with a generic
   `500 Internal Server Error` (also if your app maps `ValueError` to other
-  problem details; unless it maps `werkzeug.exceptions.InternalServerError`
+  problem details; unless it maps `foca.errors.InternalServerError`
   itself), and the error is logged.
 
 The service info must also be serializable as JSON (e.g., no dates as

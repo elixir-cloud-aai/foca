@@ -12,10 +12,10 @@ from casbin.model import Model
 from flask import current_app, request
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
-from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from foca.audit import log as audit_log
 from foca.config.access import get_collection, get_config
+from foca.errors import BadRequest, Conflict, NotFound
 from foca.security.access_control.constants import (
     CONFIGURED_FIELD,
     DEFAULT_PAGE_SIZE,
@@ -95,7 +95,7 @@ def _get_visibility_filter() -> dict[str, Any]:
         group claims, or `*`.
 
     Raises:
-        connexion.exceptions.Unauthorized: The subject could not be
+        foca.errors.Unauthorized: The subject could not be
             identified.
     """
     conf = get_config().security.access_control
@@ -111,7 +111,7 @@ def _get_rule() -> tuple[str, list[str]]:
         Policy type and values of the rule.
 
     Raises:
-        foca.errors.exceptions.BadRequest: The payload is not a valid rule
+        foca.errors.BadRequest: The payload is not a valid rule
             for the app's access control model (cf.
             :py:func:`validate_rule`), e.g., because the policy type is not
             defined in the model, the rule has keys other than `v0` to `v5`
@@ -159,7 +159,7 @@ def _check_not_configured(id: str) -> None:
         id: Identifier of the rule.
 
     Raises:
-        werkzeug.exceptions.Conflict: The rule is set via the app's
+        foca.errors.Conflict: The rule is set via the app's
             configuration (`access_control.policies`), so that changes via
             the permissions API would be reverted on startup.
     """
@@ -175,7 +175,7 @@ def _raise_configured(id: str, cause: Exception | None = None) -> NoReturn:
         cause: Error indicating that the rule is configured, if any.
 
     Raises:
-        werkzeug.exceptions.Conflict: Always.
+        foca.errors.Conflict: Always.
     """
     logger.error("Policy rule '%s' is set via the configuration", escape_log_value(id))
     raise Conflict(
@@ -239,10 +239,10 @@ def putPermission(
         Identifier of updated permission.
 
     Raises:
-        foca.errors.exceptions.BadRequest: The identifier does not have the
+        foca.errors.BadRequest: The identifier does not have the
             length and characters configured via `access_control.id_length`
             and `access_control.id_charset`, or the rule is invalid.
-        werkzeug.exceptions.Conflict: The rule is set via the app's
+        foca.errors.Conflict: The rule is set via the app's
             configuration (`access_control.policies`).
     """
     conf = get_config().security.access_control
@@ -290,7 +290,7 @@ def getAllPermissions(
         (`pagination`).
 
     Raises:
-        foca.errors.exceptions.BadRequest: The page size is out of range, or
+        foca.errors.BadRequest: The page size is out of range, or
             the page does not exist (except page 0 if there are no
             permissions).
     """
@@ -363,9 +363,9 @@ def deletePermission(
         Delete permission identifier.
 
     Raises:
-        werkzeug.exceptions.Conflict: The rule is set via the app's
+        foca.errors.Conflict: The rule is set via the app's
             configuration (`access_control.policies`).
-        werkzeug.exceptions.NotFound: No rule with the identifier is stored,
+        foca.errors.NotFound: No rule with the identifier is stored,
             other than configured rules not in effect (e.g., of a generation
             that is not active yet), as for getting it.
     """

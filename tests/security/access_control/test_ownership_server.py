@@ -552,6 +552,21 @@ class TestUserRoles:
             ownership_server.deleteUserRole(exists=lambda: False)
         assert _roles(app) == []
 
+    def test_raw_not_found_skips_restore(self, app: Flask) -> None:
+        """Owners aren't restored if a check raises Werkzeug's `NotFound`."""
+
+        def gone() -> bool:
+            raise NotFound
+
+        with (
+            app.app_context(),
+            mock.patch.object(ownership, "_check_other_owners"),
+            mock.patch.object(ownership, "_restore_owner_if_none") as restore,
+            pytest.raises(NotFound),
+        ):
+            ownership.grant_role(TASK, "alice", "maintainer", exists=gone)
+        restore.assert_not_called()
+
     def test_failing_check_on_restore(self, app: Flask) -> None:
         """Restored owners are kept if checking the resource fails."""
 

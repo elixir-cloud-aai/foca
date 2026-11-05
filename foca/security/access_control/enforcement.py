@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from casbin import Enforcer
 from casbin.model import Model
-from connexion.exceptions import BadRequestProblem, Forbidden
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, Response, current_app, g, has_request_context, request
@@ -20,6 +19,7 @@ from flask.globals import request_ctx
 from foca.api.routes import _match_rule
 from foca.audit import log as audit_log
 from foca.config.access import get_config
+from foca.errors import Forbidden, RequestValidationProblem
 from foca.security.access_control.constants import (
     CLIENT_PREFIX,
     GROUP_PREFIX,
@@ -221,11 +221,11 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
         name users of their issuer; or `None` if the caller names no user.
 
     Raises:
-        connexion.exceptions.BadRequestProblem: The named user is not a
+        foca.errors.RequestValidationProblem: The named user is not a
             string, is empty or blank, has surrounding whitespace, or
             cannot be namespaced (cf.
             :py:func:`foca.security.auth.namespace_subject`).
-        connexion.exceptions.Forbidden: The caller names a user, but is not a
+        foca.errors.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
     if user is None:
@@ -245,9 +245,9 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
         raise Forbidden(description="Only allowed service clients may act for users")
     # Values passed by the app may come from request fields of any type
     if not isinstance(user, str) or not user.strip():
-        raise BadRequestProblem(detail="The user acted for must not be empty")
+        raise RequestValidationProblem(detail="The user acted for must not be empty")
     if user != user.strip():
-        raise BadRequestProblem(
+        raise RequestValidationProblem(
             detail="The user acted for must not have surrounding whitespace"
         )
     from foca.security.auth import (  # noqa: PLC0415 (import cycle)
@@ -260,7 +260,7 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
     if namespaced is None:
         # Service clients have a trusted issuer (cf. AuthConfig), so only
         # bare users that look namespaced cannot be identified
-        raise BadRequestProblem(
+        raise RequestValidationProblem(
             detail="The user acted for cannot be identified: users of issuers "
             "with bare subjects must not contain '|' if other issuers' "
             "subjects are namespaced"
@@ -710,9 +710,9 @@ def enforce_access_control(fn: Callable[..., Any]) -> Callable[..., Any]:
         The decorated function.
 
     Raises:
-        connexion.exceptions.Unauthorized: The subject could not be
+        foca.errors.Unauthorized: The subject could not be
             identified.
-        connexion.exceptions.Forbidden: The subject is not allowed to access
+        foca.errors.Forbidden: The subject is not allowed to access
             the resource, or it is not a valid value for policy rules (cf.
             :py:func:`validate_rule_value`).
     """
@@ -762,7 +762,7 @@ def is_permitted() -> bool:
         policy rules (cf. :py:func:`validate_rule_value`).
 
     Raises:
-        connexion.exceptions.Unauthorized: The subject of a token that is not
+        foca.errors.Unauthorized: The subject of a token that is not
             a service token could not be identified.
     """
     client = _get_current_service_client()

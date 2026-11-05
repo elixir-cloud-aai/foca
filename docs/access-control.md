@@ -1047,7 +1047,7 @@ sensible default is to only let users grant roles to groups they are members
 of, and only roles meant to be granted:
 
 ```python
-from connexion.exceptions import BadRequestProblem, Forbidden
+from foca.errors import Forbidden, RequestValidationProblem
 from flask import request
 
 from foca.security.access_control import (
@@ -1060,9 +1060,9 @@ GRANTABLE_ROLES = {"owner", "maintainer"}
 
 def putServicePermissions(id, body, **kwargs):
     if body["subject_type"] not in {"user", "group"}:
-        raise BadRequestProblem(detail="Invalid subject type")
+        raise RequestValidationProblem(detail="Invalid subject type")
     if body["role"] not in GRANTABLE_ROLES:
-        raise BadRequestProblem(detail="Invalid role")
+        raise RequestValidationProblem(detail="Invalid role")
     if body["subject_type"] == "group" and (
         body["subject"] not in get_current_group_values()
     ):
@@ -1272,7 +1272,7 @@ controllers](#endpoints-for-managing-roles):
 ```python
 import logging
 
-from connexion.exceptions import BadRequestProblem
+from foca.errors import RequestValidationProblem
 from flask import request
 
 from foca import get_collection
@@ -1294,7 +1294,7 @@ def PutTaskUserRole(id, userId, body, **kwargs):
     except ValueError as exc:
         # messages may name configuration options, so they are only logged
         logger.info("Role not granted: %s", exc)
-        raise BadRequestProblem(detail="Invalid role or user") from exc
+        raise RequestValidationProblem(detail="Invalid role or user") from exc
     return {"user_id": userId, "role": body["role"]}
 ```
 
@@ -1373,7 +1373,7 @@ security:
 ```
 
 ```python
-from werkzeug.exceptions import NotFound
+from foca.errors import NotFound
 
 from foca import get_collection
 from foca.security.access_control import owner_filter, set_owner_field

@@ -1,71 +1,56 @@
-"""Map exceptions to problem details and register a JSON problem handler."""
+"""Connexion 2 adapter of problem details: handlers and Flask responses.
+
+The core is :py:mod:`foca.errors.problems`; what it defines is available here
+too.
+"""
 
 import logging
-from copy import deepcopy
-from http import HTTPStatus
 from json import dumps
 from traceback import format_exception
 from typing import Any
 
 from connexion import App
-from connexion.exceptions import (
-    BadRequestProblem,
-    ExtraParameterProblem,
-    NonConformingResponse,
-    NonConformingResponseHeaders,
-    OAuthProblem,
-    ProblemException,
-)
+from connexion.exceptions import NonConformingResponse, ProblemException
 from flask import Response, request
-from jsonschema import ValidationError
 from werkzeug.datastructures import Headers
 from werkzeug.exceptions import HTTPException
 
 from foca.config.access import get_config
+from foca.errors.classes import (
+    AccessDeniedProblem,
+    ExtraParameterProblem,
+    RequestValidationProblem,
+)
+from foca.errors.problems import (
+    _RFC_9110_PHRASES,
+    DEFAULT_PROBLEM,
+    _filter_problem,
+    _get_status,
+    _resolve_problem,
+    _response_validation_error,
+    _shorten,
+    _validation_reason,
+    build_headers,
+    build_problem,
+)
 from foca.models.config import ExceptionConfig, ExceptionLoggingEnum
 from foca.utils.logging import escape_log_value
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
-# Problem details for exceptions without status, as per RFC 9457
-DEFAULT_PROBLEM = {
-    "title": HTTPStatus.INTERNAL_SERVER_ERROR.phrase,
-    "status": HTTPStatus.INTERNAL_SERVER_ERROR.value,
-}
-
-# RFC 9110 reason phrases of the statuses whose `HTTPStatus` phrases differ
-# before Python 3.13, so that titles do not depend on the Python version
-_RFC_9110_PHRASES = {
-    413: "Content Too Large",
-    414: "URI Too Long",
-    416: "Range Not Satisfiable",
-    422: "Unprocessable Content",
-}
-
-# Exception attributes holding HTTP status codes, e.g., of werkzeug
-# (`code`), Connexion (`status`) and Starlette (`status_code`) exceptions
-_STATUS_ATTRIBUTES = ("code", "status", "status_code")
-
-# Catch-all exception classes, only used if nothing more specific applies
-_CATCH_ALL = (Exception, BaseException)
-
-# Challenge of `401 Unauthorized` responses to Connexion's security
-# exceptions without one, e.g., for a missing token, as per RFC 6750, §3.1
-_BEARER_CHALLENGE = "Bearer"
-
-# Headers describing the body of a response, which do not apply to the
-# problem details body of error responses
-_BODY_HEADERS = (
-    "Content-Type",
-    "Content-Length",
-    "Content-Encoding",
-    "Transfer-Encoding",
-)
+__all__ = [
+    "DEFAULT_PROBLEM",
+    "_RFC_9110_PHRASES",
+    "build_problem",
+    "problem_response",
+    "register_exception_handler",
+    "shorten_detail",
+]
 
 # Exceptions of Connexion's request validation, whose reasons are served as
 # `detail` with `exceptions.validation_details`
-_VALIDATION_EXCEPTIONS = (BadRequestProblem, ExtraParameterProblem)
+_VALIDATION_EXCEPTIONS = (RequestValidationProblem, ExtraParameterProblem)
 
 # Logger of Connexion's request validation, which logs the validator's
 # message in full and unescaped (validators quote rejected values, e.g., a
@@ -75,6 +60,33 @@ _VALIDATION_LOGGER = "connexion.decorators.validation"
 # Members of problem details set by `problem_response()` itself or mapped
 # to the exception class (`type`)
 _RESERVED_MEMBERS = ("title", "status", "detail", "type")
+
+
+# Werkzeug classes whose mapping was warned about
+_warned_mappings: set[type[BaseException]] = set()
+
+
+def _warn_werkzeug_mappings(conf: ExceptionConfig) -> None:
+    """Warn of exception maps with raw Werkzeug classes, once per class.
+
+    `AccessDeniedProblem` is one of them for now, as a name of `foca.errors`.
+
+    Args:
+        conf: Exception handling settings.
+    """
+    for cls in conf.problems:
+        if (
+            cls.__module__ == "werkzeug.exceptions"
+            and cls is not AccessDeniedProblem
+            and cls not in _warned_mappings
+        ):
+            _warned_mappings.add(cls)
+            logger.warning(
+                "Exception map uses 'werkzeug.exceptions.%s', which stops working "
+                "with the first release candidate on ASGI: use the classes of "
+                "'foca.errors' instead.",
+                cls.__name__,
+            )
 
 
 def _drop_request_validation_records(record: logging.LogRecord) -> bool:
@@ -142,6 +154,7 @@ def register_exception_handler(
         handler.
     """
     _conf = ExceptionConfig() if conf is None else conf
+    _warn_werkzeug_mappings(_conf)
 
     def _handler(exception: Exception) -> Response:
         return _problem_handler_json(exception=exception, conf=_conf)
@@ -169,135 +182,6 @@ def register_exception_handler(
         )
         logger.debug("Registered validation problem handler with Connexion app.")
     return app
-
-
-def _get_status(exc: BaseException) -> int | None:
-    """Get HTTP error status code of an exception, if any.
-
-    Args:
-        exc: Exception.
-
-    Returns:
-        Value of the first attribute of `exc` among `code`, `status` and
-        `status_code` that is an HTTP error status code (400 to 599), or
-        `None` if there is none.
-    """
-    for attribute in _STATUS_ATTRIBUTES:
-        status = getattr(exc, attribute, None)
-        if (
-            isinstance(status, int)
-            and not isinstance(status, bool)
-            and 400 <= status <= 599
-        ):
-            return status
-    return None
-
-
-def _resolve_problem(exc: BaseException, conf: ExceptionConfig) -> dict[str, Any]:
-    """Resolve problem details of an exception (cf. :py:func:`build_problem`).
-
-    Args:
-        exc: Exception.
-        conf: Exception handling settings.
-
-    Returns:
-        Copy of the problem details, unfiltered.
-    """
-    problems = conf.problems
-    problem = next(
-        (
-            problems[cls]
-            for cls in type(exc).__mro__
-            if cls in problems and cls not in _CATCH_ALL
-        ),
-        None,
-    )
-    if problem is None:
-        status = _get_status(exc)
-        if status is not None:
-            title = _RFC_9110_PHRASES.get(status)
-            if title is None:
-                try:
-                    title = HTTPStatus(status).phrase
-                except ValueError:
-                    title = "Error"
-            problem = {"title": title, "status": status}
-    if problem is None:
-        problem = next(
-            (problems[cls] for cls in _CATCH_ALL if cls in problems),
-            DEFAULT_PROBLEM,
-        )
-    return deepcopy(problem)
-
-
-def build_problem(
-    exc: BaseException,
-    conf: ExceptionConfig,
-) -> tuple[dict[str, Any], int]:
-    """Build problem details for an exception.
-
-    Problem details are resolved as follows:
-
-    1. The problem details of the closest class in the method resolution
-       order of the exception that is listed in the configured mapping
-       (except for the catch-alls `Exception` and `BaseException`), i.e.,
-       exceptions that are not listed are handled like their closest listed
-       base class.
-    2. Otherwise, if the exception has an HTTP error status code (attribute
-       `code`, `status` or `status_code`, e.g., werkzeug and Connexion
-       exceptions), problem details with that status and its standard
-       reason phrase as title (as per RFC 9110 for `413`, `414`, `416` and
-       `422` on all Python versions).
-    3. Otherwise, the problem details listed for `Exception` or
-       `BaseException`, if any.
-    4. Otherwise, `500 Internal Server Error`.
-
-    Args:
-        exc: Exception.
-        conf: Exception handling settings.
-
-    Returns:
-        Problem details, filtered by `conf.public_members`, if set, and HTTP
-        status code.
-    """
-    problem = _resolve_problem(exc=exc, conf=conf)
-    return _filter_problem(problem=problem, conf=conf), problem["status"]
-
-
-def _filter_problem(problem: dict[str, Any], conf: ExceptionConfig) -> dict[str, Any]:
-    """Filter problem details by their public members.
-
-    Args:
-        problem: Problem details.
-        conf: Exception handling settings.
-
-    Returns:
-        Problem details with the members of `conf.public_members` only, if
-        set, otherwise all.
-    """
-    if conf.public_members is None:
-        return problem
-    return {key: value for key, value in problem.items() if key in conf.public_members}
-
-
-def _shorten(detail: str, max_length: int) -> str:
-    """Shorten a detail in the middle, keeping its start and end.
-
-    Args:
-        detail: Description of a problem.
-        max_length: Maximum length (at least 1).
-
-    Returns:
-        The detail, if it is not longer than `max_length`, otherwise its
-        first and last characters, joined by "…", with `max_length`
-        characters in total (the start gets the extra character, if any).
-    """
-    if len(detail) <= max_length:
-        return detail
-    kept = max_length - 1
-    tail = kept // 2
-    head = kept - tail
-    return f"{detail[:head]}…{detail[len(detail) - tail :]}"
 
 
 def shorten_detail(detail: str) -> str:
@@ -390,24 +274,6 @@ def problem_response(
     return _response(exc=exc, problem=problem, conf=conf)
 
 
-def _validation_reason(exc: ProblemException) -> str | None:
-    """Get the reason of a validation exception.
-
-    Args:
-        exc: Exception of Connexion's request validation.
-
-    Returns:
-        The `detail` of the exception (items of a list, e.g., for form data,
-        joined by "; "), or `None` if it is empty or not a string or list.
-    """
-    detail = exc.detail
-    if isinstance(detail, list):
-        detail = "; ".join(str(item) for item in detail)
-    if isinstance(detail, str) and detail:
-        return detail
-    return None
-
-
 def _validation_handler_json(
     exception: ProblemException,
     conf: ExceptionConfig,
@@ -445,37 +311,6 @@ def _validation_handler_json(
             ),
         )
     return _response(exc=exception, problem=problem, conf=conf)
-
-
-def _response_validation_error(exc: NonConformingResponse) -> str:
-    """Describe why a response failed validation, without its content.
-
-    The message of the validator quotes the invalid values, up to the whole
-    response body, and locations in the body may have keys of the body. So
-    body errors are described by what comes from the specification only: the
-    path of the failed keyword in the schema and, for `required`, the names
-    of the missing properties.
-
-    Args:
-        exc: Exception of Connexion's response validation.
-
-    Returns:
-        The path of the failed keyword for invalid bodies, the reason of the
-        exception for invalid headers (naming the missing ones), otherwise its
-        title.
-    """
-    # Connexion raises the exception while handling the validator's error
-    error = exc.__context__
-    if isinstance(error, ValidationError):
-        path = "/".join(str(item) for item in error.absolute_schema_path)
-        message = f"failed at schema path '/{path}'"
-        if error.validator == "required" and isinstance(error.instance, dict):
-            missing = sorted(set(error.validator_value) - error.instance.keys())
-            message = f"{message}: missing {', '.join(missing)}"
-        return message
-    if isinstance(exc, NonConformingResponseHeaders):
-        return str(exc.detail)
-    return str(exc.title)
 
 
 def _response_validation_handler_json(
@@ -538,41 +373,14 @@ def _response(
 def _build_headers(exc: BaseException, status: int) -> Headers:
     """Build headers of the error response for an exception.
 
-    Headers are only kept if the response has the status code of the
-    exception, as they may not apply to other statuses. Headers are taken
-    from werkzeug HTTP exceptions (e.g., `Allow` for `405 Method Not
-    Allowed`, `WWW-Authenticate` for `401 Unauthorized` and `Retry-After`
-    for `503 Service Unavailable`, if set) and Connexion problem exceptions
-    (attribute `headers`), except for headers describing the body (e.g.,
-    `Content-Type` and `Content-Length`), as error responses have their own
-    body, with the configured media type. `401 Unauthorized` responses to
-    Connexion's security exceptions without `WWW-Authenticate` (e.g., for a
-    missing token) get `WWW-Authenticate: Bearer`, as per RFC 6750.
-
     Args:
         exc: Exception.
         status: HTTP status code of the error response.
 
     Returns:
-        Headers of the error response, without headers describing the
-        body.
+        Headers as in :py:func:`foca.errors.problems.build_headers`.
     """
-    headers = Headers()
-    if status != _get_status(exc):
-        return headers
-    if isinstance(exc, HTTPException):
-        headers.extend(exc.get_headers())
-    elif isinstance(exc, ProblemException) and exc.headers:
-        headers.extend(exc.headers)
-    for name in _BODY_HEADERS:
-        headers.remove(name)
-    if (
-        status == 401
-        and isinstance(exc, OAuthProblem)
-        and "WWW-Authenticate" not in headers
-    ):
-        headers.add("WWW-Authenticate", _BEARER_CHALLENGE)
-    return headers
+    return Headers(build_headers(exc=exc, status=status))
 
 
 def _exc_to_str(

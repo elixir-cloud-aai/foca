@@ -14,6 +14,8 @@ import yaml
 from connexion.resolver import Resolution, Resolver
 from cryptography.hazmat.primitives.asymmetric import rsa
 from flask import Flask, jsonify
+from werkzeug import exceptions as wz
+from werkzeug.datastructures import WWWAuthenticate as wz_challenge
 
 from foca.api.register_openapi import register_openapi
 from foca.errors.exceptions import register_exception_handler
@@ -21,7 +23,7 @@ from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, SpecConfig
 from foca.security import auth
 from foca.security.access_control import get_current_subject
-from foca.security.auth import InvalidTokenResolver
+from foca.security.auth import InvalidTokenResolver, _reject_invalid_token
 
 ISSUER = "https://idp.example.org"
 DISCOVERY_URI = f"{ISSUER}/.well-known/openid-configuration"
@@ -421,3 +423,56 @@ class TestInvalidTokenResolver:
         duck = _DuckTyped()
         resolver = InvalidTokenResolver(duck)
         assert resolver.resolver is duck
+
+
+@pytest.mark.parametrize(
+    ("exception", "kept"),
+    [
+        (
+            wz.Unauthorized(
+                www_authenticate=wz_challenge("bearer", {"error": "invalid_token"})
+            ),
+            False,
+        ),
+        (wz.Unauthorized(), True),
+        (
+            wz.Unauthorized(
+                www_authenticate=wz_challenge("basic", {"error": "invalid_token"})
+            ),
+            True,
+        ),
+        (
+            wz.Unauthorized(
+                www_authenticate=wz_challenge("bearer", {"error": "invalid_token_x"})
+            ),
+            True,
+        ),
+        (
+            wz.Unauthorized(
+                www_authenticate=wz_challenge("bearer", {"x_error": "invalid_token"})
+            ),
+            True,
+        ),
+    ],
+)
+def test_raw_unauthorized_of_validation(exception: Any, kept: bool) -> None:
+    """Raw `401` errors of token validation count like those of FOCA."""
+    wrapped = _reject_invalid_token(lambda: "served")
+    app = Flask(__name__)
+    with (
+        app.test_request_context(headers={"Authorization": "Bearer t"}),
+        mock.patch("foca.security.auth.validate_token", side_effect=exception),
+    ):
+        if kept:
+            assert wrapped() == "served"
+        else:
+            with pytest.raises(wz.Unauthorized):
+                wrapped()
+
+
+def test_unauthorized_keeps_werkzeug_challenge() -> None:
+    """Apps can read the challenge from `www_authenticate`, as in Werkzeug."""
+    challenge = auth._unauthorized("rejected").www_authenticate
+    assert challenge is not None
+    assert next(iter(challenge)).parameters["error"] == "invalid_token"
+    assert auth._unauthorized("down", invalid_token=False).www_authenticate

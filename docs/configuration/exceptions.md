@@ -9,8 +9,8 @@ FOCA responds to all exceptions with
 {"title": "Not Found", "status": 404}
 ```
 
-By default, exceptions with an HTTP error status code (e.g., werkzeug and
-Connexion exceptions, such as `werkzeug.exceptions.NotFound`) get that status
+By default, exceptions with an HTTP error status code (e.g., the classes of
+`foca.errors`, such as `foca.errors.NotFound`) get that status
 and its standard reason phrase as title, and all other exceptions `500
 Internal Server Error`. For `413`, `414`, `416` and `422`, titles are the
 [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) phrases on all Python
@@ -27,7 +27,7 @@ exceptions:
 ```
 
 ```python title="my_app/exceptions.py"
-from werkzeug.exceptions import NotFound
+from foca.errors import NotFound
 
 
 class PetNotFound(NotFound):
@@ -49,7 +49,8 @@ Each entry must have an integer `status` (400 to 599, used as the response's
 status code) and a string `title`; other members are optional. Exceptions
 that are not listed are handled like their closest listed base class, so a
 subclass of `PetNotFound` gets the problem details of `PetNotFound`, and other
-subclasses of `NotFound` those of `NotFound`. An entry for `Exception` is only
+subclasses of `NotFound` those of `NotFound`. The bases `HTTPError` and
+`HTTPException` come after all specific classes. An entry for `Exception` is only
 used for exceptions without status code. With `public_members`, only the
 listed members are returned to clients (by default, all are).
 
@@ -60,6 +61,44 @@ including any traceback (`logging`: `oneline`, `minimal`, `regular` or
 Declare the media type of error responses (by default
 `application/problem+json`) and a problem details schema for error responses
 in your API specifications, as FOCA's permissions API and the examples do.
+
+## Exception classes
+
+Raise and map the classes of `foca.errors`, which stay the same on all web frameworks:
+`BadRequest`, `Unauthorized`, `Forbidden`, `NotFound`, `MethodNotAllowed`, `Conflict`,
+`PayloadTooLarge`, `UnprocessableContent`, `InternalServerError` and
+`ServiceUnavailable`, with their base class `HTTPError`. Each has `code` and
+`description`, and takes `headers` for the error response:
+
+```python
+from foca.errors import ServiceUnavailable
+
+raise ServiceUnavailable("Try again later", headers={"Retry-After": "120"})
+```
+
+For now they subclass their Werkzeug counterparts, and a mapping of either applies to
+both. Mapping raw Werkzeug classes still works, but logs a warning once per class; it
+stops working with the first release candidate on ASGI (see the [migration
+guide](../migration-0.22.md)).
+
+Map Connexion's problems by these names, which also stay the same:
+
+| Name | Connexion 2 class | Raised for |
+| --- | --- | --- |
+| `RequestValidationProblem` | `BadRequestProblem` | Invalid requests. |
+| `ExtraParameterProblem` | `ExtraParameterProblem` | Unknown parameters. |
+| `AuthenticationProblem` | `OAuthProblem` | Missing or malformed credentials. |
+| `AccessDeniedProblem` | `Forbidden` | Denied access. |
+
+```python
+from foca.errors import AuthenticationProblem, NotFound, RequestValidationProblem
+
+problems = {
+    NotFound: {"title": "Not Found", "status": 404},
+    RequestValidationProblem: {"title": "Bad Request", "status": 400},
+    AuthenticationProblem: {"title": "Unauthorized", "status": 401},
+}
+```
 
 ## Request-specific details
 
@@ -114,7 +153,7 @@ keyword arguments:
 
 ```python
 from foca.errors.exceptions import problem_response
-from werkzeug.exceptions import Conflict
+from foca.errors import Conflict
 
 
 def post_service(body):
@@ -210,7 +249,7 @@ declare it themselves.
 
 ## Headers
 
-Error responses keep the headers of werkzeug HTTP exceptions and of
+Error responses keep the headers of HTTP exceptions (`foca.errors` and Werkzeug) and of
 Connexion's `ProblemException` (`headers`), except headers describing the
 body (`Content-Type`, cf. [Media type](#media-type), `Content-Length`,
 `Content-Encoding` and `Transfer-Encoding`), e.g.:

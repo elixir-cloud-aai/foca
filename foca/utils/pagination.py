@@ -10,8 +10,8 @@ from typing import NamedTuple
 from urllib.parse import urlencode
 
 from flask import request
-from werkzeug.exceptions import BadRequest
 
+from foca.errors import BadRequest
 from foca.utils.urls import get_public_url
 
 # Items per page unless set otherwise, and the most that clients can ask for
@@ -47,7 +47,7 @@ def _get_integer(value: int | str, name: str, minimum: int) -> int:
         Value as an integer.
 
     Raises:
-        werkzeug.exceptions.BadRequest: The value is not an integer from
+        foca.errors.BadRequest: The value is not an integer from
             `minimum` to the largest one of 8 bytes. The message doesn't quote
             the value.
     """
@@ -85,7 +85,7 @@ def get_page(
         The page.
 
     Raises:
-        werkzeug.exceptions.BadRequest: `offset` is not an integer from 0, or
+        foca.errors.BadRequest: `offset` is not an integer from 0, or
             `limit` from 1, to the largest one of 8 bytes.
         ValueError: `default_limit` or `max_limit` is less than 1, or more than
             the largest integer of 8 bytes.

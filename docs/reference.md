@@ -229,6 +229,10 @@ configuration models, see [Configuration](configuration/index.md).
 
 ## Errors
 
+::: foca.errors.classes
+
+::: foca.errors.problems
+
 ::: foca.errors.exceptions
     options:
       members:

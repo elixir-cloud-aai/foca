@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from flask import Flask
-from werkzeug.exceptions import InternalServerError
 
 from foca.api.routes import get_routes
 from foca.config.access import get_config
+from foca.errors import InternalServerError
 from foca.utils.logging import log_traffic_if
 from foca.utils.service_info import (
     InvalidServiceInfo,
@@ -142,7 +142,7 @@ def getServiceInfo() -> dict[str, Any]:
         Service info of the current app.
 
     Raises:
-        werkzeug.exceptions.InternalServerError: The service info cannot be
+        foca.errors.InternalServerError: The service info cannot be
             built (the error is logged), whatever exceptions apps map to
             other problem details (e.g., `ValueError`).
     """
