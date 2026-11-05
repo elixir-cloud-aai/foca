@@ -82,9 +82,15 @@ config = get_app_config(app)
 with app.app_context():
     config = get_config()
 ```
- To find remaining uses, run your tests with
+
+To find remaining uses, run your tests with
 `-W error::DeprecationWarning` or search for `config.foca` and
 `get_app_config`.
+
+To warn, FOCA gives the Flask configuration of each app a subclass of its
+class, of the same name, until the attribute is removed: `isinstance()` holds,
+but `type(app.config) is flask.Config` doesn't. Pickled and copied
+configurations are of the original class, without the warning.
 
 ## Invalid fields in `400` responses
 

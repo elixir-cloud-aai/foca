@@ -105,17 +105,29 @@ def _reduce_ex(flask_config: FlaskConfig, protocol: SupportsIndex) -> Any:
         protocol: Pickle protocol.
 
     Returns:
-        What the original class would return, with that class.
+        What the original class would return, with that class instead of the
+        subclass; what its own `__reduce__()` returns otherwise.
     """
-    original = type(flask_config).__mro__[1]
-    reduced = super(type(flask_config), flask_config).__reduce_ex__(protocol)
+    cls = type(flask_config)
+    original = cls.__mro__[1]
+    reduced = super(cls, flask_config).__reduce_ex__(protocol)
+    if isinstance(reduced, str):
+        return reduced
+    function, args, *rest = cast("tuple[Any, ...]", reduced)
+    # E.g., `__reduce__()` returning `type(self)` and its arguments
+    if function is cls:
+        return (original, args, *rest)
     # The class is the first argument of `copyreg._reconstructor` (protocols 0
     # and 1) and of `copyreg.__newobj__` (2+), which insists on the class of
     # the instance
-    function, args, *rest = cast("tuple[Any, ...]", reduced)
     if function is copyreg.__newobj__:  # type: ignore[attr-defined]  # not in typeshed
-        function = _new_instance
-    return (function, (original, *args[1:]), *rest)
+        return (_new_instance, (original, *args[1:]), *rest)
+    # With keyword arguments, from `__getnewargs_ex__()` (protocols 4+)
+    if function is copyreg.__newobj_ex__:  # type: ignore[attr-defined]  # not in typeshed
+        return (_new_instance_ex, (original, *args[1:]), *rest)
+    if function is copyreg._reconstructor and args[0] is cls:  # type: ignore[attr-defined]  # not in typeshed
+        return (function, (original, *args[1:]), *rest)
+    return reduced
 
 
 def _new_instance(cls: type[Any], *args: Any) -> Any:
@@ -129,6 +141,22 @@ def _new_instance(cls: type[Any], *args: Any) -> Any:
         New instance.
     """
     return cls.__new__(cls, *args)
+
+
+def _new_instance_ex(
+    cls: type[Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> Any:
+    """Create an instance of a class without initializing it, for unpickling.
+
+    Args:
+        cls: Class.
+        args: Positional arguments of `__new__()`.
+        kwargs: Keyword arguments of `__new__()`.
+
+    Returns:
+        New instance.
+    """
+    return cls.__new__(cls, *args, **kwargs)
 
 
 def _deprecate_attribute(app: Flask) -> None:

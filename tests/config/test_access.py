@@ -130,6 +130,96 @@ def test_config_pickled(protocol: int) -> None:
     assert vars(copied)["foca"] == config
 
 
+class ReducedConfig(flask.Config):
+    """Flask configuration pickled by its own `__reduce__()`."""
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Pickle the configuration by its class, root path and items.
+
+        Returns:
+            Class, and its arguments.
+        """
+        return (type(self), (self.root_path, dict(self)))
+
+
+def _make_config(root_path: str, items: dict[str, Any]) -> "FactoryConfig":
+    """Create a Flask configuration, for unpickling.
+
+    Args:
+        root_path: Root path.
+        items: Items.
+
+    Returns:
+        Flask configuration.
+    """
+    return FactoryConfig(root_path, items)
+
+
+class FactoryConfig(flask.Config):
+    """Flask configuration pickled by a function of its own."""
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Pickle the configuration by a factory.
+
+        Returns:
+            Factory, and its arguments.
+        """
+        return (_make_config, (self.root_path, dict(self)))
+
+
+class NamedConfig(flask.Config):
+    """Flask configuration pickled as a global."""
+
+    def __reduce__(self) -> str:
+        """Pickle the configuration by name.
+
+        Returns:
+            Name of the global.
+        """
+        return "NAMED_CONFIG"
+
+
+NAMED_CONFIG = NamedConfig("/named")
+
+
+class KeywordsConfig(flask.Config):
+    """Flask configuration created with keyword arguments when unpickled."""
+
+    def __getnewargs_ex__(self) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        """Get the arguments of `__new__()`.
+
+        Returns:
+            Positional and keyword arguments.
+        """
+        return (), {"kind": "keywords"}
+
+
+@pytest.mark.parametrize("cls", [ReducedConfig, FactoryConfig, KeywordsConfig])
+def test_config_pickled_own_reduce(cls: type[flask.Config]) -> None:
+    """Configuration classes pickled their own way keep their way."""
+
+    class App(Flask):
+        """Flask app with its own configuration class."""
+
+        config_class = cls
+
+    app = App(__name__)
+    access.set_app_config(app, Config())
+    app.config["KEY"] = "value"
+    copied = pickle.loads(pickle.dumps(app.config, pickle.HIGHEST_PROTOCOL))  # noqa: S301 (own data)
+    assert type(copied) is cls
+    assert copied.root_path == app.config.root_path
+    assert copied["KEY"] == "value"
+
+
+def test_config_pickled_as_global() -> None:
+    """Configurations pickled as globals are."""
+    app = Flask(__name__)
+    app.config = NAMED_CONFIG
+    access.set_app_config(app, Config())
+    assert pickle.loads(pickle.dumps(app.config)) is NAMED_CONFIG  # noqa: S301 (own data)
+
+
 def test_config_attribute_missing() -> None:
     """Without a configuration, the attribute is missing, without warning."""
     app = create_connexion_app(Config()).app
