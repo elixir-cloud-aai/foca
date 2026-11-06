@@ -62,7 +62,8 @@ characters other than letters, digits and `_` (e.g., `page-size` as
 ```python title="my_app/controllers.py"
 from typing import Any
 
-ITEMS: dict[str, dict[str, Any]] = {}  # in memory, for the examples
+# For the examples only: in memory, not thread-safe, unescaped in CSV
+ITEMS: dict[str, dict[str, Any]] = {}
 
 
 def put_item(
@@ -99,8 +100,8 @@ same whatever the web framework:
 | Method, path, URL, headers, client address, route of the request | `foca.context.current_request()` (see [Reading the current request](utilities.md#reading-the-current-request)) | `flask.request`, `connexion.request` |
 | Token info and claims, e.g., in helpers | `current_token_info()` and `current_claims()` of `foca.security.auth` (see [Using token claims](authentication.md#using-token-claims)) | `connexion.context`, `request_ctx.connexion_context` |
 | Subject, groups and admin rights of the caller | `get_current_subject()`, `get_current_groups()`, `is_admin()` of `foca.security.access_control` (see [The current caller](access-control.md#the-current-caller)) | Own parsing of claims |
-| Configuration | `foca.get_config()`, `foca.get_custom_config()` (see [below](#configuration)) | `current_app.config.foca`, `get_app_config()` |
-| MongoDB collections | `foca.get_collection()` (see [Accessing the configuration](configuration/index.md#accessing-the-configuration)) | `current_app.config.foca.db` |
+| Configuration | `foca.get_config()`, `foca.get_custom_config(MyCustomConfig)` (see [below](#configuration)) | `current_app.config.foca`, `get_app_config()` |
+| MongoDB collections | `foca.get_collection(db=..., collection=...)` (see [Accessing the configuration](configuration/index.md#accessing-the-configuration)) | `current_app.config.foca.db` |
 
 ```python title="my_app/controllers.py"
 from typing import Any
@@ -207,7 +208,7 @@ a `charset` in `Content-Type`.
 ## Configuration
 
 Read the configuration via `foca.get_config()`, and your custom configuration,
-typed, via `foca.get_custom_config()`; see [Accessing the
+typed, via `foca.get_custom_config()` with its model; see [Accessing the
 configuration](configuration/index.md#accessing-the-configuration) and
 [`custom`](configuration/custom.md). `current_app.config.foca` and
 `get_app_config()` are deprecated (see [Configuration

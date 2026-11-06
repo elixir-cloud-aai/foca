@@ -382,6 +382,7 @@ def test_return_values(
     assert response.data == data
 
 
-def test_json_bytes(client: FlaskClient) -> None:
-    """Bytes for a JSON media type fail."""
+def test_json_bytes(client: FlaskClient, caplog: pytest.LogCaptureFixture) -> None:
+    """Bytes for a JSON media type fail, as they can't be serialized."""
     assert client.get("/json-bytes").status_code == 500
+    assert "Object of type bytes is not JSON serializable" in caplog.text
