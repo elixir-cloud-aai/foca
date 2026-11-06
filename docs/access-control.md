@@ -503,17 +503,17 @@ get_api_base_path()  # "/ga4gh/registry/v1"
 get_resource_path("services", "abc")  # "/ga4gh/registry/v1/services/abc"
 ```
 
-The API is the one handling the current request (the registered API whose
-base path the path template of the request's operation starts with, and that
-has the operation), or else the app's only API (`api.specs`). Apps with several APIs that call them without a request name an
-operation of the API (`get_api_base_path("getServices")`,
-`get_resource_path("services", operation_id="getServices")`, with the
-`operationId` as in the specification); otherwise, they raise a
-`RuntimeError`, and a `LookupError` if no API has the operation. An API at the
-root has an empty base path, so that paths can be appended.
-`get_resource_path()` raises a `ValueError` for segments that are empty, dot
-segments (`.`, `..`) or wildcards of policy rules (`*`, or starting with `:`),
-or have slashes.
+The API is the one handling the current request (the registered API whose base
+path the path template of the request's operation starts with, and that has the
+operation), or else the app's only API (`api.specs`). Apps with several APIs
+that call them without a request name an operation of the API
+(`get_api_base_path("getServices")`, `get_resource_path("services",
+operation_id="getServices")`, with the `operationId` as in the specification);
+otherwise, they raise a `RuntimeError`, and a `LookupError` if no API has the
+operation. An API at the root has an empty base path, so that paths can be
+appended. `get_resource_path()` raises a `ValueError` for segments that are
+empty, dot segments (`.`, `..`) or wildcards of policy rules (`*`, or starting
+with `:`), or have slashes.
 
 Use the path for [roles on resources](#resource-scoped-roles) and with
 `is_permitted_for()`, which match it literally. Don't add a path with identifiers

@@ -154,8 +154,9 @@ def _install_route_table(cnx_app: Any) -> None:
             prefix = (self.base_path or "").rstrip("/")
             rule = flaskify_path(path, operation.get_path_parameter_types())
             fields = self.specification.get_operation(path, method) or {}
-            # As in the specification, e.g., without the router controller
-            operation_id = fields.get("operationId")
+            # As in the specification, e.g., without the router controller;
+            # as resolved without one (e.g., by Connexion's `RestyResolver`)
+            operation_id = fields.get("operationId") or operation.operation_id
             # Operations that failed to resolve have a function answering so
             resolution = getattr(operation, "_resolution", None)
             # As apps may have changed them, which Flask's rules follow
@@ -168,11 +169,7 @@ def _install_route_table(cnx_app: Any) -> None:
                     method=method.upper(),
                     path=f"{prefix}/{path.lstrip('/')}",
                     rule=f"{prefix}/{rule.lstrip('/')}",
-                    operation_id=(
-                        operation_id
-                        if isinstance(operation_id, str)
-                        else operation.operation_id
-                    ),
+                    operation_id=operation_id,
                     security=operation.security,
                     extensions=MappingProxyType(
                         {

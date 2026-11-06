@@ -16,6 +16,7 @@ from werkzeug.datastructures import Headers
 from werkzeug.exceptions import HTTPException
 
 from foca.config.access import get_config
+from foca.context import _get_operation_id
 from foca.errors.classes import (
     AccessDeniedProblem,
     ExtraParameterProblem,
@@ -394,19 +395,6 @@ def _response_validation_handler_json(
         logged = f"{dumps(problem)} {_shorten(message, conf.max_detail_length)}"
         logger.error(logged)
     return _response(exc=exception, problem=problem, conf=conf)
-
-
-def _get_operation_id() -> str:
-    """Get the identifier of the operation of the current request.
-
-    Returns:
-        Identifier of the operation (cf.
-        :py:func:`foca.utils.urls.get_operation_id`).
-    """
-    # Import cycle, as `foca.utils.urls` raises FOCA's errors
-    from foca.utils.urls import get_operation_id  # noqa: PLC0415
-
-    return get_operation_id()
 
 
 def _response(

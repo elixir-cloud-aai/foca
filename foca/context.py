@@ -14,7 +14,7 @@ from celery import current_task
 from flask import has_request_context, request
 from flask.globals import request_ctx
 
-from foca.api.routes import match
+from foca.api.routes import RouteMatch, match
 
 DEFAULT_REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -92,6 +92,7 @@ class _MultiValues(Mapping[str, str]):
         for name, value in items:
             self._values.setdefault(self._key(name), []).append(value)
 
+    # Subclasses override it to normalize names, e.g., case-insensitive ones
     @staticmethod
     def _key(name: str) -> str:
         """Get the key of a name.
@@ -294,11 +295,11 @@ def current_request() -> RequestSnapshot:
         RuntimeError: Raised if no request is being handled, e.g., on startup
             or in Celery tasks.
     """
-    if not has_request_context():
+    if not _has_request():
         raise RuntimeError(
             "No request: current_request() works only while a request is handled"
         )
-    found = match(request.path, request.method)
+    found = _match_request()
     return RequestSnapshot(
         method=request.method,
         protocol=str(request.environ.get("SERVER_PROTOCOL", "")),
@@ -327,6 +328,34 @@ def _has_request() -> bool:
     return has_request_context()
 
 
+def _match_request() -> RouteMatch | None:
+    """Find the route of the request being handled.
+
+    For FOCA's reads of the route alone, e.g., for each log record, without
+    taking a whole snapshot.
+
+    Returns:
+        The route and path parameters of the operation serving the request
+        (cf. :py:func:`foca.api.routes.match`), or `None` if no operation
+        serves it or no request is being handled.
+    """
+    if not _has_request():
+        return None
+    return match(request.path, request.method)
+
+
+def _get_operation_id() -> str:
+    """Get the identifier of the operation serving the request being handled.
+
+    Returns:
+        Identifier of the operation, as in
+        :py:attr:`RequestSnapshot.operation_id`, or an empty string if no
+        operation serves the request or no request is being handled.
+    """
+    found = _match_request()
+    return "" if found is None else found.route.operation_id or ""
+
+
 def _get_request_key() -> object | None:
     """Get an object identifying the request being handled.
 
@@ -337,7 +366,7 @@ def _get_request_key() -> object | None:
         The same object throughout a request and another one for each
         request, or `None` if no request is being handled.
     """
-    if not has_request_context():
+    if not _has_request():
         return None
     return request._get_current_object()  # type: ignore[attr-defined]
 
@@ -353,7 +382,7 @@ def _get_token_info() -> dict[str, Any]:
         request, or an empty dictionary if there is no request, the request
         was not handled by Connexion, or no token was validated.
     """
-    if not has_request_context():
+    if not _has_request():
         return {}
     # Connexion stores the request's context (including validated token
     # info) on Flask's request context (cf. `connexion.context`)

@@ -33,28 +33,36 @@ from foca.utils.urls import get_operation_id
 
 CONTEXT_FIELDS = ("request_id", "operation_id", "subject", "client")
 
-# Records kept by `_keep_record()`
-_RECORDS: list[logging.LogRecord] = []
-
-
-def _keep_record() -> str:
-    """Serve an operation, keeping a record with the context.
-
-    Returns:
-        Empty body.
-    """
-    record = _record()
-    ContextFilter().filter(record)
-    _RECORDS.append(record)
-    return ""
-
 
 class _KeepRecordResolver(Resolver):
-    """Resolver of all operations to `_keep_record()`."""
+    """Resolver of all operations to a view keeping records with the context.
 
-    def __init__(self) -> None:
-        """Create the resolver."""
-        super().__init__(function_resolver=lambda _: _keep_record)
+    Args:
+        records: Records kept, for each request.
+
+    Attributes:
+        records: Records kept, for each request.
+    """
+
+    def __init__(self, records: list[logging.LogRecord] | None = None) -> None:
+        """Create the resolver.
+
+        Args:
+            records: Records kept, for each request.
+        """
+        super().__init__(function_resolver=lambda _: self._keep_record)
+        self.records = [] if records is None else records
+
+    def _keep_record(self) -> str:
+        """Serve an operation, keeping a record with the context.
+
+        Returns:
+            Empty body.
+        """
+        record = _record()
+        ContextFilter().filter(record)
+        self.records.append(record)
+        return ""
 
 
 def _spec() -> dict[str, Any]:
@@ -130,13 +138,10 @@ class TestContextFilter:
         monkeypatch.setattr(enforcement, "get_current_subject", lambda: "alice")
         monkeypatch.setattr(enforcement, "_get_claims", lambda: {"azp": "client-1"})
         records: list[logging.LogRecord] = []
-        monkeypatch.setattr(sys.modules[__name__], "_RECORDS", records)
         cnx_app = create_connexion_app()
-        cnx_app.add_api(_spec(), resolver=_KeepRecordResolver())
+        cnx_app.add_api(_spec(), resolver=_KeepRecordResolver(records))
         app = cnx_app.app
-        app.wsgi_app = RequestIdMiddleware(  # type: ignore[method-assign]
-            app.wsgi_app, trust_incoming=True
-        )
+        app.wsgi_app = RequestIdMiddleware(app.wsgi_app, trust_incoming=True)
         app.test_client().get("/api/things", headers={"X-Request-ID": "abc-1"})
         assert vars(records[0])["request_id"] == "abc-1"
         assert vars(records[0])["operation_id"] == "my_app.getThings"

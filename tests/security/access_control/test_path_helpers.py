@@ -584,11 +584,13 @@ class TestGetApiBasePath:
             _RegisteredApi("/a", frozenset({"op_a"}), is_app_api=True),
             _RegisteredApi("/a/b", frozenset({"op_b"}), is_app_api=True),
         ]
-        snapshot = mock.Mock(route=route, operation_id=operation_id)
-        monkeypatch.setattr(urls, "current_request", lambda: snapshot)
-        with Flask(__name__).test_request_context():
-            assert urls._get_request_base_path(apis) == expected
-        assert urls._get_request_base_path(apis) is None
+        found = (
+            None
+            if route is None
+            else mock.Mock(route=mock.Mock(path=route, operation_id=operation_id))
+        )
+        monkeypatch.setattr(urls, "_match_request", lambda: found)
+        assert urls._get_request_base_path(apis) == expected
 
     def test_request_outside_apis(self, tmp_path: Path) -> None:
         """Routes outside the APIs fall back to the API of the app."""

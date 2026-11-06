@@ -133,18 +133,19 @@ release on ASGI. What changes with it:
   blueprints. For requests to routes that aren't operations (e.g., the
   Swagger UI of an API), they fall back as for requests outside the APIs.
 - Query strings that aren't UTF-8 no longer fail pagination links or the
-  check for unexpected query parameters; such bytes stay percent-encoded. The controllers of the permissions
-API, `postPermission()` and `putPermission()`, take the rule as the request
-body that Connexion passes as `body`, so FOCA's specification no longer sets
-`x-body-name`. Specifications of your own that route operations to them
-(e.g., via `access_control.api_specs`, copied from FOCA's) keep working with
-`x-body-name: permission`, but it is deprecated: the controllers emit a
-`DeprecationWarning` for requests that pass the body as `permission`, which
-Python shows only where deprecation warnings are enabled, e.g., in tests or
-with `-W default::DeprecationWarning`, so check your specifications.
-Remove `x-body-name` from their request bodies; with any other name, the
-controllers fail (`500`). When you call them directly, e.g., in tests, pass
-the rule as keyword argument `body`.
+  check for unexpected query parameters; such bytes stay percent-encoded.
+
+The controllers of the permissions API, `postPermission()` and
+`putPermission()`, take the rule as the request body that Connexion passes as
+`body`, so FOCA's specification no longer sets `x-body-name`. Specifications of
+your own that route operations to them (e.g., via `access_control.api_specs`,
+copied from FOCA's) keep working with `x-body-name: permission`, but it is
+deprecated: the controllers emit a `DeprecationWarning` for requests that pass
+the body as `permission`, which Python shows only where deprecation warnings
+are enabled, e.g., in tests or with `-W default::DeprecationWarning`, so check
+your specifications. Remove `x-body-name` from their request bodies; with any
+other name, the controllers fail (`500`). When you call them directly, e.g., in
+tests, pass the rule as keyword argument `body`.
 
 ## Invalid fields in `400` responses
 

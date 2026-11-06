@@ -23,7 +23,7 @@ from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 import idna
 from flask import current_app
 
-from foca.context import _has_request, current_request
+from foca.context import _get_operation_id, _match_request, current_request
 
 URLScheme = Literal["http", "https", "mailto"]
 """Supported URL schemes, e.g., for app configuration models."""
@@ -246,8 +246,8 @@ def get_public_url(path: str = "") -> str:
     Must be called in a request context. The URL is built from the public URL
     of the app (`server.public_url`, as configured, including any path prefix
     of a reverse proxy), followed by the root path of the app
-    (`current_request().root_path`, e.g., set via `SCRIPT_NAME`) and `path`, both
-    percent-encoded (UTF-8; all characters but unreserved ones and `/`, also
+    (`current_request().root_path`, e.g., set via `SCRIPT_NAME`) and `path`,
+    both percent-encoded (UTF-8; all characters but unreserved ones and `/`, also
     `%`, so that percent-encodings in `path` are kept literally, e.g.,
     `%2e%2e` as `%252e%252e`). Slashes separate segments, also repeated ones
     (e.g., `a//b`), which are kept, except leading and trailing ones; a slash
@@ -340,9 +340,7 @@ def get_operation_id() -> str:
         :py:attr:`foca.context.RequestSnapshot.operation_id`); empty outside
         of requests and for requests that no operation serves.
     """
-    if not _has_request():
-        return ""
-    return current_request().operation_id or ""
+    return _get_operation_id()
 
 
 def _register_api(
@@ -475,18 +473,18 @@ def _get_request_base_path(apis: list[_RegisteredApi]) -> str | None:
         longest base path; `None` if there is no request, no operation serves
         it, or no registered API has the operation's path.
     """
-    if not _has_request():
+    found = _match_request()
+    if found is None:
         return None
-    request = current_request()
-    if request.route is None:
-        return None
-    route = request.route
+    route = found.route.path
     candidates = [
         api
         for api in apis
         if route == api.base_path or route.startswith(f"{api.base_path}/")
     ]
-    owners = [api for api in candidates if request.operation_id in api.operation_ids]
+    owners = [
+        api for api in candidates if found.route.operation_id in api.operation_ids
+    ]
     return max((api.base_path for api in owners or candidates), key=len, default=None)
 
 

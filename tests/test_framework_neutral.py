@@ -25,6 +25,7 @@ _EXEMPT = {
 _FORBIDDEN = {
     "flask": {"request", "request_ctx", "has_request_context", "_request_ctx_stack"},
     "flask.globals": {"request", "request_ctx", "_cv_request", "_request_ctx_stack"},
+    "flask.ctx": {"has_request_context", "RequestContext"},
     "connexion": {"request", "context"},
     "connexion.context": None,
     "connexion.lifecycle": None,
@@ -177,6 +178,10 @@ def test_exempt_function_skipped(tmp_path: Path) -> None:
             ["import connexion.context", "connexion.context.x"],
         ),
         ("from . import x\nx.request", []),
+        (
+            "from flask.ctx import has_request_context",
+            ["from flask.ctx import has_request_context"],
+        ),
     ],
 )
 def test_finds_uses(tmp_path: Path, source: str, expected: list[str]) -> None:
