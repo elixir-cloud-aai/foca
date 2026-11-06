@@ -54,8 +54,10 @@ paths:
 
 Connexion passes the parameters of the operation to the controller as keyword
 arguments, converted to the types of their schemas and with their defaults:
-path and query parameters by their names in the specification, and the request
-body as `body`:
+path and query parameters by their names in the specification, without
+characters other than letters, digits and `_` (e.g., `page-size` as
+`pagesize`, so prefer names such as `page_size`), and the request body as
+`body`:
 
 ```python title="my_app/controllers.py"
 from typing import Any
@@ -73,7 +75,8 @@ def put_item(
     return item, status
 ```
 
-Connexion passes only the arguments that the controller declares (all of them
+Connexion passes path parameters always, so declare them all, and query
+parameters and the body only if the controller declares them (all of them
 with `**kwargs`). Keep the default name `body` for request bodies rather than
 renaming them via `x-body-name`, as FOCA's own [permission
 controllers](access-control.md#configuring-the-api) do. Don't read parameters

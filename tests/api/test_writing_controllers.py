@@ -329,6 +329,9 @@ def test_no_content(client: FlaskClient, page: ModuleType) -> None:
     assert response.status_code == 204
     assert response.data == b""
     assert not page.ITEMS
+    # Not `None`, which Connexion 3 sends with another `Content-Type`
+    page.ITEMS["a"] = {"id": "a"}
+    assert page.delete_item("a") == (NoContent, 204)
 
 
 def test_string(client: FlaskClient, page: ModuleType) -> None:
@@ -341,6 +344,8 @@ def test_string(client: FlaskClient, page: ModuleType) -> None:
         'attachment; filename="items.csv"'
     )
     assert response.data == b"a\nb\n"
+    # A declared media type exactly, as Connexion 3 requires
+    assert page.export_items()[2]["Content-Type"] == "text/csv"
 
 
 JSON_BODY = b'{\n  "id": "a"\n}\n'  # indented by 2 spaces
