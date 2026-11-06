@@ -10,7 +10,6 @@ import pytest
 from connexion import App
 from connexion.exceptions import InvalidSpecification
 from pydantic import ValidationError
-from yaml import YAMLError
 
 from foca.api import register_openapi as module
 from foca.api.register_openapi import (
@@ -35,7 +34,6 @@ PATH_SPECS_INVALID_JSON = DIR / "invalid.json"
 PATH_SPECS_INVALID_YAML = DIR / "invalid.openapi.yaml"
 PATH_NOT_FOUND = DIR / "does/not/exist.yaml"
 OPERATION_FIELDS_2 = {"x-swagger-router-controller": "controllers"}
-OPERATION_FIELDS_2_NO_RESOLVE = {"x-swagger-router-controller": YAMLError}
 OPERATION_FIELDS_3 = {"x-openapi-router-controller": "controllers"}
 SECURITY_FIELDS_2 = {"x-apikeyInfoFunc": "controllers.validate_token"}
 SECURITY_FIELDS_3 = {"x-bearerInfoFunc": "controllers.validate_token"}

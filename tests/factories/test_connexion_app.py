@@ -25,15 +25,6 @@ from foca.models.config import Config, ExceptionConfig, ServerConfig
 
 CONFIG = Config()
 LIMIT = 10
-ERROR_CODE = 400
-ERROR_ORIGINAL = {
-    "title": "BAD REQUEST",
-    "status_code": str(ERROR_CODE),
-}
-ERROR_REWRITTEN = {
-    "msg": "The request is malformed.",
-    "status_code": str(ERROR_CODE),
-}
 
 
 def test_add_config_to_connexion_app() -> None:
