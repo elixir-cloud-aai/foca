@@ -102,6 +102,7 @@ validation:
 nav:
   - Home: index.md
   - Getting started: getting-started.md
+  - Writing controllers: writing-controllers.md
   - Configuration:
       - configuration/index.md
       - server: configuration/server.md

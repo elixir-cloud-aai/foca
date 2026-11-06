@@ -68,6 +68,9 @@ Relative paths in the configuration (here: `openapi.yaml`) are resolved
 against the directory of the configuration file, so the app can be started
 from any directory.
 
+See [Writing controllers](writing-controllers.md) for how controllers take the
+inputs of requests and return responses.
+
 The [annotated configuration template](https://github.com/elixir-cloud-aai/foca/blob/dev/templates/config.yaml)
 lists all sections; the [configuration reference](configuration/index.md)
 describes them in detail.
