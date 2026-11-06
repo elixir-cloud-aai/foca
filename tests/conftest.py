@@ -9,7 +9,7 @@ import mongomock
 import pytest
 from pymongo import MongoClient
 
-from foca import context
+from foca import context, deprecation
 from foca.config import config_parser
 from foca.database import register_mongodb
 from tests.mock_data import MongoClients
@@ -73,6 +73,14 @@ def log(
 
 
 pytest_plugins = ["foca.plugins.pytest_plugin", "foca.testing.pytest_plugin"]
+
+
+@pytest.fixture(autouse=True)
+def _forget_logged_deprecations() -> Iterator[None]:
+    """Forget which deprecations were logged, before and after each test."""
+    deprecation._forget_logged()
+    yield
+    deprecation._forget_logged()
 
 
 @pytest.fixture(autouse=True)

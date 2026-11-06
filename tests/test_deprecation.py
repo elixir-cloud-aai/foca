@@ -1,9 +1,11 @@
 """Tests for `foca.deprecation`."""
 
+import inspect
 import logging
+import os
 import threading
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable
 
 import pytest
 from flask import Flask
@@ -11,19 +13,40 @@ from flask import Flask
 from foca import deprecation
 from foca.config.access import get_app_config
 from foca.deprecation import warn_deprecated
+from foca.errors import Unauthorized
+from foca.security.access_control.access_control_server import _MISSING, _get_body
+
+MESSAGE = "'old()' is deprecated; use 'new()'."
 
 
-@pytest.fixture(autouse=True)
-def _forget_logged() -> Iterator[None]:
-    """Forget which deprecations were logged, before and after each test."""
-    deprecation._logged.clear()
-    yield
-    deprecation._logged.clear()
+def _caller(stacklevel: int = 2) -> None:
+    """Call a deprecated API.
+
+    Args:
+        stacklevel: Stack level of the warning.
+    """
+    warn_deprecated(MESSAGE, stacklevel=stacklevel)
 
 
-def _caller() -> None:
-    """Call a deprecated API."""
-    warn_deprecated("'old()' is deprecated; use 'new()'.")
+def _indirect_caller() -> None:
+    """Call a deprecated API via a helper, as `_warn_www_authenticate()`."""
+    _caller(stacklevel=3)
+
+
+def _logged(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str]]:
+    """Get the records of the logger of deprecations.
+
+    Args:
+        caplog: Captured log records.
+
+    Returns:
+        Levels and messages of the records.
+    """
+    return [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == deprecation.LOGGER_NAME
+    ]
 
 
 class TestWarnDeprecated:
@@ -35,17 +58,19 @@ class TestWarnDeprecated:
             warnings.simplefilter("always")
             _caller()
             _caller()
-        assert [str(w.message) for w in caught] == [
-            "'old()' is deprecated; use 'new()'."
-        ] * 2
+        assert [str(w.message) for w in caught] == [MESSAGE] * 2
         assert all(w.category is DeprecationWarning for w in caught)
 
-    def test_stack_level(self) -> None:
+    @pytest.mark.parametrize("call", [_caller, _indirect_caller])
+    def test_stack_level(self, call: Callable[[], None]) -> None:
         """The warning points at the caller of the deprecated API."""
+        frame = inspect.currentframe()
+        assert frame is not None
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            _caller()  # this line
-        assert caught[0].filename == __file__
+            line = frame.f_lineno + 1
+            call()
+        assert (caught[0].filename, caught[0].lineno) == (__file__, line)
 
     def test_logs_once(self, caplog: pytest.LogCaptureFixture) -> None:
         """Each deprecation is logged once per process, at WARNING."""
@@ -57,9 +82,8 @@ class TestWarnDeprecated:
             _caller()
             _caller()
             warn_deprecated("'other()' is deprecated.")
-        records = [r for r in caplog.records if r.name == deprecation.LOGGER_NAME]
-        assert [(r.levelno, r.getMessage()) for r in records] == [
-            (logging.WARNING, "'old()' is deprecated; use 'new()'."),
+        assert _logged(caplog) == [
+            (logging.WARNING, MESSAGE),
             (logging.WARNING, "'other()' is deprecated."),
         ]
 
@@ -82,8 +106,26 @@ class TestWarnDeprecated:
                 thread.start()
             for thread in threads:
                 thread.join()
-        records = [r for r in caplog.records if r.name == deprecation.LOGGER_NAME]
-        assert len(records) == 1
+        assert len(_logged(caplog)) == 1
+
+    @pytest.mark.skipif(not hasattr(os, "fork"), reason="needs fork()")
+    def test_logs_again_after_fork(self) -> None:
+        """Forked processes, e.g., Gunicorn's workers, log deprecations again."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _caller()
+        assert MESSAGE in deprecation._logged
+        read, write = os.pipe()
+        pid = os.fork()
+        if pid == 0:  # pragma: no cover (child; reports via the pipe)
+            os.write(write, b"1" if MESSAGE in deprecation._logged else b"0")
+            os._exit(0)
+        os.close(write)
+        logged_in_child = os.read(read, 1)
+        os.close(read)
+        os.waitpid(pid, 0)
+        assert logged_in_child == b"0"
+        assert MESSAGE in deprecation._logged
 
     def test_logged_when_warnings_are_errors(
         self, caplog: pytest.LogCaptureFixture
@@ -96,29 +138,64 @@ class TestWarnDeprecated:
             warnings.simplefilter("error")
             with pytest.raises(DeprecationWarning):
                 _caller()
-        assert [r.getMessage() for r in caplog.records] == [
-            "'old()' is deprecated; use 'new()'."
-        ]
+        assert _logged(caplog) == [(logging.WARNING, MESSAGE)]
 
-    def test_logging_failure_ignored(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A failing log handler doesn't fail the deprecated call."""
+    def test_logging_failure_ignored(self) -> None:
+        """A failing log filter doesn't fail the deprecated call."""
 
-        def _fail(*args: object, **kwargs: object) -> None:
-            """Fail."""
+        def _fail(record: logging.LogRecord) -> bool:
+            """Fail on filtering.
+
+            Args:
+                record: Log record.
+
+            Raises:
+                RuntimeError: Always.
+            """
             raise RuntimeError
 
-        monkeypatch.setattr(deprecation._logger, "warning", _fail)
-        with pytest.warns(DeprecationWarning):
-            _caller()
+        logger = logging.getLogger(deprecation.LOGGER_NAME)
+        logger.addFilter(_fail)
+        try:
+            with pytest.warns(DeprecationWarning):
+                _caller()
+        finally:
+            logger.removeFilter(_fail)
 
-    def test_foca_deprecations_logged(self, caplog: pytest.LogCaptureFixture) -> None:
-        """FOCA's own deprecations are logged."""
-        with (
-            caplog.at_level(logging.WARNING, logger=deprecation.LOGGER_NAME),
-            pytest.warns(DeprecationWarning),
-            pytest.raises(RuntimeError),
-        ):
-            get_app_config(Flask(__name__))
-        assert [r.getMessage() for r in caplog.records] == [
-            "'get_app_config()' is deprecated; use 'foca.get_config()'."
-        ]
+
+def _get_app_config() -> None:
+    """Call `get_app_config()` for an app without configuration."""
+    with pytest.raises(RuntimeError):
+        get_app_config(Flask(__name__))
+
+
+def _www_authenticate() -> None:
+    """Pass challenges as `www_authenticate`."""
+    Unauthorized(www_authenticate="Bearer")
+
+
+def _permission_body() -> None:
+    """Pass the body of the permissions API as `permission`."""
+    _get_body(_MISSING, {"rule": []})
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (_get_app_config, "'get_app_config()' is deprecated"),
+        (_www_authenticate, "'www_authenticate' of 'Unauthorized' is deprecated"),
+        (_permission_body, "The request body of the permissions API as 'permission'"),
+    ],
+)
+def test_foca_deprecations_logged(
+    caplog: pytest.LogCaptureFixture, call: Callable[[], None], message: str
+) -> None:
+    """FOCA's own deprecations are logged."""
+    with (
+        caplog.at_level(logging.WARNING, logger=deprecation.LOGGER_NAME),
+        pytest.warns(DeprecationWarning),
+    ):
+        call()
+    logged = _logged(caplog)
+    assert len(logged) == 1
+    assert logged[0][1].startswith(message)
