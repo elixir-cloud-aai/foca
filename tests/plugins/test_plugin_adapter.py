@@ -179,6 +179,12 @@ def test_query_invalid_utf8() -> None:
     assert inbound.query == {"a": ["%FF\u00e4"]}
 
 
+def test_query_with_invalid_host() -> None:
+    """Queries are found whatever the host of the URL."""
+    assert adapter._get_query("http://[x/p?a=1&b=%3F?") == {"a": ["1"], "b": ["??"]}
+    assert adapter._get_query("http://x/p") == {}
+
+
 def test_percent_encode_decoding_only() -> None:
     """The error handler of the query only handles errors of decoding."""
     handler = codecs.lookup_error(adapter._INVALID_UTF8)

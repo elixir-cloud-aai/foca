@@ -27,6 +27,41 @@ _FORBIDDEN = {
 }
 
 
+def _is_forbidden(module: str, name: str) -> bool:
+    """Check whether a name of a module gives the request or its context.
+
+    Args:
+        module: Module, e.g., `flask`.
+        name: Name in the module, e.g., `request`.
+
+    Returns:
+        Whether the name, or the whole module, is forbidden.
+    """
+    if module not in _FORBIDDEN:
+        return False
+    names = _FORBIDDEN[module]
+    return names is None or name in names
+
+
+def _resolve(node: ast.expr, modules: dict[str, str]) -> str | None:
+    """Get the dotted name of an expression, with module aliases resolved.
+
+    Args:
+        node: Expression, e.g., `f.globals` for `import flask as f`.
+        modules: Modules by the names they are bound to.
+
+    Returns:
+        Dotted name, e.g., `flask.globals`, or `None` if the expression
+        isn't a name or attribute of one.
+    """
+    if isinstance(node, ast.Name):
+        return modules.get(node.id, node.id)
+    if isinstance(node, ast.Attribute):
+        base = _resolve(node.value, modules)
+        return None if base is None else f"{base}.{node.attr}"
+    return None
+
+
 def _forbidden_uses(path: Path) -> list[str]:
     """Find uses of the request objects of Flask and Connexion in a module.
 
@@ -36,28 +71,27 @@ def _forbidden_uses(path: Path) -> list[str]:
     Returns:
         Descriptions of the imports and attribute accesses found.
     """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    # Modules by the names they are bound to, e.g., `f` for `import flask as f`
+    modules: dict[str, str] = {}
     found: list[str] = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.ImportFrom) and node.module in _FORBIDDEN:
-            names = _FORBIDDEN[node.module]
-            found.extend(
-                f"from {node.module} import {alias.name}"
-                for alias in node.names
-                if names is None or alias.name in names
-            )
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module is not None:
+            for alias in node.names:
+                if _is_forbidden(node.module, alias.name):
+                    found.append(f"from {node.module} import {alias.name}")
+                modules[alias.asname or alias.name] = f"{node.module}.{alias.name}"
         elif isinstance(node, ast.Import):
-            found.extend(
-                f"import {alias.name}"
-                for alias in node.names
-                if alias.name in _FORBIDDEN and _FORBIDDEN[alias.name] is None
-            )
-        elif (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id in _FORBIDDEN
-            and node.attr in (_FORBIDDEN[node.value.id] or ())
-        ):
-            found.append(f"{node.value.id}.{node.attr}")
+            for alias in node.names:
+                if alias.name in _FORBIDDEN and _FORBIDDEN[alias.name] is None:
+                    found.append(f"import {alias.name}")
+                if alias.asname is not None:
+                    modules[alias.asname] = alias.name
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            base = _resolve(node.value, modules)
+            if base is not None and _is_forbidden(base, node.attr):
+                found.append(f"{base}.{node.attr}")
     return found
 
 
@@ -82,6 +116,20 @@ def test_no_framework_request(path: Path) -> None:
         ("import flask\nflask.request.path", ["flask.request"]),
         ("import connexion\nconnexion.request", ["connexion.request"]),
         ("from flask import g, current_app\nimport flask\nflask.g", []),
+        ("import flask as f\nf.request", ["flask.request"]),
+        (
+            "from flask import globals as fg\nfg.request_ctx",
+            ["flask.globals.request_ctx"],
+        ),
+        (
+            "import flask.globals\nflask.globals.request_ctx",
+            ["flask.globals.request_ctx"],
+        ),
+        (
+            "import connexion.context as cc\ncc.x",
+            ["import connexion.context", "connexion.context.x"],
+        ),
+        ("from . import x\nx.request", []),
     ],
 )
 def test_finds_uses(tmp_path: Path, source: str, expected: list[str]) -> None:

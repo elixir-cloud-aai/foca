@@ -11,7 +11,7 @@ Flask) replaces this module and keeps its function names and signatures.
 import codecs
 import uuid
 from typing import Any
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl
 
 from flask.wrappers import Response
 from werkzeug.exceptions import HTTPException
@@ -139,7 +139,7 @@ def inbound_from_request(payload: Any, route: str | None = None) -> InboundReque
     found = match(request.path, request.method)
     rule = found.route.rule if found is not None else request.path
     return InboundRequest(
-        method=request.method,
+        method=request.method.upper(),
         path=request.path,
         route=route if route is not None else rule,
         path_params={key: str(value) for key, value in request.path_params.items()},
@@ -156,7 +156,9 @@ def _get_query(url: str) -> dict[str, list[str]]:
     """Get the query parameters of a URL.
 
     Args:
-        url: URL, percent-encoded (cf. :py:attr:`foca.context.RequestSnapshot.url`).
+        url: URL, percent-encoded, without fragment (cf.
+            :py:attr:`foca.context.RequestSnapshot.url`); the query is what
+            follows the first `?`, whatever the host.
 
     Returns:
         Values of each parameter, in order, decoded as by Werkzeug: `+` as
@@ -164,7 +166,7 @@ def _get_query(url: str) -> dict[str, list[str]]:
     """
     query: dict[str, list[str]] = {}
     for key, value in parse_qsl(
-        urlsplit(url).query, keep_blank_values=True, errors=_INVALID_UTF8
+        url.partition("?")[2], keep_blank_values=True, errors=_INVALID_UTF8
     ):
         query.setdefault(key, []).append(value)
     return query
