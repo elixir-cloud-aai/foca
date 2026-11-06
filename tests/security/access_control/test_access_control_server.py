@@ -290,6 +290,44 @@ class TestPostPermission:
         assert collection.count_documents({}) == 0
 
 
+class TestBodyNames:
+    """Tests for the names of the request body of the controllers."""
+
+    def test_permission_deprecated(
+        self, app: Flask, collection: Collection[dict[str, Any]]
+    ) -> None:
+        """The body is taken as `permission`, with a deprecation warning."""
+        with (
+            app.test_request_context(),
+            pytest.warns(DeprecationWarning, match="x-body-name: permission"),
+        ):
+            post_id = unwrap(postPermission)(permission=deepcopy(MOCK_PERMISSION))
+            unwrap(putPermission)(id=MOCK_ID, permission=deepcopy(MOCK_PERMISSION))
+        assert collection.count_documents({"id": {"$in": [post_id, MOCK_ID]}}) == 2
+
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [
+            ({}, "got neither"),
+            ({"body": MOCK_PERMISSION, "permission": MOCK_PERMISSION}, "got both"),
+        ],
+    )
+    def test_neither_or_both(
+        self,
+        app: Flask,
+        collection: Collection[dict[str, Any]],
+        kwargs: dict[str, Any],
+        expected: str,
+    ) -> None:
+        """Calls with neither or both names are rejected."""
+        with app.test_request_context():
+            with pytest.raises(TypeError, match=expected):
+                unwrap(postPermission)(**deepcopy(kwargs))
+            with pytest.raises(TypeError, match=expected):
+                unwrap(putPermission)(id=MOCK_ID, **deepcopy(kwargs))
+        assert collection.count_documents({}) == 0
+
+
 class TestPutPermission:
     """Tests for updating permissions."""
 

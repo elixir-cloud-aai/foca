@@ -224,8 +224,10 @@ set: its `servers` (or `basePath`) define where the endpoints are
 served, and the `operationId` of each operation which controller handles it
 (e.g., FOCA's default controllers in
 `foca.security.access_control.access_control_server`, or your own). FOCA's
-controllers that add or change rules take the request body as `body`, so don't
-rename it via `x-body-name`.
+controllers that add or change rules take the request body as `body`, so you
+needn't set `x-body-name`; `x-body-name: permission`, as in FOCA's
+specification before 0.22.0, still works, but is deprecated, and other names
+fail.
 
 The Swagger UI and the specification of the permissions API are not served
 by default. Set `api_swagger_ui: True` to serve the Swagger UI, together with
