@@ -23,7 +23,6 @@ paths:
         content:
           application/json:
             schema:
-              x-body-name: permission
               $ref: '#/components/schemas/Permission'
       responses:
         '200':
@@ -197,7 +196,6 @@ paths:
         content:
           application/json:
             schema:
-              x-body-name: permission
               $ref: '#/components/schemas/Permission'
       responses:
         '200':

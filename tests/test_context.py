@@ -472,3 +472,46 @@ class TestCurrentRequest:
             current_request()
         with request_app.app_context(), pytest.raises(RuntimeError):
             current_request()
+
+
+class TestRequestKey:
+    """Tests for `_get_request_key()`."""
+
+    def test_per_request(self) -> None:
+        """Each request has its own key, the same throughout the request."""
+        app = Flask(__name__)
+        assert context._get_request_key() is None
+        with app.app_context():
+            assert context._get_request_key() is None
+            with app.test_request_context():
+                key = context._get_request_key()
+                assert key is not None
+                assert context._get_request_key() is key
+            with app.test_request_context():
+                assert context._get_request_key() is not key
+
+
+class TestTokenInfo:
+    """Tests for `_get_token_info()`."""
+
+    def test_outside_request(self) -> None:
+        """Outside requests, there is no token info."""
+        assert context._get_token_info() == {}
+
+    @pytest.mark.parametrize(
+        ("connexion_context", "expected"),
+        [
+            (None, {}),
+            ({}, {}),
+            ({"token_info": "invalid"}, {}),
+            ({"token_info": {"sub": "a"}}, {"sub": "a"}),
+        ],
+    )
+    def test_in_request(self, connexion_context: Any, expected: Any) -> None:
+        """In requests, it's the token info of Connexion's context, if a dict."""
+        app = Flask(__name__)
+        with app.test_request_context():
+            if connexion_context is not None:
+                # set by Connexion
+                context.request_ctx.connexion_context = connexion_context  # type: ignore[attr-defined]
+            assert context._get_token_info() == expected

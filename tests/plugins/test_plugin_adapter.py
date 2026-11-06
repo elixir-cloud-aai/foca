@@ -1,11 +1,12 @@
 """Tests of the Connexion 2 / Flask glue (`foca.plugins.adapter`)."""
 
+import codecs
 import json
 import re
 
 import pytest
 from connexion.exceptions import Forbidden
-from flask import Flask
+from flask import Flask, request
 
 from foca.api.routes import Route, _add_route
 from foca.config.access import _get_app_config
@@ -142,6 +143,76 @@ def test_repeated_headers() -> None:
     ):
         inbound = adapter.inbound_from_request(None, route="/tasks")
     assert inbound.headers["Via"] == "1.1 a, 1.1 b"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        b"a=1&a=2&b",
+        b"a=%zz&b=%41+c&c=%",
+        b"x=%ff%fe&y=\xc3\xa4&z=%C3%A4%ff%C3",
+        b"a;b=1&c=",
+        b"=v&&k=%26%3D",
+        b"q=%2B+%20",
+        b"p[]=1&p[]=2#x",
+        b"%41=1",
+    ],
+)
+def test_query_as_werkzeug(query: bytes) -> None:
+    """Query parameters are those that Werkzeug parses, in order."""
+    app = Flask(__name__)
+    with app.test_request_context(
+        "/tasks", environ_overrides={"QUERY_STRING": query.decode("latin-1")}
+    ):
+        expected = {key: request.args.getlist(key) for key in request.args}
+        inbound = adapter.inbound_from_request(None, route="/tasks")
+    assert inbound.query == expected
+
+
+def test_query_invalid_utf8() -> None:
+    """Bytes that aren't UTF-8 stay percent-encoded."""
+    app = Flask(__name__)
+    with app.test_request_context(
+        "/tasks", environ_overrides={"QUERY_STRING": "a=\xff%C3%A4"}
+    ):
+        inbound = adapter.inbound_from_request(None, route="/tasks")
+    assert inbound.query == {"a": ["%FF\u00e4"]}
+
+
+def test_query_with_invalid_host() -> None:
+    """Queries are found whatever the host of the URL."""
+    assert adapter._get_query("http://[x/p?a=1&b=%3F?") == {"a": ["1"], "b": ["??"]}
+    assert adapter._get_query("http://x/p") == {}
+
+
+def test_percent_encode_decoding_only() -> None:
+    """The error handler of the query only handles errors of decoding."""
+    handler = codecs.lookup_error(adapter._INVALID_UTF8)
+    with pytest.raises(UnicodeEncodeError):
+        "\u00e4".encode("ascii", errors=adapter._INVALID_UTF8)
+    with pytest.raises(UnicodeTranslateError):
+        handler(UnicodeTranslateError("a", 0, 1, "reason"))
+
+
+def test_header_names_and_media_type() -> None:
+    """Header names are those of WSGI; the media type has no parameters."""
+    app = Flask(__name__)
+    with app.test_request_context(
+        "/tasks",
+        method="POST",
+        data="{}",
+        headers=[
+            ("content-type", "Application/JSON; charset=utf-8"),
+            ("x-b3-traceid", "1"),
+        ],
+    ):
+        expected = list(dict.fromkeys(name for name, _ in request.headers.items()))
+        inbound = adapter.inbound_from_request(None, route="/tasks")
+    assert list(inbound.headers) == expected
+    assert "X-B3-Traceid" in expected
+    assert inbound.media_type == "application/json"
+    with app.test_request_context("/tasks"):
+        assert adapter.inbound_from_request(None).media_type == ""
 
 
 def test_problem() -> None:

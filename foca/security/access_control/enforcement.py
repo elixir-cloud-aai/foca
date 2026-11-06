@@ -12,11 +12,12 @@ from casbin import Enforcer
 from casbin.model import Model
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
-from flask import Flask, Response, current_app, g, has_request_context, request
+from flask import Flask, Response, current_app, g
 
 from foca.api.routes import _match_rule
 from foca.audit import log as audit_log
 from foca.config.access import get_config
+from foca.context import _get_request_key, current_request
 from foca.errors import Forbidden, RequestValidationProblem
 from foca.security.access_control.constants import (
     CLIENT_PREFIX,
@@ -58,8 +59,9 @@ _enforcer_cache_lock = threading.Lock()
 
 # Attribute marking the wrappers of `enforce_access_control()`
 _ENFORCING_ATTRIBUTE = "_foca_enforces_access_control"
-# Attribute of `flask.g` holding the request that policies allowed; the app
-# context can outlive a request
+# Attribute of `flask.g` holding the key of the request that policies allowed
+# (cf. `foca.context._get_request_key()`); the app context can outlive a
+# request
 _ENFORCED_MARK = "_foca_access_control_enforced"
 
 SubjectType = Literal["user", "group", "client"]
@@ -222,9 +224,9 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
     """
     if user is None:
         header = get_config().security.auth.on_behalf_of_header
-        if header is None or not has_request_context():
+        if header is None or _get_request_key() is None:
             return None
-        user = request.headers.get(header)
+        user = current_request().headers.get(header)
         if user is None:
             return None
     client = _get_current_service_client()
@@ -435,11 +437,11 @@ def _get_requested_roles() -> set[str]:
         roles are configured or there is no request.
     """
     conf = _get_access_control_config()
-    if not conf.opt_in_roles or not has_request_context():
+    if not conf.opt_in_roles or _get_request_key() is None:
         return set()
     return {
         role.strip()
-        for value in request.headers.getlist(conf.opt_in_header)
+        for value in current_request().headers.getlist(conf.opt_in_header)
         for role in value.split(",")
         if role.strip()
     }
@@ -713,7 +715,7 @@ def enforce_access_control(fn: Callable[..., Any]) -> Callable[..., Any]:
     def _wrapper(*args: Any, **kwargs: Any) -> Any:
         if not is_permitted():
             raise Forbidden
-        setattr(g, _ENFORCED_MARK, request._get_current_object())  # type: ignore[attr-defined]
+        setattr(g, _ENFORCED_MARK, _get_request_key())
         return fn(*args, **kwargs)
 
     setattr(_wrapper, _ENFORCING_ATTRIBUTE, True)
@@ -768,6 +770,7 @@ def is_permitted() -> bool:
         # identity claim, as clients cannot get tokens with the claim by
         # logging in again
         raise _unauthorized("Subject could not be identified", invalid_token=False)
+    request = current_request()
     return _is_permitted_on(subject, request.path, request.method)
 
 

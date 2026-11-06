@@ -1,14 +1,15 @@
 """Unit tests for endpoint controllers."""
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from copy import deepcopy
+from functools import wraps
 from inspect import unwrap
 from typing import Any
 
 import mongomock
 import pytest
-from flask import Flask
+from flask import Flask, request
 from flask.testing import FlaskClient
 from pymongo.collection import Collection
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
@@ -34,6 +35,24 @@ from tests.mock_data import (
     MOCK_RULE_USER_INPUT_OUTPUT,
     MONGO_CONFIG,
 )
+
+
+def _passing_body(controller: Callable[..., Any]) -> Callable[..., Any]:
+    """Make a view passing the request body to a controller, as Connexion does.
+
+    Args:
+        controller: Controller taking the request body as `body`.
+
+    Returns:
+        View passing the JSON body of the request and the path parameters.
+    """
+
+    @wraps(controller)
+    def _view(**kwargs: Any) -> Any:
+        """Call the controller with the body of the request."""
+        return controller(body=request.get_json(silent=True), **kwargs)
+
+    return _view
 
 
 @pytest.fixture
@@ -232,8 +251,8 @@ class TestPostPermission:
 
     def test_post(self, app: Flask, collection: Collection[dict[str, Any]]) -> None:
         """Identifiers are assigned by the implementation."""
-        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
-            res = unwrap(postPermission)()
+        with app.test_request_context():
+            res = unwrap(postPermission)(body=deepcopy(MOCK_PERMISSION))
         stored = collection.find_one({"id": res}, projection={"_id": False})
         assert stored == {
             "id": res,
@@ -250,8 +269,11 @@ class TestPostPermission:
         """
         app.config["casbin_adapter"].id_charset = "ab"
         app.config["casbin_adapter"].id_length = 8
-        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
-            ids = {unwrap(postPermission)() for _ in range(10)}
+        with app.test_request_context():
+            ids = {
+                unwrap(postPermission)(body=deepcopy(MOCK_PERMISSION))
+                for _ in range(10)
+            }
         assert len(ids) == 10
         assert all(len(id) == 8 and set(id) <= {"a", "b"} for id in ids)
 
@@ -261,10 +283,48 @@ class TestPostPermission:
     ) -> None:
         """Invalid payloads are rejected."""
         with (
-            app.test_request_context(json=deepcopy(payload)),
+            app.test_request_context(),
             pytest.raises(BadRequest),
         ):
-            unwrap(postPermission)()
+            unwrap(postPermission)(body=deepcopy(payload))
+        assert collection.count_documents({}) == 0
+
+
+class TestBodyNames:
+    """Tests for the names of the request body of the controllers."""
+
+    def test_permission_deprecated(
+        self, app: Flask, collection: Collection[dict[str, Any]]
+    ) -> None:
+        """The body is taken as `permission`, with a deprecation warning."""
+        with (
+            app.test_request_context(),
+            pytest.warns(DeprecationWarning, match="x-body-name: permission"),
+        ):
+            post_id = unwrap(postPermission)(permission=deepcopy(MOCK_PERMISSION))
+            unwrap(putPermission)(id=MOCK_ID, permission=deepcopy(MOCK_PERMISSION))
+        assert collection.count_documents({"id": {"$in": [post_id, MOCK_ID]}}) == 2
+
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [
+            ({}, "got neither"),
+            ({"body": MOCK_PERMISSION, "permission": MOCK_PERMISSION}, "got both"),
+        ],
+    )
+    def test_neither_or_both(
+        self,
+        app: Flask,
+        collection: Collection[dict[str, Any]],
+        kwargs: dict[str, Any],
+        expected: str,
+    ) -> None:
+        """Calls with neither or both names are rejected."""
+        with app.test_request_context():
+            with pytest.raises(TypeError, match=expected):
+                unwrap(postPermission)(**deepcopy(kwargs))
+            with pytest.raises(TypeError, match=expected):
+                unwrap(putPermission)(id=MOCK_ID, **deepcopy(kwargs))
         assert collection.count_documents({}) == 0
 
 
@@ -290,9 +350,9 @@ class TestPutPermission:
                 "generations": ["0" * 24],
             }
         )
-        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
+        with app.test_request_context():
             with pytest.raises(Conflict):
-                unwrap(putPermission)(id=MOCK_ID)
+                unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
             with pytest.raises(NotFound):
                 unwrap(deletePermission)(id=MOCK_ID)
         document = collection.find_one({"id": MOCK_ID})
@@ -307,10 +367,10 @@ class TestPutPermission:
             {**deepcopy(MOCK_RULE), "id": MOCK_ID, "configured": True}
         )
         with (
-            app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
+            app.test_request_context(),
             pytest.raises(Conflict),
         ):
-            unwrap(putPermission)(id=MOCK_ID)
+            unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
         document = collection.find_one({"id": MOCK_ID})
         assert document is not None
         assert document["configured"] is True
@@ -320,8 +380,11 @@ class TestPutPermission:
         collection.insert_one(
             {"id": MOCK_ID, "ptype": "g", "v0": "a", "v1": "b", "foo": "bar"}
         )
-        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
-            assert unwrap(putPermission)(id=MOCK_ID) == MOCK_ID
+        with app.test_request_context():
+            assert (
+                unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
+                == MOCK_ID
+            )
         assert collection.find_one({"id": MOCK_ID}, projection={"_id": False}) == {
             "id": MOCK_ID,
             "ptype": "p",
@@ -334,9 +397,9 @@ class TestPutPermission:
         self, app: Flask, collection: Collection[dict[str, Any]]
     ) -> None:
         """Created and updated permissions are stored alike."""
-        with app.test_request_context(json=deepcopy(MOCK_PERMISSION)):
-            post_id = unwrap(postPermission)()
-            unwrap(putPermission)(id=MOCK_ID)
+        with app.test_request_context():
+            post_id = unwrap(postPermission)(body=deepcopy(MOCK_PERMISSION))
+            unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
         posted, put = (
             collection.find_one({"id": id}, projection={"_id": False, "id": False})
             for id in [post_id, MOCK_ID]
@@ -349,10 +412,10 @@ class TestPutPermission:
     ) -> None:
         """Invalid identifiers are rejected."""
         with (
-            app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
+            app.test_request_context(),
             pytest.raises(BadRequest),
         ):
-            unwrap(putPermission)(id=id)
+            unwrap(putPermission)(id=id, body=deepcopy(MOCK_PERMISSION))
         assert collection.count_documents({}) == 0
 
     @pytest.mark.parametrize("payload", ["", *MOCK_PERMISSIONS_INVALID])
@@ -361,10 +424,10 @@ class TestPutPermission:
     ) -> None:
         """Invalid payloads are rejected."""
         with (
-            app.test_request_context(json=deepcopy(payload)),
+            app.test_request_context(),
             pytest.raises(BadRequest),
         ):
-            unwrap(putPermission)(id=MOCK_ID)
+            unwrap(putPermission)(id=MOCK_ID, body=deepcopy(payload))
         assert collection.count_documents({}) == 0
 
 
@@ -419,10 +482,10 @@ class TestLogging:
     def test_put_invalid_id(self, app: Flask, caplog: pytest.LogCaptureFixture) -> None:
         """Invalid identifiers are logged escaped."""
         with (
-            app.test_request_context(json=deepcopy(MOCK_PERMISSION)),
+            app.test_request_context(),
             pytest.raises(BadRequest),
         ):
-            unwrap(putPermission)(id=self.ID)
+            unwrap(putPermission)(id=self.ID, body=deepcopy(MOCK_PERMISSION))
         self._assert_escaped(caplog)
 
 
@@ -443,9 +506,9 @@ class TestTrafficLogging:
     def client(self, app: Flask) -> FlaskClient:
         """Client of an app routing requests to the controllers."""
         for path, method, controller in [
-            ("/permissions", "POST", postPermission),
+            ("/permissions", "POST", _passing_body(postPermission)),
             ("/permissions", "GET", getAllPermissions),
-            ("/permissions/<id>", "PUT", putPermission),
+            ("/permissions/<id>", "PUT", _passing_body(putPermission)),
             ("/permissions/<id>", "GET", getPermission),
             ("/permissions/<id>", "DELETE", deletePermission),
         ]:

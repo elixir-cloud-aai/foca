@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from celery import current_task
 from flask import has_request_context, request
+from flask.globals import request_ctx
 
 from foca.api.routes import match
 
@@ -213,6 +214,43 @@ def current_request() -> RequestSnapshot:
         route=None if found is None else found.route.path,
         path_params=MappingProxyType({} if found is None else found.params),
     )
+
+
+def _get_request_key() -> object | None:
+    """Get an object identifying the request being handled.
+
+    For FOCA's marks that must not apply to other requests, e.g., in an app
+    context that outlives a request.
+
+    Returns:
+        The same object throughout a request and another one for each
+        request, or `None` if no request is being handled.
+    """
+    if not has_request_context():
+        return None
+    return request._get_current_object()  # type: ignore[attr-defined]
+
+
+def _get_token_info() -> dict[str, Any]:
+    """Get the token info of the current request, without copying it.
+
+    For FOCA's own reads; callers must not change it (cf.
+    :py:func:`foca.security.auth.current_token_info`).
+
+    Returns:
+        Token info that Connexion's security handler got for the current
+        request, or an empty dictionary if there is no request, the request
+        was not handled by Connexion, or no token was validated.
+    """
+    if not has_request_context():
+        return {}
+    # Connexion stores the request's context (including validated token
+    # info) on Flask's request context (cf. `connexion.context`)
+    connexion_context = getattr(request_ctx, "connexion_context", None)
+    if connexion_context is None:
+        return {}
+    token_info = connexion_context.get("token_info")
+    return token_info if isinstance(token_info, dict) else {}
 
 
 class _ResponseBody:

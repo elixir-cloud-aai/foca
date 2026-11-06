@@ -5,11 +5,12 @@ Requests and responses are logged unless disabled via config option
 """
 
 import logging
+import warnings
 from math import ceil
 from typing import Any, NoReturn
 
 from casbin.model import Model
-from flask import current_app, request
+from flask import current_app
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -34,6 +35,9 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
 from foca.utils.logging import escape_log_value, log_traffic_if
 
 logger = logging.getLogger(__name__)
+
+# Default of the request body arguments, telling missing ones from `None`
+_MISSING: Any = object()
 
 # Filter for stored policy rules that can be returned as permissions
 _PERMISSION_FILTER = {"ptype": {"$type": "string"}}
@@ -104,8 +108,46 @@ def _get_visibility_filter() -> dict[str, Any]:
     return {"v0": {"$in": [*_get_current_policy_subjects(), "*"]}}
 
 
-def _get_rule() -> tuple[str, list[str]]:
-    """Get and validate policy rule from request payload.
+def _get_body(body: Any, permission: Any) -> Any:
+    """Get the request body that Connexion passed to a controller.
+
+    Args:
+        body: Request body under its default name (`body`), if passed.
+        permission: Request body under the name that FOCA's specification of
+            the permissions API set via `x-body-name` before 0.22.0
+            (`permission`), if passed; deprecated.
+
+    Returns:
+        The request body.
+
+    Raises:
+        TypeError: Neither or both were passed, e.g., because the
+            specification renames the request body to another name.
+    """
+    if (body is _MISSING) == (permission is _MISSING):
+        raise TypeError(
+            "Controllers of the permissions API take the request body as "
+            "exactly one of 'body' (the default) or 'permission' (via "
+            "'x-body-name: permission', deprecated); got "
+            f"{'neither' if body is _MISSING else 'both'}"
+        )
+    if body is not _MISSING:
+        return body
+    warnings.warn(
+        "The request body of the permissions API as 'permission' (via "
+        "'x-body-name: permission') is deprecated; remove 'x-body-name' from "
+        "the operations of 'access_control.api_specs'.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    return permission
+
+
+def _get_rule(body: Any) -> tuple[str, list[str]]:
+    """Get and validate the policy rule of a request body.
+
+    Args:
+        body: Request body, as Connexion passes it.
 
     Returns:
         Policy type and values of the rule.
@@ -118,14 +160,11 @@ def _get_rule() -> tuple[str, list[str]]:
             or values are missing, or it is a role rule that grants an
             opt-in role (cf. :py:func:`grants_opt_in_role`).
     """
-    request_json = request.get_json(silent=True)
-    if not isinstance(request_json, dict) or not isinstance(
-        request_json.get("rule"), dict
-    ):
+    if not isinstance(body, dict) or not isinstance(body.get("rule"), dict):
         logger.error("Invalid request payload.")
         raise BadRequest
-    ptype = request_json.get("policy_type")
-    rule = request_json["rule"]
+    ptype = body.get("policy_type")
+    rule = body["rule"]
     keys = [f"v{index}" for index in range(MAX_RULE_VALUES)][: len(rule)]
     try:
         if set(rule) != set(keys):
@@ -211,13 +250,24 @@ def _to_permission(document: dict[str, Any]) -> dict[str, Any]:
 
 
 @log_traffic_if(_permissions_traffic_logged)
-def postPermission() -> str:
+def postPermission(*, body: Any = _MISSING, permission: Any = _MISSING) -> str:
     """Method to register new permissions.
+
+    Args:
+        body: Permission to add: the request body, which Connexion passes
+            as `body`.
+        permission: The request body, for specifications that rename it via
+            `x-body-name: permission`, as FOCA's did before 0.22.0;
+            deprecated. Exactly one of `body` and `permission` is passed.
 
     Returns:
         Identifier of the new permission added.
+
+    Raises:
+        foca.errors.BadRequest: The rule is invalid.
+        TypeError: Neither or both of `body` and `permission` were passed.
     """
-    ptype, values = _get_rule()
+    ptype, values = _get_rule(_get_body(body, permission))
     permission_id = current_app.config["casbin_adapter"].save_policy_line(
         ptype=ptype,
         rule=values,
@@ -229,11 +279,18 @@ def postPermission() -> str:
 @log_traffic_if(_permissions_traffic_logged)
 def putPermission(
     id: str,
+    *,
+    body: Any = _MISSING,
+    permission: Any = _MISSING,
 ) -> str:
     """Update permission with a user-supplied ID.
 
     Args:
         id: Identifier of permission to be updated.
+        body: Permission: the request body, which Connexion passes as
+            `body` (cf. :py:func:`postPermission`).
+        permission: The request body under its deprecated name (cf.
+            :py:func:`postPermission`).
 
     Returns:
         Identifier of updated permission.
@@ -244,12 +301,13 @@ def putPermission(
             and `access_control.id_charset`, or the rule is invalid.
         foca.errors.Conflict: The rule is set via the app's
             configuration (`access_control.policies`).
+        TypeError: Neither or both of `body` and `permission` were passed.
     """
     conf = get_config().security.access_control
     if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
         logger.error("Invalid policy rule identifier: '%s'", escape_log_value(id))
         raise BadRequest
-    ptype, values = _get_rule()
+    ptype, values = _get_rule(_get_body(body, permission))
     _check_not_configured(id)
     previous = _get_stored_rule(id)
     try:

@@ -110,6 +110,20 @@ Take path, query and body parameters, e.g., instead of `request.json` or
 `request.args`, from the arguments that Connexion passes to controllers. See
 [Reading the current request](utilities.md#reading-the-current-request).
 
+FOCA's own access control, resource ownership, token validation and plugin
+gateway read the request in the same way. The controllers of the permissions
+API, `postPermission()` and `putPermission()`, take the rule as the request
+body that Connexion passes as `body`, so FOCA's specification no longer sets
+`x-body-name`. Specifications of your own that route operations to them
+(e.g., via `access_control.api_specs`, copied from FOCA's) keep working with
+`x-body-name: permission`, but it is deprecated: the controllers emit a
+`DeprecationWarning` for requests that pass the body as `permission`, which
+Python shows only where deprecation warnings are enabled, e.g., in tests or
+with `-W default::DeprecationWarning`, so check your specifications.
+Remove `x-body-name` from their request bodies; with any other name, the
+controllers fail (`500`). When you call them directly, e.g., in tests, pass
+the rule as keyword argument `body`.
+
 ## Invalid fields in `400` responses
 
 Nothing breaks: responses to invalid requests keep their `title`, `status`

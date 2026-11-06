@@ -1,9 +1,11 @@
 """Tests for config-driven access control enforcement and helpers."""
 
 import logging
+import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from copy import deepcopy
+from importlib.resources import files
 from importlib.resources import path as resource_path
 from pathlib import Path
 from typing import Any, ClassVar
@@ -56,6 +58,7 @@ from foca.security.access_control import (
 )
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
+    DEFAULT_API_SPEC_PATH,
     DEFAULT_MODEL_FILE,
     RESOURCE_ROLE_MODEL_FILE,
 )
@@ -987,6 +990,61 @@ class TestSelfService:
         url = f"{self.url}/{own}"
         assert client.put(url, json=payload, headers=headers).status_code == 403
         assert client.delete(url, headers=headers).status_code == 403
+
+    @pytest.mark.parametrize("old_spec", [False, True])
+    def test_writes_get_body(self, tmp_path: Path, old_spec: bool) -> None:
+        """Admins add and change rules with the body that Connexion passes.
+
+        Also with copies of FOCA's specification from before 0.22.0, which
+        renamed the body via `x-body-name: permission`.
+        """
+        kwargs: dict[str, Any] = {}
+        if old_spec:
+            spec = (
+                files(ACCESS_CONTROL_BASE_PATH)
+                .joinpath(DEFAULT_API_SPEC_PATH)
+                .read_text(encoding="utf-8")
+            )
+            ref = "              $ref: '#/components/schemas/Permission'"
+            schema = f"            schema:\n{ref}"
+            assert spec.count(schema) == 2
+            old = tmp_path / "old-specs.yaml"
+            old.write_text(
+                spec.replace(
+                    schema,
+                    schema.replace(
+                        ref, f"              x-body-name: permission\n{ref}"
+                    ),
+                ),
+                encoding="utf-8",
+            )
+            kwargs["api_specs"] = str(old)
+        app = _create_app(tmp_path, _access_control_config(**kwargs))
+        client = app.test_client()
+        headers = _headers("carol")
+        rule = {"v0": "user:x", "v1": "/a", "v2": "GET"}
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            response = client.post(
+                self.url, json={"policy_type": "p", "rule": rule}, headers=headers
+            )
+            assert response.status_code == 200
+            rule_id = _json(response)
+            assert self._id(app, v0="user:x", v1="/a") == rule_id
+            response = client.put(
+                f"{self.url}/{rule_id}",
+                json={"policy_type": "p", "rule": {**rule, "v2": "PUT"}},
+                headers=headers,
+            )
+            assert response.status_code == 200
+        assert self._id(app, v0="user:x", v2="PUT") == rule_id
+        deprecated = [
+            warning
+            for warning in caught
+            if "permissions API as 'permission'" in str(warning.message)
+        ]
+        assert len(deprecated) == (2 if old_spec else 0)
+        assert all(w.category is DeprecationWarning for w in deprecated)
 
     @pytest.mark.parametrize("self_service", [False, True])
     def test_owners_manage_access(self, tmp_path: Path, self_service: bool) -> None:
