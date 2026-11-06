@@ -172,7 +172,7 @@ def post_pet(body: dict) -> tuple[dict, int, dict[str, str]]:
 
 With `public_url: https://api.example.org/my-app/`, this returns
 `https://api.example.org/my-app/pets/<pet_id>`. The path follows the public
-URL and the root path of the app (`request.script_root`), both
+URL and the root path of the app (`current_request().root_path`), both
 percent-encoded (e.g., `/pets/a b` becomes `/pets/a%20b`). URLs have no
 trailing slash, unless they are the root of the host (e.g.,
 `https://api.example.org/`). Slashes in the path separate segments, so do not
@@ -207,21 +207,32 @@ from foca.context import current_request
 def get_task(id: str) -> dict:
     request = current_request()
     request.method  # "GET"
+    request.protocol  # "HTTP/1.1", as the server gives it
     request.path  # "/ga4gh/tes/v1/tasks/123"
     request.root_path  # "/tes", the root path of the app (`SCRIPT_NAME`)
     request.url  # "https://example.org/tes/ga4gh/tes/v1/tasks/123?view=FULL"
+    request.query["view"]  # "FULL", as sent; `getlist()` for all values
     request.headers["accept"]  # case-insensitive; `getlist()` for all values
     request.content_length  # `None` if not declared
     request.client_address  # "203.0.113.5"
     request.route  # "/ga4gh/tes/v1/tasks/{id}"
+    request.operation_id  # "GetTask", as in the specification
     request.path_params  # {"id": "123"}
     ...
 ```
 
 `path` is below the root path of the app and not percent-encoded, as in
-[access control policies](access-control.md#checking-other-paths); `route` and
-`path_params` are those of [`match()`](#finding-the-route-of-a-path) for the
-path and method, or `None` and empty if no operation serves the request. The
+[access control policies](access-control.md#checking-other-paths); `route`,
+`operation_id` and `path_params` are those of
+[`match()`](#finding-the-route-of-a-path) for the path and method, or `None`
+and empty if no operation serves the request. `operation_id` is the
+`operationId` of the specification, or the one the resolver gave if the
+specification has none. `query` holds the query parameters as sent, decoded as
+by Werkzeug (`+` as space, blank values kept, bytes that aren't UTF-8 left
+percent-encoded), with case-sensitive names; it is meant for building URLs,
+e.g., links to other pages of a list, while controllers take the parameters of
+their operation, converted and checked, from their arguments. Its
+representation, like that of `headers`, shows names only. The
 snapshot doesn't change with the request; take a new one where needed.
 Outside requests, e.g., on startup or in Celery tasks, `current_request()`
 raises a `RuntimeError`.
@@ -239,7 +250,7 @@ from foca.api.routes import get_routes, match
 found = match("/ga4gh/tes/v1/tasks/123", "GET")
 if found is not None:
     found.route.path  # "/ga4gh/tes/v1/tasks/{id}"
-    found.route.operation_id  # "GetTask"
+    found.route.operation_id  # "GetTask", as in the specification
     found.params  # {"id": "123"}
 ```
 

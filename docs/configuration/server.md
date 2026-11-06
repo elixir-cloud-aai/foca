@@ -41,7 +41,11 @@ binds to the address and port it is configured with.
     larger. Such bodies are kept in memory for the request, and parsing them
     (e.g., as form data) may need about as much memory again. Requests with
     an invalid declared size (not a plain decimal integer) are rejected with
-    `400` without reading their body.
+    `400` without reading their body. This check is middleware: it is the
+    one place of FOCA that reads the raw input of requests (`wsgi.input`)
+    rather than [the snapshot of the current
+    request](../utilities.md#reading-the-current-request), and it moves to
+    ASGI middleware with FOCA's release on ASGI.
 
 ## Public URL
 

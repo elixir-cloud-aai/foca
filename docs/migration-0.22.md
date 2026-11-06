@@ -102,6 +102,10 @@ give), read the request in controllers and helpers via FOCA's accessors:
 | Instead of | Use |
 | --- | --- |
 | `flask.request.method`, `.path`, `.script_root`, `.url`, `.headers`, `.content_length`, `.remote_addr` | `foca.context.current_request()`: `method`, `path`, `root_path`, `url`, `headers`, `content_length`, `client_address` |
+| `flask.request.environ["SERVER_PROTOCOL"]` | `current_request().protocol` |
+| `flask.request.args`, to build URLs (e.g., links to other pages) | `current_request().query` (as sent, read-only; `getlist()` for all values) |
+| `flask.request.endpoint` | `current_request().operation_id` (the `operationId` of the specification), or `foca.utils.urls.get_operation_id()` |
+| `flask.request.blueprint`, to find the API of the request | `foca.utils.urls.get_api_base_path()` |
 | `flask.request.url_rule`, `.view_args` | `current_request().route` (the path template of the specification with the base path of the API, e.g., `/ga4gh/tes/v1/tasks/{id}`, not Flask's `<id>`), `.path_params` |
 | `request_ctx.connexion_context["token_info"]`, `connexion.context` | `foca.security.auth.current_token_info()` |
 | Claims from the token info | `foca.security.auth.current_claims()` (`get_current_claims()` returns the same) |
@@ -110,8 +114,26 @@ Take path, query and body parameters, e.g., instead of `request.json` or
 `request.args`, from the arguments that Connexion passes to controllers. See
 [Reading the current request](utilities.md#reading-the-current-request).
 
-FOCA's own access control, resource ownership, token validation and plugin
-gateway read the request in the same way. The controllers of the permissions
+FOCA's own access control, resource ownership, token validation, plugin
+gateway, URL and pagination helpers, logging and request validation read the
+request in the same way. The one exception is the request body size limit
+(`server.max_content_length`), which is middleware: it reads the raw input
+(`wsgi.input`) before Connexion does, and moves to ASGI middleware with the
+release on ASGI. What changes with it:
+
+- The `operation_id` field of [log records](configuration/log.md) and the
+  operation named in logs of nonconforming responses come from FOCA's route
+  table: the `operationId` of the specification, also for operations routed
+  via `x-openapi-router-controller` (before, e.g., `controllers_findPets` for
+  `findPets`), and empty for routes that aren't operations of the app's
+  specifications (e.g., added via Flask, or Flask's automatic answers to
+  `OPTIONS`), and for Connexion apps not created by FOCA.
+- `get_api_base_path()` and `get_resource_path()` find the API of the
+  current request from FOCA's registry of APIs instead of Flask's
+  blueprints. For requests to routes that aren't operations (e.g., the
+  Swagger UI of an API), they fall back as for requests outside the APIs.
+- Query strings that aren't UTF-8 no longer fail pagination links or the
+  check for unexpected query parameters; such bytes stay percent-encoded. The controllers of the permissions
 API, `postPermission()` and `putPermission()`, take the rule as the request
 body that Connexion passes as `body`, so FOCA's specification no longer sets
 `x-body-name`. Specifications of your own that route operations to them
