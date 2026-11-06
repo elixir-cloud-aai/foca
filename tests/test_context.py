@@ -546,6 +546,32 @@ def test_percent_encode_decoding_only() -> None:
         handler(UnicodeTranslateError("a", 0, 1, "reason"))
 
 
+class TestMatchRequest:
+    """Tests for `_match_request()` and `_get_operation_id()`."""
+
+    def test_outside_request(self, request_app: Flask) -> None:
+        """Outside requests, there is no route and no operation."""
+        assert context._match_request() is None
+        assert context._get_operation_id() == ""
+        with request_app.app_context():
+            assert context._match_request() is None
+            assert context._get_operation_id() == ""
+
+    def test_no_route(self, request_app: Flask) -> None:
+        """Requests that no operation serves have no route and no operation."""
+        with request_app.test_request_context("/other"):
+            assert context._match_request() is None
+            assert context._get_operation_id() == ""
+
+    def test_route(self, request_app: Flask) -> None:
+        """Requests to operations have their route and operation."""
+        with request_app.test_request_context("/api/v1/items/a/1", method="POST"):
+            found = context._match_request()
+            assert found is not None
+            assert found.route.path == "/api/v1/items/{item-id}/{count}"
+            assert context._get_operation_id() == f"{__name__}.view_request"
+
+
 class TestRequestKey:
     """Tests for `_get_request_key()`."""
 

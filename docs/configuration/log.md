@@ -65,7 +65,7 @@ fields to the records of all handlers without their own `filters`. To opt out, s
 | Field | Value |
 |-------|-------|
 | `request_id` | [Identifier of the request](server.md#request-ids), or of the Celery task |
-| `operation_id` | Operation of the request, as in the specification (or as resolved, if it has no `operationId`); empty for routes that aren't operations of APIs that FOCA registered (e.g., added via Flask, the Swagger UI, automatic answers to `OPTIONS`) |
+| `operation_id` | Operation of the request, as in the specification (or as resolved, if it has no `operationId`); empty for routes that aren't operations of APIs added via Connexion (e.g., routes added via Flask, the Swagger UI, automatic answers to `OPTIONS`) |
 | `subject` | Subject of the validated token |
 | `client` | Client of the validated token (claim `client_id` or `azp`) |
 
