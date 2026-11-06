@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from connexion import App
+from connexion.resolver import Resolver
 from flask import Flask, request
 from werkzeug.routing import Map
 
@@ -48,6 +49,21 @@ def view_d() -> str:
 def view_e() -> str:
     """Serve an operation."""
     return "e"
+
+
+class _OtherResolver(Resolver):
+    """Resolver of operations without identifiers to `view_e()`."""
+
+    def resolve_operation_id(self, operation: Any) -> str:
+        """Resolve the identifier of an operation.
+
+        Args:
+            operation: Connexion operation.
+
+        Returns:
+            Its identifier, or that of `view_e()` if it has none.
+        """
+        return operation.operation_id or f"{__name__}.view_e"
 
 
 def _operation(operation_id: str, **fields: Any) -> dict[str, Any]:
@@ -133,9 +149,20 @@ class TestGetRoutes:
         routes = {(r.method, r.path): r for r in get_routes(cnx_app.app)}
         route = routes[("POST", "/api/v1/items/{item-id}/{count}")]
         assert route.rule == "/api/v1/items/<item_id>/<int:count>"
+        assert route.base_path == "/api/v1"
         assert route.operation_id == f"{__name__}.view_c"
         assert route.function is view_c
         assert routes[("GET", "/api/v1/items")].extensions == {"x-foca-marker": "m"}
+
+    def test_operation_id_resolved(self) -> None:
+        """Operations without identifiers go by the resolved ones."""
+        spec = _spec()
+        del spec["paths"]["/other"]["get"]["operationId"]
+        app = create_connexion_app()
+        app.add_api(spec, resolver=_OtherResolver())
+        routes = {(r.method, r.path): r for r in get_routes(app.app)}
+        assert routes[("GET", "/api/v1/other")].operation_id == f"{__name__}.view_e"
+        assert routes[("GET", "/api/v1/items")].operation_id == f"{__name__}.view_a"
 
     def test_security(self) -> None:
         """Effective security requirements are recorded."""

@@ -7,9 +7,7 @@ from datetime import UTC, datetime
 from functools import wraps
 from typing import Any
 
-from flask import has_request_context, request
-
-from foca.context import request_id
+from foca.context import _has_request, current_request, request_id
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +50,7 @@ def _get_context() -> dict[str, str]:
     """
     context = dict.fromkeys(_CONTEXT_FIELDS, "")
     context["request_id"] = escape_log_value(request_id())
-    if not has_request_context():
+    if not _has_request():
         return context
     # Import cycles, as these modules log
     from foca.security.access_control.enforcement import (  # noqa: PLC0415
@@ -188,9 +186,10 @@ def _describe_request() -> str:
         the client, e.g., ``"GET /pets HTTP/1.1" from 127.0.0.1``, with
         non-printable characters escaped.
     """
-    protocol = request.environ.get("SERVER_PROTOCOL", "")
+    request = current_request()
     return escape_log_value(
-        f'"{request.method} {request.path} {protocol}" from {request.remote_addr}'
+        f'"{request.method} {request.path} {request.protocol}" '
+        f"from {request.client_address}"
     )
 
 
@@ -377,7 +376,7 @@ def log_traffic_if(
             Returns:
                 Return value of the function.
             """
-            if has_request_context() and enabled():
+            if _has_request() and enabled():
                 return logged(*args, **kwargs)
             return fn(*args, **kwargs)
 

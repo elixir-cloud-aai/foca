@@ -36,9 +36,9 @@ from connexion.decorators.validation import (
 )
 from connexion.resolver import Resolution, Resolver
 from connexion.utils import is_null, is_nullable
-from flask import request
 from jsonschema import Draft4Validator, draft4_format_checker
 
+from foca.context import current_request
 from foca.errors import (
     ExtraParameterProblem,
     InvalidFieldsProblem,
@@ -453,7 +453,7 @@ class StrictParametersResolver(Resolver):
             """
             # Operations only know their parameters after being resolved
             if not operation.parameters:
-                extra = set(request.args) - _api_key_names(operation)
+                extra = set(current_request().query) - _api_key_names(operation)
                 if extra:
                     raise ExtraParameterProblem([], sorted(extra))
             return function(*args, **kwargs)

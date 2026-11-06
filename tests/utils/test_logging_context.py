@@ -12,12 +12,14 @@ from unittest.mock import MagicMock
 
 import pytest
 import yaml
+from connexion.resolver import Resolver
 from flask import Flask
 from pydantic import ValidationError
 
 from foca import context
 from foca.config.config_parser import ConfigParser
 from foca.context import RequestIdMiddleware
+from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
     LogConfig,
     LogFilterConfig,
@@ -27,9 +29,61 @@ from foca.models.config import (
 from foca.security.access_control import enforcement
 from foca.utils import logging as module
 from foca.utils.logging import ContextFilter, JsonFormatter, escape_log_value
-from foca.utils.urls import _register_api, get_operation_id
+from foca.utils.urls import get_operation_id
 
 CONTEXT_FIELDS = ("request_id", "operation_id", "subject", "client")
+
+
+class _KeepRecordResolver(Resolver):
+    """Resolver of all operations to a view keeping records with the context.
+
+    Args:
+        records: Records kept, for each request.
+
+    Attributes:
+        records: Records kept, for each request.
+    """
+
+    def __init__(self, records: list[logging.LogRecord] | None = None) -> None:
+        """Create the resolver.
+
+        Args:
+            records: Records kept, for each request.
+        """
+        super().__init__(function_resolver=lambda _: self._keep_record)
+        self.records = [] if records is None else records
+
+    def _keep_record(self) -> str:
+        """Serve an operation, keeping a record with the context.
+
+        Returns:
+            Empty body.
+        """
+        record = _record()
+        ContextFilter().filter(record)
+        self.records.append(record)
+        return ""
+
+
+def _spec() -> dict[str, Any]:
+    """Build a specification with the operation `my_app.getThings`.
+
+    Returns:
+        OpenAPI 3 specification, with base path `/api`.
+    """
+    return {
+        "openapi": "3.0.3",
+        "info": {"title": "Test", "version": "1"},
+        "servers": [{"url": "/api"}],
+        "paths": {
+            "/things": {
+                "get": {
+                    "operationId": "my_app.getThings",
+                    "responses": {"200": {"description": "OK"}},
+                }
+            }
+        },
+    }
 
 
 def _record(msg: str = "hello", **extra: Any) -> logging.LogRecord:
@@ -83,22 +137,12 @@ class TestContextFilter:
         """In requests, the record has the fields of the request."""
         monkeypatch.setattr(enforcement, "get_current_subject", lambda: "alice")
         monkeypatch.setattr(enforcement, "_get_claims", lambda: {"azp": "client-1"})
-        app = Flask(__name__)
-        records = []
-
-        @app.route("/", endpoint="/api.my_app_getThings")
-        def _view() -> str:
-            """Keep a record."""
-            record = _record()
-            ContextFilter().filter(record)
-            records.append(record)
-            return ""
-
-        _register_api(app, "/api", [{"operationId": "my_app.getThings"}])
-        app.wsgi_app = RequestIdMiddleware(  # type: ignore[method-assign]
-            app.wsgi_app, trust_incoming=True
-        )
-        app.test_client().get("/", headers={"X-Request-ID": "abc-1"})
+        records: list[logging.LogRecord] = []
+        cnx_app = create_connexion_app()
+        cnx_app.add_api(_spec(), resolver=_KeepRecordResolver(records))
+        app = cnx_app.app
+        app.wsgi_app = RequestIdMiddleware(app.wsgi_app, trust_incoming=True)
+        app.test_client().get("/api/things", headers={"X-Request-ID": "abc-1"})
         assert vars(records[0])["request_id"] == "abc-1"
         assert vars(records[0])["operation_id"] == "my_app.getThings"
         assert vars(records[0])["subject"] == "alice"
@@ -147,12 +191,19 @@ class TestGetOperationId:
         with Flask(__name__).test_request_context("/missing"):
             assert get_operation_id() == ""
 
-    def test_unknown_operation(self) -> None:
-        """Other endpoints go by their names."""
+    def test_not_an_operation(self) -> None:
+        """Routes that aren't operations, e.g., added via Flask, have none."""
         app = Flask(__name__)
         app.add_url_rule("/", "/api.other", lambda: "")
         with app.test_request_context("/"):
-            assert get_operation_id() == "other"
+            assert get_operation_id() == ""
+
+    def test_operation(self) -> None:
+        """Operations go by their identifiers in the specification."""
+        cnx_app = create_connexion_app()
+        cnx_app.add_api(_spec(), resolver=_KeepRecordResolver())
+        with cnx_app.app.test_request_context("/api/things"):
+            assert get_operation_id() == "my_app.getThings"
 
 
 class TestJsonFormatter:

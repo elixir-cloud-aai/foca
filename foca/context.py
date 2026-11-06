@@ -1,5 +1,6 @@
 """Context of the current request, independent of the web framework."""
 
+import codecs
 import re
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -7,13 +8,13 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote
 
 from celery import current_task
 from flask import has_request_context, request
 from flask.globals import request_ctx
 
-from foca.api.routes import match
+from foca.api.routes import RouteMatch, match
 
 DEFAULT_REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -30,6 +31,30 @@ _PATH_SAFE = "/:@!$&'()*+,;=~"
 _QUERY_SAFE = _PATH_SAFE + "?%"
 # Percent signs that don't start escapes
 _INVALID_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+# Error handler leaving bytes that aren't UTF-8 percent-encoded, as Werkzeug
+# does for query parameters
+_INVALID_UTF8 = "foca.percent_encode"
+
+
+def _percent_encode(exc: UnicodeError) -> tuple[str, int]:
+    """Percent-encode bytes that can't be decoded.
+
+    Args:
+        exc: Error of decoding.
+
+    Returns:
+        The bytes, percent-encoded, and where to continue decoding.
+
+    Raises:
+        UnicodeError: Raised for errors other than of decoding.
+    """
+    if not isinstance(exc, UnicodeDecodeError):
+        raise exc
+    invalid = exc.object[exc.start : exc.end]
+    return "".join(f"%{byte:02X}" for byte in invalid), exc.end
+
+
+codecs.register_error(_INVALID_UTF8, _percent_encode)
 
 
 def request_id() -> str:
@@ -47,7 +72,96 @@ def request_id() -> str:
     return ""
 
 
-class Headers(Mapping[str, str]):
+class _MultiValues(Mapping[str, str]):
+    """Read-only fields of a request that may have several values per name.
+
+    As a mapping, names give their first value; :py:meth:`getlist` gives all
+    values of a name.
+
+    Args:
+        items: Names and values of the fields, in order.
+    """
+
+    def __init__(self, items: Iterable[tuple[str, str]]) -> None:
+        """Copy fields.
+
+        Args:
+            items: Names and values of the fields, in order.
+        """
+        self._values: dict[str, list[str]] = {}
+        for name, value in items:
+            self._values.setdefault(self._key(name), []).append(value)
+
+    # Subclasses override it to normalize names, e.g., case-insensitive ones
+    @staticmethod
+    def _key(name: str) -> str:
+        """Get the key of a name.
+
+        Args:
+            name: Name of a field.
+
+        Returns:
+            The name, as it is.
+        """
+        return name
+
+    def __getitem__(self, name: str) -> str:
+        """Get the first value of a field.
+
+        Args:
+            name: Name of the field.
+
+        Returns:
+            First value of the field.
+
+        Raises:
+            KeyError: Raised if there is no such field.
+        """
+        if not isinstance(name, str):
+            raise KeyError(name)
+        return self._values[self._key(name)][0]
+
+    def __iter__(self) -> Iterator[str]:
+        """Get the names of the fields.
+
+        Returns:
+            Iterator of the names, each once, in the order they first appear.
+        """
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        """Count the fields.
+
+        Returns:
+            Number of names, each counted once.
+        """
+        return len(self._values)
+
+    def getlist(self, name: str) -> list[str]:
+        """Get all values of a field.
+
+        Args:
+            name: Name of the field.
+
+        Returns:
+            Values of the field, in order; empty if there is no such field.
+        """
+        if not isinstance(name, str):
+            return []
+        return list(self._values.get(self._key(name), []))
+
+    def __repr__(self) -> str:
+        """Represent the fields.
+
+        Returns:
+            Representation with the names only, as values may be credentials
+            (e.g., `Authorization` or `Cookie` headers, or tokens in query
+            parameters).
+        """
+        return f"{type(self).__name__}({list(self._values)!r})"
+
+
+class Headers(_MultiValues):
     """Read-only headers of a request, with case-insensitive names.
 
     As a mapping, names are in lower case and give their first value;
@@ -57,69 +171,30 @@ class Headers(Mapping[str, str]):
         items: Names and values of the headers, in order.
     """
 
-    def __init__(self, items: Iterable[tuple[str, str]]) -> None:
-        """Copy headers.
+    @staticmethod
+    def _key(name: str) -> str:
+        """Get the key of a header name.
 
         Args:
-            items: Names and values of the headers, in order.
-        """
-        self._values: dict[str, list[str]] = {}
-        for name, value in items:
-            self._values.setdefault(name.lower(), []).append(value)
-
-    def __getitem__(self, name: str) -> str:
-        """Get the first value of a header.
-
-        Args:
-            name: Name of the header, in any case.
+            name: Name of a header, in any case.
 
         Returns:
-            First value of the header.
-
-        Raises:
-            KeyError: Raised if there is no such header.
+            The name, in lower case.
         """
-        if not isinstance(name, str):
-            raise KeyError(name)
-        return self._values[name.lower()][0]
+        return name.lower()
 
-    def __iter__(self) -> Iterator[str]:
-        """Get the names of the headers.
 
-        Returns:
-            Iterator of the names, in lower case, each once.
-        """
-        return iter(self._values)
+class QueryParams(_MultiValues):
+    """Read-only query parameters of a request, as sent.
 
-    def __len__(self) -> int:
-        """Count the headers.
+    Names are case-sensitive. As a mapping, names give their first value;
+    :py:meth:`getlist` gives all values of a name. Names and values are
+    decoded as by Werkzeug (`+` as space, blank values kept), bytes that
+    aren't UTF-8 are left percent-encoded.
 
-        Returns:
-            Number of names, each counted once.
-        """
-        return len(self._values)
-
-    def getlist(self, name: str) -> list[str]:
-        """Get all values of a header.
-
-        Args:
-            name: Name of the header, in any case.
-
-        Returns:
-            Values of the header, in order; empty if there is no such header.
-        """
-        if not isinstance(name, str):
-            return []
-        return list(self._values.get(name.lower(), []))
-
-    def __repr__(self) -> str:
-        """Represent the headers.
-
-        Returns:
-            Representation with the names only, in lower case, as values may
-            be credentials (e.g., `Authorization`, `Cookie`).
-        """
-        return f"{type(self).__name__}({list(self._values)!r})"
+    Args:
+        items: Names and values of the parameters, in order.
+    """
 
 
 @dataclass(frozen=True)
@@ -128,6 +203,8 @@ class RequestSnapshot:
 
     Attributes:
         method: HTTP method, in upper case.
+        protocol: Protocol of the request, as the server gives it, e.g.,
+            `HTTP/1.1`, or empty if unknown.
         path: Request path below the root path of the app, not
             percent-encoded, e.g., `/ga4gh/tes/v1/tasks/123`; access control
             policies and the ownership of resources are keyed by it.
@@ -137,6 +214,10 @@ class RequestSnapshot:
             percent-encoded: the host as the server gives it, the path
             encoded anew from `root_path` and `path`, the query string as
             sent, with non-ASCII and unsafe characters encoded.
+        query: Query parameters of the request, as sent, read-only; for
+            building URLs, e.g., links to other pages of a list. Controllers
+            take the parameters of their operation from their arguments, as
+            Connexion converts and checks them.
         headers: Headers of the request, case-insensitive and read-only.
         content_length: Length of the request body in bytes, as declared, or
             `None` if not declared.
@@ -146,23 +227,29 @@ class RequestSnapshot:
         route: Path template of the operation serving the request, with the
             base path of the API, e.g., `/ga4gh/tes/v1/tasks/{id}`, or `None`
             if no operation serves it (cf. :py:func:`foca.api.routes.match`).
+        operation_id: Identifier of that operation, as in the specification
+            (`operationId`), or as resolved if the specification has none, or
+            `None` if no operation serves the request.
         path_params: Values of the path parameters of the route, as passed to
             controllers, i.e., decoded and converted to their types, under the
             names of the route's rule; empty without a route.
 
-    The representation of a snapshot, e.g., in logs, leaves out the path, URL
-    and path parameters, and the values of headers, as they may hold
+    The representation of a snapshot, e.g., in logs, leaves out the path, URL,
+    query and path parameters, and the values of headers, as they may hold
     credentials; the route shows what was requested.
     """
 
     method: str
+    protocol: str
     path: str = field(repr=False)
     root_path: str
     url: str = field(repr=False)
+    query: QueryParams = field(repr=False)
     headers: Headers
     content_length: int | None
     client_address: str | None
     route: str | None
+    operation_id: str | None
     path_params: Mapping[str, Any] = field(repr=False)
 
 
@@ -178,8 +265,18 @@ def _get_url() -> str:
     """
     prefix = request.host_url.rstrip("/")
     path = quote(request.script_root + request.path, safe=_PATH_SAFE)
-    query = _INVALID_ESCAPE.sub("%25", quote(request.query_string, safe=_QUERY_SAFE))
+    query = _get_query_string()
     return f"{prefix}{path}?{query}" if query else f"{prefix}{path}"
+
+
+def _get_query_string() -> str:
+    """Get the percent-encoded query string of the current request.
+
+    Returns:
+        The raw query string, with non-ASCII and unsafe characters and `%`
+        that don't start escapes encoded.
+    """
+    return _INVALID_ESCAPE.sub("%25", quote(request.query_string, safe=_QUERY_SAFE))
 
 
 def current_request() -> RequestSnapshot:
@@ -198,22 +295,65 @@ def current_request() -> RequestSnapshot:
         RuntimeError: Raised if no request is being handled, e.g., on startup
             or in Celery tasks.
     """
-    if not has_request_context():
+    if not _has_request():
         raise RuntimeError(
             "No request: current_request() works only while a request is handled"
         )
-    found = match(request.path, request.method)
+    found = _match_request()
     return RequestSnapshot(
         method=request.method,
+        protocol=str(request.environ.get("SERVER_PROTOCOL", "")),
         path=request.path,
         root_path=request.script_root,
         url=_get_url(),
+        query=QueryParams(
+            parse_qsl(_get_query_string(), keep_blank_values=True, errors=_INVALID_UTF8)
+        ),
         headers=Headers(request.headers.items()),
         content_length=request.content_length,
         client_address=request.remote_addr,
         route=None if found is None else found.route.path,
+        operation_id=None if found is None else found.route.operation_id,
         path_params=MappingProxyType({} if found is None else found.params),
     )
+
+
+def _has_request() -> bool:
+    """Check whether a request is being handled.
+
+    Returns:
+        Whether a request is being handled, i.e., whether
+        :py:func:`current_request` gives one.
+    """
+    return has_request_context()
+
+
+def _match_request() -> RouteMatch | None:
+    """Find the route of the request being handled.
+
+    For FOCA's reads of the route alone, e.g., for each log record, without
+    taking a whole snapshot.
+
+    Returns:
+        The route and path parameters of the operation serving the request
+        (cf. :py:func:`foca.api.routes.match`), or `None` if no operation
+        serves it or no request is being handled.
+    """
+    if not _has_request():
+        return None
+    return match(request.path, request.method)
+
+
+def _get_operation_id() -> str:
+    """Get the identifier of the operation serving the request being handled.
+
+    Returns:
+        Identifier of the operation, as in
+        :py:attr:`RequestSnapshot.operation_id`, or an empty string if no
+        operation serves the request or no request is being handled.
+    """
+    found = _match_request()
+    return "" if found is None else found.route.operation_id or ""
 
 
 def _get_request_key() -> object | None:
@@ -226,7 +366,7 @@ def _get_request_key() -> object | None:
         The same object throughout a request and another one for each
         request, or `None` if no request is being handled.
     """
-    if not has_request_context():
+    if not _has_request():
         return None
     return request._get_current_object()  # type: ignore[attr-defined]
 
@@ -242,7 +382,7 @@ def _get_token_info() -> dict[str, Any]:
         request, or an empty dictionary if there is no request, the request
         was not handled by Connexion, or no token was validated.
     """
-    if not has_request_context():
+    if not _has_request():
         return {}
     # Connexion stores the request's context (including validated token
     # info) on Flask's request context (cf. `connexion.context`)

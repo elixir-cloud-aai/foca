@@ -1,6 +1,5 @@
 """Tests of the Connexion 2 / Flask glue (`foca.plugins.adapter`)."""
 
-import codecs
 import json
 import re
 
@@ -177,21 +176,6 @@ def test_query_invalid_utf8() -> None:
     ):
         inbound = adapter.inbound_from_request(None, route="/tasks")
     assert inbound.query == {"a": ["%FF\u00e4"]}
-
-
-def test_query_with_invalid_host() -> None:
-    """Queries are found whatever the host of the URL."""
-    assert adapter._get_query("http://[x/p?a=1&b=%3F?") == {"a": ["1"], "b": ["??"]}
-    assert adapter._get_query("http://x/p") == {}
-
-
-def test_percent_encode_decoding_only() -> None:
-    """The error handler of the query only handles errors of decoding."""
-    handler = codecs.lookup_error(adapter._INVALID_UTF8)
-    with pytest.raises(UnicodeEncodeError):
-        "\u00e4".encode("ascii", errors=adapter._INVALID_UTF8)
-    with pytest.raises(UnicodeTranslateError):
-        handler(UnicodeTranslateError("a", 0, 1, "reason"))
 
 
 def test_header_names_and_media_type() -> None:

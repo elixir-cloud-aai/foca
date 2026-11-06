@@ -42,12 +42,16 @@ class Route:
         path: Path template, as in the specification, with the base path of
             the API, e.g., `/ga4gh/tes/v1/tasks/{id}`.
         rule: Path template as routed, e.g., `/ga4gh/tes/v1/tasks/<id>`.
-        operation_id: Identifier of the operation, as resolved.
+        operation_id: Identifier of the operation, as in the specification
+            (`operationId`), or as resolved if the specification has none
+            (e.g., with Connexion's `RestyResolver`).
         security: Effective security requirements of the operation.
         extensions: Fields of the operation starting with `x-foca-`.
         function: Function that the operation's resolver returned, with the
             wrappers of FOCA's resolvers, e.g., for enforcing access control;
             use `inspect.unwrap()` for the controller.
+        base_path: Base path of the API that the operation belongs to,
+            without trailing slash; empty for an API at the root.
     """
 
     method: str
@@ -57,6 +61,7 @@ class Route:
     security: list[dict[str, Any]] | None
     extensions: Mapping[str, Any]
     function: Callable[..., Any]
+    base_path: str = ""
 
 
 class RouteMatch(NamedTuple):
@@ -152,6 +157,9 @@ def _install_route_table(cnx_app: Any) -> None:
             prefix = (self.base_path or "").rstrip("/")
             rule = flaskify_path(path, operation.get_path_parameter_types())
             fields = self.specification.get_operation(path, method) or {}
+            # As in the specification, e.g., without the router controller;
+            # as resolved without one (e.g., by Connexion's `RestyResolver`)
+            operation_id = fields.get("operationId") or operation.operation_id
             # Operations that failed to resolve have a function answering so
             resolution = getattr(operation, "_resolution", None)
             # As apps may have changed them, which Flask's rules follow
@@ -162,9 +170,10 @@ def _install_route_table(cnx_app: Any) -> None:
                 flask_app,
                 Route(
                     method=method.upper(),
+                    base_path=prefix,
                     path=f"{prefix}/{path.lstrip('/')}",
                     rule=f"{prefix}/{rule.lstrip('/')}",
-                    operation_id=operation.operation_id,
+                    operation_id=operation_id,
                     security=operation.security,
                     extensions=MappingProxyType(
                         {

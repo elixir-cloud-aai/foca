@@ -83,8 +83,9 @@ renaming them via `x-body-name`, as FOCA's own [permission
 controllers](access-control.md#configuring-the-api) do. Don't read parameters
 or the body from the request instead, e.g., from `flask.request.args` or
 `request.json`: the [snapshot of the current
-request](utilities.md#reading-the-current-request) has no parsed query
-parameters and no body.
+request](utilities.md#reading-the-current-request) has no body, and its
+`query` holds the raw query parameters, unconverted and unchecked, for
+building URLs such as links to other pages.
 
 Controllers of operations with security get the result of the token validation
 as arguments `user` and `token_info`, if they declare them (see [Using token

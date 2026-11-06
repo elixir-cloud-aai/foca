@@ -38,6 +38,7 @@ from werkzeug.exceptions import (
 )
 from werkzeug.routing import RequestRedirect
 
+from foca.api.routes import _install_route_table
 from foca.errors import exceptions as exceptions_module
 from foca.errors.classes import InvalidFieldsProblem
 from foca.errors.exceptions import (
@@ -577,6 +578,8 @@ class TestResponseValidation:
         """Client of an app that validates its responses."""
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app, conf)
+        # As in FOCA's apps, which know their operations from the route table
+        _install_route_table(app)
         app.add_api(RESPONSE_SPEC, validate_responses=True)
         client: FlaskClient = app.app.test_client()
         return client

@@ -1,5 +1,6 @@
 """Tests for `foca.context`."""
 
+import codecs
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import FrozenInstanceError
 from typing import Any
@@ -296,6 +297,9 @@ def view_request(**kwargs: Any) -> dict[str, Any]:
         "client_address": snapshot.client_address,
         "route": snapshot.route,
         "path_params": dict(snapshot.path_params),
+        "query": {name: snapshot.query.getlist(name) for name in snapshot.query},
+        "operation_id": snapshot.operation_id,
+        "protocol": snapshot.protocol,
     }
 
 
@@ -351,7 +355,7 @@ class TestCurrentRequest:
     def test_in_request(self, request_app: Flask) -> None:
         """Controllers get the request, below the root path, with its route."""
         response = request_app.test_client().post(
-            "/api/v1/items/a%20b/3",
+            "/api/v1/items/a%20b/3?b=2&a=1&a=3&e=",
             base_url="http://example.org/root/",
             headers=[("x-TEST", "one")],
             environ_base={"REMOTE_ADDR": "203.0.113.5"},
@@ -362,12 +366,15 @@ class TestCurrentRequest:
             "method": "POST",
             "path": "/api/v1/items/a b/3",
             "root_path": "/root",
-            "url": "http://example.org/root/api/v1/items/a%20b/3",
+            "url": "http://example.org/root/api/v1/items/a%20b/3?b=2&a=1&a=3&e=",
             "headers": ["one"],
             "content_length": 13,
             "client_address": "203.0.113.5",
             "route": "/api/v1/items/{item-id}/{count}",
             "path_params": {"item_id": "a b", "count": 3},
+            "query": {"b": ["2"], "a": ["1", "3"], "e": [""]},
+            "operation_id": f"{__name__}.view_request",
+            "protocol": "HTTP/1.1",
         }
 
     def test_without_root_path(self, request_app: Flask) -> None:
@@ -390,6 +397,7 @@ class TestCurrentRequest:
         with request_app.test_request_context("/other", method="GET"):
             snapshot = current_request()
         assert snapshot.route is None
+        assert snapshot.operation_id is None
         assert snapshot.path_params == {}
 
     def test_headers(self, request_app: Flask) -> None:
@@ -434,6 +442,60 @@ class TestCurrentRequest:
         assert dict(headers) == {"a": "1", "b": "2"}
         assert headers == {"a": "1", "b": "2"}
 
+    def test_query(self, request_app: Flask) -> None:
+        """Query parameters are decoded as by Werkzeug and read-only."""
+        with request_app.test_request_context(
+            "/x?a=1+2&a=%C3%BC&b=%FF%41&c&a=3&d=%zz"
+        ) as ctx:
+            snapshot = current_request()
+            assert dict(snapshot.query) == dict(ctx.request.args)
+            for name, values in ctx.request.args.lists():
+                assert snapshot.query.getlist(name) == values
+        assert list(snapshot.query) == ["a", "b", "c", "d"]
+        assert snapshot.query.getlist("a") == ["1 2", "\u00fc", "3"]
+        assert snapshot.query["b"] == "%FFA"
+        assert snapshot.query["c"] == ""
+        assert snapshot.query["d"] == "%zz"
+        assert len(snapshot.query) == 4
+        assert "A" not in snapshot.query
+        assert 1 not in snapshot.query
+        assert snapshot.query.getlist("missing") == []
+        assert snapshot.query.getlist(1) == []  # type: ignore[arg-type]  # invalid
+        assert repr(snapshot.query) == "QueryParams(['a', 'b', 'c', 'd'])"
+        with pytest.raises(TypeError):
+            snapshot.query["a"] = "x"  # type: ignore[index]  # read-only
+
+    def test_query_not_utf8(self, request_app: Flask) -> None:
+        """Query strings that aren't UTF-8 don't fail."""
+        with request_app.test_request_context(
+            "/x", environ_overrides={"QUERY_STRING": "q=\u00ff&r=\u00e2\u0082\u00ac"}
+        ):
+            snapshot = current_request()
+        assert snapshot.query["q"] == "%FF"
+        assert snapshot.query["r"] == "\u20ac"
+
+    def test_without_query(self, request_app: Flask) -> None:
+        """Requests without query strings have no query parameters."""
+        with request_app.test_request_context("/x?"):
+            assert current_request().query == {}
+
+    def test_operation_id_from_specification(self) -> None:
+        """The operation is identified as in the specification."""
+        spec = _request_spec()
+        operation = spec["paths"]["/items/{item-id}/{count}"]["post"]
+        operation["operationId"] = "view_request"
+        operation["x-openapi-router-controller"] = __name__
+        cnx_app = create_connexion_app()
+        cnx_app.add_api(spec)
+        response = cnx_app.app.test_client().post("/api/v1/items/a/1")
+        assert response.json["operation_id"] == "view_request"
+
+    def test_protocol_unknown(self, request_app: Flask) -> None:
+        """Without a protocol from the server, it's empty."""
+        with request_app.test_request_context("/x") as ctx:
+            del ctx.request.environ["SERVER_PROTOCOL"]
+            assert current_request().protocol == ""
+
     def test_url_encoded(self, request_app: Flask) -> None:
         """URLs are percent-encoded, also non-ASCII characters."""
         with request_app.test_request_context("/api/v1/items/%E2%82%AC/1?q=%C3%BC"):
@@ -463,6 +525,7 @@ class TestCurrentRequest:
             snapshot = current_request()
         text = repr(snapshot)
         assert "secret" not in text
+        assert "token" not in text
         assert "authorization" in text
         assert "/api/v1/items/{item-id}/{count}" in text
 
@@ -472,6 +535,41 @@ class TestCurrentRequest:
             current_request()
         with request_app.app_context(), pytest.raises(RuntimeError):
             current_request()
+
+
+def test_percent_encode_decoding_only() -> None:
+    """The error handler of the query only handles errors of decoding."""
+    handler = codecs.lookup_error(context._INVALID_UTF8)
+    with pytest.raises(UnicodeEncodeError):
+        "\u00e4".encode("ascii", errors=context._INVALID_UTF8)
+    with pytest.raises(UnicodeTranslateError):
+        handler(UnicodeTranslateError("a", 0, 1, "reason"))
+
+
+class TestMatchRequest:
+    """Tests for `_match_request()` and `_get_operation_id()`."""
+
+    def test_outside_request(self, request_app: Flask) -> None:
+        """Outside requests, there is no route and no operation."""
+        assert context._match_request() is None
+        assert context._get_operation_id() == ""
+        with request_app.app_context():
+            assert context._match_request() is None
+            assert context._get_operation_id() == ""
+
+    def test_no_route(self, request_app: Flask) -> None:
+        """Requests that no operation serves have no route and no operation."""
+        with request_app.test_request_context("/other"):
+            assert context._match_request() is None
+            assert context._get_operation_id() == ""
+
+    def test_route(self, request_app: Flask) -> None:
+        """Requests to operations have their route and operation."""
+        with request_app.test_request_context("/api/v1/items/a/1", method="POST"):
+            found = context._match_request()
+            assert found is not None
+            assert found.route.path == "/api/v1/items/{item-id}/{count}"
+            assert context._get_operation_id() == f"{__name__}.view_request"
 
 
 class TestRequestKey:
