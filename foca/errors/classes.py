@@ -6,7 +6,6 @@ existing handlers and `except` clauses keep working. Releases on Connexion 3
 change what they derive from, not their names or attributes.
 """
 
-import warnings
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +19,8 @@ from connexion.exceptions import (
 )
 from werkzeug import exceptions as _werkzeug
 from werkzeug.datastructures import Headers, WWWAuthenticate
+
+from foca.deprecation import warn_deprecated
 
 if TYPE_CHECKING:
     # Only for type hints, as `foca.errors.fields` imports this module
@@ -144,10 +145,9 @@ class Unauthorized(HTTPError, _werkzeug.Unauthorized):
             could be parsed (changes are not kept; set them anew), or `None`
             if there are none, as in Werkzeug.
         """
-        warnings.warn(
+        warn_deprecated(
             "'Unauthorized.www_authenticate' is deprecated; read the "
             "'WWW-Authenticate' headers of 'get_headers()'.",
-            DeprecationWarning,
             stacklevel=2,
         )
         challenges = tuple(
@@ -197,10 +197,9 @@ class Unauthorized(HTTPError, _werkzeug.Unauthorized):
 
 def _warn_www_authenticate() -> None:
     """Warn that `www_authenticate` of `Unauthorized` is deprecated."""
-    warnings.warn(
+    warn_deprecated(
         "'www_authenticate' of 'Unauthorized' is deprecated; pass challenges "
         "as headers, e.g., headers={'WWW-Authenticate': 'Bearer'}.",
-        DeprecationWarning,
         stacklevel=3,
     )
 

@@ -119,6 +119,30 @@ only issuer and subject of validated tokens, and, via
 [`log_traffic`](../utilities.md#logging-requests-and-responses), no response
 bodies by default.
 
+### Deprecations
+
+Python hides `DeprecationWarning`s outside of `__main__`, so apps served by,
+e.g., Gunicorn don't show them. FOCA therefore also logs each of its
+deprecations once per process (i.e., once per Gunicorn worker, also if the
+master process logged it before forking), at `WARNING`, on the logger
+`foca.deprecation`, e.g.:
+
+```text
+[2026-11-06 12:00:00,000: WARNING ] 'get_app_config()' is deprecated; use 'foca.get_config()'. [foca.deprecation]
+```
+
+The warnings themselves are emitted as before, e.g., for tests run with
+`-W error::DeprecationWarning`, where the record is logged before the
+warning is raised. To silence the log records, raise the level of the logger,
+e.g., to `ERROR` (40):
+
+```yaml
+log:
+  loggers:
+    foca.deprecation:
+      level: 40
+```
+
 ::: foca.models.config.LogConfig
     options:
       members: false
