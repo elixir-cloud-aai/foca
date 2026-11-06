@@ -50,6 +50,8 @@ class Route:
         function: Function that the operation's resolver returned, with the
             wrappers of FOCA's resolvers, e.g., for enforcing access control;
             use `inspect.unwrap()` for the controller.
+        base_path: Base path of the API that the operation belongs to,
+            without trailing slash; empty for an API at the root.
     """
 
     method: str
@@ -59,6 +61,7 @@ class Route:
     security: list[dict[str, Any]] | None
     extensions: Mapping[str, Any]
     function: Callable[..., Any]
+    base_path: str = ""
 
 
 class RouteMatch(NamedTuple):
@@ -167,6 +170,7 @@ def _install_route_table(cnx_app: Any) -> None:
                 flask_app,
                 Route(
                     method=method.upper(),
+                    base_path=prefix,
                     path=f"{prefix}/{path.lstrip('/')}",
                     rule=f"{prefix}/{rule.lstrip('/')}",
                     operation_id=operation_id,

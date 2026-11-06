@@ -467,25 +467,16 @@ def _get_request_base_path(apis: list[_RegisteredApi]) -> str | None:
         apis: APIs registered with the current app.
 
     Returns:
-        Base path of the API whose operation serves the current request: of
-        the APIs whose base path the operation's path template starts with,
-        those with the operation, if any, and of them the one with the
-        longest base path; `None` if there is no request, no operation serves
-        it, or no registered API has the operation's path.
+        Base path of the API whose operation serves the current request, as
+        recorded with its route, if that API is registered; `None` if there
+        is no request, no operation serves it, or its API isn't registered
+        (e.g., the endpoint `GET /me`).
     """
     found = _match_request()
     if found is None:
         return None
-    route = found.route.path
-    candidates = [
-        api
-        for api in apis
-        if route == api.base_path or route.startswith(f"{api.base_path}/")
-    ]
-    owners = [
-        api for api in candidates if found.route.operation_id in api.operation_ids
-    ]
-    return max((api.base_path for api in owners or candidates), key=len, default=None)
+    base_path = found.route.base_path
+    return base_path if any(api.base_path == base_path for api in apis) else None
 
 
 def get_resource_path(*segments: str, operation_id: str | None = None) -> str:

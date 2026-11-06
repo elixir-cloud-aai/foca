@@ -149,6 +149,7 @@ class TestGetRoutes:
         routes = {(r.method, r.path): r for r in get_routes(cnx_app.app)}
         route = routes[("POST", "/api/v1/items/{item-id}/{count}")]
         assert route.rule == "/api/v1/items/<item_id>/<int:count>"
+        assert route.base_path == "/api/v1"
         assert route.operation_id == f"{__name__}.view_c"
         assert route.function is view_c
         assert routes[("GET", "/api/v1/items")].extensions == {"x-foca-marker": "m"}

@@ -545,49 +545,37 @@ class TestGetApiBasePath:
         assert response.status_code == 200
         assert results == ["/admin/access-control"]
 
-    def test_nested_base_paths(self, tmp_path: Path) -> None:
-        """Requests go by the API with the operation, not the longest base path."""
-        outer = _spec(
-            "/nest",
-            (
-                "/v2/others",
-                "get",
-                _operation(
-                    "get_other", **{"x-foca-access-control": False}, security=[]
-                ),
-            ),
-        )
-        inner = _spec("/nest/v2", ("/pets", "get", PETS_OPERATION))
+    @pytest.mark.parametrize("inner_operation", ["list_second", "get_other"])
+    def test_nested_base_paths(self, tmp_path: Path, inner_operation: str) -> None:
+        """Requests go by the API of their operation, not the longest base path.
+
+        Also if both APIs have the operation.
+        """
+        other = _operation("get_other", **{"x-foca-access-control": False}, security=[])
+        outer = _spec("/nest", ("/v2/others", "get", other))
+        inner = _spec("/nest/v2", ("/pets", "get", _operation(inner_operation)))
         app = _create_app(tmp_path, [outer, inner])
         assert _request(app, None, get_api_base_path, path="/nest/v2/others") == "/nest"
 
     @pytest.mark.parametrize(
-        ("route", "operation_id", "expected"),
-        [
-            (None, None, None),
-            ("/a/b/x", "op_a", "/a"),
-            ("/a/b/x", "op_other", "/a/b"),
-            ("/a/b", "op_other", "/a/b"),
-            ("/ab/x", "op_a", None),
-            ("/other", "op_a", None),
-        ],
+        ("base_path", "expected"),
+        [(None, None), ("/a", "/a"), ("/a/b", "/a/b"), ("/other", None)],
     )
     def test_api_of_request(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        route: str | None,
-        operation_id: str | None,
+        base_path: str | None,
         expected: str | None,
     ) -> None:
-        """The API of a request is that with the route and operation."""
+        """The API of a request is that of its route, if registered."""
         apis = [
             _RegisteredApi("/a", frozenset({"op_a"}), is_app_api=True),
             _RegisteredApi("/a/b", frozenset({"op_b"}), is_app_api=True),
         ]
         found = (
             None
-            if route is None
-            else mock.Mock(route=mock.Mock(path=route, operation_id=operation_id))
+            if base_path is None
+            else mock.Mock(route=mock.Mock(base_path=base_path))
         )
         monkeypatch.setattr(urls, "_match_request", lambda: found)
         assert urls._get_request_base_path(apis) == expected
