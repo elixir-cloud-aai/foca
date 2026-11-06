@@ -1,139 +1,91 @@
-"""Tests of the examples of "Writing controllers" (`docs/writing-controllers.md`).
+"""Tests of "Writing controllers" (`docs/writing-controllers.md`).
 
-The controllers are those of the page, served by a FOCA app on Connexion 2,
-so that the inputs and responses that the page describes are checked. Keep
-them in sync with the page. That the return values give the same responses on
-Connexion 3 was checked outside of the test suite, as FOCA doesn't run on it
-yet.
+The controllers and the operation of the page's examples are taken from the
+page itself, served by a FOCA app on Connexion 2, so that the inputs and
+responses that the page describes are checked, and edits of the examples are
+tested. Further return values check the Connexion 2 side of the comparison
+on the page. That Connexion 3 gives the same responses (with the differences
+listed on the page) was checked with a script outside of the test suite, as
+FOCA doesn't run on Connexion 3 yet (see the pull request of issue #719).
 """
 
+import re
+import sys
 from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
 import yaml
 from connexion import NoContent
+from flask import Response
 from flask.testing import FlaskClient
 
 from foca.api.register_openapi import register_openapi
-from foca.context import current_request
-from foca.errors import NotFound
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, SpecConfig
-from foca.security.auth import current_claims
+from foca.security import auth
 
-# Examples of the page
-
-ITEMS: dict[str, dict[str, Any]] = {}  # in memory, for the examples
-
-
-def put_item(
-    id: str, body: dict[str, Any], dry_run: bool = False
-) -> tuple[dict[str, Any], int]:
-    """Create or replace an item (example of the page).
-
-    Args:
-        id: Identifier of the item.
-        body: Item.
-        dry_run: Whether to leave the items as they are.
-
-    Returns:
-        The item and the status: `201` if it was created, `200` if replaced.
-    """
-    item = {**body, "id": id}
-    status = 200 if id in ITEMS else 201
-    if not dry_run:
-        ITEMS[id] = item
-    return item, status
+PAGE = (Path(__file__).resolve().parents[2] / "docs/writing-controllers.md").read_text(
+    encoding="utf-8"
+)
+# Module that the page's operation names
+PAGE_MODULE = "my_app.controllers"
+# Module of the page's controllers in the tests
+CONTROLLERS = f"{__name__}_page"
 
 
-def get_whoami() -> dict[str, Any]:
-    """Describe the caller and the request (example of the page).
-
-    Returns:
-        Subject, route and `Accept` header of the request.
-    """
-    request = current_request()
-    return {
-        "subject": current_claims().get("sub"),  # None without a token
-        "route": request.route,  # e.g., "/whoami"
-        "accept": request.headers.get("accept"),
-    }
-
-
-def get_item(id: str) -> dict[str, Any]:  # body; status 200
-    """Get an item (example of the page).
+def _blocks(language: str, title: str) -> list[str]:
+    """Get the code blocks of the page with a title.
 
     Args:
-        id: Identifier of the item.
+        language: Language of the blocks, e.g., `python`.
+        title: Title of the blocks, e.g., the file name.
 
     Returns:
-        The item.
-
-    Raises:
-        NotFound: There is no item with the identifier.
+        The code of the blocks, in the order of the page.
     """
-    if id not in ITEMS:
-        raise NotFound
-    return ITEMS[id]
+    pattern = rf'^```{language} title="{re.escape(title)}"\n(.*?)^```$'
+    return re.findall(pattern, PAGE, flags=re.DOTALL | re.MULTILINE)
 
 
-def list_items() -> tuple[list[dict[str, Any]], int, dict[str, str]]:
-    """List the items (example of the page).
+def _page_controllers() -> ModuleType:
+    """Run the code blocks of the page's controllers as one module.
 
     Returns:
-        The items, the status and their number in a header.
+        The module of the controllers.
     """
-    return list(ITEMS.values()), 200, {"X-Total-Count": str(len(ITEMS))}
+    module = ModuleType(CONTROLLERS)
+    code = "\n".join(_blocks("python", f"{PAGE_MODULE.replace('.', '/')}.py"))
+    exec(code, vars(module))  # noqa: S102 (the code of our own docs)
+    return module
 
 
-def delete_item(id: str) -> tuple[object, int]:
-    """Delete an item (example of the page).
-
-    Args:
-        id: Identifier of the item.
+def _page_paths() -> dict[str, Any]:
+    """Get the paths of the page's specification, for the page's controllers.
 
     Returns:
-        No content and the status.
-
-    Raises:
-        NotFound: There is no item with the identifier.
+        The Paths object, with the operations of the test module.
     """
-    if ITEMS.pop(id, None) is None:
-        raise NotFound
-    return NoContent, 204
+    (block,) = _blocks("yaml", "openapi.yaml")
+    paths: dict[str, Any] = yaml.safe_load(
+        block.replace(f"{PAGE_MODULE}.", f"{CONTROLLERS}.")
+    )["paths"]
+    return paths
 
 
-def export_items() -> tuple[str, int, dict[str, str]]:
-    """Export the identifiers of the items as CSV (example of the page).
-
-    Returns:
-        The CSV, the status and the headers of a download.
-    """
-    csv = "".join(f"{item_id}\n" for item_id in ITEMS)
-    headers = {
-        "Content-Type": "text/csv",
-        "Content-Disposition": 'attachment; filename="items.csv"',
-    }
-    return csv, 200, headers
-
-
-# Test API
-
-ID = {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}
-OBJECT = {"application/json": {"schema": {"type": "object"}}}
-
-
-def _operation(name: str, status: str, content: Any = None, **extra: Any) -> Any:
+def _operation(
+    module: str, name: str, status: str, content: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Build an OpenAPI 3 Operation object.
 
     Args:
-        name: Name of the controller in this module.
+        module: Module of the controller.
+        name: Name of the controller.
         status: Status of the response.
         content: Media types of the response; none without.
-        **extra: Further fields of the operation.
 
     Returns:
         The Operation object.
@@ -141,81 +93,200 @@ def _operation(name: str, status: str, content: Any = None, **extra: Any) -> Any
     response: dict[str, Any] = {"description": "Response"}
     if content is not None:
         response["content"] = content
-    return {
-        "operationId": f"{__name__}.{name}",
-        "responses": {status: response},
-        **extra,
-    }
+    return {"operationId": f"{module}.{name}", "responses": {status: response}}
 
 
-SPEC: dict[str, Any] = {
-    "openapi": "3.0.3",
-    "info": {"title": "Items", "version": "1.0"},
-    "paths": {
-        "/items": {
-            "get": _operation(
-                "list_items",
-                "200",
-                {"application/json": {"schema": {"type": "array"}}},
-            ),
-        },
-        "/items.csv": {
-            "get": _operation(
-                "export_items", "200", {"text/csv": {"schema": {"type": "string"}}}
-            ),
-        },
-        "/items/{id}": {
-            "parameters": [ID],
-            "get": _operation("get_item", "200", OBJECT),
-            "put": _operation(
-                "put_item",
-                "200",
-                OBJECT,
-                parameters=[
-                    {
-                        "name": "dry_run",
-                        "in": "query",
-                        "schema": {"type": "boolean", "default": False},
-                    }
-                ],
-                requestBody={"required": True, "content": OBJECT},
-            ),
-            "delete": _operation("delete_item", "204"),
-        },
-        "/whoami": {"get": _operation("get_whoami", "200", OBJECT)},
-    },
+def _content(*media_types: str) -> dict[str, Any]:
+    """Build the Content object of a response.
+
+    Args:
+        *media_types: Media types of the response.
+
+    Returns:
+        The Content object, with any schema for each media type.
+    """
+    return {media_type: {"schema": {}} for media_type in media_types}
+
+
+# Further return values (Connexion 2 side of the comparison)
+
+
+def body_headers() -> tuple[dict[str, str], dict[str, str]]:
+    """Return a body and headers.
+
+    Returns:
+        Body and headers.
+    """
+    return {"id": "a"}, {"X-Custom": "yes"}
+
+
+def json_string() -> str:
+    """Return a string, e.g., for a JSON media type.
+
+    Returns:
+        A string.
+    """
+    return "hello"
+
+
+# Operations need distinct controllers
+text_string = undeclared_string = json_string
+
+
+def no_content_headers() -> tuple[object, int, dict[str, str]]:
+    """Return no content with headers.
+
+    Returns:
+        No content, status and headers.
+    """
+    return NoContent, 204, {"X-Custom": "yes"}
+
+
+def download() -> tuple[bytes, int, dict[str, str]]:
+    """Return bytes as a download.
+
+    Returns:
+        Bytes, status and headers.
+    """
+    return b"\x00data", 200, {"Content-Type": "application/octet-stream"}
+
+
+def json_bytes() -> bytes:
+    """Return bytes for a JSON media type.
+
+    Returns:
+        Bytes.
+    """
+    return b'{"id": "a"}'
+
+
+def charset_header() -> tuple[str, int, dict[str, str]]:
+    """Return a `Content-Type` that isn't a declared media type.
+
+    Returns:
+        A string, status and headers.
+    """
+    return "a,b\n", 200, {"Content-Type": "text/csv; charset=utf-8"}
+
+
+def two_media_types() -> dict[str, str]:
+    """Return a body for a response with two media types.
+
+    Returns:
+        A body.
+    """
+    return {"id": "a"}
+
+
+def none_204() -> tuple[None, int]:
+    """Return `None` with status 204.
+
+    Returns:
+        `None` and the status.
+    """
+    return None, 204
+
+
+def flask_response() -> Response:
+    """Return a Flask response.
+
+    Returns:
+        A Flask response.
+    """
+    return Response('{"id": "a"}', status=201, mimetype="application/json")
+
+
+JSON = _content("application/json")
+FORMS: dict[str, dict[str, Any]] = {
+    "/body-headers": _operation(__name__, "body_headers", "200", JSON),
+    "/json-string": _operation(__name__, "json_string", "200", JSON),
+    "/no-content-string": _operation(__name__, "undeclared_string", "200"),
+    "/text-string": _operation(__name__, "text_string", "200", _content("text/plain")),
+    "/no-content-headers": _operation(__name__, "no_content_headers", "204"),
+    "/download": _operation(
+        __name__, "download", "200", _content("application/octet-stream")
+    ),
+    "/json-bytes": _operation(__name__, "json_bytes", "200", JSON),
+    "/charset-header": _operation(
+        __name__, "charset_header", "200", _content("text/csv")
+    ),
+    "/two-media-types": _operation(
+        __name__, "two_media_types", "200", _content("application/json", "text/plain")
+    ),
+    "/none-204": _operation(__name__, "none_204", "204"),
+    "/flask-response": _operation(__name__, "flask_response", "201", JSON),
 }
 
 
 @pytest.fixture
-def client(tmp_path: Path) -> Iterator[FlaskClient]:
-    """Serve the test API with the controllers of the page, without items.
+def page() -> Iterator[ModuleType]:
+    """Provide the page's controllers, importable, without items.
+
+    Yields:
+        The module of the controllers.
+    """
+    module = _page_controllers()
+    sys.modules[CONTROLLERS] = module
+    try:
+        yield module
+    finally:
+        del sys.modules[CONTROLLERS]
+
+
+@pytest.fixture
+def client(tmp_path: Path, page: ModuleType) -> FlaskClient:
+    """Serve the page's operation and controllers and the further ones.
 
     Args:
         tmp_path: Temporary directory.
+        page: The page's controllers.
 
-    Yields:
+    Returns:
         Test client of the app.
     """
+    paths = {
+        **_page_paths(),
+        "/items": {"get": _operation(CONTROLLERS, "list_items", "200", JSON)},
+        "/items.csv": {
+            "get": _operation(CONTROLLERS, "export_items", "200", _content("text/csv"))
+        },
+        "/whoami": {"get": _operation(CONTROLLERS, "get_whoami", "200", JSON)},
+        **{path: {"get": operation} for path, operation in FORMS.items()},
+    }
+    # The page's operation, and reads and deletions of the same items
+    item = paths["/items/{id}"]
+    item["get"] = _operation(CONTROLLERS, "get_item", "200", JSON)
+    item["delete"] = _operation(CONTROLLERS, "delete_item", "204")
+    id_parameter = item["put"]["parameters"][:1]
+    item["get"]["parameters"] = item["delete"]["parameters"] = id_parameter
+    spec = {
+        "openapi": "3.0.3",
+        "info": {"title": "Items", "version": "1.0"},
+        "paths": paths,
+    }
     path = tmp_path / "spec.yaml"
-    path.write_text(yaml.safe_dump(SPEC))
+    path.write_text(yaml.safe_dump(spec))
     cnx_app = register_exception_handler(create_connexion_app(Config()))
-    spec = SpecConfig.model_validate({"path": path, "disable_auth": True})
-    ITEMS.clear()
-    yield register_openapi(cnx_app, specs=[spec]).app.test_client()
-    ITEMS.clear()
+    config = SpecConfig.model_validate({"path": path, "disable_auth": True})
+    return register_openapi(cnx_app, specs=[config]).app.test_client()
 
 
-def test_inputs(client: FlaskClient) -> None:
+def test_page_examples(page: ModuleType) -> None:
+    """The page's controllers and operation are found."""
+    assert page.ITEMS == {}
+    assert list(_page_paths()) == ["/items/{id}"]
+
+
+def test_inputs(client: FlaskClient, page: ModuleType) -> None:
     """Path and query parameters and the body come as typed arguments."""
     response = client.put("/items/a", json={"name": "A"})
     assert (response.status_code, response.json) == (201, {"name": "A", "id": "a"})
     response = client.put("/items/a?dry_run=true", json={"name": "B"})
     assert (response.status_code, response.json) == (200, {"name": "B", "id": "a"})
-    assert ITEMS == {"a": {"name": "A", "id": "a"}}
+    assert page.ITEMS == {"a": {"name": "A", "id": "a"}}
 
 
-def test_accessors(client: FlaskClient) -> None:
+def test_accessors(client: FlaskClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """The accessors give the request and the claims of the caller."""
     response = client.get("/whoami", headers={"Accept": "application/json"})
     assert response.status_code == 200
@@ -224,11 +295,16 @@ def test_accessors(client: FlaskClient) -> None:
         "route": "/whoami",
         "accept": "application/json",
     }
+    # Token info as FOCA's `validate_token()` returns it
+    monkeypatch.setattr(auth, "_get_token_info", lambda: {"claims": {"sub": "alice"}})
+    response = client.get("/whoami")
+    assert response.json is not None
+    assert response.json["subject"] == "alice"
 
 
-def test_body(client: FlaskClient) -> None:
+def test_body(client: FlaskClient, page: ModuleType) -> None:
     """A dictionary is sent as JSON, with status 200."""
-    ITEMS["a"] = {"id": "a"}
+    page.ITEMS["a"] = {"id": "a"}
     response = client.get("/items/a")
     assert response.status_code == 200
     assert response.content_type == "application/json"
@@ -236,9 +312,9 @@ def test_body(client: FlaskClient) -> None:
     assert client.get("/items/b").status_code == 404
 
 
-def test_body_status_headers(client: FlaskClient) -> None:
+def test_body_status_headers(client: FlaskClient, page: ModuleType) -> None:
     """A list is sent as JSON, with the status and headers returned."""
-    ITEMS.update({"a": {"id": "a"}, "b": {"id": "b"}})
+    page.ITEMS.update({"a": {"id": "a"}, "b": {"id": "b"}})
     response = client.get("/items")
     assert response.status_code == 200
     assert response.content_type == "application/json"
@@ -246,18 +322,18 @@ def test_body_status_headers(client: FlaskClient) -> None:
     assert response.json == [{"id": "a"}, {"id": "b"}]
 
 
-def test_no_content(client: FlaskClient) -> None:
+def test_no_content(client: FlaskClient, page: ModuleType) -> None:
     """`NoContent` gives a response without a body."""
-    ITEMS["a"] = {"id": "a"}
+    page.ITEMS["a"] = {"id": "a"}
     response = client.delete("/items/a")
     assert response.status_code == 204
     assert response.data == b""
-    assert not ITEMS
+    assert not page.ITEMS
 
 
-def test_string(client: FlaskClient) -> None:
+def test_string(client: FlaskClient, page: ModuleType) -> None:
     """A string is sent as it is for other media types than JSON."""
-    ITEMS.update({"a": {"id": "a"}, "b": {"id": "b"}})
+    page.ITEMS.update({"a": {"id": "a"}, "b": {"id": "b"}})
     response = client.get("/items.csv")
     assert response.status_code == 200
     assert response.mimetype == "text/csv"
@@ -265,3 +341,42 @@ def test_string(client: FlaskClient) -> None:
         'attachment; filename="items.csv"'
     )
     assert response.data == b"a\nb\n"
+
+
+JSON_BODY = b'{\n  "id": "a"\n}\n'  # indented by 2 spaces
+
+
+@pytest.mark.parametrize(
+    ("path", "status", "content_type", "custom", "data"),
+    [
+        ("/body-headers", 200, "application/json", "yes", JSON_BODY),
+        ("/json-string", 200, "application/json", None, b'"hello"\n'),
+        ("/no-content-string", 200, "application/json", None, b'"hello"\n'),
+        ("/text-string", 200, "text/plain; charset=utf-8", None, b"hello"),
+        ("/no-content-headers", 204, "application/json", "yes", b""),
+        ("/download", 200, "application/octet-stream", None, b"\x00data"),
+        ("/charset-header", 200, "text/csv; charset=utf-8", None, b"a,b\n"),
+        ("/two-media-types", 200, "application/json", None, JSON_BODY),
+        ("/none-204", 204, "application/json", None, b""),
+        ("/flask-response", 201, "application/json", None, b'{"id": "a"}'),
+    ],
+)
+def test_return_values(
+    client: FlaskClient,
+    path: str,
+    status: int,
+    content_type: str,
+    custom: str | None,
+    data: bytes,
+) -> None:
+    """Return values give the responses on Connexion 2 that the page lists."""
+    response = client.get(path)
+    assert response.status_code == status
+    assert response.headers.get("Content-Type") == content_type
+    assert response.headers.get("X-Custom") == custom
+    assert response.data == data
+
+
+def test_json_bytes(client: FlaskClient) -> None:
+    """Bytes for a JSON media type fail."""
+    assert client.get("/json-bytes").status_code == 500

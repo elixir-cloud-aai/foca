@@ -73,12 +73,14 @@ def put_item(
     return item, status
 ```
 
-Connexion passes only the arguments that the controller declares. Keep the default name `body` for request bodies rather than
-renaming them via `x-body-name`, as FOCA's own permission controllers
-(`postPermission(body)`, `putPermission(id, body)`) do since 0.22.0. Don't
-read parameters or the body from the request instead, e.g., from
-`flask.request.args` or `request.json`: the [snapshot of the current
-request](#everything-else-via-accessors) has neither.
+Connexion passes only the arguments that the controller declares (all of them
+with `**kwargs`). Keep the default name `body` for request bodies rather than
+renaming them via `x-body-name`, as FOCA's own [permission
+controllers](access-control.md#configuring-the-api) do. Don't read parameters
+or the body from the request instead, e.g., from `flask.request.args` or
+`request.json`: the [snapshot of the current
+request](utilities.md#reading-the-current-request) has no parsed query
+parameters and no body.
 
 Controllers of operations with security get the result of the token validation
 as arguments `user` and `token_info`, if they declare them (see [Using token
@@ -98,6 +100,8 @@ same whatever the web framework:
 | MongoDB collections | `foca.get_collection()` (see [Accessing the configuration](configuration/index.md#accessing-the-configuration)) | `current_app.config.foca.db` |
 
 ```python title="my_app/controllers.py"
+from typing import Any
+
 from foca.context import current_request
 from foca.security.auth import current_claims
 
@@ -118,12 +122,17 @@ errors](migration-0.22.md#framework-neutral-errors)).
 ## Return values
 
 Return the body, and optionally the status and headers, as values, and
-`NoContent` for responses without a body:
+`NoContent` for responses without a body (Connexion's `NoContent` is a marker
+that works the same on Connexion 2 and 3):
 
 ```python title="my_app/controllers.py"
+from typing import Any
+
 from connexion import NoContent
 
 from foca.errors import NotFound
+
+# ITEMS as above
 
 
 def get_item(id: str) -> dict[str, Any]:  # body; status 200
@@ -155,10 +164,13 @@ def export_items() -> tuple[str, int, dict[str, str]]:
   `(body, headers)`; headers as a dictionary. For `Location` headers, see
   [Building public URLs](utilities.md#building-public-urls).
 - **Bodies:** dictionaries and lists are sent as JSON. Strings are sent as
-  JSON strings for JSON media types (e.g., `"hello"` with quotes) and as they
-  are for others (e.g., `text/csv` in `export_items()`). Bytes are sent as
-  they are, e.g., for downloads, with `Content-Type` and
-  `Content-Disposition` headers as in `export_items()`.
+  JSON strings for JSON media types, and for responses that declare no
+  `content` (e.g., `"hello"` with quotes), and as they are for other media
+  types (e.g., `text/csv` in `export_items()`). Bytes are sent as they are
+  for other media types than JSON, e.g., for downloads as
+  `application/octet-stream`, with `Content-Type` and `Content-Disposition`
+  headers as in `export_items()`; for JSON media types, return data, not
+  bytes (`500 Internal Server Error` on Connexion 2 and 3).
 - **No body:** return `NoContent` with the status, e.g., `NoContent, 204`,
   not `None`.
 - **Media types:** if a response declares several media types (e.g.,
