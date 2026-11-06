@@ -5,7 +5,6 @@ Requests and responses are logged unless disabled via config option
 """
 
 import logging
-import warnings
 from math import ceil
 from typing import Any, NoReturn
 
@@ -16,6 +15,7 @@ from pymongo.errors import DuplicateKeyError
 
 from foca.audit import log as audit_log
 from foca.config.access import get_collection, get_config
+from foca.deprecation import warn_deprecated
 from foca.errors import BadRequest, Conflict, NotFound
 from foca.security.access_control.constants import (
     CONFIGURED_FIELD,
@@ -133,11 +133,10 @@ def _get_body(body: Any, permission: Any) -> Any:
         )
     if body is not _MISSING:
         return body
-    warnings.warn(
+    warn_deprecated(
         "The request body of the permissions API as 'permission' (via "
         "'x-body-name: permission') is deprecated; remove 'x-body-name' from "
         "the operations of 'access_control.api_specs'.",
-        DeprecationWarning,
         stacklevel=3,
     )
     return permission

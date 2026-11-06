@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from flask import Config as FlaskConfig
 from flask import Flask, current_app, has_app_context
 from pydantic import BaseModel
 from pymongo.collection import Collection
+
+from foca.deprecation import warn_deprecated
 
 # Imported lazily at runtime: the config models import modules that use this
 # module (e.g., `foca.security.access_control`)
@@ -44,10 +45,9 @@ class _DeprecatingConfig(FlaskConfig):
             value = vars(self)[_ATTRIBUTE]
         except KeyError:
             raise AttributeError(_ATTRIBUTE) from None
-        warnings.warn(
+        warn_deprecated(
             "'app.config.foca' is deprecated; use 'foca.get_config()' or "
             "'foca.get_custom_config()'.",
-            DeprecationWarning,
             stacklevel=2,
         )
         return value
@@ -59,10 +59,9 @@ class _DeprecatingConfig(FlaskConfig):
         Args:
             value: FOCA's configuration.
         """
-        warnings.warn(
+        warn_deprecated(
             "Setting 'app.config.foca' is deprecated; change the configuration "
             "that 'foca.get_config()' returns.",
-            DeprecationWarning,
             stacklevel=2,
         )
         vars(self)[_ATTRIBUTE] = value
@@ -74,9 +73,8 @@ class _DeprecatingConfig(FlaskConfig):
         Raises:
             AttributeError: No configuration is attached.
         """
-        warnings.warn(
+        warn_deprecated(
             "Deleting 'app.config.foca' is deprecated.",
-            DeprecationWarning,
             stacklevel=2,
         )
         try:
@@ -170,9 +168,8 @@ def get_app_config(app: Flask) -> Config:
     Raises:
         RuntimeError: No FOCA configuration is attached to `app`.
     """
-    warnings.warn(
+    warn_deprecated(
         "'get_app_config()' is deprecated; use 'foca.get_config()'.",
-        DeprecationWarning,
         stacklevel=2,
     )
     return _get_app_config(app)

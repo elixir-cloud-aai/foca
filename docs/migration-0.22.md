@@ -169,3 +169,12 @@ working. Check the following:
 - Declare `errors` in the problem details of your API specifications, e.g.,
   with FOCA's reusable schemas, and raise `InvalidFieldsProblem` for your own
   checks of fields.
+
+## Deprecations in the logs
+
+Nothing breaks. Besides emitting a `DeprecationWarning`, FOCA now logs each of
+its deprecations once per process (once per Gunicorn worker) at `WARNING`, on
+the logger `foca.deprecation` (see
+[Deprecations](configuration/log.md#deprecations)), so that deprecated uses
+show in the logs of deployed apps, where Python hides the warnings. Silence
+them by setting a higher level for that logger.

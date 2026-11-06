@@ -300,6 +300,8 @@ configuration models, see [Configuration](configuration/index.md).
 
 ::: foca.context
 
+::: foca.deprecation
+
 ::: foca.audit
     options:
       members:
