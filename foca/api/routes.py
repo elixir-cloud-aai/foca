@@ -42,7 +42,9 @@ class Route:
         path: Path template, as in the specification, with the base path of
             the API, e.g., `/ga4gh/tes/v1/tasks/{id}`.
         rule: Path template as routed, e.g., `/ga4gh/tes/v1/tasks/<id>`.
-        operation_id: Identifier of the operation, as resolved.
+        operation_id: Identifier of the operation, as in the specification
+            (`operationId`), or as resolved if the specification has none
+            (e.g., with Connexion's `RestyResolver`).
         security: Effective security requirements of the operation.
         extensions: Fields of the operation starting with `x-foca-`.
         function: Function that the operation's resolver returned, with the
@@ -152,6 +154,8 @@ def _install_route_table(cnx_app: Any) -> None:
             prefix = (self.base_path or "").rstrip("/")
             rule = flaskify_path(path, operation.get_path_parameter_types())
             fields = self.specification.get_operation(path, method) or {}
+            # As in the specification, e.g., without the router controller
+            operation_id = fields.get("operationId")
             # Operations that failed to resolve have a function answering so
             resolution = getattr(operation, "_resolution", None)
             # As apps may have changed them, which Flask's rules follow
@@ -164,7 +168,11 @@ def _install_route_table(cnx_app: Any) -> None:
                     method=method.upper(),
                     path=f"{prefix}/{path.lstrip('/')}",
                     rule=f"{prefix}/{rule.lstrip('/')}",
-                    operation_id=operation.operation_id,
+                    operation_id=(
+                        operation_id
+                        if isinstance(operation_id, str)
+                        else operation.operation_id
+                    ),
                     security=operation.security,
                     extensions=MappingProxyType(
                         {

@@ -38,7 +38,12 @@ from foca.security.access_control.register_access_control import (
     register_access_control,
 )
 from foca.security.auth import _unauthorized
-from foca.utils.urls import get_api_base_path, get_resource_path
+from foca.utils import urls
+from foca.utils.urls import (
+    _RegisteredApi,
+    get_api_base_path,
+    get_resource_path,
+)
 
 DEFAULT_PERMISSIONS_SPEC = (
     Path(foca_module.__file__).parent
@@ -539,6 +544,51 @@ class TestGetApiBasePath:
         )
         assert response.status_code == 200
         assert results == ["/admin/access-control"]
+
+    def test_nested_base_paths(self, tmp_path: Path) -> None:
+        """Requests go by the API with the operation, not the longest base path."""
+        outer = _spec(
+            "/nest",
+            (
+                "/v2/others",
+                "get",
+                _operation(
+                    "get_other", **{"x-foca-access-control": False}, security=[]
+                ),
+            ),
+        )
+        inner = _spec("/nest/v2", ("/pets", "get", PETS_OPERATION))
+        app = _create_app(tmp_path, [outer, inner])
+        assert _request(app, None, get_api_base_path, path="/nest/v2/others") == "/nest"
+
+    @pytest.mark.parametrize(
+        ("route", "operation_id", "expected"),
+        [
+            (None, None, None),
+            ("/a/b/x", "op_a", "/a"),
+            ("/a/b/x", "op_other", "/a/b"),
+            ("/a/b", "op_other", "/a/b"),
+            ("/ab/x", "op_a", None),
+            ("/other", "op_a", None),
+        ],
+    )
+    def test_api_of_request(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        route: str | None,
+        operation_id: str | None,
+        expected: str | None,
+    ) -> None:
+        """The API of a request is that with the route and operation."""
+        apis = [
+            _RegisteredApi("/a", frozenset({"op_a"}), is_app_api=True),
+            _RegisteredApi("/a/b", frozenset({"op_b"}), is_app_api=True),
+        ]
+        snapshot = mock.Mock(route=route, operation_id=operation_id)
+        monkeypatch.setattr(urls, "current_request", lambda: snapshot)
+        with Flask(__name__).test_request_context():
+            assert urls._get_request_base_path(apis) == expected
+        assert urls._get_request_base_path(apis) is None
 
     def test_request_outside_apis(self, tmp_path: Path) -> None:
         """Routes outside the APIs fall back to the API of the app."""

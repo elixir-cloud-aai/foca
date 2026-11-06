@@ -21,8 +21,9 @@ from typing import Any, Literal, NamedTuple, get_args
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 import idna
-from connexion.apis.flask_utils import flaskify_endpoint
-from flask import current_app, has_request_context, request
+from flask import current_app
+
+from foca.context import _has_request, current_request
 
 URLScheme = Literal["http", "https", "mailto"]
 """Supported URL schemes, e.g., for app configuration models."""
@@ -245,7 +246,7 @@ def get_public_url(path: str = "") -> str:
     Must be called in a request context. The URL is built from the public URL
     of the app (`server.public_url`, as configured, including any path prefix
     of a reverse proxy), followed by the root path of the app
-    (`request.script_root`, e.g., set via `SCRIPT_NAME`) and `path`, both
+    (`current_request().root_path`, e.g., set via `SCRIPT_NAME`) and `path`, both
     percent-encoded (UTF-8; all characters but unreserved ones and `/`, also
     `%`, so that percent-encodings in `path` are kept literally, e.g.,
     `%2e%2e` as `%252e%252e`). Slashes separate segments, also repeated ones
@@ -258,7 +259,8 @@ def get_public_url(path: str = "") -> str:
     them.
 
     Args:
-        path: Path below the root path of the app (e.g., `request.path`),
+        path: Path below the root path of the app (e.g.,
+            `current_request().path`),
             not percent-encoded; empty for the root path of the app. A
             leading slash is optional.
 
@@ -278,10 +280,6 @@ def get_public_url(path: str = "") -> str:
             paths with characters that cannot be encoded (unpaired
             surrogates).
     """
-    # Flask only here, so that the other functions work without it (e.g.,
-    # in `foca.plugins`)
-    from flask import request  # noqa: PLC0415
-
     from foca.config.access import get_config  # noqa: PLC0415 (import cycle)
 
     public_url = get_config().server.public_url
@@ -289,7 +287,7 @@ def get_public_url(path: str = "") -> str:
         raise RuntimeError(
             "No public URL of the app configured: set `server.public_url`"
         )
-    root = request.script_root
+    root = current_request().root_path
     if any(segment in (".", "..") for segment in f"{root}/{path}".split("/")):
         raise InvalidURL("Paths of public URLs must not have dot segments.")
     parts = urlsplit(public_url)
@@ -331,24 +329,20 @@ class _RegisteredApi(NamedTuple):
 
 # Key of the app's extensions holding the APIs registered with it
 _APIS_EXTENSION = "foca_apis"
-# Key of the app's extensions mapping names of Flask endpoints to operations
-_OPERATIONS_EXTENSION = "foca_operations"
 
 
 def get_operation_id() -> str:
     """Get the identifier of the operation of the current request.
 
     Returns:
-        Identifier of the operation, as in the specification (or else the name
-        of the endpoint); empty outside of requests and for requests that don't
-        match a route.
+        Identifier of the operation, as in the specification, or as resolved
+        if the specification has none (cf.
+        :py:attr:`foca.context.RequestSnapshot.operation_id`); empty outside
+        of requests and for requests that no operation serves.
     """
-    if not has_request_context() or request.endpoint is None:
+    if not _has_request():
         return ""
-    # Connexion prefixes the endpoints of an API with the name of its blueprint
-    name = request.endpoint.rsplit(".", 1)[-1]
-    operations = current_app.extensions.get(_OPERATIONS_EXTENSION, {})
-    return str(operations.get(name, name))
+    return current_request().operation_id or ""
 
 
 def _register_api(
@@ -372,14 +366,6 @@ def _register_api(
         name: Name of the specification in `api.specs`, if it has one.
         specification: Specification, as served.
     """
-    operations = list(operations)
-    app.extensions.setdefault(_OPERATIONS_EXTENSION, {}).update(
-        {
-            flaskify_endpoint(operation["operationId"]): operation["operationId"]
-            for operation in operations
-            if isinstance(operation.get("operationId"), str)
-        }
-    )
     app.extensions.setdefault(_APIS_EXTENSION, []).append(
         _RegisteredApi(
             base_path=base_path.rstrip("/"),
@@ -447,17 +433,8 @@ def get_api_base_path(operation_id: str | None = None) -> str:
             and the app has no or several APIs, or several APIs have the
             operation and no request is handled by one of them.
     """
-    # Flask only here, so that the other functions work without it (e.g.,
-    # in `foca.plugins`)
-    from flask import current_app, has_request_context, request  # noqa: PLC0415
-
     apis = _get_apis(current_app)
-    prefix = None
-    if has_request_context() and request.blueprint is not None:
-        # Connexion registers each API as a blueprint with its base path as
-        # URL prefix
-        blueprint = current_app.blueprints[request.blueprint]
-        prefix = (blueprint.url_prefix or "").rstrip("/")
+    prefix = _get_request_base_path(apis)
     if operation_id is not None:
         base_paths = [
             api.base_path for api in apis if operation_id in api.operation_ids
@@ -483,6 +460,34 @@ def get_api_base_path(operation_id: str | None = None) -> str:
             "base path of"
         )
     return base_paths[0]
+
+
+def _get_request_base_path(apis: list[_RegisteredApi]) -> str | None:
+    """Get the base path of the API handling the current request.
+
+    Args:
+        apis: APIs registered with the current app.
+
+    Returns:
+        Base path of the API whose operation serves the current request: of
+        the APIs whose base path the operation's path template starts with,
+        those with the operation, if any, and of them the one with the
+        longest base path; `None` if there is no request, no operation serves
+        it, or no registered API has the operation's path.
+    """
+    if not _has_request():
+        return None
+    request = current_request()
+    if request.route is None:
+        return None
+    route = request.route
+    candidates = [
+        api
+        for api in apis
+        if route == api.base_path or route.startswith(f"{api.base_path}/")
+    ]
+    owners = [api for api in candidates if request.operation_id in api.operation_ids]
+    return max((api.base_path for api in owners or candidates), key=len, default=None)
 
 
 def get_resource_path(*segments: str, operation_id: str | None = None) -> str:

@@ -9,8 +9,7 @@ request, whose `Host` header clients control.
 from typing import NamedTuple
 from urllib.parse import urlencode
 
-from flask import request
-
+from foca.context import current_request
 from foca.errors import BadRequest
 from foca.utils.urls import get_public_url
 
@@ -123,10 +122,12 @@ def get_page_links(page: Page, total: int | None = None) -> dict[str, str]:
         RuntimeError: The app has no public URL (`server.public_url`), or
             there is no request context.
     """
+    request = current_request()
     query = [
         (name, value)
-        for name, value in request.args.items(multi=True)
+        for name in request.query
         if name not in ("offset", "limit")
+        for value in request.query.getlist(name)
     ]
     url = get_public_url(request.path)
     # Removed by `get_public_url()`, but routes differ by it

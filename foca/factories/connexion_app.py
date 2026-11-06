@@ -7,7 +7,7 @@ from ipaddress import ip_address
 from typing import Any
 
 from connexion import App
-from flask import current_app, request, url_for
+from flask import current_app, url_for
 
 from foca.api.routes import _install_route_table
 from foca.config.access import set_app_config
@@ -124,12 +124,20 @@ def _check_body_size() -> None:
     size is taken as no declared size (cf. PEP 3333). Nothing is checked
     without a limit.
 
+    It counts as middleware: the one place of FOCA that reads Flask's
+    request rather than :py:func:`foca.context.current_request`, as it
+    rewrites the raw input (`wsgi.input`) before Connexion reads it. It moves
+    to ASGI middleware with the release on ASGI.
+
     Raises:
         foca.errors.BadRequest: The declared size of the request body
             is invalid.
         foca.errors.PayloadTooLarge: The request body is larger
             than `MAX_CONTENT_LENGTH`.
     """
+    # Middleware, exempt from reading the request via `foca.context`
+    from flask import request  # noqa: PLC0415
+
     limit = current_app.config["MAX_CONTENT_LENGTH"]
     if limit is None:
         return

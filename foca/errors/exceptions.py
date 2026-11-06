@@ -11,7 +11,7 @@ from typing import Any
 
 from connexion import App
 from connexion.exceptions import NonConformingResponse, ProblemException
-from flask import Response, request
+from flask import Response
 from werkzeug.datastructures import Headers
 from werkzeug.exceptions import HTTPException
 
@@ -388,12 +388,25 @@ def _response_validation_handler_json(
     problem = _resolve_problem(exc=exception, conf=conf)
     if conf.logging is not ExceptionLoggingEnum.none:
         message = escape_log_value(
-            f"Response of operation '{request.endpoint}' does not conform to "
+            f"Response of operation '{_get_operation_id()}' does not conform to "
             f"its specification: {_response_validation_error(exception)}"
         )
         logged = f"{dumps(problem)} {_shorten(message, conf.max_detail_length)}"
         logger.error(logged)
     return _response(exc=exception, problem=problem, conf=conf)
+
+
+def _get_operation_id() -> str:
+    """Get the identifier of the operation of the current request.
+
+    Returns:
+        Identifier of the operation (cf.
+        :py:func:`foca.utils.urls.get_operation_id`).
+    """
+    # Import cycle, as `foca.utils.urls` raises FOCA's errors
+    from foca.utils.urls import get_operation_id  # noqa: PLC0415
+
+    return get_operation_id()
 
 
 def _response(
