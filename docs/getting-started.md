@@ -72,6 +72,9 @@ The [annotated configuration template](https://github.com/elixir-cloud-aai/foca/
 lists all sections; the [configuration reference](configuration/index.md)
 describes them in detail.
 
+[Writing controllers](writing-controllers.md) describes how controllers take
+the inputs of requests and return responses.
+
 ## Examples
 
 The repository ships two example apps:
