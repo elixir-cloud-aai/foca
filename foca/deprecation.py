@@ -9,7 +9,6 @@ deprecation once per process, at `WARNING`, on the logger
 The public API is :py:func:`warn_deprecated` and :py:data:`LOGGER_NAME`.
 """
 
-import contextlib
 import logging
 import os
 import threading
@@ -64,7 +63,11 @@ def warn_deprecated(message: str, stacklevel: int = 2) -> None:
         first = message not in _logged
         _logged.add(message)
     if first:
-        # A faulty filter or handler of the app must not fail the call
-        with contextlib.suppress(Exception):
+        try:
             _logger.warning(message)
+        except Exception:
+            # A faulty filter or handler of the app must not fail the call;
+            # log the deprecation on a later call instead
+            with _lock:
+                _logged.discard(message)
     warnings.warn(message, DeprecationWarning, stacklevel=stacklevel + 1)

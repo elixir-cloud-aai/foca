@@ -120,15 +120,46 @@ class TestWarnDeprecated:
         pid = os.fork()
         if pid == 0:  # pragma: no cover (child; reports via the pipe)
             try:
-                os.write(write, b"1" if MESSAGE in deprecation._logged else b"0")
+                records: list[logging.LogRecord] = []
+                handler = logging.Handler()
+                handler.emit = records.append  # type: ignore[method-assign,assignment]
+                logging.getLogger(deprecation.LOGGER_NAME).addHandler(handler)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    _caller()
+                    _caller()
+                os.write(write, str(len(records)).encode())
             finally:
                 os._exit(0)
         os.close(write)
-        logged_in_child = os.read(read, 1)
+        logged_in_child = os.read(read, 8)
         os.close(read)
         os.waitpid(pid, 0)
-        assert logged_in_child == b"0"
+        assert logged_in_child == b"1"
         assert MESSAGE in deprecation._logged
+
+    def test_logs_again_after_failure(self) -> None:
+        """A deprecation whose logging failed is logged on a later call."""
+
+        def _fail(record: logging.LogRecord) -> bool:
+            """Fail on filtering.
+
+            Args:
+                record: Log record.
+
+            Raises:
+                RuntimeError: Always.
+            """
+            raise RuntimeError
+
+        logger = logging.getLogger(deprecation.LOGGER_NAME)
+        logger.addFilter(_fail)
+        try:
+            with pytest.warns(DeprecationWarning):
+                _caller()
+        finally:
+            logger.removeFilter(_fail)
+        assert MESSAGE not in deprecation._logged
 
     def test_logged_when_warnings_are_errors(
         self, caplog: pytest.LogCaptureFixture
