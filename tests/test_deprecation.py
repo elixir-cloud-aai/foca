@@ -33,7 +33,7 @@ def _indirect_caller() -> None:
     _caller(stacklevel=3)
 
 
-def _logged(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str]]:
+def _records(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str]]:
     """Get the records of the logger of deprecations.
 
     Args:
@@ -82,7 +82,7 @@ class TestWarnDeprecated:
             _caller()
             _caller()
             warn_deprecated("'other()' is deprecated.")
-        assert _logged(caplog) == [
+        assert _records(caplog) == [
             (logging.WARNING, MESSAGE),
             (logging.WARNING, "'other()' is deprecated."),
         ]
@@ -106,9 +106,10 @@ class TestWarnDeprecated:
                 thread.start()
             for thread in threads:
                 thread.join()
-        assert len(_logged(caplog)) == 1
+        assert len(_records(caplog)) == 1
 
     @pytest.mark.skipif(not hasattr(os, "fork"), reason="needs fork()")
+    @pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
     def test_logs_again_after_fork(self) -> None:
         """Forked processes, e.g., Gunicorn's workers, log deprecations again."""
         with warnings.catch_warnings():
@@ -118,8 +119,10 @@ class TestWarnDeprecated:
         read, write = os.pipe()
         pid = os.fork()
         if pid == 0:  # pragma: no cover (child; reports via the pipe)
-            os.write(write, b"1" if MESSAGE in deprecation._logged else b"0")
-            os._exit(0)
+            try:
+                os.write(write, b"1" if MESSAGE in deprecation._logged else b"0")
+            finally:
+                os._exit(0)
         os.close(write)
         logged_in_child = os.read(read, 1)
         os.close(read)
@@ -138,7 +141,7 @@ class TestWarnDeprecated:
             warnings.simplefilter("error")
             with pytest.raises(DeprecationWarning):
                 _caller()
-        assert _logged(caplog) == [(logging.WARNING, MESSAGE)]
+        assert _records(caplog) == [(logging.WARNING, MESSAGE)]
 
     def test_logging_failure_ignored(self) -> None:
         """A failing log filter doesn't fail the deprecated call."""
@@ -196,6 +199,6 @@ def test_foca_deprecations_logged(
         pytest.warns(DeprecationWarning),
     ):
         call()
-    logged = _logged(caplog)
+    logged = _records(caplog)
     assert len(logged) == 1
     assert logged[0][1].startswith(message)
