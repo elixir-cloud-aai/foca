@@ -229,11 +229,39 @@ workers, where `threads` no longer applies. Keep using `foca.gunicorn_config`;
 if your own config module sets `worker_class` or `threads`, remove them when
 you upgrade.
 
+```python title="my_app/gunicorn_config.py"
+# Before
+from foca.gunicorn_config import *  # noqa: F403
+
+worker_class = "gthread"
+threads = 8
+timeout = 60
+
+# After (works now, and with the ASGI release)
+from foca.gunicorn_config import *  # noqa: F403
+
+timeout = 60
+```
+
 ### Deployment
 
 With Uvicorn workers, which have no threads setting, the
 `<valuesKey>.gunicorn.threads` value of the [Helm chart](helm-chart.md) is
-planned to go away in the ASGI release. Keep it until then.
+planned to go away in the ASGI release. Keep it until then, and remove it
+when you upgrade:
+
+```yaml title="values.yaml"
+# FOCA 0.22 (`myApp` is the chart's `valuesKey`)
+myApp:
+  gunicorn:
+    workers: 1
+    threads: 4
+
+# ASGI release (planned)
+myApp:
+  gunicorn:
+    workers: 1
+```
 
 ## Finding what still has to move
 
