@@ -408,15 +408,22 @@ class TestPutPermission:
 
     @pytest.mark.parametrize("id", ["mock_id", "mock", "mockIdentifier", "mock-1"])
     def test_invalid_id(
-        self, app: Flask, collection: Collection[dict[str, Any]], id: str
+        self,
+        app: Flask,
+        collection: Collection[dict[str, Any]],
+        id: str,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Invalid identifiers are rejected."""
+        """Invalid identifiers are rejected, and not logged at INFO or higher."""
         with (
+            caplog.at_level("INFO"),
             request_context(app=app),
             pytest.raises(BadRequest),
         ):
             unwrap(putPermission)(id=id, body=deepcopy(MOCK_PERMISSION))
         assert collection.count_documents({}) == 0
+        assert "Invalid policy rule identifier" in caplog.text
+        assert id not in caplog.text
 
     @pytest.mark.parametrize("payload", ["", *MOCK_PERMISSIONS_INVALID])
     def test_invalid(
@@ -480,13 +487,15 @@ class TestLogging:
         self._assert_escaped(caplog)
 
     def test_put_invalid_id(self, app: Flask, caplog: pytest.LogCaptureFixture) -> None:
-        """Invalid identifiers are logged escaped."""
+        """Invalid identifiers are not logged, as they are the client's values."""
         with (
             request_context(app=app),
             pytest.raises(BadRequest),
         ):
             unwrap(putPermission)(id=self.ID, body=deepcopy(MOCK_PERMISSION))
-        self._assert_escaped(caplog)
+        messages = [record.getMessage() for record in caplog.records]
+        assert "Invalid policy rule identifier rejected" in messages
+        assert not any("mock" in message for message in messages)
 
 
 class TestTrafficLogging:

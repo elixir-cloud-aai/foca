@@ -12,6 +12,7 @@ from flask import Flask
 from flask.globals import request_ctx
 
 from foca.config.access import _get_app_config, _set_app_config
+from foca.errors import InvalidFieldsProblem
 from foca.models.config import Config, IssuerConfig
 from foca.security.access_control import (
     add_resource_role,
@@ -232,20 +233,37 @@ class TestOnBehalfOf:
             assert get_on_behalf_of_user() is None
 
     @pytest.mark.parametrize("claims", [PROTES, ALICE, USER_CONQUEST, OTHER])
-    def test_not_allowed(self, app: Flask, claims: dict[str, Any]) -> None:
-        """Other callers may not name users."""
-        with request(app, claims, headers={HEADER: "alice"}):
+    def test_not_allowed(
+        self, app: Flask, claims: dict[str, Any], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Other callers may not name users; the user isn't logged at INFO."""
+        with (
+            caplog.at_level("INFO"),
+            request(app, claims, headers={HEADER: "s3cr3t"}),
+        ):
             with pytest.raises(Forbidden):
                 get_on_behalf_of_user()
             with pytest.raises(Forbidden):
-                get_on_behalf_of_user("alice")
+                get_on_behalf_of_user("s3cr3t")
+        assert "Request naming a user rejected" in caplog.text
+        assert "s3cr3t" not in caplog.text
 
     @pytest.mark.parametrize("user", ["", " ", " alice", "alice\t"])
     def test_empty(self, app: Flask, user: str) -> None:
-        """Named users must not be empty or have surrounding whitespace."""
+        """Named users must not be empty or have surrounding whitespace.
+
+        Users named in the header are rejected as invalid fields that name
+        the header, not the user.
+        """
         with request(app, CONQUEST, headers={HEADER: user}):
-            with pytest.raises(BadRequestProblem):
+            with pytest.raises(InvalidFieldsProblem) as exc_info:
                 get_on_behalf_of_user()
+            (error,) = exc_info.value.field_errors
+            assert (error.parameter, error.pointer) == (HEADER, None)
+            assert error.code == "invalid-value"
+            if user.strip():
+                assert "alice" not in error.detail
+                assert "alice" not in str(exc_info.value.detail)
             with pytest.raises(BadRequestProblem):
                 get_on_behalf_of_user(user)
 
@@ -273,6 +291,13 @@ class TestOnBehalfOf:
             with pytest.raises(BadRequestProblem) as exc:
                 get_on_behalf_of_user("x|a")
             assert "'|'" in str(exc.value.detail)
+        with request(app, {**CONQUEST, "iss": OTHER_ISSUER}, headers={HEADER: "x|a"}):
+            with pytest.raises(InvalidFieldsProblem) as fields:
+                get_on_behalf_of_user()
+            (error,) = fields.value.field_errors
+            assert error.parameter == HEADER
+            assert "'|'" in error.detail
+            assert "x|a" not in error.detail
 
     def test_header_not_configured(self, app: Flask) -> None:
         """Without a configured header, headers are ignored."""

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from casbin import Enforcer
 from casbin.model import Model
+from connexion.exceptions import BadRequestProblem
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, Response, current_app, g
@@ -18,7 +19,7 @@ from foca.api.routes import _match_rule
 from foca.audit import log as audit_log
 from foca.config.access import get_config
 from foca.context import _get_request_key, current_request
-from foca.errors import Forbidden, RequestValidationProblem
+from foca.errors import Forbidden, InvalidFieldsProblem, RequestValidationProblem
 from foca.security.access_control.constants import (
     CLIENT_PREFIX,
     GROUP_PREFIX,
@@ -218,10 +219,14 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
         foca.errors.RequestValidationProblem: The named user is not a
             string, is empty or blank, has surrounding whitespace, or
             cannot be namespaced (cf.
-            :py:func:`foca.security.auth.namespace_subject`).
+            :py:func:`foca.security.auth.namespace_subject`); for a user
+            named in the header, an
+            :py:class:`foca.errors.InvalidFieldsProblem` that names the
+            header, but not the user.
         foca.errors.Forbidden: The caller names a user, but is not a
             service client allowed to act for users.
     """
+    header: str | None = None
     if user is None:
         header = get_config().security.auth.on_behalf_of_header
         if header is None or _get_request_key() is None:
@@ -231,18 +236,18 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
             return None
     client = _get_current_service_client()
     if client is None or not client.on_behalf_of:
+        # Without the user, a value of the client
         logger.info(
-            "Request naming user '%s' rejected: not a service client allowed "
-            "to act for users",
-            escape_log_value(user),
+            "Request naming a user rejected: not a service client allowed "
+            "to act for users"
         )
         raise Forbidden(description="Only allowed service clients may act for users")
     # Values passed by the app may come from request fields of any type
     if not isinstance(user, str) or not user.strip():
-        raise RequestValidationProblem(detail="The user acted for must not be empty")
+        raise _invalid_user("The user acted for must not be empty", header)
     if user != user.strip():
-        raise RequestValidationProblem(
-            detail="The user acted for must not have surrounding whitespace"
+        raise _invalid_user(
+            "The user acted for must not have surrounding whitespace", header
         )
     from foca.security.auth import (  # noqa: PLC0415 (import cycle)
         get_client_issuer,
@@ -254,10 +259,11 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
     if namespaced is None:
         # Service clients have a trusted issuer (cf. AuthConfig), so only
         # bare users that look namespaced cannot be identified
-        raise RequestValidationProblem(
-            detail="The user acted for cannot be identified: users of issuers "
-            "with bare subjects must not contain '|' if other issuers' "
-            "subjects are namespaced"
+        raise _invalid_user(
+            "The user acted for cannot be identified: users of issuers with "
+            "bare subjects must not contain '|' if other issuers' subjects are "
+            "namespaced",
+            header,
         )
     logger.debug(
         "Service client '%s' acts for user '%s'",
@@ -265,6 +271,28 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
         escape_log_value(namespaced),
     )
     return namespaced
+
+
+def _invalid_user(detail: str, header: str | None) -> BadRequestProblem:
+    """Describe an invalid user acted for, without the user.
+
+    Args:
+        detail: Description of the problem, without the user.
+        header: Header that named the user, if any; otherwise, the app
+            passed the user, from a field that FOCA doesn't know.
+
+    Returns:
+        Invalid field of the header, so that clients learn what to fix also
+        without `exceptions.validation_reasons`; without a header, a request
+        validation problem with the description.
+    """
+    if header is None:
+        return RequestValidationProblem(detail=detail)
+    from foca.errors.fields import FieldError  # noqa: PLC0415 (import cycle)
+
+    return InvalidFieldsProblem(
+        [FieldError(detail=detail, code="invalid-value", parameter=header)]
+    )
 
 
 def _get_current_identity_and_roles() -> tuple[list[str], list[str]]:

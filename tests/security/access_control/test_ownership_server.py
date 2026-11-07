@@ -1,5 +1,6 @@
 """Tests for the controllers managing roles on owned resources."""
 
+import logging
 from collections.abc import Callable
 from copy import deepcopy
 from importlib.resources import path as resource_path
@@ -495,6 +496,33 @@ class TestUserRoles:
         path = f"{TASK}/permissions/users/bob"
         assert _call(app, "put", path, "alice", role).status_code == 400
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
+
+    def test_refused_values_not_logged(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Refused grants are logged at INFO without the client's values.
+
+        Neither in the message nor in the traceback of the response's
+        exception; the subject is still in the path of the request log.
+        """
+        path = f"{TASK}/permissions/users/s3cr3t-user"
+        with caplog.at_level("DEBUG", logger="foca"):
+            assert _call(app, "put", path, "alice", "s3cr3t-role").status_code == 400
+        logged = [
+            (record.levelno, record.name, caplog.handler.format(record))
+            for record in caplog.records
+        ]
+        assert any(
+            "not granted to a user" in text
+            for level, _, text in logged
+            if level == logging.INFO
+        )
+        assert not any(
+            "s3cr3t-role" in text for level, _, text in logged if level >= logging.INFO
+        )
+        assert any(
+            "s3cr3t-role" in text for level, _, text in logged if level == logging.DEBUG
+        )
 
     def test_invalid_subject(self, app: Flask) -> None:
         """Subjects that cannot be stored in rules are rejected."""

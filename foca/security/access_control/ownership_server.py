@@ -288,14 +288,21 @@ def _put_role(
         # The resource may have been deleted since it was checked
         if not _is_manageable(resource, exists):
             raise NotFound from exc
+        # The role and the subject are the client's values, which may be
+        # invalid, so they are logged at DEBUG only
         logger.info(
+            "Role on '%s' not granted to a %s", escape_log_value(resource), subject_type
+        )
+        logger.debug(
             "Role '%s' on '%s' not granted to %s: %s",
             escape_log_value(role),
             escape_log_value(resource),
             _describe(subject_type, subject),
             escape_log_value(exc),
         )
-        raise BadRequest("The role cannot be granted to the subject") from exc
+        # Without the cause, which quotes the client's values, in the
+        # traceback that the exception handler may log (cf. DEBUG above)
+        raise BadRequest("The role cannot be granted to the subject") from None
     return {"subject_type": subject_type, "subject": subject, "role": role}
 
 
