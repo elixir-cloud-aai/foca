@@ -1117,7 +1117,7 @@ class TestValidationDetails:
                 "get",
                 "/validated",
                 {"params": {"limit": 1, "extra": 1}},
-                "The request has invalid fields; see 'errors'.",
+                "Invalid fields: extra (unknown-parameter)",
                 True,
             ),
             (
@@ -1153,6 +1153,7 @@ class TestValidationDetails:
         assert ("errors" in data) is errors
         assert data.get("errors") == json.loads(with_reasons.content).get("errors")
         assert "abcd" not in json.dumps(data)
+        assert len(infos) == 2
         assert infos[0] == infos[1]
 
     @pytest.mark.parametrize(

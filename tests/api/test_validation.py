@@ -756,8 +756,12 @@ class TestFieldErrors:
             headers={"X-Mode": "a"},
         ).json()
         for data in (body, query):
-            assert data["detail"] == "The request has invalid fields; see 'errors'."
             assert data["errors"]
+            fields = "; ".join(
+                f"{error.get('pointer') or error['parameter']} ({error['code']})"
+                for error in data["errors"]
+            )
+            assert data["detail"] == f"Invalid fields: {fields}"
             problem_validator().validate(data)
         assert "s3cr3t" not in json.dumps(body)
         assert "1234567" not in json.dumps(query)

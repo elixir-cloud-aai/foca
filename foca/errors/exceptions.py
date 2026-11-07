@@ -61,7 +61,6 @@ __all__ = [
 _VALIDATION_EXCEPTIONS = (RequestValidationProblem, ExtraParameterProblem)
 
 # `detail` of rejected requests without `exceptions.validation_reasons`
-_INVALID_FIELDS = "The request has invalid fields; see 'errors'."
 _INVALID_REQUEST = "The request is invalid."
 
 # Logger of Connexion's request validation, which logs the validator's
@@ -300,9 +299,10 @@ def _validation_handler_json(
     reason as `detail` and the invalid fields, if known, as `errors` (cf.
     :py:func:`foca.errors.fields.add_field_errors`). Without
     `conf.validation_reasons`, the reason isn't served, as it may quote
-    rejected values: `detail` is then a fixed message pointing to `errors`,
-    if they are listed and public, otherwise the mapped `detail`, if any, or
-    a fixed message.
+    rejected values: `detail` then names the invalid fields by location and
+    code (cf. :py:func:`foca.errors.fields.describe_field_errors`), if they
+    are listed and public, otherwise it is the mapped `detail`, if any, or a
+    fixed message.
 
     Args:
         exception: Exception of Connexion's request validation.
@@ -312,7 +312,8 @@ def _validation_handler_json(
         JSON-formatted error response, with the problem details mapped to
         the exception (cf. :py:func:`build_problem`), the reason as
         `detail` (shortened to `conf.max_detail_length`), if any (with
-        `conf.validation_reasons`; otherwise a fixed message, see above),
+        `conf.validation_reasons`; otherwise the invalid fields or a fixed
+        message, see above),
         and the invalid fields, if any.
     """
     problem = _resolve_problem(exc=exception, conf=conf)
@@ -336,7 +337,10 @@ def _validation_handler_json(
         # Reasons may quote rejected values; the invalid fields don't
         public = conf.public_members is None or "errors" in conf.public_members
         if errors and public:
-            problem["detail"] = _INVALID_FIELDS
+            problem["detail"] = _shorten(
+                f"Invalid fields: {describe_field_errors(errors)}",
+                conf.max_detail_length,
+            )
         else:
             problem.setdefault("detail", _INVALID_REQUEST)
     if conf.logging is not ExceptionLoggingEnum.none:

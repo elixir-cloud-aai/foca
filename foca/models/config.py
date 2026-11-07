@@ -451,14 +451,14 @@ class ExceptionConfig(FOCABaseConfig):
             rejected by Connexion's validation (with `validation_details`) is
             the validator's reason, which may quote rejected values of the
             request and parts of the schema. Defaults to true. If false, the
-            `detail` is a fixed message that quotes no values of the request
-            (the invalid fields are still listed as `errors`, without their
-            values, but by pointers or parameter names that may include keys of
-            the request; with a mapped `detail`, that one is kept unless the
-            invalid fields are listed). Applies to all request validation
-            exceptions, including `RequestValidationProblem` raised by FOCA or
-            the app. Recommended for apps whose clients don't depend on the
-            reasons.
+            `detail` names the invalid fields by location and code, e.g.,
+            ``Invalid fields: #/name (too-long)``, without their values (the
+            locations are pointers or parameter names, which may include keys
+            of the request); if no invalid fields are listed (or `errors` isn't
+            public), it is the mapped `detail`, if any, or a fixed message.
+            Applies to all request validation exceptions, including
+            `RequestValidationProblem` raised by FOCA or the app. Recommended
+            for apps whose clients don't depend on the reasons.
         max_detail_length: Maximum length of request-specific details in
             responses (cf. `validation_details` and
             :py:func:`foca.errors.exceptions.problem_response`) and log
@@ -476,7 +476,7 @@ class ExceptionConfig(FOCABaseConfig):
         validation_details: Whether responses to requests rejected by
             Connexion's validation get the reason as `detail`.
         validation_reasons: Whether that `detail` is the validator's reason,
-            rather than a fixed message.
+            rather than the invalid fields' locations and codes.
         max_detail_length: Maximum length of request-specific details in
             responses and log messages.
 

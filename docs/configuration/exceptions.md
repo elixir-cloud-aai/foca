@@ -173,10 +173,11 @@ its messages too, unless another app of the process has validation details on).
 Validators' reasons quote what they reject: values of the request (e.g.,
 `'abcd' is too long`), unexpected keys and, for parameters, the schema. Set
 `validation_reasons: false` (recommended, unless clients depend on the
-reasons) to respond with a fixed `detail` instead, which quotes no values of
-the request: `The request has invalid fields; see 'errors'.` if the invalid
-fields are listed (and `errors` is public), otherwise the mapped `detail`, if
-any, or `The request is invalid.` The invalid fields are listed in `errors`
+reasons) to respond with a `detail` that quotes no values of the request
+instead: the invalid fields by location and code, e.g., `Invalid fields:
+#/name (too-long)`, if they are listed (and `errors` is public), otherwise
+the mapped `detail`, if any, or `The request is invalid.` The invalid fields
+are listed in `errors`
 as before, without their values; their pointers and parameter names may
 still include keys or parameter names of the request (e.g., an unexpected
 property). The logs are the same. The option
@@ -190,7 +191,7 @@ pipelines and backends aren't request validation and keep their messages:
 {
   "title": "Bad Request",
   "status": 400,
-  "detail": "The request has invalid fields; see 'errors'.",
+  "detail": "Invalid fields: #/name (too-long)",
   "type": "https://foca.readthedocs.io/en/latest/problems/invalid-request/",
   "code": "invalid-request",
   "errors": [
