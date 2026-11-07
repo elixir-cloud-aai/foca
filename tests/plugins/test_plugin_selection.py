@@ -175,7 +175,7 @@ def test_inline_pipeline_and_frame() -> None:
         (
             {},
             pipeline_tag([{"plugin": "test.other"}]),
-            "Plugin not available in step 0",
+            "^Plugin not available in step 0$",
             "invalid-pipeline",
         ),
         (
@@ -186,19 +186,19 @@ def test_inline_pipeline_and_frame() -> None:
                 }
             },
             pipeline_tag([{"plugin": "test.tag"}]),
-            "Plugin not available in step 0",
+            "^Plugin not available in step 0$",
             "invalid-pipeline",
         ),
         (
             {"available": {**{n: {} for n in FAKES}, "test.tag": {"roles": ["admin"]}}},
             pipeline_tag([{"plugin": "test.tag"}]),
-            "Plugin not available in step 0",
+            "^Plugin not available in step 0$",
             "invalid-pipeline",
         ),
         (
             {"available": {**{n: {} for n in FAKES}, "test.tag": {"enabled": False}}},
             pipeline_tag([{"plugin": "test.tag"}]),
-            "Plugin not available in step 0",
+            "^Plugin not available in step 0$",
             "invalid-pipeline",
         ),
         (
@@ -260,7 +260,11 @@ def test_inline_pipeline_and_frame() -> None:
 def test_invalid_selections(
     conf: dict[str, Any], tags: dict[str, str], message: str, slug: str
 ) -> None:
-    """Invalid or disallowed choices are refused with 400."""
+    """Invalid or disallowed choices are refused with 400.
+
+    Messages that could quote the client's values are matched completely
+    (`^...$`).
+    """
     with pytest.raises(InvalidSelection, match=message) as exc_info:
         host(**conf).start(request(tags), ALICE)
     assert exc_info.value.code == 400
@@ -615,19 +619,29 @@ def test_client_pipelines_nesting() -> None:
         parse_client_pipeline(f'[{{"plugin": "a.b", "params": {{"x": {nested}}}}}]')
 
 
+_NON_FINITE = "NaN, Infinity and -Infinity are not allowed"
+
+
 @pytest.mark.parametrize(
     ("value", "message"),
     [
-        ('[{"plugin": "a.b", "params": {"x": NaN}}]', "NaN, Infinity and"),
-        ('[{"plugin": "a.b", "params": {"x": -Infinity}}]', "-Infinity"),
-        ('[{"plugin": "a.b", "params": {"x": 1e999}}]', "finite"),
-        ('[{"plugin": "a.b", "params": {"x": [9007199254740992]}}]', "2\\^53"),
+        ('[{"plugin": "a.b", "params": {"x": NaN}}]', _NON_FINITE),
+        ('[{"plugin": "a.b", "params": {"x": -Infinity}}]', _NON_FINITE),
+        ('[{"plugin": "a.b", "params": {"x": 1e999}}]', "Numbers must be finite"),
+        (
+            '[{"plugin": "a.b", "params": {"x": [9007199254740992]}}]',
+            "Integers are at most 2^53 - 1",
+        ),
     ],
 )
 def test_client_pipelines_are_i_json(value: str, message: str) -> None:
-    """Client pipelines have finite numbers and exact integers only."""
-    with pytest.raises(InvalidSelection, match=message):
+    """Client pipelines have finite numbers and exact integers only.
+
+    The messages are complete, so that they cannot quote the value too.
+    """
+    with pytest.raises(InvalidSelection) as exc_info:
         parse_client_pipeline(value)
+    assert str(exc_info.value) == f"Invalid pipeline: {message}"
     steps = parse_client_pipeline('[{"plugin": "a.b", "params": {"x": [1.5, null]}}]')
     assert steps[0].alternatives[0].params == {"x": [1.5, None]}
 
