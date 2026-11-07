@@ -307,6 +307,8 @@ class TestClient:
                 {"n": ["1"], "tag": ["a", "b"]},
             ),
             ("/echo?n=1", {"tag": None}, {"n": ["1"], "tag": [""]}),
+            ("/echo?tag=a&n=1#f", {"tag": []}, {"n": ["1"]}),
+            ("/echo#f", {"n": 2}, {"n": ["2"]}),
             ("/echo?tag=a", None, {"tag": ["a"]}),
             ("/echo?tag=a", {}, {"tag": ["a"]}),
         ],

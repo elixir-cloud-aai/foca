@@ -24,7 +24,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from types import TracebackType
 from typing import Any, Self
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from connexion import App
 from flask import Flask
@@ -58,29 +58,28 @@ def _get_flask_app(app: App | Flask) -> Flask:
     return app if isinstance(app, Flask) else app.app
 
 
-def _param_items(params: ParamTypes) -> list[tuple[str, str]]:
-    """Get the names and values of query parameters, formatted as by `httpx`.
+def _param_values(params: ParamTypes) -> dict[str, list[str]]:
+    """Get the values of query parameters by name, formatted as by `httpx`.
 
     Args:
         params: Query parameters.
 
     Returns:
-        Names and values, in order.
+        Values by name, in order; names of empty sequences have none.
     """
     if isinstance(params, str):
-        return parse_qsl(params, keep_blank_values=True)
-    pairs: Iterable[tuple[str, _ParamValue]]
+        params = parse_qsl(params, keep_blank_values=True)
+    values: dict[str, list[str]] = {}
     if isinstance(params, Mapping):
-        items: list[tuple[str, _ParamValue]] = []
         for name, value in params.items():
             if isinstance(value, Sequence) and not isinstance(value, str):
-                items.extend((name, item) for item in value)
+                values[name] = [_format_param(item) for item in value]
             else:
-                items.append((name, value))
-        pairs = items
+                values[name] = [_format_param(value)]
     else:
-        pairs = params
-    return [(name, _format_param(value)) for name, value in pairs]
+        for name, item in params:
+            values.setdefault(name, []).append(_format_param(item))
+    return values
 
 
 def _format_param(value: _ParamValue) -> str:
@@ -107,27 +106,26 @@ def _with_params(url: str, params: ParamTypes | None) -> str:
         params: Query parameters, or `None` to keep the URL as it is.
 
     Returns:
-        The URL; parameters replace those of the same name in its query
-        string, in their place, and the others follow.
+        The URL, without fragment; parameters replace those of the same name
+        in its query string, in their place (an empty sequence removes
+        them), and the others follow.
     """
     if params is None:
         return url
-    path, _, query = url.partition("?")
-    replacements: dict[str, list[str]] = {}
-    for name, value in _param_items(params):
-        replacements.setdefault(name, []).append(value)
+    parts = urlsplit(url)
+    replacements = _param_values(params)
     merged: list[tuple[str, str]] = []
-    for name, value in parse_qsl(query, keep_blank_values=True):
+    done: set[str] = set()
+    for name, value in parse_qsl(parts.query, keep_blank_values=True):
         if name not in replacements:
             merged.append((name, value))
-        elif name not in dict(merged):
+        elif name not in done:
             merged.extend((name, item) for item in replacements[name])
-    present = dict(merged)
+            done.add(name)
     for name, values in replacements.items():
-        if name not in present:
+        if name not in done:
             merged.extend((name, item) for item in values)
-    encoded = urlencode(merged)
-    return f"{path}?{encoded}" if encoded else path
+    return urlunsplit(parts._replace(query=urlencode(merged), fragment=""))
 
 
 def _header_items(headers: HeaderTypes | None) -> list[tuple[str, str]]:
