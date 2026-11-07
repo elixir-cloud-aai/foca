@@ -1,0 +1,55 @@
+id: no-new-flask-internals
+language: python
+severity: error
+message: New Flask, Werkzeug or Connexion request import in FOCA
+note: |
+  FOCA must not add uses of Flask, Werkzeug or Connexion 2's request objects
+  before the ASGI release (Connexion 3) removes Flask: use `foca.context`
+  for request data, `foca.errors` for exceptions and `foca.get_config()` for
+  the configuration, or pass plain data. Only the modules that still need Flask
+  in 0.22 are excluded; remove a module's exclusion once it no longer does.
+# Same rule as `flask-import`, for FOCA's own package
+files:
+  - foca/**
+ignores:
+  - foca/api/routes.py
+  - foca/api/service_info.py
+  - foca/config/access.py
+  - foca/context.py
+  - foca/errors/classes.py
+  - foca/errors/exceptions.py
+  - foca/errors/problems.py
+  - foca/factories/celery_app.py
+  - foca/factories/connexion_app.py
+  - foca/plugins/adapter.py
+  - foca/security/access_control/access_control_server.py
+  - foca/security/access_control/enforcement.py
+  - foca/security/access_control/ownership.py
+  - foca/security/access_control/ownership_server.py
+  - foca/security/access_control/register_access_control.py
+  - foca/security/auth.py
+  - foca/security/cors.py
+  - foca/testing/client.py
+  - foca/utils/urls.py
+rule:
+  any:
+    - kind: import_statement
+      has:
+        kind: dotted_name
+        regex: ^(flask|flask_cors|werkzeug|connexion\.(context|request))(\.|$)
+        stopBy: end
+    - kind: import_from_statement
+      has:
+        field: module_name
+        regex: ^(flask|flask_cors|werkzeug|connexion\.(context|request))(\.|$)
+    - kind: import_from_statement
+      all:
+        - has:
+            field: module_name
+            regex: ^connexion$
+        - has:
+            kind: dotted_name
+            regex: ^(context|request)$
+            stopBy: end
+    - pattern: connexion.request
+    - pattern: connexion.context
