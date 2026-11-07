@@ -125,13 +125,15 @@ that is not available to the caller (unknown, not installed, disabled, not
 `client_selectable`, or restricted by `roles`; all with the same message,
 so that clients cannot probe the setup). Presets may use plugins that are
 not `client_selectable`, but need the plugins' `roles` too (unknown presets
-and presets that need a role get the same message). Messages name fields,
-settings and the positions of steps (from 0), never the client's values,
-like the invalid fields of requests (cf.
+and presets that need a role get the same message). Messages name fields
+(including keys, e.g., of params), settings and the positions of steps
+(from 0), never the client's values, like the invalid fields of requests
+(cf.
 [`exceptions.validation_reasons`](configuration/exceptions.md#request-specific-details)),
 e.g., `Invalid pipeline: 0.alternatives.0.plugin (value_error)` (steps in
-the short form are located as their one alternative), `Plugin not available
-in step 1` or `Preset not available`. Apps of other APIs than
+the short form are located as their one alternative; errors of a whole
+step, e.g., of its `id`, as `0 (value_error)`), `Plugin not available in
+step 1` or `Preset not available`. Apps of other APIs than
 TES pass the request's tags explicitly (`host.start(..., tags=...)`, e.g.,
 the parsed `tags` form field of WES). Presets and client pipelines are
 framed by the admin's steps (`client_pipelines.prepend` and `append`),

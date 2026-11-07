@@ -183,11 +183,15 @@ class StepConfig(_Model):
         return self
 
 
-def check_pipeline(steps: list[StepConfig]) -> list[StepConfig]:
+def check_pipeline(
+    steps: list[StepConfig], by_position: bool = False
+) -> list[StepConfig]:
     """Check that the steps of a pipeline have unique identifiers.
 
     Args:
         steps: Steps.
+        by_position: Name the step that repeats an identifier by its
+            position (from 0), not by the identifier, e.g., for clients.
 
     Returns:
         The steps.
@@ -196,8 +200,13 @@ def check_pipeline(steps: list[StepConfig]) -> list[StepConfig]:
         ValueError: Two steps have the same identifier.
     """
     seen: set[str] = set()
-    for step in steps:
+    for index, step in enumerate(steps):
         if step.id in seen:
+            if by_position:
+                raise ValueError(
+                    f"Step identifiers must be unique: step {index} repeats one;"
+                    " set unique 'id's"
+                )
             raise ValueError(f"Duplicate step identifier {step.id!r}: set unique 'id's")
         seen.add(step.id or "")
     return steps

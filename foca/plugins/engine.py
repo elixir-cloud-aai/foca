@@ -84,6 +84,7 @@ from foca.plugins.config import (
     STORE_KEY_SECRET_ENV,
     PluginsConfig,
     StepConfig,
+    check_pipeline,
 )
 from foca.plugins.context import Context
 from foca.plugins.errors import (
@@ -822,7 +823,7 @@ class PluginHost:
         resolved = []
         for index, step in enumerate(steps):
             alternatives = []
-            label = index if origin == "client" else repr(step.id)
+            label: int | str = index if origin == "client" else repr(step.id)
             for alternative in step.alternatives:
                 available = self.conf.available.get(alternative.plugin)
                 if available is None:
@@ -996,6 +997,7 @@ class PluginHost:
             steps = parse_client_pipeline(value)
             self._check_client_steps(steps, principal)
             try:
+                check_pipeline(steps, by_position=True)
                 resolved = self.resolve_steps(steps, origin="client")
             except ValueError as exc:
                 raise InvalidSelection(str(exc)) from exc
@@ -1040,14 +1042,12 @@ class PluginHost:
 
         Raises:
             foca.plugins.selection.InvalidSelection: The pipeline exceeds the
-                limits, uses a plugin that the caller may not choose, or has
-                steps with the same identifier. Messages name steps by their
-                position (from 0), not by the client's values.
+                limits, or uses a plugin that the caller may not choose; the
+                step is named by its position (from 0), not by its plugin.
         """
         conf = self.conf.client_pipelines
         if len(steps) > conf.max_steps:
             raise InvalidSelection(f"At most {conf.max_steps} steps are allowed")
-        seen: set[str | None] = set()
         for index, step in enumerate(steps):
             if len(step.alternatives) > conf.max_alternatives:
                 raise InvalidSelection(
@@ -1062,13 +1062,6 @@ class PluginHost:
                     or not _has_role(available.roles, principal)
                 ):
                     raise InvalidSelection(f"Plugin not available in step {index}")
-            # As `check_pipeline()`, without quoting the identifier
-            if step.id in seen:
-                raise InvalidSelection(
-                    f"Step identifiers must be unique: step {index} repeats one;"
-                    " set unique 'id's"
-                )
-            seen.add(step.id)
 
     def _frame(self, steps: tuple[ResolvedStep, ...]) -> tuple[ResolvedStep, ...]:
         """Frame the steps of a client's choice with the admin's steps.

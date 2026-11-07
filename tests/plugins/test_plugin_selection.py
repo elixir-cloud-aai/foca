@@ -794,9 +794,10 @@ def test_warns_about_presets_without_steps(
             ' {"id": "secret", "plugin": "test.reverse"}]',
             "Step identifiers must be unique: step 1 repeats one; set unique 'id's",
         ),
-        # Invalid params: the step by position, the parameter by name
+        # Invalid params: the step by position, the parameter by name (keys,
+        # like those of request fields, are named)
         (
-            '[{"id": "secret", "plugin": "test.tag", "params": {"x": 1}}]',
+            '[{"id": "secret", "plugin": "test.tag", "params": {"x": "secret"}}]',
             "Invalid params of plugin 'test.tag' in step 0: x: Extra inputs are not"
             " permitted",
         ),
@@ -805,8 +806,9 @@ def test_warns_about_presets_without_steps(
 def test_messages_quote_no_values(value: str, message: str) -> None:
     """Refused choices are described without the values of the client.
 
-    The messages name fields, settings and positions only (cf.
-    `exceptions.validation_reasons`).
+    The messages name fields (including keys), settings and positions only
+    (cf. `exceptions.validation_reasons`); errors of a whole step (e.g., of
+    its identifier) are located by the step.
     """
     with pytest.raises(InvalidSelection) as exc_info:
         host().start(request(pipeline_tag(value)), ALICE)
