@@ -2351,9 +2351,10 @@ def test_permissions_api_strict_checks(app: Flask) -> None:
         content='{"policy_type": "p", "rule": {"v0": "\\ud800"}}',
         headers={**admin, "Content-Type": "application/json"},
     )
+    # Unpaired surrogates; no field is listed, nor the reason by default
     assert response.status_code == 400
-    assert b"surrogates" in response.content
+    assert response.json()["detail"] == "The request is invalid."
     rule = {"policy_type": "p", "rule": {"v0": "zed", "v1": "/x", "v2": "GET"}}
     response = client.post(f"{path}?other=1", json=rule, headers=admin)
     assert response.status_code == 400
-    assert b"Extra query" in response.content
+    assert response.json()["detail"] == "Invalid fields: other (unknown-parameter)"

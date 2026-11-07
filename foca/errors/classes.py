@@ -263,7 +263,9 @@ class InvalidFieldsProblem(BadRequestProblem):
 
     Args:
         errors: Invalid fields (at least one).
-        detail: Description, served as `detail`; by default, the locations
+        detail: Description, served as `detail` with
+            `exceptions.validation_reasons` (otherwise, `detail` names the
+            invalid fields by location and code); by default, the locations
             and details of the invalid fields.
 
     Attributes:

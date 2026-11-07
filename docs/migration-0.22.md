@@ -186,13 +186,14 @@ release on ASGI.
 
 ## Invalid fields in `400` responses
 
-Nothing breaks: responses to invalid requests keep their `title`, `status`
-and `detail`, and add the members `type`, `code` and `errors`, which list all
-invalid fields of the request, not only the first, those of the body and the
-parameters together (see [Invalid request](problems/invalid-request.md)).
-`detail` still describes the first invalid field of the body, if any, as
-Connexion checks the body before the parameters. Requests rejected for invalid
-parameters or bodies now raise `foca.errors.InvalidFieldsProblem`, a subclass
+Responses to invalid requests keep their `title` and `status`, and add the
+members `type`, `code` and `errors`, which list all invalid fields of the
+request, not only the first, those of the body and the parameters together
+(see [Invalid request](problems/invalid-request.md)). `detail` now names the
+invalid fields by location and code by default (see [Validation reasons
+without request values](#validation-reasons-without-request-values)).
+Requests rejected for invalid parameters or bodies now raise
+`foca.errors.InvalidFieldsProblem`, a subclass
 of `RequestValidationProblem`, so exception maps and `except` clauses keep
 working. Check the following:
 
@@ -254,14 +255,24 @@ goes away, with what to use now, examples, and how to find what is left.
 
 ## Validation reasons without request values
 
-Nothing breaks. With `exceptions.validation_details` (the default), the
-`detail` of responses to requests rejected by Connexion's validation is the
-validator's reason, which quotes rejected values, e.g., `'abcd' is too long -
-'name'`, and for parameters also the schema. Set the new
-`exceptions.validation_reasons: false` to respond with a `detail` that names
-the invalid fields by location and code instead, e.g., `Invalid fields:
-#/name (too-long)`; the invalid fields stay listed in `errors`, without their
-values
-(see [Request-specific
-details](configuration/exceptions.md#request-specific-details)). The default
-keeps the reasons, as clients and tests may depend on them.
+The `detail` of responses to requests rejected by Connexion's validation
+changes by default. Before, with `exceptions.validation_details` (the
+default), it was the validator's reason, which quotes rejected values, e.g.,
+`'abcd' is too long - 'name'`, and for parameters also the schema. Now it
+names the invalid fields by location and code, e.g., `Invalid fields: #/name
+(too-long)`, or, if no invalid fields are listed (e.g., for a missing
+parameter, a body that isn't valid JSON or has unpaired surrogates), it is
+the mapped `detail`, if any, or `The request is invalid.`
+The invalid fields are listed in `errors`, without their values (see
+[Request-specific
+details](configuration/exceptions.md#request-specific-details)). Status,
+`title` and the logs are unchanged. This applies to all request validation
+exceptions, also to `BadRequestProblem` (`RequestValidationProblem`) and
+`InvalidFieldsProblem` that FOCA or your app raise: their own `detail` is
+replaced the same way; raise `InvalidFieldsProblem` to name the invalid
+fields.
+
+Update tests and clients that check the old messages in `detail`: check the
+invalid fields in `errors` instead, e.g., their `pointer` or `parameter` and
+`code`. If clients depend on the reasons, set the new option
+`exceptions.validation_reasons: true` to keep them.

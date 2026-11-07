@@ -19,7 +19,7 @@ of their own:
   "type": "https://foca.readthedocs.io/en/latest/problems/invalid-request/",
   "title": "Bad Request",
   "status": 400,
-  "detail": "'abcd' is too long - 'name'",
+  "detail": "Invalid fields: #/name (too-long); #/organization/url (invalid-format); #/url (required)",
   "code": "invalid-request",
   "errors": [
     {
@@ -43,11 +43,11 @@ of their own:
 
 Invalid parameters are named instead, e.g.,
 `{"detail": "Must be at most 10.", "parameter": "limit", "code": "too-large"}`.
-`title`, `status` and `detail` are as before, so clients that only show
-`detail` keep working; `detail` describes the first invalid field, in the
-validator's words, which may quote the rejected value. With
-`exceptions.validation_reasons: false`, it names the invalid fields by
-location and code instead, e.g., `Invalid fields: #/name (too-long)` (see
+`title` and `status` are as before, and clients that only show `detail`
+keep working: by default, it names the invalid fields by location and code,
+e.g., `Invalid fields: #/name (too-long)`. With
+`exceptions.validation_reasons: true`, it describes the first invalid field
+in the validator's words instead, which may quote the rejected value (see
 [Request-specific
 details](../configuration/exceptions.md#request-specific-details)). Nothing
 in the format is specific to FOCA: generic RFC 9457 clients understand
@@ -121,10 +121,11 @@ with validators of your own in the Connexion option `validator_map`. The
 app's own checks run on valid requests only.
 Requests rejected for other reasons, e.g., a body that is not valid JSON or
 has unpaired surrogates, or form fields of an OpenAPI 3 request body that
-can't be converted to their type, get no `errors`, but `detail` as before,
-even if parameters are invalid too. Otherwise, if any invalid field can't be
-listed (e.g., for an unexpected schema), the request is rejected as before,
-without `errors`, and a warning is logged.
+can't be converted to their type, get no `errors`, even if parameters are
+invalid too, and, by default, the mapped `detail` or a fixed one (with
+`exceptions.validation_reasons: true`, the reason, as before). Otherwise,
+if any invalid field can't be listed (e.g., for an unexpected schema), the
+request is rejected as before, without `errors`, and a warning is logged.
 
 ## Checks of your app
 
@@ -155,8 +156,9 @@ def post_service(body):
 `json_pointer()` escapes the keys as per RFC 6901 and URI fragments. Write
 messages without the rejected values. `InvalidFieldsProblem` is a
 `RequestValidationProblem`: it is mapped and handled like Connexion's request
-validation errors. Without a `detail` of its own, `detail` lists the
-locations and messages of the fields.
+validation errors: by default, `detail` names the invalid fields by location
+and code. With `exceptions.validation_reasons: true`, its own `detail` is
+sent, or, without one, the locations and messages of the fields.
 
 ## Configuration
 
@@ -167,10 +169,10 @@ without them, responses have the problem details mapped to the exception
 class only. A `type` or `code` mapped to the exception class (e.g., to
 `RequestValidationProblem`) is kept, e.g., for a problem type URI of your
 own. With `exceptions.public_members`, list
-`type`, `code` and `errors` there to send them. Set
-`exceptions.validation_reasons: false` to send the invalid fields' locations
-and codes as `detail` instead of the validator's reason, which may quote
-rejected values (cf.
+`type`, `code` and `errors` there to send them; otherwise `detail` is the
+mapped `detail`, if any, or a fixed message, unless
+`exceptions.validation_reasons: true` sends the validator's reason, which
+may quote rejected values (cf.
 [`exceptions`](../configuration/exceptions.md#request-specific-details)).
 
 ## API specifications

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import yaml
+from connexion import App
 from connexion.decorators.validation import RequestBodyValidator
 from connexion.resolver import Resolution
 from flask import Flask
@@ -295,12 +296,30 @@ class CustomBodyValidator(RequestBodyValidator):
         raise ValueError("Refused")
 
 
-def _create_app(tmp_path: Path, strict: bool = True, **connexion: Any) -> Flask:
+def _with_reasons(reasons: bool = True) -> App:
+    """Create an app whose responses quote the validators' reasons.
+
+    Args:
+        reasons: Value of `exceptions.validation_reasons`; true by default,
+            as most tests check the reasons as `detail`.
+
+    Returns:
+        Connexion app with FOCA's exception handler.
+    """
+    config = Config()
+    config.exceptions.validation_reasons = reasons
+    return register_exception_handler(create_connexion_app(config), config.exceptions)
+
+
+def _create_app(
+    tmp_path: Path, strict: bool = True, reasons: bool = True, **connexion: Any
+) -> Flask:
     """Create an app with the test API.
 
     Args:
         tmp_path: Temporary directory.
         strict: Whether to use `strict_validation`.
+        reasons: Value of `exceptions.validation_reasons`.
         **connexion: Further Connexion options.
 
     Returns:
@@ -308,7 +327,7 @@ def _create_app(tmp_path: Path, strict: bool = True, **connexion: Any) -> Flask:
     """
     path = tmp_path / "spec.yaml"
     path.write_text(yaml.safe_dump(SPEC))
-    cnx_app = register_exception_handler(create_connexion_app(Config()))
+    cnx_app = _with_reasons(reasons)
     spec = SpecConfig.model_validate(
         {
             "path": path,
@@ -469,7 +488,7 @@ class TestExtraParameters:
                 }
             )
         )
-        cnx_app = register_exception_handler(create_connexion_app(Config()))
+        cnx_app = _with_reasons()
         spec = SpecConfig.model_validate(
             {"path": path, "connexion": {"strict_validation": True}}
         )
@@ -531,7 +550,7 @@ class TestResponses:
                 }
             )
         )
-        cnx_app = register_exception_handler(create_connexion_app(Config()))
+        cnx_app = _with_reasons()
         spec = SpecConfig.model_validate(
             {
                 "path": path,
@@ -765,12 +784,16 @@ class TestFieldErrors:
         gc.collect()
         assert reference() is None
 
+    @pytest.mark.parametrize("reasons", [False, True])
     def test_values_not_echoed(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, reasons: bool
     ) -> None:
-        """Invalid fields and logs don't quote rejected values."""
+        """Invalid fields and logs don't quote rejected values.
+
+        Nor does the response at all by default, without validation reasons.
+        """
         leaky = "https://user:s3cr3t@example.org/ x"
-        client = Client(_create_app(tmp_path))
+        client = Client(_create_app(tmp_path, reasons=reasons))
         with caplog.at_level(logging.DEBUG):
             response = client.put(
                 self.URL,
@@ -780,6 +803,8 @@ class TestFieldErrors:
         assert len(data["errors"]) == 2
         assert "s3cr3t" not in json.dumps(data["errors"])
         assert "s3cr3t" not in caplog.text
+        # With reasons, `detail` quotes the value, as documented
+        assert ("s3cr3t" in json.dumps(data)) is reasons
 
     def test_no_details(self, tmp_path: Path) -> None:
         """Without validation details, responses are as before."""
@@ -805,8 +830,8 @@ class TestFieldErrors:
         """Without validation reasons, details quote no rejected values."""
         path = tmp_path / "spec.yaml"
         path.write_text(yaml.safe_dump(SPEC))
+        # Without validation reasons, as by default
         config = Config()
-        config.exceptions.validation_reasons = False
         cnx_app = register_exception_handler(
             create_connexion_app(config), config.exceptions
         )
@@ -876,7 +901,7 @@ class TestFieldErrors:
                 }
             )
         )
-        cnx_app = register_exception_handler(create_connexion_app(Config()))
+        cnx_app = _with_reasons()
         spec = SpecConfig.model_validate({"path": path, "disable_auth": True})
         client = Client(register_openapi(cnx_app, specs=[spec]))
         response = client.post("/forms", data={"name": "abc"})

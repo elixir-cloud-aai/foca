@@ -110,20 +110,20 @@ match its schema), `validation_details` is on by default:
 ```yaml
 exceptions:
   validation_details: true
-  validation_reasons: true
+  validation_reasons: false
   max_detail_length: 500
 ```
 
 Responses to Connexion's validation exceptions (`BadRequestProblem` and
-`ExtraParameterProblem`) get the validator's reason as `detail` (for
-form data, the reasons joined by `; `), with the title and status as mapped
-(and the mapped details if there is no reason), e.g.:
+`ExtraParameterProblem`) get a `detail` that names the invalid fields by
+location and code, without their values (see below), with the title and
+status as mapped, e.g.:
 
 ```json
 {
   "title": "Bad Request",
   "status": 400,
-  "detail": "'abcd' is too long - 'name'"
+  "detail": "Invalid fields: #/name (too-long)"
 }
 ```
 
@@ -138,7 +138,7 @@ the invalid fields of checks of your own the same way:
 {
   "title": "Bad Request",
   "status": 400,
-  "detail": "'abcd' is too long - 'name'",
+  "detail": "Invalid fields: #/name (too-long)",
   "type": "https://foca.readthedocs.io/en/latest/problems/invalid-request/",
   "code": "invalid-request",
   "errors": [
@@ -152,7 +152,7 @@ the invalid fields of checks of your own the same way:
 ```
 
 Like all error responses, they have the configured media type and only the
-public members (without `detail` in `public_members`, the reason is not
+public members (without `detail` in `public_members`, no `detail` is
 sent; list `type`, `code` and `errors` there to send the invalid fields). The
 invalid fields are logged at `INFO` by location and code (e.g., `Request
 rejected: #/name (too-long)`), otherwise the reason, shortened and escaped
@@ -164,24 +164,29 @@ and unescaped (and rejected values can be as large as the request body), so
 its messages on rejected requests are filtered out, for all apps of the
 process.
 Exceptions that your app raises as `BadRequestProblem` (e.g., FOCA's
-[access control](../access-control.md) for an invalid user acted for) get
-their `detail` as well, so keep internals out of it. Set
+[access control](../access-control.md) for an invalid user acted for) are
+handled the same way: by default, their `detail` is replaced by the invalid
+fields, if listed, otherwise the mapped or fixed `detail`; with
+`validation_reasons: true`, their `detail` is sent, so keep internals out of
+it. Set
 `validation_details: false` to respond with the problem details mapped to
 the exception class instead (without `errors`), whatever was wrong with the
 request, and to log the exception (Connexion's validation logger then logs
 its messages too, unless another app of the process has validation details on).
 
-Validators' reasons quote what they reject: values of the request (e.g.,
-`'abcd' is too long`), unexpected keys and, for parameters, the schema. Set
-`validation_reasons: false` (recommended, unless clients depend on the
-reasons) to respond with a `detail` that quotes no values of the request
-instead: the invalid fields by location and code, e.g., `Invalid fields:
-#/name (too-long)`, if they are listed (and `errors` is public), otherwise
-the mapped `detail`, if any, or `The request is invalid.` The invalid fields
-are listed in `errors`
-as before, without their values; their pointers and parameter names may
-still include keys or parameter names of the request (e.g., an unexpected
-property). The logs are the same. The option
+By default (`validation_reasons: false`), `detail` quotes no values of the
+request: it names the invalid fields by location and code, e.g., `Invalid
+fields: #/name (too-long)`, if they are listed (and `errors` is public),
+otherwise it is the mapped `detail`, if any, or `The request is invalid.`
+The invalid fields are listed in `errors` without their values; their
+pointers and parameter names may still include keys or parameter names of
+the request (e.g., an unexpected property). Validators' reasons quote what
+they reject: values of the request (e.g., `'abcd' is too long`), unexpected
+keys and, for parameters, the schema. Set `validation_reasons: true` only if
+clients depend on the reasons (as `detail` was before FOCA 0.22.0): `detail`
+is then the validator's reason (for form data, the reasons joined by `; `),
+or the mapped `detail` if there is no reason, e.g., `'abcd' is too long -
+'name'`. The logs are the same either way. The option
 applies with `validation_details` only, to all request validation
 exceptions, including `RequestValidationProblem` that FOCA (e.g., access
 control) or your app raise; raise `InvalidFieldsProblem` to tell clients
