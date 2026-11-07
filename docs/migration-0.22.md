@@ -276,3 +276,28 @@ Update tests and clients that check the old messages in `detail`: check the
 invalid fields in `errors` instead, e.g., their `pointer` or `parameter` and
 `code`. If clients depend on the reasons, set the new option
 `exceptions.validation_reasons: true` to keep them.
+
+The plugin gateway's refusals of per-request pipelines and backends (`400`,
+problem types `invalid-pipeline`, `invalid-backends`, `reserved-tag`)
+follow the same rule, whatever the option: their `detail` names fields,
+settings and the positions of steps (from 0), never the client's values
+(see [Per-request pipelines and
+backends](plugins.md#per-request-pipelines-and-backends)). These messages
+change:
+
+- Invalid steps: `Invalid pipeline: 0.alternatives.0.plugin (value_error)`,
+  i.e., the location and the error type, instead of the validator's message
+  (e.g., `Invalid plugin identifier: '...'`).
+- `Invalid pipeline: NaN, Infinity and -Infinity are not allowed`, instead
+  of naming the constant.
+- `Preset not available` and `Plugin not available in step 1`, without the
+  name of the preset or plugin.
+- `Step identifiers must be unique: step 1 repeats one; set unique 'id's`,
+  instead of `Duplicate step identifier '...'`.
+- Invalid params of plugins name the step by its position instead of its
+  identifier, e.g., `Invalid params of plugin 'foca.routing.ordered' in step
+  0: 'seed' is not allowed (cf. 'allow_seed')`.
+
+Update tests and clients that check these messages; the problem types are
+unchanged. Errors in the configuration of the gateway (at startup) keep
+their messages.

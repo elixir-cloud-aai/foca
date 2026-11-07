@@ -260,9 +260,10 @@ def _reject_constant(name: str) -> None:
         name: Constant.
 
     Raises:
-        ValueError: Always.
+        ValueError: Always; the message doesn't quote the constant, as for all
+            values of clients.
     """
-    raise ValueError(f"{name} is not allowed")
+    raise ValueError("NaN, Infinity and -Infinity are not allowed")
 
 
 def check_i_json(data: Any) -> None:
@@ -340,7 +341,14 @@ def parse_client_pipeline(value: str) -> list[StepConfig]:
         if not isinstance(data, list):
             raise TypeError("not a list")
         check_i_json(data)
-        steps = [ClientStepConfig.model_validate(item).to_step() for item in data]
+        steps = []
+        for index, item in enumerate(data):
+            try:
+                steps.append(ClientStepConfig.model_validate(item).to_step())
+            except ValidationError as exc:
+                raise InvalidSelection(
+                    f"Invalid pipeline: {_describe_step_error(index, exc)}"
+                ) from exc
     except (TypeError, ValueError, RecursionError) as exc:
         detail = _first_error(exc)
         raise InvalidSelection(f"Invalid pipeline: {detail}") from exc
@@ -365,19 +373,36 @@ def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return data
 
 
+def _describe_step_error(index: int, exc: ValidationError) -> str:
+    """Describe the first error of a client's step by location and type.
+
+    Like the invalid fields of requests (cf. `exceptions.validation_reasons`),
+    without the message, as validators of steps quote the rejected values.
+
+    Args:
+        index: Position of the step in the pipeline, from 0.
+        exc: Error of validating the step.
+
+    Returns:
+        Location in the pipeline and type of the error, e.g.,
+        `0.alternatives.0.plugin (value_error)`; steps given in the short
+        form (`plugin`, `params`) are located as their one alternative.
+    """
+    error = exc.errors(include_url=False, include_context=False)[0]
+    location = ".".join(str(part) for part in (index, *error["loc"]))
+    return f"{location} ({error['type']})"
+
+
 def _first_error(exc: BaseException) -> str:
     """Describe a parsing error briefly, for clients.
 
     Args:
-        exc: Error.
+        exc: Error, other than of validating a step.
 
     Returns:
-        First validation error, or a generic message.
+        Message of FOCA's checks of the JSON, which quote no values, or a
+        generic message.
     """
-    if isinstance(exc, ValidationError):
-        error = exc.errors()[0]
-        location = ".".join(str(part) for part in error["loc"])
-        return f"{location}: {error['msg']}" if location else str(error["msg"])
     if isinstance(exc, json.JSONDecodeError):
         return "not a preset name or JSON"
     if isinstance(exc, ValueError):
