@@ -173,11 +173,13 @@ its messages too, unless another app of the process has validation details on).
 Validators' reasons quote what they reject: values of the request (e.g.,
 `'abcd' is too long`), unexpected keys and, for parameters, the schema. Set
 `validation_reasons: false` (recommended, unless clients depend on the
-reasons) to respond with a fixed `detail` instead, which quotes nothing of
+reasons) to respond with a fixed `detail` instead, which quotes no values of
 the request: `The request has invalid fields; see 'errors'.` if the invalid
 fields are listed (and `errors` is public), otherwise the mapped `detail`, if
 any, or `The request is invalid.` The invalid fields are listed in `errors`
-as before, without their values, and the logs are the same. The option
+as before, without their values; their pointers and parameter names may
+still include keys or parameter names of the request (e.g., an unexpected
+property). The logs are the same. The option
 applies with `validation_details` only, to all request validation
 exceptions, including `RequestValidationProblem` that FOCA (e.g., access
 control) or your app raise; raise `InvalidFieldsProblem` to tell clients

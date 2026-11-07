@@ -1139,10 +1139,10 @@ class TestValidationDetails:
         detail: str,
         errors: bool,
     ) -> None:
-        """Without reasons, the detail quotes nothing of the request.
+        """Without reasons, the detail quotes no values of the request.
 
-        The invalid fields are listed and logged as with reasons, and the
-        reasons are still logged (escaped) for requests without them.
+        The invalid fields are listed as with reasons, and the logs are the
+        same as with reasons (escaped reason included).
         """
         with_reasons = self._client(conf_details).request(method, path, **kwargs)
         conf_details.validation_reasons = False

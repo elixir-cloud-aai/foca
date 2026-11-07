@@ -451,13 +451,14 @@ class ExceptionConfig(FOCABaseConfig):
             rejected by Connexion's validation (with `validation_details`) is
             the validator's reason, which may quote rejected values of the
             request and parts of the schema. Defaults to true. If false, the
-            `detail` is a fixed message that quotes nothing of the request
+            `detail` is a fixed message that quotes no values of the request
             (the invalid fields are still listed as `errors`, without their
-            values; with a mapped `detail`, that one is kept unless the
+            values, but by pointers or parameter names that may include keys of
+            the request; with a mapped `detail`, that one is kept unless the
             invalid fields are listed). Applies to all request validation
-            exceptions, including `RequestValidationProblem` raised by FOCA
-            or the app. Recommended for apps whose clients don't depend on
-            the reasons.
+            exceptions, including `RequestValidationProblem` raised by FOCA or
+            the app. Recommended for apps whose clients don't depend on the
+            reasons.
         max_detail_length: Maximum length of request-specific details in
             responses (cf. `validation_details` and
             :py:func:`foca.errors.exceptions.problem_response`) and log
