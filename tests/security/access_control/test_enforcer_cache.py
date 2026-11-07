@@ -18,7 +18,7 @@ from flask.globals import request_ctx
 from pymongo import MongoClient
 from pymongo.collection import Collection
 
-from foca.config.access import set_app_config
+from foca.config.access import _set_app_config
 from foca.models.config import Config
 from foca.security.access_control import (
     add_resource_role,
@@ -992,7 +992,7 @@ def _create_app(collection: Collection[dict[str, Any]]) -> Flask:
             }
         }
     )
-    set_app_config(app, conf)
+    _set_app_config(app, conf)
     app.config["CASBIN_MODEL"] = RESOURCE_ROLE_MODEL
     app.config["casbin_adapter"] = Adapter(
         collection=collection, model=RESOURCE_ROLE_MODEL

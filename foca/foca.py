@@ -15,7 +15,7 @@ from foca.config.access import _get_app_config
 from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
 from foca.errors.exceptions import register_exception_handler
-from foca.factories.celery_app import create_celery_app
+from foca.factories.celery_app import _create_celery_app
 from foca.factories.connexion_app import create_connexion_app
 from foca.plugins import runtime
 from foca.plugins.runtime import GatewayApp
@@ -25,7 +25,7 @@ from foca.security.access_control.register_access_control import (
     check_opt_in_roles,
     register_access_control,
 )
-from foca.security.cors import enable_cors
+from foca.security.cors import _enable_cors
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -194,7 +194,7 @@ class Foca:
 
         # Enable cross-origin resource sharing
         if self.conf.security.cors.enabled is True:
-            enable_cors(cnx_app.app, self.conf.security.cors)
+            _enable_cors(cnx_app.app, self.conf.security.cors)
             logger.info("CORS enabled.")
         else:
             logger.info("CORS not enabled.")
@@ -327,7 +327,7 @@ class Foca:
         # Create Celery app
         if self.conf.jobs:
             self._check_worker_config()
-            celery_app = create_celery_app(cnx_app.app)
+            celery_app = _create_celery_app(cnx_app.app)
             logger.info("Support for background tasks set up.")
         else:
             raise ValueError(

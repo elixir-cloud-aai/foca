@@ -5,7 +5,7 @@ from flask import Flask
 from pydantic import ValidationError
 
 from foca.models.config import CORSConfig
-from foca.security.cors import enable_cors
+from foca.security.cors import _enable_cors, enable_cors
 from foca.testing import Client
 
 ORIGIN = "https://example.org"
@@ -18,7 +18,7 @@ def _app(conf: CORSConfig | None = None) -> Flask:
     def items() -> str:
         return "ok"
 
-    enable_cors(app, conf)
+    _enable_cors(app, conf)
     return app
 
 
@@ -71,3 +71,17 @@ def test_credentials_any_origin(origins: list[str]) -> None:
     """Credentials must not be allowed for any origin."""
     with pytest.raises(ValidationError):
         CORSConfig(allow_origins=origins, allow_credentials=True)
+
+
+def test_enable_cors_deprecated() -> None:
+    """CORS is enabled for a Flask app, deprecated."""
+    app = Flask(__name__)
+
+    @app.route("/items")
+    def items() -> str:
+        return "ok"
+
+    with pytest.deprecated_call(match="security.cors"):
+        enable_cors(app)
+    response = Client(app).get("/items", headers={"Origin": ORIGIN})
+    assert response.headers["Access-Control-Allow-Origin"] == ORIGIN

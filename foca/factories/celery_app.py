@@ -13,6 +13,7 @@ from flask import Flask
 from foca.config.access import _get_app_config
 from foca.config.environment import get_env
 from foca.database.register_mongodb import reopen_mongodb
+from foca.deprecation import warn_deprecated
 from foca.models.config import PeriodicJobConfig
 
 # Get logger instance
@@ -66,7 +67,29 @@ def _get_beat_entry(name: str, job: PeriodicJobConfig) -> dict[str, Any]:
 
 
 def create_celery_app(app: Flask) -> Celery:
+    """Create and configure Celery application instance for a Flask app.
+
+    Deprecated, removed in the ASGI release: use
+    :py:meth:`foca.Foca.create_celery_app`.
+
+    Args:
+        app: Flask application instance.
+
+    Returns:
+        Celery application instance.
+    """
+    warn_deprecated(
+        "'foca.factories.celery_app.create_celery_app()' is deprecated and "
+        "removed in the ASGI release; use 'Foca.create_celery_app()'.",
+        stacklevel=2,
+    )
+    return _create_celery_app(app)
+
+
+def _create_celery_app(app: Flask) -> Celery:
     """Create and configure Celery application instance.
+
+    For FOCA's own use.
 
     The message broker URL is taken from environment variable
     `CELERY_BROKER_URL`, if set (e.g., with credentials or for

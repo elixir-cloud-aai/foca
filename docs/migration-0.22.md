@@ -1,5 +1,9 @@
 # Migrating to 0.22.0
 
+FOCA 0.22.0 prepares for the ASGI release, which removes Flask: see
+[Deprecated, removed in the ASGI release](#deprecated-removed-in-the-asgi-release)
+and [Preparing for the ASGI release](preparing-for-asgi.md).
+
 ## Framework-neutral errors
 
 FOCA prepares for its release on ASGI, without Flask. Nothing breaks in this release;
@@ -227,3 +231,23 @@ To adopt it, copy the file into your app's `.ast-grep/rules/`, set its
 `ast-grep scan` (e.g., via pre-commit). The rule has the severity `warning`
 from FOCA 0.22, so the scan reports but doesn't fail; with the ASGI release,
 FOCA's copy becomes an `error`: update your copy then.
+
+## Deprecated, removed in the ASGI release
+
+Nothing breaks in 0.22. The first release candidate of the ASGI release moves
+to Connexion 3 `AsyncApp` and removes Flask, Flask-Cors and everything in FOCA
+that takes a Flask app. These emit a `DeprecationWarning` now, and FOCA logs
+them once per process:
+
+| Deprecated | Use |
+| --- | --- |
+| `foca.config.access.get_app_config(app)`, `app.config.foca` | `foca.get_config()` (see [Configuration access](#configuration-access)) |
+| `foca.config.access.set_app_config(app, config)` | Nothing: FOCA attaches the configuration to the apps it creates |
+| `foca.security.cors.enable_cors(app, conf)` | `security.cors` of the configuration; FOCA enables CORS for the apps it creates |
+| `foca.factories.celery_app.create_celery_app(app)` | `Foca.create_celery_app()` |
+| `www_authenticate` of `foca.errors.Unauthorized` | `WWW-Authenticate` headers (see [Challenges in `headers`](#challenges-in-headers)) |
+| Exception maps with raw Werkzeug classes (logged only) | Classes of `foca.errors` (see [Framework-neutral errors](#framework-neutral-errors)) |
+
+[Preparing for the ASGI release](preparing-for-asgi.md) lists everything that
+goes away, from Flask's request objects to the Helm chart's
+`gunicorn.threads`, with what to use now, and how to find what is left.

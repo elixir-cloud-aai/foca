@@ -13,7 +13,7 @@ from flask import Flask, request
 from pymongo.collection import Collection
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
-from foca.config.access import _get_app_config, set_app_config
+from foca.config.access import _get_app_config, _set_app_config
 from foca.models.config import AccessControlConfig, Config, MongoConfig
 from foca.security.access_control import access_control_server as module
 from foca.security.access_control.access_control_server import (
@@ -71,7 +71,7 @@ def app(collection: Collection[dict[str, Any]]) -> Flask:
     config.db.dbs[access_control.db_name].collections[  # type: ignore[union-attr,index]  # set in the config
         access_control.collection_name
     ].client = collection
-    set_app_config(app, config)
+    _set_app_config(app, config)
     app.config["CASBIN_MODEL"] = access_control.model
     app.config["casbin_adapter"] = Adapter(collection=collection)
     return app

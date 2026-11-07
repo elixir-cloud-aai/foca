@@ -102,8 +102,26 @@ def _deprecate_attribute(app: Flask) -> None:
 def set_app_config(app: Flask, config: Config) -> None:
     """Attach configuration to a Flask app.
 
-    The configuration is available via :py:func:`get_config`, also outside an
-    app context.
+    Deprecated, removed in the ASGI release: FOCA attaches the configuration
+    to the apps it creates (cf. :py:meth:`foca.Foca.create_app`).
+
+    Args:
+        app: Flask application instance.
+        config: App configuration.
+    """
+    warn_deprecated(
+        "'set_app_config()' is deprecated and removed in the ASGI release; "
+        "FOCA attaches the configuration to the apps it creates.",
+        stacklevel=2,
+    )
+    _set_app_config(app, config)
+
+
+def _set_app_config(app: Flask, config: Config) -> None:
+    """Attach configuration to a Flask app.
+
+    For FOCA's own use. The configuration is available via
+    :py:func:`get_config`, also outside an app context.
 
     Args:
         app: Flask application instance.
