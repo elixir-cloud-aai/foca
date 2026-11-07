@@ -15,7 +15,9 @@ r"""Stricter checks of requests than those of Connexion 2.
   not only the first (cf. :py:mod:`foca.errors.fields`): rejected requests
   raise :py:class:`foca.errors.InvalidFieldsProblem`, with the message of
   Connexion's validator on the first error as `detail`, as before. The body
-  is checked before the parameters, as by Connexion.
+  is checked before the parameters, as by Connexion; if it is invalid, the
+  parameters are then checked by FOCA only, and their invalid fields are
+  listed after those of the body.
 
 To be revisited when moving to Connexion 3 (#188).
 """
@@ -25,6 +27,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from functools import wraps
 from typing import Any
+from weakref import ReferenceType, WeakKeyDictionary, ref
 
 from connexion.decorators.validation import (
     ParameterValidator as ConnexionParameterValidator,
@@ -87,11 +90,69 @@ def _has_unpaired_surrogates(data: object) -> bool:
     return False
 
 
+# FOCA's parameter validators, by the functions they return, so that the body
+# validator, which Connexion wraps around such a function, can list the
+# invalid parameters too (cf. `BodyValidator.__call__()`). Keys and values are
+# weak, so that apps can be collected: the functions refer to the validators,
+# and the validators, through their API, to the functions.
+_parameter_validators: WeakKeyDictionary[
+    Callable[..., Any], "ReferenceType[ParameterValidator]"
+] = WeakKeyDictionary()
+
+
 class BodyValidator(RequestBodyValidator):
     """Validator of request bodies that also refuses unpaired surrogates.
 
-    Collects all invalid fields of bodies that don't match their schema.
+    Collects all invalid fields of bodies that don't match their schema, and,
+    for operations whose parameters FOCA's `ParameterValidator` checks, those
+    of the parameters too.
     """
+
+    def __call__(self, function: Callable[..., Any]) -> Callable[..., Any]:
+        """Wrap a function with the validation of the body.
+
+        Args:
+            function: Function to wrap; with parameters, the function returned
+                by `ParameterValidator`.
+
+        Returns:
+            Function validating the body of a request first.
+        """
+        reference = _parameter_validators.get(function)
+        parameters = reference() if reference is not None else None
+        if parameters is None:
+            return super().__call__(function)
+        # Connexion's validation of the body, around a stand-in that does
+        # nothing, so that only the body's problems are caught below, not
+        # those of the function
+        check_body = super().__call__(_body_valid)
+
+        @wraps(function)
+        def wrapper(request: Any) -> Any:
+            """Validate the body of a request, as Connexion does.
+
+            Args:
+                request: Connexion request.
+
+            Returns:
+                What the function returns.
+
+            Raises:
+                foca.errors.InvalidFieldsProblem: The body doesn't match its
+                    schema; with the invalid fields of the body, followed by
+                    those of the parameters, if they can be listed.
+            """
+            try:
+                check_body(request)
+            except InvalidFieldsProblem as exc:
+                # Best effort: the body's problem is raised in any case
+                errors = _list_fields(lambda: parameters.field_errors(request))
+                if errors:
+                    exc.field_errors = (*exc.field_errors, *errors)
+                raise
+            return function(request)
+
+        return wrapper
 
     def validate_schema(self, data: Any, url: str) -> Any:
         """Validate a body.
@@ -125,6 +186,14 @@ class BodyValidator(RequestBodyValidator):
             if not errors:
                 raise
             raise InvalidFieldsProblem(errors, detail=exc.detail) from None
+
+
+def _body_valid(request: Any) -> None:
+    """Stand in for the function wrapped by Connexion's body validator.
+
+    Args:
+        request: Connexion request, with a valid body.
+    """
 
 
 def _list_fields(
@@ -302,17 +371,10 @@ class ParameterValidator(ConnexionParameterValidator):
                 if formdata or query:
                     # Declared parameters are checked by FOCA only, as
                     # Connexion didn't check them for these requests
-                    token = _after_first_reason.set(True)
-                    try:
-                        _, errors = self._check(request)
-                    finally:
-                        _after_first_reason.reset(token)
+                    unknown, errors = self._listed_by_foca(request)
                     exc = ExtraParameterProblem(formdata, query)
                     if errors is not None:
-                        exc.field_errors = (
-                            *unknown_parameters([*query, *formdata]),
-                            *errors,
-                        )
+                        exc.field_errors = (*unknown, *errors)
                     raise exc
             first, errors = self._check(request)
             if first is None:
@@ -321,7 +383,54 @@ class ParameterValidator(ConnexionParameterValidator):
                 raise RequestValidationProblem(detail=first)
             raise InvalidFieldsProblem(errors, detail=first)
 
+        _parameter_validators[wrapper] = ref(self)
         return wrapper
+
+    def field_errors(self, request: Any) -> list[FieldError]:
+        """List the invalid parameters of a request, without rejecting it.
+
+        Used for requests with an invalid body (cf. `BodyValidator`), which
+        Connexion rejects before checking the parameters. The parameters are
+        checked by FOCA only, which logs nothing.
+
+        Args:
+            request: Connexion request.
+
+        Returns:
+            The unknown parameters (with `strict_validation`), followed by
+            the invalid declared ones, if they could all be listed, as for
+            `ExtraParameterProblem`.
+        """
+        unknown, errors = self._listed_by_foca(request)
+        return [*unknown, *(errors or [])]
+
+    def _listed_by_foca(
+        self, request: Any
+    ) -> tuple[list[FieldError], list[FieldError] | None]:
+        """List the unknown and invalid declared parameters, by FOCA only.
+
+        Args:
+            request: Connexion request.
+
+        Returns:
+            The unknown parameters (with `strict_validation`, otherwise none),
+            and the invalid declared ones (`None` if they could not be
+            listed).
+        """
+        unknown: list[FieldError] = []
+        if self.strict_validation:
+            unknown = unknown_parameters(
+                [
+                    *self.validate_query_parameter_list(request),
+                    *self.validate_formdata_parameter_list(request),
+                ]
+            )
+        token = _after_first_reason.set(True)
+        try:
+            _, errors = self._check(request)
+        finally:
+            _after_first_reason.reset(token)
+        return unknown, errors
 
     def _check(self, request: Any) -> tuple[str | None, list[FieldError] | None]:
         """Check the declared parameters of a request.

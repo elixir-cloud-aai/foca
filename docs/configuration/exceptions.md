@@ -128,7 +128,8 @@ form data, the reasons joined by `; `), with the title and status as mapped
 ```
 
 Responses also list all invalid fields of the request in the member
-`errors`, with `type` and `code` of the problem type
+`errors` (those of the body and the parameters together), with `type` and
+`code` of the problem type
 [Invalid request](../problems/invalid-request.md), so that clients can show
 each message at its field; raise `foca.errors.InvalidFieldsProblem` to list
 the invalid fields of checks of your own the same way:
