@@ -702,7 +702,10 @@ def test_use_config_access_control(config_files: list[Path]) -> None:
     assert collection.name == access_control.collection_name
     assert not list(collection.find())
     foca.create_app()
-    assert get_collection(*names).full_name == collection.full_name
+    after = get_collection(*names)
+    assert after.full_name == collection.full_name
+    # the same client, so the same data
+    assert after.database.client is collection.database.client
 
 
 @pytest.mark.usefixtures("no_apps")
