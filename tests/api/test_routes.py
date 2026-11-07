@@ -319,6 +319,21 @@ class TestInstall:
         assert app() is None
         assert api.base_path == "/api/v1"
 
+    def test_app_replaced(self) -> None:
+        """Operations of an app replaced and collected aren't recorded.
+
+        As before, the replacement doesn't get them; adding them works.
+        """
+        cnx_app = create_connexion_app()
+        original = weakref.ref(cnx_app.app)
+        cnx_app.app = Flask(__name__)
+        gc.collect()
+        assert original() is None
+        cnx_app.add_api(_spec())
+        assert get_routes(cnx_app.app) == []
+        rules = {rule.rule for rule in cnx_app.app.url_map.iter_rules()}
+        assert "/api/v1/items" in rules
+
     def test_stand_in(self) -> None:
         """Other objects are left alone."""
         stand_in = MagicMock()
