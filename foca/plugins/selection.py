@@ -356,12 +356,13 @@ def parse_client_pipeline(value: str, *, reasons: bool = False) -> list[StepConf
             try:
                 steps.append(ClientStepConfig.model_validate(item).to_step())
             except ValidationError as exc:
+                # Without the cause, which may quote values, in tracebacks
                 raise InvalidSelection(
                     f"Invalid pipeline: {_describe_step_error(index, exc)}"
-                ) from exc
+                ) from None
     except (TypeError, ValueError, RecursionError) as exc:
         detail = _first_error(exc, reasons=reasons)
-        raise InvalidSelection(f"Invalid pipeline: {detail}") from exc
+        raise InvalidSelection(f"Invalid pipeline: {detail}") from None
     return steps
 
 

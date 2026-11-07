@@ -1013,7 +1013,8 @@ class PluginHost:
                 check_pipeline(steps, by_position=True)
                 resolved = self.resolve_steps(steps, origin="client")
             except ValueError as exc:
-                raise InvalidSelection(str(exc)) from exc
+                # Without the cause, which may quote values, in tracebacks
+                raise InvalidSelection(str(exc)) from None
         else:
             raise InvalidSelection("Pipelines are chosen by preset name only")
         return ResolvedPipeline(

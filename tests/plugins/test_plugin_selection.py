@@ -830,6 +830,8 @@ def test_messages_quote_no_values(value: str, message: str) -> None:
         host().start(request(pipeline_tag(value)), ALICE)
     assert str(exc_info.value) == message
     assert "secret" not in str(exc_info.value).lower()
+    # Nor in a logged traceback, through the cause
+    assert exc_info.value.__cause__ is None
 
 
 def test_reserved_tag_message_quotes_no_key() -> None:
@@ -876,6 +878,8 @@ def test_parser_errors_quote_nothing_by_default(reasons: bool) -> None:
     with pytest.raises(InvalidSelection) as exc_info:
         parse_client_pipeline(value, reasons=reasons)
     assert (_DIGITS in str(exc_info.value)) is reasons
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__suppress_context__
     # FOCA's own checks keep their messages either way
     with pytest.raises(InvalidSelection, match="duplicate keys"):
         parse_client_pipeline('[{"plugin": "a.b", "plugin": "a.c"}]', reasons=reasons)
