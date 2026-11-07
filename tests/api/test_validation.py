@@ -751,11 +751,19 @@ class TestFieldErrors:
         assert data["detail"] == "Request body is not valid JSON"
         assert "errors" not in data
 
-    def test_apps_collected(self, tmp_path: Path) -> None:
-        """Apps can be collected, though FOCA keeps their parameter validators."""
-        app = weakref.ref(_create_app(tmp_path))
+    def test_validators_collected(self) -> None:
+        """Parameter validators are collected with the functions they return.
+
+        Their API refers to these functions, as in apps.
+        """
+        validator = ParameterValidator(
+            [{"name": "limit", "in": "query", "type": "integer"}], MagicMock()
+        )
+        validator.api.function = validator(listItems)
+        reference = weakref.ref(validator)
+        del validator
         gc.collect()
-        assert app() is None
+        assert reference() is None
 
     def test_values_not_echoed(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
