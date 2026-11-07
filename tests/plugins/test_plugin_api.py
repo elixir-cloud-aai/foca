@@ -267,6 +267,8 @@ def test_plugin_not_found(plugin_id: str) -> None:
         api.get_plugin(host, plugin_id, ALICE)
     assert exc_info.value.code == 404
     assert exc_info.value.slug == "plugin-not-found"
+    # The parameter is named, not its value
+    assert str(exc_info.value) == "Plugin not available: path parameter 'plugin_id'"
     host.close()
 
 
@@ -346,7 +348,7 @@ def test_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
         body = response.get_json()
         assert body["status"] == 404
         assert body["problem_type"].endswith("#plugin-not-found")
-        assert "test.skip" in body["detail"]
+        assert "test.skip" not in body["detail"]
     host.close()
 
 

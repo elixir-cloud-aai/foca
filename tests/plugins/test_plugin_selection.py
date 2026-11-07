@@ -839,3 +839,31 @@ def test_reserved_tag_message_quotes_no_key() -> None:
         " 'gateway.backends' are reserved for the gateway"
     )
     assert exc_info.value.slug == "reserved-tag"
+
+
+# The parser's own error on integers with more digits than Python converts
+_DIGITS = "Exceeds the limit"
+
+
+@pytest.mark.parametrize("reasons", [False, True])
+def test_parser_errors_quote_nothing_by_default(reasons: bool) -> None:
+    """Errors of the JSON parser itself are named only with validation reasons.
+
+    Like the reasons of request validation (cf.
+    `exceptions.validation_reasons`), they aren't FOCA's and may describe
+    the value; FOCA's own checks of the JSON keep their messages.
+    """
+    value = '[{"plugin": "test.tag", "params": {"x": ' + "9" * 5000 + "}}]"
+    with pytest.raises(InvalidSelection) as exc_info:
+        host(validation_reasons=reasons).start(request(pipeline_tag(value)), ALICE)
+    message = str(exc_info.value)
+    assert (_DIGITS in message) is reasons
+    if not reasons:
+        assert message == "Invalid pipeline: JSON cannot be parsed"
+        assert not any(char.isdigit() for char in message)
+    with pytest.raises(InvalidSelection) as exc_info:
+        parse_client_pipeline(value, reasons=reasons)
+    assert (_DIGITS in str(exc_info.value)) is reasons
+    # FOCA's own checks keep their messages either way
+    with pytest.raises(InvalidSelection, match="duplicate keys"):
+        parse_client_pipeline('[{"plugin": "a.b", "plugin": "a.c"}]', reasons=reasons)

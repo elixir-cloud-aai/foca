@@ -246,6 +246,10 @@ def _parse_backends(raw: object, max_backends: int) -> BackendSelection:
     return selection
 
 
+class _JsonCheckError(ValueError):
+    """Error of FOCA's own checks of a client's JSON; quotes no values."""
+
+
 MAX_SAFE_INTEGER = 2**53 - 1
 """Largest integer that JSON numbers represent exactly (I-JSON, RFC 7493)."""
 
@@ -263,7 +267,7 @@ def _reject_constant(name: str) -> None:
         ValueError: Always; the message doesn't quote the constant, as for all
             values of clients.
     """
-    raise ValueError("NaN, Infinity and -Infinity are not allowed")
+    raise _JsonCheckError("NaN, Infinity and -Infinity are not allowed")
 
 
 def check_i_json(data: Any) -> None:
@@ -290,13 +294,15 @@ def check_i_json(data: Any) -> None:
             _check_string(item)
         elif isinstance(item, int):
             if abs(item) > MAX_SAFE_INTEGER:
-                raise ValueError("Integers are at most 2^53 - 1")
+                raise _JsonCheckError("Integers are at most 2^53 - 1")
         elif isinstance(item, float):
             if not math.isfinite(item):
-                raise ValueError("Numbers must be finite")
+                raise _JsonCheckError("Numbers must be finite")
         elif isinstance(item, dict | list):
             if depth > MAX_JSON_DEPTH:
-                raise ValueError(f"Nesting is at most {MAX_JSON_DEPTH} levels deep")
+                raise _JsonCheckError(
+                    f"Nesting is at most {MAX_JSON_DEPTH} levels deep"
+                )
             children: Iterable[Any]
             if isinstance(item, dict):
                 for key in item:
@@ -319,14 +325,18 @@ def _check_string(value: str) -> None:
     try:
         value.encode()
     except UnicodeEncodeError:
-        raise ValueError("Strings must be valid Unicode") from None
+        raise _JsonCheckError("Strings must be valid Unicode") from None
 
 
-def parse_client_pipeline(value: str) -> list[StepConfig]:
+def parse_client_pipeline(value: str, *, reasons: bool = False) -> list[StepConfig]:
     """Parse a client's pipeline given as JSON.
 
     Args:
         value: Value of the pipeline tag.
+        reasons: Pass on the messages of the JSON parser's own errors (e.g.,
+            on integers with too many digits), like the reasons of request
+            validation (cf. `exceptions.validation_reasons`); otherwise, they
+            are described by a fixed message, as they may describe the value.
 
     Returns:
         Steps.
@@ -350,7 +360,7 @@ def parse_client_pipeline(value: str) -> list[StepConfig]:
                     f"Invalid pipeline: {_describe_step_error(index, exc)}"
                 ) from exc
     except (TypeError, ValueError, RecursionError) as exc:
-        detail = _first_error(exc)
+        detail = _first_error(exc, reasons=reasons)
         raise InvalidSelection(f"Invalid pipeline: {detail}") from exc
     return steps
 
@@ -369,7 +379,7 @@ def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     """
     data = dict(pairs)
     if len(data) < len(pairs):
-        raise ValueError("Objects must not have duplicate keys")
+        raise _JsonCheckError("Objects must not have duplicate keys")
     return data
 
 
@@ -394,21 +404,24 @@ def _describe_step_error(index: int, exc: ValidationError) -> str:
     return f"{location} ({error['type']})"
 
 
-def _first_error(exc: BaseException) -> str:
+def _first_error(exc: BaseException, reasons: bool = False) -> str:
     """Describe a parsing error briefly, for clients.
 
     Args:
         exc: Error, other than of validating a step.
+        reasons: Pass on the messages of the parser's own errors.
 
     Returns:
-        Message of a `ValueError` (FOCA's checks of the JSON, or of the
-        parser, e.g., on too long integers; neither quotes values), or a
-        generic message.
+        Message of FOCA's checks of the JSON (which quote no values); for
+        other errors of the parser (e.g., on too long integers), their
+        message with `reasons`, otherwise a fixed one; or a generic message.
     """
     if isinstance(exc, json.JSONDecodeError):
         return "not a preset name or JSON"
-    if isinstance(exc, ValueError):
+    if isinstance(exc, _JsonCheckError) or (reasons and isinstance(exc, ValueError)):
         return str(exc)
+    if isinstance(exc, ValueError):
+        return "JSON cannot be parsed"
     return "a pipeline is a list of steps"
 
 
