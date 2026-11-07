@@ -45,9 +45,10 @@ Invalid parameters are named instead, e.g.,
 `{"detail": "Must be at most 10.", "parameter": "limit", "code": "too-large"}`.
 `title`, `status` and `detail` are as before, so clients that only show
 `detail` keep working; `detail` describes the first invalid field, in the
-validator's words, which quote the rejected value (with
-`exceptions.validation_reasons: false`, a fixed message instead, see
-[Request-specific details](../configuration/exceptions.md#request-specific-details)). Nothing
+validator's words, which may quote the rejected value. With
+`exceptions.validation_reasons: false`, it is a fixed message instead (see
+[Request-specific
+details](../configuration/exceptions.md#request-specific-details)). Nothing
 in the format is specific to FOCA: generic RFC 9457 clients understand
 `errors`, and clients can show the messages without knowing the codes.
 

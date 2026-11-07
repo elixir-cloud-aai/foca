@@ -175,9 +175,14 @@ Validators' reasons quote what they reject: values of the request (e.g.,
 `validation_reasons: false` (recommended, unless clients depend on the
 reasons) to respond with a fixed `detail` instead, which quotes nothing of
 the request: `The request has invalid fields; see 'errors'.` if the invalid
-fields are listed, otherwise `The request is invalid.` The invalid fields
-are listed in `errors` as before, without their values, and the logs are
-the same:
+fields are listed (and `errors` is public), otherwise the mapped `detail`, if
+any, or `The request is invalid.` The invalid fields are listed in `errors`
+as before, without their values, and the logs are the same. The option
+applies with `validation_details` only, to all request validation
+exceptions, including `RequestValidationProblem` that FOCA (e.g., access
+control) or your app raise; raise `InvalidFieldsProblem` to tell clients
+which fields are invalid. Errors of the plugin gateway's selection of
+pipelines and backends aren't request validation and keep their messages:
 
 ```json
 {

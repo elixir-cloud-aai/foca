@@ -298,7 +298,11 @@ def _validation_handler_json(
     and escaped (unless disabled via `conf.logging`), instead of the
     exception, and responds like :py:func:`_problem_handler_json`, with the
     reason as `detail` and the invalid fields, if known, as `errors` (cf.
-    :py:func:`foca.errors.fields.add_field_errors`).
+    :py:func:`foca.errors.fields.add_field_errors`). Without
+    `conf.validation_reasons`, the reason isn't served, as it may quote
+    rejected values: `detail` is then a fixed message pointing to `errors`,
+    if they are listed and public, otherwise the mapped `detail`, if any, or
+    a fixed message.
 
     Args:
         exception: Exception of Connexion's request validation.
@@ -307,8 +311,9 @@ def _validation_handler_json(
     Returns:
         JSON-formatted error response, with the problem details mapped to
         the exception (cf. :py:func:`build_problem`), the reason as
-        `detail` (shortened to `conf.max_detail_length`), if any, and the
-        invalid fields, if any.
+        `detail` (shortened to `conf.max_detail_length`), if any (with
+        `conf.validation_reasons`; otherwise a fixed message, see above),
+        and the invalid fields, if any.
     """
     problem = _resolve_problem(exc=exception, conf=conf)
     reason = _validation_reason(exception)
@@ -329,7 +334,11 @@ def _validation_handler_json(
         errors = ()
     if not conf.validation_reasons:
         # Reasons may quote rejected values; the invalid fields don't
-        problem["detail"] = _INVALID_FIELDS if errors else _INVALID_REQUEST
+        public = conf.public_members is None or "errors" in conf.public_members
+        if errors and public:
+            problem["detail"] = _INVALID_FIELDS
+        else:
+            problem.setdefault("detail", _INVALID_REQUEST)
     if conf.logging is not ExceptionLoggingEnum.none:
         # Escaped before shortening, so that the logged reason stays within
         # the maximum length; invalid fields are logged without the reason,

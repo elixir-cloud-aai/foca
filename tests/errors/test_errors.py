@@ -1144,23 +1144,51 @@ class TestValidationDetails:
         The invalid fields are listed and logged as with reasons, and the
         reasons are still logged (escaped) for requests without them.
         """
+        with_reasons = self._client(conf_details).request(method, path, **kwargs)
         conf_details.validation_reasons = False
         response = self._client(conf_details).request(method, path, **kwargs)
         assert response.status_code == 400
         data = json.loads(response.content)
         assert data["detail"] == detail
         assert ("errors" in data) is errors
-        for value in ("abcd", "extra", "limit"):
-            assert value not in data["detail"]
-        assert len(infos) == 1
+        assert data.get("errors") == json.loads(with_reasons.content).get("errors")
+        assert "abcd" not in json.dumps(data)
+        assert infos[0] == infos[1]
 
-    def test_reasons_by_default(self) -> None:
-        """The reasons of validators are the detail by default."""
-        assert ExceptionConfig().validation_reasons
+    @pytest.mark.parametrize(
+        "public_members,mapped,detail",
+        [
+            (["title", "status", "detail"], None, "The request is invalid."),
+            (None, {"detail": "See the docs."}, "See the docs."),
+        ],
+    )
+    def test_without_reasons_fallback(
+        self,
+        conf_details: ExceptionConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        public_members: list[str] | None,
+        mapped: dict[str, str] | None,
+        detail: str,
+    ) -> None:
+        """Without public invalid fields, the mapped or a fixed detail is sent."""
+        conf_details.validation_reasons = False
+        conf_details.public_members = public_members
+        if mapped is not None:
+            # The problems of the mapping are shared, so restored after
+            monkeypatch.setitem(
+                conf_details.problems,
+                BadRequestProblem,
+                {"title": "Bad Request", "status": 400, **mapped},
+            )
+        # Unknown parameters are listed, missing ones not (Connexion's validator)
+        params = {"limit": 1, "extra": 1} if mapped is None else {}
+        response = self._client(conf_details).get("/validated", params=params)
+        assert json.loads(response.content)["detail"] == detail
 
     def test_default(self, infos: list[str]) -> None:
-        """Validation details are on by default, also without a config."""
+        """Validation details and reasons are on by default, also without a config."""
         assert ExceptionConfig().validation_details
+        assert ExceptionConfig().validation_reasons
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app)
         app.add_api(SPEC, strict_validation=True)
