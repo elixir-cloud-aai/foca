@@ -513,6 +513,9 @@ def test_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
     host = PluginHost.from_config(config, api="tes")
     assert list(host.plugins) == ["test.tag", "foca.routing.ordered"]
     assert host.public_url == "https://gw.example.org"
+    assert host.validation_reasons is False
+    config.exceptions.validation_reasons = True
+    assert PluginHost.from_config(config, api="tes").validation_reasons is True
     assert list(PluginHost.from_config(Config(), api="tes").plugins) == [
         "foca.routing.ordered"
     ]

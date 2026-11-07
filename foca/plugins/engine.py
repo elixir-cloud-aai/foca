@@ -441,6 +441,8 @@ class PluginHost:
         default_pipeline: Resolved default pipeline.
         presets: Resolved presets, by name; presets that need a disabled
             plugin are left out.
+        validation_reasons: Whether clients get the messages of the JSON
+            parser's own errors on their pipelines.
     """
 
     def __init__(
@@ -456,6 +458,7 @@ class PluginHost:
         app_info: Mapping[str, str] | None = None,
         http_client: Callable[..., GuardedClient] = GuardedClient,
         store_backend: StoreBackend | None = None,
+        validation_reasons: bool = False,
     ) -> None:
         """Load the plugins and resolve the default pipeline.
 
@@ -499,6 +502,10 @@ class PluginHost:
                 default, each process keeps the entries in memory. Plugins
                 whose store is turned off (`store.enabled`) keep theirs in
                 memory anyway.
+            validation_reasons: Pass on the messages of the JSON parser's
+                own errors on clients' pipelines (cf.
+                `exceptions.validation_reasons`); by default, they get a
+                fixed message, as they may describe the value.
 
         Raises:
             ValueError: Plugins cannot be loaded (cf.
@@ -507,6 +514,7 @@ class PluginHost:
         """
         self.conf = conf
         self.api = api
+        self.validation_reasons = validation_reasons
         self._validate = validate
         self._sanitize = sanitize
         self._validate_outbound = validate_outbound
@@ -615,7 +623,9 @@ class PluginHost:
             :py:data:`foca.plugins.store.STORE_COLLECTION` of the app's
             first database of `db.dbs`, if any, otherwise in memory; the
             policy database that access control adds without an app
-            database of its name is not the app's.
+            database of its name is not the app's. Clients get the messages
+            of the JSON parser's own errors on their pipelines only with
+            `exceptions.validation_reasons`.
 
         Raises:
             ValueError: The configuration has keys of earlier middleware
@@ -635,6 +645,7 @@ class PluginHost:
             store_backend=_mongo_store_backend(
                 getattr(config, "db", None), skip=_added_databases(config)
             ),
+            validation_reasons=config.exceptions.validation_reasons,
         )
 
     def store_settings(self, plugin_id: str) -> StoreSettings:
@@ -996,13 +1007,14 @@ class PluginHost:
         elif is_name:
             raise InvalidSelection("Presets are not allowed: pipelines are JSON")
         elif "inline" in conf.allowed:
-            steps = parse_client_pipeline(value)
+            steps = parse_client_pipeline(value, reasons=self.validation_reasons)
             self._check_client_steps(steps, principal)
             try:
                 check_pipeline(steps, by_position=True)
                 resolved = self.resolve_steps(steps, origin="client")
             except ValueError as exc:
-                raise InvalidSelection(str(exc)) from exc
+                # Without the cause, which may quote values, in tracebacks
+                raise InvalidSelection(str(exc)) from None
         else:
             raise InvalidSelection("Pipelines are chosen by preset name only")
         return ResolvedPipeline(

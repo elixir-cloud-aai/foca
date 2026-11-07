@@ -135,7 +135,11 @@ the short form are located by their keys, e.g., `0.params (dict_type)`,
 but invalid plugin identifiers as their one alternative; errors of a whole
 step, e.g., of its `id` or of both `plugin` and `alternatives`, as `0
 (value_error)`), `Plugin not available in
-step 1` or `Preset not available`. Messages of a plugin's own checks of
+step 1` or `Preset not available`. Errors of the JSON parser itself
+(e.g., on integers with too many digits) are described as `Invalid
+pipeline: JSON cannot be parsed`, unless
+[`exceptions.validation_reasons`](configuration/exceptions.md#request-specific-details)
+is on. Messages of a plugin's own checks of
 its params (`InvalidParams`) are passed on as they are: plugins should name
 params and settings in them, not values. Apps of other APIs than
 TES pass the request's tags explicitly (`host.start(..., tags=...)`, e.g.,
@@ -869,7 +873,8 @@ the identifiers of the `prepend` and `append` steps) and
 `client_backends`, and the tag prefix. Callers without anything
 to choose get no steps, as step identifiers default to plugin identifiers.
 Plugins that the caller may not use give `404` (`plugin-not-found`),
-whatever the reason.
+whatever the reason, with the message `Plugin not available: path parameter
+'plugin_id'`.
 
 Apps serve the listing by adding FOCA's OpenAPI 3 specification
 (`foca.plugins.api.SPEC_PATH`) to the files of their API specification, so

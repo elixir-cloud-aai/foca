@@ -185,8 +185,11 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
                 "instead"
             )
     except ValueError as exc:
-        logger.error("Invalid rule: %s", exc)
-        raise BadRequest from exc
+        # Messages quote the client's values, so they are logged at DEBUG
+        # only, and not chained into the traceback that may be logged
+        logger.error("Invalid policy rule rejected")
+        logger.debug("Invalid rule: %s", escape_log_value(exc))
+        raise BadRequest from None
     return str(ptype), values
 
 
@@ -304,7 +307,8 @@ def putPermission(
     """
     conf = get_config().security.access_control
     if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
-        logger.error("Invalid policy rule identifier: '%s'", escape_log_value(id))
+        # Without the identifier, a value of the client
+        logger.error("Invalid policy rule identifier rejected")
         raise BadRequest
     ptype, values = _get_rule(_get_body(body, permission))
     _check_not_configured(id)

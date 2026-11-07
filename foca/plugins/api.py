@@ -229,7 +229,8 @@ def get_plugin(
             the setup).
     """
     if not _may_use(host, plugin_id, principal):
-        raise PluginNotFound(f"Plugin not available: {plugin_id}")
+        # Names the parameter, never the client's value
+        raise PluginNotFound("Plugin not available: path parameter 'plugin_id'")
     return describe_plugin(host, plugin_id)
 
 

@@ -408,15 +408,22 @@ class TestPutPermission:
 
     @pytest.mark.parametrize("id", ["mock_id", "mock", "mockIdentifier", "mock-1"])
     def test_invalid_id(
-        self, app: Flask, collection: Collection[dict[str, Any]], id: str
+        self,
+        app: Flask,
+        collection: Collection[dict[str, Any]],
+        id: str,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Invalid identifiers are rejected."""
+        """Invalid identifiers are rejected, and not logged at INFO or higher."""
         with (
+            caplog.at_level("INFO"),
             request_context(app=app),
             pytest.raises(BadRequest),
         ):
             unwrap(putPermission)(id=id, body=deepcopy(MOCK_PERMISSION))
         assert collection.count_documents({}) == 0
+        assert "Invalid policy rule identifier" in caplog.text
+        assert id not in caplog.text
 
     @pytest.mark.parametrize("payload", ["", *MOCK_PERMISSIONS_INVALID])
     def test_invalid(
@@ -429,6 +436,27 @@ class TestPutPermission:
         ):
             unwrap(putPermission)(id=MOCK_ID, body=deepcopy(payload))
         assert collection.count_documents({}) == 0
+
+    def test_invalid_values_not_logged(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Values of invalid rules are logged at DEBUG only.
+
+        Neither in messages at INFO or above nor in the exception's cause.
+        """
+        payload = {"policy_type": "s3cr3t", "rule": {"v0": "a", "v1": "b"}}
+        with (
+            caplog.at_level("DEBUG"),
+            request_context(app=app),
+            pytest.raises(BadRequest) as exc_info,
+        ):
+            unwrap(putPermission)(id=MOCK_ID, body=payload)
+        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__suppress_context__
+        infos = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
+        assert "Invalid policy rule rejected" in infos
+        assert not any("s3cr3t" in message for message in infos)
+        assert "s3cr3t" in caplog.text
 
 
 class TestLogging:
@@ -480,13 +508,15 @@ class TestLogging:
         self._assert_escaped(caplog)
 
     def test_put_invalid_id(self, app: Flask, caplog: pytest.LogCaptureFixture) -> None:
-        """Invalid identifiers are logged escaped."""
+        """Invalid identifiers are not logged, as they are the client's values."""
         with (
             request_context(app=app),
             pytest.raises(BadRequest),
         ):
             unwrap(putPermission)(id=self.ID, body=deepcopy(MOCK_PERMISSION))
-        self._assert_escaped(caplog)
+        messages = [record.getMessage() for record in caplog.records]
+        assert "Invalid policy rule identifier rejected" in messages
+        assert not any("mock" in message for message in messages)
 
 
 class TestTrafficLogging:

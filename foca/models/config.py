@@ -459,8 +459,11 @@ class ExceptionConfig(FOCABaseConfig):
             of the request); if no invalid fields are listed (or `errors` isn't
             public), it is the mapped `detail`, if any, or a fixed message.
             Applies to all request validation exceptions, including
-            `RequestValidationProblem` raised by FOCA or the app. Set it to
-            true only if clients depend on the reasons.
+            `RequestValidationProblem` raised by FOCA or the app. The plugin
+            gateway also passes on the messages of the JSON parser's own
+            errors on clients' pipelines only if it is true (also without
+            `validation_details`). Set it to true only if clients depend on
+            the reasons.
         max_detail_length: Maximum length of request-specific details in
             responses (cf. `validation_details` and
             :py:func:`foca.errors.exceptions.problem_response`) and log
@@ -478,7 +481,8 @@ class ExceptionConfig(FOCABaseConfig):
         validation_details: Whether responses to requests rejected by
             Connexion's validation get request-specific details.
         validation_reasons: Whether that `detail` is the validator's reason,
-            rather than the invalid fields' locations and codes.
+            rather than the invalid fields' locations and codes, and whether
+            the plugin gateway passes on the JSON parser's own errors.
         max_detail_length: Maximum length of request-specific details in
             responses and log messages.
 

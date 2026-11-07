@@ -287,15 +287,23 @@ def _put_role(
     except ValueError as exc:
         # The resource may have been deleted since it was checked
         if not _is_manageable(resource, exists):
-            raise NotFound from exc
+            raise NotFound from None
+        # The role and the subject are the client's values, which may be
+        # invalid, so they are logged at DEBUG only; the resource was found
+        # to be manageable just before
         logger.info(
+            "Role on '%s' not granted to a %s", escape_log_value(resource), subject_type
+        )
+        logger.debug(
             "Role '%s' on '%s' not granted to %s: %s",
             escape_log_value(role),
             escape_log_value(resource),
             _describe(subject_type, subject),
             escape_log_value(exc),
         )
-        raise BadRequest("The role cannot be granted to the subject") from exc
+        # Without the cause, which quotes the client's values, in the
+        # traceback that the exception handler may log (cf. DEBUG above)
+        raise BadRequest("The role cannot be granted to the subject") from None
     return {"subject_type": subject_type, "subject": subject, "role": role}
 
 
@@ -470,11 +478,12 @@ def putGroupRole(
     """
     group = _get_subject()
     if group not in get_current_group_values() and not is_admin():
+        # The group is the client's value, so it is logged at DEBUG only
         logger.info(
-            "Role not granted to %s by %s: not a member of the group",
-            _describe("group", group),
+            "Role not granted to a group by %s: not a member of the group",
             _describe_caller(),
         )
+        logger.debug("Role not granted to %s", _describe("group", group))
         raise Forbidden
     return _put_role(group, "group", body, exists)
 

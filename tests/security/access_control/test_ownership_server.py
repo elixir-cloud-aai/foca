@@ -1,5 +1,6 @@
 """Tests for the controllers managing roles on owned resources."""
 
+import logging
 from collections.abc import Callable
 from copy import deepcopy
 from importlib.resources import path as resource_path
@@ -496,6 +497,33 @@ class TestUserRoles:
         assert _call(app, "put", path, "alice", role).status_code == 400
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
+    def test_refused_values_not_logged(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Refused grants are logged at INFO without the client's values.
+
+        Neither in the message nor in the traceback of the response's
+        exception; the subject is still in the path of the request log.
+        """
+        path = f"{TASK}/permissions/users/s3cr3t-user"
+        with caplog.at_level("DEBUG", logger="foca"):
+            assert _call(app, "put", path, "alice", "s3cr3t-role").status_code == 400
+        logged = [
+            (record.levelno, record.name, caplog.handler.format(record))
+            for record in caplog.records
+        ]
+        assert any(
+            "not granted to a user" in text
+            for level, _, text in logged
+            if level == logging.INFO
+        )
+        assert not any(
+            "s3cr3t-role" in text for level, _, text in logged if level >= logging.INFO
+        )
+        assert any(
+            "s3cr3t-role" in text for level, _, text in logged if level == logging.DEBUG
+        )
+
     def test_invalid_subject(self, app: Flask) -> None:
         """Subjects that cannot be stored in rules are rejected."""
         path = f"{TASK}/permissions/users/a,b"
@@ -968,11 +996,22 @@ class TestGroupRoles:
         assert response.json() == "ops/team"
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
-    def test_not_member(self, app: Flask) -> None:
-        """Owners may only grant roles to groups they are members of."""
+    def test_not_member(self, app: Flask, caplog: pytest.LogCaptureFixture) -> None:
+        """Owners may only grant roles to groups they are members of.
+
+        The group, a value of the client, is logged at DEBUG only.
+        """
         path = f"{TASK}/permissions/groups/auditors"
-        assert _call(app, "put", path, "alice", "maintainer").status_code == 403
+        with caplog.at_level("DEBUG", logger="foca"):
+            assert _call(app, "put", path, "alice", "maintainer").status_code == 403
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
+        refused = [r for r in caplog.records if "not granted" in r.getMessage()]
+        infos = [r.getMessage() for r in refused if r.levelno >= logging.INFO]
+        assert infos
+        assert all("auditors" not in message for message in infos)
+        assert any(
+            r.levelno == logging.DEBUG and "auditors" in r.getMessage() for r in refused
+        )
 
     def test_owner_without_groups(self, app: Flask) -> None:
         """Owners without group claim may not grant roles to groups."""

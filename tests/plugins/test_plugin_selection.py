@@ -3,6 +3,8 @@
 import json
 import logging
 import random
+import sys
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -828,6 +830,8 @@ def test_messages_quote_no_values(value: str, message: str) -> None:
         host().start(request(pipeline_tag(value)), ALICE)
     assert str(exc_info.value) == message
     assert "secret" not in str(exc_info.value).lower()
+    # Nor in a logged traceback, through the cause
+    assert exc_info.value.__cause__ is None
 
 
 def test_reserved_tag_message_quotes_no_key() -> None:
@@ -839,3 +843,43 @@ def test_reserved_tag_message_quotes_no_key() -> None:
         " 'gateway.backends' are reserved for the gateway"
     )
     assert exc_info.value.slug == "reserved-tag"
+
+
+# The parser's own error on integers with more digits than Python converts
+_DIGITS = "Exceeds the limit"
+
+
+@pytest.fixture
+def digit_limit() -> Iterator[None]:
+    """Set Python's default limit of digits of integers, for the test."""
+    previous = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(4300)
+    yield
+    sys.set_int_max_str_digits(previous)
+
+
+@pytest.mark.usefixtures("digit_limit")
+@pytest.mark.parametrize("reasons", [False, True])
+def test_parser_errors_quote_nothing_by_default(reasons: bool) -> None:
+    """Errors of the JSON parser itself are named only with validation reasons.
+
+    Like the reasons of request validation (cf.
+    `exceptions.validation_reasons`), they aren't FOCA's and may describe
+    the value; FOCA's own checks of the JSON keep their messages.
+    """
+    value = '[{"plugin": "test.tag", "params": {"x": ' + "9" * 5000 + "}}]"
+    with pytest.raises(InvalidSelection) as exc_info:
+        host(validation_reasons=reasons).start(request(pipeline_tag(value)), ALICE)
+    message = str(exc_info.value)
+    assert (_DIGITS in message) is reasons
+    if not reasons:
+        assert message == "Invalid pipeline: JSON cannot be parsed"
+        assert not any(char.isdigit() for char in message)
+    with pytest.raises(InvalidSelection) as exc_info:
+        parse_client_pipeline(value, reasons=reasons)
+    assert (_DIGITS in str(exc_info.value)) is reasons
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__suppress_context__
+    # FOCA's own checks keep their messages either way
+    with pytest.raises(InvalidSelection, match="duplicate keys"):
+        parse_client_pipeline('[{"plugin": "a.b", "plugin": "a.c"}]', reasons=reasons)

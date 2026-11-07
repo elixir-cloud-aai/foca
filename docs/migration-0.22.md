@@ -286,6 +286,20 @@ invalid fields in `errors` instead, e.g., their `pointer` or `parameter` and
 `code`. If clients depend on the reasons, set the new option
 `exceptions.validation_reasons: true` to keep them.
 
+Access control lists an invalid user acted for (empty, blank, with
+surrounding whitespace, or not identifiable) that a service client names in
+the `auth.on_behalf_of_header` as an invalid field of that header, with the
+code `invalid-value`, never the user, so that `detail` is, e.g., `Invalid
+fields: X-On-Behalf-Of (invalid-value)` by default; it was `The request is
+invalid.` If your app passes the user (e.g., from a body field), check the
+field yourself and raise `InvalidFieldsProblem` to name it.
+
+FOCA also logs fewer values of clients at `INFO` and above: rejected users
+acted for, invalid identifiers and values of policy rules (`PUT
+/permissions/{id}`), and the role and subject of refused role grants are no
+longer logged there (values of rules and of role grants at `DEBUG` only).
+Update log checks that look for them.
+
 ### Plugin gateway messages
 
 The plugin gateway's refusals of per-request pipelines and backends (`400`,
@@ -313,6 +327,12 @@ change:
 - `Tags under 'gateway.' other than 'gateway.pipeline' and
   'gateway.backends' are reserved for the gateway`, instead of naming the
   client's tag.
+- `Invalid pipeline: JSON cannot be parsed` for errors of the JSON parser
+  itself (e.g., `Exceeds the limit (4300 digits) for integer string
+  conversion…`), unless `exceptions.validation_reasons` is on, which keeps
+  the parser's message.
+- `GET /plugins/{plugin_id}`: `Plugin not available: path parameter
+  'plugin_id'`, without the identifier.
 
 Update tests and clients that check these messages; the problem types are
 unchanged. Errors in the configuration of the gateway (at startup) keep
