@@ -21,6 +21,7 @@ from foca.config.access import _get_app_config
 from foca.models.config import AccessControlConfig, CORSConfig
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import check_opt_in_roles
+from foca.testing import Client
 from tests.mock_data import MongoClients
 
 
@@ -112,12 +113,10 @@ def test_foca_create_app_output_defaults() -> None:
     foca = Foca()
     app = foca.create_app()
     assert _get_app_config(app.app) is foca.conf
-    response = app.app.test_client().get(
-        "/unknown", headers={"Origin": "https://example.org"}
-    )
+    response = Client(app).get("/unknown", headers={"Origin": "https://example.org"})
     assert response.status_code == 404
-    assert response.mimetype == "application/problem+json"
-    assert response.json == {"title": "Not Found", "status": 404}
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json() == {"title": "Not Found", "status": 404}
     assert "Access-Control-Allow-Origin" in response.headers
     assert "casbin_adapter" not in app.app.config
 
@@ -127,10 +126,10 @@ def test_foca_create_app_error_media_type(tmp_path: Path) -> None:
     conf = tmp_path / "config.yaml"
     conf.write_text(safe_dump({"exceptions": {"media_type": "application/json"}}))
     app = Foca(config_file=conf).create_app()
-    response = app.app.test_client().get("/unknown")
+    response = Client(app).get("/unknown")
     assert response.status_code == 404
-    assert response.content_type == "application/json"
-    assert response.json == {"title": "Not Found", "status": 404}
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == {"title": "Not Found", "status": 404}
 
 
 @pytest.mark.usefixtures("mongo_clients")
@@ -144,11 +143,11 @@ def test_foca_create_app_error_media_type_access_control(tmp_path: Path) -> None
     conf_dict["security"]["access_control"]["api_serve_spec"] = True
     conf = tmp_path / "config.yaml"
     conf.write_text(safe_dump(conf_dict))
-    client = Foca(config_file=conf).create_app().app.test_client()
+    client = Client(Foca(config_file=conf).create_app())
     response = client.get("/admin/access-control/permissions")
     assert response.status_code == 401
-    assert response.content_type == "application/json"
-    spec = client.get("/admin/access-control/openapi.json").json
+    assert response.headers["content-type"] == "application/json"
+    spec = client.get("/admin/access-control/openapi.json").json()
     responses = spec["paths"]["/permissions"]["get"]["responses"]
     assert set(responses["401"]["content"]) == {"application/json"}
 
@@ -317,9 +316,7 @@ def test_foca_cors(config_file: Path, enabled: bool) -> None:
     foca = Foca(config_file=config_file)
     app = foca.create_app()
     assert _get_app_config(app.app).security.cors.enabled is enabled
-    response = app.app.test_client().get(
-        "/unknown", headers={"Origin": "https://example.org"}
-    )
+    response = Client(app).get("/unknown", headers={"Origin": "https://example.org"})
     assert ("Access-Control-Allow-Origin" in response.headers) is enabled
 
 
@@ -485,7 +482,7 @@ def test_foca_opt_in_roles(
         )
     )
     app = Foca(config_file=config_file).create_app()
-    response = app.app.test_client().get("/unknown")
+    response = Client(app).get("/unknown")
     assert "X-Request-Roles" in response.headers["Vary"]
     assert "Opt-in roles: admin (header 'X-Request-Roles')" in log.text
     assert ("is not allowed in cross-origin requests" in log.text) is warned
@@ -494,7 +491,7 @@ def test_foca_opt_in_roles(
 def test_foca_no_opt_in_roles() -> None:
     """Without opt-in roles, responses do not vary by their header."""
     app = Foca(config_file=VALID_DB_CONF).create_app()
-    response = app.app.test_client().get("/unknown")
+    response = Client(app).get("/unknown")
     assert "X-Request-Roles" not in response.headers.get("Vary", "")
 
 
@@ -541,7 +538,7 @@ def test_foca_unmapped_opt_in_roles(
         safe_dump({"security": {"access_control": {"opt_in_roles": ["admin"]}}})
     )
     app = Foca(config_file=config_file).create_app()
-    assert "X-Request-Roles" in app.app.test_client().get("/unknown").headers["Vary"]
+    assert "X-Request-Roles" in Client(app).get("/unknown").headers["Vary"]
     assert "No group is mapped to the opt-in roles" in log.text
 
 

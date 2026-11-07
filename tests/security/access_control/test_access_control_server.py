@@ -10,7 +10,6 @@ from typing import Any
 import mongomock
 import pytest
 from flask import Flask, request
-from flask.testing import FlaskClient
 from pymongo.collection import Collection
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
@@ -25,6 +24,7 @@ from foca.security.access_control.access_control_server import (
     putPermission,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.testing import Client, request_context
 from foca.utils import logging as logging_module
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
@@ -251,7 +251,7 @@ class TestPostPermission:
 
     def test_post(self, app: Flask, collection: Collection[dict[str, Any]]) -> None:
         """Identifiers are assigned by the implementation."""
-        with app.test_request_context():
+        with request_context(app=app):
             res = unwrap(postPermission)(body=deepcopy(MOCK_PERMISSION))
         stored = collection.find_one({"id": res}, projection={"_id": False})
         assert stored == {
@@ -269,7 +269,7 @@ class TestPostPermission:
         """
         app.config["casbin_adapter"].id_charset = "ab"
         app.config["casbin_adapter"].id_length = 8
-        with app.test_request_context():
+        with request_context(app=app):
             ids = {
                 unwrap(postPermission)(body=deepcopy(MOCK_PERMISSION))
                 for _ in range(10)
@@ -283,7 +283,7 @@ class TestPostPermission:
     ) -> None:
         """Invalid payloads are rejected."""
         with (
-            app.test_request_context(),
+            request_context(app=app),
             pytest.raises(BadRequest),
         ):
             unwrap(postPermission)(body=deepcopy(payload))
@@ -298,7 +298,7 @@ class TestBodyNames:
     ) -> None:
         """The body is taken as `permission`, with a deprecation warning."""
         with (
-            app.test_request_context(),
+            request_context(app=app),
             pytest.warns(DeprecationWarning, match="x-body-name: permission"),
         ):
             post_id = unwrap(postPermission)(permission=deepcopy(MOCK_PERMISSION))
@@ -320,7 +320,7 @@ class TestBodyNames:
         expected: str,
     ) -> None:
         """Calls with neither or both names are rejected."""
-        with app.test_request_context():
+        with request_context(app=app):
             with pytest.raises(TypeError, match=expected):
                 unwrap(postPermission)(**deepcopy(kwargs))
             with pytest.raises(TypeError, match=expected):
@@ -350,7 +350,7 @@ class TestPutPermission:
                 "generations": ["0" * 24],
             }
         )
-        with app.test_request_context():
+        with request_context(app=app):
             with pytest.raises(Conflict):
                 unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
             with pytest.raises(NotFound):
@@ -367,7 +367,7 @@ class TestPutPermission:
             {**deepcopy(MOCK_RULE), "id": MOCK_ID, "configured": True}
         )
         with (
-            app.test_request_context(),
+            request_context(app=app),
             pytest.raises(Conflict),
         ):
             unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
@@ -380,7 +380,7 @@ class TestPutPermission:
         collection.insert_one(
             {"id": MOCK_ID, "ptype": "g", "v0": "a", "v1": "b", "foo": "bar"}
         )
-        with app.test_request_context():
+        with request_context(app=app):
             assert (
                 unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
                 == MOCK_ID
@@ -397,7 +397,7 @@ class TestPutPermission:
         self, app: Flask, collection: Collection[dict[str, Any]]
     ) -> None:
         """Created and updated permissions are stored alike."""
-        with app.test_request_context():
+        with request_context(app=app):
             post_id = unwrap(postPermission)(body=deepcopy(MOCK_PERMISSION))
             unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
         posted, put = (
@@ -412,7 +412,7 @@ class TestPutPermission:
     ) -> None:
         """Invalid identifiers are rejected."""
         with (
-            app.test_request_context(),
+            request_context(app=app),
             pytest.raises(BadRequest),
         ):
             unwrap(putPermission)(id=id, body=deepcopy(MOCK_PERMISSION))
@@ -424,7 +424,7 @@ class TestPutPermission:
     ) -> None:
         """Invalid payloads are rejected."""
         with (
-            app.test_request_context(),
+            request_context(app=app),
             pytest.raises(BadRequest),
         ):
             unwrap(putPermission)(id=MOCK_ID, body=deepcopy(payload))
@@ -482,7 +482,7 @@ class TestLogging:
     def test_put_invalid_id(self, app: Flask, caplog: pytest.LogCaptureFixture) -> None:
         """Invalid identifiers are logged escaped."""
         with (
-            app.test_request_context(),
+            request_context(app=app),
             pytest.raises(BadRequest),
         ):
             unwrap(putPermission)(id=self.ID, body=deepcopy(MOCK_PERMISSION))
@@ -503,7 +503,7 @@ class TestTrafficLogging:
         logger.disabled = disabled
 
     @pytest.fixture
-    def client(self, app: Flask) -> FlaskClient:
+    def client(self, app: Flask) -> Client:
         """Client of an app routing requests to the controllers."""
         for path, method, controller in [
             ("/permissions", "POST", _passing_body(postPermission)),
@@ -518,7 +518,7 @@ class TestTrafficLogging:
                 view_func=controller,
                 methods=[method],
             )
-        return app.test_client()
+        return Client(app)
 
     @pytest.mark.parametrize(
         "method,path,body",
@@ -534,7 +534,7 @@ class TestTrafficLogging:
     def test_logged(
         self,
         app: Flask,
-        client: FlaskClient,
+        client: Client,
         stored: dict[str, Any],
         caplog: pytest.LogCaptureFixture,
         method: str,
@@ -549,7 +549,7 @@ class TestTrafficLogging:
         if log_traffic is not None:
             config = _get_app_config(app)
             config.security.access_control.log_traffic = log_traffic
-        response = getattr(client, method)(path, json=deepcopy(MOCK_PERMISSION))
+        response = client.request(method, path, json=deepcopy(MOCK_PERMISSION))
         assert response.status_code == 200
         request = f'"{method.upper()} {path} HTTP/1.1" from 127.0.0.1'
         expected = [

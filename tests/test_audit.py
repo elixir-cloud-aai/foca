@@ -41,6 +41,7 @@ from foca.security.access_control.ownership import (
     grant_role,
     revoke_roles,
 )
+from foca.testing import Client, request_context
 from foca.utils.logging import JsonFormatter
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
@@ -173,7 +174,7 @@ class TestLog:
 
     def test_without_claims(self, app: Flask, caplog: pytest.LogCaptureFixture) -> None:
         """Requests without a validated token have no actor."""
-        with app.test_request_context():
+        with request_context(app=app):
             audit.log("thing.create", "/things/1")
         assert _events(caplog)[0]["actor"] == NO_ACTOR
 
@@ -271,7 +272,7 @@ class TestLog:
     def test_without_configuration(self, caplog: pytest.LogCaptureFixture) -> None:
         """Failures to get the actor don't fail the logging, or lose other parts."""
         app = Flask(__name__)
-        with app.test_request_context():
+        with request_context(app=app):
             audit.log("thing.create", "/things/1")
         assert _events(caplog)[0]["actor"] == NO_ACTOR
 
@@ -315,7 +316,7 @@ class TestLog:
         app.wsgi_app = RequestIdMiddleware(  # type: ignore[method-assign]
             app.wsgi_app, **kwargs
         )
-        app.test_client().get("/", headers={"X-Request-ID": "chosen"})
+        Client(app).get("/", headers={"X-Request-ID": "chosen"})
         assert re.fullmatch(expected, _events(caplog)[0]["request_id"])
 
     def test_reserved_fields(
@@ -497,7 +498,7 @@ class TestPermissionsApi:
         self, permissions_app: Flask, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Added rules are logged."""
-        with permissions_app.test_request_context():
+        with request_context(app=permissions_app):
             permission_id = unwrap(postPermission)(body=deepcopy(MOCK_PERMISSION))
         event = _events(caplog)[0]
         assert event["action"] == "permission.create"
@@ -509,7 +510,7 @@ class TestPermissionsApi:
         self, permissions_app: Flask, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Updated rules are logged."""
-        with permissions_app.test_request_context():
+        with request_context(app=permissions_app):
             unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
         event = _events(caplog)[0]
         assert event["action"] == "permission.create"
@@ -527,7 +528,7 @@ class TestPermissionsApi:
         collection.insert_one(
             {"id": MOCK_ID, "ptype": "p", "v0": "bob", "v1": "x", "v2": "GET"}
         )
-        with permissions_app.test_request_context():
+        with request_context(app=permissions_app):
             unwrap(putPermission)(id=MOCK_ID, body=deepcopy(MOCK_PERMISSION))
         event = _events(caplog)[0]
         assert event["action"] == "permission.update"
@@ -565,7 +566,7 @@ class TestPermissionsApi:
         collection.insert_one(
             {**deepcopy(MOCK_RULE), "id": "configured", "configured": True}
         )
-        with permissions_app.test_request_context():
+        with request_context(app=permissions_app):
             with pytest.raises(BadRequest):
                 unwrap(putPermission)(id="x", body=deepcopy(MOCK_PERMISSION))
             with pytest.raises(NotFound):
@@ -573,7 +574,7 @@ class TestPermissionsApi:
             with pytest.raises(Conflict):
                 unwrap(deletePermission)(id="configured")
         with (
-            permissions_app.test_request_context(),
+            request_context(app=permissions_app),
             pytest.raises(BadRequest),
         ):
             unwrap(postPermission)(body={"policy_type": "p"})

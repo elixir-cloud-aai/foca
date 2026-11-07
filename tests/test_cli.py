@@ -24,6 +24,7 @@ from foca.database.register_mongodb import register_mongodb
 from foca.models.config import MongoConfig
 from foca.plugins.engine import PluginHost
 from foca.security.access_control.register_access_control import sync_policies
+from foca.testing import Client
 
 FILES = Path(__file__).parent / "test_files"
 SPEC = FILES / "openapi_3_petstore.original.yaml"
@@ -644,9 +645,9 @@ class TestExportSpec:
         assert main(argv) == 0
         exported = json.loads(capsys.readouterr().out)
         foca = sys.modules[name].foca
-        served = foca.create_app().app.test_client().get("/v2/openapi.json")
+        served = Client(foca.create_app()).get("/v2/openapi.json")
         assert served.status_code == 200
-        assert exported == served.json
+        assert exported == served.json()
         operation = exported["paths"]["/pets"]["get"]
         assert operation["x-openapi-router-controller"] == "controllers"
 
@@ -666,9 +667,9 @@ class TestExportSpec:
         assert main(argv) == 0
         exported = json.loads(capsys.readouterr().out)
         app = sys.modules[name].foca.create_app().app
-        served = app.test_client().get(f"{exported['basePath']}/swagger.json")
+        served = Client(app).get(f"{exported['basePath']}/swagger.json")
         assert served.status_code == 200
-        assert exported == served.json
+        assert exported == served.json()
 
     def test_status_codes_as_strings(
         self, app_module: AppFactory, capsys: pytest.CaptureFixture[str]

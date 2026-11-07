@@ -8,7 +8,6 @@ from typing import Any
 
 import mongomock
 from flask import Flask
-from flask.globals import request_ctx
 
 from foca.config.access import set_app_config
 from foca.models.config import Config
@@ -17,6 +16,7 @@ from foca.security.access_control.constants import (
     RESOURCE_ROLE_MODEL_FILE,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.testing import request_context
 
 ISSUER = "https://login.example.org/oidc/"
 HEADER = "X-On-Behalf-Of"
@@ -90,8 +90,6 @@ def as_caller(
     headers: dict[str, str] | None = None,
 ) -> Iterator[None]:
     """Request context with token info as set by Connexion."""
-    with app.test_request_context("/tasks", headers=headers):
-        request_ctx.connexion_context = (  # type: ignore[attr-defined]  # set by Connexion
-            {} if claims is None else {"token_info": {"claims": claims}}
-        )
+    token_info = None if claims is None else {"claims": claims}
+    with request_context("/tasks", headers=headers, token_info=token_info, app=app):
         yield

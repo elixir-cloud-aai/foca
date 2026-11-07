@@ -21,6 +21,7 @@ from foca.security.access_control.constants import (
     RESOURCE_ROLE_MODEL_FILE,
 )
 from foca.security.auth import _unauthorized
+from foca.testing import Client
 from tests.mock_data import MongoClients
 
 ISSUER = "https://login.example.org/oidc/"
@@ -202,5 +203,5 @@ def test_require_login_for_reads(
     monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
     app = _create_app(tmp_path, overlay)
     headers = {} if user is None else {"Authorization": f"Bearer {user}"}
-    response = getattr(app.test_client(), method)(path, headers=headers)
+    response = getattr(Client(app), method)(path, headers=headers)
     assert response.status_code == status

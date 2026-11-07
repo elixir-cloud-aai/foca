@@ -8,9 +8,9 @@ from typing import Any
 import pytest
 from connexion import App
 from flask import Flask, request, url_for
-from flask.testing import FlaskClient
 from pydantic import ValidationError
 from werkzeug.routing import BuildError
+from werkzeug.test import Client as WsgiClient
 from werkzeug.test import TestResponse
 
 from foca.config.access import _get_app_config
@@ -22,6 +22,7 @@ from foca.factories.connexion_app import (
     create_connexion_app,
 )
 from foca.models.config import Config, ExceptionConfig, ServerConfig
+from foca.testing import Client, request_context
 
 CONFIG = Config()
 LIMIT = 10
@@ -71,7 +72,7 @@ def _ui_spec(server_url: str) -> dict[str, Any]:
     }
 
 
-def _assert_ui(client: FlaskClient, ui_url: str, spec_url: str) -> None:
+def _assert_ui(client: Client, ui_url: str, spec_url: str) -> None:
     """Assert that the Swagger UI is served and loads the spec.
 
     Args:
@@ -82,10 +83,10 @@ def _assert_ui(client: FlaskClient, ui_url: str, spec_url: str) -> None:
     """
     response = client.get(ui_url)
     assert response.status_code == HTTPStatus.OK
-    assert f'url: "{spec_url}"' in response.get_data(as_text=True)
+    assert f'url: "{spec_url}"' in response.text
     spec = client.get(spec_url)
     assert spec.status_code == HTTPStatus.OK
-    assert spec.get_json()["info"] == {"title": "UI test", "version": "1.0.0"}
+    assert spec.json()["info"] == {"title": "UI test", "version": "1.0.0"}
 
 
 @pytest.mark.parametrize(
@@ -118,7 +119,7 @@ def test_swagger_ui(
         base_path=base_path,
         options={"swagger_ui": True, **options},
     )
-    _assert_ui(cnx_app.app.test_client(), ui_url, spec_url)
+    _assert_ui(Client(cnx_app), ui_url, spec_url)
 
 
 def test_swagger_ui_openapi_2_root() -> None:
@@ -132,7 +133,7 @@ def test_swagger_ui_openapi_2_root() -> None:
             "paths": {},
         }
     )
-    _assert_ui(cnx_app.app.test_client(), "/ui/", "/swagger.json")
+    _assert_ui(Client(cnx_app), "/ui/", "/swagger.json")
 
 
 def test_swagger_ui_root_and_other_api() -> None:
@@ -140,7 +141,7 @@ def test_swagger_ui_root_and_other_api() -> None:
     cnx_app = create_connexion_app(Config())
     cnx_app.add_api(_ui_spec("http://localhost/"))
     cnx_app.add_api(_ui_spec("http://localhost/admin"))
-    client = cnx_app.app.test_client()
+    client = Client(cnx_app)
     _assert_ui(client, "/ui/", "/openapi.json")
     _assert_ui(client, "/admin/ui/", "/admin/openapi.json")
 
@@ -156,7 +157,7 @@ def test_url_build_errors_raised(server_url: str, endpoint: str) -> None:
     """Other URLs, or the spec URL without an API at `/`, still fail."""
     cnx_app = create_connexion_app()
     cnx_app.add_api(_ui_spec(server_url))
-    with cnx_app.app.test_request_context("/"), pytest.raises(BuildError):
+    with request_context("/", app=cnx_app), pytest.raises(BuildError):
         url_for(endpoint)
 
 
@@ -235,7 +236,7 @@ def test_max_content_length() -> None:
         lambda: str(len(request.get_data())),
         methods=["POST"],
     )
-    client = app.test_client()
+    client = WsgiClient(app)
     assert client.post("/echo", data=b"x" * 10).status_code == 200
     assert client.post("/echo", data=b"x" * 11).status_code == 413
 
@@ -294,7 +295,7 @@ def _limited_app(limit: int | None = LIMIT) -> Flask:
 
 
 def _send_chunked(
-    client: FlaskClient,
+    client: WsgiClient,
     body: bytes,
     path: str = "/data",
     content_type: str | None = None,
@@ -332,7 +333,7 @@ def test_max_content_length_chunked(path: str) -> None:
     This happens after reading at most one byte more than the limit, also
     by routes not reading them.
     """
-    client = _limited_app().test_client()
+    client = WsgiClient(_limited_app())
     response, read = _send_chunked(client, b"x" * 10 * LIMIT, path=path)
     _assert_too_large(response)
     assert read == LIMIT + 1
@@ -345,7 +346,7 @@ def test_max_content_length_chunked_at_limit(size: int, path: str) -> None:
 
     This holds both as data and as stream.
     """
-    client = _limited_app().test_client()
+    client = WsgiClient(_limited_app())
     response, _ = _send_chunked(client, b"x" * size, path=path)
     assert response.status_code == 200
     assert response.data == b"x" * size
@@ -375,7 +376,7 @@ def test_max_content_length_chunked_form(
     """Chunked form data up to the limit is parsed in full."""
     app = _limited_app(limit=len(body))
     response, _ = _send_chunked(
-        app.test_client(), body, path=path, content_type=content_type
+        WsgiClient(app), body, path=path, content_type=content_type
     )
     assert response.status_code == 200
     assert response.get_json() == expected
@@ -387,7 +388,7 @@ def test_max_content_length_declared_unread(method: str) -> None:
 
     This happens without reading them, also by routes not reading them.
     """
-    client = _limited_app().test_client()
+    client = WsgiClient(_limited_app())
     stream = io.BytesIO(b"x" * (LIMIT + 1))
     response = client.open(
         "/ignore",
@@ -402,14 +403,14 @@ def test_max_content_length_declared_unread(method: str) -> None:
 @pytest.mark.parametrize("size", [0, LIMIT - 1, LIMIT])
 def test_max_content_length_declared_at_limit(size: int) -> None:
     """Bodies with a declared size up to the limit are handled normally."""
-    client = _limited_app().test_client()
+    client = WsgiClient(_limited_app())
     response = client.post("/data", data=b"x" * size)
     assert response.status_code == 200
     assert response.data == b"x" * size
 
 
 def _send_declared(
-    client: FlaskClient, body: bytes, content_length: str
+    client: WsgiClient, body: bytes, content_length: str
 ) -> tuple[TestResponse, int]:
     """Send a request body with the given `Content-Length` value.
 
@@ -438,7 +439,7 @@ def test_max_content_length_invalid_declared(content_length: str) -> None:
 
     This happens without reading them.
     """
-    client = _limited_app().test_client()
+    client = WsgiClient(_limited_app())
     response, read = _send_declared(client, b"x" * 10 * LIMIT, content_length)
     status = HTTPStatus.BAD_REQUEST
     assert response.status_code == status
@@ -453,7 +454,7 @@ def test_max_content_length_valid_declared(content_length: str) -> None:
 
     This includes sizes with surrounding whitespace (cf. RFC 9110).
     """
-    client = _limited_app().test_client()
+    client = WsgiClient(_limited_app())
     response, _ = _send_declared(client, b"x" * LIMIT, content_length)
     assert response.status_code == 200
     assert response.data == b"x" * LIMIT
@@ -466,7 +467,7 @@ def test_max_content_length_removed() -> None:
     """
     app = _limited_app()
     app.config["MAX_CONTENT_LENGTH"] = None
-    response, read = _send_chunked(app.test_client(), b"x" * 10 * LIMIT)
+    response, read = _send_chunked(WsgiClient(app), b"x" * 10 * LIMIT)
     assert response.status_code == 200
     assert read == 10 * LIMIT
 
@@ -478,7 +479,7 @@ def test_max_content_length_added() -> None:
     """
     app = _limited_app(limit=None)
     app.config["MAX_CONTENT_LENGTH"] = LIMIT
-    response, read = _send_chunked(app.test_client(), b"x" * 10 * LIMIT)
+    response, read = _send_chunked(WsgiClient(app), b"x" * 10 * LIMIT)
     assert response.status_code == 413
     assert read == LIMIT + 1
 
@@ -488,7 +489,7 @@ def test_max_content_length_empty_declared() -> None:
 
     I.e., they are checked like chunked bodies.
     """
-    client = _limited_app().test_client()
+    client = WsgiClient(_limited_app())
     response, read = _send_declared(client, b"x" * 10 * LIMIT, "")
     _assert_too_large(response)
     assert read == LIMIT + 1
@@ -499,14 +500,14 @@ def test_max_content_length_empty_declared() -> None:
 
 def test_max_content_length_no_body() -> None:
     """Requests without a body are handled normally."""
-    client = _limited_app().test_client()
+    client = WsgiClient(_limited_app())
     assert client.get("/ignore").status_code == 200
 
 
 def test_max_content_length_unset_chunked() -> None:
     """Without a limit, chunked bodies are passed on in full."""
     app = _limited_app(limit=None)
-    response, read = _send_chunked(app.test_client(), b"x" * 10 * LIMIT)
+    response, read = _send_chunked(WsgiClient(app), b"x" * 10 * LIMIT)
     assert response.status_code == 200
     assert response.data == b"x" * 10 * LIMIT
     assert read == 10 * LIMIT
@@ -573,7 +574,7 @@ class TestMaxContentLengthOperation:
     BODY = json.dumps({"name": "x" * LIMIT}).encode()
 
     @pytest.fixture
-    def client(self) -> FlaskClient:
+    def client(self) -> WsgiClient:
         """Client of an app with a test API and a size limit of the body."""
         CALLS.clear()
         cnx_app = create_connexion_app(
@@ -583,9 +584,9 @@ class TestMaxContentLengthOperation:
             cnx_app, ExceptionConfig(media_type="application/json")
         )
         cnx_app.add_api(SPEC)
-        return cnx_app.app.test_client()
+        return WsgiClient(cnx_app.app)
 
-    def _post(self, client: FlaskClient, body: bytes, chunked: bool) -> TestResponse:
+    def _post(self, client: WsgiClient, body: bytes, chunked: bool) -> TestResponse:
         headers = {"X-API-Key": "key"}
         overrides: dict[str, str | bool] = {}
         if chunked:
@@ -602,7 +603,7 @@ class TestMaxContentLengthOperation:
         )
 
     @pytest.mark.parametrize("chunked", [False, True])
-    def test_too_large(self, client: FlaskClient, chunked: bool) -> None:
+    def test_too_large(self, client: WsgiClient, chunked: bool) -> None:
         """Bodies over the limit are rejected before authentication and validation.
 
         The operation is not called.
@@ -612,7 +613,7 @@ class TestMaxContentLengthOperation:
         assert CALLS == []
 
     @pytest.mark.parametrize("chunked", [False, True])
-    def test_at_limit(self, client: FlaskClient, chunked: bool) -> None:
+    def test_at_limit(self, client: WsgiClient, chunked: bool) -> None:
         """Bodies up to the limit reach the operation intact."""
         response = self._post(client, self.BODY, chunked=chunked)
         assert response.status_code == 200

@@ -28,6 +28,7 @@ from foca.security.access_control.enforcement import get_current_subject
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.me import import_me_hook
 from foca.security.auth import InvalidTokenResolver
+from foca.testing import Client
 from foca.utils.urls import _register_api, get_resource_path
 
 ISSUER = "https://login.example.org/oidc/"
@@ -157,7 +158,7 @@ def _get(app: Flask, token: str, path: str = "/me", **headers: str) -> Any:
     Returns:
         Response.
     """
-    return app.test_client().get(
+    return Client(app).get(
         path, headers={"Authorization": f"Bearer {token}", **headers}
     )
 
@@ -193,13 +194,13 @@ class TestResponse:
     def test_anonymous(self, tmp_path: Path) -> None:
         """Requests without a token are refused."""
         app = _create_app(tmp_path, me_enabled=True)
-        assert app.test_client().get("/me").status_code == 401
+        assert Client(app).get("/me").status_code == 401
 
     def test_user(self, tmp_path: Path) -> None:
         """Users learn who they are."""
         response = _get(_create_app(tmp_path, me_enabled=True), "user")
         assert response.status_code == 200
-        assert response.json == {
+        assert response.json() == {
             "subject": "user",
             "client": None,
             "groups": [],
@@ -209,29 +210,29 @@ class TestResponse:
 
     def test_admin_from_group(self, tmp_path: Path) -> None:
         """Admins learn that they are, from their groups."""
-        data = _get(_create_app(tmp_path, me_enabled=True), "admin").json
+        data = _get(_create_app(tmp_path, me_enabled=True), "admin").json()
         assert data["groups"] == ["admin"]
         assert data["admin"] is True
         assert data["admin_available"] is True
 
     def test_admin_from_rule(self, tmp_path: Path) -> None:
         """Admins learn that they are, from role rules."""
-        data = _get(_create_app(tmp_path, me_enabled=True), "ruled").json
+        data = _get(_create_app(tmp_path, me_enabled=True), "ruled").json()
         assert data["groups"] == []
         assert data["admin"] is True
 
     def test_opt_in(self, tmp_path: Path) -> None:
         """With opt-in, admins are told it's available, and when it's active."""
         app = _create_app(tmp_path, me_enabled=True, opt_in_roles=["admin"])
-        data = _get(app, "admin").json
+        data = _get(app, "admin").json()
         assert data["admin"] is False
         assert data["admin_available"] is True
-        data = _get(app, "admin", **{"X-Request-Roles": "admin"}).json
+        data = _get(app, "admin", **{"X-Request-Roles": "admin"}).json()
         assert data["admin"] is True
 
     def test_service_client(self, tmp_path: Path) -> None:
         """Service clients learn their client ID."""
-        data = _get(_create_app(tmp_path, me_enabled=True), "service").json
+        data = _get(_create_app(tmp_path, me_enabled=True), "service").json()
         assert data["client"] == "conquest"
         assert data["subject"] == "conquest"
         assert data["admin"] is False
@@ -240,27 +241,27 @@ class TestResponse:
         """Valid tokens without an identity get no identity."""
         response = _get(_create_app(tmp_path, me_enabled=True), "nobody")
         assert response.status_code == 200
-        assert response.json["subject"] is None
-        assert response.json["admin"] is False
+        assert response.json()["subject"] is None
+        assert response.json()["admin"] is False
 
     def test_hook(self, tmp_path: Path) -> None:
         """Apps can add fields, but not replace those of FOCA."""
         app = _create_app(tmp_path, me_enabled=True, me_hook=f"{__name__}.hook_fields")
-        data = _get(app, "user").json
+        data = _get(app, "user").json()
         assert data["services"] == ["a"]
         assert data["admin"] is False
 
     def test_hook_replaces_nothing(self, tmp_path: Path) -> None:
         """Fields of FOCA stay what they are, whatever the hook returns."""
         app = _create_app(tmp_path, me_enabled=True, me_hook=f"{__name__}.hook_fields")
-        assert _get(app, "user").json["admin"] is False
+        assert _get(app, "user").json()["admin"] is False
 
     def test_hook_has_the_request(self, tmp_path: Path) -> None:
         """Hooks can use the helpers for the current request."""
         app = _create_app(
             tmp_path, me_enabled=True, me_hook=f"{__name__}.hook_for_caller"
         )
-        assert _get(app, "user").json["caller"] == "user"
+        assert _get(app, "user").json()["caller"] == "user"
 
     @pytest.mark.parametrize("hook", ["failing_hook", "hook_without_mapping"])
     def test_hook_fails(self, tmp_path: Path, hook: str) -> None:
@@ -268,7 +269,7 @@ class TestResponse:
         app = _create_app(tmp_path, me_enabled=True, me_hook=f"{__name__}.{hook}")
         response = _get(app, "user")
         assert response.status_code == 500
-        assert response.content_type == "application/problem+json"
+        assert response.headers["content-type"] == "application/problem+json"
 
     def test_hook_has_path_helpers(self, tmp_path: Path) -> None:
         """The helpers for paths stay with the API of the app."""
@@ -278,14 +279,14 @@ class TestResponse:
             me_enabled=True,
             me_hook=f"{__name__}.hook_with_path",
         )
-        assert _get(app, "user").json["path"] == "/api/services"
+        assert _get(app, "user").json()["path"] == "/api/services"
 
     def test_no_identity_with_opt_in(self, tmp_path: Path) -> None:
         """Without an identity, being an admin isn't available."""
         app = _create_app(tmp_path, me_enabled=True, opt_in_roles=["admin"])
         TOKENS["nobody_admin"] = {"iss": ISSUER, "groups": [ADMINS]}
         try:
-            assert _get(app, "nobody_admin").json["admin_available"] is False
+            assert _get(app, "nobody_admin").json()["admin_available"] is False
         finally:
             del TOKENS["nobody_admin"]
 
@@ -414,7 +415,7 @@ class TestRegistration:
         finally:
             logger.disabled, logger.propagate = disabled, propagate
         assert "takes precedence" in caplog.text
-        assert _get(app, "user", path="/api/me").json["subject"] == "user"
+        assert _get(app, "user", path="/api/me").json()["subject"] == "user"
 
     def test_registered_with_access_control(self, tmp_path: Path) -> None:
         """Registering access control registers it, whatever the rules."""
@@ -458,7 +459,7 @@ class TestRegistration:
         spec["paths"]["/items"]["post"] = spec["paths"]["/items"].pop("get")
         app = _create_app(tmp_path, spec, me_enabled=True, me_path="/api/items")
         assert _get(app, "user", path="/api/items").status_code == 200
-        assert app.test_client().post("/api/items").status_code == 200
+        assert Client(app).post("/api/items").status_code == 200
 
     def test_path_taken(self, tmp_path: Path) -> None:
         """Paths of routes of the app are refused."""

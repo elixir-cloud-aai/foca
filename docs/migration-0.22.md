@@ -147,6 +147,37 @@ your specifications. Remove `x-body-name` from their request bodies; with any
 other name, the controllers fail (`500`). When you call them directly, e.g., in
 tests, pass the rule as keyword argument `body`.
 
+## Test client
+
+Nothing breaks. On ASGI, Flask's test client bypasses the middleware that
+serves requests (security, validation, CORS, errors), and Flask's test
+contexts are gone. Move your tests to `foca.testing` (see [Test
+client](testing.md#test-client)), whose API stays:
+
+| Instead of | Use |
+| --- | --- |
+| `app.app.test_client()` | `with foca.testing.Client(app) as client:`, or the fixture `foca_client` of the pytest plugin with a fixture `foca_app` of yours |
+| `response.json`, `response.get_json()` | `response.json()` |
+| `response.data`, `response.get_data()` | `response.content` |
+| `response.get_data(as_text=True)` | `response.text` |
+| `response.content_type`, `response.mimetype` | `response.headers["content-type"]` |
+| `client.get(..., query_string=...)` | `client.get(..., params=...)` |
+| `client.post(..., data=b"...", content_type="...")` | `client.post(..., content=b"...", headers={"Content-Type": "..."})` |
+| `client.open(path, method="PUT")` | `client.request("PUT", path)` |
+| `client.set_cookie(...)` | A `Cookie` header |
+| `app.app.test_request_context(path, method=..., headers=..., query_string=...)` | `foca.testing.request_context(path, method, headers, app=app, params=...)`; for code that reads the body, send a request with `Client` |
+| Setting `request_ctx.connexion_context["token_info"]` | `request_context(..., token_info={...})` |
+| `app.app.app_context()`, to call controllers or helpers | `request_context(app=app)`, which gives the app context too; `get_config()` needs neither (see [Configuration access](#configuration-access)) |
+
+`form` data (`data={...}`) stays as it is. Redirects aren't followed unless
+you pass `follow_redirects=True`, as with Flask's client. `params` replace
+query parameters of the same name in the URL, as in httpx, rather than adding
+to them. Don't rely on the client address of requests of the client, which
+changes with the release on ASGI; set it with `request_context(...,
+client_address=...)`. Tests of WSGI middleware, which need other WSGI
+environment values, keep using Werkzeug's `Client` on the Flask app until the
+release on ASGI.
+
 ## Invalid fields in `400` responses
 
 Nothing breaks: responses to invalid requests keep their `title`, `status`

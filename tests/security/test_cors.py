@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from foca.models.config import CORSConfig
 from foca.security.cors import enable_cors
+from foca.testing import Client
 
 ORIGIN = "https://example.org"
 
@@ -23,7 +24,7 @@ def _app(conf: CORSConfig | None = None) -> Flask:
 
 def test_default_any_origin() -> None:
     """Requests from any origin are allowed by default."""
-    client = _app().test_client()
+    client = Client(_app())
     for origin in [ORIGIN, "https://other.org"]:
         response = client.get("/items", headers={"Origin": origin})
         # flask-cors reflects the request origin for `*`
@@ -33,16 +34,18 @@ def test_default_any_origin() -> None:
 
 def test_configured_origin() -> None:
     """Only configured origins are allowed."""
-    client = _app(
-        CORSConfig(
-            allow_origins=[ORIGIN],
-            allow_methods=["GET"],
-            allow_headers=["Authorization"],
-            expose_headers=["X-Total"],
-            allow_credentials=True,
-            max_age=600,
+    client = Client(
+        _app(
+            CORSConfig(
+                allow_origins=[ORIGIN],
+                allow_methods=["GET"],
+                allow_headers=["Authorization"],
+                expose_headers=["X-Total"],
+                allow_credentials=True,
+                max_age=600,
+            )
         )
-    ).test_client()
+    )
     response = client.get("/items", headers={"Origin": ORIGIN})
     assert response.headers["Access-Control-Allow-Origin"] == ORIGIN
     assert response.headers["Access-Control-Allow-Credentials"] == "true"

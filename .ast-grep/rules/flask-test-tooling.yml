@@ -1,0 +1,16 @@
+id: flask-test-tooling
+language: python
+severity: error
+message: Flask's test client or test request context in FOCA's tests
+note: |
+  Use `foca.testing.Client` and `foca.testing.request_context`, which keep
+  their API on ASGI, where Flask's test client bypasses the middleware and
+  Flask is gone. Tests of WSGI middleware use Werkzeug's `Client` directly.
+# Scoped to the tests: `foca.testing` wraps Flask's tooling on Connexion 2
+files:
+  - tests/**
+rule:
+  any:
+    - pattern: $APP.test_client($$$ARGS)
+    - pattern: $APP.test_request_context($$$ARGS)
+    - pattern: FlaskClient($$$ARGS)

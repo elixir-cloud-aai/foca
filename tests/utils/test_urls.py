@@ -10,6 +10,7 @@ from flask import Flask
 from foca.errors.exceptions import build_problem
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, ExceptionConfig, ServerConfig
+from foca.testing import request_context
 from foca.utils.urls import (
     HTTP_SCHEMES,
     SUPPORTED_SCHEMES,
@@ -579,7 +580,7 @@ def test_get_public_url(public_url: str, root: str, path: str, url: str) -> None
     percent-encoded, with no trailing slash, except for the root of the host.
     """
     app = _app(public_url)
-    with app.test_request_context(base_url=f"http://localhost{root}"):
+    with request_context(root_path=root, app=app):
         assert get_public_url(path) == url
 
 
@@ -598,22 +599,26 @@ def test_get_public_url(public_url: str, root: str, path: str, url: str) -> None
 )
 def test_get_public_url_host(public_url: str, url: str) -> None:
     """Hosts are normalized, IPv6 addresses bracketed, with encoded zone IDs."""
-    with _app(public_url).test_request_context():
+    with request_context(app=_app(public_url)):
         assert get_public_url("/services") == url
 
 
 def test_get_public_url_default_path() -> None:
     """Without a path, the public URL of the root path of the app is returned."""
-    with _app("https://api.example.org/my-app/").test_request_context():
+    with request_context(app=_app("https://api.example.org/my-app/")):
         assert get_public_url() == "https://api.example.org/my-app"
 
 
 def test_get_public_url_not_from_request() -> None:
     """Public URLs are not built from the request or its headers."""
     app = _app("https://api.example.org")
-    with app.test_request_context(
-        base_url="http://evil.example.org:8080",
-        headers={"X-Forwarded-Host": "evil.example.org", "X-Forwarded-Proto": "http"},
+    with request_context(
+        headers={
+            "Host": "evil.example.org:8080",
+            "X-Forwarded-Host": "evil.example.org",
+            "X-Forwarded-Proto": "http",
+        },
+        app=app,
     ):
         assert get_public_url("/services") == "https://api.example.org/services"
 
@@ -621,7 +626,7 @@ def test_get_public_url_not_from_request() -> None:
 def test_get_public_url_unset() -> None:
     """Without a public URL, an error is raised."""
     with (
-        _app(None).test_request_context(),
+        request_context(app=_app(None)),
         pytest.raises(RuntimeError, match=r"server\.public_url"),
     ):
         get_public_url("/services")
@@ -647,7 +652,7 @@ def test_get_public_url_dot_segments(root: str, path: str) -> None:
     """Paths with dot segments are rejected."""
     app = _app("https://api.example.org/my-app")
     with (
-        app.test_request_context(base_url=f"http://localhost{root}"),
+        request_context(root_path=root, app=app),
         pytest.raises(InvalidURL, match="dot segments"),
     ):
         get_public_url(path)
@@ -658,7 +663,7 @@ def test_get_public_url_dot_segments(root: str, path: str) -> None:
 )
 def test_get_public_url_kept(path: str) -> None:
     """Segments with dots that are not dot segments, and empty ones, are kept."""
-    with _app("https://api.example.org").test_request_context():
+    with request_context(app=_app("https://api.example.org")):
         assert get_public_url(path) == f"https://api.example.org{path}"
 
 
@@ -671,14 +676,14 @@ def test_get_public_url_kept(path: str) -> None:
 )
 def test_get_public_url_literal(path: str, url: str) -> None:
     """Percent-encodings in paths are kept literally; slashes only are removed."""
-    with _app("https://api.example.org").test_request_context():
+    with request_context(app=_app("https://api.example.org")):
         assert get_public_url(path) == url
 
 
 def test_get_public_url_surrogates() -> None:
     """Paths with characters that cannot be encoded are rejected."""
     with (
-        _app("https://api.example.org").test_request_context(),
+        request_context(app=_app("https://api.example.org")),
         pytest.raises(InvalidURL, match="surrogates"),
     ):
         get_public_url("/services/\ud800")

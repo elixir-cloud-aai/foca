@@ -6,16 +6,12 @@ import pytest
 from connexion import App
 from flask import Flask, Response
 
+from foca.testing import Client, request_context
 from foca.utils import logging as module
 from foca.utils.logging import escape_log_value, log_traffic, log_traffic_if
 
 app = Flask(__name__)
-REQ = {
-    "REQUEST_METHOD": "GET",
-    "PATH_INFO": "/",
-    "SERVER_PROTOCOL": "HTTP/1.1",
-    "REMOTE_ADDR": "192.168.1.1",
-}
+CLIENT_ADDRESS = "192.168.1.1"
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -29,7 +25,7 @@ def test_logging_decorator(caplog: pytest.LogCaptureFixture) -> None:
     def mock_func() -> dict[str, str]:
         return {"foo": "bar"}
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         mock_func()
     assert "Incoming request" in caplog.text and "Response to request" in caplog.text
 
@@ -41,7 +37,7 @@ def test_logging_decorator_log_level(caplog: pytest.LogCaptureFixture) -> None:
     def mock_func() -> dict[str, str]:
         return {"foo": "bar"}
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         mock_func()
     assert "WARNING" in caplog.text
 
@@ -54,7 +50,7 @@ def test_logging_decorator_req_only(caplog: pytest.LogCaptureFixture) -> None:
     def mock_func() -> dict[str, str]:
         return {"foo": "bar"}
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         mock_func()
     assert (
         "Incoming request" in caplog.text and "Response to request" not in caplog.text
@@ -69,7 +65,7 @@ def test_logging_decorator_res_only(caplog: pytest.LogCaptureFixture) -> None:
     def mock_func() -> dict[str, str]:
         return {"foo": "bar"}
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         mock_func()
     assert (
         "Incoming request" not in caplog.text and "Response to request" in caplog.text
@@ -103,13 +99,11 @@ def test_logging_decorator_in_app(monkeypatch: pytest.MonkeyPatch) -> None:
             },
         }
     )
-    response = app.app.test_client().get(
-        "/items", environ_base={"REMOTE_ADDR": "10.0.0.1"}
-    )
+    response = Client(app).get("/items")
     assert response.status_code == 200
     assert messages == [
-        'Incoming request: "GET /items HTTP/1.1" from 10.0.0.1',
-        'Response to request "GET /items HTTP/1.1" from 10.0.0.1: str, status 200',
+        'Incoming request: "GET /items HTTP/1.1" from 127.0.0.1',
+        'Response to request "GET /items HTTP/1.1" from 127.0.0.1: str, status 200',
     ]
 
 
@@ -152,7 +146,7 @@ def test_logging_decorator_no_body(
     def mock_func() -> object:
         return response
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         mock_func()
     assert logged[1].endswith(f": {description}")
     assert "s3cr3t" not in " ".join(logged)
@@ -165,7 +159,7 @@ def test_logging_decorator_body(logged: list[str]) -> None:
     def mock_func() -> dict[str, str]:
         return {"foo": "bar\nbaz"}
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         mock_func()
     assert logged[1].endswith(": dict, status 200: {'foo': 'bar\\nbaz'}")
 
@@ -177,7 +171,9 @@ def test_logging_decorator_control_characters(logged: list[str]) -> None:
     def mock_func() -> str:
         return "ok"
 
-    with app.test_request_context("/items%0d%0aFAKE%20log%20line", environ_base=REQ):
+    with request_context(
+        "/items%0d%0aFAKE%20log%20line", client_address=CLIENT_ADDRESS, app=app
+    ):
         mock_func()
     assert len(logged) == 2
     assert all("\n" not in msg and "\r" not in msg for msg in logged)
@@ -199,7 +195,7 @@ def test_log_traffic_if(logged: list[str], enabled: bool) -> None:
         runs.append(value)
         return value
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         assert mock_func("ok") == "ok"
         assert mock_func("ok") == "ok"
     assert len(calls) == 2
@@ -251,7 +247,7 @@ def test_log_traffic_if_options(logged: list[str]) -> None:
     def mock_func() -> str:
         return "ok"
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         mock_func()
     assert len(logged) == 1
     assert logged[0].startswith("Response to request")
@@ -265,7 +261,7 @@ def test_log_traffic_if_log_level(caplog: pytest.LogCaptureFixture) -> None:
     def mock_func() -> str:
         return "ok"
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         mock_func()
     assert "WARNING" in caplog.text
 
@@ -304,7 +300,7 @@ def test_logging_decorator_body_without_headers(
     def mock_func() -> object:
         return response
 
-    with app.test_request_context(environ_base=REQ):
+    with request_context(client_address=CLIENT_ADDRESS, app=app):
         mock_func()
     assert logged[1].endswith(f": {body}")
     assert "s3cr3t" not in " ".join(logged)

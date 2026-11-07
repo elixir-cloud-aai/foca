@@ -342,6 +342,8 @@ configuration models, see [Configuration](configuration/index.md).
 
 ## Testing
 
+::: foca.testing.client
+
 ::: foca.testing.issuer
 
 ::: foca.testing.pytest_plugin

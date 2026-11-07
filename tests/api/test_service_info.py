@@ -23,6 +23,7 @@ from foca.api.service_info import (
 from foca.config import access
 from foca.config.access import _get_app_config, set_app_config
 from foca.models.config import Config
+from foca.testing import Client, request_context
 from foca.utils import service_info as utils
 from tests.test_files import service_info_fields
 from tests.test_files.service_info_data import FIELDS, REMOVE, SERVICE, service
@@ -293,7 +294,7 @@ def test_getServiceInfo_not_configured_request(
     if config is not None:
         set_app_config(app, config)
     with (
-        app.test_request_context("/service-info"),
+        request_context("/service-info", app=app),
         pytest.raises(InternalServerError),
     ):
         getServiceInfo()
@@ -445,11 +446,11 @@ def test_service_info_endpoint(tmp_path: Path) -> None:
             "runtime_fields": f"{FIELDS}.runtime_fields",
         },
     )
-    client = foca.create_app().app.test_client()
+    client = Client(foca.create_app())
     response = client.get("/service-info")
     assert response.status_code == 200
-    assert response.mimetype == "application/json"
-    assert response.json == {
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == {
         **service(environment="port-8000"),
         "x-runtime": {},
     }
@@ -468,7 +469,7 @@ def test_service_info_endpoint_logged(
     if log_traffic is not None:
         service_info["log_traffic"] = log_traffic
     foca = _foca(tmp_path, service_info)
-    client = foca.create_app().app.test_client()
+    client = Client(foca.create_app())
     assert client.get("/service-info").status_code == 200
     request = '"GET /service-info HTTP/1.1" from 127.0.0.1'
     logged = [
@@ -487,9 +488,9 @@ def test_service_info_endpoint_full_operation_id(tmp_path: Path) -> None:
         "responses": OPERATION["responses"],
     }
     foca = _foca(tmp_path, {"service": SERVICE}, spec, add_controller=False)
-    response = foca.create_app().app.test_client().get("/service-info")
+    response = Client(foca.create_app()).get("/service-info")
     assert response.status_code == 200
-    assert response.json == SERVICE
+    assert response.json() == SERVICE
 
 
 def test_service_info_endpoint_wes_tes_spelling(tmp_path: Path) -> None:
@@ -502,14 +503,10 @@ def test_service_info_endpoint_wes_tes_spelling(tmp_path: Path) -> None:
         **OPERATION,
         "operationId": "GetServiceInfo",
     }
-    response = (
-        _foca(tmp_path, {"service": SERVICE}, spec)
-        .create_app()
-        .app.test_client()
-        .get("/service-info")
-    )
+    app = _foca(tmp_path, {"service": SERVICE}, spec).create_app()
+    response = Client(app).get("/service-info")
     assert response.status_code == 200
-    assert response.json == SERVICE
+    assert response.json() == SERVICE
     # Apps refuse to start without service info, also with this spelling
     with pytest.raises(InvalidServiceInfo, match="no service info"):
         _foca(tmp_path, None, spec).create_app()
@@ -544,10 +541,10 @@ def test_service_info_endpoint_public(tmp_path: Path) -> None:
             },
         },
     )
-    client = foca.create_app().app.test_client()
+    client = Client(foca.create_app())
     response = client.get("/service-info")
     assert response.status_code == 200
-    assert response.json == SERVICE
+    assert response.json() == SERVICE
     assert client.get("/pets").status_code == 401
 
 
@@ -559,14 +556,14 @@ def test_service_info_endpoint_invalid_at_runtime(
     The error is logged.
     """
     foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})
-    client = foca.create_app().app.test_client()
+    client = Client(foca.create_app())
     monkeypatch.setitem(
         service_info_fields.TOGGLE, "fields", {"createdAt": "yesterday"}
     )
     response = client.get("/service-info")
     assert response.status_code == 500
-    assert response.mimetype == "application/problem+json"
-    assert "yesterday" not in response.get_data(as_text=True)
+    assert response.headers["content-type"] == "application/problem+json"
+    assert "yesterday" not in response.text
     assert "Service info not served: Invalid service info in `createdAt`" in (log.text)
 
 
@@ -578,11 +575,11 @@ def test_service_info_endpoint_runtime_failed(
     The request fails with a generic error, and failures are logged.
     """
     foca = _foca(tmp_path, {"service": SERVICE, "runtime_fields": TOGGLED})
-    client = foca.create_app().app.test_client()
+    client = Client(foca.create_app())
     monkeypatch.setitem(service_info_fields.TOGGLE, "error", KeyError("secret detail"))
     response = client.get("/service-info")
     assert response.status_code == 500
-    assert "secret detail" not in response.get_data(as_text=True)
+    assert "secret detail" not in response.text
     assert f"Runtime fields function '{TOGGLED}'" in log.text
 
 
@@ -599,7 +596,7 @@ def test_service_info_endpoint_value_error_mapped(
         {"service": SERVICE, "runtime_fields": TOGGLED},
         exceptions={"mapping": f"{__name__}.PROBLEMS"},
     )
-    client = foca.create_app().app.test_client()
+    client = Client(foca.create_app())
     monkeypatch.setitem(
         service_info_fields.TOGGLE, "fields", {"createdAt": "yesterday"}
     )

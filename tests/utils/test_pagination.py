@@ -9,6 +9,7 @@ from werkzeug.exceptions import BadRequest
 
 from foca.config.access import set_app_config
 from foca.models.config import Config, ServerConfig
+from foca.testing import request_context
 from foca.utils.pagination import (
     MAX_PAGE_LIMIT,
     Page,
@@ -116,7 +117,7 @@ class TestGetPageLinks:
 
     def test_first_page(self, app: Flask) -> None:
         """The first page has no link to the previous one."""
-        with app.test_request_context("/pets"):
+        with request_context("/pets", app=app):
             links = get_page_links(Page(0, 10), total=25)
         assert links == {
             "first": "https://api.example.org/prefix/pets?offset=0&limit=10",
@@ -126,7 +127,7 @@ class TestGetPageLinks:
 
     def test_middle_page(self, app: Flask) -> None:
         """Previous pages don't start before the first item."""
-        with app.test_request_context("/pets"):
+        with request_context("/pets", app=app):
             links = get_page_links(Page(5, 10), total=25)
         assert _params(links["prev"])["offset"] == ["0"]
         assert _params(links["next"])["offset"] == ["15"]
@@ -137,38 +138,38 @@ class TestGetPageLinks:
     )
     def test_last_page(self, app: Flask, offset: int, total: int, last: str) -> None:
         """The last page has no link to the next one."""
-        with app.test_request_context("/pets"):
+        with request_context("/pets", app=app):
             links = get_page_links(Page(offset, 10), total=total)
         assert "next" not in links
         assert _params(links["last"])["offset"] == [last]
 
     def test_past_the_end(self, app: Flask) -> None:
         """The previous page of a page past the end has items."""
-        with app.test_request_context("/pets"):
+        with request_context("/pets", app=app):
             links = get_page_links(Page(50, 10), total=25)
         assert _params(links["prev"])["offset"] == ["20"]
 
     def test_trailing_slash_kept(self, app: Flask) -> None:
         """Routes with and without trailing slash differ."""
-        with app.test_request_context("/pets/"):
+        with request_context("/pets/", app=app):
             links = get_page_links(Page(0, 10))
         assert urlsplit(links["first"]).path == "/prefix/pets/"
 
     def test_unknown_total(self, app: Flask) -> None:
         """Without the total, there is a next page, and no last one."""
-        with app.test_request_context("/pets"):
+        with request_context("/pets", app=app):
             links = get_page_links(Page(0, 10))
         assert set(links) == {"first", "next"}
 
     def test_no_next_beyond_largest_offset(self, app: Flask) -> None:
         """Links only have offsets that are accepted."""
-        with app.test_request_context("/pets"):
+        with request_context("/pets", app=app):
             links = get_page_links(Page(2**63 - 1, 10))
         assert "next" not in links
 
     def test_query_kept(self, app: Flask) -> None:
         """Other query parameters are kept, encoded, and the old page isn't."""
-        with app.test_request_context("/pets?q=a%26b%3E&tag=x&tag=y&offset=3&limit=9"):
+        with request_context("/pets?q=a%26b%3E&tag=x&tag=y&offset=3&limit=9", app=app):
             links = get_page_links(Page(3, 10))
         assert _params(links["next"]) == {
             "q": ["a&b>"],
@@ -180,7 +181,7 @@ class TestGetPageLinks:
 
     def test_host_of_request_ignored(self, app: Flask) -> None:
         """Links don't use the `Host` header of the request."""
-        with app.test_request_context("/pets", headers={"Host": "evil.example.org"}):
+        with request_context("/pets", headers={"Host": "evil.example.org"}, app=app):
             links = get_page_links(Page(0, 10))
         assert "evil" not in links["first"]
 
@@ -189,7 +190,7 @@ class TestGetPageLinks:
         flask_app = Flask(__name__)
         set_app_config(flask_app, Config())
         with (
-            flask_app.test_request_context("/pets"),
+            request_context("/pets", app=flask_app),
             pytest.raises(RuntimeError, match="public URL"),
         ):
             get_page_links(Page(0, 10))

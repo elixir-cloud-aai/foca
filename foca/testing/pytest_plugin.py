@@ -12,6 +12,8 @@ pytest_plugins = ["foca.testing.pytest_plugin"]
 - `mongodb`: MongoDB that FOCA uses in a test; needs mongomock, or the environment
   variable `MONGODB_TEST_URI` for a real MongoDB.
 - `issuer`: local identity provider (cf. :py:mod:`foca.testing.issuer`).
+- `foca_client`: test client (cf. :py:class:`foca.testing.Client`) of the app
+  that the fixture `foca_app` gives, which apps define.
 """
 
 import ipaddress
@@ -22,11 +24,13 @@ from functools import lru_cache
 from typing import Any
 
 import pytest
+from connexion import App
 from pymongo import MongoClient, monitoring
 from pymongo.errors import PyMongoError
 from pymongo.uri_parser import parse_uri
 
 from foca.database import register_mongodb
+from foca.testing.client import Client
 from foca.testing.issuer import Issuer
 from foca.testing.issuer import issuer as run_issuer
 
@@ -332,3 +336,32 @@ def issuer() -> Iterator[Issuer]:
     """
     with run_issuer() as instance:
         yield instance
+
+
+@pytest.fixture
+def foca_app() -> App:
+    """Give the app under test; apps define this fixture.
+
+    E.g., in `conftest.py`, `return Foca(config_file="config.yaml").create_app()`.
+
+    Raises:
+        pytest.UsageError: Raised as long as the app doesn't define it.
+    """
+    raise pytest.UsageError(
+        "Define the fixture 'foca_app', giving the app that 'Foca.create_app()' "
+        "returns, to use the fixture 'foca_client'"
+    )
+
+
+@pytest.fixture
+def foca_client(foca_app: App) -> Iterator[Client]:
+    """Get a test client of the app under test.
+
+    Args:
+        foca_app: App under test, from the fixture that the app defines.
+
+    Yields:
+        Client of the app (cf. :py:class:`foca.testing.Client`).
+    """
+    with Client(foca_app) as client:
+        yield client

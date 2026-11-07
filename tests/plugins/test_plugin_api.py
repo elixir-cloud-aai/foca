@@ -27,6 +27,7 @@ from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     RESOURCE_ROLE_MODEL_FILE,
 )
+from foca.testing import Client, request_context
 from tests.plugins.fakes import FAKES, make_host
 from tests.plugins.test_plugin_engine import inbound
 
@@ -337,7 +338,7 @@ def test_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime, "get_host", lambda: host)
     monkeypatch.setattr(adapter, "current_principal", lambda: ALICE)
     app = create_connexion_app(Config()).app
-    with app.test_request_context():
+    with request_context(app=app):
         assert "test.skip" not in [p["id"] for p in api.listFocaPlugins()["plugins"]]
         assert api.getFocaPlugin("test.tag")["id"] == "test.tag"
         response = api.getFocaPlugin("test.skip")
@@ -404,7 +405,7 @@ def test_spec_served() -> None:
     """Apps can add the specification under their base path."""
     cnx_app = create_connexion_app(Config())
     cnx_app.add_api(api.SPEC_PATH, base_path="/ga4gh/tes/v1")
-    client = cnx_app.app.test_client()
+    client = Client(cnx_app)
     assert client.get("/ga4gh/tes/v1/plugins").status_code == 401
 
 
@@ -432,12 +433,12 @@ def test_spec_merged(tmp_path: Path, fake_plugin_entry_points: RegisterPlugins) 
     spec = foca.conf.api.specs[0]
     files = spec.path if isinstance(spec.path, list) else [spec.path]
     spec.path = [Path(api.SPEC_PATH), *files]
-    client = foca.create_app().app.test_client()
+    client = Client(foca.create_app())
     response = client.get("/v2/plugins")
     assert response.status_code == 401
-    assert json.loads(response.data) == {"title": "Unauthorized", "status": 401}
+    assert json.loads(response.content) == {"title": "Unauthorized", "status": 401}
     # the app's own `info` wins (FOCA's file comes first)
-    assert client.get("/v2/openapi.json").get_json()["info"]["title"] == (
+    assert client.get("/v2/openapi.json").json()["info"]["title"] == (
         "Swagger Petstore"
     )
     runtime.reset()
@@ -472,13 +473,13 @@ def test_spec_merged_error_media_type(
     files = spec.path if isinstance(spec.path, list) else [spec.path]
     spec.path = [Path(api.SPEC_PATH), *files]
     try:
-        client = foca.create_app().app.test_client()
+        client = Client(foca.create_app())
         response = client.get("/v2/plugins")
-        served = client.get("/v2/openapi.json").get_json()
+        served = client.get("/v2/openapi.json").json()
     finally:
         runtime.reset()
     assert response.status_code == 401
-    assert response.content_type == media_type
+    assert response.headers["content-type"] == media_type
     listing = served["paths"]["/plugins"]["get"]["responses"]
     assert set(listing["200"]["content"]) == {"application/json"}
     for status in ("401", "403"):
@@ -521,7 +522,7 @@ def test_spec_appended_error_media_type(
     )
     foca = Foca(config_file=config, gateway=GatewayApp(api="tes"))
     try:
-        served = foca.create_app().app.test_client().get("/v2/openapi.json").get_json()
+        served = Client(foca.create_app()).get("/v2/openapi.json").json()
     finally:
         runtime.reset()
     responses = served["paths"]["/plugins"]["get"]["responses"]
@@ -587,7 +588,7 @@ def test_spec_merged_with_app_controller(
     files = spec.path if isinstance(spec.path, list) else [spec.path]
     spec.path = [Path(api.SPEC_PATH), *files]
     try:
-        client = foca.create_app().app.test_client()
+        client = Client(foca.create_app())
         assert client.get("/v2/plugins").status_code == 401
         assert client.get("/v2/plugins/test.tag").status_code == 401
     finally:

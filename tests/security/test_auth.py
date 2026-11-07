@@ -28,6 +28,7 @@ from foca.security.auth import (
     require_no_service_clients,
     validate_token,
 )
+from foca.testing import request_context
 from tests.mock_data import INVALID_TOKEN_CHALLENGE
 
 ISSUER = "https://idp.example.org"
@@ -164,7 +165,7 @@ def raises_unauthorized(
 
 def validate(app: Flask, token: str) -> dict[str, Any]:
     """Validate token in a request context of `app`."""
-    with app.test_request_context():
+    with request_context(app=app):
         return validate_token(token=token)
 
 
@@ -214,7 +215,7 @@ class TestValidateToken:
         """Claims are not added to request headers."""
         app = make_app()
         headers = {"Authorization": "Bearer x", "Content-Type": "text/plain"}
-        with app.test_request_context(headers=headers):
+        with request_context(headers=headers, app=app):
             before = dict(auth_request.headers)
             validate_token(token=make_token())
             assert dict(auth_request.headers) == before
@@ -1485,7 +1486,7 @@ class TestCurrentTokenInfo:
         Yields:
             Nothing, while the request is handled.
         """
-        with Flask(__name__).test_request_context():
+        with request_context():
             if connexion_context is not None:
                 request_ctx.connexion_context = connexion_context  # type: ignore[attr-defined]  # set by Connexion
             yield

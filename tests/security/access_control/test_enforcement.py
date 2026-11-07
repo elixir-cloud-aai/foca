@@ -3,7 +3,7 @@
 import logging
 import warnings
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from importlib.resources import files
 from importlib.resources import path as resource_path
@@ -19,12 +19,10 @@ from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolution, Resolver
 from flask import Flask, request
-from flask.ctx import RequestContext
 from flask.globals import request_ctx
 from pydantic import ValidationError
 from pymongo import MongoClient
 from pymongo.collection import Collection
-from werkzeug.test import TestResponse
 
 from foca.api.register_openapi import register_openapi
 from foca.config.access import _get_app_config, set_app_config
@@ -74,6 +72,7 @@ from foca.security.access_control.register_access_control import (
     register_permission_specs,
 )
 from foca.security.auth import _unauthorized
+from foca.testing import Client, Response, request_context
 from tests.mock_data import INVALID_TOKEN_CHALLENGE
 
 DB_NAME = "access_control_db"
@@ -344,10 +343,10 @@ def _headers(user: str | None) -> dict[str, str]:
     return {} if user is None else {"Authorization": f"Bearer {user}"}
 
 
-def _json(response: TestResponse) -> Any:
+def _json(response: Response) -> Any:
     """JSON body of a response."""
-    assert response.json is not None
-    return response.json
+    assert response.json() is not None
+    return response.json()
 
 
 @pytest.fixture
@@ -399,7 +398,7 @@ class TestEnforcement:
         self, app: Flask, method: str, path: str, user: str | None, status: int
     ) -> None:
         """Policies are enforced on the app's operations."""
-        response = getattr(app.test_client(), method)(path, headers=_headers(user))
+        response = getattr(Client(app), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -415,7 +414,7 @@ class TestEnforcement:
     )
     def test_challenge(self, app: Flask, user: str | None, challenge: str) -> None:
         """`401` responses carry a Bearer challenge (RFC 6750, §3.1)."""
-        response = app.test_client().post("/items", headers=_headers(user))
+        response = Client(app).post("/items", headers=_headers(user))
         assert response.status_code == 401
         assert response.headers.getlist("WWW-Authenticate") == [challenge]
 
@@ -446,7 +445,7 @@ class TestEnforcement:
         self, app: Flask, method: str, path: str, user: str | None, status: int
     ) -> None:
         """Resource roles cover sub-paths of their resources."""
-        response = getattr(app.test_client(), method)(path, headers=_headers(user))
+        response = getattr(Client(app), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -466,7 +465,7 @@ class TestEnforcement:
             tmp_path,
             _access_control_config(resource_roles_cover_subpaths=False),
         )
-        response = getattr(app.test_client(), method)(path, headers=_headers(user))
+        response = getattr(Client(app), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -484,7 +483,7 @@ class TestEnforcement:
         self, app: Flask, method: str, path: str, user: str | None, status: int
     ) -> None:
         """Operations are enforced as resolved by Connexion."""
-        response = getattr(app.test_client(), method)(path, headers=_headers(user))
+        response = getattr(Client(app), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -521,13 +520,13 @@ class TestEnforcement:
             _access_control_config(),
             connexion={"resolver": resolver},
         )
-        response = getattr(app.test_client(), method)(path, headers=_headers(user))
+        response = getattr(Client(app), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     def test_enforce_disabled(self, tmp_path: Path) -> None:
         """Policies are not enforced on app operations, if disabled."""
         app = _create_app(tmp_path, _access_control_config(enforce=False))
-        response = app.test_client().delete("/items/1", headers=_headers("dave"))
+        response = Client(app).delete("/items/1", headers=_headers("dave"))
         assert response.status_code == 200
 
     @pytest.mark.parametrize(
@@ -546,7 +545,7 @@ class TestEnforcement:
     ) -> None:
         """Without a mapping, group claim values are prefixed subjects."""
         app = _create_app(tmp_path, _access_control_config(group_mapping=None))
-        response = getattr(app.test_client(), method)(path, headers=_headers(user))
+        response = getattr(Client(app), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     @pytest.mark.parametrize(
@@ -574,7 +573,7 @@ class TestEnforcement:
         adapter = app.config["casbin_adapter"]
         adapter.save_policy_line("g2", ["group:devs", "maintainer", "/items/2"])
         adapter.save_policy_line("g2", ["user:devs", "owner", "/items/2"])
-        response = getattr(app.test_client(), method)(path, headers=_headers(user))
+        response = getattr(Client(app), method)(path, headers=_headers(user))
         assert response.status_code == status
 
     def test_enforce_group_subjects_disabled(self, tmp_path: Path) -> None:
@@ -582,7 +581,7 @@ class TestEnforcement:
         app = _create_app(tmp_path, _access_control_config())
         adapter = app.config["casbin_adapter"]
         adapter.save_policy_line("g2", ["group:devs", "maintainer", "/items/2"])
-        response = app.test_client().get("/items/2", headers=_headers("henry"))
+        response = Client(app).get("/items/2", headers=_headers("henry"))
         assert response.status_code == 403
 
     def test_warn_subject_like_roles(
@@ -603,7 +602,7 @@ class TestEnforcement:
             ("g", ["u.eve", "group:auditors"]),
         ]:
             adapter.save_policy_line(ptype, rule)
-        client = app.test_client()
+        client = Client(app)
         with _capture_logs(caplog):
             for _ in range(2):
                 client.get("/items/1", headers=_headers("alice"))
@@ -627,7 +626,7 @@ class TestEnforcement:
     ) -> None:
         """Request paths cannot forge log lines."""
         with _capture_logs(caplog, level=logging.DEBUG):
-            app.test_client().get("/items/1%0Aforged%1B", headers=_headers(user))
+            Client(app).get("/items/1%0Aforged%1B", headers=_headers(user))
         messages = _messages(caplog, level=level)
         assert len(messages) == 1
         assert "/items/1\\nforged\\x1b" in messages[0]
@@ -638,7 +637,7 @@ class TestEnforcement:
     ) -> None:
         """No warnings are logged without subject-like roles."""
         with _capture_logs(caplog):
-            response = app.test_client().get("/items/1", headers=_headers("alice"))
+            response = Client(app).get("/items/1", headers=_headers("alice"))
         assert response.status_code == 200
         assert _messages(caplog) == []
 
@@ -666,20 +665,18 @@ class TestPermissionsApi:
     )
     def test_post_permission(self, app: Flask, user: str | None, status: int) -> None:
         """Only admins may create permissions."""
-        response = app.test_client().post(
-            self.url, json=self.payload, headers=_headers(user)
-        )
+        response = Client(app).post(self.url, json=self.payload, headers=_headers(user))
         assert response.status_code == status
 
     def test_get_permissions_unauthorized(self, app: Flask) -> None:
         """Listing permissions requires authentication."""
-        response = app.test_client().get(self.url)
+        response = Client(app).get(self.url)
         assert response.status_code == 401
 
     def test_permissions_api_enforced_if_enforce_disabled(self, tmp_path: Path) -> None:
         """The permissions API is enforced irrespective of `enforce`."""
         app = _create_app(tmp_path, _access_control_config(enforce=False))
-        response = app.test_client().post(
+        response = Client(app).post(
             self.url, json=self.payload, headers=_headers("dave")
         )
         assert response.status_code == 403
@@ -688,11 +685,9 @@ class TestPermissionsApi:
         """Created permissions are enforced."""
         payload = deepcopy(self.payload)
         payload["rule"]["v0"] = "user:dave"
-        response = app.test_client().post(
-            self.url, json=payload, headers=_headers("carol")
-        )
+        response = Client(app).post(self.url, json=payload, headers=_headers("carol"))
         assert response.status_code == 200
-        response = app.test_client().get("/items/2", headers=_headers("dave"))
+        response = Client(app).get("/items/2", headers=_headers("dave"))
         assert response.status_code == 200
 
     @pytest.mark.parametrize(
@@ -736,7 +731,7 @@ class TestPermissionsApi:
     ) -> None:
         """Invalid permissions are rejected and not stored."""
         url = self.url if method == "post" else f"{self.url}/abc"
-        response = getattr(app.test_client(), method)(
+        response = getattr(Client(app), method)(
             url, json=payload, headers=_headers("carol")
         )
         assert response.status_code == 400
@@ -752,7 +747,7 @@ class TestPermissionsApi:
                 {"id": "abc", "v0": "x"},
             ]
         )
-        client = app.test_client()
+        client = Client(app)
         response = client.get(self.url, headers=_headers("carol"))
         assert response.status_code == 200
         assert len(_json(response)["results"]) == len(POLICIES) + 1
@@ -765,7 +760,7 @@ class TestPermissionsApi:
     )
     def test_ui_and_spec_not_served_by_default(self, app: Flask, path: str) -> None:
         """UI and specification are not served by default."""
-        assert app.test_client().get(path).status_code == 404
+        assert Client(app).get(path).status_code == 404
 
     def test_ui_and_spec_served(self, tmp_path: Path) -> None:
         """UI and specification are served, if configured."""
@@ -773,14 +768,14 @@ class TestPermissionsApi:
             tmp_path,
             _access_control_config(api_swagger_ui=True, api_serve_spec=True),
         )
-        client = app.test_client()
+        client = Client(app)
         assert client.get("/admin/access-control/ui/").status_code == 200
         assert client.get("/admin/access-control/openapi.json").status_code == 200
 
     def test_ui_served_with_spec(self, tmp_path: Path) -> None:
         """The specification is served with the UI, which needs it."""
         app = _create_app(tmp_path, _access_control_config(api_swagger_ui=True))
-        client = app.test_client()
+        client = Client(app)
         assert client.get("/admin/access-control/ui/").status_code == 200
         assert client.get("/admin/access-control/openapi.json").status_code == 200
 
@@ -795,10 +790,8 @@ class TestPagination:
 
     url = "/admin/access-control/permissions"
 
-    def _get(self, app: Flask, user: str = "carol", **params: Any) -> TestResponse:
-        return app.test_client().get(
-            self.url, query_string=params, headers=_headers(user)
-        )
+    def _get(self, app: Flask, user: str = "carol", **params: Any) -> Response:
+        return Client(app).get(self.url, params=params, headers=_headers(user))
 
     def test_default(self, app: Flask) -> None:
         """Permissions are listed on one page by default."""
@@ -850,7 +843,7 @@ class TestPagination:
         app.config["casbin_adapter"]._collection.delete_many({})
         response = self._get(app)
         assert response.status_code == 200
-        assert response.json == {
+        assert response.json() == {
             "results": [],
             "pagination": {
                 "page": 0,
@@ -878,9 +871,7 @@ class TestSelfService:
         return collection.find_one(query)["id"]
 
     def _list(self, app: Flask, user: str, **params: Any) -> list[list[str]]:
-        response = app.test_client().get(
-            self.url, query_string=params, headers=_headers(user)
-        )
+        response = Client(app).get(self.url, params=params, headers=_headers(user))
         assert response.status_code == 200
         return [
             [p["policy_type"], *p["rule"].values()] for p in _json(response)["results"]
@@ -888,7 +879,7 @@ class TestSelfService:
 
     def test_disabled(self, app: Flask) -> None:
         """Subjects cannot access their permissions by default."""
-        client = app.test_client()
+        client = Client(app)
         rule_id = self._id(app, v0="user:alice")
         for url in [self.url, f"{self.url}/{rule_id}"]:
             response = client.get(url, headers=_headers("alice"))
@@ -952,16 +943,16 @@ class TestSelfService:
             ],
             [["g2", "user:alice", "owner", "/items/3/"]],
         ]
-        response = self_service_app.test_client().get(
+        response = Client(self_service_app).get(
             self.url,
-            query_string={"page_size": 2, "page": 2},
+            params={"page_size": 2, "page": 2},
             headers=_headers("alice"),
         )
         assert response.status_code == 400
 
     def test_get(self, self_service_app: Flask) -> None:
         """Subjects get only permissions that apply to them."""
-        client = self_service_app.test_client()
+        client = Client(self_service_app)
         own = self._id(self_service_app, v0="user:alice")
         other = self._id(self_service_app, v0="user:bob")
         response = client.get(f"{self.url}/{own}", headers=_headers("alice"))
@@ -974,12 +965,12 @@ class TestSelfService:
 
     def test_unauthenticated(self, self_service_app: Flask) -> None:
         """Self-service requires authentication."""
-        response = self_service_app.test_client().get(self.url)
+        response = Client(self_service_app).get(self.url)
         assert response.status_code == 401
 
     def test_writes_enforced(self, self_service_app: Flask) -> None:
         """Subjects cannot change their permissions."""
-        client = self_service_app.test_client()
+        client = Client(self_service_app)
         own = self._id(self_service_app, v0="user:alice")
         payload = {
             "policy_type": "g",
@@ -1020,7 +1011,7 @@ class TestSelfService:
             )
             kwargs["api_specs"] = str(old)
         app = _create_app(tmp_path, _access_control_config(**kwargs))
-        client = app.test_client()
+        client = Client(app)
         headers = _headers("carol")
         rule = {"v0": "user:x", "v1": "/a", "v2": "GET"}
         with warnings.catch_warnings(record=True) as caught:
@@ -1050,7 +1041,7 @@ class TestSelfService:
     def test_owners_manage_access(self, tmp_path: Path, self_service: bool) -> None:
         """Owners grant roles on their resources via app endpoints."""
         app = _create_app(tmp_path, _access_control_config(self_service=self_service))
-        client = app.test_client()
+        client = Client(app)
         assert client.get("/items/1", headers=_headers("dave")).status_code == 403
         # only owners may manage access
         response = client.put(
@@ -1080,7 +1071,7 @@ class TestSelfService:
         app.config["casbin_adapter"].save_policy_line(
             "g2", ["user:grace", "owner", "/items/5"]
         )
-        client = app.test_client()
+        client = Client(app)
         url = "/items/5/permissions"
         headers = _headers("grace")
         # only to groups the owner is a member of
@@ -1261,12 +1252,9 @@ class TestRemovingConfiguredRules:
 class TestCurrentSubject:
     """Tests for getting subject and groups from validated token claims."""
 
-    def _context(self, app: Flask, token_info: dict[str, Any] | None) -> RequestContext:
-        ctx = app.test_request_context()
-        ctx.push()
-        request_ctx.connexion_context = (  # type: ignore[attr-defined]  # set by Connexion
-            {} if token_info is None else {"token_info": token_info}
-        )
+    def _context(self, app: Flask, token_info: dict[str, Any] | None) -> ExitStack:
+        ctx = ExitStack()
+        ctx.enter_context(request_context(token_info=token_info, app=app))
         return ctx
 
     def test_subject(self, helper_app: Flask) -> None:
@@ -1276,7 +1264,7 @@ class TestCurrentSubject:
             assert get_current_subject() == "carol"
             assert get_current_groups() == ["admin"]
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_raw_claims(self, helper_app: Flask) -> None:
         """Subject is taken from claims passed as token info."""
@@ -1284,7 +1272,7 @@ class TestCurrentSubject:
         try:
             assert get_current_subject() == "carol"
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_current_claims(self, helper_app: Flask) -> None:
         """Claims are returned as a copy."""
@@ -1295,7 +1283,7 @@ class TestCurrentSubject:
             claims["sub"] = "mallory"
             assert get_current_claims()["sub"] == "carol"
         finally:
-            ctx.pop()
+            ctx.close()
         assert get_current_claims() == {}
 
     def test_string_group_claim(self, helper_app: Flask) -> None:
@@ -1304,7 +1292,7 @@ class TestCurrentSubject:
         try:
             assert get_current_groups() == ["admin"]
         finally:
-            ctx.pop()
+            ctx.close()
 
     @pytest.mark.parametrize(
         "claims,subject",
@@ -1335,7 +1323,7 @@ class TestCurrentSubject:
             subjects = _get_current_policy_subjects()
             assert subjects == ([] if subject is None else [f"user:{subject}"])
         finally:
-            ctx.pop()
+            ctx.close()
 
     @pytest.mark.parametrize(
         "issuer,claim,values",
@@ -1371,7 +1359,7 @@ class TestCurrentSubject:
             assert get_claim_groups(issuer) == claim
             assert get_current_group_values() == values
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_custom_identity_claim(self, helper_app: Flask) -> None:
         """Subject is taken from the configured identity claim."""
@@ -1380,7 +1368,7 @@ class TestCurrentSubject:
         try:
             assert get_current_subject() == "y"
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_identity_claim_from_auth_config(self, helper_app: Flask) -> None:
         """Identity claim defaults to that of the auth configuration."""
@@ -1389,7 +1377,7 @@ class TestCurrentSubject:
         try:
             assert get_current_subject() == "y"
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_identity_claim_overrides_auth_config(self, helper_app: Flask) -> None:
         """Configured identity claim overrides that of the auth configuration."""
@@ -1399,7 +1387,7 @@ class TestCurrentSubject:
         try:
             assert get_current_subject() == "x"
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_invalid_group_claim(self, helper_app: Flask) -> None:
         """Invalid group claims yield no groups."""
@@ -1407,7 +1395,7 @@ class TestCurrentSubject:
         try:
             assert get_current_groups() == []
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_groups_without_mapping(self, helper_app: Flask) -> None:
         """Without a mapping, group claim values are prefixed."""
@@ -1416,7 +1404,7 @@ class TestCurrentSubject:
         try:
             assert get_current_groups() == ["group:a", "group:b"]
         finally:
-            ctx.pop()
+            ctx.close()
 
     @pytest.mark.parametrize(
         "values,expected",
@@ -1437,7 +1425,7 @@ class TestCurrentSubject:
         try:
             assert get_current_group_values() == expected
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_group_values_without_claim(self, helper_app: Flask) -> None:
         """Without a group claim, there are no groups."""
@@ -1446,7 +1434,7 @@ class TestCurrentSubject:
             assert get_current_group_values() == []
             assert get_current_groups() == []
         finally:
-            ctx.pop()
+            ctx.close()
 
     @pytest.mark.parametrize("group_mapping", [None, {"a": "auditor"}])
     def test_group_subjects(
@@ -1473,7 +1461,7 @@ class TestCurrentSubject:
                 "group:b",
             ]
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_mapped_groups_only(self, helper_app: Flask) -> None:
         """Only mapped group claim values are groups."""
@@ -1484,7 +1472,7 @@ class TestCurrentSubject:
             assert get_current_groups() == ["admin"]
             assert get_current_group_values() == [ADMIN_ENTITLEMENT, "a"]
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_no_token_info(self, helper_app: Flask) -> None:
         """Without token info, there are no subject and groups."""
@@ -1494,11 +1482,11 @@ class TestCurrentSubject:
             assert get_current_groups() == []
             assert get_current_group_values() == []
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_outside_connexion(self, helper_app: Flask) -> None:
         """Outside Connexion requests, there are no subject and groups."""
-        with helper_app.test_request_context():
+        with request_context(app=helper_app):
             assert get_current_subject() is None
             assert get_current_groups() == []
 
@@ -1510,14 +1498,10 @@ class TestCurrentSubject:
 
     def test_invalid_connexion_context(self, helper_app: Flask) -> None:
         """Errors in claim retrieval are raised, not taken as no claims."""
-        ctx = helper_app.test_request_context()
-        ctx.push()
-        request_ctx.connexion_context = "invalid"  # type: ignore[attr-defined]  # set by Connexion
-        try:
+        with request_context(app=helper_app):
+            request_ctx.connexion_context = "invalid"  # type: ignore[attr-defined]  # set by Connexion
             with pytest.raises(AttributeError):
                 get_current_subject()
-        finally:
-            ctx.pop()
 
     def test_no_group_claim_configured(self, helper_app: Flask) -> None:
         """Without a configured group claim, there are no groups."""
@@ -1527,7 +1511,7 @@ class TestCurrentSubject:
             assert get_current_groups() == []
             assert get_current_group_values() == []
         finally:
-            ctx.pop()
+            ctx.close()
 
 
 class TestOptInRoles:
@@ -1538,12 +1522,11 @@ class TestOptInRoles:
         app: Flask,
         claims: dict[str, Any],
         headers: list[tuple[str, str]] | None = None,
-    ) -> RequestContext:
-        ctx = app.test_request_context(headers=headers or [])
-        ctx.push()
-        request_ctx.connexion_context = {  # type: ignore[attr-defined]  # set by Connexion
-            "token_info": {"claims": claims}
-        }
+    ) -> ExitStack:
+        ctx = ExitStack()
+        ctx.enter_context(
+            request_context(headers=headers, token_info={"claims": claims}, app=app)
+        )
         return ctx
 
     def _opt_in(self, app: Flask, **kwargs: Any) -> None:
@@ -1574,7 +1557,7 @@ class TestOptInRoles:
             assert get_active_opt_in_roles() == (["admin"] if active else [])
             assert get_current_groups() == (["admin"] if active else [])
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_asking_grants_nothing(self, helper_app: Flask) -> None:
         """Asking for roles the groups do not entitle to has no effect."""
@@ -1587,7 +1570,7 @@ class TestOptInRoles:
             assert get_active_opt_in_roles() == []
             assert get_current_groups() == ["group:a"]
         finally:
-            ctx.pop()
+            ctx.close()
 
     @pytest.mark.parametrize(
         "group_mapping,groups",
@@ -1612,7 +1595,7 @@ class TestOptInRoles:
             assert get_current_groups() == groups
             assert is_admin() is False
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_other_roles_apply(self, helper_app: Flask) -> None:
         """Roles that are not opt-in always apply."""
@@ -1623,7 +1606,7 @@ class TestOptInRoles:
         try:
             assert get_current_groups() == ["operator"]
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_custom_header(self, helper_app: Flask) -> None:
         """The header is configurable."""
@@ -1637,13 +1620,13 @@ class TestOptInRoles:
         try:
             assert get_active_opt_in_roles() == ["admin"]
         finally:
-            ctx.pop()
+            ctx.close()
         # the default header is then ignored
         ctx = self._context(helper_app, claims, [("X-Request-Roles", "admin")])
         try:
             assert get_active_opt_in_roles() == []
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_resource_roles_refused(self, helper_app: Flask) -> None:
         """Opt-in roles cannot be granted on resources."""
@@ -1664,7 +1647,7 @@ class TestOptInRoles:
         try:
             assert is_admin() is asked
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_plugin_principal(self, helper_app: Flask) -> None:
         """Gateway plugins get opt-in roles only if requests ask for them."""
@@ -1675,7 +1658,7 @@ class TestOptInRoles:
             try:
                 assert plugin_adapter.current_principal().groups == groups
             finally:
-                ctx.pop()
+                ctx.close()
 
     @pytest.mark.parametrize(
         "ptype,rule,status",
@@ -1693,7 +1676,7 @@ class TestOptInRoles:
     ) -> None:
         """The permissions API refuses rules granting opt-in roles."""
         app = _create_app(tmp_path, _access_control_config(opt_in_roles=["admin"]))
-        response = app.test_client().post(
+        response = Client(app).post(
             "/admin/access-control/permissions",
             json={"policy_type": ptype, "rule": rule},
             headers={**_headers("carol"), "X-Request-Roles": "admin"},
@@ -1703,7 +1686,7 @@ class TestOptInRoles:
     def test_permissions_api_unmapped(self, tmp_path: Path) -> None:
         """Rules granting opt-in roles that no group is mapped to are refused."""
         app = _create_app(tmp_path, _access_control_config(opt_in_roles=["auditor"]))
-        response = app.test_client().post(
+        response = Client(app).post(
             "/admin/access-control/permissions",
             json={"policy_type": "g", "rule": {"v0": "user:dave", "v1": "auditor"}},
             headers=_headers("carol"),
@@ -1720,7 +1703,7 @@ class TestOptInRoles:
         adapter.save_policy_line("g", ["user:dave", "operator"])
         adapter.save_policy_line("g2", ["user:bob", "admin", "/items/2"])
         with _capture_logs(caplog):
-            app.test_client().get("/items/1", headers=_headers("dave"))
+            Client(app).get("/items/1", headers=_headers("dave"))
         messages = [m for m in _messages(caplog) if "opt-in role" in m]
         assert len(messages) == 2
         assert "(g, 'user:dave', 'admin', ...)" in messages[0]
@@ -1735,7 +1718,7 @@ class TestOptInRoles:
             assert get_available_opt_in_roles() == []
             assert get_active_opt_in_roles() == []
         finally:
-            ctx.pop()
+            ctx.close()
 
     def test_outside_request(self, helper_app: Flask) -> None:
         """Outside requests, no roles are available or active."""
@@ -1754,7 +1737,7 @@ class TestOptInRoles:
         """Admins act as regular users unless they opt in."""
         app = _create_app(tmp_path, _access_control_config(opt_in_roles=["admin"]))
         register_opt_in_header(app, "X-Request-Roles")
-        client = app.test_client()
+        client = Client(app)
         response = client.delete("/items/2", headers={**_headers("carol"), **headers})
         assert response.status_code == status
         assert "X-Request-Roles" in response.headers["Vary"]
@@ -1773,7 +1756,7 @@ class TestEnforceAccessControlDecorator:
         def decorated() -> str:
             return "ok"
 
-        with app.test_request_context(path, method=method):
+        with request_context(path, method=method, app=app):
             request_ctx.connexion_context = (  # type: ignore[attr-defined]  # set by Connexion
                 {} if token_info is None else {"token_info": token_info}
             )
@@ -2360,18 +2343,17 @@ class TestResourceRoles:
 
 def test_permissions_api_strict_checks(app: Flask) -> None:
     """The permissions API has the stricter request checks."""
-    client = app.test_client()
+    client = Client(app)
     path = f"{AccessControlConfig().api_base_path}/permissions"
     admin = _headers("carol")
     response = client.post(
         path,
-        data='{"policy_type": "p", "rule": {"v0": "\\ud800"}}',
-        content_type="application/json",
-        headers=admin,
+        content='{"policy_type": "p", "rule": {"v0": "\\ud800"}}',
+        headers={**admin, "Content-Type": "application/json"},
     )
     assert response.status_code == 400
-    assert b"surrogates" in response.data
+    assert b"surrogates" in response.content
     rule = {"policy_type": "p", "rule": {"v0": "zed", "v1": "/x", "v2": "GET"}}
     response = client.post(f"{path}?other=1", json=rule, headers=admin)
     assert response.status_code == 400
-    assert b"Extra query" in response.data
+    assert b"Extra query" in response.content
