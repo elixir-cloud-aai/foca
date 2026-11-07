@@ -110,6 +110,7 @@ match its schema), `validation_details` is on by default:
 ```yaml
 exceptions:
   validation_details: true
+  validation_reasons: true
   max_detail_length: 500
 ```
 
@@ -168,6 +169,32 @@ their `detail` as well, so keep internals out of it. Set
 the exception class instead (without `errors`), whatever was wrong with the
 request, and to log the exception (Connexion's validation logger then logs
 its messages too, unless another app of the process has validation details on).
+
+Validators' reasons quote what they reject: values of the request (e.g.,
+`'abcd' is too long`), unexpected keys and, for parameters, the schema. Set
+`validation_reasons: false` (recommended, unless clients depend on the
+reasons) to respond with a fixed `detail` instead, which quotes nothing of
+the request: `The request has invalid fields; see 'errors'.` if the invalid
+fields are listed, otherwise `The request is invalid.` The invalid fields
+are listed in `errors` as before, without their values, and the logs are
+the same:
+
+```json
+{
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "The request has invalid fields; see 'errors'.",
+  "type": "https://foca.readthedocs.io/en/latest/problems/invalid-request/",
+  "code": "invalid-request",
+  "errors": [
+    {
+      "detail": "Must be at most 3 characters long.",
+      "pointer": "#/name",
+      "code": "too-long"
+    }
+  ]
+}
+```
 
 Details longer than `max_detail_length` (by default 500 characters, at least
 1) are shortened in the middle, keeping their start and end (e.g., the field

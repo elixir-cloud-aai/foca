@@ -227,3 +227,15 @@ To adopt it, copy the file into your app's `.ast-grep/rules/`, set its
 `ast-grep scan` (e.g., via pre-commit). The rule has the severity `warning`
 from FOCA 0.22, so the scan reports but doesn't fail; with the ASGI release,
 FOCA's copy becomes an `error`: update your copy then.
+
+## Validation reasons without request values
+
+Nothing breaks. With `exceptions.validation_details` (the default), the
+`detail` of responses to requests rejected by Connexion's validation is the
+validator's reason, which quotes rejected values, e.g., `'abcd' is too long -
+'name'`, and for parameters also the schema. Set the new
+`exceptions.validation_reasons: false` to respond with a fixed `detail`
+instead; the invalid fields stay listed in `errors`, without their values
+(see [Request-specific
+details](configuration/exceptions.md#request-specific-details)). The default
+keeps the reasons, as clients and tests may depend on them.

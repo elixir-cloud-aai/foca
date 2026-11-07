@@ -447,6 +447,14 @@ class ExceptionConfig(FOCABaseConfig):
             are filtered out, as they have the validator's message in full
             and unescaped. If false, responses get the mapped problem
             details, and the exception is logged.
+        validation_reasons: Whether the `detail` of responses to requests
+            rejected by Connexion's validation (with `validation_details`) is
+            the validator's reason, which may quote rejected values of the
+            request and parts of the schema. Defaults to true. If false, the
+            `detail` is a fixed message that quotes nothing of the request
+            (the invalid fields are still listed as `errors`, without their
+            values); recommended for apps whose clients don't depend on the
+            reasons.
         max_detail_length: Maximum length of request-specific details in
             responses (cf. `validation_details` and
             :py:func:`foca.errors.exceptions.problem_response`) and log
@@ -463,6 +471,8 @@ class ExceptionConfig(FOCABaseConfig):
         media_type: Media type of all error responses, in lower case.
         validation_details: Whether responses to requests rejected by
             Connexion's validation get the reason as `detail`.
+        validation_reasons: Whether that `detail` is the validator's reason,
+            rather than a fixed message.
         max_detail_length: Maximum length of request-specific details in
             responses and log messages.
 
@@ -481,6 +491,8 @@ class ExceptionConfig(FOCABaseConfig):
         'application/problem+json'
         >>> exceptions.validation_details
         True
+        >>> exceptions.validation_reasons
+        True
         >>> exceptions.max_detail_length
         500
     """
@@ -490,6 +502,7 @@ class ExceptionConfig(FOCABaseConfig):
     logging: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline
     media_type: str = DEFAULT_ERROR_MEDIA_TYPE
     validation_details: bool = True
+    validation_reasons: bool = True
     max_detail_length: PositiveInt = 500
     # Problem details by exception class, imported from `mapping`
     _problems: dict[type[BaseException], dict[str, Any]] = PrivateAttr(

@@ -60,6 +60,10 @@ __all__ = [
 # `detail` with `exceptions.validation_details`
 _VALIDATION_EXCEPTIONS = (RequestValidationProblem, ExtraParameterProblem)
 
+# `detail` of rejected requests without `exceptions.validation_reasons`
+_INVALID_FIELDS = "The request has invalid fields; see 'errors'."
+_INVALID_REQUEST = "The request is invalid."
+
 # Logger of Connexion's request validation, which logs the validator's
 # message in full and unescaped (validators quote rejected values, e.g., a
 # whole request body)
@@ -308,7 +312,7 @@ def _validation_handler_json(
     """
     problem = _resolve_problem(exc=exception, conf=conf)
     reason = _validation_reason(exception)
-    if reason is not None:
+    if reason is not None and conf.validation_reasons:
         problem["detail"] = _shorten(reason, conf.max_detail_length)
     errors: tuple[FieldError, ...]
     try:
@@ -323,6 +327,9 @@ def _validation_handler_json(
             type(exc).__name__,
         )
         errors = ()
+    if not conf.validation_reasons:
+        # Reasons may quote rejected values; the invalid fields don't
+        problem["detail"] = _INVALID_FIELDS if errors else _INVALID_REQUEST
     if conf.logging is not ExceptionLoggingEnum.none:
         # Escaped before shortening, so that the logged reason stays within
         # the maximum length; invalid fields are logged without the reason,

@@ -1109,6 +1109,55 @@ class TestValidationDetails:
         assert infos == [f"Request rejected: {logged_reason}"]
         assert logged == []
 
+    @pytest.mark.parametrize(
+        "method,path,kwargs,detail,errors",
+        [
+            ("get", "/validated", {}, "The request is invalid.", False),
+            (
+                "get",
+                "/validated",
+                {"params": {"limit": 1, "extra": 1}},
+                "The request has invalid fields; see 'errors'.",
+                True,
+            ),
+            (
+                "post",
+                "/validated-body",
+                {"json": {"name": "abcd"}},
+                "The request is invalid.",
+                False,
+            ),
+        ],
+    )
+    def test_without_reasons(
+        self,
+        conf_details: ExceptionConfig,
+        infos: list[str],
+        method: str,
+        path: str,
+        kwargs: dict[str, Any],
+        detail: str,
+        errors: bool,
+    ) -> None:
+        """Without reasons, the detail quotes nothing of the request.
+
+        The invalid fields are listed and logged as with reasons, and the
+        reasons are still logged (escaped) for requests without them.
+        """
+        conf_details.validation_reasons = False
+        response = self._client(conf_details).request(method, path, **kwargs)
+        assert response.status_code == 400
+        data = json.loads(response.content)
+        assert data["detail"] == detail
+        assert ("errors" in data) is errors
+        for value in ("abcd", "extra", "limit"):
+            assert value not in data["detail"]
+        assert len(infos) == 1
+
+    def test_reasons_by_default(self) -> None:
+        """The reasons of validators are the detail by default."""
+        assert ExceptionConfig().validation_reasons
+
     def test_default(self, infos: list[str]) -> None:
         """Validation details are on by default, also without a config."""
         assert ExceptionConfig().validation_details
