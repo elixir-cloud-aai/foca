@@ -45,8 +45,7 @@ To use the configured collections outside an app (e.g., in scripts), call
 `Foca.use_config()`: `get_collection()` then returns them, without an app or
 app context, and no indexes are created (see [Preparing for the ASGI
 release](../preparing-for-asgi.md#configuration)). For a client of your own,
-use
-`create_mongo_client()`:
+use `create_mongo_client()`:
 
 ```python
 from foca.database.register_mongodb import (

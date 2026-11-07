@@ -309,13 +309,19 @@ class Foca:
         startup of apps runs (e.g., no policies are synced), so nothing is
         written to the database. What only apps register (e.g., the enforcer
         of access control) isn't available: scripts that need it create the
-        app, with `Foca.disable_startup_writes()` if they must not write.
+        app, with :py:meth:`foca.Foca.disable_startup_writes` if they must not
+        write.
 
         The most recent of this call and the creation of an app (of any
         `Foca` instance) decides which configuration is used outside app
         contexts; in an app context, it is that of the app. Calling it again,
         or creating an app of this instance afterwards, reuses the registered
         databases.
+
+        Raises:
+            ValueError: Access control is enabled, and the collection of the
+                stored policy rules is configured as one of the app's (cf.
+                `security.access_control.collection_name`).
         """
         if self.conf.db is not None:
             # registers in place: `register_mongodb()` returns `conf.db`

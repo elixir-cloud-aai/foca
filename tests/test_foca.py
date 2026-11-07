@@ -652,9 +652,11 @@ def test_use_config_without_app(tmp_path: Path) -> None:
     assert get_config() is foca.conf
     collection = get_collection("my-db", "items")
     assert isinstance(collection, mongomock.Collection)
+    assert "items" not in collection.database.list_collection_names()
     # no index is created, only MongoDB's own one with the collection
     collection.insert_one({"name": "a"})
     assert list(collection.index_information()) == ["_id_"]
+    # the setting is kept for apps created later
     assert foca.conf.db is not None
     assert foca.conf.db.create_indexes_on_startup
 
@@ -667,6 +669,22 @@ def test_use_config_twice(tmp_path: Path) -> None:
     collection = get_collection("my-db", "items")
     foca.use_config()
     assert get_collection("my-db", "items") is collection
+
+
+@pytest.mark.usefixtures("no_apps", "mongo_clients")
+def test_use_config_policy_collection_clash(tmp_path: Path) -> None:
+    """A policy collection configured as one of the app's is refused."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "db:\n"
+        "  dbs:\n"
+        "    access_control_db:\n"
+        "      collections:\n"
+        "        policy_rules: {}\n"
+    )
+    foca = Foca(config_file=[config_file, ACCESS_CONTROL_ENABLED_CONF])
+    with pytest.raises(ValueError, match="policy_rules"):
+        foca.use_config()
 
 
 @pytest.mark.parametrize("config_files", [[], [VALID_DB_CONF]])
