@@ -131,8 +131,10 @@ and presets that need a role get the same message). Messages name fields
 (cf.
 [`exceptions.validation_reasons`](configuration/exceptions.md#request-specific-details)),
 e.g., `Invalid pipeline: 0.alternatives.0.plugin (value_error)` (steps in
-the short form are located as their one alternative; errors of a whole
-step, e.g., of its `id`, as `0 (value_error)`), `Plugin not available in
+the short form are located by their keys, e.g., `0.params (dict_type)`,
+but invalid plugin identifiers as their one alternative; errors of a whole
+step, e.g., of its `id` or of both `plugin` and `alternatives`, as `0
+(value_error)`), `Plugin not available in
 step 1` or `Preset not available`. Messages of a plugin's own checks of
 its params (`InvalidParams`) are passed on as they are: plugins should name
 params and settings in them, not values. Apps of other APIs than

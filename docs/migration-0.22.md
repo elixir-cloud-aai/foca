@@ -290,8 +290,8 @@ change:
 - Invalid steps: `Invalid pipeline: 0.alternatives.0.plugin (value_error)`,
   i.e., the location and the error type, instead of the validator's message
   (e.g., `Invalid plugin identifier: '...'`); errors of a whole step (e.g.,
-  of its `id`) are located by the step, e.g., `Invalid pipeline: 0
-  (value_error)`.
+  of its `id`, or of both `plugin` and `alternatives`) are located by the
+  step, e.g., `Invalid pipeline: 0 (value_error)`.
 - `Invalid pipeline: NaN, Infinity and -Infinity are not allowed`, instead
   of naming the constant.
 - `Preset not available` and `Plugin not available in step 1`, without the

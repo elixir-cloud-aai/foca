@@ -386,7 +386,8 @@ def _describe_step_error(index: int, exc: ValidationError) -> str:
     Returns:
         Location in the pipeline and type of the error, e.g.,
         `0.alternatives.0.plugin (value_error)`; steps given in the short
-        form (`plugin`, `params`) are located as their one alternative.
+        form are located by their keys (e.g., `0.params`), but invalid
+        plugin identifiers as their one alternative.
     """
     error = exc.errors(include_url=False, include_context=False)[0]
     location = ".".join(str(part) for part in (index, *error["loc"]))
@@ -400,7 +401,8 @@ def _first_error(exc: BaseException) -> str:
         exc: Error, other than of validating a step.
 
     Returns:
-        Message of FOCA's checks of the JSON, which quote no values, or a
+        Message of a `ValueError` (FOCA's checks of the JSON, or of the
+        parser, e.g., on too long integers; neither quotes values), or a
         generic message.
     """
     if isinstance(exc, json.JSONDecodeError):
