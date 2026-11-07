@@ -414,12 +414,12 @@ reviews.
   the line before, with the reason in a comment.
 - **No new Flask internals:** FOCA is moving to Connexion 3 on ASGI, without
   Flask. The ast-grep rule `no-new-flask-internals` (severity `error`)
-  fails on imports of Flask, Flask-Cors and Werkzeug, and of Connexion's
-  `request` and `context`, in `foca/`, except in the modules that still
+  fails on imports of Flask and its extensions, Werkzeug, Connexion's Flask
+  modules, and Connexion's `request` and `context`, in `foca/`, except in the modules that still
   need them in 0.22, listed in the rule; remove a module from that list once
   it no longer needs Flask. The rule `flask-import`, shared with FOCA apps,
   reports the same imports in the examples, as `warning` from FOCA 0.22 and
-  as `error` from the ASGI release (see [Finding Flask
+  as `error` from the ASGI release, when apps update their copies (see [Finding Flask
   imports](../migration-0.22.md#finding-flask-imports)).
 - **Docstrings:** Google-style docstrings at all levels: packages, modules,
   classes, methods and functions, also private ones and tests, with a
