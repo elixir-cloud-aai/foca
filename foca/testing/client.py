@@ -220,7 +220,8 @@ class Client:
     """Client sending requests to an app, as in tests, without a server.
 
     Its API is that of `httpx` and of Starlette's `TestClient`. Use it as a
-    context manager, so that the app starts and stops as when served.
+    context manager, so that the app starts and stops as when served. It
+    doesn't keep cookies between requests; send them as `Cookie` headers.
 
     Args:
         app: App, as :py:meth:`foca.Foca.create_app` returns it; a Flask
@@ -239,7 +240,8 @@ class Client:
                 override it.
         """
         self.follow_redirects = follow_redirects
-        self._client = _get_flask_app(app).test_client()
+        # Without a cookie jar, as Werkzeug's replaces `Cookie` headers
+        self._client = _get_flask_app(app).test_client(use_cookies=False)
 
     def __enter__(self) -> Self:
         """Start using the client.

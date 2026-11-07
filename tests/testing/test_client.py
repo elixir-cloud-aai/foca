@@ -1,5 +1,6 @@
 """Tests of the test client and request contexts (`foca.testing.client`)."""
 
+import ast
 import json
 from pathlib import Path
 from typing import Any
@@ -252,6 +253,11 @@ class TestClient:
         assert response.headers["x-echo"] == response.headers["X-ECHO"] == "yes"
         assert response.headers.getlist("X-Multi") == ["1", "2"]
 
+    def test_cookie_header(self, client: Client) -> None:
+        """`Cookie` headers are sent as they are."""
+        sent = client.get("/echo", headers={"Cookie": "session=abc"}).json()
+        assert sent["headers"]["cookie"] == ["session=abc"]
+
     @pytest.mark.parametrize(
         ("url", "params", "query"),
         [
@@ -383,3 +389,24 @@ class TestFixtures:
     def test_foca_client(self, foca_client: Client) -> None:
         """The client fixture gives a client of the app."""
         assert foca_client.get("/echo").status_code == 200
+
+
+# Flask's test tooling, which Connexion 3 bypasses or removes
+_FLASK_TEST_TOOLING = {"test_client", "test_request_context"}
+_TESTS = Path(__file__).parents[1]
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted(_TESTS.rglob("*.py")),
+    ids=lambda path: str(path.relative_to(_TESTS)),
+)
+def test_tests_use_foca_testing(path: Path) -> None:
+    """FOCA's tests use `foca.testing`, not Flask's test client or contexts."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    uses = [
+        f"{path.name}:{node.lineno}: .{node.attr}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr in _FLASK_TEST_TOOLING
+    ]
+    assert uses == []
