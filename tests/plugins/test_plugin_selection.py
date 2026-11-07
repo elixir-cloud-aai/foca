@@ -814,3 +814,14 @@ def test_messages_quote_no_values(value: str, message: str) -> None:
         host().start(request(pipeline_tag(value)), ALICE)
     assert str(exc_info.value) == message
     assert "secret" not in str(exc_info.value).lower()
+
+
+def test_reserved_tag_message_quotes_no_key() -> None:
+    """A refused reserved tag is described without the key of the client."""
+    with pytest.raises(InvalidSelection) as exc_info:
+        host().start(request({"gateway.secret": "x"}), ALICE)
+    assert str(exc_info.value) == (
+        "Tags under 'gateway.' other than 'gateway.pipeline' and"
+        " 'gateway.backends' are reserved for the gateway"
+    )
+    assert exc_info.value.slug == "reserved-tag"

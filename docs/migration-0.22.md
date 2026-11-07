@@ -301,6 +301,9 @@ change:
 - Invalid params of plugins name the step by its position instead of its
   identifier, e.g., `Invalid params of plugin 'foca.routing.ordered' in step
   0: 'seed' is not allowed (cf. 'allow_seed')`.
+- `Tags under 'gateway.' other than 'gateway.pipeline' and
+  'gateway.backends' are reserved for the gateway`, instead of naming the
+  client's tag.
 
 Update tests and clients that check these messages; the problem types are
 unchanged. Errors in the configuration of the gateway (at startup) keep

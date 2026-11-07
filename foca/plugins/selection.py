@@ -161,13 +161,13 @@ def parse_client_tags(
         return ClientSelection()
     if not isinstance(tags, Mapping):
         raise InvalidSelection("Tags are a map of strings", slug="reserved-tag")
-    allowed = {f"{prefix}{PIPELINE_TAG}", f"{prefix}{BACKENDS_TAG}"}
-    reserved = sorted(
-        str(key) for key in tags if str(key).startswith(prefix) and key not in allowed
-    )
-    if reserved:
+    pipeline_key, backends_key = f"{prefix}{PIPELINE_TAG}", f"{prefix}{BACKENDS_TAG}"
+    allowed = {pipeline_key, backends_key}
+    if any(str(key).startswith(prefix) and key not in allowed for key in tags):
+        # name the allowed tags, never the client's key
         raise InvalidSelection(
-            f"Tags under {prefix!r} are reserved for the gateway: {reserved[0]}",
+            f"Tags under {prefix!r} other than {pipeline_key!r} and"
+            f" {backends_key!r} are reserved for the gateway",
             slug="reserved-tag",
         )
     # present tags count, also with values that are no strings (e.g., null)
