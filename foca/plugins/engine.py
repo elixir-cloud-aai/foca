@@ -827,6 +827,8 @@ class PluginHost:
             for alternative in step.alternatives:
                 available = self.conf.available.get(alternative.plugin)
                 if available is None:
+                    # admin steps only: client steps are checked (and named by
+                    # position) in `_check_client_steps` before
                     raise ValueError(f"Plugin not available: {alternative.plugin}")
                 loaded = self.plugins.get(alternative.plugin)
                 if loaded is None:
