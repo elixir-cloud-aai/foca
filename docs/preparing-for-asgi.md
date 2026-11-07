@@ -10,8 +10,8 @@ can't warn, so FOCA's ast-grep rule reports their imports instead (see
 app to the replacements now, on FOCA 0.22, so that the upgrade to the ASGI
 release is mostly a version bump.
 
-FOCA keeps a `0.22.x` branch with dependency and security fixes while apps
-migrate.
+When work on the ASGI release starts, FOCA cuts a `0.22.x` branch from the
+latest 0.22 release, for dependency and security fixes while apps migrate.
 
 ## Removed in the ASGI release, and what to use now
 
@@ -214,7 +214,10 @@ celery_app = create_celery_app(app.app)
 # After
 from foca import Foca
 
-celery_app = Foca(config_file="config.yaml").create_celery_app()
+# With the same arguments as for the app, e.g., `custom_config_model`
+celery_app = Foca(
+    config_file="config.yaml", custom_config_model="my_app.config.CustomConfig"
+).create_celery_app()
 ```
 
 ### Serving
@@ -257,6 +260,11 @@ Two checks together find what still has to move:
   (see [Finding Flask imports](migration-0.22.md#finding-flask-imports)).
   The rule has the severity `warning` in FOCA 0.22; set it to `error` in your
   copy when you move to the ASGI release.
+
+Neither finds everything: `app.config.foca` warns only on Flask's own
+configuration class (not on a `config_class` of your app), and the rule
+doesn't report `connexion.App` or attributes of an aliased `connexion`
+module. Search for `config.foca` and `connexion.App` as well.
 
 Werkzeug stays installed, as Connexion 3 depends on it, but apps must not
 import it: its classes are not part of FOCA's API in the ASGI release.

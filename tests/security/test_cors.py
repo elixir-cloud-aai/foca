@@ -81,7 +81,10 @@ def test_credentials_any_origin(origins: list[str]) -> None:
 def test_enable_cors_deprecated() -> None:
     """CORS is enabled for a Flask app, deprecated."""
     with pytest.deprecated_call(match="security.cors") as record:
-        app = _app(enable=enable_cors)
+        app = _app(CORSConfig(allow_origins=[ORIGIN]), enable=enable_cors)
     assert record[0].filename == __file__
-    response = Client(app).get("/items", headers={"Origin": ORIGIN})
+    client = Client(app)
+    response = client.get("/items", headers={"Origin": ORIGIN})
     assert response.headers["Access-Control-Allow-Origin"] == ORIGIN
+    response = client.get("/items", headers={"Origin": "https://other.org"})
+    assert "Access-Control-Allow-Origin" not in response.headers

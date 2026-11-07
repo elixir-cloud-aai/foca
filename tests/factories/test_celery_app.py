@@ -69,6 +69,8 @@ def test_create_celery_app_deprecated(logged: list[str]) -> None:
         cel_app = create_celery_app(cnx_app.app)
     assert record[0].filename == __file__
     assert isinstance(cel_app, Celery)
+    assert cel_app.conf.foca == CONFIG
+    assert cel_app.conf.broker_url == "pyamqp://rabbitmq:5672//"
 
 
 def test_create_celery_app_without_jobs(logged: list[str]) -> None:
