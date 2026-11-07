@@ -121,8 +121,9 @@ with validators of your own in the Connexion option `validator_map`. The
 app's own checks run on valid requests only.
 Requests rejected for other reasons, e.g., a body that is not valid JSON or
 has unpaired surrogates, or form fields of an OpenAPI 3 request body that
-can't be converted to their type, get no `errors`, but `detail` as before,
-even if parameters are invalid too. Otherwise, if any invalid field can't be
+can't be converted to their type, get no `errors`, even if parameters are
+invalid too, and, by default, the mapped `detail` or a fixed one (with
+`exceptions.validation_reasons: true`, the reason, as before). Otherwise, if any invalid field can't be
 listed (e.g., for an unexpected schema), the request is rejected as before,
 without `errors`, and a warning is logged.
 
@@ -155,8 +156,9 @@ def post_service(body):
 `json_pointer()` escapes the keys as per RFC 6901 and URI fragments. Write
 messages without the rejected values. `InvalidFieldsProblem` is a
 `RequestValidationProblem`: it is mapped and handled like Connexion's request
-validation errors. Without a `detail` of its own, `detail` lists the
-locations and messages of the fields.
+validation errors: by default, `detail` names the invalid fields by location
+and code. With `exceptions.validation_reasons: true`, its own `detail` is
+sent, or, without one, the locations and messages of the fields.
 
 ## Configuration
 

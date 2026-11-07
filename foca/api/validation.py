@@ -14,10 +14,11 @@ r"""Stricter checks of requests than those of Connexion 2.
 - All invalid fields of the body, and all invalid parameters, are collected,
   not only the first (cf. :py:mod:`foca.errors.fields`): rejected requests
   raise :py:class:`foca.errors.InvalidFieldsProblem`, with the message of
-  Connexion's validator on the first error as `detail`, as before. The body
-  is checked before the parameters, as by Connexion; if it is invalid, the
-  parameters are then checked by FOCA only, and their invalid fields are
-  listed after those of the body.
+  Connexion's validator on the first error as `detail`, as before (served
+  with `exceptions.validation_reasons`). The body is checked before the
+  parameters, as by Connexion; if it is invalid, the parameters are then
+  checked by FOCA only, and their invalid fields are listed after those of
+  the body.
 
 To be revisited when moving to Connexion 3 (#188).
 """
