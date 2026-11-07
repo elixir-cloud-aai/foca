@@ -11,12 +11,13 @@ from connexion import App
 
 from foca.api.register_openapi import register_openapi
 from foca.api.service_info import check_service_info
-from foca.config.access import _get_app_config
+from foca.config.access import _get_app_config, _use_config
 from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.celery_app import _create_celery_app
 from foca.factories.connexion_app import create_connexion_app
+from foca.models.config import Config
 from foca.plugins import runtime
 from foca.plugins.runtime import GatewayApp
 from foca.security.access_control.enforcement import register_opt_in_header
@@ -296,6 +297,28 @@ class Foca:
         if self.conf.db is not None:
             self.conf.db.create_indexes_on_startup = False
         self.conf.security.access_control.sync_policies_on_startup = False
+
+    def use_config(self) -> Config:
+        """Use the configuration without creating an app, e.g., in scripts.
+
+        Outside app contexts, :py:func:`foca.get_config` then returns this
+        configuration, and :py:func:`foca.get_collection` its collections;
+        neither an app nor an app context is needed. The databases are
+        registered without creating indexes, and nothing else of the startup
+        of apps runs (e.g., no policies are synced), so nothing is written to
+        the database.
+
+        The most recent of this call and the creation of an app (of any
+        `Foca` instance) decides which configuration is used outside app
+        contexts; in an app context, it is that of the app.
+
+        Returns:
+            The configuration (`conf`).
+        """
+        if self.conf.db is not None:
+            register_mongodb(self.conf.db, create_indexes=False)
+        _use_config(self.conf)
+        return self.conf
 
     def _check_worker_config(self) -> None:
         """Run the checks of the configuration that apps run on startup.

@@ -129,6 +129,19 @@ def _set_app_config(app: Flask, config: Config) -> None:
     """
     vars(app.config)[_ATTRIBUTE] = config
     _deprecate_attribute(app)
+    _use_config(config)
+
+
+def _use_config(config: Config) -> None:
+    """Make a configuration the one used outside app contexts.
+
+    For FOCA's own use (cf. :py:meth:`foca.Foca.use_config`): it replaces
+    the configuration of the most recently created app, which
+    :py:func:`get_config` returns outside app contexts.
+
+    Args:
+        config: App configuration.
+    """
     _configs["latest"] = config
 
 
@@ -205,10 +218,12 @@ def get_config() -> Config:
     Returns:
         Configuration of the app of the current app context, if any,
         otherwise of the most recently created FOCA app (e.g., in Celery
-        workers or scripts).
+        workers), or used by :py:meth:`foca.Foca.use_config` (e.g., in
+        scripts), whichever came last.
 
     Raises:
-        RuntimeError: No FOCA app has been created.
+        RuntimeError: No FOCA app has been created, and no configuration
+            used.
     """
     # Apps without FOCA configuration get that of the latest FOCA app
     config = _find_app_config(current_app) if has_app_context() else None
@@ -216,7 +231,8 @@ def get_config() -> Config:
         return config
     if "latest" not in _configs:
         raise RuntimeError(
-            "No FOCA configuration available: no FOCA app has been created"
+            "No FOCA configuration available: no FOCA app has been created,"
+            " and no configuration used (cf. 'Foca.use_config()')"
         )
     return _configs["latest"]
 
@@ -268,6 +284,7 @@ def get_collection(db: str, collection: str) -> Collection[dict[str, Any]]:
     Raises:
         KeyError: The database or collection is not configured.
         RuntimeError: The collection has not been registered yet (cf.
+            :py:meth:`foca.Foca.use_config` and
             :py:func:`foca.database.register_mongodb.register_mongodb`).
     """
     conf = get_config()
