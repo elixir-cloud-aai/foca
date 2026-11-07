@@ -36,7 +36,8 @@ It has:
   `reopen_mongodb()`.
 - **The fixture `issuer`**: a local identity provider (see below).
 - **The fixture `foca_client`**: a [test client](#test-client) of the app that
-  your fixture `foca_app` gives:
+  the fixture `foca_app` gives. Define `foca_app` in your `conftest.py`;
+  without it, `foca_client` fails with a `UsageError`:
 
     ```python
     import pytest
@@ -62,12 +63,16 @@ manager below.
 `foca.testing.Client` sends requests to an app, without a server, through all
 that serves requests (security, validation, CORS, errors). Its API is that of
 [httpx](https://www.python-httpx.org/) and of Starlette's `TestClient`, so your
-tests stay as they are when FOCA moves to ASGI. Use it as a context manager, so
-that the app starts and stops as when served:
+tests stay as they are when FOCA moves to ASGI. Use it as a context manager,
+as on ASGI, where the client starts and stops the app (its lifespan); on
+Connexion 2, there is nothing to start:
 
 ```python
+from foca import Foca
 from foca.testing import Client
 
+app = Foca(config_file="config.yaml").create_app()
+headers = {"Authorization": f"Bearer {token}"}
 with Client(app) as client:
     response = client.post("/pets", json={"name": "Rex"}, headers=headers)
     assert response.status_code == 200
@@ -79,9 +84,10 @@ with Client(app) as client:
   release.
 - `get()`, `head()`, `options()`, `delete()`, `post()`, `put()`, `patch()` and
   `request(method, url)` take `params` (query parameters: a mapping, with lists
-  for repeated ones, pairs, or a query string), `headers` (a mapping or pairs)
-  and `follow_redirects`; requests with bodies also `json`, `content` (raw
-  bytes or text) or `data` (form fields).
+  for repeated ones, pairs, or a query string; they replace parameters of the
+  same name in the URL, as in httpx), `headers` (a mapping or pairs) and
+  `follow_redirects`; requests with bodies also `json` (sent as compact UTF-8
+  JSON), `content` (raw bytes or text) or `data` (form fields).
 - Responses have `status_code`, `headers` (case-insensitive, `getlist()` for
   all values), `content` (bytes), `text` and `json()`, which parses the body
   whatever its media type.

@@ -165,15 +165,18 @@ client](testing.md#test-client)), whose API stays:
 | `client.post(..., data=b"...", content_type="...")` | `client.post(..., content=b"...", headers={"Content-Type": "..."})` |
 | `client.open(path, method="PUT")` | `client.request("PUT", path)` |
 | `client.set_cookie(...)` | A `Cookie` header |
-| `app.app.test_request_context(path, method=..., headers=...)` | `foca.testing.request_context(path, method, headers, app=app)` |
+| `app.app.test_request_context(path, method=..., headers=..., query_string=...)` | `foca.testing.request_context(path, method, headers, app=app, params=...)`; for code that reads the body, send a request with `Client` |
 | Setting `request_ctx.connexion_context["token_info"]` | `request_context(..., token_info={...})` |
 | `app.app.app_context()`, to call controllers or helpers | `request_context(app=app)`, which gives the app context too; `get_config()` needs neither (see [Configuration access](#configuration-access)) |
 
 `form` data (`data={...}`) stays as it is. Redirects aren't followed unless
-you pass `follow_redirects=True`, as with Flask's client. Requests come from
-the client address `127.0.0.1`, at the root of the host. Tests of WSGI
-middleware, which need other WSGI environment values, keep using Werkzeug's
-`Client` on the Flask app until the release on ASGI.
+you pass `follow_redirects=True`, as with Flask's client. `params` replace
+query parameters of the same name in the URL, as in httpx, rather than adding
+to them. Don't rely on the client address of requests of the client, which
+changes with the release on ASGI; set it with `request_context(...,
+client_address=...)`. Tests of WSGI middleware, which need other WSGI
+environment values, keep using Werkzeug's `Client` on the Flask app until the
+release on ASGI.
 
 ## Invalid fields in `400` responses
 
