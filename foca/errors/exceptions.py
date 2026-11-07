@@ -296,13 +296,13 @@ def _validation_handler_json(
     location and code, if known, otherwise the reason, at `INFO`, shortened
     and escaped (unless disabled via `conf.logging`), instead of the
     exception, and responds like :py:func:`_problem_handler_json`, with the
-    reason as `detail` and the invalid fields, if known, as `errors` (cf.
-    :py:func:`foca.errors.fields.add_field_errors`). Without
-    `conf.validation_reasons`, the reason isn't served, as it may quote
-    rejected values: `detail` then names the invalid fields by location and
-    code (cf. :py:func:`foca.errors.fields.describe_field_errors`), if they
-    are listed and public, otherwise it is the mapped `detail`, if any, or a
-    fixed message.
+    invalid fields, if known, as `errors` (cf.
+    :py:func:`foca.errors.fields.add_field_errors`). By default, `detail`
+    names them by location and code (cf.
+    :py:func:`foca.errors.fields.describe_field_errors`), if they are listed
+    and public, otherwise it is the mapped `detail`, if any, or a fixed
+    message; the reason isn't served, as it may quote rejected values. With
+    `conf.validation_reasons`, the reason is served as `detail`.
 
     Args:
         exception: Exception of Connexion's request validation.
@@ -310,11 +310,9 @@ def _validation_handler_json(
 
     Returns:
         JSON-formatted error response, with the problem details mapped to
-        the exception (cf. :py:func:`build_problem`), the reason as
-        `detail` (shortened to `conf.max_detail_length`), if any (with
-        `conf.validation_reasons`; otherwise the invalid fields or a fixed
-        message, see above),
-        and the invalid fields, if any.
+        the exception (cf. :py:func:`build_problem`), `detail` as described
+        above (shortened to `conf.max_detail_length`) and the invalid
+        fields, if any.
     """
     problem = _resolve_problem(exc=exception, conf=conf)
     reason = _validation_reason(exception)

@@ -123,9 +123,9 @@ Requests rejected for other reasons, e.g., a body that is not valid JSON or
 has unpaired surrogates, or form fields of an OpenAPI 3 request body that
 can't be converted to their type, get no `errors`, even if parameters are
 invalid too, and, by default, the mapped `detail` or a fixed one (with
-`exceptions.validation_reasons: true`, the reason, as before). Otherwise, if any invalid field can't be
-listed (e.g., for an unexpected schema), the request is rejected as before,
-without `errors`, and a warning is logged.
+`exceptions.validation_reasons: true`, the reason, as before). Otherwise,
+if any invalid field can't be listed (e.g., for an unexpected schema), the
+request is rejected as before, without `errors`, and a warning is logged.
 
 ## Checks of your app
 

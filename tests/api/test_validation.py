@@ -801,8 +801,10 @@ class TestFieldErrors:
             )
         data = response.json()
         assert len(data["errors"]) == 2
-        assert "s3cr3t" not in json.dumps(data if not reasons else data["errors"])
+        assert "s3cr3t" not in json.dumps(data["errors"])
         assert "s3cr3t" not in caplog.text
+        # With reasons, `detail` quotes the value, as documented
+        assert ("s3cr3t" in json.dumps(data)) is reasons
 
     def test_no_details(self, tmp_path: Path) -> None:
         """Without validation details, responses are as before."""
