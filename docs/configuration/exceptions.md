@@ -168,7 +168,12 @@ Exceptions that your app raises as `BadRequestProblem` (e.g., FOCA's
 handled the same way: by default, their `detail` is replaced by the invalid
 fields, if listed, otherwise the mapped or fixed `detail`; with
 `validation_reasons: true`, their `detail` is sent, so keep internals out of
-it. Set
+it. FOCA's access control lists a user acted for that is named in the
+`auth.on_behalf_of_header` and invalid (e.g., blank) as an invalid field
+that names the header, not the user, e.g., `Invalid fields: X-On-Behalf-Of
+(invalid-value)`; for a user that your app passes (e.g., from a body field),
+FOCA doesn't know the field, so check it yourself and raise
+`InvalidFieldsProblem` to name it. Set
 `validation_details: false` to respond with the problem details mapped to
 the exception class instead (without `errors`), whatever was wrong with the
 request, and to log the exception (Connexion's validation logger then logs
@@ -191,10 +196,12 @@ applies with `validation_details` only, to all request validation
 exceptions, including `RequestValidationProblem` that FOCA (e.g., access
 control) or your app raise; raise `InvalidFieldsProblem` to tell clients
 which fields are invalid. Errors of the plugin gateway's selection of
-pipelines and backends aren't request validation and aren't affected by the
-option; their messages name fields, settings and the positions of steps,
-never the client's values (see [per-request
-choices](../plugins.md#per-request-pipelines-and-backends)).
+pipelines and backends aren't request validation; their messages name
+fields, settings and the positions of steps, never the client's values (see
+[per-request choices](../plugins.md#per-request-pipelines-and-backends)).
+The option only decides whether errors of the JSON parser itself on a
+client's pipeline (e.g., on integers with too many digits) are passed on:
+by default, they are described as `Invalid pipeline: JSON cannot be parsed`.
 
 A response to a body whose `name` is too long, by default:
 
