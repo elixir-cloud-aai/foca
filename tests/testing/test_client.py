@@ -229,6 +229,13 @@ class TestClient:
         response = client.post("/echo", data={"name": "a b"})
         assert response.json()["body"] == {"name": "a b"}
 
+    def test_form_repeated(self, client: Client) -> None:
+        """Fields with sequences of values are repeated."""
+        response = client.post(
+            "/echo", data={"a": ["1", "2"]}, headers={"Content-Type": "text/plain"}
+        )
+        assert response.json()["body"] == "a=1&a=2"
+
     def test_one_body_only(self, client: Client) -> None:
         """Only one kind of body is accepted."""
         with pytest.raises(ValueError, match="only one"):
@@ -259,6 +266,10 @@ class TestClient:
         """Bodies of other media types are parsed as JSON if they are."""
         headers = Headers([("Content-Type", "text/plain")])
         assert Response(200, headers, b'{"a": 1}').json() == {"a": 1}
+        # From the bytes, whatever the charset
+        headers = Headers([("Content-Type", "application/json; charset=latin-1")])
+        body = '"\u00e9"'.encode()
+        assert Response(200, headers, body).json() == "\u00e9"
 
     def test_errors(self, client: Client) -> None:
         """Errors are answered as by the app, with problem details."""
@@ -309,6 +320,7 @@ class TestClient:
             ("/echo?n=1", {"tag": None}, {"n": ["1"], "tag": [""]}),
             ("/echo?tag=a&n=1#f", {"tag": []}, {"n": ["1"]}),
             ("/echo#f", {"n": 2}, {"n": ["2"]}),
+            ("/echo?n=1#f", None, {"n": ["1"]}),
             ("/echo?tag=a", None, {"tag": ["a"]}),
             ("/echo?tag=a", {}, {"tag": ["a"]}),
         ],
@@ -375,6 +387,8 @@ class TestRequestContext:
         assert snapshot.path == "/"
         assert snapshot.url == "http://localhost/"
         assert snapshot.client_address == "127.0.0.1"
+        with request_context(client_address=None):
+            assert current_request().client_address is None
 
     def test_request(self, app: App) -> None:
         """The request is as given, on the app."""

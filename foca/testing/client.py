@@ -44,6 +44,9 @@ ParamTypes = (
 """Query parameters: a mapping, with sequences for repeated parameters, names
 and values, or an encoded query string."""
 
+FormTypes = Mapping[str, str | Sequence[str]]
+"""Form fields: a mapping, with sequences for repeated fields."""
+
 
 def _get_flask_app(app: App | Flask) -> Flask:
     """Get the Flask app of an app.
@@ -103,16 +106,17 @@ def _with_params(url: str, params: ParamTypes | None) -> str:
 
     Args:
         url: URL or path, possibly with a query string.
-        params: Query parameters, or `None` to keep the URL as it is.
+        params: Query parameters, or `None` to keep the query string as it
+            is.
 
     Returns:
         The URL, without fragment; parameters replace those of the same name
         in its query string, in their place (an empty sequence removes
         them), and the others follow.
     """
-    if params is None:
-        return url
     parts = urlsplit(url)
+    if params is None:
+        return urlunsplit(parts._replace(fragment=""))
     replacements = _param_values(params)
     merged: list[tuple[str, str]] = []
     done: set[str] = set()
@@ -215,13 +219,16 @@ class Response:
     def json(self) -> Any:
         """Parse the body as JSON, whatever the `Content-Type` header.
 
+        The bytes of the body are parsed, in UTF-8, UTF-16 or UTF-32 as JSON
+        requires, whatever the charset of the `Content-Type` header.
+
         Returns:
             The parsed body.
 
         Raises:
             json.JSONDecodeError: Raised if the body isn't JSON.
         """
-        return json_module.loads(self.text)
+        return json_module.loads(self.content)
 
     def __repr__(self) -> str:
         """Represent the response.
@@ -295,7 +302,7 @@ class Client:
         headers: HeaderTypes | None = None,
         json: Any = None,
         content: bytes | str | None = None,
-        data: Mapping[str, str] | None = None,
+        data: FormTypes | None = None,
         follow_redirects: bool | None = None,
     ) -> Response:
         """Send a request.
@@ -338,7 +345,7 @@ class Client:
         elif content is not None:
             body = content.encode() if isinstance(content, str) else content
         elif data is not None:
-            body = urlencode(list(data.items())).encode()
+            body = urlencode(list(data.items()), doseq=True).encode()
             media_type = "application/x-www-form-urlencoded"
         if media_type is not None and not has_type:
             header_items.append(("Content-Type", media_type))
@@ -469,7 +476,7 @@ class Client:
         headers: HeaderTypes | None = None,
         json: Any = None,
         content: bytes | str | None = None,
-        data: Mapping[str, str] | None = None,
+        data: FormTypes | None = None,
         follow_redirects: bool | None = None,
     ) -> Response:
         """Send a `POST` request.
@@ -505,7 +512,7 @@ class Client:
         headers: HeaderTypes | None = None,
         json: Any = None,
         content: bytes | str | None = None,
-        data: Mapping[str, str] | None = None,
+        data: FormTypes | None = None,
         follow_redirects: bool | None = None,
     ) -> Response:
         """Send a `PUT` request.
@@ -541,7 +548,7 @@ class Client:
         headers: HeaderTypes | None = None,
         json: Any = None,
         content: bytes | str | None = None,
-        data: Mapping[str, str] | None = None,
+        data: FormTypes | None = None,
         follow_redirects: bool | None = None,
     ) -> Response:
         """Send a `PATCH` request.
