@@ -18,12 +18,13 @@ with request_context("/pets", token_info={"sub": "alice"}, app=app):
 ```
 """
 
+import codecs
 import json as json_module
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from types import TracebackType
 from typing import Any, Self
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 
 from connexion import App
 from flask import Flask
@@ -34,7 +35,7 @@ from foca.context import Headers, _set_token_info
 HeaderTypes = Mapping[str, str] | Iterable[tuple[str, str]]
 """Headers: a mapping, or names and values, e.g., for repeated headers."""
 
-_ParamValue = str | int | float | bool
+_ParamValue = str | int | float | bool | None
 ParamTypes = (
     Mapping[str, _ParamValue | Sequence[_ParamValue]]
     | Iterable[tuple[str, _ParamValue]]
@@ -57,17 +58,18 @@ def _get_flask_app(app: App | Flask) -> Flask:
     return app if isinstance(app, Flask) else app.app
 
 
-def _encode_params(params: ParamTypes) -> str:
-    """Encode query parameters.
+def _param_items(params: ParamTypes) -> list[tuple[str, str]]:
+    """Get the names and values of query parameters, formatted as by `httpx`.
 
     Args:
         params: Query parameters.
 
     Returns:
-        Query string, without `?`.
+        Names and values, in order.
     """
     if isinstance(params, str):
-        return params.lstrip("?")
+        return parse_qsl(params, keep_blank_values=True)
+    pairs: Iterable[tuple[str, _ParamValue]]
     if isinstance(params, Mapping):
         items: list[tuple[str, _ParamValue]] = []
         for name, value in params.items():
@@ -75,8 +77,10 @@ def _encode_params(params: ParamTypes) -> str:
                 items.extend((name, item) for item in value)
             else:
                 items.append((name, value))
-        params = items
-    return urlencode([(name, _format_param(value)) for name, value in params])
+        pairs = items
+    else:
+        pairs = params
+    return [(name, _format_param(value)) for name, value in pairs]
 
 
 def _format_param(value: _ParamValue) -> str:
@@ -86,30 +90,44 @@ def _format_param(value: _ParamValue) -> str:
         value: Value.
 
     Returns:
-        The value as a string; booleans in lower case.
+        The value as a string: booleans in lower case, `None` as empty.
     """
+    if value is None:
+        return ""
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
 
 
 def _with_params(url: str, params: ParamTypes | None) -> str:
-    """Add query parameters to a URL.
+    """Merge query parameters into the query string of a URL, as `httpx` does.
 
     Args:
         url: URL or path, possibly with a query string.
-        params: Query parameters, or `None` for none.
+        params: Query parameters, or `None` to keep the URL as it is.
 
     Returns:
-        The URL, with the parameters after those it has.
+        The URL; parameters replace those of the same name in its query
+        string, in their place, and the others follow.
     """
     if params is None:
         return url
-    query = _encode_params(params)
-    if not query:
-        return url
-    separator = "&" if "?" in url else "?"
-    return f"{url}{separator}{query}"
+    path, _, query = url.partition("?")
+    replacements: dict[str, list[str]] = {}
+    for name, value in _param_items(params):
+        replacements.setdefault(name, []).append(value)
+    merged: list[tuple[str, str]] = []
+    for name, value in parse_qsl(query, keep_blank_values=True):
+        if name not in replacements:
+            merged.append((name, value))
+        elif name not in dict(merged):
+            merged.extend((name, item) for item in replacements[name])
+    present = dict(merged)
+    for name, values in replacements.items():
+        if name not in present:
+            merged.extend((name, item) for item in values)
+    encoded = urlencode(merged)
+    return f"{path}?{encoded}" if encoded else path
 
 
 def _header_items(headers: HeaderTypes | None) -> list[tuple[str, str]]:
@@ -190,10 +208,10 @@ class Response:
             if name.lower() == "charset":
                 charset = value.strip().strip('"')
                 try:
-                    "".encode(charset)
+                    is_text = codecs.lookup(charset)._is_text_encoding
                 except LookupError:
                     break
-                return charset
+                return charset if is_text else "utf-8"
         return "utf-8"
 
     def json(self) -> Any:
@@ -220,8 +238,9 @@ class Client:
     """Client sending requests to an app, as in tests, without a server.
 
     Its API is that of `httpx` and of Starlette's `TestClient`. Use it as a
-    context manager, so that the app starts and stops as when served. It
-    doesn't keep cookies between requests; send them as `Cookie` headers.
+    context manager, as on ASGI, where the client starts and stops the app
+    (its lifespan); on Connexion 2, there is nothing to start. It doesn't
+    keep cookies between requests; send them as `Cookie` headers.
 
     Args:
         app: App, as :py:meth:`foca.Foca.create_app` returns it; a Flask
@@ -287,12 +306,14 @@ class Client:
             method: HTTP method.
             url: Path of the request, below the root path of the app, possibly
                 with a query string.
-            params: Query parameters, after those in `url`.
+            params: Query parameters, replacing those of the same name in
+                `url`, as in `httpx`; `None` values are sent empty.
             headers: Headers.
-            json: Body, serialized as JSON, with the `Content-Type`
-                `application/json` unless set in `headers`.
+            json: Body, serialized as compact JSON in UTF-8, with the
+                `Content-Type` `application/json` unless set in `headers`.
             content: Raw body; a string is encoded as UTF-8.
-            data: Form fields, encoded as `application/x-www-form-urlencoded`.
+            data: Form fields, encoded as `application/x-www-form-urlencoded`,
+                with that `Content-Type` unless set in `headers`.
             follow_redirects: Whether to follow redirects; by default, as set
                 for the client.
 
@@ -307,15 +328,22 @@ class Client:
         if len(bodies) > 1:
             raise ValueError("Give only one of json, content and data")
         header_items = _header_items(headers)
-        body: bytes | str | Mapping[str, str] | None = None
+        has_type = any(name.lower() == "content-type" for name, _ in header_items)
+        body: bytes | None = None
+        media_type = None
         if json is not None:
-            body = json_module.dumps(json)
-            if not any(name.lower() == "content-type" for name, _ in header_items):
-                header_items.append(("Content-Type", "application/json"))
+            # Encoded as by `httpx`: compact UTF-8, no NaN or infinity
+            body = json_module.dumps(
+                json, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+            ).encode()
+            media_type = "application/json"
         elif content is not None:
-            body = content
+            body = content.encode() if isinstance(content, str) else content
         elif data is not None:
-            body = dict(data)
+            body = urlencode(list(data.items())).encode()
+            media_type = "application/x-www-form-urlencoded"
+        if media_type is not None and not has_type:
+            header_items.append(("Content-Type", media_type))
         response = self._client.open(
             _with_params(url, params),
             method=method.upper(),
@@ -572,14 +600,21 @@ def request_context(
             `{"sub": "alice"}`; none if `None`.
         app: App, as :py:meth:`foca.Foca.create_app` returns it, or a Flask
             app; an empty app if `None`.
-        params: Query parameters, after those in `path`.
-        root_path: Root path of the app, e.g., `/tes`, or empty for none.
-        client_address: Address of the client, as the test client gives it,
-            or `None` if unknown.
+        params: Query parameters, merged into those in `path` as by
+            :py:meth:`Client.request`.
+        root_path: Root path of the app, starting with `/`, e.g., `/tes`, or
+            empty for none.
+        client_address: Address of the client, or `None` if unknown.
 
     Yields:
         Nothing; the request is set up in the block.
+
+    Raises:
+        ValueError: Raised if `root_path` doesn't start with `/`.
     """
+    if root_path and not root_path.startswith("/"):
+        raise ValueError(f"Root path {root_path!r} doesn't start with '/'")
+    root_path = root_path.rstrip("/")
     flask_app = Flask(__name__) if app is None else _get_flask_app(app)
     environ_base = {} if client_address is None else {"REMOTE_ADDR": client_address}
     with flask_app.test_request_context(

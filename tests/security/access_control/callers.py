@@ -8,7 +8,6 @@ from typing import Any
 
 import mongomock
 from flask import Flask
-from flask.globals import request_ctx
 
 from foca.config.access import set_app_config
 from foca.models.config import Config
@@ -91,8 +90,6 @@ def as_caller(
     headers: dict[str, str] | None = None,
 ) -> Iterator[None]:
     """Request context with token info as set by Connexion."""
-    with request_context("/tasks", headers=headers, app=app):
-        request_ctx.connexion_context = (  # type: ignore[attr-defined]  # set by Connexion
-            {} if claims is None else {"token_info": {"claims": claims}}
-        )
+    token_info = None if claims is None else {"claims": claims}
+    with request_context("/tasks", headers=headers, token_info=token_info, app=app):
         yield

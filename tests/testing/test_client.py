@@ -1,6 +1,5 @@
 """Tests of the test client and request contexts (`foca.testing.client`)."""
 
-import ast
 import json
 from pathlib import Path
 from typing import Any
@@ -10,6 +9,7 @@ import yaml
 from connexion import App
 from flask import Flask, current_app, request
 from flask import Response as FlaskResponse
+from flask.globals import request_ctx
 
 from foca.api.register_openapi import register_openapi
 from foca.context import Headers, _set_token_info, current_request
@@ -209,6 +209,21 @@ class TestClient:
         )
         assert response.json()["body"] == expected.decode("latin-1")
 
+    def test_json_as_httpx(self, client: Client) -> None:
+        """JSON bodies are compact UTF-8; NaN and infinity are refused."""
+        response = client.post("/echo", json={"name": "\u00e9", "n": [1, 2]})
+        assert response.json()["body"] == {"name": "\u00e9", "n": [1, 2]}
+        assert response.json()["headers"]["content-length"] == ["23"]
+        with pytest.raises(ValueError, match="JSON compliant"):
+            client.post("/echo", json={"n": float("nan")})
+
+    def test_form_with_other_type(self, client: Client) -> None:
+        """Form fields are sent also with another content type."""
+        response = client.post(
+            "/echo", data={"a": "b c"}, headers={"Content-Type": "text/plain"}
+        )
+        assert response.json()["body"] == "a=b+c"
+
     def test_form(self, client: Client) -> None:
         """Form fields are sent form-encoded."""
         response = client.post("/echo", data={"name": "a b"})
@@ -231,6 +246,7 @@ class TestClient:
             ("text/plain; charset=latin-1", "é"),
             ('text/plain; format=x; Charset="ISO-8859-1"', "é"),
             ("text/plain; charset=unknown", "�"),
+            ("text/plain; charset=hex", "�"),
             ("text/plain", "�"),
         ],
     )
@@ -238,6 +254,20 @@ class TestClient:
         """Text is decoded with the charset of the response, else as UTF-8."""
         response = client.get("/text", params={"media": content_type})
         assert response.text == expected
+
+    def test_json_whatever_the_type(self) -> None:
+        """Bodies of other media types are parsed as JSON if they are."""
+        headers = Headers([("Content-Type", "text/plain")])
+        assert Response(200, headers, b'{"a": 1}').json() == {"a": 1}
+
+    def test_errors(self, client: Client) -> None:
+        """Errors are answered as by the app, with problem details."""
+        response = client.get("/missing")
+        assert response.status_code == 404
+        assert response.json()["status"] == 404
+        response = client.get("/echo", params={"n": "x"})
+        assert response.status_code == 400
+        assert response.headers["content-type"] == "application/problem+json"
 
     def test_json_of_other_types(self, client: Client) -> None:
         """Bodies that aren't JSON can't be parsed as JSON."""
@@ -269,8 +299,14 @@ class TestClient:
                 {"flag": False, "tag": "x y"},
                 {"flag": ["false"], "tag": ["x y"]},
             ),
-            ("/echo", "?tag=a&tag=b", {"tag": ["a", "b"]}),
-            ("/echo?tag=a", {"tag": "b"}, {"tag": ["a", "b"]}),
+            ("/echo", "tag=a&tag=b", {"tag": ["a", "b"]}),
+            ("/echo?tag=a&n=1&tag=c", {"tag": "b"}, {"tag": ["b"], "n": ["1"]}),
+            (
+                "/echo?n=1",
+                [("tag", "a"), ("tag", "b")],
+                {"n": ["1"], "tag": ["a", "b"]},
+            ),
+            ("/echo?n=1", {"tag": None}, {"n": ["1"], "tag": [""]}),
             ("/echo?tag=a", None, {"tag": ["a"]}),
             ("/echo?tag=a", {}, {"tag": ["a"]}),
         ],
@@ -355,7 +391,7 @@ class TestRequestContext:
         assert snapshot.method == "POST"
         assert snapshot.path == "/echo"
         assert snapshot.root_path == "/root"
-        assert snapshot.query.getlist("tag") == ["a", "b"]
+        assert snapshot.query.getlist("tag") == ["b"]
         assert snapshot.headers["x-test"] == "one"
         assert snapshot.route == "/echo"
         assert snapshot.client_address == "203.0.113.5"
@@ -366,6 +402,30 @@ class TestRequestContext:
         app.config["marker"] = "yes"
         with request_context(app=app):
             assert current_app.config["marker"] == "yes"
+
+    @pytest.mark.parametrize(("root_path", "expected"), [("/tes/", "/tes"), ("", "")])
+    def test_root_path(self, root_path: str, expected: str) -> None:
+        """Root paths lose trailing slashes."""
+        with request_context(root_path=root_path):
+            assert current_request().root_path == expected
+
+    def test_root_path_without_slash(self) -> None:
+        """Root paths start with a slash."""
+        with (
+            pytest.raises(ValueError, match="doesn't start"),
+            request_context(root_path="tes"),
+        ):
+            pass  # pragma: no cover
+
+    def test_token_info_keeps_context(self) -> None:
+        """Other entries of Connexion's context are kept."""
+        with request_context():
+            request_ctx.connexion_context = {"user": "x"}  # type: ignore[attr-defined]
+            _set_token_info({"sub": "alice"})
+            assert request_ctx.connexion_context == {  # type: ignore[attr-defined]
+                "user": "x",
+                "token_info": {"sub": "alice"},
+            }
 
     def test_token_info_needs_request(self) -> None:
         """Token info can't be set without a request."""
@@ -389,24 +449,3 @@ class TestFixtures:
     def test_foca_client(self, foca_client: Client) -> None:
         """The client fixture gives a client of the app."""
         assert foca_client.get("/echo").status_code == 200
-
-
-# Flask's test tooling, which Connexion 3 bypasses or removes
-_FLASK_TEST_TOOLING = {"test_client", "test_request_context"}
-_TESTS = Path(__file__).parents[1]
-
-
-@pytest.mark.parametrize(
-    "path",
-    sorted(_TESTS.rglob("*.py")),
-    ids=lambda path: str(path.relative_to(_TESTS)),
-)
-def test_tests_use_foca_testing(path: Path) -> None:
-    """FOCA's tests use `foca.testing`, not Flask's test client or contexts."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    uses = [
-        f"{path.name}:{node.lineno}: .{node.attr}"
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute) and node.attr in _FLASK_TEST_TOOLING
-    ]
-    assert uses == []

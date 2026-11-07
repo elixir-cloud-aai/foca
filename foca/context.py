@@ -407,8 +407,11 @@ def _set_token_info(token_info: Mapping[str, Any]) -> None:
     """
     if not _has_request():
         raise RuntimeError("No request: token info can be set only in a request")
+    # Other entries of Connexion's context are kept
+    connexion_context = getattr(request_ctx, "connexion_context", None) or {}
     request_ctx.connexion_context = {  # type: ignore[attr-defined]
-        "token_info": dict(token_info)
+        **connexion_context,
+        "token_info": dict(token_info),
     }
 
 
