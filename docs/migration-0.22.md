@@ -71,13 +71,16 @@ configuration to:
 | --- | --- |
 | `current_app.config.foca`, `app.config.foca` | `get_config()`, in the app context of the app if it isn't the current one |
 | `foca.config.access.get_app_config(app)` | `get_config()`, as above |
-| `foca.config.access.set_app_config(app, config)` | Nothing for apps that FOCA creates; for scripts, see [Preparing for the ASGI release](preparing-for-asgi.md#configuration) |
+| `foca.config.access.set_app_config(app, config)` | Nothing for apps that FOCA creates; in scripts, `Foca.use_config()` (see [Preparing for the ASGI release](preparing-for-asgi.md#configuration)) |
 | `current_app.config.foca.custom` | `get_custom_config(MyCustomConfig)`, typed |
 | Setting `app.config.foca` | Change the configuration that `get_config()` returns, e.g., `get_config().db = ...` |
 
 `get_config()` returns the configuration of the current app, or, outside app
 contexts (e.g., in Celery workers or scripts), that of the most recently
-created FOCA app. Where you passed an app that isn't the current one, e.g., in
+created FOCA app, or of the most recent call of `Foca.use_config()` if that
+came later. `use_config()` is for scripts that use a configuration and its
+collections (`get_collection()`) without creating an app: it registers the
+databases without creating indexes and writes nothing to the database. Where you passed an app that isn't the current one, e.g., in
 tests, enter its app context:
 
 ```python

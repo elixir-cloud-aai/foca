@@ -118,9 +118,31 @@ config = get_config()
 `set_app_config()` isn't needed for apps that FOCA creates
 (`Foca.create_app()`), which get their configuration attached. Scripts that
 attach a configuration to a Flask app of their own, e.g., to use
-`get_config()` and `get_collection()` without creating the app, have no
-Flask-free replacement in 0.22: keep the call (it warns) until the ASGI
-release.
+`get_config()` and `get_collection()` without creating the app, call
+`Foca.use_config()` instead, which needs neither Flask nor an app context:
+
+```python
+# Before
+from flask import Flask
+from foca.config.access import set_app_config
+from foca.database.register_mongodb import register_mongodb
+
+foca = Foca(config_file="config.yaml")
+app = Flask(__name__)
+set_app_config(app, foca.conf)
+register_mongodb(foca.conf.db, create_indexes=False)
+with app.app_context():
+    run()
+
+# After
+foca = Foca(config_file="config.yaml")
+foca.use_config()
+run()
+```
+
+`use_config()` registers the databases without creating indexes and runs
+nothing else of the startup of apps, so it writes nothing to the database
+(see [Configuration access](migration-0.22.md#configuration-access)).
 
 ### Errors
 
