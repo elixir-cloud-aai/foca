@@ -382,12 +382,11 @@ a request field that the app reads. Call
 value of the field) to get that user, e.g., to make them the owner of a
 resource the client creates. Requests of other callers naming a user are
 rejected with `403 Forbidden`, and names that are empty, blank or have
-surrounding whitespace with `400 Bad Request` (for names in the header,
-with the header as the invalid field, cf. [Request-specific
+surrounding whitespace with `400 Bad Request`. For names in the header, the
+response lists the header as the invalid field (cf. [Request-specific
 details](configuration/exceptions.md#request-specific-details)). FOCA logs
-a warning on the
-first validation if `on_behalf_of_header` is set, but no service client may
-act for users. FOCA does not check whether the named user exists: service clients
+a warning on the first validation if `on_behalf_of_header` is set, but no
+service client may act for users. FOCA does not check whether the named user exists: service clients
 allowed to act for users are trusted to name the user whose request they
 handle. They can also list the resources of any user they name (cf.
 [resource ownership](access-control.md#resource-ownership)), so only allow

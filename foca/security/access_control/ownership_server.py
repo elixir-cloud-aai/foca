@@ -289,7 +289,8 @@ def _put_role(
         if not _is_manageable(resource, exists):
             raise NotFound from None
         # The role and the subject are the client's values, which may be
-        # invalid, so they are logged at DEBUG only
+        # invalid, so they are logged at DEBUG only; the resource was found
+        # to be manageable just before
         logger.info(
             "Role on '%s' not granted to a %s", escape_log_value(resource), subject_type
         )

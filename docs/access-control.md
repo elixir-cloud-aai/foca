@@ -1315,7 +1315,7 @@ def PutTaskUserRole(id, userId, body, **kwargs):
                     pointer=json_pointer("role"),
                 )
             ]
-        ) from exc
+        ) from None  # the cause quotes the values, also in logged tracebacks
     return {"user_id": userId, "role": body["role"]}
 ```
 

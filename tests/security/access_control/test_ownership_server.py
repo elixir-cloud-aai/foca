@@ -1006,10 +1006,9 @@ class TestGroupRoles:
             assert _call(app, "put", path, "alice", "maintainer").status_code == 403
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
         refused = [r for r in caplog.records if "not granted" in r.getMessage()]
-        assert any(
-            r.levelno == logging.INFO and "auditors" not in r.getMessage()
-            for r in refused
-        )
+        infos = [r.getMessage() for r in refused if r.levelno >= logging.INFO]
+        assert infos
+        assert all("auditors" not in message for message in infos)
         assert any(
             r.levelno == logging.DEBUG and "auditors" in r.getMessage() for r in refused
         )
