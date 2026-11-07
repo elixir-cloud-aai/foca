@@ -1,7 +1,9 @@
 """Unit tests for Celery app factory module."""
 
 import gc
+import logging
 import weakref
+from collections.abc import Iterator
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,6 +19,14 @@ from foca.models.config import Config, JobsConfig, MongoConfig, PeriodicJobConfi
 
 CONFIG = Config()
 CONFIG.jobs = JobsConfig()
+
+
+@pytest.fixture(autouse=True)
+def databases() -> Iterator[None]:
+    """Start each test without database configurations of earlier ones."""
+    module._databases.clear()
+    yield
+    module._databases.clear()
 
 
 @pytest.fixture
@@ -146,6 +156,29 @@ def test_worker_signals_release_configs(
         signal.send(sender=None)
         reopened = [call.args[0] for call in reopen.call_args_list]
         assert sum(db is other.db for db in reopened) == 1
+
+
+def test_worker_signals_reopen_despite_errors(
+    logged: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An error with one configuration doesn't keep the others' clients."""
+    configs = [Config(jobs=JobsConfig(), db=MongoConfig()) for _ in range(2)]
+    reopened: list[MongoConfig] = []
+
+    def reopen(db: MongoConfig) -> None:
+        if db is configs[0].db:
+            raise RuntimeError("reopen failed")
+        reopened.append(db)
+
+    monkeypatch.setattr(module, "reopen_mongodb", reopen)
+    for config in configs:
+        _create_celery_app(create_connexion_app(config).app)
+    with caplog.at_level(logging.ERROR, logger=module.__name__):
+        worker_process_init.send(sender=None)
+    assert reopened == [configs[1].db]
+    assert "could not be reopened" in caplog.text
 
 
 def test_periodic_jobs(logged: list[str]) -> None:

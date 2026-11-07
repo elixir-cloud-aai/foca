@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 _REOPEN_UID = "foca-reopen-mongodb"
 """Dispatch UID of the handler that reopens MongoDB clients around forks."""
 
+# By `id()`, as configurations are unhashable and compared by value
 _databases: "weakref.WeakValueDictionary[int, MongoConfig]" = (
     weakref.WeakValueDictionary()
 )
@@ -36,11 +37,17 @@ def _reopen_clients(**kwargs: Any) -> None:
     it holds the configurations weakly, so that they and their clients are
     released with their apps (e.g., in tests that create many apps).
 
+    An error with one configuration is logged, and the others are still
+    reopened, as with a handler per configuration (cf. `Signal.send`).
+
     Args:
         **kwargs: Arguments of the signal; ignored.
     """
     for db in list(_databases.values()):
-        reopen_mongodb(db)
+        try:
+            reopen_mongodb(db)
+        except Exception:
+            logger.exception("MongoDB client could not be reopened.")
 
 
 def _reopen_around_forks(db: MongoConfig) -> None:
