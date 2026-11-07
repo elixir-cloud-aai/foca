@@ -1,3 +1,4 @@
+# Keep the cases in sync with no-new-flask-internals-test.yml
 id: flask-import
 valid:
   - import json
@@ -13,6 +14,8 @@ valid:
   - import connexion.lifecycle
   - from connexion.apis.abstract import AbstractAPI
   - from connexion import requests_helper
+  - from connexion.apis import abstract
+  - from connexion import App
   - request = foca.context.current_request()
   - x = my_connexion.request
   - from . import flask
@@ -29,6 +32,10 @@ invalid:
   - from flask_pymongo import PyMongo
   - from connexion.apis.flask_utils import flaskify_path
   - import connexion.apps.flask_app
+  - from connexion.apps import flask_app
+  - from connexion.apis import flask_api, flask_utils
+  - from connexion import FlaskApp
+  - from connexion import FlaskApi as Api
   - from connexion.security.flask_security_handler_factory import FlaskSecurityHandlerFactory
   - import werkzeug
   - from werkzeug.exceptions import NotFound

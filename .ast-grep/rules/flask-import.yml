@@ -40,10 +40,10 @@ rule:
       all:
         - has:
             field: module_name
-            regex: ^connexion$
+            regex: ^connexion(\.[\w.]+)?$
         - has:
             kind: dotted_name
-            regex: ^(context|request)$
+            regex: ^(context|request|[Ff]lask\w*)$
             stopBy: end
     - pattern: connexion.request
     - pattern: connexion.context
