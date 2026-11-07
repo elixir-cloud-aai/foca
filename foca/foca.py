@@ -11,7 +11,7 @@ from connexion import App
 
 from foca.api.register_openapi import register_openapi
 from foca.api.service_info import check_service_info
-from foca.config.access import _get_app_config
+from foca.config.access import _get_app_config, _use_config
 from foca.config.config_parser import ConfigParser
 from foca.database.register_mongodb import register_mongodb
 from foca.errors.exceptions import register_exception_handler
@@ -21,6 +21,7 @@ from foca.plugins import runtime
 from foca.plugins.runtime import GatewayApp
 from foca.security.access_control.enforcement import register_opt_in_header
 from foca.security.access_control.register_access_control import (
+    _register_policy_collection,
     check_access_control_config,
     check_opt_in_roles,
     register_access_control,
@@ -296,6 +297,44 @@ class Foca:
         if self.conf.db is not None:
             self.conf.db.create_indexes_on_startup = False
         self.conf.security.access_control.sync_policies_on_startup = False
+
+    def use_config(self) -> None:
+        """Use the configuration without creating an app, e.g., in scripts.
+
+        Outside app contexts, :py:func:`foca.get_config` then returns this
+        configuration, and :py:func:`foca.get_collection` its collections,
+        including that of the stored policy rules if access control is
+        enabled; neither an app nor an app context is needed. The databases
+        are registered without creating indexes, and nothing else of the
+        startup of apps runs (e.g., no policies are synced), so nothing is
+        written to the database. What only apps register (e.g., the enforcer
+        of access control) isn't available: scripts that need it create the
+        app, with :py:meth:`foca.Foca.disable_startup_writes` if they must not
+        write.
+
+        The most recent of this call and the creation of an app (of any
+        `Foca` instance) decides which configuration is used outside app
+        contexts; in an app context, it is that of the app. Calling it again,
+        or creating an app of this instance afterwards, reuses the registered
+        databases.
+
+        Raises:
+            ValueError: Access control is enabled, and the collection of the
+                stored policy rules is configured as one of the app's (cf.
+                `security.access_control.collection_name`).
+        """
+        if self.conf.db is not None:
+            # registers in place: `register_mongodb()` returns `conf.db`
+            register_mongodb(self.conf.db, create_indexes=False)
+        access_control = self.conf.security.access_control
+        if access_control.enabled:
+            self.conf.db = _register_policy_collection(
+                config=self.conf,
+                mongo_config=self.conf.db,
+                access_control_config=access_control,
+                create_indexes=False,
+            )
+        _use_config(self.conf)
 
     def _check_worker_config(self) -> None:
         """Run the checks of the configuration that apps run on startup.

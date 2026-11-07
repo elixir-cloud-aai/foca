@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import mongomock
 import pytest
 from celery import Celery
+from flask import has_app_context
 from pydantic import ValidationError
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -17,7 +19,8 @@ from yaml import (
 )
 
 import foca as foca_package
-from foca import Foca
+from foca import Foca, get_collection, get_config
+from foca.config import access
 from foca.config.access import _get_app_config
 from foca.models.config import AccessControlConfig, CORSConfig
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
@@ -607,3 +610,134 @@ def test_create_celery_app_invalid_access_control() -> None:
     foca.conf.security.access_control.require_admin = True
     with pytest.raises(ValueError, match="require_admin"):
         foca.create_celery_app()
+
+
+def _indexed_db_conf(tmp_path: Path) -> Path:
+    """Write a configuration with a database whose collection has an index.
+
+    Args:
+        tmp_path: Directory to write to.
+
+    Returns:
+        Path of the configuration file.
+    """
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "db:\n"
+        "  host: mongo\n"
+        "  port: 27017\n"
+        "  dbs:\n"
+        "    my-db:\n"
+        "      collections:\n"
+        "        items:\n"
+        "          indexes:\n"
+        "            - keys: {name: 1}\n"
+        "              options: {unique: true}\n"
+    )
+    return config_file
+
+
+@pytest.fixture
+def no_apps(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Forget configurations of previously created apps."""
+    monkeypatch.setattr(access, "_configs", {})
+
+
+@pytest.mark.usefixtures("no_apps", "mongo_clients")
+def test_use_config_without_app(tmp_path: Path) -> None:
+    """Configuration and collections are used without an app or writes."""
+    foca = Foca(config_file=_indexed_db_conf(tmp_path))
+    foca.use_config()
+    assert not has_app_context()
+    assert get_config() is foca.conf
+    collection = get_collection("my-db", "items")
+    assert isinstance(collection, mongomock.Collection)
+    assert "items" not in collection.database.list_collection_names()
+    # no index is created, only MongoDB's own one with the collection
+    collection.insert_one({"name": "a"})
+    assert list(collection.index_information()) == ["_id_"]
+    # the setting is kept for apps created later
+    assert foca.conf.db is not None
+    assert foca.conf.db.create_indexes_on_startup
+
+
+@pytest.mark.usefixtures("no_apps", "mongo_clients")
+def test_use_config_twice(tmp_path: Path) -> None:
+    """Using a configuration again reuses the registered collections."""
+    foca = Foca(config_file=_indexed_db_conf(tmp_path))
+    foca.use_config()
+    collection = get_collection("my-db", "items")
+    foca.use_config()
+    assert get_collection("my-db", "items") is collection
+
+
+@pytest.mark.usefixtures("no_apps", "mongo_clients")
+def test_use_config_policy_collection_clash(tmp_path: Path) -> None:
+    """A policy collection configured as one of the app's is refused."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "db:\n"
+        "  dbs:\n"
+        "    access_control_db:\n"
+        "      collections:\n"
+        "        policy_rules: {}\n"
+    )
+    foca = Foca(config_file=[config_file, ACCESS_CONTROL_ENABLED_CONF])
+    with pytest.raises(ValueError, match="policy_rules"):
+        foca.use_config()
+
+
+@pytest.mark.parametrize("config_files", [[], [VALID_DB_CONF]])
+@pytest.mark.usefixtures("no_apps", "mongo_clients")
+def test_use_config_access_control(config_files: list[Path]) -> None:
+    """The collection of the stored policy rules is registered too.
+
+    Also without databases of the app, and again by an app created later.
+    """
+    foca = Foca(config_file=[*config_files, ACCESS_CONTROL_ENABLED_CONF])
+    foca.use_config()
+    access_control = foca.conf.security.access_control
+    names = (access_control.db_name, access_control.collection_name)
+    collection = get_collection(*names)
+    assert collection.name == access_control.collection_name
+    assert not list(collection.find())
+    foca.create_app()
+    after = get_collection(*names)
+    assert after.full_name == collection.full_name
+    # the same client, so the same data
+    assert after.database.client is collection.database.client
+
+
+@pytest.mark.usefixtures("no_apps")
+def test_use_config_without_db() -> None:
+    """Configurations without databases are used too."""
+    foca = Foca()
+    foca.use_config()
+    assert get_config() is foca.conf
+    with pytest.raises(KeyError, match="not configured"):
+        get_collection("my-db", "items")
+
+
+@pytest.mark.usefixtures("no_apps", "mongo_clients")
+def test_use_config_most_recent_wins(tmp_path: Path) -> None:
+    """The most recent of using a configuration and creating an app wins."""
+    script = Foca(config_file=_indexed_db_conf(tmp_path))
+    app = Foca()
+    script.use_config()
+    cnx_app = app.create_app()
+    assert get_config() is app.conf
+    script.use_config()
+    assert get_config() is script.conf
+    with cnx_app.app.app_context():
+        assert get_config() is app.conf
+
+
+@pytest.mark.usefixtures("no_apps", "mongo_clients")
+def test_use_config_then_create_app(tmp_path: Path) -> None:
+    """An app created after using its configuration shares the collections."""
+    foca = Foca(config_file=_indexed_db_conf(tmp_path))
+    foca.use_config()
+    collection = get_collection("my-db", "items")
+    foca.create_app()
+    assert get_collection("my-db", "items") is collection
+    assert "name_1" in collection.index_information()

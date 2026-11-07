@@ -39,6 +39,7 @@ from foca.models.config import (
     AccessControlConfig,
     AuthConfig,
     CollectionConfig,
+    Config,
     ConnexionOptions,
     CORSConfig,
     DBConfig,
@@ -114,82 +115,13 @@ def register_access_control(
             "users; otherwise set 'claim_groups: \"\"' for the others."
         )
 
-    # Set default db attributes if config not present.
-    if mongo_config is None:
-        mongo_config = MongoConfig()
-        _get_app_config(cnx_app.app)._name_mongo_clients(mongo_config)
-    if mongo_config.dbs is None:
-        mongo_config.dbs = {}
-
-    access_control_db = access_control_config.db_name
-    access_control_collection = access_control_config.collection_name
-
-    # Remove policy collection (and database) added by a previous
-    # registration with the same configuration (e.g., when creating an app
-    # repeatedly), so that it is not mistaken for an app collection
-    registered = access_control_config._registered_collection
-    if registered is not None:
-        registered_db, registered_collection, added_db = registered
-        registered_db_conf = mongo_config.dbs.get(registered_db)
-        if added_db:
-            mongo_config.dbs.pop(registered_db, None)
-        elif (
-            registered_db_conf is not None
-            and registered_db_conf.collections is not None
-        ):
-            registered_db_conf.collections.pop(registered_collection, None)
-
-    access_control_config._registered_collection = None
-    _check_collection_clash(
+    config = _get_app_config(cnx_app.app)
+    mongo_config = _register_policy_collection(
+        config=config,
         mongo_config=mongo_config,
-        db_name=access_control_db,
-        collection_name=access_control_collection,
+        access_control_config=access_control_config,
     )
-    app_db_conf = mongo_config.dbs.get(access_control_db)
-    added_db = app_db_conf is None
-
-    if app_db_conf is None:
-        # Register new database for access control.
-        access_db_conf = DBConfig(
-            collections={access_control_collection: CollectionConfig()},
-            client=None,
-        )
-        mongo_config.dbs[access_control_db] = access_db_conf
-        _register_database(
-            client=get_mongo_client(mongo_config),
-            db_name=access_control_db,
-            db_conf=access_db_conf,
-            create_indexes=mongo_config.create_indexes_on_startup,
-        )
-    else:
-        # Add policy collection to app database of the same name, keeping
-        # the app's collections.
-        if app_db_conf.collections is None:
-            app_db_conf.collections = {}
-        policy_collection = CollectionConfig()
-        app_db_conf.collections[access_control_collection] = policy_collection
-        if app_db_conf.client is None:
-            _register_database(
-                client=get_mongo_client(mongo_config),
-                db_name=access_control_db,
-                db_conf=app_db_conf,
-                create_indexes=mongo_config.create_indexes_on_startup,
-            )
-        else:
-            policy_collection.client = app_db_conf.client[access_control_collection]
-        logger.info(
-            "Added access control collection '%s' to database '%s'.",
-            access_control_collection,
-            access_control_db,
-        )
-
-    # Remember what was added, once registration of the database succeeded
-    access_control_config._registered_collection = (
-        access_control_db,
-        access_control_collection,
-        added_db,
-    )
-    _get_app_config(cnx_app.app).db = mongo_config
+    config.db = mongo_config
 
     # Register access control api specs and corresponding controller, and
     # check them before configured policies are stored, so that a failed
@@ -565,6 +497,117 @@ def _check_admin_role(
         "still apply.",
         missing,
     )
+
+
+def _register_policy_collection(
+    config: Config,
+    mongo_config: MongoConfig | None,
+    access_control_config: AccessControlConfig,
+    create_indexes: bool | None = None,
+) -> MongoConfig:
+    """Register the collection of the stored policy rules.
+
+    The collection is added to the configured database of its name, or to a
+    new one, and registered with the app's MongoDB client. One added by a
+    previous registration with the same configuration (e.g., when creating an
+    app repeatedly) is replaced. Nothing is written to the database, except
+    for the indexes of a new database, if any.
+
+    Args:
+        config: App configuration, whose service info names the MongoDB
+            client.
+        mongo_config: Database configuration, if any.
+        access_control_config: Access control configuration.
+        create_indexes: Whether to create the configured indexes of a
+            database registered here; if `None`, as set via
+            `db.create_indexes_on_startup`.
+
+    Returns:
+        `mongo_config`, or a new database configuration if it is `None`,
+        with the collection registered.
+
+    Raises:
+        ValueError: The collection is configured as one of the app's (cf.
+            :py:func:`_check_collection_clash`).
+    """
+    # Set default db attributes if config not present.
+    if mongo_config is None:
+        mongo_config = MongoConfig()
+        config._name_mongo_clients(mongo_config)
+    if mongo_config.dbs is None:
+        mongo_config.dbs = {}
+    if create_indexes is None:
+        create_indexes = mongo_config.create_indexes_on_startup
+
+    access_control_db = access_control_config.db_name
+    access_control_collection = access_control_config.collection_name
+
+    # Remove policy collection (and database) added by a previous
+    # registration with the same configuration (e.g., when creating an app
+    # repeatedly), so that it is not mistaken for an app collection
+    registered = access_control_config._registered_collection
+    if registered is not None:
+        registered_db, registered_collection, added_db = registered
+        registered_db_conf = mongo_config.dbs.get(registered_db)
+        if added_db:
+            mongo_config.dbs.pop(registered_db, None)
+        elif (
+            registered_db_conf is not None
+            and registered_db_conf.collections is not None
+        ):
+            registered_db_conf.collections.pop(registered_collection, None)
+
+    access_control_config._registered_collection = None
+    _check_collection_clash(
+        mongo_config=mongo_config,
+        db_name=access_control_db,
+        collection_name=access_control_collection,
+    )
+    app_db_conf = mongo_config.dbs.get(access_control_db)
+    added_db = app_db_conf is None
+
+    if app_db_conf is None:
+        # Register new database for access control.
+        access_db_conf = DBConfig(
+            collections={access_control_collection: CollectionConfig()},
+            client=None,
+        )
+        mongo_config.dbs[access_control_db] = access_db_conf
+        _register_database(
+            client=get_mongo_client(mongo_config),
+            db_name=access_control_db,
+            db_conf=access_db_conf,
+            create_indexes=create_indexes,
+        )
+    else:
+        # Add policy collection to app database of the same name, keeping
+        # the app's collections.
+        if app_db_conf.collections is None:
+            app_db_conf.collections = {}
+        policy_collection = CollectionConfig()
+        app_db_conf.collections[access_control_collection] = policy_collection
+        if app_db_conf.client is None:
+            _register_database(
+                client=get_mongo_client(mongo_config),
+                db_name=access_control_db,
+                db_conf=app_db_conf,
+                create_indexes=create_indexes,
+            )
+        else:
+            policy_collection.client = app_db_conf.client[access_control_collection]
+        logger.info(
+            "Added access control collection '%s' to database '%s'.",
+            access_control_collection,
+            access_control_db,
+        )
+
+    # Remember what was added, once registration of the database succeeded
+    access_control_config._registered_collection = (
+        access_control_db,
+        access_control_collection,
+        added_db,
+    )
+    return mongo_config
 
 
 def _check_collection_clash(
