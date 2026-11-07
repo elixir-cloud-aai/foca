@@ -1,5 +1,9 @@
 """Unit tests for Celery app factory module."""
 
+import gc
+import logging
+import weakref
+from collections.abc import Iterator
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,6 +19,14 @@ from foca.models.config import Config, JobsConfig, MongoConfig, PeriodicJobConfi
 
 CONFIG = Config()
 CONFIG.jobs = JobsConfig()
+
+
+@pytest.fixture(autouse=True)
+def databases() -> Iterator[None]:
+    """Start each test without database configurations of earlier ones."""
+    module._databases.clear()
+    yield
+    module._databases.clear()
 
 
 @pytest.fixture
@@ -118,6 +130,64 @@ def test_worker_signals_reopen_once_per_config(
     worker_process_init.send(sender=None)
     calls = [call for call in reopen.call_args_list if call.args[0] is config.db]
     assert len(calls) == 1
+
+
+def test_worker_signals_release_configs(
+    logged: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker signals keep no database configuration alive.
+
+    Configurations and their clients are released with their app (Celery
+    keeps its latest app, so a second one is created), while the clients of
+    the configurations still in use are reopened.
+    """
+    reopen = MagicMock()
+    monkeypatch.setattr(module, "reopen_mongodb", reopen)
+    config = Config(jobs=JobsConfig(), db=MongoConfig())
+    ref = weakref.ref(config.db)
+    _create_celery_app(create_connexion_app(config).app)
+    other = Config(jobs=JobsConfig(), db=MongoConfig())
+    _create_celery_app(create_connexion_app(other).app)
+    del config
+    gc.collect()
+    assert ref() is None
+    for signal in (worker_init, worker_process_init):
+        reopen.reset_mock()
+        signal.send(sender=None)
+        reopened = [call.args[0] for call in reopen.call_args_list]
+        assert sum(db is other.db for db in reopened) == 1
+
+
+def test_worker_signals_reopen_despite_errors(
+    logged: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An error with one configuration doesn't keep the others' clients."""
+    configs = [Config(jobs=JobsConfig(), db=MongoConfig()) for _ in range(2)]
+    reopened: list[MongoConfig] = []
+
+    def reopen(db: MongoConfig) -> None:
+        if db is configs[0].db:
+            raise RuntimeError("reopen failed")
+        reopened.append(db)
+
+    monkeypatch.setattr(module, "reopen_mongodb", reopen)
+    for config in configs:
+        _create_celery_app(create_connexion_app(config).app)
+    with caplog.at_level(logging.ERROR, logger=module.__name__):
+        worker_process_init.send(sender=None)
+    assert reopened == [configs[1].db]
+    assert "MongoDB client of mongodb:27017 could not be reopened" in caplog.text
+
+
+def test_lock_reset_after_fork() -> None:
+    """Forked processes get a lock of their own, as threads may hold it."""
+    lock = module._databases_lock
+    with lock:
+        module._reset_lock()
+        assert module._databases_lock is not lock
+        assert not module._databases_lock.locked()
 
 
 def test_periodic_jobs(logged: list[str]) -> None:
