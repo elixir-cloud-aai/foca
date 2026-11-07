@@ -808,7 +808,9 @@ class PluginHost:
 
         Args:
             steps: Steps, as configured.
-            origin: Where the steps come from, for records.
+            origin: Where the steps come from, for records; for `client`,
+                messages name steps by their position (from 0), not by the
+                client's identifiers.
 
         Returns:
             Resolved steps.
@@ -819,18 +821,20 @@ class PluginHost:
                 skipped has no enabled alternative.
         """
         resolved = []
-        for step in steps:
+        for index, step in enumerate(steps):
             alternatives = []
+            label: int | str = index if origin == "client" else repr(step.id)
             for alternative in step.alternatives:
                 available = self.conf.available.get(alternative.plugin)
                 if available is None:
+                    # admin steps only: client steps are checked (and named by
+                    # position) in `_check_client_steps` before
                     raise ValueError(f"Plugin not available: {alternative.plugin}")
                 loaded = self.plugins.get(alternative.plugin)
                 if loaded is None:
                     continue
                 invalid = (
-                    f"Invalid params of plugin {alternative.plugin!r} in step"
-                    f" {step.id!r}"
+                    f"Invalid params of plugin {alternative.plugin!r} in step {label}"
                 )
                 try:
                     params = loaded.cls.Params.model_validate(alternative.params)
@@ -869,7 +873,7 @@ class PluginHost:
                 if step.on_failure == "skip":
                     logger.warning("Step %s has no enabled plugin; dropped", step.id)
                     continue
-                raise _NoEnabledPluginError(f"Step {step.id!r} has no enabled plugin")
+                raise _NoEnabledPluginError(f"Step {label} has no enabled plugin")
             resolved.append(
                 ResolvedStep(
                     id=step.id or "",
@@ -986,7 +990,7 @@ class PluginHost:
             if value not in self.presets or not self.may_use_preset(
                 self.presets[value], principal
             ):
-                raise InvalidSelection(f"Preset not available: {value}")
+                raise InvalidSelection("Preset not available")
             preset = value
             resolved = self.presets[value]
         elif is_name:
@@ -995,7 +999,7 @@ class PluginHost:
             steps = parse_client_pipeline(value)
             self._check_client_steps(steps, principal)
             try:
-                check_pipeline(steps)
+                check_pipeline(steps, by_position=True)
                 resolved = self.resolve_steps(steps, origin="client")
             except ValueError as exc:
                 raise InvalidSelection(str(exc)) from exc
@@ -1040,12 +1044,13 @@ class PluginHost:
 
         Raises:
             foca.plugins.selection.InvalidSelection: The pipeline exceeds the
-                limits, or uses a plugin that the caller may not choose.
+                limits, or uses a plugin that the caller may not choose; the
+                step is named by its position (from 0), not by its plugin.
         """
         conf = self.conf.client_pipelines
         if len(steps) > conf.max_steps:
             raise InvalidSelection(f"At most {conf.max_steps} steps are allowed")
-        for step in steps:
+        for index, step in enumerate(steps):
             if len(step.alternatives) > conf.max_alternatives:
                 raise InvalidSelection(
                     f"At most {conf.max_alternatives} alternatives are allowed"
@@ -1058,9 +1063,7 @@ class PluginHost:
                     or not available.client_selectable
                     or not _has_role(available.roles, principal)
                 ):
-                    raise InvalidSelection(
-                        f"Plugin not available: {alternative.plugin}"
-                    )
+                    raise InvalidSelection(f"Plugin not available in step {index}")
 
     def _frame(self, steps: tuple[ResolvedStep, ...]) -> tuple[ResolvedStep, ...]:
         """Frame the steps of a client's choice with the admin's steps.

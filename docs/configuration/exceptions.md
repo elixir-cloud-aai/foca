@@ -191,7 +191,12 @@ applies with `validation_details` only, to all request validation
 exceptions, including `RequestValidationProblem` that FOCA (e.g., access
 control) or your app raise; raise `InvalidFieldsProblem` to tell clients
 which fields are invalid. Errors of the plugin gateway's selection of
-pipelines and backends aren't request validation and keep their messages:
+pipelines and backends aren't request validation and aren't affected by the
+option; their messages name fields, settings and the positions of steps,
+never the client's values (see [per-request
+choices](../plugins.md#per-request-pipelines-and-backends)).
+
+A response to a body whose `name` is too long, by default:
 
 ```json
 {

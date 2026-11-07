@@ -175,7 +175,7 @@ def test_inline_pipeline_and_frame() -> None:
         (
             {},
             pipeline_tag([{"plugin": "test.other"}]),
-            "not available: test.other",
+            "^Plugin not available in step 0$",
             "invalid-pipeline",
         ),
         (
@@ -186,19 +186,19 @@ def test_inline_pipeline_and_frame() -> None:
                 }
             },
             pipeline_tag([{"plugin": "test.tag"}]),
-            "not available: test.tag",
+            "^Plugin not available in step 0$",
             "invalid-pipeline",
         ),
         (
             {"available": {**{n: {} for n in FAKES}, "test.tag": {"roles": ["admin"]}}},
             pipeline_tag([{"plugin": "test.tag"}]),
-            "not available: test.tag",
+            "^Plugin not available in step 0$",
             "invalid-pipeline",
         ),
         (
             {"available": {**{n: {} for n in FAKES}, "test.tag": {"enabled": False}}},
             pipeline_tag([{"plugin": "test.tag"}]),
-            "not available: test.tag",
+            "^Plugin not available in step 0$",
             "invalid-pipeline",
         ),
         (
@@ -246,7 +246,7 @@ def test_inline_pipeline_and_frame() -> None:
         (
             {},
             pipeline_tag([{"plugin": "test.tag"}, {"plugin": "test.tag"}]),
-            "Duplicate step",
+            "Step identifiers must be unique",
             "invalid-pipeline",
         ),
         (
@@ -260,7 +260,11 @@ def test_inline_pipeline_and_frame() -> None:
 def test_invalid_selections(
     conf: dict[str, Any], tags: dict[str, str], message: str, slug: str
 ) -> None:
-    """Invalid or disallowed choices are refused with 400."""
+    """Invalid or disallowed choices are refused with 400.
+
+    Messages that could quote the client's values are matched completely
+    (`^...$`).
+    """
     with pytest.raises(InvalidSelection, match=message) as exc_info:
         host(**conf).start(request(tags), ALICE)
     assert exc_info.value.code == 400
@@ -445,7 +449,7 @@ def test_preset_roles() -> None:
         presets={"tagging": [{"plugin": "test.tag"}], "admins": ["test.skip"]},
     )
     assert h.start(request(pipeline_tag("tagging")), ALICE).pipeline.preset == "tagging"
-    with pytest.raises(InvalidSelection, match="Preset not available: admins"):
+    with pytest.raises(InvalidSelection, match="Preset not available"):
         h.start(request(pipeline_tag("admins")), ALICE)
     admin = Principal(subject="root", groups=("admin",))
     assert h.start(request(pipeline_tag("admins")), admin).pipeline.preset == "admins"
@@ -615,19 +619,29 @@ def test_client_pipelines_nesting() -> None:
         parse_client_pipeline(f'[{{"plugin": "a.b", "params": {{"x": {nested}}}}}]')
 
 
+_NON_FINITE = "NaN, Infinity and -Infinity are not allowed"
+
+
 @pytest.mark.parametrize(
     ("value", "message"),
     [
-        ('[{"plugin": "a.b", "params": {"x": NaN}}]', "NaN is not allowed"),
-        ('[{"plugin": "a.b", "params": {"x": -Infinity}}]', "-Infinity"),
-        ('[{"plugin": "a.b", "params": {"x": 1e999}}]', "finite"),
-        ('[{"plugin": "a.b", "params": {"x": [9007199254740992]}}]', "2\\^53"),
+        ('[{"plugin": "a.b", "params": {"x": NaN}}]', _NON_FINITE),
+        ('[{"plugin": "a.b", "params": {"x": -Infinity}}]', _NON_FINITE),
+        ('[{"plugin": "a.b", "params": {"x": 1e999}}]', "Numbers must be finite"),
+        (
+            '[{"plugin": "a.b", "params": {"x": [9007199254740992]}}]',
+            "Integers are at most 2^53 - 1",
+        ),
     ],
 )
 def test_client_pipelines_are_i_json(value: str, message: str) -> None:
-    """Client pipelines have finite numbers and exact integers only."""
-    with pytest.raises(InvalidSelection, match=message):
+    """Client pipelines have finite numbers and exact integers only.
+
+    The messages are complete, so that they cannot quote the value too.
+    """
+    with pytest.raises(InvalidSelection) as exc_info:
         parse_client_pipeline(value)
+    assert str(exc_info.value) == f"Invalid pipeline: {message}"
     steps = parse_client_pipeline('[{"plugin": "a.b", "params": {"x": [1.5, null]}}]')
     assert steps[0].alternatives[0].params == {"x": [1.5, None]}
 
@@ -760,3 +774,68 @@ def test_warns_about_presets_without_steps(
             client_pipelines={"enabled": True, "allowed": ["presets"]},
         ).close()
     assert ("lacks: test.tag;" in caplog.text) is warns
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        # Invalid plugin identifier, by a validator of steps
+        (
+            '[{"plugin": "Secret value"}]',
+            "Invalid pipeline: 0.alternatives.0.plugin (value_error)",
+        ),
+        # Invalid step identifier, by a validator of steps
+        (
+            '[{"id": "Secret value", "plugin": "test.tag"}]',
+            "Invalid pipeline: 0 (value_error)",
+        ),
+        # Rejected JSON constant
+        (
+            '[{"plugin": "test.tag", "params": {"secret": NaN}}]',
+            "Invalid pipeline: NaN, Infinity and -Infinity are not allowed",
+        ),
+        # Unknown preset
+        ("secret-preset", "Preset not available"),
+        # Unknown plugin
+        ('[{"plugin": "secret.plugin"}]', "Plugin not available in step 0"),
+        (
+            '[{"plugin": "test.tag"}, {"alternatives": [{"plugin": "secret.x"}]}]',
+            "Plugin not available in step 1",
+        ),
+        # Duplicate step identifiers
+        (
+            '[{"id": "secret", "plugin": "test.tag"},'
+            ' {"id": "secret", "plugin": "test.reverse"}]',
+            "Step identifiers must be unique: step 1 repeats one; set unique 'id's",
+        ),
+        # Invalid params: the step by position, the parameter by name (keys,
+        # like those of request fields, are named)
+        (
+            '[{"id": "secret", "plugin": "test.tag", "params": {"x": "secret"}}]',
+            "Invalid params of plugin 'test.tag' in step 0: x: Extra inputs are not"
+            " permitted",
+        ),
+    ],
+)
+def test_messages_quote_no_values(value: str, message: str) -> None:
+    """Refused choices are described without the values of the client.
+
+    The messages name fields (including keys), settings and positions only
+    (cf. `exceptions.validation_reasons`); errors of a whole step (e.g., of
+    its identifier) are located by the step.
+    """
+    with pytest.raises(InvalidSelection) as exc_info:
+        host().start(request(pipeline_tag(value)), ALICE)
+    assert str(exc_info.value) == message
+    assert "secret" not in str(exc_info.value).lower()
+
+
+def test_reserved_tag_message_quotes_no_key() -> None:
+    """A refused reserved tag is described without the key of the client."""
+    with pytest.raises(InvalidSelection) as exc_info:
+        host().start(request({"gateway.secret": "x"}), ALICE)
+    assert str(exc_info.value) == (
+        "Tags under 'gateway.' other than 'gateway.pipeline' and"
+        " 'gateway.backends' are reserved for the gateway"
+    )
+    assert exc_info.value.slug == "reserved-tag"
