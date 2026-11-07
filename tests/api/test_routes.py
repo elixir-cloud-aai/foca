@@ -1,5 +1,7 @@
 """Tests for `foca.api.routes`."""
 
+import gc
+import weakref
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -306,6 +308,16 @@ class TestInstall:
         _install_route_table(cnx_app)
         cnx_app.add_api(_spec("/again"))
         assert len(get_routes(cnx_app.app)) == 10
+
+    def test_apps_collected(self) -> None:
+        """Apps are collected while their APIs live on, e.g., in log records."""
+        cnx_app = create_connexion_app()
+        api = cnx_app.add_api(_spec())
+        app = weakref.ref(cnx_app.app)
+        del cnx_app
+        gc.collect()
+        assert app() is None
+        assert api.base_path == "/api/v1"
 
     def test_stand_in(self) -> None:
         """Other objects are left alone."""

@@ -18,6 +18,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, NamedTuple, cast
+from weakref import ref
 
 from connexion.apis.flask_api import FlaskApi
 from connexion.apis.flask_utils import flaskify_path
@@ -138,7 +139,9 @@ def _install_route_table(cnx_app: Any) -> None:
         cnx_app.api_cls, _RecordingMarker
     ):
         return
-    flask_app = cnx_app.app
+    # Weakly, as the class lives as long as any API of the app, e.g., in log
+    # records, and must not keep the app alive
+    flask_app_ref = ref(cnx_app.app)
 
     class _RecordingApi(cnx_app.api_cls, _RecordingMarker):
         """API recording its operations in the route table of the app."""
@@ -162,6 +165,8 @@ def _install_route_table(cnx_app: Any) -> None:
             operation_id = fields.get("operationId") or operation.operation_id
             # Operations that failed to resolve have a function answering so
             resolution = getattr(operation, "_resolution", None)
+            # Operations are added while the app registers an API, so it lives
+            flask_app: Any = flask_app_ref()
             # As apps may have changed them, which Flask's rules follow
             table = flask_app.extensions.setdefault(_ROUTES_EXTENSION, _RouteTable())
             table.rules.strict_slashes = flask_app.url_map.strict_slashes
