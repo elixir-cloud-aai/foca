@@ -19,7 +19,8 @@ valid:
   - request = foca.context.current_request()
   - x = my_connexion.request
   - from . import flask
-  - from connexion import *
+  - from foca.context import *
+  - connexion.problem(400, "Bad", "x")
 invalid:
   - import flask
   - import flask as fl
@@ -46,6 +47,9 @@ invalid:
   - from connexion import request as req
   - from connexion.context import context
   - import connexion.context
+  - from connexion import *
+  - from connexion.apis import *
+  - app = connexion.FlaskApp(__name__)
   - import connexion.context as ctx
   - import connexion.request
   - from connexion.context import context as ctx

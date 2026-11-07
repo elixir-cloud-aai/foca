@@ -212,11 +212,13 @@ them by setting a higher level for that logger.
 
 ## Finding Flask imports
 
-Nothing breaks. FOCA ships the [ast-grep](https://ast-grep.github.io/) rule
-`flask-import` (`.ast-grep/rules/flask-import.yml`), which finds what still
-has to move before the ASGI release: imports of Flask and its extensions
-(e.g., Flask-Cors), Werkzeug, Connexion's Flask modules, and Connexion's
-`request` and `context`. Its note names the replacement for each: the
+Nothing breaks. FOCA's repository has the [ast-grep](https://ast-grep.github.io/)
+rule `flask-import`
+([`.ast-grep/rules/flask-import.yml`](https://github.com/elixir-cloud-aai/foca/blob/dev/.ast-grep/rules/flask-import.yml);
+it isn't part of the Python package), which finds what still has to move
+before the ASGI release: imports of Flask and its extensions (e.g.,
+Flask-Cors), Werkzeug, Connexion's Flask modules, and Connexion's `request`
+and `context`. Its note names the replacement for each: the
 accessors above, `foca.errors`, `foca.testing`, `foca.get_config()`, and
 tuples as responses. Werkzeug stays installed, but don't import it.
 

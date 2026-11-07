@@ -45,5 +45,14 @@ rule:
             kind: dotted_name
             regex: ^(context|request|[Ff]lask\w*)$
             stopBy: end
-    - pattern: connexion.request
-    - pattern: connexion.context
+    - kind: import_from_statement
+      all:
+        - has:
+            field: module_name
+            regex: ^connexion(\.[\w.]+)?$
+        - has:
+            kind: wildcard_import
+    - pattern: connexion.$ATTR
+constraints:
+  ATTR:
+    regex: ^(context|request|[Ff]lask\w*)$
