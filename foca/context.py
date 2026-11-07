@@ -162,7 +162,7 @@ class _MultiValues(Mapping[str, str]):
 
 
 class Headers(_MultiValues):
-    """Read-only headers of a request, with case-insensitive names.
+    """Read-only headers of a request or response, with case-insensitive names.
 
     As a mapping, names are in lower case and give their first value;
     :py:meth:`getlist` gives all values of a name.
@@ -391,6 +391,25 @@ def _get_token_info() -> dict[str, Any]:
         return {}
     token_info = connexion_context.get("token_info")
     return token_info if isinstance(token_info, dict) else {}
+
+
+def _set_token_info(token_info: Mapping[str, Any]) -> None:
+    """Set the token info of the current request, as Connexion does.
+
+    For :py:func:`foca.testing.request_context`, which sets up requests
+    without HTTP.
+
+    Args:
+        token_info: Token info, as Connexion's security handler gives it.
+
+    Raises:
+        RuntimeError: Raised if no request is being handled.
+    """
+    if not _has_request():
+        raise RuntimeError("No request: token info can be set only in a request")
+    request_ctx.connexion_context = {  # type: ignore[attr-defined]
+        "token_info": dict(token_info)
+    }
 
 
 class _ResponseBody:
