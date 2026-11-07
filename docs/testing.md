@@ -35,10 +35,87 @@ It has:
   ones, so use a real MongoDB for testing what happens after
   `reopen_mongodb()`.
 - **The fixture `issuer`**: a local identity provider (see below).
+- **The fixture `foca_client`**: a [test client](#test-client) of the app that
+  your fixture `foca_app` gives:
+
+    ```python
+    import pytest
+
+    from foca import Foca
+
+
+    @pytest.fixture
+    def foca_app(mongodb):
+        return Foca(config_file="config.yaml").create_app()
+
+
+    def test_list_pets(foca_client) -> None:
+        assert foca_client.get("/pets").json() == []
+    ```
 
 The fixtures last for one test. A new identity provider takes a moment, for its
 key: for many tests, keep one in a fixture of a wider scope with the context
 manager below.
+
+## Test client
+
+`foca.testing.Client` sends requests to an app, without a server, through all
+that serves requests (security, validation, CORS, errors). Its API is that of
+[httpx](https://www.python-httpx.org/) and of Starlette's `TestClient`, so your
+tests stay as they are when FOCA moves to ASGI. Use it as a context manager, so
+that the app starts and stops as when served:
+
+```python
+from foca.testing import Client
+
+with Client(app) as client:
+    response = client.post("/pets", json={"name": "Rex"}, headers=headers)
+    assert response.status_code == 200
+    pet = response.json()
+    response = client.get("/pets", params={"tag": ["a", "b"], "limit": 10})
+```
+
+- `app` is what `Foca.create_app()` returns; a Flask app works too, in this
+  release.
+- `get()`, `head()`, `options()`, `delete()`, `post()`, `put()`, `patch()` and
+  `request(method, url)` take `params` (query parameters: a mapping, with lists
+  for repeated ones, pairs, or a query string), `headers` (a mapping or pairs)
+  and `follow_redirects`; requests with bodies also `json`, `content` (raw
+  bytes or text) or `data` (form fields).
+- Responses have `status_code`, `headers` (case-insensitive, `getlist()` for
+  all values), `content` (bytes), `text` and `json()`, which parses the body
+  whatever its media type.
+- Redirects aren't followed unless you pass `follow_redirects=True`, to the
+  client or a request.
+- The client keeps no cookies between requests; send them as `Cookie` headers.
+
+### Requests without HTTP
+
+For unit tests of code that reads the request via `foca.context` and
+`foca.security.auth`, e.g., helpers of controllers, `foca.testing.request_context`
+sets up a request without sending it:
+
+```python
+from foca.context import current_request
+from foca.security.auth import current_token_info
+from foca.testing import request_context
+
+with request_context(
+    "/pets/1?view=full",
+    "PUT",
+    headers={"X-Request-ID": "abc"},
+    token_info={"sub": "alice"},
+    app=app,
+):
+    assert current_request().query["view"] == "full"
+    assert current_token_info() == {"sub": "alice"}
+```
+
+It takes the path (with a query string, if any), method, headers and the token
+info that Connexion would have validated, and as keywords the app (an empty one
+by default), further `params`, the `root_path` of the app and the
+`client_address`. Code in the block sees the app's configuration, but no route,
+security check or controller runs.
 
 ## Tokens from a local identity provider
 
@@ -51,25 +128,26 @@ depends neither on pytest nor on a test client:
 import pytest
 
 from foca import Foca
+from foca.testing import Client
 from foca.testing.issuer import Issuer
 
 
 @pytest.fixture
-def client(issuer, mongodb, monkeypatch, tmp_path):
+def foca_app(issuer, mongodb, monkeypatch, tmp_path):
     # Your configuration, trusting the local identity provider
     overlay = tmp_path / "overlay.yaml"
     overlay.write_text(f"security:\n  auth:\n    issuers:\n      - {issuer.url}\n")
     monkeypatch.setenv("FOCA_CONFIG_OVERLAY", str(overlay))
-    return Foca(config_file="config.yaml").create_app().app.test_client()
+    return Foca(config_file="config.yaml").create_app()
 
 
-def test_audience_is_checked(client, issuer: Issuer) -> None:
+def test_audience_is_checked(foca_client: Client, issuer: Issuer) -> None:
     token = issuer.token(sub="alice", aud="my-app", groups=["admins"])
-    response = client.get("/pets", headers={"Authorization": f"Bearer {token}"})
+    response = foca_client.get("/pets", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
 
     token = issuer.token(sub="alice", aud="another-app")
-    response = client.get("/pets", headers={"Authorization": f"Bearer {token}"})
+    response = foca_client.get("/pets", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 401
 ```
 
