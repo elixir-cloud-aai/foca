@@ -19,7 +19,7 @@ from pymongo.errors import PyMongoError
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from foca import audit, context
-from foca.config.access import set_app_config
+from foca.config.access import _set_app_config
 from foca.context import RequestIdMiddleware
 from foca.models.config import AccessControlConfig, Config, LogConfig, MongoConfig
 from foca.security.access_control import ownership
@@ -137,7 +137,7 @@ def permissions_app(collection: Collection[dict[str, Any]]) -> Flask:
     config.db.dbs[access_control.db_name].collections[  # type: ignore[union-attr,index]  # set in the config
         access_control.collection_name
     ].client = collection
-    set_app_config(app, config)
+    _set_app_config(app, config)
     app.config["CASBIN_MODEL"] = access_control.model
     app.config["casbin_adapter"] = Adapter(collection=collection)
     return app

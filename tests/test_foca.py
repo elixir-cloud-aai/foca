@@ -16,6 +16,7 @@ from yaml import (
     safe_load,
 )
 
+import foca as foca_package
 from foca import Foca
 from foca.config.access import _get_app_config
 from foca.models.config import AccessControlConfig, CORSConfig
@@ -360,6 +361,21 @@ def test_foca_create_celery_app() -> None:
     assert app.conf.foca is foca.conf
     jobs = foca.conf.jobs
     assert app.conf.broker_url == f"pyamqp://{jobs.host}:{jobs.port}//"
+
+
+def test_foca_apps_not_deprecated(recwarn: pytest.WarningsRecorder) -> None:
+    """FOCA creates apps with CORS and Celery apps without deprecated calls."""
+    foca = Foca(config_file=JOBS_CONF)
+    assert foca.conf.security.cors.enabled
+    foca.create_app()
+    foca.create_celery_app()
+    package = str(Path(foca_package.__file__).parent)
+    assert not [
+        warning
+        for warning in recwarn
+        if issubclass(warning.category, DeprecationWarning)
+        and warning.filename.startswith(package)
+    ]
 
 
 def test_foca_create_celery_app_without_jobs_field() -> None:

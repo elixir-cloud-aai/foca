@@ -9,7 +9,7 @@ from celery.signals import worker_init, worker_process_init
 from pydantic import ValidationError
 
 from foca.factories import celery_app as module
-from foca.factories.celery_app import create_celery_app
+from foca.factories.celery_app import _create_celery_app, create_celery_app
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, JobsConfig, MongoConfig, PeriodicJobConfig
 
@@ -34,7 +34,7 @@ def logged(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def test_create_celery_app(logged: list[str]) -> None:
     """Test Connexion app creation."""
     cnx_app = create_connexion_app(CONFIG)
-    cel_app = create_celery_app(cnx_app.app)
+    cel_app = _create_celery_app(cnx_app.app)
     assert isinstance(cel_app, Celery)
     assert cel_app.conf.foca == CONFIG
     assert cel_app.conf.broker_url == "pyamqp://rabbitmq:5672//"
@@ -51,7 +51,7 @@ def test_broker_env_vars(logged: list[str], monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("CELERY_BROKER_URL", broker)
     monkeypatch.setenv("CELERY_RESULT_BACKEND", backend)
     cnx_app = create_connexion_app(CONFIG)
-    cel_app = create_celery_app(cnx_app.app)
+    cel_app = _create_celery_app(cnx_app.app)
     assert cel_app.conf.broker_url == broker
     assert cel_app.conf.result_backend == backend
     assert "secret" not in " ".join(logged)
@@ -62,11 +62,22 @@ def test_broker_env_vars(logged: list[str], monkeypatch: pytest.MonkeyPatch) -> 
     ) in logged
 
 
+def test_create_celery_app_deprecated(logged: list[str]) -> None:
+    """Celery apps are created from Flask apps, deprecated."""
+    cnx_app = create_connexion_app(CONFIG)
+    with pytest.deprecated_call(match="Foca.create_celery_app") as record:
+        cel_app = create_celery_app(cnx_app.app)
+    assert record[0].filename == __file__
+    assert isinstance(cel_app, Celery)
+    assert cel_app.conf.foca == CONFIG
+    assert cel_app.conf.broker_url == "pyamqp://rabbitmq:5672//"
+
+
 def test_create_celery_app_without_jobs(logged: list[str]) -> None:
     """Background tasks need to be configured."""
     cnx_app = create_connexion_app(Config())
     with pytest.raises(ValueError):
-        create_celery_app(cnx_app.app)
+        _create_celery_app(cnx_app.app)
 
 
 def test_worker_signals_reopen_mongodb(
@@ -76,7 +87,7 @@ def test_worker_signals_reopen_mongodb(
     reopen = MagicMock()
     monkeypatch.setattr(module, "reopen_mongodb", reopen)
     config = Config(jobs=JobsConfig(), db=MongoConfig())
-    create_celery_app(create_connexion_app(config).app)
+    _create_celery_app(create_connexion_app(config).app)
     for signal in (worker_init, worker_process_init):
         reopen.reset_mock()
         signal.send(sender=None)
@@ -90,7 +101,7 @@ def test_no_database_no_signals(
     connected = MagicMock()
     monkeypatch.setattr(worker_init, "connect", connected)
     monkeypatch.setattr(worker_process_init, "connect", connected)
-    create_celery_app(create_connexion_app(CONFIG).app)
+    _create_celery_app(create_connexion_app(CONFIG).app)
     connected.assert_not_called()
 
 
@@ -102,8 +113,8 @@ def test_worker_signals_reopen_once_per_config(
     monkeypatch.setattr(module, "reopen_mongodb", reopen)
     config = Config(jobs=JobsConfig(), db=MongoConfig())
     app = create_connexion_app(config).app
-    create_celery_app(app)
-    create_celery_app(app)
+    _create_celery_app(app)
+    _create_celery_app(app)
     worker_process_init.send(sender=None)
     calls = [call for call in reopen.call_args_list if call.args[0] is config.db]
     assert len(calls) == 1
@@ -125,7 +136,7 @@ def test_periodic_jobs(logged: list[str]) -> None:
             }
         }
     )
-    schedule = create_celery_app(create_connexion_app(config).app).conf.beat_schedule
+    schedule = _create_celery_app(create_connexion_app(config).app).conf.beat_schedule
     assert schedule["often"] == {
         "task": "a.b",
         "schedule": 60.0,
@@ -140,7 +151,7 @@ def test_periodic_jobs(logged: list[str]) -> None:
 
 def test_no_periodic_jobs(logged: list[str]) -> None:
     """Without periodic jobs, the schedule is empty."""
-    assert create_celery_app(create_connexion_app(CONFIG).app).conf.beat_schedule == {}
+    assert _create_celery_app(create_connexion_app(CONFIG).app).conf.beat_schedule == {}
 
 
 @pytest.mark.parametrize(
@@ -159,7 +170,7 @@ def test_periodic_job_invalid_cron(logged: list[str], cron: dict[str, str]) -> N
         {"periodic": {"my-job": {"task": "a.b", "cron": cron}}}
     )
     with pytest.raises(ValueError, match="'my-job'"):
-        create_celery_app(create_connexion_app(config).app)
+        _create_celery_app(create_connexion_app(config).app)
 
 
 def test_periodic_job_numbers_in_cron() -> None:

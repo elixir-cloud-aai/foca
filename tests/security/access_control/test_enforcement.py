@@ -25,7 +25,7 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 
 from foca.api.register_openapi import register_openapi
-from foca.config.access import _get_app_config, set_app_config
+from foca.config.access import _get_app_config, _set_app_config
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -1120,7 +1120,7 @@ def helper_app() -> Flask:
             access_control=_access_control_config(),
         ),
     )
-    set_app_config(app, conf)
+    _set_app_config(app, conf)
     adapter = Adapter(collection=mongomock.MongoClient()[DB_NAME][COLLECTION_NAME])
     app.config["CASBIN_MODEL"] = _model_path()
     app.config["casbin_adapter"] = adapter

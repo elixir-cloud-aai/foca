@@ -79,6 +79,16 @@ def test_get_app_config() -> None:
         access.get_app_config(Flask(__name__))
 
 
+def test_set_app_config() -> None:
+    """Configuration is attached to a Flask app, deprecated."""
+    config = Config()
+    app = Flask(__name__)
+    with pytest.deprecated_call(match="set_app_config") as record:
+        access.set_app_config(app, config)
+    assert record[0].filename == __file__
+    assert access._get_app_config(app) is config
+
+
 def test_internal_app_config(recwarn: pytest.WarningsRecorder) -> None:
     """FOCA's own access to the configuration of an app isn't deprecated."""
     config = Config()
@@ -144,7 +154,7 @@ def test_config_attribute_class_reused() -> None:
     first = create_connexion_app(Config()).app
     second = create_connexion_app(Config()).app
     assert type(first.config) is type(second.config)
-    access.set_app_config(first, Config())
+    access._set_app_config(first, Config())
     assert type(first.config) is type(second.config)
 
 
@@ -161,7 +171,7 @@ def test_custom_config_class(recwarn: pytest.WarningsRecorder) -> None:
 
     app = App(__name__)
     config = Config()
-    access.set_app_config(app, config)
+    access._set_app_config(app, config)
     assert type(app.config) is AppConfig
     assert app.config.foca is config  # type: ignore[attr-defined]  # dynamic attribute
     assert access._get_app_config(app) is config

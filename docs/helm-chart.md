@@ -967,7 +967,9 @@ broker's NetworkPolicy admits Flower through `<app>-broker-from-flower`.
   production](deployment.md#running-in-production) for the settings, why
   they are set, and how to override them); omit them if the image does not
   run Gunicorn. Options that the chart or FOCA rely on (`--bind`,
-  `--preload`, `--graceful-timeout`) are rejected. As the root file system
+  `--preload`, `--graceful-timeout`) are rejected. `gunicorn.threads` is
+  planned to go away in FOCA's ASGI release (see [Preparing for the ASGI
+  release](preparing-for-asgi.md#deployment)). As the root file system
   is read-only, start Gunicorn without a control socket: FOCA's settings
   disable it (as in the petstore example); otherwise, pass
   `--no-control-socket` in the image or via `extraArgs`, as Gunicorn 25.1

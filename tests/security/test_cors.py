@@ -1,24 +1,29 @@
 """Unit test for security.cors.py."""
 
+from collections.abc import Callable
+
 import pytest
 from flask import Flask
 from pydantic import ValidationError
 
 from foca.models.config import CORSConfig
-from foca.security.cors import enable_cors
+from foca.security.cors import _enable_cors, enable_cors
 from foca.testing import Client
 
 ORIGIN = "https://example.org"
 
 
-def _app(conf: CORSConfig | None = None) -> Flask:
+def _app(
+    conf: CORSConfig | None = None,
+    enable: Callable[[Flask, CORSConfig | None], None] = _enable_cors,
+) -> Flask:
     app = Flask(__name__)
 
     @app.route("/items", methods=["GET", "POST"])
     def items() -> str:
         return "ok"
 
-    enable_cors(app, conf)
+    enable(app, conf)
     return app
 
 
@@ -71,3 +76,15 @@ def test_credentials_any_origin(origins: list[str]) -> None:
     """Credentials must not be allowed for any origin."""
     with pytest.raises(ValidationError):
         CORSConfig(allow_origins=origins, allow_credentials=True)
+
+
+def test_enable_cors_deprecated() -> None:
+    """CORS is enabled for a Flask app, deprecated."""
+    with pytest.deprecated_call(match="security.cors") as record:
+        app = _app(CORSConfig(allow_origins=[ORIGIN]), enable=enable_cors)
+    assert record[0].filename == __file__
+    client = Client(app)
+    response = client.get("/items", headers={"Origin": ORIGIN})
+    assert response.headers["Access-Control-Allow-Origin"] == ORIGIN
+    response = client.get("/items", headers={"Origin": "https://other.org"})
+    assert "Access-Control-Allow-Origin" not in response.headers

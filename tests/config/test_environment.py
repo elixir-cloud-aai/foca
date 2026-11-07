@@ -9,11 +9,11 @@ from flask import Flask
 from pydantic import SecretStr, ValidationError
 from pymongo import MongoClient
 
-from foca.config.access import set_app_config
+from foca.config.access import _set_app_config
 from foca.config.config_parser import ConfigParser
 from foca.config.environment import get_env, interpolate
 from foca.database.register_mongodb import _get_client_options, get_mongo_uri
-from foca.factories.celery_app import create_celery_app
+from foca.factories.celery_app import _create_celery_app
 from foca.models.config import (
     CollectionConfig,
     Config,
@@ -344,8 +344,8 @@ class TestUses:
             Configuration of the Celery app.
         """
         app = Flask(__name__)
-        set_app_config(app, Config(jobs=JobsConfig(**jobs)))
-        return create_celery_app(app).conf
+        _set_app_config(app, Config(jobs=JobsConfig(**jobs)))
+        return _create_celery_app(app).conf
 
     def test_celery_files(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
