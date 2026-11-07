@@ -264,8 +264,8 @@ def _reject_constant(name: str) -> None:
         name: Constant.
 
     Raises:
-        ValueError: Always; the message doesn't quote the constant, as for all
-            values of clients.
+        ValueError: Always (a private subclass, for FOCA's own checks); the
+            message doesn't quote the constant, as for all values of clients.
     """
     raise _JsonCheckError("NaN, Infinity and -Infinity are not allowed")
 
@@ -404,7 +404,7 @@ def _describe_step_error(index: int, exc: ValidationError) -> str:
     return f"{location} ({error['type']})"
 
 
-def _first_error(exc: BaseException, reasons: bool = False) -> str:
+def _first_error(exc: BaseException, *, reasons: bool = False) -> str:
     """Describe a parsing error briefly, for clients.
 
     Args:

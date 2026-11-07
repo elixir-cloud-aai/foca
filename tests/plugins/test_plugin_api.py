@@ -348,7 +348,7 @@ def test_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
         body = response.get_json()
         assert body["status"] == 404
         assert body["problem_type"].endswith("#plugin-not-found")
-        assert "test.skip" not in body["detail"]
+        assert body["detail"] == "Plugin not available: path parameter 'plugin_id'"
     host.close()
 
 

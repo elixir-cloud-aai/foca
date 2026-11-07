@@ -437,6 +437,27 @@ class TestPutPermission:
             unwrap(putPermission)(id=MOCK_ID, body=deepcopy(payload))
         assert collection.count_documents({}) == 0
 
+    def test_invalid_values_not_logged(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Values of invalid rules are logged at DEBUG only.
+
+        Neither in messages at INFO or above nor in the exception's cause.
+        """
+        payload = {"policy_type": "s3cr3t", "rule": {"v0": "a", "v1": "b"}}
+        with (
+            caplog.at_level("DEBUG"),
+            request_context(app=app),
+            pytest.raises(BadRequest) as exc_info,
+        ):
+            unwrap(putPermission)(id=MOCK_ID, body=payload)
+        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__suppress_context__
+        infos = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
+        assert "Invalid policy rule rejected" in infos
+        assert not any("s3cr3t" in message for message in infos)
+        assert "s3cr3t" in caplog.text
+
 
 class TestLogging:
     """Tests for logging identifiers taken from requests."""

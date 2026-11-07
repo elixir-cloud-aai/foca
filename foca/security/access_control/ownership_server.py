@@ -287,7 +287,7 @@ def _put_role(
     except ValueError as exc:
         # The resource may have been deleted since it was checked
         if not _is_manageable(resource, exists):
-            raise NotFound from exc
+            raise NotFound from None
         # The role and the subject are the client's values, which may be
         # invalid, so they are logged at DEBUG only
         logger.info(
@@ -477,11 +477,12 @@ def putGroupRole(
     """
     group = _get_subject()
     if group not in get_current_group_values() and not is_admin():
+        # The group is the client's value, so it is logged at DEBUG only
         logger.info(
-            "Role not granted to %s by %s: not a member of the group",
-            _describe("group", group),
+            "Role not granted to a group by %s: not a member of the group",
             _describe_caller(),
         )
+        logger.debug("Role not granted to %s", _describe("group", group))
         raise Forbidden
     return _put_role(group, "group", body, exists)
 

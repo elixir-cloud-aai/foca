@@ -295,9 +295,10 @@ invalid.` If your app passes the user (e.g., from a body field), check the
 field yourself and raise `InvalidFieldsProblem` to name it.
 
 FOCA also logs fewer values of clients at `INFO` and above: rejected users
-acted for, invalid identifiers of policy rules (`PUT /permissions/{id}`),
-and the role and subject of refused role grants are no longer logged there
-(the latter at `DEBUG` only). Update log checks that look for them.
+acted for, invalid identifiers and values of policy rules (`PUT
+/permissions/{id}`), and the role and subject of refused role grants are no
+longer logged there (values of rules and of role grants at `DEBUG` only).
+Update log checks that look for them.
 
 ### Plugin gateway messages
 

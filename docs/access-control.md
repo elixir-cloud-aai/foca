@@ -1303,8 +1303,10 @@ def PutTaskUserRole(id, userId, body, **kwargs):
             exists=lambda: tasks.count_documents({"id": id}) > 0,
         )
     except ValueError as exc:
-        # messages may name configuration options, so they are only logged
-        logger.info("Role not granted: %s", exc)
+        # messages may name configuration options and quote the role and
+        # the user, so they are logged at DEBUG only
+        logger.info("Role not granted")
+        logger.debug("Role not granted: %s", exc)
         raise InvalidFieldsProblem(
             [
                 FieldError(

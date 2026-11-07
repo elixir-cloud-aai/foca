@@ -185,8 +185,11 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
                 "instead"
             )
     except ValueError as exc:
-        logger.error("Invalid rule: %s", exc)
-        raise BadRequest from exc
+        # Messages quote the client's values, so they are logged at DEBUG
+        # only, and not chained into the traceback that may be logged
+        logger.error("Invalid policy rule rejected")
+        logger.debug("Invalid rule: %s", escape_log_value(exc))
+        raise BadRequest from None
     return str(ptype), values
 
 

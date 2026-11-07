@@ -996,11 +996,23 @@ class TestGroupRoles:
         assert response.json() == "ops/team"
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
 
-    def test_not_member(self, app: Flask) -> None:
-        """Owners may only grant roles to groups they are members of."""
+    def test_not_member(self, app: Flask, caplog: pytest.LogCaptureFixture) -> None:
+        """Owners may only grant roles to groups they are members of.
+
+        The group, a value of the client, is logged at DEBUG only.
+        """
         path = f"{TASK}/permissions/groups/auditors"
-        assert _call(app, "put", path, "alice", "maintainer").status_code == 403
+        with caplog.at_level("DEBUG", logger="foca"):
+            assert _call(app, "put", path, "alice", "maintainer").status_code == 403
         assert _roles(app) == [ResourceRole("user", "alice", "owner")]
+        refused = [r for r in caplog.records if "not granted" in r.getMessage()]
+        assert any(
+            r.levelno == logging.INFO and "auditors" not in r.getMessage()
+            for r in refused
+        )
+        assert any(
+            r.levelno == logging.DEBUG and "auditors" in r.getMessage() for r in refused
+        )
 
     def test_owner_without_groups(self, app: Flask) -> None:
         """Owners without group claim may not grant roles to groups."""

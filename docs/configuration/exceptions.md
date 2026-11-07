@@ -197,11 +197,14 @@ exceptions, including `RequestValidationProblem` that FOCA (e.g., access
 control) or your app raise; raise `InvalidFieldsProblem` to tell clients
 which fields are invalid. Errors of the plugin gateway's selection of
 pipelines and backends aren't request validation; their messages name
-fields, settings and the positions of steps, never the client's values (see
-[per-request choices](../plugins.md#per-request-pipelines-and-backends)).
-The option only decides whether errors of the JSON parser itself on a
-client's pipeline (e.g., on integers with too many digits) are passed on:
-by default, they are described as `Invalid pipeline: JSON cannot be parsed`.
+fields, settings and the positions of steps, by default never the client's
+values (see [per-request
+choices](../plugins.md#per-request-pipelines-and-backends)). The gateway
+uses `validation_reasons` alone (also without `validation_details`) to
+decide whether errors of the JSON parser itself on a client's pipeline
+(e.g., on integers with too many digits), which may describe the value, are
+passed on; by default, they are described as `Invalid pipeline: JSON cannot
+be parsed`.
 
 A response to a body whose `name` is too long, by default:
 

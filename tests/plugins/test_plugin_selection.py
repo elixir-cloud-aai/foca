@@ -3,6 +3,8 @@
 import json
 import logging
 import random
+import sys
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -845,6 +847,16 @@ def test_reserved_tag_message_quotes_no_key() -> None:
 _DIGITS = "Exceeds the limit"
 
 
+@pytest.fixture
+def digit_limit() -> Iterator[None]:
+    """Set Python's default limit of digits of integers, for the test."""
+    previous = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(4300)
+    yield
+    sys.set_int_max_str_digits(previous)
+
+
+@pytest.mark.usefixtures("digit_limit")
 @pytest.mark.parametrize("reasons", [False, True])
 def test_parser_errors_quote_nothing_by_default(reasons: bool) -> None:
     """Errors of the JSON parser itself are named only with validation reasons.
