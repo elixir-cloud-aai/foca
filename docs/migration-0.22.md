@@ -71,6 +71,7 @@ configuration to:
 | --- | --- |
 | `current_app.config.foca`, `app.config.foca` | `get_config()`, in the app context of the app if it isn't the current one |
 | `foca.config.access.get_app_config(app)` | `get_config()`, as above |
+| `foca.config.access.set_app_config(app, config)` | Nothing for apps that FOCA creates; for scripts, see [Preparing for the ASGI release](preparing-for-asgi.md#configuration) |
 | `current_app.config.foca.custom` | `get_custom_config(MyCustomConfig)`, typed |
 | Setting `app.config.foca` | Change the configuration that `get_config()` returns, e.g., `get_config().db = ...` |
 

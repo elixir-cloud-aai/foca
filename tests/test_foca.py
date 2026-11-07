@@ -16,6 +16,7 @@ from yaml import (
     safe_load,
 )
 
+import foca as foca_package
 from foca import Foca
 from foca.config.access import _get_app_config
 from foca.models.config import AccessControlConfig, CORSConfig
@@ -368,11 +369,12 @@ def test_foca_apps_not_deprecated(recwarn: pytest.WarningsRecorder) -> None:
     assert foca.conf.security.cors.enabled
     foca.create_app()
     foca.create_celery_app()
+    package = str(Path(foca_package.__file__).parent)
     assert not [
         warning
         for warning in recwarn
         if issubclass(warning.category, DeprecationWarning)
-        and "foca" in str(warning.message).lower()
+        and warning.filename.startswith(package)
     ]
 
 

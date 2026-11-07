@@ -6,8 +6,9 @@ release: it removes nothing, warns about what it can, and adds replacements
 that already work on Connexion 2. FOCA's functions that take a Flask app warn
 when called; Flask's own objects (e.g., `flask.request` or `make_response()`)
 can't warn, so FOCA's ast-grep rule reports their imports instead (see
-[Finding what still has to move](#finding-what-still-has-to-move)). Move your app to them now, on
-FOCA 0.22, so that the upgrade to the ASGI release is mostly a version bump.
+[Finding what still has to move](#finding-what-still-has-to-move)). Move your
+app to the replacements now, on FOCA 0.22, so that the upgrade to the ASGI
+release is mostly a version bump.
 
 FOCA keeps a `0.22.x` branch with dependency and security fixes while apps
 migrate.
@@ -93,7 +94,7 @@ from foca.security.auth import current_claims
 
 def get_whoami():
     return {
-        "sub": current_claims().get("sub"),
+        "sub": current_claims().get("sub"),  # None without a token
         "ua": current_request().headers.get("User-Agent"),
     }
 ```
@@ -253,9 +254,9 @@ Two checks together find what still has to move:
 - **FOCA's ast-grep rule `flask-import`**, which reports imports of Flask and
   its extensions, Werkzeug, Connexion's Flask modules, and Connexion's
   `request` and `context`, i.e., uses of Flask's own objects, which can't warn
-  (see [Finding Flask imports](migration-0.22.md#finding-flask-imports)). The rule has the severity
-`warning` in FOCA 0.22; set it to `error` in your copy when you move to the
-ASGI release.
+  (see [Finding Flask imports](migration-0.22.md#finding-flask-imports)).
+  The rule has the severity `warning` in FOCA 0.22; set it to `error` in your
+  copy when you move to the ASGI release.
 
 Werkzeug stays installed, as Connexion 3 depends on it, but apps must not
 import it: its classes are not part of FOCA's API in the ASGI release.
