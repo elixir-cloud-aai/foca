@@ -181,6 +181,15 @@ def test_worker_signals_reopen_despite_errors(
     assert "MongoDB client of mongodb:27017 could not be reopened" in caplog.text
 
 
+def test_lock_reset_after_fork() -> None:
+    """Forked processes get a lock of their own, as threads may hold it."""
+    lock = module._databases_lock
+    with lock:
+        module._reset_lock()
+        assert module._databases_lock is not lock
+        assert not module._databases_lock.locked()
+
+
 def test_periodic_jobs(logged: list[str]) -> None:
     """Periodic jobs are set as the schedule of Celery beat."""
     config = Config()

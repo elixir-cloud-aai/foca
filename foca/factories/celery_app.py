@@ -1,6 +1,8 @@
 """Factory for creating and configuring Celery application instances."""
 
 import logging
+import os
+import threading
 import weakref
 from datetime import UTC, datetime
 from typing import Any
@@ -29,6 +31,18 @@ _databases: "weakref.WeakValueDictionary[int, MongoConfig]" = (
 )
 """Database configurations of the Celery apps, by `id()`, while alive."""
 
+_databases_lock = threading.Lock()
+"""Lock of :py:data:`_databases`, which apps may be added to while it is read."""
+
+
+def _reset_lock() -> None:
+    """Replace the lock in a forked process, as another thread may hold it."""
+    global _databases_lock  # noqa: PLW0603 (module state, per process)
+    _databases_lock = threading.Lock()
+
+
+os.register_at_fork(after_in_child=_reset_lock)
+
 
 def _reopen_clients(**kwargs: Any) -> None:
     """Replace the MongoDB clients of the Celery apps around worker forks.
@@ -43,7 +57,9 @@ def _reopen_clients(**kwargs: Any) -> None:
     Args:
         **kwargs: Arguments of the signal; ignored.
     """
-    for db in list(_databases.values()):
+    with _databases_lock:
+        databases = list(_databases.values())
+    for db in databases:
         try:
             reopen_mongodb(db)
         except Exception:
@@ -58,7 +74,8 @@ def _reopen_around_forks(db: MongoConfig) -> None:
     Args:
         db: Database configuration; held weakly (cf. :py:func:`_reopen_clients`).
     """
-    _databases[id(db)] = db
+    with _databases_lock:
+        _databases[id(db)] = db
     # `worker_init`: before the worker forks its processes, so that it forks
     # without the clients' threads; `worker_process_init`: in each of them,
     # as the worker may have used the clients since (it replaces processes
