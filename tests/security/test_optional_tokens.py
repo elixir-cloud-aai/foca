@@ -24,6 +24,7 @@ from foca.models.config import Config, SpecConfig
 from foca.security import auth
 from foca.security.access_control import get_current_subject
 from foca.security.auth import InvalidTokenResolver, _reject_invalid_token
+from foca.testing import Client, request_context
 
 ISSUER = "https://idp.example.org"
 DISCOVERY_URI = f"{ISSUER}/.well-known/openid-configuration"
@@ -188,7 +189,7 @@ def _app(tmp_path: Path, reject: bool) -> Flask:
 def _get(app: Flask, path: str, header: str | None) -> Any:
     """Send a request with an `Authorization` header, if any."""
     headers = {} if header is None else {"Authorization": header}
-    return app.test_client().get(path, headers=headers)
+    return Client(app).get(path, headers=headers)
 
 
 class TestOptionalTokens:
@@ -202,7 +203,7 @@ class TestOptionalTokens:
         """Requests without a token stay anonymous."""
         response = _get(_app(tmp_path, reject), path, None)
         assert response.status_code == 200
-        assert response.get_json() is None
+        assert response.json() is None
 
     @pytest.mark.parametrize("path", ["/optional", "/empty-first"])
     @pytest.mark.parametrize("reject", [True, False])
@@ -212,14 +213,14 @@ class TestOptionalTokens:
         """Other schemes than `Bearer` aren't tokens."""
         response = _get(_app(tmp_path, reject), path, "Basic abc")
         assert response.status_code == 200
-        assert response.get_json() is None
+        assert response.json() is None
 
     @pytest.mark.parametrize("reject", [True, False])
     def test_valid(self, idp: MagicMock, tmp_path: Path, reject: bool) -> None:
         """Valid tokens identify the caller."""
         response = _get(_app(tmp_path, reject), "/optional", f"Bearer {_token()}")
         assert response.status_code == 200
-        assert response.get_json() == "alice"
+        assert response.json() == "alice"
 
     def test_valid_empty_requirement_first(
         self, idp: MagicMock, tmp_path: Path
@@ -227,7 +228,7 @@ class TestOptionalTokens:
         """Valid tokens are accepted, but Connexion leaves the caller anonymous."""
         response = _get(_app(tmp_path, True), "/empty-first", f"Bearer {_token()}")
         assert response.status_code == 200
-        assert response.get_json() is None
+        assert response.json() is None
 
     def test_scheme_in_any_case(self, idp: MagicMock, tmp_path: Path) -> None:
         """The scheme is case-insensitive."""
@@ -267,7 +268,7 @@ class TestOptionalTokens:
             _app(tmp_path, False), "/optional", f"Bearer {_token(**claims)}"
         )
         assert response.status_code == 200
-        assert response.get_json() is None
+        assert response.json() is None
 
     @pytest.mark.parametrize("header", ["Bearer", "Bearer  ", "Bearer not-a-jwt"])
     def test_malformed_rejected(
@@ -288,7 +289,7 @@ class TestOptionalTokens:
         with caplog.at_level(logging.INFO, logger=auth.logger.name):
             response = _get(_app(tmp_path, True), "/optional", f"Bearer {_token()}")
         assert response.status_code == 200
-        assert response.get_json() is None
+        assert response.json() is None
         assert "handled as anonymous" in caplog.text
 
     def test_identity_provider_unavailable_empty_requirement_first(
@@ -320,7 +321,7 @@ class TestOptionalTokens:
         self, idp: MagicMock, tmp_path: Path
     ) -> None:
         """Another accepted scheme doesn't excuse an invalid token."""
-        client = _app(tmp_path, True).test_client()
+        client = Client(_app(tmp_path, True))
         headers = {"X-Key": "key", "Authorization": "Bearer invalid"}
         assert client.get("/both", headers=headers).status_code == 401
         assert client.get("/both", headers={"X-Key": "key"}).status_code == 200
@@ -460,7 +461,7 @@ def test_raw_unauthorized_of_validation(exception: Any, kept: bool) -> None:
     wrapped = _reject_invalid_token(lambda: "served")
     app = Flask(__name__)
     with (
-        app.test_request_context(headers={"Authorization": "Bearer t"}),
+        request_context(headers={"Authorization": "Bearer t"}, app=app),
         mock.patch("foca.security.auth.validate_token", side_effect=exception),
     ):
         if kept:

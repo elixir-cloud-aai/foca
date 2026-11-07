@@ -33,6 +33,7 @@ from foca.security.access_control.enforcement import (
     locked_enforcer,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.testing import request_context
 
 ISSUER = "https://login.example.org/oidc/"
 OTHER_ISSUER = "https://other.example.org/"
@@ -96,7 +97,7 @@ def request(
     headers: dict[str, str] | None = None,
 ) -> Iterator[None]:
     """Request context with token info as set by Connexion."""
-    with app.test_request_context(path, method=method, headers=headers):
+    with request_context(path, method=method, headers=headers, app=app):
         request_ctx.connexion_context = (  # type: ignore[attr-defined]  # set by Connexion
             {} if claims is None else {"token_info": {"claims": claims}}
         )

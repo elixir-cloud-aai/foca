@@ -4,10 +4,10 @@ import sys
 from pathlib import Path
 
 import pytest
-from flask.testing import FlaskClient
 from pymongo import MongoClient
 
 from foca import Foca
+from foca.testing import Client
 from foca.testing.issuer import Issuer
 
 EXAMPLE_DIR = Path(__file__).parents[2] / "examples" / "petstore-access-control"
@@ -20,7 +20,7 @@ def client(
     mongodb: MongoClient[dict[str, object]],
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> FlaskClient:
+) -> Client:
     """Client of the example app, which trusts the local identity provider."""
     overlay = tmp_path / "overlay.yaml"
     overlay.write_text(f"security:\n  auth:\n    issuers:\n      - {issuer.url}\n")
@@ -29,7 +29,7 @@ def client(
     monkeypatch.syspath_prepend(str(EXAMPLE_DIR))
     for name in ("controllers", "exceptions"):
         monkeypatch.delitem(sys.modules, name, raising=False)
-    return Foca(config_file=EXAMPLE_DIR / "config.yaml").create_app().app.test_client()
+    return Client(Foca(config_file=EXAMPLE_DIR / "config.yaml").create_app())
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -44,13 +44,13 @@ def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_tokens_end_to_end(client: FlaskClient, issuer: Issuer) -> None:
+def test_tokens_end_to_end(client: Client, issuer: Issuer) -> None:
     """Tokens are validated as in production, audience included."""
     alice = _headers(issuer.token(sub="alice", aud=AUDIENCE))
     response = client.post("/pets", json={"name": "Rex"}, headers=alice)
     assert response.status_code == 200
-    assert response.json is not None
-    url = f"/pets/{response.json['id']}"
+    assert response.json() is not None
+    url = f"/pets/{response.json()['id']}"
 
     # The subject of the token is what the app uses for access control
     assert client.get(url, headers=alice).status_code == 200

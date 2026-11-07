@@ -12,12 +12,12 @@ from unittest import mock
 
 import pytest
 from celery.exceptions import TimeoutError as ResultTimeout
-from flask.testing import FlaskClient
 from kombu.exceptions import OperationalError
 
 from foca import Foca
 from foca.plugins import runtime
 from foca.plugins.pytest_plugin import RegisterPlugins
+from foca.testing import Client
 from tests.mock_data import MongoClients
 
 EXAMPLE_DIR = Path(__file__).parents[2] / "examples" / "gateway"
@@ -29,7 +29,7 @@ def client(
     monkeypatch: pytest.MonkeyPatch,
     mongo_clients: MongoClients,
     fake_plugin_entry_points: RegisterPlugins,
-) -> Iterator[FlaskClient]:
+) -> Iterator[Client]:
     """Client of the example app, with in-memory MongoDB and fake entry point."""
     monkeypatch.syspath_prepend(str(EXAMPLE_DIR))
     monkeypatch.syspath_prepend(str(EXAMPLE_DIR / "plugin"))
@@ -42,35 +42,33 @@ def client(
 
     fake_plugin_entry_points({PLUGIN: Stamp})
     foca = Foca(config_file=EXAMPLE_DIR / "config.yaml", gateway=GATEWAY)
-    yield foca.create_app().app.test_client()
+    yield Client(foca.create_app())
     runtime.reset()
 
 
-def test_message(client: FlaskClient) -> None:
+def test_message(client: Client) -> None:
     """The plugin stamps messages, counts them and keys them with the secret."""
     for count in (1, 2):
         response = client.post("/messages", json={"message": "hi"})
         assert response.status_code == 200
-        assert response.json is not None
-        payload = response.json["payload"]
+        assert response.json() is not None
+        payload = response.json()["payload"]
         assert payload["message"] == "hi"
         assert payload["stamp"] == "stamped by the plugin"
         assert payload["count"] == count
         assert payload["store_mode"] == "shared"
         assert payload["store_key"].startswith("hk:")
-        provenance = response.json["provenance"]
+        provenance = response.json()["provenance"]
         assert PLUGIN in provenance["plugins"].values()
         assert [item["outcome"] for item in provenance["attempts"]] == ["accepted"]
 
 
-def test_invalid_message(client: FlaskClient) -> None:
+def test_invalid_message(client: Client) -> None:
     """Requests that don't match the spec are refused."""
     assert client.post("/messages", json={"other": "x"}).status_code == 400
 
 
-def test_worker_not_answering(
-    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_worker_not_answering(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
     """A worker that doesn't answer in time gives 503, not an error in the logs."""
     import controllers  # noqa: PLC0415
 
@@ -79,12 +77,10 @@ def test_worker_not_answering(
     monkeypatch.setattr(controllers, "_celery_client", lambda: celery)
     response = client.post("/messages/worker", json={"message": "hi"})
     assert response.status_code == 503
-    assert response.json == {"title": "Service Unavailable", "status": 503}
+    assert response.json() == {"title": "Service Unavailable", "status": 503}
 
 
-def test_broker_not_reachable(
-    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_broker_not_reachable(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
     """A broker that can't be reached gives 503, too."""
     import controllers  # noqa: PLC0415
 
@@ -93,10 +89,10 @@ def test_broker_not_reachable(
     monkeypatch.setattr(controllers, "_celery_client", lambda: celery)
     response = client.post("/messages/worker", json={"message": "hi"})
     assert response.status_code == 503
-    assert response.json == {"title": "Service Unavailable", "status": 503}
+    assert response.json() == {"title": "Service Unavailable", "status": 503}
 
 
-def test_task(client: FlaskClient) -> None:
+def test_task(client: Client) -> None:
     """The task of the worker runs the pipeline, too."""
     from tasks import process_message  # noqa: PLC0415
 

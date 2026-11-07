@@ -8,10 +8,10 @@ from unittest import mock
 import mongomock
 import pytest
 from connexion.exceptions import OAuthProblem
-from flask.testing import FlaskClient
 
 from foca import Foca
 from foca.security import auth
+from foca.testing import Client
 from tests.mock_data import MongoClients
 
 EXAMPLE_DIR = Path(__file__).parents[2] / "examples" / "petstore-access-control"
@@ -40,29 +40,29 @@ def _headers(user: str | None, on_behalf_of: str | None = None) -> dict[str, str
     return headers
 
 
-def _add_pet(client: FlaskClient, user: str, **headers: str) -> str:
+def _add_pet(client: Client, user: str, **headers: str) -> str:
     """Add a pet as a user, returning its URL."""
     response = client.post(
         "/pets", json={"name": "Rex"}, headers={**_headers(user), **headers}
     )
     assert response.status_code == 200
-    assert response.json is not None
-    return f"/pets/{response.json['id']}"
+    assert response.json() is not None
+    return f"/pets/{response.json()['id']}"
 
 
-def _pet_ids(client: FlaskClient, user: str) -> list[int]:
+def _pet_ids(client: Client, user: str) -> list[int]:
     """List the identifiers of the pets a user sees."""
     response = client.get("/pets", headers=_headers(user))
     assert response.status_code == 200
-    assert response.json is not None
-    return [pet["id"] for pet in response.json]
+    assert response.json() is not None
+    return [pet["id"] for pet in response.json()]
 
 
 @pytest.fixture
 def client(
     monkeypatch: pytest.MonkeyPatch,
     mongo_clients: MongoClients,
-) -> FlaskClient:
+) -> Client:
     """Client of the example app.
 
     With in-memory MongoDB and stubbed token validation.
@@ -75,15 +75,15 @@ def client(
     monkeypatch.delenv("FOCA_CONFIG_OVERLAY", raising=False)
     monkeypatch.setattr(auth, "validate_token", mock_validate_token)
     app = Foca(config_file=EXAMPLE_DIR / "config.yaml").create_app()
-    return app.app.test_client()
+    return Client(app)
 
 
-def test_owners_manage_their_pets(client: FlaskClient) -> None:
+def test_owners_manage_their_pets(client: Client) -> None:
     """Owners can get and delete their pets; others get 403."""
     response = client.post("/pets", json={"name": "Rex"}, headers=_headers("alice"))
     assert response.status_code == 200
-    assert response.json is not None
-    pet_id = response.json["id"]
+    assert response.json() is not None
+    pet_id = response.json()["id"]
     url = f"/pets/{pet_id}"
 
     # users only list their own pets, and can't access others' pets
@@ -95,25 +95,25 @@ def test_owners_manage_their_pets(client: FlaskClient) -> None:
     # the owner may
     response = client.get(url, headers=_headers("alice"))
     assert response.status_code == 200
-    assert response.json is not None
-    assert response.json["name"] == "Rex"
+    assert response.json() is not None
+    assert response.json()["name"] == "Rex"
     assert client.delete(url, headers=_headers("alice")).status_code == 204
 
     # ownership is removed with the pet
     assert client.get(url, headers=_headers("alice")).status_code == 403
 
 
-def test_unauthenticated(client: FlaskClient) -> None:
+def test_unauthenticated(client: Client) -> None:
     """Requests without valid tokens are rejected with problem details."""
     for headers in [_headers(None), _headers("mallory")]:
         response = client.get("/pets", headers=headers)
         assert response.status_code == 401
-        assert response.mimetype == "application/problem+json"
-        assert response.json is not None
-        assert response.json["status"] == 401
+        assert response.headers["content-type"] == "application/problem+json"
+        assert response.json() is not None
+        assert response.json()["status"] == 401
 
 
-def test_owners_manage_roles(client: FlaskClient) -> None:
+def test_owners_manage_roles(client: Client) -> None:
     """Owners grant and revoke roles on their pets; others get 403."""
     url = _add_pet(client, "alice")
     bob = f"{url}/permissions/users/bob"
@@ -127,7 +127,7 @@ def test_owners_manage_roles(client: FlaskClient) -> None:
     # maintainers may get, but not delete pets
     response = client.put(bob, json={"role": "maintainer"}, headers=_headers("alice"))
     assert response.status_code == 200
-    assert response.json == {
+    assert response.json() == {
         "subject_type": "user",
         "subject": "bob",
         "role": "maintainer",
@@ -137,7 +137,7 @@ def test_owners_manage_roles(client: FlaskClient) -> None:
     assert client.delete(url, headers=_headers("bob")).status_code == 403
     response = client.get(f"{url}/permissions", headers=_headers("alice"))
     assert response.status_code == 200
-    assert response.json == [
+    assert response.json() == [
         {"subject_type": "user", "subject": "alice", "role": "owner"},
         {"subject_type": "user", "subject": "bob", "role": "maintainer"},
     ]
@@ -153,9 +153,7 @@ def test_owners_manage_roles(client: FlaskClient) -> None:
     assert response.status_code == 403
 
 
-def test_roles_on_deleted_pets(
-    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_roles_on_deleted_pets(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
     """Roles granted while a pet is deleted are revoked again."""
     url = _add_pet(client, "alice")
     # the pet is deleted while the role is granted
@@ -166,12 +164,12 @@ def test_roles_on_deleted_pets(
     response = client.put(bob, json={"role": "owner"}, headers=_headers("alice"))
     assert response.status_code == 404
     response = client.get(f"{url}/permissions", headers=_headers("alice"))
-    assert response.json == [
+    assert response.json() == [
         {"subject_type": "user", "subject": "alice", "role": "owner"}
     ]
 
 
-def test_service_client_acts_for_user(client: FlaskClient) -> None:
+def test_service_client_acts_for_user(client: Client) -> None:
     """Pets added by a service client for a user are owned by the user."""
     url = _add_pet(client, "pet-shop", **{"X-On-Behalf-Of": "bob"})
     assert client.get(url, headers=_headers("bob")).status_code == 200
@@ -183,7 +181,7 @@ def test_service_client_acts_for_user(client: FlaskClient) -> None:
     assert response.status_code == 403
 
 
-def test_pet_not_stored(client: FlaskClient) -> None:
+def test_pet_not_stored(client: Client) -> None:
     """Owners of pets that cannot be stored lose their role again."""
     failure = RuntimeError("database not available")
     with mock.patch.object(mongomock.Collection, "insert_one", side_effect=failure):

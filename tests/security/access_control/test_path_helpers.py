@@ -38,6 +38,7 @@ from foca.security.access_control.register_access_control import (
     register_access_control,
 )
 from foca.security.auth import _unauthorized
+from foca.testing import Client
 from foca.utils import urls
 from foca.utils.urls import (
     _RegisteredApi,
@@ -268,9 +269,9 @@ def _request(
         return original_preprocess()
 
     with mock.patch.object(app, "preprocess_request", _with_check):
-        response = app.test_client().get(path, headers=headers)
-    assert response.status_code == 200, response.get_data(as_text=True)
-    return response.get_json()
+        response = Client(app).get(path, headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
 class TestIsPermittedFor:
@@ -538,7 +539,7 @@ class TestGetApiBasePath:
             return wrapped(*args, **kwargs)
 
         original[endpoint] = _spy
-        response = app.test_client().get(
+        response = Client(app).get(
             "/admin/access-control/permissions",
             headers={"Authorization": "Bearer admin"},
         )
@@ -584,8 +585,8 @@ class TestGetApiBasePath:
         """Routes outside the APIs fall back to the API of the app."""
         app = _create_app(tmp_path, [PETS_SPEC])
         app.add_url_rule("/plain", view_func=lambda: jsonify(get_api_base_path()))
-        response = app.test_client().get("/plain")
-        assert response.get_json() == "/api/v1"
+        response = Client(app).get("/plain")
+        assert response.json() == "/api/v1"
 
 
 PETS_OPERATION = _operation("list_second")
@@ -800,8 +801,8 @@ class TestPermissionsApiSwitch:
             api_swagger_ui=True,
         )
         assert "Permission management API not registered" in caplog.text
-        assert app.test_client().get("/admin/access-control/ui/").status_code == 404
-        response = app.test_client().get(
+        assert Client(app).get("/admin/access-control/ui/").status_code == 404
+        response = Client(app).get(
             "/admin/access-control/permissions",
             headers={"Authorization": "Bearer admin"},
         )
@@ -826,7 +827,7 @@ class TestPermissionsApiSwitch:
         assert "/internal/roles/permissions" in rules
         assert "/admin/access-control/permissions" not in rules
         assert (
-            app.test_client()
+            Client(app)
             .get("/internal/roles/permissions", headers={"Authorization": "Bearer bob"})
             .status_code
             == 403

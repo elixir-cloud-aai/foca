@@ -6,6 +6,7 @@ import re
 import pytest
 from connexion.exceptions import Forbidden
 from flask import Flask, request
+from werkzeug.test import EnvironBuilder
 
 from foca.api.routes import Route, _add_route
 from foca.config.access import _get_app_config
@@ -16,6 +17,7 @@ from foca.plugins import Rejected, adapter
 from foca.plugins.engine import LoopDetected, PipelineRejected
 from foca.plugins.model import Principal
 from foca.security.access_control.enforcement import locked_enforcer
+from foca.testing import Client, request_context
 from tests.security.access_control.callers import (
     ADMINS,
     ALICE,
@@ -34,7 +36,7 @@ def test_request_id() -> None:
     app = Flask(__name__)
     assert re.fullmatch("[0-9a-f]{32}", adapter.request_id())
     assert adapter.request_id() != adapter.request_id()
-    with app.test_request_context():
+    with request_context(app=app):
         assert re.fullmatch("[0-9a-f]{32}", adapter.request_id())
     seen = []
 
@@ -48,13 +50,13 @@ def test_request_id() -> None:
     app.wsgi_app = RequestIdMiddleware(  # type: ignore[method-assign]
         wsgi_app, trust_incoming=True
     )
-    app.test_client().get("/", headers={"X-Request-ID": "abc-1"})
-    app.test_client().get("/", headers={"X-Request-ID": "a b"})
+    Client(app).get("/", headers={"X-Request-ID": "abc-1"})
+    Client(app).get("/", headers={"X-Request-ID": "a b"})
     assert seen[0] == "abc-1"
     assert len(seen[1]) == 32
 
     app.wsgi_app = RequestIdMiddleware(wsgi_app)  # type: ignore[method-assign]
-    app.test_client().get("/", headers={"X-Request-ID": "abc-1"})
+    Client(app).get("/", headers={"X-Request-ID": "abc-1"})
     assert re.fullmatch("[0-9a-f]{32}", seen[2])
 
 
@@ -71,15 +73,16 @@ def test_inbound_from_request() -> None:
         app,
         Route("POST", "/tasks/{task_id}", "/tasks/<task_id>", None, None, {}, view),
     )
-    with app.test_request_context(
+    with request_context(
         "/tasks/abc?view=FULL&view=BASIC&x=1",
         method="post",
-        json={"a": 1},
         headers={
+            "Content-Type": "application/json",
             "Authorization": "Bearer t",
             "Cookie": "c=1",
             "X-Request-ID": "r",
         },
+        app=app,
     ):
         app.preprocess_request()
         from flask import request  # noqa: PLC0415
@@ -100,10 +103,10 @@ def test_inbound_from_request() -> None:
     assert inbound.media_type == "application/json"
     assert inbound.payload == {"a": 1}
 
-    with app.test_request_context("/other", method="POST"):
+    with request_context("/other", method="POST", app=app):
         inbound = adapter.inbound_from_request(None, route="/other")
     assert inbound.route == "/other"
-    with app.test_request_context("/other", method="POST"):
+    with request_context("/other", method="POST", app=app):
         assert adapter.inbound_from_request(None).route == "/other"
 
 
@@ -116,7 +119,7 @@ def test_current_principal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapter, "get_current_roles", lambda: ["admin"])
     monkeypatch.setattr(adapter, "get_current_client", lambda: None)
     monkeypatch.setattr(adapter, "get_on_behalf_of_user", lambda: None)
-    with app.test_request_context(headers={"Authorization": "Bearer tok"}):
+    with request_context(headers={"Authorization": "Bearer tok"}, app=app):
         principal = adapter.current_principal()
     assert principal.subject == "a"
     assert principal.subject_type == "user"
@@ -125,20 +128,20 @@ def test_current_principal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert principal.claims == {"sub": "a", "iss": "i"}
     assert principal.token == "tok"  # noqa: S105
     monkeypatch.setattr(adapter, "get_current_claims", lambda: {"iss": 1})
-    with app.test_request_context(headers={"Authorization": "Basic x"}):
+    with request_context(headers={"Authorization": "Basic x"}, app=app):
         principal = adapter.current_principal()
     assert principal.token is None
     assert principal.issuer is None
     monkeypatch.setattr(adapter, "get_current_claims", lambda: {})
-    with app.test_request_context(headers={"Authorization": "Bearer unchecked"}):
+    with request_context(headers={"Authorization": "Bearer unchecked"}, app=app):
         assert adapter.current_principal().token is None
 
 
 def test_repeated_headers() -> None:
     """Repeated header fields are combined, in order."""
     app = Flask(__name__)
-    with app.test_request_context(
-        "/tasks", method="POST", headers=[("Via", "1.1 a"), ("via", "1.1 b")]
+    with request_context(
+        "/tasks", method="POST", headers=[("Via", "1.1 a"), ("via", "1.1 b")], app=app
     ):
         inbound = adapter.inbound_from_request(None, route="/tasks")
     assert inbound.headers["Via"] == "1.1 a, 1.1 b"
@@ -160,9 +163,10 @@ def test_repeated_headers() -> None:
 def test_query_as_werkzeug(query: bytes) -> None:
     """Query parameters are those that Werkzeug parses, in order."""
     app = Flask(__name__)
-    with app.test_request_context(
-        "/tasks", environ_overrides={"QUERY_STRING": query.decode("latin-1")}
-    ):
+    # As WSGI servers give query strings: decoded as Latin-1
+    environ = EnvironBuilder("/tasks").get_environ()
+    environ["QUERY_STRING"] = query.decode("latin-1")
+    with app.request_context(environ):
         expected = {key: request.args.getlist(key) for key in request.args}
         inbound = adapter.inbound_from_request(None, route="/tasks")
     assert inbound.query == expected
@@ -171,9 +175,9 @@ def test_query_as_werkzeug(query: bytes) -> None:
 def test_query_invalid_utf8() -> None:
     """Bytes that aren't UTF-8 stay percent-encoded."""
     app = Flask(__name__)
-    with app.test_request_context(
-        "/tasks", environ_overrides={"QUERY_STRING": "a=\xff%C3%A4"}
-    ):
+    environ = EnvironBuilder("/tasks").get_environ()
+    environ["QUERY_STRING"] = "a=\xff%C3%A4"
+    with app.request_context(environ):
         inbound = adapter.inbound_from_request(None, route="/tasks")
     assert inbound.query == {"a": ["%FF\u00e4"]}
 
@@ -181,28 +185,28 @@ def test_query_invalid_utf8() -> None:
 def test_header_names_and_media_type() -> None:
     """Header names are those of WSGI; the media type has no parameters."""
     app = Flask(__name__)
-    with app.test_request_context(
+    with request_context(
         "/tasks",
         method="POST",
-        data="{}",
         headers=[
             ("content-type", "Application/JSON; charset=utf-8"),
             ("x-b3-traceid", "1"),
         ],
+        app=app,
     ):
         expected = list(dict.fromkeys(name for name, _ in request.headers.items()))
         inbound = adapter.inbound_from_request(None, route="/tasks")
     assert list(inbound.headers) == expected
     assert "X-B3-Traceid" in expected
     assert inbound.media_type == "application/json"
-    with app.test_request_context("/tasks"):
+    with request_context("/tasks", app=app):
         assert adapter.inbound_from_request(None).media_type == ""
 
 
 def test_problem() -> None:
     """Gateway errors become problem responses."""
     cnx_app = create_connexion_app(Config())
-    with cnx_app.app.test_request_context():
+    with request_context(app=cnx_app):
         response = adapter.problem(LoopDetected("passed already"))
     assert response.status_code == 508
     body = json.loads(response.get_data())
@@ -210,7 +214,7 @@ def test_problem() -> None:
     assert body["detail"] == "passed already"
     assert body["problem_type"].endswith("#loop-detected")
     rejection = PipelineRejected(Rejected("no", 403, title="Image Not Allowed"), "s")
-    with cnx_app.app.test_request_context():
+    with request_context(app=cnx_app):
         response = adapter.problem(rejection)
     assert response.status_code == 403
     assert json.loads(response.get_data())["title"] == "Image Not Allowed"

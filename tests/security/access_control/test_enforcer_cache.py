@@ -48,6 +48,7 @@ from foca.security.access_control.foca_casbin_adapter.adapter import (
     Adapter,
     PolicyChanges,
 )
+from foca.testing import request_context
 
 DB_NAME = "foca_test_enforcer_cache"
 TASK = "/tasks/1"
@@ -1002,7 +1003,7 @@ def _create_app(collection: Collection[dict[str, Any]]) -> Flask:
 @contextmanager
 def _as_caller(app: Flask, subject: str, method: str = "GET") -> Iterator[None]:
     """Request context with the claims of a subject, as set by Connexion."""
-    with app.test_request_context(TASK, method=method):
+    with request_context(TASK, method=method, app=app):
         request_ctx.connexion_context = {  # type: ignore[attr-defined]  # set by Connexion
             "token_info": {"claims": {"iss": ISSUER, "sub": subject}}
         }

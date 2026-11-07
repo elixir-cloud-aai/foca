@@ -21,6 +21,7 @@ from foca.security.access_control.ownership_server import (
     _check_routes_enforced,
     _require_enforcement,
 )
+from foca.testing import request_context
 
 SERVICE_INFO = "foca.api.service_info.getServiceInfo"
 OWNERSHIP = "foca.security.access_control.ownership_server"
@@ -264,9 +265,7 @@ class TestMatch:
     def test_root_path(self, cnx_app: App) -> None:
         """Request paths exclude the root path of the app."""
         flask_app = cnx_app.app
-        with flask_app.test_request_context(
-            "/api/v1/items", environ_overrides={"SCRIPT_NAME": "/root"}
-        ):
+        with request_context("/api/v1/items", root_path="/root", app=flask_app):
             assert request.root_path == "/root"
             found = match(request.path, "GET")
         assert found is not None
@@ -278,8 +277,11 @@ class TestMatch:
     )
     def test_same_as_request(self, cnx_app: App, path: str, script_name: str) -> None:
         """A request reaches the operation that `match()` finds."""
-        with cnx_app.app.test_request_context(
-            path, method="POST", environ_overrides={"SCRIPT_NAME": script_name}
+        with request_context(
+            path,
+            method="POST",
+            root_path=script_name,
+            app=cnx_app,
         ):
             found = match(request.path, request.method)
             assert found is not None
@@ -358,7 +360,7 @@ class TestEnforcementMark:
         flask_app = table_app.app
         flask_app.add_url_rule("/own/special", view_func=guarded)
         with (
-            flask_app.test_request_context("/own/special"),
+            request_context("/own/special", app=flask_app),
             pytest.raises(RuntimeError, match="not enforced"),
         ):
             guarded()

@@ -20,13 +20,13 @@ import pytest
 import yaml
 from connexion import NoContent
 from flask import Response
-from flask.testing import FlaskClient
 
 from foca.api.register_openapi import register_openapi
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, SpecConfig
 from foca.security import auth
+from foca.testing import Client
 
 PAGE = (Path(__file__).resolve().parents[2] / "docs/writing-controllers.md").read_text(
     encoding="utf-8"
@@ -234,7 +234,7 @@ def page() -> Iterator[ModuleType]:
 
 
 @pytest.fixture
-def client(tmp_path: Path, page: ModuleType) -> FlaskClient:
+def client(tmp_path: Path, page: ModuleType) -> Client:
     """Serve the page's operation and controllers and the further ones.
 
     Args:
@@ -268,7 +268,7 @@ def client(tmp_path: Path, page: ModuleType) -> FlaskClient:
     path.write_text(yaml.safe_dump(spec))
     cnx_app = register_exception_handler(create_connexion_app(Config()))
     config = SpecConfig.model_validate({"path": path, "disable_auth": True})
-    return register_openapi(cnx_app, specs=[config]).app.test_client()
+    return Client(register_openapi(cnx_app, specs=[config]))
 
 
 def test_page_examples(page: ModuleType) -> None:
@@ -277,20 +277,20 @@ def test_page_examples(page: ModuleType) -> None:
     assert list(_page_paths()) == ["/items/{id}"]
 
 
-def test_inputs(client: FlaskClient, page: ModuleType) -> None:
+def test_inputs(client: Client, page: ModuleType) -> None:
     """Path and query parameters and the body come as typed arguments."""
     response = client.put("/items/a", json={"name": "A"})
-    assert (response.status_code, response.json) == (201, {"name": "A", "id": "a"})
+    assert (response.status_code, response.json()) == (201, {"name": "A", "id": "a"})
     response = client.put("/items/a?dry_run=true", json={"name": "B"})
-    assert (response.status_code, response.json) == (200, {"name": "B", "id": "a"})
+    assert (response.status_code, response.json()) == (200, {"name": "B", "id": "a"})
     assert page.ITEMS == {"a": {"name": "A", "id": "a"}}
 
 
-def test_accessors(client: FlaskClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_accessors(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
     """The accessors give the request and the claims of the caller."""
     response = client.get("/whoami", headers={"Accept": "application/json"})
     assert response.status_code == 200
-    assert response.json == {
+    assert response.json() == {
         "subject": None,
         "route": "/whoami",
         "accept": "application/json",
@@ -298,52 +298,52 @@ def test_accessors(client: FlaskClient, monkeypatch: pytest.MonkeyPatch) -> None
     # Token info as FOCA's `validate_token()` returns it
     monkeypatch.setattr(auth, "_get_token_info", lambda: {"claims": {"sub": "alice"}})
     response = client.get("/whoami")
-    assert response.json is not None
-    assert response.json["subject"] == "alice"
+    assert response.json() is not None
+    assert response.json()["subject"] == "alice"
 
 
-def test_body(client: FlaskClient, page: ModuleType) -> None:
+def test_body(client: Client, page: ModuleType) -> None:
     """A dictionary is sent as JSON, with status 200."""
     page.ITEMS["a"] = {"id": "a"}
     response = client.get("/items/a")
     assert response.status_code == 200
-    assert response.content_type == "application/json"
-    assert response.json == {"id": "a"}
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == {"id": "a"}
     assert client.get("/items/b").status_code == 404
 
 
-def test_body_status_headers(client: FlaskClient, page: ModuleType) -> None:
+def test_body_status_headers(client: Client, page: ModuleType) -> None:
     """A list is sent as JSON, with the status and headers returned."""
     page.ITEMS.update({"a": {"id": "a"}, "b": {"id": "b"}})
     response = client.get("/items")
     assert response.status_code == 200
-    assert response.content_type == "application/json"
+    assert response.headers["content-type"] == "application/json"
     assert response.headers["X-Total-Count"] == "2"
-    assert response.json == [{"id": "a"}, {"id": "b"}]
+    assert response.json() == [{"id": "a"}, {"id": "b"}]
 
 
-def test_no_content(client: FlaskClient, page: ModuleType) -> None:
+def test_no_content(client: Client, page: ModuleType) -> None:
     """`NoContent` gives a response without a body."""
     page.ITEMS["a"] = {"id": "a"}
     response = client.delete("/items/a")
     assert response.status_code == 204
-    assert response.data == b""
+    assert response.content == b""
     assert not page.ITEMS
     # Not `None`, which Connexion 3 sends with another `Content-Type`
     page.ITEMS["a"] = {"id": "a"}
     assert page.delete_item("a") == (NoContent, 204)
 
 
-def test_string(client: FlaskClient, page: ModuleType) -> None:
+def test_string(client: Client, page: ModuleType) -> None:
     """A string is sent as it is for other media types than JSON."""
     page.ITEMS.update({"a": {"id": "a"}, "b": {"id": "b"}})
     response = client.get("/items.csv")
     assert response.status_code == 200
-    assert response.mimetype == "text/csv"
+    assert response.headers["content-type"] == "text/csv; charset=utf-8"
     assert response.headers["Content-Disposition"] == (
         'attachment; filename="items.csv"'
     )
-    assert response.data == b"a\nb\n"
+    assert response.content == b"a\nb\n"
     # A declared media type exactly, as Connexion 3 requires
     assert page.export_items()[2]["Content-Type"] == "text/csv"
 
@@ -367,7 +367,7 @@ JSON_BODY = b'{\n  "id": "a"\n}\n'  # indented by 2 spaces
     ],
 )
 def test_return_values(
-    client: FlaskClient,
+    client: Client,
     path: str,
     status: int,
     content_type: str,
@@ -379,10 +379,10 @@ def test_return_values(
     assert response.status_code == status
     assert response.headers.get("Content-Type") == content_type
     assert response.headers.get("X-Custom") == custom
-    assert response.data == data
+    assert response.content == data
 
 
-def test_json_bytes(client: FlaskClient, caplog: pytest.LogCaptureFixture) -> None:
+def test_json_bytes(client: Client, caplog: pytest.LogCaptureFixture) -> None:
     """Bytes for a JSON media type fail, as they can't be serialized."""
     assert client.get("/json-bytes").status_code == 500
     assert "Object of type bytes is not JSON serializable" in caplog.text

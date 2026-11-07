@@ -20,7 +20,6 @@ from connexion.exceptions import (
     ProblemException,
 )
 from flask import Response
-from flask.testing import FlaskClient
 from jsonschema import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError
 from werkzeug.datastructures import WWWAuthenticate
@@ -56,6 +55,7 @@ from foca.errors.exceptions import (
 )
 from foca.errors.fields import INVALID_REQUEST_TYPE, FieldError
 from foca.models.config import ExceptionConfig, ExceptionLoggingEnum
+from foca.testing import Client
 
 THIS_MODULE = __name__
 
@@ -574,14 +574,14 @@ class TestResponseValidation:
         validation_logger.filters[:] = filters
 
     @staticmethod
-    def _client(conf: ExceptionConfig) -> FlaskClient:
+    def _client(conf: ExceptionConfig) -> Client:
         """Client of an app that validates its responses."""
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app, conf)
         # As in FOCA's apps, which know their operations from the route table
         _install_route_table(app)
         app.add_api(RESPONSE_SPEC, validate_responses=True)
-        client: FlaskClient = app.app.test_client()
+        client: Client = Client(app)
         return client
 
     @pytest.mark.parametrize(
@@ -625,11 +625,11 @@ class TestResponseValidation:
         with caplog.at_level(logging.DEBUG, logger=validation_logger.name):
             response = client.get(path)
         assert response.status_code == 500
-        assert json.loads(response.data) == {
+        assert json.loads(response.content) == {
             "title": "Internal Server Error",
             "status": 500,
         }
-        assert response.content_type == conf.media_type
+        assert response.headers["content-type"] == conf.media_type
         (message,) = logged
         assert error in message
         assert path.lstrip("/") in message
@@ -677,7 +677,7 @@ class TestResponseValidation:
         conf._problems = {**conf.problems, NonConformingResponse: problem}
         response = self._client(conf).get("/get_invalid_body")
         assert response.status_code == 502
-        assert json.loads(response.data) == problem
+        assert json.loads(response.content) == problem
         (message,) = logged
         assert message.startswith(json.dumps(problem))
 
@@ -728,7 +728,7 @@ class TestHandler:
         return request.param
 
     @pytest.fixture
-    def client(self, conf: ExceptionConfig, media_type: str) -> FlaskClient:
+    def client(self, conf: ExceptionConfig, media_type: str) -> Client:
         """Client of an app with the test API and the given media type."""
         conf.media_type = media_type
         app = App(__name__, skip_error_handlers=True)
@@ -736,7 +736,7 @@ class TestHandler:
         assert not hasattr(app.app.config, "foca")
         register_exception_handler(app, conf)
         app.add_api(SPEC)
-        return app.app.test_client()
+        return Client(app)
 
     @pytest.mark.parametrize(
         "method,path,headers,problem",
@@ -779,7 +779,7 @@ class TestHandler:
     )
     def test_responses(
         self,
-        client: FlaskClient,
+        client: Client,
         media_type: str,
         method: str,
         path: str,
@@ -787,11 +787,11 @@ class TestHandler:
         problem: dict[str, Any],
     ) -> None:
         """Error responses have problem details of the configured media type."""
-        response = client.open(path, method=method, headers=headers)
+        response = client.request(method, path, headers=headers)
         assert response.status_code == problem["status"]
-        assert response.content_type == media_type
-        assert json.loads(response.data) == problem
-        assert "secret" not in response.get_data(as_text=True)
+        assert response.headers["content-type"] == media_type
+        assert json.loads(response.content) == problem
+        assert "secret" not in response.text
 
     @pytest.mark.parametrize(
         "method,path,headers,name,value",
@@ -813,7 +813,7 @@ class TestHandler:
     )
     def test_headers(
         self,
-        client: FlaskClient,
+        client: Client,
         media_type: str,
         method: str,
         path: str,
@@ -822,7 +822,7 @@ class TestHandler:
         value: str,
     ) -> None:
         """Headers of exceptions are kept, except `Content-Type`."""
-        response = client.open(path, method=method, headers=headers)
+        response = client.request(method, path, headers=headers)
         values = response.headers.getlist(name)
         assert len(values) == 1
         # order of allowed methods is not defined
@@ -834,9 +834,9 @@ class TestHandler:
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app)
         app.add_api(SPEC)
-        response = app.app.test_client().get("/pet")
+        response = Client(app).get("/pet")
         assert response.status_code == 404
-        assert json.loads(response.data) == {
+        assert json.loads(response.content) == {
             "title": "Not Found",
             "status": 404,
         }
@@ -849,8 +849,8 @@ class TestHandler:
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app, conf)
         app.add_api(SPEC)
-        response = app.app.test_client().get("/pet")
-        assert json.loads(response.data) == {"title": "Pet Not Found"}
+        response = Client(app).get("/pet")
+        assert json.loads(response.content) == {"title": "Pet Not Found"}
         assert len(logged) == 1
         assert "pet-not-found" in logged[0]
 
@@ -921,7 +921,7 @@ class TestProblemResponse:
         """Responses have the description, status and extension members."""
         response = problem_response(Conflict("Service 'x' exists."), serviceId="x")
         assert response.status_code == 409
-        assert response.content_type == "application/problem+json"
+        assert response.headers["content-type"] == "application/problem+json"
         assert self._problem(response) == {
             "title": "Conflict",
             "status": 409,
@@ -943,7 +943,7 @@ class TestProblemResponse:
         app_config.max_detail_length = 5
         app_config.public_members = ["title", "status", "detail"]
         response = problem_response(Conflict("abcdefgh"), serviceId="x")
-        assert response.content_type == "application/json"
+        assert response.headers["content-type"] == "application/json"
         assert self._problem(response) == {
             "title": "Conflict",
             "status": 409,
@@ -1036,12 +1036,12 @@ class TestValidationDetails:
         return messages
 
     @staticmethod
-    def _client(conf: ExceptionConfig) -> FlaskClient:
+    def _client(conf: ExceptionConfig) -> Client:
         """Client of an app with the test API (strict validation)."""
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app, conf)
         app.add_api(SPEC, strict_validation=True)
-        return app.app.test_client()
+        return Client(app)
 
     @pytest.fixture
     def conf_details(self, conf: ExceptionConfig) -> ExceptionConfig:
@@ -1056,7 +1056,7 @@ class TestValidationDetails:
             (
                 "get",
                 "/validated",
-                {"query_string": {"limit": 1, "extra": 1}},
+                {"params": {"limit": 1, "extra": 1}},
                 "Extra query parameter(s) extra not in spec",
                 {
                     "type": INVALID_REQUEST_TYPE,
@@ -1096,10 +1096,10 @@ class TestValidationDetails:
         no invalid fields, except for unknown parameters.
         """
         conf_details.media_type = "application/json"
-        response = self._client(conf_details).open(path, method=method, **kwargs)
+        response = self._client(conf_details).request(method, path, **kwargs)
         assert response.status_code == 400
-        assert response.content_type == "application/json"
-        assert json.loads(response.data) == {
+        assert response.headers["content-type"] == "application/json"
+        assert json.loads(response.content) == {
             "title": "Bad Request",
             "status": 400,
             "detail": detail,
@@ -1115,8 +1115,8 @@ class TestValidationDetails:
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app)
         app.add_api(SPEC, strict_validation=True)
-        response = app.app.test_client().get("/validated")
-        assert json.loads(response.data) == {
+        response = Client(app).get("/validated")
+        assert json.loads(response.content) == {
             "title": "Bad Request",
             "status": 400,
             "detail": "Missing query parameter 'limit'",
@@ -1127,7 +1127,7 @@ class TestValidationDetails:
         """Without validation details, responses are as mapped, not logged."""
         conf.validation_details = False
         response = self._client(conf).get("/validated")
-        assert json.loads(response.data) == {"title": "Bad Request", "status": 400}
+        assert json.loads(response.content) == {"title": "Bad Request", "status": 400}
         assert infos == []
         validation_logger = logging.getLogger(exceptions_module._VALIDATION_LOGGER)
         assert (
@@ -1185,7 +1185,7 @@ class TestValidationDetails:
         response = self._client(conf_details).post(
             "/validated-body", json={"name": "a\n" * 100}
         )
-        detail = json.loads(response.data)["detail"]
+        detail = json.loads(response.content)["detail"]
         assert len(detail) == 20
         assert detail.endswith("- 'name'")
         assert len(infos) == 1
@@ -1217,9 +1217,9 @@ class TestValidationDetails:
             """Raise a validation exception without reason."""
             raise BadRequestProblem(detail=[])
 
-        response = app.app.test_client().get("/empty")
+        response = Client(app).get("/empty")
         assert response.status_code == 422
-        assert json.loads(response.data) == mapped
+        assert json.loads(response.content) == mapped
         assert infos == ["Request rejected: The request is invalid."]
 
     def test_no_reason_no_detail(
@@ -1234,8 +1234,8 @@ class TestValidationDetails:
             """Raise a validation exception without reason."""
             raise ExtraParameterProblem([], [])
 
-        response = app.app.test_client().get("/empty")
-        assert json.loads(response.data) == {"title": "Bad Request", "status": 400}
+        response = Client(app).get("/empty")
+        assert json.loads(response.content) == {"title": "Bad Request", "status": 400}
         assert infos == ["Request rejected: Bad Request"]
 
     def test_public_members(
@@ -1244,7 +1244,7 @@ class TestValidationDetails:
         """Reasons are not sent if `detail` is not public."""
         conf_details.public_members = ["title", "status"]
         response = self._client(conf_details).get("/validated")
-        assert json.loads(response.data) == {"title": "Bad Request", "status": 400}
+        assert json.loads(response.content) == {"title": "Bad Request", "status": 400}
         assert infos == ["Request rejected: Missing query parameter 'limit'"]
 
     def test_logging_none(
@@ -1253,7 +1253,7 @@ class TestValidationDetails:
         """Reasons are not logged if logging is disabled."""
         conf_details.logging = ExceptionLoggingEnum.none
         response = self._client(conf_details).get("/validated")
-        assert json.loads(response.data)["detail"] == (
+        assert json.loads(response.content)["detail"] == (
             "Missing query parameter 'limit'"
         )
         assert infos == []
@@ -1270,7 +1270,7 @@ class TestInvalidFields:
     )
 
     @classmethod
-    def _client(cls, conf: ExceptionConfig) -> FlaskClient:
+    def _client(cls, conf: ExceptionConfig) -> Client:
         """Client of an app whose route raises `InvalidFieldsProblem`."""
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app, conf)
@@ -1280,13 +1280,13 @@ class TestInvalidFields:
             """Raise an exception with invalid fields."""
             raise InvalidFieldsProblem(cls.ERRORS, detail="Invalid URL")
 
-        return app.app.test_client()
+        return Client(app)
 
     def test_errors(self, conf: ExceptionConfig) -> None:
         """Responses list the invalid fields, with type and code."""
         response = self._client(conf).get("/invalid")
         assert response.status_code == 400
-        assert json.loads(response.data) == {
+        assert json.loads(response.content) == {
             "title": "Bad Request",
             "status": 400,
             "detail": "Invalid URL",
@@ -1312,7 +1312,7 @@ class TestInvalidFields:
         """Entries are shortened to `max_detail_length`."""
         conf.max_detail_length = 5
         response = self._client(conf).get("/invalid")
-        errors = json.loads(response.data)["errors"]
+        errors = json.loads(response.content)["errors"]
         assert errors[0] == {
             "detail": "Mu…S.",
             "pointer": "#/url",
@@ -1323,7 +1323,7 @@ class TestInvalidFields:
         """Only public members are sent."""
         conf.public_members = ["title", "status", "errors"]
         response = self._client(conf).get("/invalid")
-        assert set(json.loads(response.data)) == {"title", "status", "errors"}
+        assert set(json.loads(response.content)) == {"title", "status", "errors"}
 
     def test_mapped_type(
         self, conf: ExceptionConfig, monkeypatch: pytest.MonkeyPatch
@@ -1331,7 +1331,7 @@ class TestInvalidFields:
         """A mapped `type` wins."""
         mapped = {"title": "Bad Request", "status": 400, "type": "about:blank"}
         monkeypatch.setitem(PROBLEMS, BadRequestProblem, mapped)
-        data = json.loads(self._client(conf).get("/invalid").data)
+        data = json.loads(self._client(conf).get("/invalid").content)
         assert data["type"] == "about:blank"
         assert data["code"] == "invalid-request"
         assert len(data["errors"]) == 2
@@ -1340,7 +1340,7 @@ class TestInvalidFields:
         """Without validation details, responses are as mapped."""
         conf.validation_details = False
         response = self._client(conf).get("/invalid")
-        assert json.loads(response.data) == {"title": "Bad Request", "status": 400}
+        assert json.loads(response.content) == {"title": "Bad Request", "status": 400}
         assert len(logged) == 1
 
     def test_extra_form_fields(self, conf: ExceptionConfig) -> None:
@@ -1353,7 +1353,7 @@ class TestInvalidFields:
             """Raise an exception for an unknown form field."""
             raise ExtraParameterProblem(["field"], [])
 
-        data = json.loads(app.app.test_client().get("/extra").data)
+        data = json.loads(Client(app).get("/extra").content)
         assert data["errors"] == [
             {
                 "detail": "Is not allowed.",

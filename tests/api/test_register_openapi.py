@@ -20,6 +20,7 @@ from foca.api.register_openapi import (
 )
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import Config, ConnexionOptions, SpecConfig
+from foca.testing import Client
 
 # Define mock data
 DIR = Path(__file__).parents[1].resolve() / "test_files"
@@ -823,10 +824,10 @@ class TestConnexionAddApiKwargs:
             },
             **_connexion_add_api_kwargs(ConnexionOptions(swagger_ui_path=path)),
         )
-        client = app.app.test_client()
+        client = Client(app)
         response = client.get("/v1/docs/")
         assert response.status_code == 200
-        assert 'url: "/v1/openapi.json"' in response.get_data(as_text=True)
+        assert 'url: "/v1/openapi.json"' in response.text
         assert client.get("/v1/ui/").status_code == 404
 
     @pytest.mark.parametrize(
@@ -878,7 +879,7 @@ class TestConnexionAddApiKwargs:
             },
             **kwargs,
         )
-        client = app.app.test_client()
+        client = Client(app)
         assert client.get("/v1/ui/").status_code == 404
         assert client.get("/v1/openapi.json").status_code == 404
 

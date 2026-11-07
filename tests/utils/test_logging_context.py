@@ -27,6 +27,7 @@ from foca.models.config import (
     RequestIdConfig,
 )
 from foca.security.access_control import enforcement
+from foca.testing import Client, request_context
 from foca.utils import logging as module
 from foca.utils.logging import ContextFilter, JsonFormatter, escape_log_value
 from foca.utils.urls import get_operation_id
@@ -142,7 +143,7 @@ class TestContextFilter:
         cnx_app.add_api(_spec(), resolver=_KeepRecordResolver(records))
         app = cnx_app.app
         app.wsgi_app = RequestIdMiddleware(app.wsgi_app, trust_incoming=True)
-        app.test_client().get("/api/things", headers={"X-Request-ID": "abc-1"})
+        Client(app).get("/api/things", headers={"X-Request-ID": "abc-1"})
         assert vars(records[0])["request_id"] == "abc-1"
         assert vars(records[0])["operation_id"] == "my_app.getThings"
         assert vars(records[0])["subject"] == "alice"
@@ -152,7 +153,7 @@ class TestContextFilter:
         """Values of tokens can't forge log lines."""
         monkeypatch.setattr(enforcement, "get_current_subject", lambda: "a\nb")
         monkeypatch.setattr(enforcement, "_get_claims", lambda: {"azp": "c\r\nd"})
-        with Flask(__name__).test_request_context():
+        with request_context():
             record = _record()
             ContextFilter().filter(record)
         assert vars(record)["subject"] == "a\\nb"
@@ -166,14 +167,14 @@ class TestContextFilter:
             raise RuntimeError
 
         monkeypatch.setattr(enforcement, "get_current_subject", _fail)
-        with Flask(__name__).test_request_context():
+        with request_context():
             record = _record()
             assert ContextFilter().filter(record) is True
         assert vars(record)["subject"] == ""
 
     def test_without_foca_config(self) -> None:
         """Apps without FOCA's configuration can log, too."""
-        with Flask(__name__).test_request_context():
+        with request_context():
             record = _record()
             assert ContextFilter().filter(record) is True
         assert vars(record)["subject"] == ""
@@ -188,21 +189,21 @@ class TestGetOperationId:
 
     def test_no_route(self) -> None:
         """Requests without a route have none."""
-        with Flask(__name__).test_request_context("/missing"):
+        with request_context("/missing"):
             assert get_operation_id() == ""
 
     def test_not_an_operation(self) -> None:
         """Routes that aren't operations, e.g., added via Flask, have none."""
         app = Flask(__name__)
         app.add_url_rule("/", "/api.other", lambda: "")
-        with app.test_request_context("/"):
+        with request_context("/", app=app):
             assert get_operation_id() == ""
 
     def test_operation(self) -> None:
         """Operations go by their identifiers in the specification."""
         cnx_app = create_connexion_app()
         cnx_app.add_api(_spec(), resolver=_KeepRecordResolver())
-        with cnx_app.app.test_request_context("/api/things"):
+        with request_context("/api/things", app=cnx_app):
             assert get_operation_id() == "my_app.getThings"
 
 
@@ -547,7 +548,7 @@ class TestSourceryFindings:
         monkeypatch.setattr(
             "foca.utils.urls.get_operation_id", lambda: "a\nb", raising=True
         )
-        with Flask(__name__).test_request_context():
+        with request_context():
             assert module._get_context()["operation_id"] == "a\\nb"
 
     def test_key_not_a_string(self) -> None:
