@@ -83,8 +83,9 @@ def test_set_app_config() -> None:
     """Configuration is attached to a Flask app, deprecated."""
     config = Config()
     app = Flask(__name__)
-    with pytest.deprecated_call(match="set_app_config"):
+    with pytest.deprecated_call(match="set_app_config") as record:
         access.set_app_config(app, config)
+    assert record[0].filename == __file__
     assert access._get_app_config(app) is config
 
 

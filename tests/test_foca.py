@@ -362,6 +362,20 @@ def test_foca_create_celery_app() -> None:
     assert app.conf.broker_url == f"pyamqp://{jobs.host}:{jobs.port}//"
 
 
+def test_foca_apps_not_deprecated(recwarn: pytest.WarningsRecorder) -> None:
+    """FOCA creates apps with CORS and Celery apps without deprecated calls."""
+    foca = Foca(config_file=JOBS_CONF)
+    assert foca.conf.security.cors.enabled
+    foca.create_app()
+    foca.create_celery_app()
+    assert not [
+        warning
+        for warning in recwarn
+        if issubclass(warning.category, DeprecationWarning)
+        and "foca" in str(warning.message).lower()
+    ]
+
+
 def test_foca_create_celery_app_without_jobs_field() -> None:
     """Ensure that Celery app creation fails if 'jobs' field missing."""
     foca = Foca(config_file=NO_JOBS_CONF)

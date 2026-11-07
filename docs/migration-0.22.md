@@ -87,9 +87,10 @@ with app.app_context():
     config = get_config()
 ```
 
-To find remaining uses, run your tests with
-`-W error::DeprecationWarning` or search for `config.foca` and
-`get_app_config`.
+To find remaining uses, turn deprecation warnings into errors in your tests
+(see [Finding what still has to
+move](preparing-for-asgi.md#finding-what-still-has-to-move)) or search for
+`config.foca` and `get_app_config`.
 
 To warn, FOCA gives Flask configurations of Flask's own class (as Connexion
 creates them) a subclass of it until the attribute is removed:
@@ -236,18 +237,14 @@ FOCA's copy becomes an `error`: update your copy then.
 
 Nothing breaks in 0.22. The first release candidate of the ASGI release moves
 to Connexion 3 `AsyncApp` and removes Flask, Flask-Cors and everything in FOCA
-that takes a Flask app. These emit a `DeprecationWarning` now, and FOCA logs
-them once per process:
-
-| Deprecated | Use |
-| --- | --- |
-| `foca.config.access.get_app_config(app)`, `app.config.foca` | `foca.get_config()` (see [Configuration access](#configuration-access)) |
-| `foca.config.access.set_app_config(app, config)` | Nothing: FOCA attaches the configuration to the apps it creates |
-| `foca.security.cors.enable_cors(app, conf)` | `security.cors` of the configuration; FOCA enables CORS for the apps it creates |
-| `foca.factories.celery_app.create_celery_app(app)` | `Foca.create_celery_app()` |
-| `www_authenticate` of `foca.errors.Unauthorized` | `WWW-Authenticate` headers (see [Challenges in `headers`](#challenges-in-headers)) |
-| Exception maps with raw Werkzeug classes (logged only) | Classes of `foca.errors` (see [Framework-neutral errors](#framework-neutral-errors)) |
+that takes a Flask app. In 0.22, FOCA's functions that take a Flask app
+(`get_app_config()`, `set_app_config()`, `enable_cors()` and
+`foca.factories.celery_app.create_celery_app()`), `app.config.foca` and
+`www_authenticate` of `foca.errors.Unauthorized` emit a `DeprecationWarning`,
+and exception maps with raw Werkzeug classes are logged as deprecated; FOCA
+logs each deprecation once per process. Flask's own objects can't warn; the
+ast-grep rule `flask-import` reports them (see [Finding Flask
+imports](#finding-flask-imports)).
 
 [Preparing for the ASGI release](preparing-for-asgi.md) lists everything that
-goes away, from Flask's request objects to the Helm chart's
-`gunicorn.threads`, with what to use now, and how to find what is left.
+goes away, with what to use now, examples, and how to find what is left.

@@ -65,8 +65,9 @@ def test_broker_env_vars(logged: list[str], monkeypatch: pytest.MonkeyPatch) -> 
 def test_create_celery_app_deprecated(logged: list[str]) -> None:
     """Celery apps are created from Flask apps, deprecated."""
     cnx_app = create_connexion_app(CONFIG)
-    with pytest.deprecated_call(match="Foca.create_celery_app"):
+    with pytest.deprecated_call(match="Foca.create_celery_app") as record:
         cel_app = create_celery_app(cnx_app.app)
+    assert record[0].filename == __file__
     assert isinstance(cel_app, Celery)
 
 

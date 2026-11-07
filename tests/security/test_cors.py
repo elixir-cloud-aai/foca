@@ -1,5 +1,7 @@
 """Unit test for security.cors.py."""
 
+from collections.abc import Callable
+
 import pytest
 from flask import Flask
 from pydantic import ValidationError
@@ -11,14 +13,17 @@ from foca.testing import Client
 ORIGIN = "https://example.org"
 
 
-def _app(conf: CORSConfig | None = None) -> Flask:
+def _app(
+    conf: CORSConfig | None = None,
+    enable: Callable[[Flask, CORSConfig | None], None] = _enable_cors,
+) -> Flask:
     app = Flask(__name__)
 
     @app.route("/items", methods=["GET", "POST"])
     def items() -> str:
         return "ok"
 
-    _enable_cors(app, conf)
+    enable(app, conf)
     return app
 
 
@@ -75,13 +80,8 @@ def test_credentials_any_origin(origins: list[str]) -> None:
 
 def test_enable_cors_deprecated() -> None:
     """CORS is enabled for a Flask app, deprecated."""
-    app = Flask(__name__)
-
-    @app.route("/items")
-    def items() -> str:
-        return "ok"
-
-    with pytest.deprecated_call(match="security.cors"):
-        enable_cors(app)
+    with pytest.deprecated_call(match="security.cors") as record:
+        app = _app(enable=enable_cors)
+    assert record[0].filename == __file__
     response = Client(app).get("/items", headers={"Origin": ORIGIN})
     assert response.headers["Access-Control-Allow-Origin"] == ORIGIN

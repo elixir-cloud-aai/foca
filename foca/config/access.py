@@ -46,8 +46,8 @@ class _DeprecatingConfig(FlaskConfig):
         except KeyError:
             raise AttributeError(_ATTRIBUTE) from None
         warn_deprecated(
-            "'app.config.foca' is deprecated; use 'foca.get_config()' or "
-            "'foca.get_custom_config()'.",
+            "'app.config.foca' is deprecated and removed in the ASGI release; "
+            "use 'foca.get_config()' or 'foca.get_custom_config()'.",
             stacklevel=2,
         )
         return value
@@ -60,8 +60,8 @@ class _DeprecatingConfig(FlaskConfig):
             value: FOCA's configuration.
         """
         warn_deprecated(
-            "Setting 'app.config.foca' is deprecated; change the configuration "
-            "that 'foca.get_config()' returns.",
+            "Setting 'app.config.foca' is deprecated and removed in the ASGI "
+            "release; change the configuration that 'foca.get_config()' returns.",
             stacklevel=2,
         )
         vars(self)[_ATTRIBUTE] = value
@@ -74,7 +74,7 @@ class _DeprecatingConfig(FlaskConfig):
             AttributeError: No configuration is attached.
         """
         warn_deprecated(
-            "Deleting 'app.config.foca' is deprecated.",
+            "Deleting 'app.config.foca' is deprecated and removed in the ASGI release.",
             stacklevel=2,
         )
         try:
@@ -174,7 +174,8 @@ def _get_app_config(app: Flask) -> Config:
 def get_app_config(app: Flask) -> Config:
     """Get the configuration attached to a Flask app.
 
-    Deprecated: use :py:func:`get_config`, in the app context of `app` if it
+    Deprecated, removed in the ASGI release: use :py:func:`get_config`, in
+    the app context of `app` if it
     isn't the current app.
 
     Args:
@@ -187,7 +188,8 @@ def get_app_config(app: Flask) -> Config:
         RuntimeError: No FOCA configuration is attached to `app`.
     """
     warn_deprecated(
-        "'get_app_config()' is deprecated; use 'foca.get_config()'.",
+        "'get_app_config()' is deprecated and removed in the ASGI release; "
+        "use 'foca.get_config()'.",
         stacklevel=2,
     )
     return _get_app_config(app)

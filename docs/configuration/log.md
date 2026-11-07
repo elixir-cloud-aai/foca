@@ -128,7 +128,7 @@ master process logged it before forking), at `WARNING`, on the logger
 `foca.deprecation`, e.g.:
 
 ```text
-[2026-11-06 12:00:00,000: WARNING ] 'get_app_config()' is deprecated; use 'foca.get_config()'. [foca.deprecation]
+[2026-11-06 12:00:00,000: WARNING ] 'get_app_config()' is deprecated and removed in the ASGI release; use 'foca.get_config()'. [foca.deprecation]
 ```
 
 The warnings themselves are emitted as before, e.g., for tests run with
