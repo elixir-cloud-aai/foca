@@ -9,7 +9,7 @@ from typing import Any
 import mongomock
 from flask import Flask
 
-from foca.config.access import set_app_config
+from foca.config.access import _set_app_config
 from foca.models.config import Config
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
@@ -75,7 +75,7 @@ def create_app(
             }
         }
     )
-    set_app_config(app, conf)
+    _set_app_config(app, conf)
     app.config["CASBIN_MODEL"] = model_path(model_file)
     app.config["casbin_adapter"] = Adapter(
         collection=mongomock.MongoClient()["access_control_db"]["policy_rules"]

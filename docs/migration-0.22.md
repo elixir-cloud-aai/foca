@@ -1,5 +1,9 @@
 # Migrating to 0.22.0
 
+FOCA 0.22.0 prepares for the ASGI release, which removes Flask: see
+[Deprecated, removed in the ASGI release](#deprecated-removed-in-the-asgi-release)
+and [Preparing for the ASGI release](preparing-for-asgi.md).
+
 ## Framework-neutral errors
 
 FOCA prepares for its release on ASGI, without Flask. Nothing breaks in this release;
@@ -67,6 +71,7 @@ configuration to:
 | --- | --- |
 | `current_app.config.foca`, `app.config.foca` | `get_config()`, in the app context of the app if it isn't the current one |
 | `foca.config.access.get_app_config(app)` | `get_config()`, as above |
+| `foca.config.access.set_app_config(app, config)` | Nothing for apps that FOCA creates; for scripts, see [Preparing for the ASGI release](preparing-for-asgi.md#configuration) |
 | `current_app.config.foca.custom` | `get_custom_config(MyCustomConfig)`, typed |
 | Setting `app.config.foca` | Change the configuration that `get_config()` returns, e.g., `get_config().db = ...` |
 
@@ -83,9 +88,10 @@ with app.app_context():
     config = get_config()
 ```
 
-To find remaining uses, run your tests with
-`-W error::DeprecationWarning` or search for `config.foca` and
-`get_app_config`.
+To find remaining uses, turn deprecation warnings into errors in your tests
+(see [Finding what still has to
+move](preparing-for-asgi.md#finding-what-still-has-to-move)) or search for
+`config.foca` and `get_app_config`.
 
 To warn, FOCA gives Flask configurations of Flask's own class (as Connexion
 creates them) a subclass of it until the attribute is removed:
@@ -227,6 +233,22 @@ To adopt it, copy the file into your app's `.ast-grep/rules/`, set its
 `ast-grep scan` (e.g., via pre-commit). The rule has the severity `warning`
 from FOCA 0.22, so the scan reports but doesn't fail; with the ASGI release,
 FOCA's copy becomes an `error`: update your copy then.
+
+## Deprecated, removed in the ASGI release
+
+Nothing breaks in 0.22. The first release candidate of the ASGI release moves
+to Connexion 3 `AsyncApp` and removes Flask, Flask-Cors and everything in FOCA
+that takes a Flask app. In 0.22, FOCA's functions that take a Flask app
+(`get_app_config()`, `set_app_config()`, `enable_cors()` and
+`foca.factories.celery_app.create_celery_app()`), `app.config.foca` and
+`www_authenticate` of `foca.errors.Unauthorized` emit a `DeprecationWarning`,
+and exception maps with raw Werkzeug classes are logged as deprecated; FOCA
+logs each deprecation once per process. Flask's own objects can't warn; the
+ast-grep rule `flask-import` reports them (see [Finding Flask
+imports](#finding-flask-imports)).
+
+[Preparing for the ASGI release](preparing-for-asgi.md) lists everything that
+goes away, with what to use now, examples, and how to find what is left.
 
 ## Validation reasons without request values
 

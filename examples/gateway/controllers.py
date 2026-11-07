@@ -25,7 +25,7 @@ def _celery_client() -> Celery:
     """Get the client that sends tasks to the worker, once per process.
 
     Uses the same environment variables as the worker's Celery app (cf.
-    :py:func:`foca.factories.celery_app.create_celery_app`). A bare client, as
+    :py:meth:`foca.Foca.create_celery_app`). A bare client, as
     the app needs nothing else of a Celery app; created on first use, so after
     Gunicorn forked.
 

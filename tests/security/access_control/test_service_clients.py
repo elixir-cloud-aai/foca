@@ -11,7 +11,7 @@ from connexion.exceptions import BadRequestProblem, Forbidden, Unauthorized
 from flask import Flask
 from flask.globals import request_ctx
 
-from foca.config.access import _get_app_config, set_app_config
+from foca.config.access import _get_app_config, _set_app_config
 from foca.models.config import Config, IssuerConfig
 from foca.security.access_control import (
     add_resource_role,
@@ -74,7 +74,7 @@ def app() -> Flask:
             }
         }
     )
-    set_app_config(app, conf)
+    _set_app_config(app, conf)
     app.config["CASBIN_MODEL"] = model_path
     app.config["casbin_adapter"] = Adapter(
         collection=mongomock.MongoClient()["access_control_db"]["policy_rules"]

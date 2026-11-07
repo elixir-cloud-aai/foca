@@ -21,7 +21,7 @@ from foca.api.service_info import (
     getServiceInfo,
 )
 from foca.config import access
-from foca.config.access import _get_app_config, set_app_config
+from foca.config.access import _get_app_config, _set_app_config
 from foca.models.config import Config
 from foca.testing import Client, request_context
 from foca.utils import service_info as utils
@@ -47,7 +47,7 @@ def _app(service_info: dict[str, Any]) -> Flask:
     """Create a Flask app with service info configured, without checks."""
     app = Flask(__name__)
     # the dictionary is validated by Pydantic
-    set_app_config(app, Config(service_info=service_info))  # type: ignore[arg-type]
+    _set_app_config(app, Config(service_info=service_info))  # type: ignore[arg-type]
     return app
 
 
@@ -239,7 +239,7 @@ def test_get_service_info_runtime_not_json(monkeypatch: pytest.MonkeyPatch) -> N
 def test_get_service_info_not_configured() -> None:
     """Service info must be configured."""
     app = Flask(__name__)
-    set_app_config(app, Config())
+    _set_app_config(app, Config())
     with (
         app.app_context(),
         pytest.raises(RuntimeError, match="`service_info`"),
@@ -273,7 +273,7 @@ def test_getServiceInfo_invalid(
 def test_getServiceInfo_not_configured(log: pytest.LogCaptureFixture) -> None:
     """The controller fails with a generic server error without service info."""
     app = Flask(__name__)
-    set_app_config(app, Config())
+    _set_app_config(app, Config())
     with app.app_context(), pytest.raises(InternalServerError):
         getServiceInfo()
     assert "No service info configured" in log.text
@@ -292,7 +292,7 @@ def test_getServiceInfo_not_configured_request(
     monkeypatch.setattr(access, "_configs", {})
     app = Flask(__name__)
     if config is not None:
-        set_app_config(app, config)
+        _set_app_config(app, config)
     with (
         request_context("/service-info", app=app),
         pytest.raises(InternalServerError),
@@ -428,7 +428,7 @@ def test_check_service_info_placeholders_runtime(
 def test_check_service_info_not_configured(log: pytest.LogCaptureFixture) -> None:
     """Apps without service info pass if they do not serve it."""
     app = Flask(__name__)
-    set_app_config(app, Config())
+    _set_app_config(app, Config())
     app.add_url_rule("/other", "other", lambda: "")
     check_service_info(app)
     assert "No service info configured." in log.text

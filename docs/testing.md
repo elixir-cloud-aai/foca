@@ -2,7 +2,9 @@
 
 FOCA comes with helpers for the tests of apps, in `foca.testing`, so that they
 don't copy the same setup, and test authentication as it works in production.
-Install them with `pip install foca[testing]`.
+Install them with `pip install foca[testing]`. Use them rather than Flask's
+test client and request contexts, which go away in the ASGI release (see
+[Preparing for the ASGI release](preparing-for-asgi.md#tests)).
 
 ## Pytest plugin
 

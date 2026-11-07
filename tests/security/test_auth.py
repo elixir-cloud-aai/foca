@@ -18,7 +18,7 @@ from flask.globals import request_ctx
 from pydantic import ValidationError
 
 from foca.config import access
-from foca.config.access import _get_app_config, set_app_config
+from foca.config.access import _get_app_config, _set_app_config
 from foca.models.config import AuthConfig, Config, ServiceClientConfig
 from foca.security import auth
 from foca.security.auth import (
@@ -144,7 +144,7 @@ def make_app(**auth_conf: Any) -> Flask:
     app = Flask(__name__)
     auth_conf = {"issuers": [ISSUER], "audience": [AUDIENCE], **auth_conf}
     conf = Config.model_validate({"security": {"auth": auth_conf}})
-    set_app_config(app, conf)
+    _set_app_config(app, conf)
     return app
 
 
@@ -1239,9 +1239,9 @@ def test_require_no_service_clients(
         {"issuers": [ISSUER], "audience": [AUDIENCE], **auth_conf}
     )
     app = Flask(__name__)
-    set_app_config(app, Config.model_validate({"security": {"auth": conf}}))
+    _set_app_config(app, Config.model_validate({"security": {"auth": conf}}))
     # another app, created later, with the default configuration
-    set_app_config(Flask(__name__), Config())
+    _set_app_config(Flask(__name__), Config())
     with app.app_context():
         if refused:
             with pytest.raises(RuntimeError, match=r"security\.auth\.service_clients"):

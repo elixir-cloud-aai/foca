@@ -7,7 +7,7 @@ import requests
 from connexion.exceptions import Unauthorized
 from flask import Flask
 
-from foca.config.access import set_app_config
+from foca.config.access import _set_app_config
 from foca.models.config import AuthConfig, Config, SecurityConfig
 from foca.security import auth
 from foca.testing.issuer import JWKS_PATH, USERINFO_PATH, Issuer, issuer
@@ -33,7 +33,7 @@ def _validate(idp: Issuer, token: str, **settings: Any) -> dict[str, Any]:
             auth=AuthConfig(issuers=[idp.url], audience=[AUDIENCE], **settings)
         )
     )
-    set_app_config(app, conf)
+    _set_app_config(app, conf)
     with app.app_context():
         return auth.validate_token(token)
 

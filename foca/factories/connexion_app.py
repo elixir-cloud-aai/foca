@@ -10,7 +10,7 @@ from connexion import App
 from flask import current_app, url_for
 
 from foca.api.routes import _install_route_table
-from foca.config.access import set_app_config
+from foca.config.access import _set_app_config
 from foca.context import RequestIdMiddleware
 from foca.errors import BadRequest, PayloadTooLarge
 from foca.models.config import Config
@@ -209,7 +209,7 @@ def __add_config_to_connexion_app(
     )
 
     # Add user configuration to Flask app config
-    set_app_config(app.app, config)
+    _set_app_config(app.app, config)
 
     logger.debug("Connexion app configured.")
     return app

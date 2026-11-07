@@ -185,7 +185,8 @@ def export_items() -> tuple[str, int, dict[str, str]]:
 
 Don't return `flask.Response` objects, including those of
 `flask.make_response()`, `flask.send_file()` and `flask.jsonify()`: they work
-only with Flask.
+only with Flask, which goes away in the ASGI release (see [Preparing for the
+ASGI release](preparing-for-asgi.md#responses)).
 
 ### Connexion 2 and 3
 

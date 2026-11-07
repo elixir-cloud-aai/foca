@@ -7,7 +7,7 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import BadRequest
 
-from foca.config.access import set_app_config
+from foca.config.access import _set_app_config
 from foca.models.config import Config, ServerConfig
 from foca.testing import request_context
 from foca.utils.pagination import (
@@ -100,7 +100,7 @@ class TestGetPage:
 def app() -> Iterator[Flask]:
     """App with a public URL."""
     flask_app = Flask(__name__)
-    set_app_config(
+    _set_app_config(
         flask_app,
         Config(server=ServerConfig(public_url="https://api.example.org/prefix")),
     )
@@ -188,7 +188,7 @@ class TestGetPageLinks:
     def test_no_public_url(self) -> None:
         """Without public URL, links can't be built."""
         flask_app = Flask(__name__)
-        set_app_config(flask_app, Config())
+        _set_app_config(flask_app, Config())
         with (
             request_context("/pets", app=flask_app),
             pytest.raises(RuntimeError, match="public URL"),

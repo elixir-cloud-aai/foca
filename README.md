@@ -52,12 +52,14 @@ the logic of your app. It provides:
 **Read the [documentation][docs]** for the configuration, authentication,
 access control, the deployment with Docker and Helm, the utilities, the API
 reference and development. Upgrading from an earlier version? See [Migrating
-to 0.21.0][docs-migration] (from 0.19 or earlier, first [Migrating to
+to 0.22.0][docs-migration] (from 0.20 or earlier, first [Migrating to
+0.21.0][docs-migration-0.21], from 0.19 or earlier also [Migrating to
 0.20.0][docs-migration-0.20], from 0.17 or earlier also [Migrating to
 0.18.0][docs-migration-0.18], [Migrating to 0.17.0][docs-migration-0.17],
 [Migrating to 0.16.0][docs-migration-0.16],
 [Migrating to 0.15.0][docs-migration-0.15] and [Migrating to
-0.14.0][docs-migration-0.14]).
+0.14.0][docs-migration-0.14]). The ASGI release removes Flask: see
+[Preparing for the ASGI release][docs-preparing-asgi].
 
 ## Why FOCA
 
@@ -174,4 +176,6 @@ mind our [code of conduct][code-of-conduct].
 [docs-migration-0.17]: <https://foca.readthedocs.io/en/latest/migration-0.17/>
 [docs-migration-0.18]: <https://foca.readthedocs.io/en/latest/migration-0.18/>
 [docs-migration-0.20]: <https://foca.readthedocs.io/en/latest/migration-0.20/>
+[docs-migration-0.21]: <https://foca.readthedocs.io/en/latest/migration-0.21/>
+[docs-preparing-asgi]: <https://foca.readthedocs.io/en/latest/preparing-for-asgi/>
 [example]: <https://github.com/elixir-cloud-aai/foca/tree/dev/examples/petstore>
