@@ -1,5 +1,7 @@
 """Tests for `foca.api.routes`."""
 
+import gc
+import weakref
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -306,6 +308,31 @@ class TestInstall:
         _install_route_table(cnx_app)
         cnx_app.add_api(_spec("/again"))
         assert len(get_routes(cnx_app.app)) == 10
+
+    def test_apps_collected(self) -> None:
+        """Apps are collected while their APIs live on, e.g., in log records."""
+        cnx_app = create_connexion_app()
+        api = cnx_app.add_api(_spec())
+        app = weakref.ref(cnx_app.app)
+        del cnx_app
+        gc.collect()
+        assert app() is None
+        assert api.base_path == "/api/v1"
+
+    def test_app_replaced(self) -> None:
+        """Operations of an app replaced and collected aren't recorded.
+
+        As before, the replacement doesn't get them; adding them works.
+        """
+        cnx_app = create_connexion_app()
+        original = weakref.ref(cnx_app.app)
+        cnx_app.app = Flask(__name__)
+        gc.collect()
+        assert original() is None
+        cnx_app.add_api(_spec())
+        assert get_routes(cnx_app.app) == []
+        rules = {rule.rule for rule in cnx_app.app.url_map.iter_rules()}
+        assert "/api/v1/items" in rules
 
     def test_stand_in(self) -> None:
         """Other objects are left alone."""
