@@ -178,7 +178,7 @@ def test_worker_signals_reopen_despite_errors(
     with caplog.at_level(logging.ERROR, logger=module.__name__):
         worker_process_init.send(sender=None)
     assert reopened == [configs[1].db]
-    assert "could not be reopened" in caplog.text
+    assert "MongoDB client of mongodb:27017 could not be reopened" in caplog.text
 
 
 def test_periodic_jobs(logged: list[str]) -> None:

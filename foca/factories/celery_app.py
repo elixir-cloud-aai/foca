@@ -47,7 +47,9 @@ def _reopen_clients(**kwargs: Any) -> None:
         try:
             reopen_mongodb(db)
         except Exception:
-            logger.exception("MongoDB client could not be reopened.")
+            logger.exception(
+                "MongoDB client of %s:%s could not be reopened.", db.host, db.port
+            )
 
 
 def _reopen_around_forks(db: MongoConfig) -> None:
