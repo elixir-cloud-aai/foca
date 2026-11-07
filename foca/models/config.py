@@ -447,6 +447,18 @@ class ExceptionConfig(FOCABaseConfig):
             are filtered out, as they have the validator's message in full
             and unescaped. If false, responses get the mapped problem
             details, and the exception is logged.
+        validation_reasons: Whether the `detail` of responses to requests
+            rejected by Connexion's validation (with `validation_details`) is
+            the validator's reason, which may quote rejected values of the
+            request and parts of the schema. Defaults to true. If false, the
+            `detail` names the invalid fields by location and code, e.g.,
+            ``Invalid fields: #/name (too-long)``, without their values (the
+            locations are pointers or parameter names, which may include keys
+            of the request); if no invalid fields are listed (or `errors` isn't
+            public), it is the mapped `detail`, if any, or a fixed message.
+            Applies to all request validation exceptions, including
+            `RequestValidationProblem` raised by FOCA or the app. Recommended
+            for apps whose clients don't depend on the reasons.
         max_detail_length: Maximum length of request-specific details in
             responses (cf. `validation_details` and
             :py:func:`foca.errors.exceptions.problem_response`) and log
@@ -463,6 +475,8 @@ class ExceptionConfig(FOCABaseConfig):
         media_type: Media type of all error responses, in lower case.
         validation_details: Whether responses to requests rejected by
             Connexion's validation get the reason as `detail`.
+        validation_reasons: Whether that `detail` is the validator's reason,
+            rather than the invalid fields' locations and codes.
         max_detail_length: Maximum length of request-specific details in
             responses and log messages.
 
@@ -481,6 +495,8 @@ class ExceptionConfig(FOCABaseConfig):
         'application/problem+json'
         >>> exceptions.validation_details
         True
+        >>> exceptions.validation_reasons
+        True
         >>> exceptions.max_detail_length
         500
     """
@@ -490,6 +506,7 @@ class ExceptionConfig(FOCABaseConfig):
     logging: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline
     media_type: str = DEFAULT_ERROR_MEDIA_TYPE
     validation_details: bool = True
+    validation_reasons: bool = True
     max_detail_length: PositiveInt = 500
     # Problem details by exception class, imported from `mapping`
     _problems: dict[type[BaseException], dict[str, Any]] = PrivateAttr(

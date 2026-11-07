@@ -32,6 +32,10 @@ exceptions:
   media_type: application/problem+json
   # Serve the reasons of request validation errors as `detail` (cf. docs)
   validation_details: True
+  # With validation_details: serve the validator's reasons, which quote
+  # rejected values, as `detail`; False names the invalid fields by
+  # location and code instead (they are still listed in `errors`)
+  validation_reasons: True
   # Maximum length of request-specific details (longer ones are shortened)
   max_detail_length: 500
 

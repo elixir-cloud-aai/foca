@@ -60,6 +60,9 @@ __all__ = [
 # `detail` with `exceptions.validation_details`
 _VALIDATION_EXCEPTIONS = (RequestValidationProblem, ExtraParameterProblem)
 
+# `detail` of rejected requests without `exceptions.validation_reasons`
+_INVALID_REQUEST = "The request is invalid."
+
 # Logger of Connexion's request validation, which logs the validator's
 # message in full and unescaped (validators quote rejected values, e.g., a
 # whole request body)
@@ -294,7 +297,12 @@ def _validation_handler_json(
     and escaped (unless disabled via `conf.logging`), instead of the
     exception, and responds like :py:func:`_problem_handler_json`, with the
     reason as `detail` and the invalid fields, if known, as `errors` (cf.
-    :py:func:`foca.errors.fields.add_field_errors`).
+    :py:func:`foca.errors.fields.add_field_errors`). Without
+    `conf.validation_reasons`, the reason isn't served, as it may quote
+    rejected values: `detail` then names the invalid fields by location and
+    code (cf. :py:func:`foca.errors.fields.describe_field_errors`), if they
+    are listed and public, otherwise it is the mapped `detail`, if any, or a
+    fixed message.
 
     Args:
         exception: Exception of Connexion's request validation.
@@ -303,12 +311,14 @@ def _validation_handler_json(
     Returns:
         JSON-formatted error response, with the problem details mapped to
         the exception (cf. :py:func:`build_problem`), the reason as
-        `detail` (shortened to `conf.max_detail_length`), if any, and the
-        invalid fields, if any.
+        `detail` (shortened to `conf.max_detail_length`), if any (with
+        `conf.validation_reasons`; otherwise the invalid fields or a fixed
+        message, see above),
+        and the invalid fields, if any.
     """
     problem = _resolve_problem(exc=exception, conf=conf)
     reason = _validation_reason(exception)
-    if reason is not None:
+    if reason is not None and conf.validation_reasons:
         problem["detail"] = _shorten(reason, conf.max_detail_length)
     errors: tuple[FieldError, ...]
     try:
@@ -323,6 +333,16 @@ def _validation_handler_json(
             type(exc).__name__,
         )
         errors = ()
+    if not conf.validation_reasons:
+        # Reasons may quote rejected values; the invalid fields don't
+        public = conf.public_members is None or "errors" in conf.public_members
+        if errors and public:
+            problem["detail"] = _shorten(
+                f"Invalid fields: {describe_field_errors(errors)}",
+                conf.max_detail_length,
+            )
+        else:
+            problem.setdefault("detail", _INVALID_REQUEST)
     if conf.logging is not ExceptionLoggingEnum.none:
         # Escaped before shortening, so that the logged reason stays within
         # the maximum length; invalid fields are logged without the reason,

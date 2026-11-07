@@ -732,6 +732,40 @@ class TestFieldErrors:
         response = client.put(self.URL, json={})
         assert response.json() == {"title": "Bad Request", "status": 400}
 
+    def test_no_reasons(self, tmp_path: Path) -> None:
+        """Without validation reasons, details quote no rejected values."""
+        path = tmp_path / "spec.yaml"
+        path.write_text(yaml.safe_dump(SPEC))
+        config = Config()
+        config.exceptions.validation_reasons = False
+        cnx_app = register_exception_handler(
+            create_connexion_app(config), config.exceptions
+        )
+        spec = SpecConfig.model_validate(
+            {
+                "path": path,
+                "disable_auth": True,
+                "connexion": {"strict_validation": True},
+            }
+        )
+        client = Client(register_openapi(cnx_app, specs=[spec]))
+        body = client.put(self.URL, json={**self.VALID, "name": "s3cr3t"}).json()
+        query = client.put(
+            "/things/ABC?limit=1234567&ids=1",
+            json=self.VALID,
+            headers={"X-Mode": "a"},
+        ).json()
+        for data in (body, query):
+            assert data["errors"]
+            fields = "; ".join(
+                f"{error.get('pointer') or error['parameter']} ({error['code']})"
+                for error in data["errors"]
+            )
+            assert data["detail"] == f"Invalid fields: {fields}"
+            problem_validator().validate(data)
+        assert "s3cr3t" not in json.dumps(body)
+        assert "1234567" not in json.dumps(query)
+
     def test_null_body(self, tmp_path: Path) -> None:
         """Nullable bodies may be null."""
         validator = BodyValidator(

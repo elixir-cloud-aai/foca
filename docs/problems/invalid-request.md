@@ -44,7 +44,12 @@ of their own:
 Invalid parameters are named instead, e.g.,
 `{"detail": "Must be at most 10.", "parameter": "limit", "code": "too-large"}`.
 `title`, `status` and `detail` are as before, so clients that only show
-`detail` keep working; `detail` describes the first invalid field. Nothing
+`detail` keep working; `detail` describes the first invalid field, in the
+validator's words, which may quote the rejected value. With
+`exceptions.validation_reasons: false`, it names the invalid fields by
+location and code instead, e.g., `Invalid fields: #/name (too-long)` (see
+[Request-specific
+details](../configuration/exceptions.md#request-specific-details)). Nothing
 in the format is specific to FOCA: generic RFC 9457 clients understand
 `errors`, and clients can show the messages without knowing the codes.
 
@@ -153,7 +158,11 @@ without them, responses have the problem details mapped to the exception
 class only. A `type` or `code` mapped to the exception class (e.g., to
 `RequestValidationProblem`) is kept, e.g., for a problem type URI of your
 own. With `exceptions.public_members`, list
-`type`, `code` and `errors` there to send them.
+`type`, `code` and `errors` there to send them. Set
+`exceptions.validation_reasons: false` to send the invalid fields' locations
+and codes as `detail` instead of the validator's reason, which may quote
+rejected values (cf.
+[`exceptions`](../configuration/exceptions.md#request-specific-details)).
 
 ## API specifications
 
