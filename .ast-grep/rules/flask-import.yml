@@ -1,0 +1,58 @@
+id: flask-import
+language: python
+severity: warning
+message: Import of Flask, Werkzeug or Connexion request objects, gone on ASGI
+note: |
+  The ASGI release of FOCA (Connexion 3) removes Flask, its extensions and
+  Connexion's Flask modules, and Werkzeug and Connexion's request objects
+  are no longer part of the API. Use what FOCA 0.22 already provides on
+  Connexion 2:
+  - request data: `foca.context.current_request()`; token info and claims:
+    `current_token_info()` and `current_claims()` of `foca.security.auth`
+  - exceptions: `foca.errors` (e.g., `NotFound`, `BadRequest`)
+  - tests: `foca.testing` (`Client`, `request_context`, the `foca_app` and
+    `foca_client` pytest fixtures)
+  - configuration: `foca.get_config()`, not `current_app.config`
+  - responses: return `body`, `(body, status)` or
+    `(body, status, headers)` tuples, not `make_response()` or `Response`
+  Werkzeug stays installed but isn't imported. Not covered: `connexion.App`
+  and attributes of an aliased `connexion` module. Severity `warning` from
+  FOCA 0.22, `error` from the ASGI release. See "Finding Flask imports" in
+  the FOCA docs (migration to 0.22).
+# Shared with FOCA apps, which set `files:` to their package and tests
+# (`<pkg>/**`, `tests/**`); in FOCA, it covers the examples (FOCA's own
+# tests use Flask on purpose). `no-new-flask-internals.yml` has the same
+# rule for FOCA's own package.
+files:
+  - examples/**
+rule:
+  any:
+    - kind: import_statement
+      has:
+        kind: dotted_name
+        regex: ^(flask(_\w+)?|werkzeug|connexion\.(context|request)|connexion\.[\w.]*flask\w*)(\.|$)
+        stopBy: end
+    - kind: import_from_statement
+      has:
+        field: module_name
+        regex: ^(flask(_\w+)?|werkzeug|connexion\.(context|request)|connexion\.[\w.]*flask\w*)(\.|$)
+    - kind: import_from_statement
+      all:
+        - has:
+            field: module_name
+            regex: ^connexion(\.[\w.]+)?$
+        - has:
+            kind: dotted_name
+            regex: ^(context|request|[Ff]lask\w*)$
+            stopBy: end
+    - kind: import_from_statement
+      all:
+        - has:
+            field: module_name
+            regex: ^connexion(\.[\w.]+)?$
+        - has:
+            kind: wildcard_import
+    - pattern: connexion.$ATTR
+constraints:
+  ATTR:
+    regex: ^(context|request|[Ff]lask\w*)$

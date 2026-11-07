@@ -1,0 +1,62 @@
+# Keep the cases in sync with flask-import-test.yml
+id: no-new-flask-internals
+valid:
+  - import json
+  - import flasky
+  - import werkzeugish
+  - from foca.context import request
+  - from foca.errors import NotFound
+  - from foca.testing import Client
+  - from foca.config import get_config
+  - import connexion
+  - from connexion import problem
+  - from connexion.exceptions import ProblemException
+  - import connexion.lifecycle
+  - from connexion.apis.abstract import AbstractAPI
+  - from connexion import requests_helper
+  - from connexion.apis import abstract
+  - from connexion import App
+  - request = foca.context.current_request()
+  - x = my_connexion.request
+  - from . import flask
+  - from foca.context import *
+  - connexion.problem(400, "Bad", "x")
+invalid:
+  - import flask
+  - import flask as fl
+  - import os, flask
+  - import flask.globals
+  - from flask import request
+  - from flask import Response, make_response
+  - from flask.globals import request_ctx
+  - from flask_cors import CORS
+  - from flask_pymongo import PyMongo
+  - from connexion.apis.flask_utils import flaskify_path
+  - import connexion.apps.flask_app
+  - from connexion.apps import flask_app
+  - from connexion.apis import flask_api, flask_utils
+  - from connexion import FlaskApp
+  - from connexion import FlaskApi as Api
+  - from connexion.security.flask_security_handler_factory import FlaskSecurityHandlerFactory
+  - import werkzeug
+  - from werkzeug.exceptions import NotFound
+  - from werkzeug.datastructures import Headers
+  - from connexion import request
+  - from connexion import context
+  - from connexion import problem, request
+  - from connexion import request as req
+  - from connexion.context import context
+  - import connexion.context
+  - from connexion import *
+  - from connexion.apis import *
+  - app = connexion.FlaskApp(__name__)
+  - import connexion.context as ctx
+  - import connexion.request
+  - from connexion.context import context as ctx
+  - |
+    from connexion import (
+        problem,
+        request,
+    )
+  - connexion.request.headers
+  - user = connexion.context["user"]

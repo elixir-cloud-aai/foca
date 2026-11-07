@@ -209,3 +209,21 @@ the logger `foca.deprecation` (see
 [Deprecations](configuration/log.md#deprecations)), so that deprecated uses
 show in the logs of deployed apps, where Python hides the warnings. Silence
 them by setting a higher level for that logger.
+
+## Finding Flask imports
+
+Nothing breaks. FOCA's repository has the [ast-grep](https://ast-grep.github.io/)
+rule `flask-import`
+([`.ast-grep/rules/flask-import.yml`](https://github.com/elixir-cloud-aai/foca/blob/dev/.ast-grep/rules/flask-import.yml);
+it isn't part of the Python package), which finds what still has to move
+before the ASGI release: imports of Flask and its extensions (e.g.,
+Flask-Cors), Werkzeug, Connexion's Flask modules, and Connexion's `request`
+and `context`. Its note names the replacement for each: the
+accessors above, `foca.errors`, `foca.testing`, `foca.get_config()`, and
+tuples as responses. Werkzeug stays installed, but don't import it.
+
+To adopt it, copy the file into your app's `.ast-grep/rules/`, set its
+`files:` to your package and tests (e.g., `my_app/**` and `tests/**`), and run
+`ast-grep scan` (e.g., via pre-commit). The rule has the severity `warning`
+from FOCA 0.22, so the scan reports but doesn't fail; with the ASGI release,
+FOCA's copy becomes an `error`: update your copy then.
