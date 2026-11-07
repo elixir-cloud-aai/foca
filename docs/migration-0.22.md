@@ -186,13 +186,14 @@ release on ASGI.
 
 ## Invalid fields in `400` responses
 
-Nothing breaks: responses to invalid requests keep their `title`, `status`
-and `detail`, and add the members `type`, `code` and `errors`, which list all
-invalid fields of the request, not only the first, those of the body and the
-parameters together (see [Invalid request](problems/invalid-request.md)).
-`detail` still describes the first invalid field of the body, if any, as
-Connexion checks the body before the parameters. Requests rejected for invalid
-parameters or bodies now raise `foca.errors.InvalidFieldsProblem`, a subclass
+Responses to invalid requests keep their `title` and `status`, and add the
+members `type`, `code` and `errors`, which list all invalid fields of the
+request, not only the first, those of the body and the parameters together
+(see [Invalid request](problems/invalid-request.md)). `detail` now names the
+invalid fields by location and code by default (see [Validation reasons
+without request values](#validation-reasons-without-request-values)).
+Requests rejected for invalid parameters or bodies now raise
+`foca.errors.InvalidFieldsProblem`, a subclass
 of `RequestValidationProblem`, so exception maps and `except` clauses keep
 working. Check the following:
 

@@ -1205,6 +1205,7 @@ class TestValidationDetails:
             "status": 400,
             "detail": "The request is invalid.",
         }
+        # The log keeps the reason (shortened and escaped), the response doesn't
         assert infos == ["Request rejected: Missing query parameter 'limit'"]
 
     def test_off(self, conf: ExceptionConfig, infos: list[str]) -> None:

@@ -818,8 +818,8 @@ class TestFieldErrors:
         """Without validation reasons, details quote no rejected values."""
         path = tmp_path / "spec.yaml"
         path.write_text(yaml.safe_dump(SPEC))
+        # Without validation reasons, as by default
         config = Config()
-        config.exceptions.validation_reasons = False
         cnx_app = register_exception_handler(
             create_connexion_app(config), config.exceptions
         )

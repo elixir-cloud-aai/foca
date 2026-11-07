@@ -30,7 +30,7 @@ exceptions:
   logging: oneline
   # `application/json` if your specs declare it for errors (cf. docs)
   media_type: application/problem+json
-  # Serve the reasons of request validation errors as `detail` (cf. docs)
+  # Serve request-specific details of request validation errors (cf. docs)
   validation_details: True
   # With validation_details: name the invalid fields by location and code
   # as `detail` (they are also listed in `errors`); True serves the

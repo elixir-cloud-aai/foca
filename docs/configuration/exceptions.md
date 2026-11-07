@@ -116,8 +116,8 @@ exceptions:
 
 Responses to Connexion's validation exceptions (`BadRequestProblem` and
 `ExtraParameterProblem`) get a `detail` that names the invalid fields by
-location and code, without their values (see below for the validator's
-reasons instead), with the title and status as mapped, e.g.:
+location and code, without their values (see below), with the title and
+status as mapped, e.g.:
 
 ```json
 {
