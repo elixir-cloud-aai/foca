@@ -1,6 +1,7 @@
 """Factory for creating and configuring Celery application instances."""
 
 import logging
+import weakref
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -14,10 +15,47 @@ from foca.config.access import _get_app_config
 from foca.config.environment import get_env
 from foca.database.register_mongodb import reopen_mongodb
 from foca.deprecation import warn_deprecated
-from foca.models.config import PeriodicJobConfig
+from foca.models.config import MongoConfig, PeriodicJobConfig
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+_REOPEN_UID = "foca-reopen-mongodb"
+"""Dispatch UID of the handler that reopens MongoDB clients around forks."""
+
+_databases: "weakref.WeakValueDictionary[int, MongoConfig]" = (
+    weakref.WeakValueDictionary()
+)
+"""Database configurations of the Celery apps, by `id()`, while alive."""
+
+
+def _reopen_clients(**kwargs: Any) -> None:
+    """Replace the MongoDB clients of the Celery apps around worker forks.
+
+    Connected once, to Celery's worker signals, and kept alive deliberately;
+    it holds the configurations weakly, so that they and their clients are
+    released with their apps (e.g., in tests that create many apps).
+
+    Args:
+        **kwargs: Arguments of the signal; ignored.
+    """
+    for db in list(_databases.values()):
+        reopen_mongodb(db)
+
+
+def _reopen_around_forks(db: MongoConfig) -> None:
+    """Have workers replace the MongoDB client of a configuration.
+
+    Args:
+        db: Database configuration; held weakly (cf. :py:func:`_reopen_clients`).
+    """
+    _databases[id(db)] = db
+    # `worker_init`: before the worker forks its processes, so that it forks
+    # without the clients' threads; `worker_process_init`: in each of them,
+    # as the worker may have used the clients since (it replaces processes
+    # that end, while it runs); connected once (cf. `dispatch_uid`)
+    worker_init.connect(_reopen_clients, weak=False, dispatch_uid=_REOPEN_UID)
+    worker_process_init.connect(_reopen_clients, weak=False, dispatch_uid=_REOPEN_UID)
 
 
 def _redact_url(url: str) -> str:
@@ -101,7 +139,8 @@ def _create_celery_app(app: Flask) -> Celery:
     If the app has a database, a worker replaces its MongoDB client before it
     forks its processes, and each process after its fork, as clients must not
     be used across forks (cf.
-    :py:func:`foca.database.register_mongodb.reopen_mongodb`).
+    :py:func:`foca.database.register_mongodb.reopen_mongodb`); the worker's
+    signals don't keep the database configuration alive.
 
     Jobs of `jobs.periodic` are set as the schedule of Celery beat.
 
@@ -152,24 +191,8 @@ def _create_celery_app(app: Flask) -> Celery:
     celery.Task = ContextTask
     logger.debug("App context added to 'celery.Task' class.")
 
-    db = config.db
-    if db is not None:
-
-        def reopen_client(**kwargs: Any) -> None:
-            """Replace the app's MongoDB client around forks of a worker.
-
-            Args:
-                **kwargs: Arguments of the signal; ignored.
-            """
-            reopen_mongodb(db)
-
-        # `worker_init`: before the worker forks its processes, so that it
-        # forks without the client's threads; `worker_process_init`: in each
-        # of them, as the worker may have used the client since (it replaces
-        # processes that end, while it runs)
-        uid = f"foca-reopen-mongodb-{id(db)}"
-        worker_init.connect(reopen_client, weak=False, dispatch_uid=uid)
-        worker_process_init.connect(reopen_client, weak=False, dispatch_uid=uid)
+    if config.db is not None:
+        _reopen_around_forks(config.db)
         logger.debug("MongoDB client set to be reopened around worker forks.")
 
     return celery

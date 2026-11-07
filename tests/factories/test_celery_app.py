@@ -1,5 +1,7 @@
 """Unit tests for Celery app factory module."""
 
+import gc
+import weakref
 from unittest.mock import MagicMock
 
 import pytest
@@ -118,6 +120,32 @@ def test_worker_signals_reopen_once_per_config(
     worker_process_init.send(sender=None)
     calls = [call for call in reopen.call_args_list if call.args[0] is config.db]
     assert len(calls) == 1
+
+
+def test_worker_signals_release_configs(
+    logged: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker signals keep no database configuration alive.
+
+    Configurations and their clients are released with their app (Celery
+    keeps its latest app, so a second one is created), while the clients of
+    the configurations still in use are reopened.
+    """
+    reopen = MagicMock()
+    monkeypatch.setattr(module, "reopen_mongodb", reopen)
+    config = Config(jobs=JobsConfig(), db=MongoConfig())
+    ref = weakref.ref(config.db)
+    _create_celery_app(create_connexion_app(config).app)
+    other = Config(jobs=JobsConfig(), db=MongoConfig())
+    _create_celery_app(create_connexion_app(other).app)
+    del config
+    gc.collect()
+    assert ref() is None
+    for signal in (worker_init, worker_process_init):
+        reopen.reset_mock()
+        signal.send(sender=None)
+        reopened = [call.args[0] for call in reopen.call_args_list]
+        assert sum(db is other.db for db in reopened) == 1
 
 
 def test_periodic_jobs(logged: list[str]) -> None:
