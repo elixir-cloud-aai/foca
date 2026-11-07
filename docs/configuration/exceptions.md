@@ -164,8 +164,11 @@ and unescaped (and rejected values can be as large as the request body), so
 its messages on rejected requests are filtered out, for all apps of the
 process.
 Exceptions that your app raises as `BadRequestProblem` (e.g., FOCA's
-[access control](../access-control.md) for an invalid user acted for) get
-their `detail` as well, so keep internals out of it. Set
+[access control](../access-control.md) for an invalid user acted for) are
+handled the same way: by default, their `detail` is replaced by the invalid
+fields, if listed, otherwise the mapped or fixed `detail`; with
+`validation_reasons: true`, their `detail` is sent, so keep internals out of
+it. Set
 `validation_details: false` to respond with the problem details mapped to
 the exception class instead (without `errors`), whatever was wrong with the
 request, and to log the exception (Connexion's validation logger then logs
