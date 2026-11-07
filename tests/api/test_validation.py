@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import yaml
+from connexion import App
 from connexion.decorators.validation import RequestBodyValidator
 from connexion.resolver import Resolution
 from flask import Flask
@@ -295,6 +296,18 @@ class CustomBodyValidator(RequestBodyValidator):
         raise ValueError("Refused")
 
 
+def _with_reasons() -> App:
+    """Create an app whose responses quote the validators' reasons.
+
+    Returns:
+        Connexion app with `exceptions.validation_reasons`, as most tests check
+        the reasons as `detail`.
+    """
+    config = Config()
+    config.exceptions.validation_reasons = True
+    return register_exception_handler(create_connexion_app(config), config.exceptions)
+
+
 def _create_app(tmp_path: Path, strict: bool = True, **connexion: Any) -> Flask:
     """Create an app with the test API.
 
@@ -308,7 +321,7 @@ def _create_app(tmp_path: Path, strict: bool = True, **connexion: Any) -> Flask:
     """
     path = tmp_path / "spec.yaml"
     path.write_text(yaml.safe_dump(SPEC))
-    cnx_app = register_exception_handler(create_connexion_app(Config()))
+    cnx_app = _with_reasons()
     spec = SpecConfig.model_validate(
         {
             "path": path,
@@ -469,7 +482,7 @@ class TestExtraParameters:
                 }
             )
         )
-        cnx_app = register_exception_handler(create_connexion_app(Config()))
+        cnx_app = _with_reasons()
         spec = SpecConfig.model_validate(
             {"path": path, "connexion": {"strict_validation": True}}
         )
@@ -531,7 +544,7 @@ class TestResponses:
                 }
             )
         )
-        cnx_app = register_exception_handler(create_connexion_app(Config()))
+        cnx_app = _with_reasons()
         spec = SpecConfig.model_validate(
             {
                 "path": path,
@@ -876,7 +889,7 @@ class TestFieldErrors:
                 }
             )
         )
-        cnx_app = register_exception_handler(create_connexion_app(Config()))
+        cnx_app = _with_reasons()
         spec = SpecConfig.model_validate({"path": path, "disable_auth": True})
         client = Client(register_openapi(cnx_app, specs=[spec]))
         response = client.post("/forms", data={"name": "abc"})

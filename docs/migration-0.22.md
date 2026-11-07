@@ -254,14 +254,20 @@ goes away, with what to use now, examples, and how to find what is left.
 
 ## Validation reasons without request values
 
-Nothing breaks. With `exceptions.validation_details` (the default), the
-`detail` of responses to requests rejected by Connexion's validation is the
-validator's reason, which quotes rejected values, e.g., `'abcd' is too long -
-'name'`, and for parameters also the schema. Set the new
-`exceptions.validation_reasons: false` to respond with a `detail` that names
-the invalid fields by location and code instead, e.g., `Invalid fields:
-#/name (too-long)`; the invalid fields stay listed in `errors`, without their
-values
-(see [Request-specific
-details](configuration/exceptions.md#request-specific-details)). The default
-keeps the reasons, as clients and tests may depend on them.
+The `detail` of responses to requests rejected by Connexion's validation
+changes by default. Before, with `exceptions.validation_details` (the
+default), it was the validator's reason, which quotes rejected values, e.g.,
+`'abcd' is too long - 'name'`, and for parameters also the schema. Now it
+names the invalid fields by location and code, e.g., `Invalid fields: #/name
+(too-long)`, or, if no invalid fields are listed (e.g., for a missing
+parameter, a body that isn't valid JSON or has unpaired surrogates), it is
+the mapped `detail`, if any, or `The request is invalid.`
+The invalid fields are listed in `errors`, without their values (see
+[Request-specific
+details](configuration/exceptions.md#request-specific-details)). Status,
+`title` and the logs are unchanged.
+
+Update tests and clients that check the old messages in `detail`: check the
+invalid fields in `errors` instead, e.g., their `pointer` or `parameter` and
+`code`. If clients depend on the reasons, set the new option
+`exceptions.validation_reasons: true` to keep them.

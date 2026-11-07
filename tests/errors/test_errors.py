@@ -750,8 +750,9 @@ class TestHandler:
                 {},
                 {"title": "Method Not Allowed", "status": 405},
             ),
-            # Connexion request validation exception, by status code, with
-            # the reason (`validation_details` is on by default)
+            # Connexion request validation exception, by status code, without
+            # the reason (`validation_details` is on, `validation_reasons` off
+            # by default) or invalid fields (missing ones aren't listed)
             (
                 "get",
                 "/validated",
@@ -759,7 +760,7 @@ class TestHandler:
                 {
                     "title": "Bad Request",
                     "status": 400,
-                    "detail": "Missing query parameter 'limit'",
+                    "detail": "The request is invalid.",
                 },
             ),
             # Connexion security exceptions, by status code
@@ -1045,8 +1046,9 @@ class TestValidationDetails:
 
     @pytest.fixture
     def conf_details(self, conf: ExceptionConfig) -> ExceptionConfig:
-        """Exception config with validation details."""
+        """Exception config with validation details and reasons."""
         conf.validation_details = True
+        conf.validation_reasons = True
         return conf
 
     @pytest.mark.parametrize(
@@ -1187,9 +1189,13 @@ class TestValidationDetails:
         assert json.loads(response.content)["detail"] == detail
 
     def test_default(self, infos: list[str]) -> None:
-        """Validation details and reasons are on by default, also without a config."""
+        """Validation details are on, reasons off by default, also without a config.
+
+        Missing parameters aren't listed (Connexion's validator), so `detail`
+        is the fixed message.
+        """
         assert ExceptionConfig().validation_details
-        assert ExceptionConfig().validation_reasons
+        assert not ExceptionConfig().validation_reasons
         app = App(__name__, skip_error_handlers=True)
         register_exception_handler(app)
         app.add_api(SPEC, strict_validation=True)
@@ -1197,7 +1203,7 @@ class TestValidationDetails:
         assert json.loads(response.content) == {
             "title": "Bad Request",
             "status": 400,
-            "detail": "Missing query parameter 'limit'",
+            "detail": "The request is invalid.",
         }
         assert infos == ["Request rejected: Missing query parameter 'limit'"]
 
@@ -1361,13 +1367,16 @@ class TestInvalidFields:
         return Client(app)
 
     def test_errors(self, conf: ExceptionConfig) -> None:
-        """Responses list the invalid fields, with type and code."""
+        """Responses list the invalid fields, with type and code.
+
+        By default, `detail` names them, rather than the reason.
+        """
         response = self._client(conf).get("/invalid")
         assert response.status_code == 400
         assert json.loads(response.content) == {
             "title": "Bad Request",
             "status": 400,
-            "detail": "Invalid URL",
+            "detail": "Invalid fields: #/url (scheme-not-allowed); limit (required)",
             "type": INVALID_REQUEST_TYPE,
             "code": "invalid-request",
             "errors": [error.to_dict() for error in self.ERRORS],

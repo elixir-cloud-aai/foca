@@ -438,11 +438,13 @@ class ExceptionConfig(FOCABaseConfig):
             is the same for all media types.
         validation_details: Whether responses to requests rejected by
             Connexion's validation (`BadRequestProblem` and
-            `ExtraParameterProblem`) get the reason of the rejection (e.g.,
-            the validator's message) as `detail`, instead of the problem
-            details mapped to the exception class. Defaults to true: the
-            reason is also logged (at `INFO`, shortened and escaped) instead
-            of the exception, and the request validation messages of
+            `ExtraParameterProblem`) get request-specific details: the
+            invalid fields, and as `detail` their locations and codes or the
+            reason of the rejection (cf. `validation_reasons`), instead of
+            the problem details mapped to the exception class. Defaults to
+            true: the invalid fields, otherwise the reason, are also logged
+            (at `INFO`, shortened and escaped) instead of the exception,
+            and the request validation messages of
             Connexion's validation logger (`connexion.decorators.validation`)
             are filtered out, as they have the validator's message in full
             and unescaped. If false, responses get the mapped problem
@@ -450,15 +452,15 @@ class ExceptionConfig(FOCABaseConfig):
         validation_reasons: Whether the `detail` of responses to requests
             rejected by Connexion's validation (with `validation_details`) is
             the validator's reason, which may quote rejected values of the
-            request and parts of the schema. Defaults to true. If false, the
+            request and parts of the schema. Defaults to false: the
             `detail` names the invalid fields by location and code, e.g.,
             ``Invalid fields: #/name (too-long)``, without their values (the
             locations are pointers or parameter names, which may include keys
             of the request); if no invalid fields are listed (or `errors` isn't
             public), it is the mapped `detail`, if any, or a fixed message.
             Applies to all request validation exceptions, including
-            `RequestValidationProblem` raised by FOCA or the app. Recommended
-            for apps whose clients don't depend on the reasons.
+            `RequestValidationProblem` raised by FOCA or the app. Set it to
+            true only if clients depend on the reasons.
         max_detail_length: Maximum length of request-specific details in
             responses (cf. `validation_details` and
             :py:func:`foca.errors.exceptions.problem_response`) and log
@@ -474,7 +476,7 @@ class ExceptionConfig(FOCABaseConfig):
             are logged.
         media_type: Media type of all error responses, in lower case.
         validation_details: Whether responses to requests rejected by
-            Connexion's validation get the reason as `detail`.
+            Connexion's validation get request-specific details.
         validation_reasons: Whether that `detail` is the validator's reason,
             rather than the invalid fields' locations and codes.
         max_detail_length: Maximum length of request-specific details in
@@ -496,7 +498,7 @@ class ExceptionConfig(FOCABaseConfig):
         >>> exceptions.validation_details
         True
         >>> exceptions.validation_reasons
-        True
+        False
         >>> exceptions.max_detail_length
         500
     """
@@ -506,7 +508,7 @@ class ExceptionConfig(FOCABaseConfig):
     logging: ExceptionLoggingEnum = ExceptionLoggingEnum.oneline
     media_type: str = DEFAULT_ERROR_MEDIA_TYPE
     validation_details: bool = True
-    validation_reasons: bool = True
+    validation_reasons: bool = False
     max_detail_length: PositiveInt = 500
     # Problem details by exception class, imported from `mapping`
     _problems: dict[type[BaseException], dict[str, Any]] = PrivateAttr(
