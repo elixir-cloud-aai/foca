@@ -43,7 +43,9 @@ errors of PyMongo. To leave creating indexes to a step of your deployment, set
 
 To use the configured collections outside an app (e.g., in scripts), call
 `Foca.use_config()`: `get_collection()` then returns them, without an app or
-app context, and no indexes are created. For a client of your own, use
+app context, and no indexes are created (see [Preparing for the ASGI
+release](../preparing-for-asgi.md#configuration)). For a client of your own,
+use
 `create_mongo_client()`:
 
 ```python

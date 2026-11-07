@@ -647,7 +647,7 @@ def no_apps(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_use_config_without_app(tmp_path: Path) -> None:
     """Configuration and collections are used without an app or writes."""
     foca = Foca(config_file=_indexed_db_conf(tmp_path))
-    assert foca.use_config() is foca.conf
+    foca.use_config()
     assert not has_app_context()
     assert get_config() is foca.conf
     collection = get_collection("my-db", "items")
@@ -655,6 +655,36 @@ def test_use_config_without_app(tmp_path: Path) -> None:
     # no index is created, only MongoDB's own one with the collection
     collection.insert_one({"name": "a"})
     assert list(collection.index_information()) == ["_id_"]
+    assert foca.conf.db is not None
+    assert foca.conf.db.create_indexes_on_startup
+
+
+@pytest.mark.usefixtures("no_apps", "mongo_clients")
+def test_use_config_twice(tmp_path: Path) -> None:
+    """Using a configuration again reuses the registered collections."""
+    foca = Foca(config_file=_indexed_db_conf(tmp_path))
+    foca.use_config()
+    collection = get_collection("my-db", "items")
+    foca.use_config()
+    assert get_collection("my-db", "items") is collection
+
+
+@pytest.mark.parametrize("config_files", [[], [VALID_DB_CONF]])
+@pytest.mark.usefixtures("no_apps", "mongo_clients")
+def test_use_config_access_control(config_files: list[Path]) -> None:
+    """The collection of the stored policy rules is registered too.
+
+    Also without databases of the app, and again by an app created later.
+    """
+    foca = Foca(config_file=[*config_files, ACCESS_CONTROL_ENABLED_CONF])
+    foca.use_config()
+    access_control = foca.conf.security.access_control
+    names = (access_control.db_name, access_control.collection_name)
+    collection = get_collection(*names)
+    assert collection.name == access_control.collection_name
+    assert not list(collection.find())
+    foca.create_app()
+    assert get_collection(*names).full_name == collection.full_name
 
 
 @pytest.mark.usefixtures("no_apps")

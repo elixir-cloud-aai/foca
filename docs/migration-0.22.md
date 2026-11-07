@@ -78,10 +78,16 @@ configuration to:
 `get_config()` returns the configuration of the current app, or, outside app
 contexts (e.g., in Celery workers or scripts), that of the most recently
 created FOCA app, or of the most recent call of `Foca.use_config()` if that
-came later. `use_config()` is for scripts that use a configuration and its
-collections (`get_collection()`) without creating an app: it registers the
-databases without creating indexes and writes nothing to the database. Where you passed an app that isn't the current one, e.g., in
-tests, enter its app context:
+came later.
+
+`use_config()` is for scripts that use a configuration and its collections
+(`get_collection()`) without creating an app: it registers the databases
+without creating indexes and writes nothing to the database. It gives no app
+context (see [Preparing for the ASGI
+release](preparing-for-asgi.md#configuration)).
+
+Where you passed an app that isn't the current one, e.g., in tests, enter its
+app context:
 
 ```python
 # Before

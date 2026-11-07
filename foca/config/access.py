@@ -103,7 +103,8 @@ def set_app_config(app: Flask, config: Config) -> None:
     """Attach configuration to a Flask app.
 
     Deprecated, removed in the ASGI release: FOCA attaches the configuration
-    to the apps it creates (cf. :py:meth:`foca.Foca.create_app`).
+    to the apps it creates (cf. :py:meth:`foca.Foca.create_app`); scripts
+    use a configuration without an app via :py:meth:`foca.Foca.use_config`.
 
     Args:
         app: Flask application instance.
@@ -111,7 +112,8 @@ def set_app_config(app: Flask, config: Config) -> None:
     """
     warn_deprecated(
         "'set_app_config()' is deprecated and removed in the ASGI release; "
-        "FOCA attaches the configuration to the apps it creates.",
+        "FOCA attaches the configuration to the apps it creates, and "
+        "scripts use 'Foca.use_config()'.",
         stacklevel=2,
     )
     _set_app_config(app, config)
@@ -135,9 +137,9 @@ def _set_app_config(app: Flask, config: Config) -> None:
 def _use_config(config: Config) -> None:
     """Make a configuration the one used outside app contexts.
 
-    For FOCA's own use (cf. :py:meth:`foca.Foca.use_config`): it replaces
-    the configuration of the most recently created app, which
-    :py:func:`get_config` returns outside app contexts.
+    For FOCA's own use (cf. :py:meth:`foca.Foca.use_config`): it becomes
+    the configuration that :py:func:`get_config` returns outside app
+    contexts.
 
     Args:
         config: App configuration.

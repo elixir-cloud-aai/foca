@@ -124,6 +124,7 @@ attach a configuration to a Flask app of their own, e.g., to use
 ```python
 # Before
 from flask import Flask
+from foca import Foca
 from foca.config.access import set_app_config
 from foca.database.register_mongodb import register_mongodb
 
@@ -135,14 +136,20 @@ with app.app_context():
     run()
 
 # After
+from foca import Foca
+
 foca = Foca(config_file="config.yaml")
 foca.use_config()
 run()
 ```
 
-`use_config()` registers the databases without creating indexes and runs
+`use_config()` registers the databases (with the collection of the stored
+policy rules if access control is enabled) without creating indexes and runs
 nothing else of the startup of apps, so it writes nothing to the database
-(see [Configuration access](migration-0.22.md#configuration-access)).
+(see [Configuration access](migration-0.22.md#configuration-access)). There
+is no app context, so what only apps register isn't available (e.g.,
+`current_app.config["casbin_adapter"]`): scripts that need it create the app,
+after `Foca.disable_startup_writes()` if they must not write.
 
 ### Errors
 
