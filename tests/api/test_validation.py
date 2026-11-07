@@ -1021,6 +1021,19 @@ class TestListingFails:
             e.get("pointer") or e["parameter"] for e in response.json()["errors"]
         ] == ["#/name", "b"]
 
+    def test_body_and_parameters_fail(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The body's fields are listed alone if checking parameters fails."""
+        monkeypatch.setattr(ParameterValidator, "_listed_by_foca", self._fail)
+        client = Client(_create_app(tmp_path))
+        response = client.put(
+            "/things/abc?limit=11&b=1",
+            json={"name": "abcd", "url": "https://example.org"},
+        )
+        assert response.status_code == 400
+        assert [e.get("pointer") for e in response.json()["errors"]] == ["#/name"]
+
     def test_handler(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Responses keep their status if the handler can't list the fields."""
         monkeypatch.setattr(exceptions_module, "add_field_errors", self._fail)

@@ -113,7 +113,9 @@ describes the first invalid field of the body, if any. With
 `strict_validation`, unknown parameters are listed together with the invalid
 declared ones; for operations without declared parameters, unknown query
 parameters are only listed if the body is valid. If the invalid declared
-parameters can't be listed (see below), the others are listed without them.
+parameters can't be listed (see below), the others are listed without them;
+if the parameters can't be checked at all, the body's fields are listed
+alone, and a warning is logged.
 Body and parameters are listed together with FOCA's validators only, not
 with validators of your own in the Connexion option `validator_map`. The
 app's own checks run on valid requests only.

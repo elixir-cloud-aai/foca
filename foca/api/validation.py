@@ -145,7 +145,8 @@ class BodyValidator(RequestBodyValidator):
             try:
                 check_body(request)
             except InvalidFieldsProblem as exc:
-                errors = parameters.field_errors(request)
+                # Best effort: the body's problem is raised in any case
+                errors = _list_fields(lambda: parameters.field_errors(request))
                 if errors:
                     exc.field_errors = (*exc.field_errors, *errors)
                 raise
