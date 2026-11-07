@@ -1,7 +1,9 @@
 """Tests for the stricter checks of requests (`foca.api.validation`)."""
 
+import gc
 import json
 import logging
+import weakref
 from pathlib import Path
 from typing import Any, ClassVar, NoReturn
 from unittest.mock import MagicMock
@@ -696,6 +698,65 @@ class TestFieldErrors:
         ]
         assert "s3cr3t" not in caplog.text
 
+    def test_body_and_parameters(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Invalid fields of the body and the parameters are listed together.
+
+        The body's fields come first; the detail stays Connexion's message on
+        the body's first error, as before.
+        """
+        client = Client(_create_app(tmp_path))
+        with caplog.at_level(logging.DEBUG):
+            response = client.put(
+                "/things/ABC?limit=s3cr3t&b=1",
+                json={"name": "abcd", "url": "https://example.org"},
+                headers={"X-Mode": "s3cr3t"},
+            )
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"] == "'abcd' is too long - 'name'"
+        assert data["code"] == "invalid-request"
+        assert [
+            (e.get("pointer") or e["parameter"], e["code"]) for e in data["errors"]
+        ] == [
+            ("#/name", "too-long"),
+            ("b", "unknown-parameter"),
+            ("limit", "invalid-type"),
+            ("tag", "required"),
+            ("thingId", "pattern-mismatch"),
+            ("X-Mode", "invalid-value"),
+        ]
+        problem_validator().validate(data)
+        assert "s3cr3t" not in caplog.text
+
+    def test_body_and_valid_parameters(self, tmp_path: Path) -> None:
+        """With valid parameters, only the body's fields are listed."""
+        client = Client(_create_app(tmp_path, strict=False))
+        response = client.put(self.URL + "&b=1", json={"url": "https://example.org"})
+        assert response.json()["errors"] == [
+            {"detail": "Is required.", "pointer": "#/name", "code": "required"}
+        ]
+
+    def test_body_rejected_otherwise(self, tmp_path: Path) -> None:
+        """Bodies rejected without invalid fields get no parameters listed."""
+        client = Client(_create_app(tmp_path))
+        response = client.put(
+            "/things/ABC?limit=11",
+            content="{",
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"] == "Request body is not valid JSON"
+        assert "errors" not in data
+
+    def test_apps_collected(self, tmp_path: Path) -> None:
+        """Apps can be collected, though FOCA keeps their parameter validators."""
+        app = weakref.ref(_create_app(tmp_path))
+        gc.collect()
+        assert app() is None
+
     def test_values_not_echoed(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -937,6 +998,20 @@ class TestListingFails:
         client = Client(_create_app(tmp_path))
         response = client.put("/things/abc?limit=11&b=1", json=TestFieldErrors.VALID)
         assert [e["parameter"] for e in response.json()["errors"]] == ["b"]
+
+    def test_body_and_parameters(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unknown parameters follow the body's fields if declared can't be listed."""
+        monkeypatch.setattr(validation, "_parameter_errors", self._fail)
+        client = Client(_create_app(tmp_path))
+        response = client.put(
+            "/things/abc?limit=11&b=1",
+            json={"name": "abcd", "url": "https://example.org"},
+        )
+        assert [
+            e.get("pointer") or e["parameter"] for e in response.json()["errors"]
+        ] == ["#/name", "b"]
 
     def test_handler(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Responses keep their status if the handler can't list the fields."""

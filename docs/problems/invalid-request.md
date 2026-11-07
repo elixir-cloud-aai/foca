@@ -107,15 +107,22 @@ Apps add codes of their own for their own checks (see below), e.g.,
 ## What is collected
 
 All invalid fields of the request body (JSON or form data, against the
-schema of the request body) are listed, and all invalid parameters.
-The body is checked first: a request with an invalid body lists its fields
-only. With `strict_validation`, unknown parameters are listed together with
-the invalid declared ones. The app's own checks run on valid requests only. Requests rejected
-for other reasons, e.g., a body that is not valid JSON or has unpaired
-surrogates, or form fields of an OpenAPI 3 request body that can't be
-converted to their type, get no `errors`, but `detail` as before. If any
-invalid field can't be listed (e.g., for an unexpected schema), the request
-is rejected as before, without `errors`, and a warning is logged.
+schema of the request body) are listed, and all invalid parameters, together
+in one response: first the fields of the body, then the parameters; `detail`
+describes the first invalid field of the body, if any. With
+`strict_validation`, unknown parameters are listed together with the invalid
+declared ones; for operations without declared parameters, unknown query
+parameters are only listed if the body is valid. If the invalid declared
+parameters can't be listed (see below), the others are listed without them.
+Body and parameters are listed together with FOCA's validators only, not
+with validators of your own in the Connexion option `validator_map`. The
+app's own checks run on valid requests only.
+Requests rejected for other reasons, e.g., a body that is not valid JSON or
+has unpaired surrogates, or form fields of an OpenAPI 3 request body that
+can't be converted to their type, get no `errors`, but `detail` as before,
+even if parameters are invalid too. Otherwise, if any invalid field can't be
+listed (e.g., for an unexpected schema), the request is rejected as before,
+without `errors`, and a warning is logged.
 
 ## Checks of your app
 
