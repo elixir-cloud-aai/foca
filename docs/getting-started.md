@@ -124,7 +124,10 @@ so pin a suffixed tag to keep the Python version.
 
 Images are signed and come with SBOM and provenance attestations, and CI
 scans them for vulnerabilities; see [verifying images and
-charts](deployment.md#verifying-images-and-charts).
+charts](deployment.md#verifying-images-and-charts). From FOCA 0.22.0 on,
+images install the Debian updates available when they are built, so that
+they have the fixes of system packages before the upstream Python images
+do; images built on FOCA's image inherit them.
 
 The image contains no build tools and runs as non-root user `foca` (UID
 `1000`, group `0`); `/app` and the home directory are writable by group `0`,

@@ -130,9 +130,13 @@ requests, and passes without the secrets. In all forks, Codecov upload errors
 don't fail CI. If a scan fails:
 
 1. Fix the vulnerability if FOCA can: raise the lower bound of the dependency
-   in `pyproject.toml` or update the base image (Dependabot's PRs do both). If
-   no base image has the fix of a system package yet, upgrade that package in
-   the stage `base` of `docker/Dockerfile`, until they do.
+   in `pyproject.toml` or update the base image (Dependabot's PRs do both).
+   The stage `base` of `docker/Dockerfile` installs the Debian updates
+   available at build time (`apt-get upgrade`), so a fix of a system package
+   that Debian has released reaches the images with their next build (e.g.,
+   by re-running CI), before the base images have it. The build fails if a
+   package index can't be fetched, instead of leaving the packages as they
+   are.
    The image has no pip, so scans don't report packages vendored by pip;
    CI fails if pip is back (`scripts/check-no-pip.sh`).
 2. Otherwise (e.g., no fixed version yet, or a vulnerability that does not
@@ -169,7 +173,9 @@ build tools with their hashes (`--require-hashes`), from
   updates them, too, one version and its hashes at a time.
 
 The base images are given by digest, one stage per Python version, which Dependabot
-updates, but it doesn't change the Python versions. A new Python version needs a new
+updates, but it doesn't change the Python versions. Their system packages are
+upgraded at build time (see [Image scan](#image-scan)), so rebuilds of the same
+commit may get newer system packages. A new Python version needs a new
 stage in the `Dockerfile`, an entry in `PYTHON_VERSIONS` of the script, and its file
 (`tests/test_image_requirements.py` checks that they match the workflows).
 

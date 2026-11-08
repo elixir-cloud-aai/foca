@@ -470,7 +470,9 @@ critical and high vulnerabilities), and a weekly workflow the published images
 of the latest release (see [Image scan](contributing/index.md#image-scan)). The
 repository's code scanning alerts show the findings that have a fix, which the
 maintainers can act on; findings without a fix (often OS packages of the base
-image) appear there once a fix is released. The weekly workflow also keeps a
+image) appear there once a fix is released. From FOCA 0.22.0 on, the images
+install the Debian updates available when they are built, so a fix released
+for an OS package reaches them with their next build. The weekly workflow also keeps a
 full report, those findings included, as a workflow artifact of each run.
 From FOCA 0.17.0 on, the published images (release and `dev` images) are the
 scanned ones: the workflows push each image by digest, untagged, scan exactly
