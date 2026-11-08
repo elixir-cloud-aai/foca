@@ -31,13 +31,18 @@ RUN pip uninstall --yes --no-cache-dir setuptools wheel
 # Install the Debian updates available at build time (e.g., from
 # `trixie-security`), which the pinned base images get only once upstream
 # rebuilds them and Dependabot updates the digests (e.g., zlib1g for
-# CVE-2026-76844 and CVE-2026-85091, apt for CVE-2026-109518), so that images
-# built on this one get the fixes of OS packages, too; rebuilds of the same
-# commit may thus get newer OS packages. The build fails if an index can't be
-# fetched, which would otherwise leave the packages as they are, silently
+# CVE-2026-76844, CVE-2026-85091 and CVE-2026-27171, apt for CVE-2026-109518),
+# so that images built on this one get the fixes of OS packages, too; rebuilds
+# of the same commit may thus get newer OS packages. The build fails if an
+# index can't be fetched, which would otherwise leave the packages as they
+# are, silently; updates that need new packages are installed, too (without
+# recommended ones), instead of being kept back; and changed configuration
+# files keep the base image's version, without a prompt
 RUN apt-get update --error-on=any && \
     DEBIAN_FRONTEND=noninteractive \
-        apt-get upgrade -y --no-install-recommends && \
+        apt-get upgrade -y --with-new-pkgs --no-install-recommends \
+            -o Dpkg::Options::=--force-confdef \
+            -o Dpkg::Options::=--force-confold && \
     rm -rf /var/lib/apt/lists/*
 
 # Build image: installs FOCA with pip from `docker/requirements/build.txt`, as

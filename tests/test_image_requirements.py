@@ -47,11 +47,16 @@ def test_base_stage_upgrades_os_packages() -> None:
         (run for run in base_stage.split("\nRUN ") if "apt-get upgrade" in run),
         "",
     )
+    assert run, "No step with `apt-get upgrade` in the stage `base`"
     # Fails if an index can't be fetched, which would otherwise leave the
     # packages as they are, without an error
     assert re.search(r"\bapt-get update --error-on=any\b", run)
-    assert re.search(r"\bapt-get upgrade -y\b", run)
+    # Also updates that need new packages, which would be kept back otherwise
+    assert re.search(r"\bapt-get upgrade\b[^&]*\s--with-new-pkgs\b", run)
+    # Without prompts, of debconf and of dpkg for changed configuration files
     assert "DEBIAN_FRONTEND=noninteractive" in run
+    assert "--force-confdef" in run
+    assert "--force-confold" in run
     assert "rm -rf /var/lib/apt/lists/*" in run
     # All packages, not single ones, which would need a change per advisory
     assert "--only-upgrade" not in base_stage
