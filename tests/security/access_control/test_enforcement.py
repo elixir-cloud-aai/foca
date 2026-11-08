@@ -624,13 +624,41 @@ class TestEnforcement:
     def test_decisions_logged_escaped(
         self, app: Flask, caplog: pytest.LogCaptureFixture, user: str | None, level: int
     ) -> None:
-        """Request paths cannot forge log lines."""
+        """Request paths cannot forge log lines.
+
+        They are logged once, at `DEBUG` only, also for denials (at `level`).
+        """
         with _capture_logs(caplog, level=logging.DEBUG):
             Client(app).get("/items/1%0Aforged%1B", headers=_headers(user))
-        messages = _messages(caplog, level=level)
-        assert len(messages) == 1
-        assert "/items/1\\nforged\\x1b" in messages[0]
-        assert "\n" not in messages[0]
+        assert len(_messages(caplog, level=level)) == 1
+        assert not any("forged" in m for m in _messages(caplog, level=logging.INFO))
+        with_path = [
+            message
+            for message in _messages(caplog, level=logging.DEBUG)
+            if "forged" in message
+        ]
+        assert len(with_path) == 1
+        assert "/items/1\\nforged\\x1b" in with_path[0]
+        assert "\n" not in with_path[0]
+
+    def test_denial_logged_with_route(
+        self, app: Flask, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Denials name the route at `INFO`, the path only at `DEBUG`."""
+        with _capture_logs(caplog, level=logging.DEBUG):
+            response = Client(app).delete("/items/1", headers=_headers("dave"))
+        assert response.status_code == 403
+        infos = [
+            message
+            for message in _messages(caplog, level=logging.INFO)
+            if message.startswith("Access denied")
+        ]
+        assert len(infos) == 1
+        assert infos[0].startswith("Access denied: DELETE /items/{id} to ")
+        assert "/items/1" not in infos[0]
+        assert "Path of the denied request: DELETE /items/1" in _messages(
+            caplog, level=logging.DEBUG
+        )
 
     def test_no_warning_without_subject_like_roles(
         self, app: Flask, caplog: pytest.LogCaptureFixture

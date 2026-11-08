@@ -36,7 +36,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     validate_rule_value,
 )
 from foca.security.resolvers import _normalize_resolver
-from foca.utils.logging import escape_log_value
+from foca.utils.logging import _UNKNOWN_ROUTE, escape_log_value
 
 if TYPE_CHECKING:  # import cycle
     from foca.models.config import AccessControlConfig, ServiceClientConfig
@@ -799,18 +799,28 @@ def is_permitted() -> bool:
         # logging in again
         raise _unauthorized("Subject could not be identified", invalid_token=False)
     request = current_request()
-    return _is_permitted_on(subject, request.path, request.method)
+    return _is_permitted_on(subject, request.path, request.method, request.route)
 
 
 def _is_permitted_on(
-    subject: str, path: str, method: str, denied_level: int = logging.INFO
+    subject: str,
+    path: str,
+    method: str,
+    route: str | None,
+    denied_level: int = logging.INFO,
 ) -> bool:
     """Check whether the current caller is allowed by the policies on a path.
+
+    Denials are logged at `denied_level` with the route rather than the path,
+    which holds values of the request (e.g., path parameters); the path is
+    logged at `DEBUG` only.
 
     Args:
         subject: Identified subject or client of the current caller, for logs.
         path: Request path, not percent-encoded.
         method: HTTP method.
+        route: Path template of the operation serving the path, for logs, or
+            `None` if no operation serves it.
         denied_level: Level of the log message if the caller is denied.
 
     Returns:
@@ -844,8 +854,12 @@ def _is_permitted_on(
         )
         return True
     logger.log(
-        denied_level, "Access denied: %s to '%s'", _request, escape_log_value(subject)
+        denied_level,
+        "Access denied: %s to '%s'",
+        escape_log_value(f"{method} {_UNKNOWN_ROUTE if route is None else route}"),
+        escape_log_value(subject),
     )
+    logger.debug("Path of the denied request: %s", _request)
     return False
 
 
@@ -896,7 +910,9 @@ def is_permitted_for(path: str, method: str = "GET") -> bool:
     subject = get_current_subject() if client is None else client.client_id
     if subject is None:
         return False
-    return _is_permitted_on(subject, path, method, denied_level=logging.DEBUG)
+    return _is_permitted_on(
+        subject, path, method, route.path, denied_level=logging.DEBUG
+    )
 
 
 def _requires_authentication(security: list[dict[str, Any]] | None) -> bool:
