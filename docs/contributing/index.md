@@ -133,10 +133,11 @@ don't fail CI. If a scan fails:
    in `pyproject.toml` or update the base image (Dependabot's PRs do both).
    The stage `base` of `docker/Dockerfile` installs the Debian updates
    available at build time (`apt-get upgrade`), so a fix of a system package
-   that Debian has released reaches the images with their next build (e.g.,
-   by re-running CI), before the base images have it. The build fails if a
-   package index can't be fetched, instead of leaving the packages as they
-   are.
+   that Debian has released reaches the images with their next uncached
+   build (CI and release builds are; e.g., re-run CI), before the base images
+   have it; locally, build with `--pull --no-cache`, as Docker otherwise
+   reuses the layer with the old packages. The build fails if a package index
+   can't be fetched, instead of leaving the packages as they are.
    The image has no pip, so scans don't report packages vendored by pip;
    CI fails if pip is back (`scripts/check-no-pip.sh`).
 2. Otherwise (e.g., no fixed version yet, or a vulnerability that does not
@@ -278,7 +279,9 @@ future (UTC) and that its curated release notes are complete, and builds the dis
 (job `prepare`, "Prepare release"; the image paths of the README, e.g., the
 logo, are rewritten to absolute URLs pinned to the release tag first, as PyPI
 can't resolve relative ones, see `scripts/readme_images.py`), pushes
-the Docker images by digest (untagged; `push`, "Push release image") and
+the Docker images by digest (untagged; `push`, "Push release image"; built
+anew, so their OS packages are the Debian updates of that time and may be
+newer than in the images that CI tested for the commit) and
 scans them for vulnerabilities (`scan`, "Scan release image"; in jobs
 without the Docker Hub credentials and signing identity), releases
 the distributions to PyPI (`pypi`, "Release package"), attests and signs
