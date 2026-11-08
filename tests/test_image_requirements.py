@@ -51,11 +51,20 @@ def test_base_stage_upgrades_os_packages() -> None:
     # The command only, up to its last line (not continued with `\`), without
     # the comments that follow
     run = re.split(r"(?<!\\)\n", run, maxsplit=1)[0]
-    # Fails if an index can't be fetched, which would otherwise leave the
-    # packages as they are, without an error
-    assert re.search(r"\bapt-get update --error-on=any\b", run)
+    # The update comes first and fails the step if an index can't be fetched,
+    # which would otherwise leave the packages as they are, without an error
+    assert re.match(
+        r"apt-get update --error-on=any && \\\s+"
+        r"(DEBIAN_FRONTEND=noninteractive \\\s+)?apt-get upgrade\b",
+        run,
+    )
     # Also updates that need new packages, which would be kept back otherwise
     assert re.search(r"\bapt-get upgrade\b[^&]*\s--with-new-pkgs\b", run)
+    # Fails if updates are still kept back (e.g., as they need removals)
+    assert re.search(
+        r"--force-confold && \\\s+if apt-get -s dist-upgrade \| grep '\^Inst '",
+        run,
+    )
     # Without prompts, of debconf and of dpkg for changed configuration files
     assert "DEBIAN_FRONTEND=noninteractive" in run
     assert "--force-confdef" in run

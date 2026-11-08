@@ -36,13 +36,19 @@ RUN pip uninstall --yes --no-cache-dir setuptools wheel
 # of the same commit may thus get newer OS packages. The build fails if an
 # index can't be fetched, which would otherwise leave the packages as they
 # are, silently; updates that need new packages are installed, too (without
-# recommended ones), instead of being kept back; and configuration files
-# modified in the base image keep their version, without a prompt
+# recommended ones), instead of being kept back; configuration files modified
+# in the base image keep their version, without a prompt; and the build fails
+# if updates are still kept back (e.g., as they would remove packages, which
+# needs a decision), listing them, instead of leaving them out silently
 RUN apt-get update --error-on=any && \
     DEBIAN_FRONTEND=noninteractive \
         apt-get upgrade -y --with-new-pkgs --no-install-recommends \
             -o Dpkg::Options::=--force-confdef \
             -o Dpkg::Options::=--force-confold && \
+    if apt-get -s dist-upgrade | grep '^Inst '; then \
+        echo "Updates kept back (listed above), see docker/Dockerfile" >&2; \
+        exit 1; \
+    fi && \
     rm -rf /var/lib/apt/lists/*
 
 # Build image: installs FOCA with pip from `docker/requirements/build.txt`, as
