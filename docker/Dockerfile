@@ -36,8 +36,8 @@ RUN pip uninstall --yes --no-cache-dir setuptools wheel
 # of the same commit may thus get newer OS packages. The build fails if an
 # index can't be fetched, which would otherwise leave the packages as they
 # are, silently; updates that need new packages are installed, too (without
-# recommended ones), instead of being kept back; and changed configuration
-# files keep the base image's version, without a prompt
+# recommended ones), instead of being kept back; and configuration files
+# modified in the base image keep their version, without a prompt
 RUN apt-get update --error-on=any && \
     DEBIAN_FRONTEND=noninteractive \
         apt-get upgrade -y --with-new-pkgs --no-install-recommends \

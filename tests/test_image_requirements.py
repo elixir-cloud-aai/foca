@@ -48,6 +48,9 @@ def test_base_stage_upgrades_os_packages() -> None:
         "",
     )
     assert run, "No step with `apt-get upgrade` in the stage `base`"
+    # The command only, up to its last line (not continued with `\`), without
+    # the comments that follow
+    run = re.split(r"(?<!\\)\n", run, maxsplit=1)[0]
     # Fails if an index can't be fetched, which would otherwise leave the
     # packages as they are, without an error
     assert re.search(r"\bapt-get update --error-on=any\b", run)
