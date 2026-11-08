@@ -6,9 +6,15 @@ import pytest
 from connexion import App
 from flask import Flask, Response
 
+from foca.api.routes import _install_route_table
 from foca.testing import Client, request_context
 from foca.utils import logging as module
-from foca.utils.logging import escape_log_value, log_traffic, log_traffic_if
+from foca.utils.logging import (
+    _UNKNOWN_ROUTE,
+    escape_log_value,
+    log_traffic,
+    log_traffic_if,
+)
 
 app = Flask(__name__)
 CLIENT_ADDRESS = "192.168.1.1"
@@ -78,13 +84,29 @@ def get_items() -> str:
     return "ok"
 
 
-def test_logging_decorator_in_app(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Requests and responses of a running app are logged."""
+@log_traffic
+def get_item(item_id: str) -> str:
+    """Controller of test API, with a path parameter."""
+    return item_id
+
+
+@pytest.fixture
+def debugs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Messages logged by `log_traffic` at `DEBUG`."""
     messages: list[str] = []
     monkeypatch.setattr(
-        module.logger, "log", lambda level, msg, *args: messages.append(msg % args)
+        module.logger, "debug", lambda msg, *args: messages.append(msg % args)
     )
+    return messages
+
+
+def _items_app() -> App:
+    """App of the test API, with and without path parameters.
+
+    It records its routes, as apps created by FOCA do.
+    """
     app = App(__name__, skip_error_handlers=True)
+    _install_route_table(app)
     app.add_api(
         {
             "openapi": "3.0.2",
@@ -95,16 +117,72 @@ def test_logging_decorator_in_app(monkeypatch: pytest.MonkeyPatch) -> None:
                         "operationId": f"{__name__}.get_items",
                         "responses": {"200": {"description": "OK"}},
                     }
-                }
+                },
+                "/items/{item_id}": {
+                    "get": {
+                        "operationId": f"{__name__}.get_item",
+                        "parameters": [
+                            {
+                                "name": "item_id",
+                                "in": "path",
+                                "required": True,
+                                "schema": {"type": "string"},
+                            }
+                        ],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                },
             },
         }
     )
-    response = Client(app).get("/items")
+    return app
+
+
+def test_logging_decorator_in_app(
+    monkeypatch: pytest.MonkeyPatch, debugs: list[str]
+) -> None:
+    """Requests and responses of a running app are logged."""
+    messages: list[str] = []
+    monkeypatch.setattr(
+        module.logger, "log", lambda level, msg, *args: messages.append(msg % args)
+    )
+    response = Client(_items_app()).get("/items")
     assert response.status_code == 200
     assert messages == [
         'Incoming request: "GET /items HTTP/1.1" from 127.0.0.1',
         'Response to request "GET /items HTTP/1.1" from 127.0.0.1: str, status 200',
     ]
+    assert debugs == ['Path of request "GET /items HTTP/1.1" from 127.0.0.1: /items']
+
+
+def test_logging_decorator_route(logged: list[str], debugs: list[str]) -> None:
+    """The route is logged instead of the path, which is logged at `DEBUG`."""
+    response = Client(_items_app()).get("/items/s3cr3t")
+    assert response.status_code == 200
+    request = '"GET /items/{item_id} HTTP/1.1" from 127.0.0.1'
+    assert logged == [
+        f"Incoming request: {request}",
+        f"Response to request {request}: str, status 200",
+    ]
+    assert debugs == [f"Path of request {request}: /items/s3cr3t"]
+
+
+@pytest.mark.parametrize(
+    "log_request,log_response,count",
+    [(True, False, 1), (False, True, 1), (False, False, 0)],
+)
+def test_logging_decorator_path_once(
+    debugs: list[str], log_request: bool, log_response: bool, count: int
+) -> None:
+    """The path is logged once if the request or response is logged."""
+
+    @log_traffic(log_request=log_request, log_response=log_response)
+    def mock_func() -> str:
+        return "ok"
+
+    with request_context("/items/s3cr3t", client_address=CLIENT_ADDRESS, app=app):
+        mock_func()
+    assert len(debugs) == count
 
 
 @pytest.fixture
@@ -164,8 +242,13 @@ def test_logging_decorator_body(logged: list[str]) -> None:
     assert logged[1].endswith(": dict, status 200: {'foo': 'bar\\nbaz'}")
 
 
-def test_logging_decorator_control_characters(logged: list[str]) -> None:
-    """Encoded line breaks in paths are escaped."""
+def test_logging_decorator_control_characters(
+    logged: list[str], debugs: list[str]
+) -> None:
+    """Encoded line breaks in paths are escaped.
+
+    Without a route, a placeholder is logged instead of the path at `INFO`.
+    """
 
     @log_traffic
     def mock_func() -> str:
@@ -176,8 +259,11 @@ def test_logging_decorator_control_characters(logged: list[str]) -> None:
     ):
         mock_func()
     assert len(logged) == 2
-    assert all("\n" not in msg and "\r" not in msg for msg in logged)
-    assert "/items\\r\\nFAKE log line" in logged[0]
+    assert all("FAKE" not in msg for msg in logged)
+    assert f'"GET {_UNKNOWN_ROUTE} HTTP/1.1"' in logged[0]
+    assert len(debugs) == 1
+    assert "\n" not in debugs[0] and "\r" not in debugs[0]
+    assert debugs[0].endswith(": /items\\r\\nFAKE log line")
 
 
 @pytest.mark.parametrize("enabled", [True, False])
