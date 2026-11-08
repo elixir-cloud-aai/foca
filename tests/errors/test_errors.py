@@ -129,6 +129,26 @@ def logged(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return messages
 
 
+# Prefix of the `DEBUG` log of validation reasons
+REASON_PREFIX = "Reason for rejecting the request: "
+
+
+def _reasons(messages: list[str]) -> list[str]:
+    """Get the validation reasons from logged messages.
+
+    Args:
+        messages: Logged messages.
+
+    Returns:
+        The reasons, without prefix, of the messages logging them.
+    """
+    return [
+        message.removeprefix(REASON_PREFIX)
+        for message in messages
+        if message.startswith(REASON_PREFIX)
+    ]
+
+
 @pytest.fixture
 def conf(monkeypatch: pytest.MonkeyPatch) -> ExceptionConfig:
     """Exception config with mapping `PROBLEMS`."""
@@ -1036,6 +1056,17 @@ class TestValidationDetails:
         )
         return messages
 
+    @pytest.fixture
+    def debugs(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Messages logged via `logger.debug()` of the exceptions module."""
+        messages: list[str] = []
+        monkeypatch.setattr(
+            exceptions_module.logger,
+            "debug",
+            lambda msg, *args: messages.append(msg % args),
+        )
+        return messages
+
     @staticmethod
     def _client(conf: ExceptionConfig) -> Client:
         """Client of an app with the test API (strict validation)."""
@@ -1085,6 +1116,7 @@ class TestValidationDetails:
         self,
         conf_details: ExceptionConfig,
         infos: list[str],
+        debugs: list[str],
         logged: list[str],
         method: str,
         path: str,
@@ -1092,10 +1124,12 @@ class TestValidationDetails:
         detail: str,
         members: dict[str, Any],
     ) -> None:
-        """Responses have the reason as detail, logged at `INFO`.
+        """Responses have the reason as detail, logged at `DEBUG` only.
 
-        Connexion's own validators (without FOCA's `register_openapi()`) give
-        no invalid fields, except for unknown parameters.
+        At `INFO`, the invalid fields are logged, or the title if none are
+        listed, as the reason may quote rejected values. Connexion's own
+        validators (without FOCA's `register_openapi()`) give no invalid
+        fields, except for unknown parameters.
         """
         conf_details.media_type = "application/json"
         response = self._client(conf_details).request(method, path, **kwargs)
@@ -1107,8 +1141,9 @@ class TestValidationDetails:
             "detail": detail,
             **members,
         }
-        logged_reason = "extra (unknown-parameter)" if members else detail
-        assert infos == [f"Request rejected: {logged_reason}"]
+        logged_info = "extra (unknown-parameter)" if members else "Bad Request"
+        assert infos == [f"Request rejected: {logged_info}"]
+        assert _reasons(debugs) == [detail]
         assert logged == []
 
     @pytest.mark.parametrize(
@@ -1144,7 +1179,7 @@ class TestValidationDetails:
         """Without reasons, the detail quotes no values of the request.
 
         The invalid fields are listed as with reasons, and the logs are the
-        same as with reasons (escaped reason included).
+        same as with reasons (the escaped reason at `DEBUG`).
         """
         with_reasons = self._client(conf_details).request(method, path, **kwargs)
         conf_details.validation_reasons = False
@@ -1188,7 +1223,7 @@ class TestValidationDetails:
         response = self._client(conf_details).get("/validated", params=params)
         assert json.loads(response.content)["detail"] == detail
 
-    def test_default(self, infos: list[str]) -> None:
+    def test_default(self, infos: list[str], debugs: list[str]) -> None:
         """Validation details are on, reasons off by default, also without a config.
 
         Missing parameters aren't listed (Connexion's validator), so `detail`
@@ -1205,8 +1240,9 @@ class TestValidationDetails:
             "status": 400,
             "detail": "The request is invalid.",
         }
-        # The log keeps the reason (shortened and escaped), the response doesn't
-        assert infos == ["Request rejected: Missing query parameter 'limit'"]
+        # Only the log at `DEBUG` has the reason (shortened and escaped)
+        assert infos == ["Request rejected: Bad Request"]
+        assert _reasons(debugs) == ["Missing query parameter 'limit'"]
 
     def test_off(self, conf: ExceptionConfig, infos: list[str]) -> None:
         """Without validation details, responses are as mapped, not logged."""
@@ -1264,7 +1300,9 @@ class TestValidationDetails:
         assert not validation_logger.filter(record())
         assert not validation_logger.filter(record(validator="response"))
 
-    def test_long_detail(self, conf_details: ExceptionConfig, infos: list[str]) -> None:
+    def test_long_detail(
+        self, conf_details: ExceptionConfig, debugs: list[str]
+    ) -> None:
         """Long reasons are shortened and escaped in logs."""
         conf_details.max_detail_length = 20
         response = self._client(conf_details).post(
@@ -1273,12 +1311,12 @@ class TestValidationDetails:
         detail = json.loads(response.content)["detail"]
         assert len(detail) == 20
         assert detail.endswith("- 'name'")
-        assert len(infos) == 1
-        logged = infos[0].removeprefix("Request rejected: ")
-        assert len(logged) == 20
-        assert logged.startswith("'a\\na\\n")
-        assert logged.endswith("- 'name'")
-        assert "\n" not in infos[0]
+        reasons = _reasons(debugs)
+        assert len(reasons) == 1
+        assert len(reasons[0]) == 20
+        assert reasons[0].startswith("'a\\na\\n")
+        assert reasons[0].endswith("- 'name'")
+        assert "\n" not in reasons[0]
 
     def test_mapped(
         self,
@@ -1324,16 +1362,17 @@ class TestValidationDetails:
         assert infos == ["Request rejected: Bad Request"]
 
     def test_public_members(
-        self, conf_details: ExceptionConfig, infos: list[str]
+        self, conf_details: ExceptionConfig, infos: list[str], debugs: list[str]
     ) -> None:
         """Reasons are not sent if `detail` is not public."""
         conf_details.public_members = ["title", "status"]
         response = self._client(conf_details).get("/validated")
         assert json.loads(response.content) == {"title": "Bad Request", "status": 400}
-        assert infos == ["Request rejected: Missing query parameter 'limit'"]
+        assert infos == ["Request rejected: Bad Request"]
+        assert _reasons(debugs) == ["Missing query parameter 'limit'"]
 
     def test_logging_none(
-        self, conf_details: ExceptionConfig, infos: list[str]
+        self, conf_details: ExceptionConfig, infos: list[str], debugs: list[str]
     ) -> None:
         """Reasons are not logged if logging is disabled."""
         conf_details.logging = ExceptionLoggingEnum.none
@@ -1342,6 +1381,7 @@ class TestValidationDetails:
             "Missing query parameter 'limit'"
         )
         assert infos == []
+        assert _reasons(debugs) == []
 
 
 class TestInvalidFields:
