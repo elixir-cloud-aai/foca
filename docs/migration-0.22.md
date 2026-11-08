@@ -274,8 +274,8 @@ parameter, a body that isn't valid JSON or has unpaired surrogates), it is
 the mapped `detail`, if any, or `The request is invalid.`
 The invalid fields are listed in `errors`, without their values (see
 [Request-specific
-details](configuration/exceptions.md#request-specific-details)). Status,
-`title` and the logs are unchanged. This applies to all request validation
+details](configuration/exceptions.md#request-specific-details)). Status and
+`title` are unchanged; for the logs, see below. This applies to all request validation
 exceptions, also to `BadRequestProblem` (`RequestValidationProblem`) and
 `InvalidFieldsProblem` that FOCA or your app raise: their own `detail` is
 replaced the same way; raise `InvalidFieldsProblem` to name the invalid
@@ -298,7 +298,24 @@ FOCA also logs fewer values of clients at `INFO` and above: rejected users
 acted for, invalid identifiers and values of policy rules (`PUT
 /permissions/{id}`), and the role and subject of refused role grants are no
 longer logged there (values of rules and of role grants at `DEBUG` only).
-Update log checks that look for them.
+Request paths, which hold values of clients in path parameters, and the
+reasons of request validation are moved to `DEBUG` too:
+
+- The request logs of `log_traffic` (also of FOCA's own controllers) name
+  the route of the request instead of its path, e.g., `Incoming request:
+  "GET /ga4gh/tes/v1/tasks/{id} HTTP/1.1" from 127.0.0.1` for a request to
+  `/ga4gh/tes/v1/tasks/123`, or `<unknown route>` if no operation serves
+  the request; the path is logged at `DEBUG` (`Path of request ...`).
+- Denials of access control name the route instead of the path, e.g.,
+  `Access denied: DELETE /items/{id} to 'alice'`; the path is logged at
+  `DEBUG` (`Path of the denied request: ...`).
+- Requests rejected by request validation without invalid fields are logged
+  with the mapped `detail`, if any, or the title (e.g., `Request rejected:
+  Bad Request`) instead of the validator's reason, which is logged at
+  `DEBUG` (`Reason for rejecting the request: ...`).
+
+Update log checks that look for them; to keep the paths and reasons in
+your logs, log at `DEBUG` (e.g., for the logger `foca`).
 
 ### Plugin gateway messages
 

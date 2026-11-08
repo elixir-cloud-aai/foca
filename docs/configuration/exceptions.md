@@ -155,10 +155,12 @@ Like all error responses, they have the configured media type and only the
 public members (without `detail` in `public_members`, no `detail` is
 sent; list `type`, `code` and `errors` there to send the invalid fields). The
 invalid fields are logged at `INFO` by location and code (e.g., `Request
-rejected: #/name (too-long)`), otherwise the reason, shortened and escaped
-(unless `logging` is `none`), instead of the exception; as validators quote
-rejected values in their reasons, these may appear in the logs (shortened)
-for requests rejected without invalid fields. Connexion's validation logger
+rejected: #/name (too-long)`), otherwise the mapped `detail`, if any, or the
+title (e.g., `Request rejected: Bad Request`), instead of the exception. As
+validators quote rejected values in their reasons, the reason is logged at
+`DEBUG` only (e.g., `Reason for rejecting the request: 'abcd' is too long -
+'name'`). Logged values are shortened and escaped, and nothing is logged if
+`logging` is `none`. Connexion's validation logger
 (`connexion.decorators.validation`) logs the validator's message in full
 and unescaped (and rejected values can be as large as the request body), so
 its messages on rejected requests are filtered out, for all apps of the
