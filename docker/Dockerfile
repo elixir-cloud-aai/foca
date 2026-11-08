@@ -28,11 +28,16 @@ LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 # isolated environments, so remove them for the same contents on all versions
 RUN pip uninstall --yes --no-cache-dir setuptools wheel
 
-# The pinned base images have a vulnerable apt (CVE-2026-109518; fixed by 3.0.4
-# in `trixie-security`), which images built on this one use too; can go once all
-# of them have the fix
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends --only-upgrade apt libapt-pkg7.0 && \
+# Install the Debian updates available at build time (e.g., from
+# `trixie-security`), which the pinned base images get only once upstream
+# rebuilds them and Dependabot updates the digests (e.g., zlib1g for
+# CVE-2026-76844 and CVE-2026-85091, apt for CVE-2026-109518), so that images
+# built on this one get the fixes of OS packages, too; rebuilds of the same
+# commit may thus get newer OS packages. The build fails if an index can't be
+# fetched, which would otherwise leave the packages as they are, silently
+RUN apt-get update --error-on=any && \
+    DEBIAN_FRONTEND=noninteractive \
+        apt-get upgrade -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
 # Build image: installs FOCA with pip from `docker/requirements/build.txt`, as
