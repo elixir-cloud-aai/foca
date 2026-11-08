@@ -656,9 +656,26 @@ class TestEnforcement:
         assert len(infos) == 1
         assert infos[0].startswith("Access denied: DELETE /items/{id} to ")
         assert "/items/1" not in infos[0]
-        assert "Path of the denied request: DELETE /items/1" in _messages(
-            caplog, level=logging.DEBUG
+        assert any(
+            message.startswith("Path of the denied request: DELETE /items/1 to ")
+            for message in _messages(caplog, level=logging.DEBUG)
         )
+
+    def test_denial_without_route(
+        self,
+        helper_app: Flask,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Denials without a route log a placeholder instead of the path."""
+        monkeypatch.setattr(
+            enforcement, "_get_current_policy_subjects", lambda: ["alice"]
+        )
+        with helper_app.app_context(), _capture_logs(caplog, level=logging.DEBUG):
+            assert not enforcement._is_permitted_on("alice", "/items/1", "GET", None)
+        assert _messages(caplog, level=logging.INFO) == [
+            "Access denied: GET <unknown route> to 'alice'"
+        ]
 
     def test_no_warning_without_subject_like_roles(
         self, app: Flask, caplog: pytest.LogCaptureFixture

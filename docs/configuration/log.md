@@ -130,7 +130,10 @@ validator's reason, which may quote rejected values, at `DEBUG` (see
 [Request-specific
 details](exceptions.md#request-specific-details)). Audit logs of access
 control (see [Audit log](#audit-log)) name the subjects, roles and
-resources of changes on purpose.
+resources of changes on purpose. With `exceptions.validation_details:
+false`, request validation exceptions are logged like other exceptions, at
+`ERROR` with their message, which may quote rejected values (see
+[Request-specific details](exceptions.md#request-specific-details)).
 
 ### Deprecations
 

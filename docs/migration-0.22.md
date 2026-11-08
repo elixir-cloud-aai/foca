@@ -312,7 +312,9 @@ reasons of request validation are moved to `DEBUG` too:
 - Requests rejected by request validation without invalid fields are logged
   with the mapped `detail`, if any, or the title (e.g., `Request rejected:
   Bad Request`) instead of the validator's reason, which is logged at
-  `DEBUG` (`Reason for rejecting the request: ...`).
+  `DEBUG` (`Reason for rejecting the request: ...`). This applies with
+  `exceptions.validation_details` (the default); without it, the exception
+  is logged at `ERROR`, with the reason, as before.
 
 Update log checks that look for them; to keep the paths and reasons in
 your logs, log at `DEBUG` (e.g., for the logger `foca`).

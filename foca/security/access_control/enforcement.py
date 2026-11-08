@@ -859,7 +859,9 @@ def _is_permitted_on(
         escape_log_value(f"{method} {_UNKNOWN_ROUTE if route is None else route}"),
         escape_log_value(subject),
     )
-    logger.debug("Path of the denied request: %s", _request)
+    logger.debug(
+        "Path of the denied request: %s to '%s'", _request, escape_log_value(subject)
+    )
     return False
 
 
