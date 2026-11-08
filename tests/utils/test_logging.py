@@ -169,7 +169,7 @@ def test_logging_decorator_route(logged: list[str], debugs: list[str]) -> None:
 
 @pytest.mark.parametrize(
     "log_request,log_response,count",
-    [(True, False, 1), (False, True, 1), (False, False, 0)],
+    [(True, True, 1), (True, False, 1), (False, True, 1), (False, False, 0)],
 )
 def test_logging_decorator_path_once(
     debugs: list[str], log_request: bool, log_response: bool, count: int

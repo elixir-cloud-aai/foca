@@ -284,9 +284,10 @@ def list_pets() -> list[dict]: ...
 Requests are logged with method, route, protocol and client address, e.g.,
 `Incoming request: "GET /pets/{pet_id} HTTP/1.1" from 127.0.0.1`, and
 responses with their type and status code. The route is the path template
-of the operation (cf. [`current_request().route`](#reading-the-current-request)), so
-that values of the request, such as path parameters, aren't logged at the
-level of the traffic log; requests that no operation serves are logged with
+of the operation (cf.
+[`current_request().route`](#reading-the-current-request)), so that values
+of the request, such as path parameters, aren't logged at the level of the
+traffic log; requests that no operation serves are logged with
 `<unknown route>`. The path of the request (e.g., `/pets/1`) is logged at
 `DEBUG` only, once per request. Response bodies may contain secrets or
 personal data, so they are only logged with `log_response_body=True`. All

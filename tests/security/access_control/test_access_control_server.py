@@ -26,6 +26,7 @@ from foca.security.access_control.access_control_server import (
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.testing import Client, request_context
 from foca.utils import logging as logging_module
+from foca.utils.logging import _UNKNOWN_ROUTE
 from tests.mock_data import (
     ACCESS_CONTROL_CONFIG,
     MOCK_ID,
@@ -574,14 +575,15 @@ class TestTrafficLogging:
     ) -> None:
         """Traffic is logged unless disabled via `access_control.log_traffic`.
 
-        The setting is applied as configured at request time.
+        The setting is applied as configured at request time. The controllers
+        are routed by Flask, not as operations, so the route is unknown.
         """
         if log_traffic is not None:
             config = _get_app_config(app)
             config.security.access_control.log_traffic = log_traffic
         response = client.request(method, path, json=deepcopy(MOCK_PERMISSION))
         assert response.status_code == 200
-        request = f'"{method.upper()} {path} HTTP/1.1" from 127.0.0.1'
+        request = f'"{method.upper()} {_UNKNOWN_ROUTE} HTTP/1.1" from 127.0.0.1'
         expected = [
             f"Incoming request: {request}",
             f"Response to request {request}: {body}, status 200",

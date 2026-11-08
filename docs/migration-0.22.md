@@ -275,11 +275,11 @@ the mapped `detail`, if any, or `The request is invalid.`
 The invalid fields are listed in `errors`, without their values (see
 [Request-specific
 details](configuration/exceptions.md#request-specific-details)). Status and
-`title` are unchanged; for the logs, see below. This applies to all request validation
-exceptions, also to `BadRequestProblem` (`RequestValidationProblem`) and
-`InvalidFieldsProblem` that FOCA or your app raise: their own `detail` is
-replaced the same way; raise `InvalidFieldsProblem` to name the invalid
-fields.
+`title` are unchanged; for the logs, see the end of this section. This
+applies to all request validation exceptions, also to `BadRequestProblem`
+(`RequestValidationProblem`) and `InvalidFieldsProblem` that FOCA or your
+app raise: their own `detail` is replaced the same way; raise
+`InvalidFieldsProblem` to name the invalid fields.
 
 Update tests and clients that check the old messages in `detail`: check the
 invalid fields in `errors` instead, e.g., their `pointer` or `parameter` and
