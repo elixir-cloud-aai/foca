@@ -168,11 +168,16 @@ def test_logging_decorator_route(logged: list[str], debugs: list[str]) -> None:
 
 
 @pytest.mark.parametrize(
-    "log_request,log_response,count",
-    [(True, True, 1), (True, False, 1), (False, True, 1), (False, False, 0)],
+    "log_request,log_response,logs_path",
+    [
+        (True, True, True),
+        (True, False, True),
+        (False, True, True),
+        (False, False, False),
+    ],
 )
 def test_logging_decorator_path_once(
-    debugs: list[str], log_request: bool, log_response: bool, count: int
+    debugs: list[str], log_request: bool, log_response: bool, logs_path: bool
 ) -> None:
     """The path is logged once if the request or response is logged."""
 
@@ -182,7 +187,10 @@ def test_logging_decorator_path_once(
 
     with request_context("/items/s3cr3t", client_address=CLIENT_ADDRESS, app=app):
         mock_func()
-    assert len(debugs) == count
+    request = f'"GET <unknown route> HTTP/1.1" from {CLIENT_ADDRESS}'
+    assert debugs == (
+        [f"Path of request {request}: /items/s3cr3t"] if logs_path else []
+    )
 
 
 @pytest.fixture
