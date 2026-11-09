@@ -1185,8 +1185,14 @@ versioning](https://semver.org/): app charts depend on a particular version,
 so every change of the library chart after a release needs a new
 `version` in `charts/foca-common/Chart.yaml` (one for all changes up to the
 next release); CI fails for changes of the chart (except its tests) since
-its latest release (tag) that keep or lower the version. To release it,
-merge the version change into `dev`, then create and push a signed tag
+its latest release (tag) that keep or lower the version. Each version has
+curated release notes, `docs/releases/chart/X.Y.Z.md`, which are the
+chart's changelog: in the same format as FOCA's (see [Release
+notes](contributing/index.md#release-notes): an intro paragraph, then
+grouped sections of bullets ending with their issue and pull request
+numbers), without `TODO`, added to the `nav` of `mkdocs.yml` (under
+"Changelog") and to the list in the [changelog](changelog.md). To release
+it, merge the version change and its notes into `dev`, then create and push a signed tag
 `chart-vX.Y.Z` of that version on the merge commit (only final versions are
 released, no pre-releases), naming the commit, so that the tag doesn't
 depend on what is checked out (it runs no checks on files, so it needs no
@@ -1201,14 +1207,29 @@ git push origin chart-v0.1.0
 
 The [release workflow][release-chart] checks that the tag is signed (with a
 signature that GitHub verifies), is on `dev` and matches the chart's
-version, that CI passed for the tagged commit (a successful run of `ci.yml`
+version, that the version's release notes exist, are finished and in the
+agreed format, that CI passed for the tagged commit (a successful run of `ci.yml`
 for a push of the commit; if there is none, or CI is still running, it fails
 and says to re-run the workflow once CI passed), and runs the chart checks and
 the kind installation of CI. After a maintainer approved the tested chart in the `release` environment, it
 checks that the version has not been published yet, packages the chart,
 pushes it to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`, and
 attests and signs it (see [verifying images and
-charts](deployment.md#verifying-images-and-charts)). Published versions are
+charts](deployment.md#verifying-images-and-charts)). After a second
+approval in the `release` environment, it creates the GitHub release
+"foca-common X.Y.Z" of the tag: the curated notes, then, under
+`## Commits`, GitHub's generated list of the pull requests since the
+previous `chart-v*` tag that changed the chart, and GitHub's
+`**Full Changelog**` line comparing the two chart tags. A pull request
+changed the chart if it changed the chart itself, its docs or release
+notes, the example apps' charts, the chart release workflow or the actions
+that test the chart; FOCA's releases list only the pull requests that
+changed other files, so pull requests that changed both are in both (see
+`scripts/release_notes.py`). Chart releases are pre-releases before 1.0.0
+and never the latest release, which stays FOCA's. If creating the GitHub
+release fails, re-run only that failed job (re-running the whole workflow
+stops at the version check); it finishes a draft of an earlier attempt and
+leaves a published release as it is. Published versions are
 never overwritten. If attesting or signing fails after the push, the version
 stays published without them (a re-run stops at the version check); release
 a new version. Tags cannot be deleted or moved (see below): if a release

@@ -96,6 +96,28 @@ jobs:
               exit 1
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      # The curated notes of the version are the chart's changelog entry and
+      # the start of its GitHub release (`release`), published as written:
+      # they must exist, be finished (no `TODO`) and be in the agreed format
+      # (`scripts/release_notes.py`), before anything is published
+      - name: Check release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          notes="docs/releases/chart/${VERSION}.md"
+          if [[ ! -f "${notes}" ]]; then
+              echo "::error::${notes} is missing: add the chart's release notes, bump the chart's version and tag a new release"
+              exit 1
+          fi
+          if grep -n "TODO" "${notes}"; then
+              echo "::error::${notes} contains TODO: finish the release notes, bump the chart's version and tag a new release"
+              exit 1
+          fi
+          python scripts/release_notes.py check "${notes}"
       # The checks here don't run the tests: require a successful run of the
       # CI workflow for a push of the release commit (to `dev`); runs for pull
       # requests test merge commits, not the commit itself. A successful
@@ -223,3 +245,87 @@ jobs:
       - name: Log out of GHCR
         if: always()
         run: helm registry logout "${REGISTRY}" || true
+
+  # Creates the GitHub release of the published chart, in its own job, so
+  # that only it can write to the repository; in the `release` environment
+  # as `publish` (needs its own approval)
+  release:
+    name: Publish chart release
+    needs: [test, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write # create and publish the release
+      pull-requests: read # the files of the pull requests in the notes
+    steps:
+      # For `scripts/release_notes.py` (standard library only) and the
+      # curated notes of the release commit
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      # The body is the curated notes (checked in `test`), then GitHub's
+      # generated notes since the previous `chart-v*` tag (GitHub would
+      # otherwise compare against the latest release, which may be one of
+      # FOCA's), with only the pull requests that changed the chart (see
+      # `scripts/release_notes.py`). The release is a pre-release before
+      # 1.0.0 and never the latest release, which stays FOCA's. Created as
+      # a draft and published last, as in `release.yml`; re-runs finish a
+      # draft of an earlier attempt, with the notes of this run, and leave
+      # a published release as it is
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.test.outputs.version }}
+        run: |
+          releases="$(mktemp)"
+          gh api --paginate --slurp "repos/${GH_REPO}/releases?per_page=100" \
+              > "${releases}"
+          state="$(jq -r --arg tag "${TAG}" '[.[][] | select(.tag_name == $tag)]
+              | if length == 0 then "none"
+                elif any(.[]; .draft | not) then "published"
+                else "draft" end' "${releases}")"
+          if [[ "${state}" == "published" ]]; then
+              echo "The release of ${TAG} is already published"
+              exit 0
+          fi
+          prerelease=false
+          if [[ "${VERSION}" == 0.* ]]; then
+              prerelease=true
+          fi
+          tags="$(mktemp)"
+          gh api --paginate "repos/${GH_REPO}/git/matching-refs/tags/chart-v" \
+              --jq '.[].ref | ltrimstr("refs/tags/")' > "${tags}"
+          previous="$(python scripts/release_notes.py previous "${TAG}" < "${tags}")"
+          args=(-f "tag_name=${TAG}")
+          if [[ -n "${previous}" ]]; then
+              args+=(-f "previous_tag_name=${previous}")
+          fi
+          all="$(mktemp)"
+          gh api "repos/${GH_REPO}/releases/generate-notes" "${args[@]}" \
+              --jq .body > "${all}"
+          generated="$(mktemp)"
+          python scripts/release_notes.py filter "${all}" --stream chart \
+              --repo "${GH_REPO}" > "${generated}"
+          notes_file="$(mktemp)"
+          python scripts/release_notes.py body \
+              "docs/releases/chart/${VERSION}.md" "${generated}" > "${notes_file}"
+          if [[ "${state}" == "none" ]]; then
+              gh release create "${TAG}" \
+                  --draft \
+                  --verify-tag \
+                  --title "foca-common ${VERSION}" \
+                  --notes-file "${notes_file}" \
+                  --prerelease="${prerelease}" \
+                  --latest=false
+          fi
+          gh release edit "${TAG}" --notes-file "${notes_file}" \
+              --title "foca-common ${VERSION}" \
+              --prerelease="${prerelease}" --draft=false --latest=false

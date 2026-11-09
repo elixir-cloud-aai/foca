@@ -20,6 +20,15 @@ The curated notes (`docs/releases/<version>.md`) hold parts 1 and 2; the
 release workflow (`.github/workflows/release.yml`) adds parts 3 and 4 from
 GitHub's `generate-notes` API.
 
+The repository has two release streams: the package and its images (tags
+`vX.Y.Z`, `release.yml`) and the library chart `foca-common` (tags
+`chart-vX.Y.Z`, `release-chart.yml`, curated notes in
+`docs/releases/chart/<version>.md`). The notes of each stream compare
+against the previous tag of the same stream (`previous`) and list only the
+pull requests that changed it (`filter`): those that changed the chart's
+files (`CHART_PATHS`) in the chart's, those that changed any other file in
+the package's; pull requests that changed both are in both.
+
 Commands:
     `check <notes>`: check the structure of curated notes.
     `body <notes> <generated>`: check curated notes, then print the body of
@@ -29,6 +38,13 @@ Commands:
     `require <version> [--releases <dir>]`: fail if the curated notes of a
         release (`<dir>/<version>.md`, by default in `docs/releases/`) are
         missing, unless no other release has notes (see `missing_notes`).
+    `previous <tag>`: print the tag of the previous release of the same
+        stream, from the tags on standard input (one per line), or nothing
+        if there is none (see `previous_tag`).
+    `filter <generated> --stream <stream> --repo <owner/name>`: print
+        GitHub's generated notes (a file) with only the pull requests of a
+        stream (`package` or `chart`), whose files are read with the GitHub
+        CLI (`gh`; see `filter_generated`).
 
 Errors (and warnings) are printed as GitHub annotations to standard error.
 Only the stdlib is used, so the workflow runs it without installing the app.
@@ -36,8 +52,9 @@ Only the stdlib is used, so the workflow runs it without installing the app.
 
 import argparse
 import re
+import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -120,6 +137,43 @@ RELATIVE_LINK = (
     " GitHub release, so link the release's docs or files absolutely"
     " (https://foca.readthedocs.io/en/vX.Y.Z/...)"
 )
+
+# Files of the library chart's release stream: the chart (with its tests),
+# its docs and curated notes, the example apps' charts (which test it), and
+# its release workflow, the actions and kind configurations that test it,
+# and the former chart workflow `charts.yml` (now in `ci.yml`). Everything
+# else (also the migration guides and the deployment docs, which are FOCA's)
+# belongs to the package
+CHART_PATHS = re.compile(
+    r"charts/foca-common/.+"
+    r"|docs/helm-chart\.md"
+    r"|docs/releases/chart/.+"
+    r"|examples/[^/]+/chart/.+"
+    r"|\.github/workflows/(?:release-chart|charts)\.yml"
+    r"|\.github/actions/(?:test|install)-chart/.+"
+    r"|\.github/kind/.+"
+)
+# Release streams and the prefixes of their tags
+STREAMS = {"package": "v", "chart": "chart-v"}
+# Release tags of both streams (see "Check release tag and commit" in
+# `release.yml` and "Check tag and version" in `release-chart.yml`)
+TAG = re.compile(
+    r"(?P<prefix>chart-v|v)(?P<major>0|[1-9][0-9]*)\.(?P<minor>0|[1-9][0-9]*)"
+    r"\.(?P<patch>0|[1-9][0-9]*)(?:(?P<pre>a|b|rc)(?P<number>0|[1-9][0-9]*))?",
+    re.ASCII,
+)
+# Order of pre-releases before the final version (`None`)
+PRE_RELEASES = {"a": 0, "b": 1, "rc": 2, None: 3}
+# Bullets of GitHub's generated notes that name a pull request, in "What's
+# Changed" (`* <title> by @<author> in <url>`) and "New Contributors"
+# (`* @<author> made their first contribution in <url>`)
+PULL = re.compile(
+    r"\* .* in https://github\.com/[\w.-]+/[\w.-]+/pull/(?P<number>[0-9]+)",
+    re.ASCII,
+)
+# Files of a pull request, also the old names of renamed ones, from the
+# `pulls/<number>/files` API (one per line; at most 3000 files)
+FILES_JQ = ".[] | .filename, (.previous_filename // empty)"
 
 
 @dataclass(frozen=True)
@@ -454,6 +508,219 @@ def missing_notes(version: str, releases: Path) -> Path | None:
     return notes if others else None
 
 
+def _tag_key(match: re.Match[str]) -> tuple[int, int, int, int, int]:
+    """Return the sort key of a release tag (its version).
+
+    Args:
+        match: Match of `TAG` on the tag.
+
+    Returns:
+        Major, minor and patch version, then the order of the pre-release
+        (`PRE_RELEASES`, final versions last) and its number.
+    """
+    return (
+        int(match["major"]),
+        int(match["minor"]),
+        int(match["patch"]),
+        PRE_RELEASES[match["pre"]],
+        int(match["number"] or 0),
+    )
+
+
+def previous_tag(tag: str, tags: Sequence[str]) -> str | None:
+    """Return the tag of the previous release of the same stream.
+
+    GitHub's `generate-notes` API compares against the previous release of
+    either stream unless it is given the previous tag, so it is always given
+    this one, if there is one.
+
+    Args:
+        tag: Tag of the release, e.g., `v1.2.3` or `chart-v1.2.3`.
+        tags: Tags of the repository; others than release tags are ignored.
+
+    Returns:
+        The tag of the highest version below that of `tag` with the same
+        prefix (pre-releases come before their final version, e.g.,
+        `v1.0.0rc1` before `v1.0.0`), or `None` if there is none.
+
+    Raises:
+        ValueError: If `tag` is not a release tag.
+    """
+    match = TAG.fullmatch(tag)
+    if not match:
+        raise ValueError(f"Not a release tag: '{tag}'")
+    key = _tag_key(match)
+    candidates = [
+        (_tag_key(other), other.string)
+        for other in (TAG.fullmatch(name.strip()) for name in tags)
+        if other and other["prefix"] == match["prefix"] and _tag_key(other) < key
+    ]
+    return max(candidates)[1] if candidates else None
+
+
+def _is_chart(path: str) -> bool:
+    """Return whether a file belongs to the chart's release stream.
+
+    Args:
+        path: Path of the file, relative to the repository's root.
+
+    Returns:
+        Whether the path matches `CHART_PATHS`.
+    """
+    return CHART_PATHS.fullmatch(path) is not None
+
+
+def in_stream(files: Sequence[str], stream: str) -> bool:
+    """Return whether a pull request belongs to a release stream.
+
+    Args:
+        files: Files that the pull request changed.
+        stream: Release stream (`package` or `chart`).
+
+    Returns:
+        For the chart, whether any file is one of the chart's
+        (`CHART_PATHS`); for the package, whether any file is not, or the
+        pull request changed no files.
+
+    Raises:
+        ValueError: If `stream` is unknown.
+    """
+    if stream not in STREAMS:
+        raise ValueError(f"Unknown release stream: '{stream}'")
+    if stream == "chart":
+        return any(_is_chart(path) for path in files)
+    return not files or not all(_is_chart(path) for path in files)
+
+
+def pull_files(repository: str, number: int) -> list[str]:
+    """Return the files that a pull request changed, with the GitHub CLI.
+
+    Args:
+        repository: Repository, as `<owner>/<name>`.
+        number: Number of the pull request.
+
+    Returns:
+        The paths of the files (also the old paths of renamed ones).
+
+    Raises:
+        subprocess.CalledProcessError: If `gh` fails.
+    """
+    result = subprocess.run(  # noqa: S603 (fixed command, no shell)
+        [  # noqa: S607 (`gh` from the PATH, as in the workflows)
+            "gh",
+            "api",
+            "--paginate",
+            f"repos/{repository}/pulls/{number}/files?per_page=100",
+            "--jq",
+            FILES_JQ,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def filter_generated(generated: str, keep: Callable[[int], bool]) -> str:
+    """Return GitHub's generated notes with only some pull requests.
+
+    Args:
+        generated: GitHub's generated notes (the `body` of the
+            `generate-notes` response).
+        keep: Whether to keep the bullets of a pull request, by its number.
+
+    Returns:
+        The notes without the bullets of the other pull requests (in "What's
+        Changed" and "New Contributors"), and without sections (`## ...`)
+        that have no bullets left; other lines are kept as they are, with
+        one blank line between the parts, and the last line (the
+        `**Full Changelog**` line) last.
+    """
+    text = generated.strip().replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in text.split("\n")]
+    last = []
+    if lines and lines[-1].startswith(f"{FULL_CHANGELOG}: "):
+        last = [lines.pop()]
+    # Parts: the lines before the first section, then one per section
+    parts: list[list[str]] = [[]]
+    for line in lines:
+        if HEADING.fullmatch(line):
+            parts.append([line])
+            continue
+        pull = PULL.fullmatch(line)
+        if pull is None or keep(int(pull["number"])):
+            parts[-1].append(line)
+    kept = []
+    for index, part in enumerate(parts):
+        content = "\n".join(part).strip()
+        bullets = any(line.startswith("* ") for line in part)
+        if content and (index == 0 or bullets):
+            kept.append(content)
+    return "\n\n".join(kept + last) + "\n"
+
+
+def _filter(args: argparse.Namespace) -> int:
+    """Print generated notes with the pull requests of a stream (`filter`).
+
+    Args:
+        args: Parsed arguments of the command.
+
+    Returns:
+        The exit status: 0 on success, 1 if the notes can't be read or the
+        files of a pull request can't be listed.
+    """
+    try:
+        generated = args.generated.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        print(f"::error::Can't read the generated notes: {error}", file=sys.stderr)
+        return 1
+    files: dict[int, list[str]] = {}
+
+    def keep(number: int) -> bool:
+        """Return whether a pull request is in the stream (files read once).
+
+        Args:
+            number: Number of the pull request.
+
+        Returns:
+            Whether it belongs to the stream (see `in_stream`).
+        """
+        if number not in files:
+            files[number] = pull_files(args.repo, number)
+        return in_stream(files[number], args.stream)
+
+    try:
+        text = filter_generated(generated, keep)
+    except (OSError, subprocess.CalledProcessError) as error:
+        # On one line, as an annotation
+        stderr = " ".join((getattr(error, "stderr", None) or "").split())
+        message = f"Can't list the files of a pull request: {error} {stderr}"
+        print(f"::error::{message.strip()}", file=sys.stderr)
+        return 1
+    sys.stdout.write(text)
+    return 0
+
+
+def _previous(args: argparse.Namespace) -> int:
+    """Print the tag of the previous release of a stream (`previous`).
+
+    Args:
+        args: Parsed arguments of the command.
+
+    Returns:
+        The exit status: 0 on success (also if there is no previous release),
+        1 if the tag is not a release tag.
+    """
+    try:
+        previous = previous_tag(args.tag, sys.stdin.read().splitlines())
+    except ValueError as error:
+        print(f"::error::{error}", file=sys.stderr)
+        return 1
+    if previous:
+        print(previous)
+    return 0
+
+
 def _require(args: argparse.Namespace) -> int:
     """Fail if a release lacks required curated notes (command `require`).
 
@@ -484,7 +751,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         The exit status: 0 on success, 1 if the curated notes have findings or
-        are missing (`require`), or a file can't be read.
+        are missing (`require`), a file can't be read, a tag is not a
+        release tag (`previous`) or the files of a pull request can't be
+        listed (`filter`).
     """
     parser = argparse.ArgumentParser(
         description="Check curated release notes and build the release body."
@@ -507,9 +776,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=Path("docs/releases"),
         help="directory with the curated notes (default: docs/releases)",
     )
+    previous_parser = commands.add_parser(
+        "previous", help="print the previous release tag of the same stream"
+    )
+    previous_parser.add_argument("tag", help="release tag, e.g., v1.2.3")
+    filter_parser = commands.add_parser(
+        "filter", help="print generated notes with a stream's pull requests"
+    )
+    filter_parser.add_argument(
+        "generated", type=Path, help="generated notes (`body` of generate-notes)"
+    )
+    filter_parser.add_argument("--stream", required=True, choices=sorted(STREAMS))
+    filter_parser.add_argument(
+        "--repo", required=True, help="repository, as <owner>/<name>"
+    )
     args = parser.parse_args(argv)
     if args.command == "require":
         return _require(args)
+    if args.command == "previous":
+        return _previous(args)
+    if args.command == "filter":
+        return _filter(args)
     notes: Path = args.notes
     try:
         curated = notes.read_text(encoding="utf-8")

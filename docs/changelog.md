@@ -21,3 +21,15 @@ Breaking changes and how to adapt apps to them are described in
 [Migrating to 0.16.0](migration-0.16.md),
 [Migrating to 0.15.0](migration-0.15.md) and
 [Migrating to 0.14.0](migration-0.14.md).
+
+The Helm library chart `foca-common` is released separately (tags
+`chart-vX.Y.Z`, see [Releases](helm-chart.md#releases) of the chart), with
+its own release notes on GitHub, published from the notes in
+`docs/releases/chart/`, followed by GitHub's generated list of the changes
+of the chart:
+
+- [foca-common 0.5.0](releases/chart/0.5.0.md)
+- [foca-common 0.4.0](releases/chart/0.4.0.md)
+- [foca-common 0.3.0](releases/chart/0.3.0.md)
+- [foca-common 0.2.0](releases/chart/0.2.0.md)
+- [foca-common 0.1.0](releases/chart/0.1.0.md)

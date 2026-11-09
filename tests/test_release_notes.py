@@ -1,6 +1,7 @@
 """Tests of the release notes check and body (`scripts/release_notes.py`)."""
 
 import importlib.util
+import io
 import subprocess
 import sys
 from pathlib import Path
@@ -213,7 +214,7 @@ def test_check_invalid(markdown: str, messages: list[tuple[int, str]]) -> None:
     assert _messages(markdown) == messages
 
 
-@pytest.mark.parametrize("notes", sorted((ROOT / "docs/releases").glob("*.md")))
+@pytest.mark.parametrize("notes", sorted((ROOT / "docs/releases").glob("**/*.md")))
 def test_curated_notes(notes: Path) -> None:
     """The curated notes in the repository are in the agreed format."""
     assert release_notes.check(notes.read_text(encoding="utf-8")) == []
@@ -514,3 +515,345 @@ def test_body_splits_at_line_breaks_only() -> None:
     text, warnings = release_notes.body("Intro.\n", generated)
     assert "\n## Security" not in text
     assert warnings == []
+
+
+TAGS = (
+    "v0.1.0",
+    "v0.1.10",
+    "v0.1.9",
+    "v0.2.0",
+    " v0.2.5 ",
+    "v0.2.6-x",
+    "v0.3.0",
+    "v1.0.0a1",
+    "v1.0.0b2",
+    "v1.0.0rc1",
+    "v1.0.0",
+    "v1.0.1",
+    "chart-v0.1.0",
+    "chart-v0.2.0",
+    "chart-v9.0.0",
+    "other",
+)
+
+
+@pytest.mark.parametrize(
+    ("tag", "previous"),
+    [
+        ("v0.3.0", "v0.2.5"),
+        ("v0.2.0", "v0.1.10"),
+        ("v1.0.0rc1", "v1.0.0b2"),
+        ("v1.0.0", "v1.0.0rc1"),
+        ("v1.0.1", "v1.0.0"),
+        ("v0.1.0", None),
+        ("chart-v0.2.0", "chart-v0.1.0"),
+        ("chart-v0.1.0", None),
+    ],
+)
+def test_previous_tag(tag: str, previous: str | None) -> None:
+    """The previous tag is the highest lower version of the same stream.
+
+    Args:
+        tag: Tag of the release.
+        previous: Expected previous tag.
+    """
+    assert release_notes.previous_tag(tag, TAGS) == previous
+
+
+def test_previous_tag_invalid() -> None:
+    """Tags of no release stream are rejected."""
+    with pytest.raises(ValueError, match="Not a release tag"):
+        release_notes.previous_tag("chart-0.1.0", [])
+
+
+@pytest.mark.parametrize(
+    ("files", "package", "chart"),
+    [
+        (["foca/foca.py"], True, False),
+        (["charts/foca-common/values.yaml"], False, True),
+        (["charts/foca-common/values.yaml", "docs/helm-chart.md"], False, True),
+        (["charts/foca-common/values.yaml", "foca/foca.py"], True, True),
+        ([".github/workflows/release-chart.yml"], False, True),
+        ([".github/actions/test-chart/action.yml"], False, True),
+        (["docs/releases/chart/0.1.0.md"], False, True),
+        (["docs/releases/0.1.0.md"], True, False),
+        (["docs/helm-chart.md.bak"], True, False),
+        (["charts/foca-common-other/Chart.yaml"], True, False),
+        (["examples/petstore/chart/Chart.yaml"], False, True),
+        ([".github/actions/install-chart/action.yml"], False, True),
+        ([".github/workflows/charts.yml", ".github/kind/gateway.yaml"], False, True),
+        ([".github/workflows/ci.yml"], True, False),
+        (["examples/petstore/chart.md"], True, False),
+        (["docs/migration-0.20.md", "docs/helm-chart.md"], True, True),
+        (["charts/foca-common/"], True, False),
+        ([], True, False),
+    ],
+)
+def test_in_stream(files: list[str], package: bool, chart: bool) -> None:
+    """Pull requests belong to the streams whose files they changed.
+
+    Args:
+        files: Files of the pull request.
+        package: Whether it belongs to the package's stream.
+        chart: Whether it belongs to the chart's stream.
+    """
+    assert release_notes.in_stream(files, "package") is package
+    assert release_notes.in_stream(files, "chart") is chart
+
+
+def test_in_stream_unknown() -> None:
+    """Unknown streams are rejected."""
+    with pytest.raises(ValueError, match="Unknown release stream"):
+        release_notes.in_stream([], "docs")
+
+
+# Generated notes of pull requests 7 (package), 11 (chart) and 12 (both)
+STREAMS_GENERATED = """\
+<!-- Release notes generated using configuration in .github/release.yml -->
+
+## What's Changed
+* feat: add a feature by @someone in https://github.com/o/r/pull/7
+* feat(chart): add a value by @newcomer in https://github.com/o/r/pull/11
+* fix: fix both by @other in https://github.com/o/r/pull/12
+
+## New Contributors
+* @newcomer made their first contribution in https://github.com/o/r/pull/11
+
+
+**Full Changelog**: https://github.com/o/r/compare/v0.2.0...v0.3.0"""
+COMMENT = "<!-- Release notes generated using configuration in .github/release.yml -->"
+FULL_CHANGELOG = "**Full Changelog**: https://github.com/o/r/compare/v0.2.0...v0.3.0"
+
+
+def test_filter_generated_package() -> None:
+    """Bullets of other pull requests and sections left empty are dropped."""
+    assert release_notes.filter_generated(
+        STREAMS_GENERATED, lambda number: number in {7, 12}
+    ) == (
+        f"{COMMENT}\n\n"
+        "## What's Changed\n"
+        "* feat: add a feature by @someone in https://github.com/o/r/pull/7\n"
+        "* fix: fix both by @other in https://github.com/o/r/pull/12\n\n"
+        f"{FULL_CHANGELOG}\n"
+    )
+
+
+def test_filter_generated_chart() -> None:
+    """New contributors of kept pull requests stay."""
+    assert release_notes.filter_generated(
+        STREAMS_GENERATED.replace("\n", "\r\n"), lambda number: number in {11, 12}
+    ) == (
+        f"{COMMENT}\n\n"
+        "## What's Changed\n"
+        "* feat(chart): add a value by @newcomer in https://github.com/o/r/pull/11\n"
+        "* fix: fix both by @other in https://github.com/o/r/pull/12\n\n"
+        "## New Contributors\n"
+        "* @newcomer made their first contribution in"
+        " https://github.com/o/r/pull/11\n\n"
+        f"{FULL_CHANGELOG}\n"
+    )
+
+
+def test_filter_generated_none() -> None:
+    """Without pull requests left, the Full Changelog line stays alone."""
+    filtered = release_notes.filter_generated(GENERATED, lambda number: False)
+    assert filtered == f"{FULL_CHANGELOG}\n"
+    # The body then has no Commits section
+    assert "## Commits" not in release_notes.body(CURATED, filtered)[0]
+
+
+def test_filter_generated_unexpected() -> None:
+    """Notes without a Full Changelog line keep their other lines."""
+    assert (
+        release_notes.filter_generated(
+            "Some text\n* a bullet without a pull request", lambda number: False
+        )
+        == "Some text\n* a bullet without a pull request\n"
+    )
+    assert release_notes.filter_generated("", lambda number: False) == "\n"
+
+
+def test_filter_generated_body() -> None:
+    """Filtered notes give the body in the agreed format."""
+    filtered = release_notes.filter_generated(
+        STREAMS_GENERATED, lambda number: number == 7
+    )
+    assert release_notes.body(CURATED, filtered) == (
+        f"{CURATED.strip()}\n\n## Commits\n\n{COMMENT}\n\n"
+        "* feat: add a feature by @someone in https://github.com/o/r/pull/7\n\n"
+        f"{FULL_CHANGELOG}\n",
+        [],
+    )
+
+
+def test_pull_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The files of a pull request are listed with the GitHub CLI."""
+    calls = []
+
+    def run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Record the call and return two files.
+
+        Args:
+            args: Command.
+            **kwargs: Options of `subprocess.run`.
+
+        Returns:
+            The completed process.
+        """
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0, "a.py\n\nb/c.md\n", "")
+
+    monkeypatch.setattr(release_notes.subprocess, "run", run)
+    assert release_notes.pull_files("o/r", 7) == ["a.py", "b/c.md"]
+    assert calls == [
+        (
+            [
+                "gh",
+                "api",
+                "--paginate",
+                "repos/o/r/pulls/7/files?per_page=100",
+                "--jq",
+                release_notes.FILES_JQ,
+            ],
+            {"capture_output": True, "text": True, "check": True},
+        )
+    ]
+
+
+def test_main_previous(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The previous tag is printed, or nothing if there is none."""
+    monkeypatch.setattr(
+        release_notes.sys, "stdin", io.StringIO("v0.1.0\nchart-v0.1.0\nv0.2.0\n")
+    )
+    assert release_notes.main(["previous", "v0.3.0"]) == 0
+    assert capsys.readouterr().out == "v0.2.0\n"
+    monkeypatch.setattr(release_notes.sys, "stdin", io.StringIO("v0.1.0\n"))
+    assert release_notes.main(["previous", "chart-v0.1.0"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_main_previous_invalid(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Tags of no release stream fail."""
+    monkeypatch.setattr(release_notes.sys, "stdin", io.StringIO(""))
+    assert release_notes.main(["previous", "0.1.0"]) == 1
+    assert capsys.readouterr().err == "::error::Not a release tag: '0.1.0'\n"
+
+
+def _filter_args(generated: Path, stream: str) -> list[str]:
+    """Return the arguments of the `filter` command.
+
+    Args:
+        generated: Generated notes.
+        stream: Release stream.
+
+    Returns:
+        The arguments, for repository `o/r`.
+    """
+    return ["filter", str(generated), "--stream", stream, "--repo", "o/r"]
+
+
+def test_main_filter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The files of each pull request are listed once."""
+    generated = tmp_path / "generated.md"
+    generated.write_text(STREAMS_GENERATED, encoding="utf-8")
+    files = {
+        7: ["foca/foca.py"],
+        11: ["charts/foca-common/values.yaml"],
+        12: ["foca/foca.py", "docs/helm-chart.md"],
+    }
+    calls = []
+
+    def pull_files(repository: str, number: int) -> list[str]:
+        """Return the files of a pull request of `files`.
+
+        Args:
+            repository: Repository.
+            number: Number of the pull request.
+
+        Returns:
+            Its files.
+        """
+        calls.append((repository, number))
+        return files[number]
+
+    monkeypatch.setattr(release_notes, "pull_files", pull_files)
+    assert release_notes.main(_filter_args(generated, "chart")) == 0
+    assert capsys.readouterr().out == release_notes.filter_generated(
+        STREAMS_GENERATED, lambda number: number in {11, 12}
+    )
+    assert calls == [("o/r", 7), ("o/r", 11), ("o/r", 12)]
+
+
+def test_main_filter_unreadable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Generated notes that can't be read fail."""
+    assert release_notes.main(_filter_args(tmp_path / "missing.md", "chart")) == 1
+    assert capsys.readouterr().err.startswith("::error::Can't read the generated")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 404"),
+        FileNotFoundError("gh"),
+    ],
+)
+def test_main_filter_gh_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    error: Exception,
+) -> None:
+    """Failures to list the files of a pull request fail, printing nothing.
+
+    Args:
+        monkeypatch: Pytest fixture.
+        tmp_path: Pytest fixture.
+        capsys: Pytest fixture.
+        error: Error of the GitHub CLI.
+    """
+    generated = tmp_path / "generated.md"
+    generated.write_text(STREAMS_GENERATED, encoding="utf-8")
+
+    def pull_files(repository: str, number: int) -> list[str]:
+        """Fail.
+
+        Args:
+            repository: Repository.
+            number: Number of the pull request.
+
+        Raises:
+            Exception: Always.
+        """
+        raise error
+
+    monkeypatch.setattr(release_notes, "pull_files", pull_files)
+    assert release_notes.main(_filter_args(generated, "package")) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("::error::Can't list the files")
+
+
+def test_script_previous() -> None:
+    """The script reads the tags from standard input."""
+    result = subprocess.run(  # noqa: S603 (fixed arguments, no shell)
+        [sys.executable, "-I", str(SCRIPT), "previous", "chart-v0.2.0"],
+        input="chart-v0.1.0\nv0.1.5\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode, result.stdout, result.stderr) == (
+        0,
+        "chart-v0.1.0\n",
+        "",
+    )
