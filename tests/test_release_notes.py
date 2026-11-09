@@ -933,6 +933,7 @@ def test_generated_notes_files_error(
 ) -> None:
     """Pull requests whose files can't be listed are kept, with a warning."""
     gh = FakeGh({"chart-v": ["chart-v0.1.0", "chart-v0.2.0"]})
+    error = subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 502\nBad")
 
     def pull_files(repository: str, number: int) -> list[str]:
         """Fail for pull requests 7 and 11, else return its files.
@@ -948,7 +949,7 @@ def test_generated_notes_files_error(
             subprocess.CalledProcessError: For pull requests 7 and 11.
         """
         if number in {7, 11}:
-            raise subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 502\nBad")
+            raise error
         return FILES[number]
 
     monkeypatch.setattr(release_notes, "_gh", gh)
@@ -958,9 +959,11 @@ def test_generated_notes_files_error(
     ) == release_notes.filter_generated(
         STREAMS_GENERATED, lambda number: number in {7, 11, 12}
     )
-    # Once per pull request, also for #11, which is in two sections
+    # Once per pull request, also for #11, which is in two sections; on one
+    # line (the message of the error differs between Python versions)
+    message = " ".join(f"{error} HTTP 502 Bad".split())
     assert capsys.readouterr().err == "".join(
         f"::warning::Can't list the files of pull request #{number}, kept in the"
-        " notes: Command '['gh']' returned non-zero exit status 1. HTTP 502 Bad\n"
+        f" notes: {message}\n"
         for number in (7, 11)
     )
