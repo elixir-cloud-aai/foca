@@ -323,13 +323,14 @@ invalid fields in `errors` instead, e.g., their `pointer` or `parameter` and
 Access control lists an invalid user acted for (empty, blank, with
 surrounding whitespace, not identifiable, or not a valid value of policy
 rules, e.g., with a comma; such users caused `500 Internal Server Error`
-before, when the app made them owners, and are now rejected wherever the user
-acted for is read, e.g., also for listings and plugins) that a service client names in
-the `auth.on_behalf_of_header` as an invalid field of that header, with the
-code `invalid-value`, never the user, so that `detail` is, e.g., `Invalid
-fields: X-On-Behalf-Of (invalid-value)` by default; it was `The request is
-invalid.` If your app passes the user (e.g., from a body field), check the
-field yourself and raise `InvalidFieldsProblem` to name it.
+before, when the app made them owners, and are now rejected wherever the
+user acted for is read, e.g., also for listings and plugins) that a service
+client names in the `auth.on_behalf_of_header` as an invalid field of that
+header, with the code `invalid-value`, never the user, so that `detail` is,
+e.g., `Invalid fields: X-On-Behalf-Of (invalid-value)` by default; it was
+`The request is invalid.` If your app passes the user (e.g., from a body
+field), check the field yourself and raise `InvalidFieldsProblem` to name
+it.
 
 FOCA also logs fewer values of clients at `INFO` and above: rejected users
 acted for, invalid identifiers and values of policy rules (`PUT
