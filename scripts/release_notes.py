@@ -157,11 +157,13 @@ CHART_PATHS = re.compile(
 )
 # Release streams and the prefixes of their tags
 STREAMS = {"package": "v", "chart": "chart-v"}
-# Release tags of both streams (see "Check release tag and commit" in
-# `release.yml` and "Check tag and version" in `release-chart.yml`)
+# Release tags of both streams, as the workflows accept them (see "Check
+# release tag and commit" in `release.yml` and "Check tag and version" in
+# `release-chart.yml`; also with leading zeros, so that a tag they accept
+# never fails here, after publishing)
 TAG = re.compile(
-    r"(?P<prefix>chart-v|v)(?P<major>0|[1-9][0-9]*)\.(?P<minor>0|[1-9][0-9]*)"
-    r"\.(?P<patch>0|[1-9][0-9]*)(?:(?P<pre>a|b|rc)(?P<number>0|[1-9][0-9]*))?",
+    r"(?P<prefix>chart-v|v)(?P<major>[0-9]+)\.(?P<minor>[0-9]+)"
+    r"\.(?P<patch>[0-9]+)(?:(?P<pre>a|b|rc)(?P<number>[0-9]+))?",
     re.ASCII,
 )
 # Order of pre-releases before the final version (`None`)
@@ -720,16 +722,18 @@ def generated_notes(tag: str, repository: str) -> str:
         "--jq",
         ".body",
     )
-    files: dict[int, list[str]] = {}
+    # Files of each pull request, read once; `None` if they can't be listed
+    files: dict[int, list[str] | None] = {}
 
     def keep(number: int) -> bool:
-        """Return whether a pull request is in the stream (files read once).
+        """Return whether a pull request is in the stream.
 
         Args:
             number: Number of the pull request.
 
         Returns:
-            Whether it belongs to the stream (see `in_stream`).
+            Whether it belongs to the stream (see `in_stream`), or `True` if
+            its files can't be listed.
         """
         if number not in files:
             try:
@@ -742,8 +746,9 @@ def generated_notes(tag: str, repository: str) -> str:
                     f" kept in the notes: {_one_line(error)}",
                     file=sys.stderr,
                 )
-                return True
-        return in_stream(files[number], stream)
+                files[number] = None
+        changed = files[number]
+        return changed is None or in_stream(changed, stream)
 
     return filter_generated(generated, keep)
 

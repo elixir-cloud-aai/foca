@@ -1231,8 +1231,9 @@ that changed other files (also the migration guides, the deployment docs,
 `mkdocs.yml`, `docs/changelog.md` and `ci.yml`), so pull requests that
 changed both are in both, e.g., a chart's release preparation, which adds
 its notes to the docs. If the files of a pull request can't be listed, it
-is kept, with a warning, as the chart is published by then. Chart releases are pre-releases before 1.0.0
-and never the latest release, which stays FOCA's. If creating the GitHub
+is kept, with a warning, as the chart is published by then. Chart releases
+are pre-releases before 1.0.0 and never the latest release, which stays
+FOCA's. If creating the GitHub
 release fails, re-run only that failed job (re-running the whole workflow
 stops at the version check); it finishes a draft of an earlier attempt and
 leaves a published release as it is. Published versions are

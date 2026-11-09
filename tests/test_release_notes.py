@@ -748,7 +748,14 @@ def test_pull_files(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.parametrize(
     ("tag", "stream"),
-    [("v1.2.3", "package"), ("v1.2.3rc1", "package"), ("chart-v1.2.3", "chart")],
+    [
+        ("v1.2.3", "package"),
+        ("v1.2.3rc1", "package"),
+        ("chart-v1.2.3", "chart"),
+        # Leading zeros, as the workflows accept them
+        ("v0.23.01", "package"),
+        ("v1.0.0rc01", "package"),
+    ],
 )
 def test_stream_of(tag: str, stream: str) -> None:
     """Tags belong to the stream of their prefix.
@@ -804,8 +811,8 @@ class FakeGh:
             AssertionError: For other calls.
         """
         self.calls.append(args)
-        path = args[1] if args[1] != "--paginate" else args[2]
-        path = args[3] if args[1] == "--method" else path
+        # The endpoint, wherever the options put it
+        path = next(arg for arg in args if arg.startswith("repos/"))
         if "/git/matching-refs/tags/" in path:
             return "\n".join(self.tags[path.rsplit("/", 1)[1]]) + "\n"
         if path.endswith("/releases/generate-notes"):
@@ -928,7 +935,7 @@ def test_generated_notes_files_error(
     gh = FakeGh({"chart-v": ["chart-v0.1.0", "chart-v0.2.0"]})
 
     def pull_files(repository: str, number: int) -> list[str]:
-        """Fail for pull request 7, else return its files.
+        """Fail for pull requests 7 and 11, else return its files.
 
         Args:
             repository: Repository.
@@ -938,9 +945,9 @@ def test_generated_notes_files_error(
             Its files.
 
         Raises:
-            subprocess.CalledProcessError: For pull request 7.
+            subprocess.CalledProcessError: For pull requests 7 and 11.
         """
-        if number == 7:
+        if number in {7, 11}:
             raise subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 502\nBad")
         return FILES[number]
 
@@ -951,7 +958,9 @@ def test_generated_notes_files_error(
     ) == release_notes.filter_generated(
         STREAMS_GENERATED, lambda number: number in {7, 11, 12}
     )
-    assert capsys.readouterr().err == (
-        "::warning::Can't list the files of pull request #7, kept in the notes:"
-        " Command '['gh']' returned non-zero exit status 1. HTTP 502 Bad\n"
+    # Once per pull request, also for #11, which is in two sections
+    assert capsys.readouterr().err == "".join(
+        f"::warning::Can't list the files of pull request #{number}, kept in the"
+        " notes: Command '['gh']' returned non-zero exit status 1. HTTP 502 Bad\n"
+        for number in (7, 11)
     )
