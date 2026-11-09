@@ -261,15 +261,27 @@ python scripts/release_notes.py check docs/releases/X.Y.Z.md
 ```
 
 Then, to release version `X.Y.Z` from commit `<sha>` on `dev` (with that
-change), after CI passed for it:
+change), after CI passed for it, in a new worktree (so that your checkout,
+which may have changes of its own, stays as it is), stopping at the first
+error and removing the worktree in any case:
 
 ```bash
-git switch --detach <sha>
-python scripts/citation.py check X.Y.Z  # as the release workflow does
-git push origin <sha>:main  # fails unless it is a fast-forward
-git tag -s vX.Y.Z <sha> -m "vX.Y.Z"
-git push origin vX.Y.Z
+git fetch origin &&
+git worktree add --detach ../foca-release <sha> &&
+(
+  cd ../foca-release &&
+  python scripts/citation.py check X.Y.Z &&  # as the release workflow does
+  git push origin <sha>:main &&  # fails unless it is a fast-forward
+  git tag -s vX.Y.Z <sha> -m "vX.Y.Z" &&
+  git push origin vX.Y.Z
+)
+git worktree remove ../foca-release
 ```
+
+If only the push of the tag failed, push it again (`git push origin vX.Y.Z`)
+instead of repeating the steps: `git tag -s` refuses to replace the existing
+tag (check that it is on the release commit with `git rev-parse
+'vX.Y.Z^{commit}'`).
 
 Pushing the tag triggers the [release
 workflow](https://github.com/elixir-cloud-aai/foca/blob/dev/.github/workflows/release.yml),
