@@ -190,7 +190,7 @@ pointers and parameter names may still include keys or parameter names of
 the request (e.g., an unexpected property). Validators' reasons quote what
 they reject: values of the request (e.g., `'abcd' is too long`), unexpected
 keys and, for parameters, the schema. Set `validation_reasons: true` only if
-clients depend on the reasons (as `detail` was before FOCA 0.22.0): `detail`
+clients depend on the reasons (as `detail` was up to FOCA 0.21): `detail`
 is then the validator's reason (for form data, the reasons joined by `; `),
 or the mapped `detail` if there is no reason, e.g., `'abcd' is too long -
 'name'`. The logs are the same either way. The option
