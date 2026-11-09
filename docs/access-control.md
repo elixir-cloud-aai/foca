@@ -1044,7 +1044,8 @@ with `group:`, this is ambiguous, so new code should always pass
 
 `add_resource_role()` logs a warning when granting a role to a group while
 `group_mapping` is set and `keep_group_subjects` is not, as the role would
-not apply.
+not apply. The warning names neither the role, the group nor the resource,
+which may come from clients; they are logged at `DEBUG`.
 
 Which users may grant roles to which groups is up to your app. FOCA does not
 check whether a group exists or who may grant roles to it; anyone allowed to
