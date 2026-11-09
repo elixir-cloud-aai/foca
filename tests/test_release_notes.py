@@ -1,8 +1,10 @@
 """Tests of the release notes check and body (`scripts/release_notes.py`)."""
 
 import importlib.util
+import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -562,6 +564,30 @@ def test_previous_tag(tag: str, previous: str | None) -> None:
     assert release_notes.previous_tag(tag, TAGS) == previous
 
 
+@pytest.mark.parametrize(
+    ("tag", "published", "previous"),
+    [
+        # A tag without a release (e.g., a failed one) is skipped
+        ("v0.3.0", ["v0.2.0", "v0.1.0"], "v0.2.0"),
+        ("v1.0.1", ["v0.3.0"], "v0.3.0"),
+        # Without any published candidate, all tags count
+        ("chart-v0.2.0", ["v0.1.0"], "chart-v0.1.0"),
+        ("v1.0.0rc1", ["v1.0.0b2", "v1.0.0rc1"], "v1.0.0b2"),
+    ],
+)
+def test_previous_tag_published(
+    tag: str, published: list[str], previous: str | None
+) -> None:
+    """Tags with a published release are preferred.
+
+    Args:
+        tag: Tag of the release.
+        published: Tags with a published release.
+        previous: Expected previous tag.
+    """
+    assert release_notes.previous_tag(tag, TAGS, published) == previous
+
+
 def test_previous_tag_invalid() -> None:
     """Tags of no release stream are rejected."""
     with pytest.raises(ValueError, match="Not a release tag"):
@@ -731,10 +757,10 @@ def test_pull_files(monkeypatch: pytest.MonkeyPatch) -> None:
             Two files, with an empty line.
         """
         calls.append(args)
-        return "a.py\n\nb/c.md\n"
+        return "a.py\n\nb/c.md\told/c.md\n"
 
     monkeypatch.setattr(release_notes, "_gh", gh)
-    assert release_notes.pull_files("o/r", 7) == ["a.py", "b/c.md"]
+    assert release_notes.pull_files("o/r", 7) == ["a.py", "b/c.md", "old/c.md"]
     assert calls == [
         (
             "api",
@@ -744,6 +770,32 @@ def test_pull_files(monkeypatch: pytest.MonkeyPatch) -> None:
             release_notes.FILES_JQ,
         )
     ]
+
+
+def test_pull_files_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lists as long as the API's limit may be incomplete, so they fail."""
+    monkeypatch.setattr(
+        release_notes,
+        "_gh",
+        lambda *args: "".join(f"f{n}.py\n" for n in range(release_notes.MAX_FILES)),
+    )
+    with pytest.raises(release_notes.TruncatedFilesError, match="at most 3000"):
+        release_notes.pull_files("o/r", 7)
+
+
+def test_files_jq() -> None:
+    """The jq filter puts the old name of a renamed file after a tab."""
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("jq is not installed")
+    result = subprocess.run(  # noqa: S603 (fixed arguments, no shell)
+        [jq, "-r", release_notes.FILES_JQ],
+        input='[{"filename": "a"}, {"filename": "b", "previous_filename": "c"}]',
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout == "a\nb\tc\n"
 
 
 @pytest.mark.parametrize(
@@ -786,16 +838,21 @@ class FakeGh:
 
     Attributes:
         tags: Tags that `matching-refs` returns, by prefix.
+        published: Tags with a published release.
         calls: Arguments of the calls so far.
     """
 
-    def __init__(self, tags: dict[str, list[str]]) -> None:
+    def __init__(
+        self, tags: dict[str, list[str]], published: Sequence[str] = ()
+    ) -> None:
         """Set the tags.
 
         Args:
             tags: Tags that `matching-refs` returns, by prefix.
+            published: Tags with a published release.
         """
         self.tags = tags
+        self.published = published
         self.calls: list[tuple[str, ...]] = []
 
     def __call__(self, *args: str) -> str:
@@ -817,6 +874,8 @@ class FakeGh:
             return "\n".join(self.tags[path.rsplit("/", 1)[1]]) + "\n"
         if path.endswith("/releases/generate-notes"):
             return STREAMS_GENERATED + "\n"
+        if path.endswith("/releases?per_page=100"):
+            return "".join(f"{tag}\n" for tag in self.published)
         if "/pulls/" in path:
             return "\n".join(FILES[int(path.split("/")[4])]) + "\n"
         raise AssertionError(f"Unexpected call: {args}")
@@ -831,13 +890,20 @@ def test_generated_notes_chart(monkeypatch: pytest.MonkeyPatch) -> None:
     ) == release_notes.filter_generated(
         STREAMS_GENERATED, lambda number: number in {11, 12}
     )
-    assert gh.calls[:2] == [
+    assert gh.calls[:3] == [
         (
             "api",
             "--paginate",
             "repos/o/r/git/matching-refs/tags/chart-v",
             "--jq",
             '.[].ref | ltrimstr("refs/tags/")',
+        ),
+        (
+            "api",
+            "--paginate",
+            "repos/o/r/releases?per_page=100",
+            "--jq",
+            ".[] | select(.draft | not) | .tag_name",
         ),
         (
             "api",
@@ -853,9 +919,19 @@ def test_generated_notes_chart(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     ]
     # The files of each pull request are read once
-    assert [call[2] for call in gh.calls[2:]] == [
+    assert [call[2] for call in gh.calls[3:]] == [
         f"repos/o/r/pulls/{number}/files?per_page=100" for number in (7, 11, 12)
     ]
+
+
+def test_generated_notes_skips_unreleased(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lower tag without a published release is skipped if others have one."""
+    gh = FakeGh(
+        {"v": ["v0.1.0", "v0.2.0", "v0.3.0"]}, published=["v0.1.0", "chart-v0.1.0"]
+    )
+    monkeypatch.setattr(release_notes, "_gh", gh)
+    release_notes.generated_notes("v0.3.0", "o/r")
+    assert "previous_tag_name=v0.1.0" in gh.calls[2]
 
 
 def test_generated_notes_first_package(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -868,8 +944,8 @@ def test_generated_notes_first_package(monkeypatch: pytest.MonkeyPatch) -> None:
         STREAMS_GENERATED, lambda number: number in {7, 12}
     )
     assert gh.calls[0][2] == "repos/o/r/git/matching-refs/tags/v"
-    assert "-f" in gh.calls[1]
-    assert not any(arg.startswith("previous_tag_name=") for arg in gh.calls[1])
+    assert "-f" in gh.calls[2]
+    assert not any(arg.startswith("previous_tag_name=") for arg in gh.calls[2])
 
 
 def test_main_generated(

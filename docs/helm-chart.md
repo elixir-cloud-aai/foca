@@ -1220,7 +1220,8 @@ charts](deployment.md#verifying-images-and-charts)). After a second
 approval in the `release` environment, it creates the GitHub release
 "foca-common X.Y.Z" of the tag: the curated notes, then, under
 `## Commits`, GitHub's generated list of the pull requests since the
-previous `chart-v*` tag that changed the chart, and GitHub's
+previous `chart-v*` tag (skipping tags without a published GitHub release,
+e.g., of a failed release) that changed the chart, and GitHub's
 `**Full Changelog**` line comparing the two chart tags. A pull request
 changed the chart if it changed the chart itself (with its tests, also
 `tests/test_chart*.py`), its docs or release notes, the example apps'
@@ -1230,13 +1231,16 @@ in `scripts/release_notes.py`); FOCA's releases list only the pull requests
 that changed other files (also the migration guides, the deployment docs,
 `mkdocs.yml`, `docs/changelog.md` and `ci.yml`), so pull requests that
 changed both are in both, e.g., a chart's release preparation, which adds
-its notes to the docs. If the files of a pull request can't be listed, it
-is kept, with a warning, as the chart is published by then. Chart releases
+its notes to the docs. If the files of a pull request can't be listed
+(also if it has more than the API lists, 3000), it is kept, with a
+warning, as the chart is published by then. Chart releases
 are pre-releases before 1.0.0 and never the latest release, which stays
 FOCA's. If creating the GitHub
 release fails, re-run only that failed job (re-running the whole workflow
 stops at the version check); it finishes a draft of an earlier attempt and
-leaves a published release as it is. Published versions are
+leaves a published release as it is (if the tag has several releases,
+e.g., drafts made by hand, it fails: delete the extra drafts and re-run
+it). Published versions are
 never overwritten. If attesting or signing fails after the push, the version
 stays published without them (a re-run stops at the version check); release
 a new version. Tags cannot be deleted or moved (see below): if a release

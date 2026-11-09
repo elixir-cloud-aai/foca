@@ -52,7 +52,7 @@ import argparse
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -175,9 +175,11 @@ PULL = re.compile(
     r"\* .* in https://github\.com/[\w.-]+/[\w.-]+/pull/(?P<number>[0-9]+)",
     re.ASCII,
 )
-# Files of a pull request, also the old names of renamed ones, from the
-# `pulls/<number>/files` API (one per line; at most 3000 files)
-FILES_JQ = ".[] | .filename, (.previous_filename // empty)"
+# Files of a pull request from the `pulls/<number>/files` API, one per line,
+# with the old name of a renamed one after a tab; the API lists at most
+# `MAX_FILES` files
+FILES_JQ = '.[] | [.filename, (.previous_filename // empty)] | join("\\t")'
+MAX_FILES = 3000
 
 
 @dataclass(frozen=True)
@@ -531,7 +533,9 @@ def _tag_key(match: re.Match[str]) -> tuple[int, int, int, int, int]:
     )
 
 
-def previous_tag(tag: str, tags: Sequence[str]) -> str | None:
+def previous_tag(
+    tag: str, tags: Sequence[str], published: Collection[str] = ()
+) -> str | None:
     """Return the tag of the previous release of the same stream.
 
     GitHub's `generate-notes` API compares against the previous release of
@@ -541,6 +545,11 @@ def previous_tag(tag: str, tags: Sequence[str]) -> str | None:
     Args:
         tag: Tag of the release, e.g., `v1.2.3` or `chart-v1.2.3`.
         tags: Tags of the repository; others than release tags are ignored.
+        published: Tags with a published GitHub release. If any of the
+            candidates has one, only those count, so that a tag whose
+            release failed (and was replaced by a later version) is skipped
+            and its changes are listed in the next release; if none has one
+            (e.g., before the first GitHub release of a stream), all count.
 
     Returns:
         The tag of the highest version below that of `tag` with the same
@@ -567,6 +576,8 @@ def previous_tag(tag: str, tags: Sequence[str]) -> str | None:
         and _tag_key(other) < key
         and (not final or other["pre"] is None)
     ]
+    released = [candidate for candidate in candidates if candidate[1] in published]
+    candidates = released or candidates
     return max(candidates)[1] if candidates else None
 
 
@@ -616,6 +627,8 @@ def pull_files(repository: str, number: int) -> list[str]:
 
     Raises:
         subprocess.CalledProcessError: If `gh` fails.
+        TruncatedFilesError: If the API lists `MAX_FILES` files, its limit,
+            so that the list may be incomplete.
     """
     output = _gh(
         "api",
@@ -624,7 +637,16 @@ def pull_files(repository: str, number: int) -> list[str]:
         "--jq",
         FILES_JQ,
     )
-    return [line for line in output.splitlines() if line]
+    entries = [line for line in output.splitlines() if line]
+    if len(entries) >= MAX_FILES:
+        raise TruncatedFilesError(
+            f"the API lists at most {MAX_FILES} files of a pull request"
+        )
+    return [path for entry in entries for path in entry.split("\t") if path]
+
+
+class TruncatedFilesError(Exception):
+    """The files of a pull request are more than the API lists."""
 
 
 def _gh(*args: str) -> str:
@@ -684,8 +706,9 @@ def generated_notes(tag: str, repository: str) -> str:
     """Return GitHub's generated notes of a release, for its stream only.
 
     Generated with GitHub's `generate-notes` API, as `gh release create
-    --generate-notes` does, but since the previous tag of the same stream
-    (`previous_tag`; GitHub's choice otherwise, e.g., for the first release
+    --generate-notes` does, but since the previous tag of the same stream,
+    preferring tags with a published release (`previous_tag`; GitHub's
+    choice if there is none, e.g., for the first release
     of a stream), then filtered to the pull requests of the stream
     (`filter_generated`, `in_stream`).
 
@@ -709,7 +732,17 @@ def generated_notes(tag: str, repository: str) -> str:
         "--jq",
         '.[].ref | ltrimstr("refs/tags/")',
     ).splitlines()
-    previous = previous_tag(tag, tags)
+    # Tags with a published release (drafts are listed with write access)
+    published = set(
+        _gh(
+            "api",
+            "--paginate",
+            f"repos/{repository}/releases?per_page=100",
+            "--jq",
+            ".[] | select(.draft | not) | .tag_name",
+        ).splitlines()
+    )
+    previous = previous_tag(tag, tags, published)
     fields = ["-f", f"tag_name={tag}"]
     if previous:
         fields += ["-f", f"previous_tag_name={previous}"]
@@ -738,7 +771,11 @@ def generated_notes(tag: str, repository: str) -> str:
         if number not in files:
             try:
                 files[number] = pull_files(repository, number)
-            except (OSError, subprocess.CalledProcessError) as error:
+            except (
+                OSError,
+                subprocess.CalledProcessError,
+                TruncatedFilesError,
+            ) as error:
                 # Kept, as the release is published by then: a failure
                 # that repeats on re-runs would otherwise need a new version
                 print(
