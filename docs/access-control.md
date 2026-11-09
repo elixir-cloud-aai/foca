@@ -429,7 +429,10 @@ specification level) is checked against the policies, using the full request
 path as the object and the HTTP method as the action. Policies are enforced
 _after_ the bearer token was validated (e.g., by FOCA's
 `foca.security.auth.validate_token`). Requests are denied with `403` if no
-policy allows them.
+policy allows them. Denials are logged at `INFO` with the method, the route
+(the path template of the operation, e.g., `DELETE /items/{id}`) and the
+subject; the request path, which holds values of the request (e.g., path
+parameters), is logged at `DEBUG` only.
 
 * Operations with `security: []` are not enforced, i.e., they are public.
   The same applies to operations with optional authentication, i.e., with an

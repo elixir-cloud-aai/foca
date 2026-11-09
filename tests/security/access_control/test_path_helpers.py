@@ -358,6 +358,13 @@ class TestIsPermittedFor:
             if record.name == logger and "bob" in record.getMessage()
         }
         assert levels == {logging.DEBUG}
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == logger and record.getMessage().startswith("Access")
+        ]
+        assert len(messages) == 1
+        assert messages[0].startswith("Access denied: GET /api/v1/pets/{")
 
     def test_automatic_options_permitted(self, app: Flask) -> None:
         """Flask answers these itself, so no policy applies."""

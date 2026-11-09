@@ -25,6 +25,7 @@ from foca.config.access import _get_app_config, _set_app_config
 from foca.models.config import Config
 from foca.testing import Client, request_context
 from foca.utils import service_info as utils
+from foca.utils.logging import _UNKNOWN_ROUTE
 from tests.test_files import service_info_fields
 from tests.test_files.service_info_data import FIELDS, REMOVE, SERVICE, service
 
@@ -299,7 +300,8 @@ def test_getServiceInfo_not_configured_request(
     ):
         getServiceInfo()
     assert "Service info not served" in log.text
-    assert 'Incoming request: "GET /service-info' in log.text
+    # Without operations, the route is unknown
+    assert f'Incoming request: "GET {_UNKNOWN_ROUTE} HTTP/1.1"' in log.text
 
 
 def test_check_service_info(log: pytest.LogCaptureFixture) -> None:

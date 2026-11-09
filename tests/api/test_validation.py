@@ -788,9 +788,10 @@ class TestFieldErrors:
     def test_values_not_echoed(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture, reasons: bool
     ) -> None:
-        """Invalid fields and logs don't quote rejected values.
+        """Invalid fields and logs at `INFO` and above don't quote rejected values.
 
         Nor does the response at all by default, without validation reasons.
+        The reasons, which quote them, are logged at `DEBUG` only.
         """
         leaky = "https://user:s3cr3t@example.org/ x"
         client = Client(_create_app(tmp_path, reasons=reasons))
@@ -802,7 +803,11 @@ class TestFieldErrors:
         data = response.json()
         assert len(data["errors"]) == 2
         assert "s3cr3t" not in json.dumps(data["errors"])
-        assert "s3cr3t" not in caplog.text
+        assert not any(
+            "s3cr3t" in record.getMessage()
+            for record in caplog.records
+            if record.levelno >= logging.INFO
+        )
         # With reasons, `detail` quotes the value, as documented
         assert ("s3cr3t" in json.dumps(data)) is reasons
 

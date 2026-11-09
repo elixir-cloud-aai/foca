@@ -281,11 +281,18 @@ def get_pet(pet_id: str) -> dict: ...
 def list_pets() -> list[dict]: ...
 ```
 
-Requests are logged with method, path, protocol and client address, and
-responses with their type and status code. Response bodies may contain
-secrets or personal data, so they are only logged with
-`log_response_body=True`. All logged values are escaped, so that clients
-cannot forge log records (e.g., with line breaks in paths).
+Requests are logged with method, route, protocol and client address, e.g.,
+`Incoming request: "GET /pets/{pet_id} HTTP/1.1" from 127.0.0.1`, and
+responses with their type and status code. The route is the path template
+of the operation (cf.
+[`current_request().route`](#reading-the-current-request)), so that values
+of the request, such as path parameters, aren't logged at the level of the
+traffic log; requests that no operation serves are logged with
+`<unknown route>`. The path of the request (e.g., `/pets/1`) is logged at
+`DEBUG` only, once per request. Response bodies may contain secrets or
+personal data, so they are only logged with `log_response_body=True`. All
+logged values are escaped, so that clients cannot forge log records (e.g.,
+with line breaks in paths).
 
 To decide on each request whether to log, e.g., from your app's
 configuration, use `log_traffic_if()` with a function returning whether to

@@ -119,6 +119,22 @@ only issuer and subject of validated tokens, and, via
 [`log_traffic`](../utilities.md#logging-requests-and-responses), no response
 bodies by default.
 
+Values that clients send are logged at `DEBUG` only, as far as FOCA knows
+them: request logs and denials of access control name the route of the
+request (the path template of the operation, e.g.,
+`/ga4gh/tes/v1/tasks/{id}`, or `<unknown route>`), not its path, which may
+hold identifiers or other values in path parameters; the path is logged at
+`DEBUG`. Requests rejected by request validation are logged with their
+invalid fields by location and code, or the title of the problem, and the
+validator's reason, which may quote rejected values, at `DEBUG` (see
+[Request-specific
+details](exceptions.md#request-specific-details)). Audit logs of access
+control (see [Audit log](#audit-log)) name the subjects, roles and
+resources of changes on purpose. With `exceptions.validation_details:
+false`, request validation exceptions are logged like other exceptions, at
+`ERROR` with their message, which may quote rejected values (see
+[Request-specific details](exceptions.md#request-specific-details)).
+
 ### Deprecations
 
 Python hides `DeprecationWarning`s outside of `__main__`, so apps served by,

@@ -11,6 +11,10 @@ from foca.context import _has_request, current_request, request_id
 
 logger = logging.getLogger(__name__)
 
+# Logged instead of the route of requests that no operation serves, whose path
+# is only logged at `DEBUG`
+_UNKNOWN_ROUTE = "<unknown route>"
+
 # Fields that `ContextFilter` adds to log records
 _CONTEXT_FIELDS = ("request_id", "operation_id", "subject", "client")
 # Attributes of log records that aren't fields added via `extra`
@@ -178,19 +182,23 @@ class JsonFormatter(logging.Formatter):
             )
 
 
-def _describe_request() -> str:
+def _describe_request() -> tuple[str, str]:
     """Describe the current request for logging.
 
     Returns:
-        Method, path and protocol of the current request and the address of
-        the client, e.g., ``"GET /pets HTTP/1.1" from 127.0.0.1``, with
-        non-printable characters escaped.
+        Method, route and protocol of the current request and the address of
+        the client, e.g., ``"GET /pets/{id} HTTP/1.1" from 127.0.0.1``, and
+        the path of the request, e.g., ``/pets/1``, with non-printable
+        characters escaped. The route is the path template of the operation
+        serving the request, or ``<unknown route>`` if there is none; unlike
+        the path, it holds no values of the request (e.g., path parameters).
     """
     request = current_request()
-    return escape_log_value(
-        f'"{request.method} {request.path} {request.protocol}" '
-        f"from {request.client_address}"
+    route = _UNKNOWN_ROUTE if request.route is None else request.route
+    description = escape_log_value(
+        f'"{request.method} {route} {request.protocol}" from {request.client_address}'
     )
+    return description, escape_log_value(request.path)
 
 
 def _get_status(response: object) -> object:
@@ -257,9 +265,12 @@ def log_traffic(
 ) -> Callable[..., Any]:
     """Decorator for logging service requests and responses.
 
-    Request method, path, protocol and client address are logged with
-    non-printable characters escaped. Responses are logged with their type
-    and status code only, as bodies may contain sensitive data.
+    Request method, route (the path template of the operation, e.g.,
+    `/pets/{id}`), protocol and client address are logged with non-printable
+    characters escaped. The path of the request, which holds values of the
+    request (e.g., path parameters), is logged at `DEBUG` only, once per
+    request. Responses are logged with their type and status code only, as
+    bodies may contain sensitive data.
 
     Args:
         log_request: Whether or not the request should be logged.
@@ -295,7 +306,9 @@ def log_traffic(
             Returns:
                 Wrapper function.
             """
-            req = _describe_request()
+            req, path = _describe_request()
+            if log_request or log_response:
+                logger.debug("Path of request %s: %s", req, path)
             if log_request:
                 logger.log(log_level, "Incoming request: %s", req)
 

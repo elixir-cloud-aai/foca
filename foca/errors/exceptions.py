@@ -293,10 +293,12 @@ def _validation_handler_json(
 
     Registered with `conf.validation_details` (cf.
     :py:func:`register_exception_handler`). Logs the invalid fields by
-    location and code, if known, otherwise the reason, at `INFO`, shortened
-    and escaped (unless disabled via `conf.logging`), instead of the
-    exception, and responds like :py:func:`_problem_handler_json`, with the
-    invalid fields, if known, as `errors` (cf.
+    location and code, if known, otherwise the mapped `detail`, if any, or
+    the title, at `INFO`, and the reason, which may quote rejected values,
+    at `DEBUG`, shortened and escaped (unless disabled via `conf.logging`),
+    instead of the exception, and responds like
+    :py:func:`_problem_handler_json`, with the invalid fields, if known, as
+    `errors` (cf.
     :py:func:`foca.errors.fields.add_field_errors`). By default, `detail`
     names them by location and code (cf.
     :py:func:`foca.errors.fields.describe_field_errors`), if they are listed
@@ -315,6 +317,7 @@ def _validation_handler_json(
         fields, if any.
     """
     problem = _resolve_problem(exc=exception, conf=conf)
+    mapped_detail = problem.get("detail")
     reason = _validation_reason(exception)
     if reason is not None and conf.validation_reasons:
         problem["detail"] = _shorten(reason, conf.max_detail_length)
@@ -342,23 +345,24 @@ def _validation_handler_json(
         else:
             problem.setdefault("detail", _INVALID_REQUEST)
     if conf.logging is not ExceptionLoggingEnum.none:
-        # Escaped before shortening, so that the logged reason stays within
-        # the maximum length; invalid fields are logged without the reason,
-        # which may quote the rejected values
-        logged: str | None
+        # Escaped before shortening, so that the logged values stay within
+        # the maximum length; the reason may quote the rejected values, so it
+        # is only logged at `DEBUG`
         if errors:
             logged = describe_field_errors(errors)
-        elif reason is not None:
-            logged = reason
+        elif mapped_detail is not None:
+            logged = mapped_detail
         else:
-            logged = problem.get("detail")
+            logged = problem["title"]
         logger.info(
             "Request rejected: %s",
-            _shorten(
-                escape_log_value(problem["title"] if logged is None else logged),
-                conf.max_detail_length,
-            ),
+            _shorten(escape_log_value(logged), conf.max_detail_length),
         )
+        if reason is not None:
+            logger.debug(
+                "Reason for rejecting the request: %s",
+                _shorten(escape_log_value(reason), conf.max_detail_length),
+            )
     return _response(exc=exception, problem=problem, conf=conf)
 
 
