@@ -39,13 +39,16 @@ RUN pip uninstall --yes --no-cache-dir setuptools wheel
 # recommended ones), instead of being kept back; configuration files modified
 # in the base image keep their version, without a prompt; and the build fails
 # if updates are still kept back (e.g., as they would remove packages, which
-# needs a decision), listing them, instead of leaving them out silently
+# needs a decision), listing them, instead of leaving them out silently, or if
+# they can't be listed (the output of the simulation is kept first, as `sh` has
+# no `pipefail`, so that a failing simulation is not taken for no updates)
 RUN apt-get update --error-on=any && \
     DEBIAN_FRONTEND=noninteractive \
         apt-get upgrade -y --with-new-pkgs --no-install-recommends \
             -o Dpkg::Options::=--force-confdef \
             -o Dpkg::Options::=--force-confold && \
-    if apt-get -s dist-upgrade | grep '^Inst '; then \
+    simulation="$(apt-get -s dist-upgrade)" && \
+    if printf '%s\n' "${simulation}" | grep '^Inst '; then \
         echo "Updates kept back (listed above), see docker/Dockerfile" >&2; \
         exit 1; \
     fi && \
