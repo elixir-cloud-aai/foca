@@ -39,16 +39,39 @@ def test_all_stages_by_digest() -> None:
     assert len(re.findall(r"^FROM python:", text, re.M)) == len(versions)
 
 
-def test_base_stage_upgrades_apt() -> None:
-    """Both later stages get the fixed `apt`, also with pinned base images."""
+def test_base_stage_upgrades_os_packages() -> None:
+    """Both later stages get the OS updates, also with pinned base images."""
     text = (ROOT / "docker/Dockerfile").read_text()
     base_stage = text.partition(" AS base\n")[2].partition(" AS builder\n")[0]
-    assert re.search(
-        r"^\s*apt-get install -y --no-install-recommends --only-upgrade "
-        r"apt libapt-pkg7\.0\b",
-        base_stage,
-        re.M,
+    run = next(
+        (run for run in base_stage.split("\nRUN ") if "apt-get upgrade" in run),
+        "",
     )
+    assert run, "No step with `apt-get upgrade` in the stage `base`"
+    # The command only, up to its last line (not continued with `\`), without
+    # the comments that follow
+    run = re.split(r"(?<!\\)\n", run, maxsplit=1)[0]
+    # The update comes first and fails the step if an index can't be fetched,
+    # which would otherwise leave the packages as they are, without an error
+    assert re.match(
+        r"apt-get update --error-on=any && \\\s+"
+        r"(DEBIAN_FRONTEND=noninteractive \\\s+)?apt-get upgrade\b",
+        run,
+    )
+    # Also updates that need new packages, which would be kept back otherwise
+    assert re.search(r"\bapt-get upgrade\b[^&]*\s--with-new-pkgs\b", run)
+    # Fails if updates are still kept back (e.g., as they need removals)
+    assert re.search(
+        r"--force-confold && \\\s+if apt-get -s dist-upgrade \| grep '\^Inst '",
+        run,
+    )
+    # Without prompts, of debconf and of dpkg for changed configuration files
+    assert "DEBIAN_FRONTEND=noninteractive" in run
+    assert "--force-confdef" in run
+    assert "--force-confold" in run
+    assert "rm -rf /var/lib/apt/lists/*" in run
+    # All packages, not single ones, which would need a change per advisory
+    assert "--only-upgrade" not in base_stage
 
 
 def test_each_version_has_requirements() -> None:
