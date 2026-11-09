@@ -1,7 +1,6 @@
 """Tests of the release notes check and body (`scripts/release_notes.py`)."""
 
 import importlib.util
-import io
 import subprocess
 import sys
 from pathlib import Path
@@ -543,7 +542,10 @@ TAGS = (
         ("v0.3.0", "v0.2.5"),
         ("v0.2.0", "v0.1.10"),
         ("v1.0.0rc1", "v1.0.0b2"),
-        ("v1.0.0", "v1.0.0rc1"),
+        ("v1.0.0b2", "v1.0.0a1"),
+        ("v1.0.0a1", "v0.3.0"),
+        # Final releases compare against the previous final release
+        ("v1.0.0", "v0.3.0"),
         ("v1.0.1", "v1.0.0"),
         ("v0.1.0", None),
         ("chart-v0.2.0", "chart-v0.1.0"),
@@ -583,6 +585,8 @@ def test_previous_tag_invalid() -> None:
         ([".github/actions/install-chart/action.yml"], False, True),
         ([".github/workflows/charts.yml", ".github/kind/gateway.yaml"], False, True),
         ([".github/workflows/ci.yml"], True, False),
+        (["tests/test_chart_gateway_keys.py"], False, True),
+        (["tests/charts/test_chart.py", "mkdocs.yml"], True, False),
         (["examples/petstore/chart.md"], True, False),
         (["docs/migration-0.20.md", "docs/helm-chart.md"], True, True),
         (["charts/foca-common/"], True, False),
@@ -686,12 +690,12 @@ def test_filter_generated_body() -> None:
     )
 
 
-def test_pull_files(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The files of a pull request are listed with the GitHub CLI."""
+def test_gh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The GitHub CLI runs without a shell, and its output is returned."""
     calls = []
 
     def run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        """Record the call and return two files.
+        """Record the call and return some output.
 
         Args:
             args: Command.
@@ -701,78 +705,230 @@ def test_pull_files(monkeypatch: pytest.MonkeyPatch) -> None:
             The completed process.
         """
         calls.append((args, kwargs))
-        return subprocess.CompletedProcess(args, 0, "a.py\n\nb/c.md\n", "")
+        return subprocess.CompletedProcess(args, 0, "out\n", "")
 
     monkeypatch.setattr(release_notes.subprocess, "run", run)
-    assert release_notes.pull_files("o/r", 7) == ["a.py", "b/c.md"]
+    assert release_notes._gh("api", "x") == "out\n"
     assert calls == [
         (
-            [
-                "gh",
-                "api",
-                "--paginate",
-                "repos/o/r/pulls/7/files?per_page=100",
-                "--jq",
-                release_notes.FILES_JQ,
-            ],
+            ["gh", "api", "x"],
             {"capture_output": True, "text": True, "check": True},
         )
     ]
 
 
-def test_main_previous(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """The previous tag is printed, or nothing if there is none."""
-    monkeypatch.setattr(
-        release_notes.sys, "stdin", io.StringIO("v0.1.0\nchart-v0.1.0\nv0.2.0\n")
+def test_pull_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The files of a pull request are listed with the GitHub CLI."""
+    calls = []
+
+    def gh(*args: str) -> str:
+        """Record the call and return two files.
+
+        Args:
+            *args: Arguments of `gh`.
+
+        Returns:
+            Two files, with an empty line.
+        """
+        calls.append(args)
+        return "a.py\n\nb/c.md\n"
+
+    monkeypatch.setattr(release_notes, "_gh", gh)
+    assert release_notes.pull_files("o/r", 7) == ["a.py", "b/c.md"]
+    assert calls == [
+        (
+            "api",
+            "--paginate",
+            "repos/o/r/pulls/7/files?per_page=100",
+            "--jq",
+            release_notes.FILES_JQ,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("tag", "stream"),
+    [("v1.2.3", "package"), ("v1.2.3rc1", "package"), ("chart-v1.2.3", "chart")],
+)
+def test_stream_of(tag: str, stream: str) -> None:
+    """Tags belong to the stream of their prefix.
+
+    Args:
+        tag: Release tag.
+        stream: Expected stream.
+    """
+    assert release_notes.stream_of(tag) == stream
+
+
+def test_stream_of_invalid() -> None:
+    """Tags of no release stream are rejected."""
+    with pytest.raises(ValueError, match="Not a release tag"):
+        release_notes.stream_of("1.2.3")
+
+
+# Files of the pull requests of `STREAMS_GENERATED`
+FILES = {
+    7: ["foca/foca.py"],
+    11: ["charts/foca-common/values.yaml"],
+    12: ["foca/foca.py", "docs/helm-chart.md"],
+}
+
+
+class FakeGh:
+    """Fake GitHub CLI for the API calls of `generated_notes`.
+
+    Attributes:
+        tags: Tags that `matching-refs` returns, by prefix.
+        calls: Arguments of the calls so far.
+    """
+
+    def __init__(self, tags: dict[str, list[str]]) -> None:
+        """Set the tags.
+
+        Args:
+            tags: Tags that `matching-refs` returns, by prefix.
+        """
+        self.tags = tags
+        self.calls: list[tuple[str, ...]] = []
+
+    def __call__(self, *args: str) -> str:
+        """Return the output of an API call.
+
+        Args:
+            *args: Arguments of `gh`.
+
+        Returns:
+            Tags, generated notes or files of a pull request.
+
+        Raises:
+            AssertionError: For other calls.
+        """
+        self.calls.append(args)
+        path = args[1] if args[1] != "--paginate" else args[2]
+        path = args[3] if args[1] == "--method" else path
+        if "/git/matching-refs/tags/" in path:
+            return "\n".join(self.tags[path.rsplit("/", 1)[1]]) + "\n"
+        if path.endswith("/releases/generate-notes"):
+            return STREAMS_GENERATED + "\n"
+        if "/pulls/" in path:
+            return "\n".join(FILES[int(path.split("/")[4])]) + "\n"
+        raise AssertionError(f"Unexpected call: {args}")
+
+
+def test_generated_notes_chart(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chart notes compare with the previous chart tag and keep chart PRs."""
+    gh = FakeGh({"chart-v": ["chart-v0.1.0", "chart-v0.2.0", "chart-v0.3.0"]})
+    monkeypatch.setattr(release_notes, "_gh", gh)
+    assert release_notes.generated_notes(
+        "chart-v0.2.0", "o/r"
+    ) == release_notes.filter_generated(
+        STREAMS_GENERATED, lambda number: number in {11, 12}
     )
-    assert release_notes.main(["previous", "v0.3.0"]) == 0
-    assert capsys.readouterr().out == "v0.2.0\n"
-    monkeypatch.setattr(release_notes.sys, "stdin", io.StringIO("v0.1.0\n"))
-    assert release_notes.main(["previous", "chart-v0.1.0"]) == 0
-    assert capsys.readouterr().out == ""
+    assert gh.calls[:2] == [
+        (
+            "api",
+            "--paginate",
+            "repos/o/r/git/matching-refs/tags/chart-v",
+            "--jq",
+            '.[].ref | ltrimstr("refs/tags/")',
+        ),
+        (
+            "api",
+            "--method",
+            "POST",
+            "repos/o/r/releases/generate-notes",
+            "-f",
+            "tag_name=chart-v0.2.0",
+            "-f",
+            "previous_tag_name=chart-v0.1.0",
+            "--jq",
+            ".body",
+        ),
+    ]
+    # The files of each pull request are read once
+    assert [call[2] for call in gh.calls[2:]] == [
+        f"repos/o/r/pulls/{number}/files?per_page=100" for number in (7, 11, 12)
+    ]
 
 
-def test_main_previous_invalid(
+def test_generated_notes_first_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without a previous tag, GitHub chooses the range; package PRs stay."""
+    gh = FakeGh({"v": ["v0.1.0"]})
+    monkeypatch.setattr(release_notes, "_gh", gh)
+    assert release_notes.generated_notes(
+        "v0.1.0", "o/r"
+    ) == release_notes.filter_generated(
+        STREAMS_GENERATED, lambda number: number in {7, 12}
+    )
+    assert gh.calls[0][2] == "repos/o/r/git/matching-refs/tags/v"
+    assert "-f" in gh.calls[1]
+    assert not any(arg.startswith("previous_tag_name=") for arg in gh.calls[1])
+
+
+def test_main_generated(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The command prints the generated notes of the release's stream."""
+    monkeypatch.setattr(release_notes, "_gh", FakeGh({"v": ["v0.2.0", "v0.3.0"]}))
+    assert release_notes.main(["generated", "v0.3.0", "--repo", "o/r"]) == 0
+    assert capsys.readouterr().out == release_notes.filter_generated(
+        STREAMS_GENERATED, lambda number: number in {7, 12}
+    )
+
+
+def test_main_generated_invalid(capsys: pytest.CaptureFixture[str]) -> None:
     """Tags of no release stream fail."""
-    monkeypatch.setattr(release_notes.sys, "stdin", io.StringIO(""))
-    assert release_notes.main(["previous", "0.1.0"]) == 1
+    assert release_notes.main(["generated", "0.1.0", "--repo", "o/r"]) == 1
     assert capsys.readouterr().err == "::error::Not a release tag: '0.1.0'\n"
 
 
-def _filter_args(generated: Path, stream: str) -> list[str]:
-    """Return the arguments of the `filter` command.
+@pytest.mark.parametrize(
+    "error",
+    [
+        subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 404:\nNot Found"),
+        FileNotFoundError("gh"),
+    ],
+)
+def test_main_generated_gh_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: Exception,
+) -> None:
+    """Failures of the GitHub CLI fail on one line, printing no notes.
 
     Args:
-        generated: Generated notes.
-        stream: Release stream.
-
-    Returns:
-        The arguments, for repository `o/r`.
+        monkeypatch: Pytest fixture.
+        capsys: Pytest fixture.
+        error: Error of the GitHub CLI.
     """
-    return ["filter", str(generated), "--stream", stream, "--repo", "o/r"]
+
+    def gh(*args: str) -> str:
+        """Fail.
+
+        Args:
+            *args: Arguments of `gh`.
+
+        Raises:
+            Exception: Always.
+        """
+        raise error
+
+    monkeypatch.setattr(release_notes, "_gh", gh)
+    assert release_notes.main(["generated", "v0.3.0", "--repo", "o/r"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("::error::Can't generate the release notes")
+    assert captured.err.count("\n") == 1
 
 
-def test_main_filter(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+def test_generated_notes_files_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The files of each pull request are listed once."""
-    generated = tmp_path / "generated.md"
-    generated.write_text(STREAMS_GENERATED, encoding="utf-8")
-    files = {
-        7: ["foca/foca.py"],
-        11: ["charts/foca-common/values.yaml"],
-        12: ["foca/foca.py", "docs/helm-chart.md"],
-    }
-    calls = []
+    """Pull requests whose files can't be listed are kept, with a warning."""
+    gh = FakeGh({"chart-v": ["chart-v0.1.0", "chart-v0.2.0"]})
 
     def pull_files(repository: str, number: int) -> list[str]:
-        """Return the files of a pull request of `files`.
+        """Fail for pull request 7, else return its files.
 
         Args:
             repository: Repository.
@@ -780,80 +936,22 @@ def test_main_filter(
 
         Returns:
             Its files.
-        """
-        calls.append((repository, number))
-        return files[number]
-
-    monkeypatch.setattr(release_notes, "pull_files", pull_files)
-    assert release_notes.main(_filter_args(generated, "chart")) == 0
-    assert capsys.readouterr().out == release_notes.filter_generated(
-        STREAMS_GENERATED, lambda number: number in {11, 12}
-    )
-    assert calls == [("o/r", 7), ("o/r", 11), ("o/r", 12)]
-
-
-def test_main_filter_unreadable(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Generated notes that can't be read fail."""
-    assert release_notes.main(_filter_args(tmp_path / "missing.md", "chart")) == 1
-    assert capsys.readouterr().err.startswith("::error::Can't read the generated")
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 404"),
-        FileNotFoundError("gh"),
-    ],
-)
-def test_main_filter_gh_error(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    error: Exception,
-) -> None:
-    """Failures to list the files of a pull request fail, printing nothing.
-
-    Args:
-        monkeypatch: Pytest fixture.
-        tmp_path: Pytest fixture.
-        capsys: Pytest fixture.
-        error: Error of the GitHub CLI.
-    """
-    generated = tmp_path / "generated.md"
-    generated.write_text(STREAMS_GENERATED, encoding="utf-8")
-
-    def pull_files(repository: str, number: int) -> list[str]:
-        """Fail.
-
-        Args:
-            repository: Repository.
-            number: Number of the pull request.
 
         Raises:
-            Exception: Always.
+            subprocess.CalledProcessError: For pull request 7.
         """
-        raise error
+        if number == 7:
+            raise subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 502\nBad")
+        return FILES[number]
 
+    monkeypatch.setattr(release_notes, "_gh", gh)
     monkeypatch.setattr(release_notes, "pull_files", pull_files)
-    assert release_notes.main(_filter_args(generated, "package")) == 1
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err.startswith("::error::Can't list the files")
-
-
-def test_script_previous() -> None:
-    """The script reads the tags from standard input."""
-    result = subprocess.run(  # noqa: S603 (fixed arguments, no shell)
-        [sys.executable, "-I", str(SCRIPT), "previous", "chart-v0.2.0"],
-        input="chart-v0.1.0\nv0.1.5\n",
-        capture_output=True,
-        text=True,
-        check=False,
+    assert release_notes.generated_notes(
+        "chart-v0.2.0", "o/r"
+    ) == release_notes.filter_generated(
+        STREAMS_GENERATED, lambda number: number in {7, 11, 12}
     )
-    assert (result.returncode, result.stdout, result.stderr) == (
-        0,
-        "chart-v0.1.0\n",
-        "",
+    assert capsys.readouterr().err == (
+        "::warning::Can't list the files of pull request #7, kept in the notes:"
+        " Command '['gh']' returned non-zero exit status 1. HTTP 502 Bad\n"
     )

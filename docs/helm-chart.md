@@ -1208,11 +1208,12 @@ git push origin chart-v0.1.0
 The [release workflow][release-chart] checks that the tag is signed (with a
 signature that GitHub verifies), is on `dev` and matches the chart's
 version, that the version's release notes exist, are finished and in the
-agreed format, that CI passed for the tagged commit (a successful run of `ci.yml`
-for a push of the commit; if there is none, or CI is still running, it fails
-and says to re-run the workflow once CI passed), and runs the chart checks and
-the kind installation of CI. After a maintainer approved the tested chart in the `release` environment, it
-checks that the version has not been published yet, packages the chart,
+agreed format, that CI passed for the tagged commit (a successful run of
+`ci.yml` for a push of the commit; if there is none, or CI is still
+running, it fails and says to re-run the workflow once CI passed), and runs
+the chart checks and the kind installation of CI. After a maintainer
+approved the tested chart in the `release` environment, it checks that the
+version has not been published yet, packages the chart,
 pushes it to `oci://ghcr.io/elixir-cloud-aai/charts/foca-common`, and
 attests and signs it (see [verifying images and
 charts](deployment.md#verifying-images-and-charts)). After a second
@@ -1221,11 +1222,16 @@ approval in the `release` environment, it creates the GitHub release
 `## Commits`, GitHub's generated list of the pull requests since the
 previous `chart-v*` tag that changed the chart, and GitHub's
 `**Full Changelog**` line comparing the two chart tags. A pull request
-changed the chart if it changed the chart itself, its docs or release
-notes, the example apps' charts, the chart release workflow or the actions
-that test the chart; FOCA's releases list only the pull requests that
-changed other files, so pull requests that changed both are in both (see
-`scripts/release_notes.py`). Chart releases are pre-releases before 1.0.0
+changed the chart if it changed the chart itself (with its tests, also
+`tests/test_chart*.py`), its docs or release notes, the example apps'
+charts, the chart release workflow, the actions `test-chart` and
+`install-chart` or the kind configurations in `.github/kind/` (`CHART_PATHS`
+in `scripts/release_notes.py`); FOCA's releases list only the pull requests
+that changed other files (also the migration guides, the deployment docs,
+`mkdocs.yml`, `docs/changelog.md` and `ci.yml`), so pull requests that
+changed both are in both, e.g., a chart's release preparation, which adds
+its notes to the docs. If the files of a pull request can't be listed, it
+is kept, with a warning, as the chart is published by then. Chart releases are pre-releases before 1.0.0
 and never the latest release, which stays FOCA's. If creating the GitHub
 release fails, re-run only that failed job (re-running the whole workflow
 stops at the version check); it finishes a draft of an earlier attempt and

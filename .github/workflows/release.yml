@@ -476,22 +476,12 @@ jobs:
           # always since the previous `v*` tag (GitHub would otherwise
           # compare against the latest release, which may be one of the
           # library chart, `release-chart.yml`), and without the pull
-          # requests that only changed the chart; on every run, so that a
+          # requests that only changed the chart (`release_notes.py
+          # generated`, as in `release-chart.yml`); on every run, so that a
           # draft of an earlier attempt gets the current notes
           curated="docs/releases/${VERSION}.md"
-          tags="$(mktemp)"
-          gh api --paginate "repos/${GH_REPO}/git/matching-refs/tags/v" \
-              --jq '.[].ref | ltrimstr("refs/tags/")' > "${tags}"
-          previous="$(python scripts/release_notes.py previous "${TAG}" < "${tags}")"
-          args=(-f "tag_name=${TAG}")
-          if [[ -n "${previous}" ]]; then
-              args+=(-f "previous_tag_name=${previous}")
-          fi
-          all="$(mktemp)"
-          gh api "repos/${GH_REPO}/releases/generate-notes" "${args[@]}" \
-              --jq .body > "${all}"
           notes_file="$(mktemp)"
-          python scripts/release_notes.py filter "${all}" --stream package \
+          python scripts/release_notes.py generated "${TAG}" \
               --repo "${GH_REPO}" > "${notes_file}"
           if [[ -f "${curated}" ]]; then
               generated="${notes_file}"

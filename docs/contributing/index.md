@@ -370,11 +370,14 @@ fails otherwise) and to the list in the [changelog](../changelog.md). The
 release workflow adds parts 3 and 4 from GitHub's
 [generate-notes](https://docs.github.com/en/rest/releases/releases#generate-release-notes-content-for-a-release)
 API, as `gh release create --generate-notes` would, but always since the
-previous `v*` tag (never a tag of the library chart) and without the pull
+previous `v*` tag (never a tag of the library chart; for a final release,
+the previous final release, so that its list covers all changes since
+then, as its curated notes do; for a pre-release, the previous release of
+either kind), and without the pull
 requests that only changed the library chart, which has its own releases
-(see [Releases](../helm-chart.md#releases) of the chart; `scripts/release_notes.py
-previous` and `filter`), and publishes the result as the release's notes, so they need no
-editing on GitHub afterwards. Generated notes in an unexpected format
+(see [Releases](../helm-chart.md#releases) of the chart;
+`scripts/release_notes.py generated`), and publishes the result as the
+release's notes, so they need no editing on GitHub afterwards. Generated notes in an unexpected format
 (without the `**Full Changelog**` line) are kept as they are, with a warning,
 as the distributions are published by then.
 

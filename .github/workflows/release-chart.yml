@@ -272,10 +272,11 @@ jobs:
       # The body is the curated notes (checked in `test`), then GitHub's
       # generated notes since the previous `chart-v*` tag (GitHub would
       # otherwise compare against the latest release, which may be one of
-      # FOCA's), with only the pull requests that changed the chart (see
-      # `scripts/release_notes.py`). The release is a pre-release before
-      # 1.0.0 and never the latest release, which stays FOCA's. Created as
-      # a draft and published last, as in `release.yml`; re-runs finish a
+      # FOCA's), with only the pull requests that changed the chart
+      # (`release_notes.py generated`, as in `release.yml`). The release is
+      # a pre-release before 1.0.0 and never the latest release, which
+      # stays FOCA's. Created as a draft and published last, like
+      # `publish` in `release.yml` (without assets); re-runs finish a
       # draft of an earlier attempt, with the notes of this run, and leave
       # a published release as it is
       - name: Create release
@@ -300,19 +301,8 @@ jobs:
           if [[ "${VERSION}" == 0.* ]]; then
               prerelease=true
           fi
-          tags="$(mktemp)"
-          gh api --paginate "repos/${GH_REPO}/git/matching-refs/tags/chart-v" \
-              --jq '.[].ref | ltrimstr("refs/tags/")' > "${tags}"
-          previous="$(python scripts/release_notes.py previous "${TAG}" < "${tags}")"
-          args=(-f "tag_name=${TAG}")
-          if [[ -n "${previous}" ]]; then
-              args+=(-f "previous_tag_name=${previous}")
-          fi
-          all="$(mktemp)"
-          gh api "repos/${GH_REPO}/releases/generate-notes" "${args[@]}" \
-              --jq .body > "${all}"
           generated="$(mktemp)"
-          python scripts/release_notes.py filter "${all}" --stream chart \
+          python scripts/release_notes.py generated "${TAG}" \
               --repo "${GH_REPO}" > "${generated}"
           notes_file="$(mktemp)"
           python scripts/release_notes.py body \

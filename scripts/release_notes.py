@@ -23,11 +23,12 @@ GitHub's `generate-notes` API.
 The repository has two release streams: the package and its images (tags
 `vX.Y.Z`, `release.yml`) and the library chart `foca-common` (tags
 `chart-vX.Y.Z`, `release-chart.yml`, curated notes in
-`docs/releases/chart/<version>.md`). The notes of each stream compare
-against the previous tag of the same stream (`previous`) and list only the
-pull requests that changed it (`filter`): those that changed the chart's
-files (`CHART_PATHS`) in the chart's, those that changed any other file in
-the package's; pull requests that changed both are in both.
+`docs/releases/chart/<version>.md`). The generated notes of each stream
+compare against the previous tag of the same stream (`previous_tag`) and
+list only the pull requests that changed it (`filter_generated`,
+`in_stream`): those that changed the chart's files (`CHART_PATHS`) in the
+chart's, those that changed any other file in the package's; pull requests
+that changed both are in both.
 
 Commands:
     `check <notes>`: check the structure of curated notes.
@@ -38,13 +39,10 @@ Commands:
     `require <version> [--releases <dir>]`: fail if the curated notes of a
         release (`<dir>/<version>.md`, by default in `docs/releases/`) are
         missing, unless no other release has notes (see `missing_notes`).
-    `previous <tag>`: print the tag of the previous release of the same
-        stream, from the tags on standard input (one per line), or nothing
-        if there is none (see `previous_tag`).
-    `filter <generated> --stream <stream> --repo <owner/name>`: print
-        GitHub's generated notes (a file) with only the pull requests of a
-        stream (`package` or `chart`), whose files are read with the GitHub
-        CLI (`gh`; see `filter_generated`).
+    `generated <tag> --repo <owner/name>`: print GitHub's generated notes
+        of a release (a `v*` or `chart-v*` tag) for its stream, with the
+        GitHub CLI (`gh`, authenticated, e.g., with `GH_TOKEN`; see
+        `generated_notes`).
 
 Errors (and warnings) are printed as GitHub annotations to standard error.
 Only the stdlib is used, so the workflow runs it without installing the app.
@@ -141,9 +139,12 @@ RELATIVE_LINK = (
 # Files of the library chart's release stream: the chart (with its tests),
 # its docs and curated notes, the example apps' charts (which test it), and
 # its release workflow, the actions and kind configurations that test it,
-# and the former chart workflow `charts.yml` (now in `ci.yml`). Everything
-# else (also the migration guides and the deployment docs, which are FOCA's)
-# belongs to the package
+# and the former chart workflow `charts.yml` (now in `ci.yml`; for the
+# pull requests before its removal, in notes since then), and the chart's
+# tests in `tests/` (`test_chart*.py`). Everything else (also the migration
+# guides, the deployment docs, `mkdocs.yml`, `docs/changelog.md` and
+# `ci.yml`) belongs to the package, so a chart's release preparation, which
+# adds its notes to the docs' navigation and changelog, is in both
 CHART_PATHS = re.compile(
     r"charts/foca-common/.+"
     r"|docs/helm-chart\.md"
@@ -152,6 +153,7 @@ CHART_PATHS = re.compile(
     r"|\.github/workflows/(?:release-chart|charts)\.yml"
     r"|\.github/actions/(?:test|install)-chart/.+"
     r"|\.github/kind/.+"
+    r"|tests/test_chart[^/]*\.py"
 )
 # Release streams and the prefixes of their tags
 STREAMS = {"package": "v", "chart": "chart-v"}
@@ -541,7 +543,11 @@ def previous_tag(tag: str, tags: Sequence[str]) -> str | None:
     Returns:
         The tag of the highest version below that of `tag` with the same
         prefix (pre-releases come before their final version, e.g.,
-        `v1.0.0rc1` before `v1.0.0`), or `None` if there is none.
+        `v1.0.0rc1` before `v1.0.0`), or `None` if there is none. Final
+        releases compare against the previous final release only, so that
+        their notes cover all changes since then, as their curated notes do
+        (e.g., `v1.0.0` against `v0.9.0`, not `v1.0.0rc2`); pre-releases
+        against the previous release of either kind.
 
     Raises:
         ValueError: If `tag` is not a release tag.
@@ -550,10 +556,14 @@ def previous_tag(tag: str, tags: Sequence[str]) -> str | None:
     if not match:
         raise ValueError(f"Not a release tag: '{tag}'")
     key = _tag_key(match)
+    final = match["pre"] is None
     candidates = [
         (_tag_key(other), other.string)
         for other in (TAG.fullmatch(name.strip()) for name in tags)
-        if other and other["prefix"] == match["prefix"] and _tag_key(other) < key
+        if other
+        and other["prefix"] == match["prefix"]
+        and _tag_key(other) < key
+        and (not final or other["pre"] is None)
     ]
     return max(candidates)[1] if candidates else None
 
@@ -605,20 +615,137 @@ def pull_files(repository: str, number: int) -> list[str]:
     Raises:
         subprocess.CalledProcessError: If `gh` fails.
     """
-    result = subprocess.run(  # noqa: S603 (fixed command, no shell)
-        [  # noqa: S607 (`gh` from the PATH, as in the workflows)
-            "gh",
-            "api",
-            "--paginate",
-            f"repos/{repository}/pulls/{number}/files?per_page=100",
-            "--jq",
-            FILES_JQ,
-        ],
+    output = _gh(
+        "api",
+        "--paginate",
+        f"repos/{repository}/pulls/{number}/files?per_page=100",
+        "--jq",
+        FILES_JQ,
+    )
+    return [line for line in output.splitlines() if line]
+
+
+def _gh(*args: str) -> str:
+    """Run the GitHub CLI.
+
+    Args:
+        *args: Arguments of `gh`.
+
+    Returns:
+        Its standard output.
+
+    Raises:
+        OSError: If `gh` can't be run.
+        subprocess.CalledProcessError: If `gh` fails.
+    """
+    result = subprocess.run(  # noqa: S603 (no shell)
+        ["gh", *args],  # noqa: S607 (`gh` from the PATH, as in the workflows)
         capture_output=True,
         text=True,
         check=True,
     )
-    return [line for line in result.stdout.splitlines() if line]
+    return result.stdout
+
+
+def _one_line(error: Exception) -> str:
+    """Return an error of the GitHub CLI on one line, as for an annotation.
+
+    Args:
+        error: Error of running `gh`.
+
+    Returns:
+        The error and, if any, the standard error of `gh`, on one line.
+    """
+    stderr = getattr(error, "stderr", None) or ""
+    return " ".join(f"{error} {stderr}".split())
+
+
+def stream_of(tag: str) -> str:
+    """Return the release stream of a release tag.
+
+    Args:
+        tag: Release tag, e.g., `v1.2.3` or `chart-v1.2.3`.
+
+    Returns:
+        The stream (a key of `STREAMS`).
+
+    Raises:
+        ValueError: If `tag` is not a release tag.
+    """
+    match = TAG.fullmatch(tag)
+    if not match:
+        raise ValueError(f"Not a release tag: '{tag}'")
+    return next(name for name, prefix in STREAMS.items() if prefix == match["prefix"])
+
+
+def generated_notes(tag: str, repository: str) -> str:
+    """Return GitHub's generated notes of a release, for its stream only.
+
+    Generated with GitHub's `generate-notes` API, as `gh release create
+    --generate-notes` does, but since the previous tag of the same stream
+    (`previous_tag`; GitHub's choice otherwise, e.g., for the first release
+    of a stream), then filtered to the pull requests of the stream
+    (`filter_generated`, `in_stream`).
+
+    Args:
+        tag: Release tag, e.g., `v1.2.3` or `chart-v1.2.3`.
+        repository: Repository, as `<owner>/<name>`.
+
+    Returns:
+        The filtered generated notes.
+
+    Raises:
+        ValueError: If `tag` is not a release tag.
+        OSError: If `gh` can't be run.
+        subprocess.CalledProcessError: If `gh` fails.
+    """
+    stream = stream_of(tag)
+    tags = _gh(
+        "api",
+        "--paginate",
+        f"repos/{repository}/git/matching-refs/tags/{STREAMS[stream]}",
+        "--jq",
+        '.[].ref | ltrimstr("refs/tags/")',
+    ).splitlines()
+    previous = previous_tag(tag, tags)
+    fields = ["-f", f"tag_name={tag}"]
+    if previous:
+        fields += ["-f", f"previous_tag_name={previous}"]
+    generated = _gh(
+        "api",
+        "--method",
+        "POST",
+        f"repos/{repository}/releases/generate-notes",
+        *fields,
+        "--jq",
+        ".body",
+    )
+    files: dict[int, list[str]] = {}
+
+    def keep(number: int) -> bool:
+        """Return whether a pull request is in the stream (files read once).
+
+        Args:
+            number: Number of the pull request.
+
+        Returns:
+            Whether it belongs to the stream (see `in_stream`).
+        """
+        if number not in files:
+            try:
+                files[number] = pull_files(repository, number)
+            except (OSError, subprocess.CalledProcessError) as error:
+                # Kept, as the release is published by then: a failure
+                # that repeats on re-runs would otherwise need a new version
+                print(
+                    f"::warning::Can't list the files of pull request #{number},"
+                    f" kept in the notes: {_one_line(error)}",
+                    file=sys.stderr,
+                )
+                return True
+        return in_stream(files[number], stream)
+
+    return filter_generated(generated, keep)
 
 
 def filter_generated(generated: str, keep: Callable[[int], bool]) -> str:
@@ -659,65 +786,28 @@ def filter_generated(generated: str, keep: Callable[[int], bool]) -> str:
     return "\n\n".join(kept + last) + "\n"
 
 
-def _filter(args: argparse.Namespace) -> int:
-    """Print generated notes with the pull requests of a stream (`filter`).
+def _generated(args: argparse.Namespace) -> int:
+    """Print the generated notes of a release's stream (`generated`).
 
     Args:
         args: Parsed arguments of the command.
 
     Returns:
-        The exit status: 0 on success, 1 if the notes can't be read or the
-        files of a pull request can't be listed.
+        The exit status: 0 on success, 1 if the tag is not a release tag or
+        the GitHub CLI fails.
     """
     try:
-        generated = args.generated.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as error:
-        print(f"::error::Can't read the generated notes: {error}", file=sys.stderr)
-        return 1
-    files: dict[int, list[str]] = {}
-
-    def keep(number: int) -> bool:
-        """Return whether a pull request is in the stream (files read once).
-
-        Args:
-            number: Number of the pull request.
-
-        Returns:
-            Whether it belongs to the stream (see `in_stream`).
-        """
-        if number not in files:
-            files[number] = pull_files(args.repo, number)
-        return in_stream(files[number], args.stream)
-
-    try:
-        text = filter_generated(generated, keep)
-    except (OSError, subprocess.CalledProcessError) as error:
-        # On one line, as an annotation
-        stderr = " ".join((getattr(error, "stderr", None) or "").split())
-        message = f"Can't list the files of a pull request: {error} {stderr}"
-        print(f"::error::{message.strip()}", file=sys.stderr)
-        return 1
-    sys.stdout.write(text)
-    return 0
-
-
-def _previous(args: argparse.Namespace) -> int:
-    """Print the tag of the previous release of a stream (`previous`).
-
-    Args:
-        args: Parsed arguments of the command.
-
-    Returns:
-        The exit status: 0 on success (also if there is no previous release),
-        1 if the tag is not a release tag.
-    """
-    try:
-        previous = previous_tag(args.tag, sys.stdin.read().splitlines())
+        text = generated_notes(args.tag, args.repo)
     except ValueError as error:
         print(f"::error::{error}", file=sys.stderr)
         return 1
-    if previous:
-        print(previous)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(
+            f"::error::Can't generate the release notes: {_one_line(error)}",
+            file=sys.stderr,
+        )
+        return 1
+    sys.stdout.write(text)
     return 0
 
 
@@ -751,9 +841,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         The exit status: 0 on success, 1 if the curated notes have findings or
-        are missing (`require`), a file can't be read, a tag is not a
-        release tag (`previous`) or the files of a pull request can't be
-        listed (`filter`).
+        are missing (`require`), a file can't be read, or a tag is not a
+        release tag or the GitHub CLI fails (`generated`).
     """
     parser = argparse.ArgumentParser(
         description="Check curated release notes and build the release body."
@@ -776,27 +865,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=Path("docs/releases"),
         help="directory with the curated notes (default: docs/releases)",
     )
-    previous_parser = commands.add_parser(
-        "previous", help="print the previous release tag of the same stream"
+    generated_parser = commands.add_parser(
+        "generated", help="print the generated notes of a release's stream"
     )
-    previous_parser.add_argument("tag", help="release tag, e.g., v1.2.3")
-    filter_parser = commands.add_parser(
-        "filter", help="print generated notes with a stream's pull requests"
-    )
-    filter_parser.add_argument(
-        "generated", type=Path, help="generated notes (`body` of generate-notes)"
-    )
-    filter_parser.add_argument("--stream", required=True, choices=sorted(STREAMS))
-    filter_parser.add_argument(
+    generated_parser.add_argument("tag", help="release tag, e.g., v1.2.3")
+    generated_parser.add_argument(
         "--repo", required=True, help="repository, as <owner>/<name>"
     )
     args = parser.parse_args(argv)
     if args.command == "require":
         return _require(args)
-    if args.command == "previous":
-        return _previous(args)
-    if args.command == "filter":
-        return _filter(args)
+    if args.command == "generated":
+        return _generated(args)
     notes: Path = args.notes
     try:
         curated = notes.read_text(encoding="utf-8")
