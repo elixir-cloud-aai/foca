@@ -2181,6 +2181,7 @@ class TestResourceRoles:
         assert any("does not apply" in message for message in warnings) is warned
         assert not any("devs" in message for message in warnings)
         assert not any("/items/1" in message for message in warnings)
+        assert not any("owner" in message for message in warnings)
         debug = [
             record.getMessage()
             for record in caplog.records

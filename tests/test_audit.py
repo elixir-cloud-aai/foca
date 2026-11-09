@@ -249,11 +249,16 @@ class TestLog:
             audit.log("thing.create", "/things/1")
         assert _events(caplog)[0]["request_id"] is None
 
+    @pytest.mark.parametrize("user", [" alice ", "al,ice"])
     def test_on_behalf_of_invalid(
-        self, app: Flask, caplog: pytest.LogCaptureFixture
+        self, app: Flask, caplog: pytest.LogCaptureFixture, user: str
     ) -> None:
-        """Invalid values of the header don't fail the logging."""
-        with as_caller(app, CONQUEST, headers={HEADER: " alice "}):
+        """Invalid values of the header don't fail the logging.
+
+        This includes users that policy rules can't hold, so that logging
+        events of completed changes never turns them into client errors.
+        """
+        with as_caller(app, CONQUEST, headers={HEADER: user}):
             audit.log("thing.create", "/things/1")
         assert _events(caplog)[0]["actor"]["on_behalf_of"] is None
         assert _events(caplog)[0]["actor"]["client"] == "conquest"
