@@ -442,9 +442,10 @@ class ExceptionConfig(FOCABaseConfig):
             invalid fields, and as `detail` their locations and codes or the
             reason of the rejection (cf. `validation_reasons`), instead of
             the problem details mapped to the exception class. Defaults to
-            true: the invalid fields, otherwise the reason, are also logged
-            (at `INFO`, shortened and escaped) instead of the exception,
-            and the request validation messages of
+            true: the invalid fields, otherwise the mapped `detail` or the
+            title, are also logged (at `INFO`, shortened and escaped)
+            instead of the exception, with the reason at `DEBUG` only, and
+            the request validation messages of
             Connexion's validation logger (`connexion.decorators.validation`)
             are filtered out, as they have the validator's message in full
             and unescaped. If false, responses get the mapped problem
