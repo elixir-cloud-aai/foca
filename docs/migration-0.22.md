@@ -2,12 +2,19 @@
 
 FOCA 0.22.0 prepares for the ASGI release, which removes Flask: see
 [Deprecated, removed in the ASGI release](#deprecated-removed-in-the-asgi-release)
-and [Preparing for the ASGI release](preparing-for-asgi.md).
+and [Preparing for the ASGI release](preparing-for-asgi.md). Nothing is
+removed in 0.22.0, but some defaults change, which clients, tests and log
+checks may notice: the `detail` of responses to invalid requests and what is
+logged at `INFO` (see [Validation reasons without request
+values](#validation-reasons-without-request-values)), and how FOCA treats
+routes that aren't operations of the specifications (see [Routes that aren't
+operations](#routes-that-arent-operations)).
 
 ## Framework-neutral errors
 
-FOCA prepares for its release on ASGI, without Flask. Nothing breaks in this release;
-do the following before the first release candidate on ASGI.
+FOCA prepares for its release on ASGI, without Flask. The classes of Werkzeug
+and Connexion keep working in this release; replace them as follows before
+the first release candidate on ASGI.
 
 Raise and map the classes of `foca.errors` rather than those of Werkzeug and Connexion:
 
@@ -162,6 +169,26 @@ your specifications. Remove `x-body-name` from their request bodies; with any
 other name, the controllers fail (`500`). When you call them directly, e.g., in
 tests, pass the rule as keyword argument `body`.
 
+## Routes that aren't operations
+
+FOCA now finds routes in its own route table, which holds the operations of
+the specifications registered with the app (see [Finding the route of a path](utilities.md#finding-the-route-of-a-path)),
+instead of in Flask's `url_map`. For routes that aren't operations, e.g., the
+Swagger UI, `openapi.json` or routes added to Flask directly, this changes:
+
+- `is_permitted_for()` is `False` for their paths, not `True`.
+- `me_path` on such a path is no longer refused or warned about.
+- Ownership controllers routed through such a route (e.g., a plain Flask rule
+  rather than a specification) refuse requests. They also refuse requests that
+  the policies of access control haven't allowed, e.g., direct calls in a
+  request context of your tests: call them through an enforced route.
+- The `route` of requests that the plugin gateway passes to plugins is the
+  path for such requests.
+
+An app that doesn't use `create_connexion_app()` gets the route table from
+`register_openapi()` and the registrations of access control; APIs it added
+before aren't in it, and ownership controllers on them refuse requests.
+
 ## Test client
 
 Nothing breaks. On ASGI, Flask's test client bypasses the middleware that
@@ -248,7 +275,7 @@ FOCA's copy becomes an `error`: update your copy then.
 
 ## Deprecated, removed in the ASGI release
 
-Nothing breaks in 0.22. The first release candidate of the ASGI release moves
+Nothing is removed in 0.22. The first release candidate of the ASGI release moves
 to Connexion 3 `AsyncApp` and removes Flask, Flask-Cors and everything in FOCA
 that takes a Flask app. In 0.22, FOCA's functions that take a Flask app
 (`get_app_config()`, `set_app_config()`, `enable_cors()` and
@@ -269,8 +296,8 @@ changes by default. Before, with `exceptions.validation_details` (the
 default), it was the validator's reason, which quotes rejected values, e.g.,
 `'abcd' is too long - 'name'`, and for parameters also the schema. Now it
 names the invalid fields by location and code, e.g., `Invalid fields: #/name
-(too-long)`, or, if no invalid fields are listed (e.g., for a missing
-parameter, a body that isn't valid JSON or has unpaired surrogates), it is
+(too-long)`, or, if no invalid fields are listed (e.g., for a body that
+isn't valid JSON or has unpaired surrogates), it is
 the mapped `detail`, if any, or `The request is invalid.`
 The invalid fields are listed in `errors`, without their values (see
 [Request-specific
@@ -280,6 +307,13 @@ applies to all request validation exceptions, also to `BadRequestProblem`
 (`RequestValidationProblem`) and `InvalidFieldsProblem` that FOCA or your
 app raise: their own `detail` is replaced the same way; raise
 `InvalidFieldsProblem` to name the invalid fields.
+
+The invalid fields are named by location, so names that clients choose still
+show: the names of unknown query and form parameters and unknown keys of the
+body (percent-encoded) are in `detail` and in the `INFO` record `Request
+rejected`, e.g., `Invalid fields: abc123 (unknown-parameter)` for a
+request with the query `?abc123=1`. Values that clients put into such names
+are echoed.
 
 Update tests and clients that check the old messages in `detail`: check the
 invalid fields in `errors` instead, e.g., their `pointer` or `parameter` and
