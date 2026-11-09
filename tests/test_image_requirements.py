@@ -39,18 +39,35 @@ def test_all_stages_by_digest() -> None:
     assert len(re.findall(r"^FROM python:", text, re.M)) == len(versions)
 
 
-def test_base_stage_upgrades_os_packages() -> None:
-    """Both later stages get the OS updates, also with pinned base images."""
+def _get_base_stage() -> str:
+    """Get the stage `base` of the Dockerfile.
+
+    Returns:
+        Text of the stage, without its `FROM` line.
+    """
     text = (ROOT / "docker/Dockerfile").read_text()
-    base_stage = text.partition(" AS base\n")[2].partition(" AS builder\n")[0]
+    return text.partition(" AS base\n")[2].partition(" AS builder\n")[0]
+
+
+def _get_upgrade_run() -> str:
+    """Get the command of the step of the stage `base` that upgrades packages.
+
+    Returns:
+        Command of the `RUN` instruction with `apt-get upgrade`, up to its last
+        line (not continued with a backslash), without the comments that follow.
+    """
     run = next(
-        (run for run in base_stage.split("\nRUN ") if "apt-get upgrade" in run),
+        (run for run in _get_base_stage().split("\nRUN ") if "apt-get upgrade" in run),
         "",
     )
     assert run, "No step with `apt-get upgrade` in the stage `base`"
-    # The command only, up to its last line (not continued with `\`), without
-    # the comments that follow
-    run = re.split(r"(?<!\\)\n", run, maxsplit=1)[0]
+    return re.split(r"(?<!\\)\n", run, maxsplit=1)[0]
+
+
+def test_base_stage_upgrades_os_packages() -> None:
+    """Both later stages get the OS updates, also with pinned base images."""
+    base_stage = _get_base_stage()
+    run = _get_upgrade_run()
     # The update comes first and fails the step if an index can't be fetched,
     # which would otherwise leave the packages as they are, without an error
     assert re.match(
@@ -60,11 +77,9 @@ def test_base_stage_upgrades_os_packages() -> None:
     )
     # Also updates that need new packages, which would be kept back otherwise
     assert re.search(r"\bapt-get upgrade\b[^&]*\s--with-new-pkgs\b", run)
-    # Fails if updates are still kept back (e.g., as they need removals)
-    assert re.search(
-        r"--force-confold && \\\s+if apt-get -s dist-upgrade \| grep '\^Inst '",
-        run,
-    )
+    # Fails if updates are still kept back (e.g., as they need removals), cf.
+    # `test_kept_back_guard`
+    assert re.search(r"--force-confold && \\\s+simulation=", run)
     # Without prompts, of debconf and of dpkg for changed configuration files
     assert "DEBIAN_FRONTEND=noninteractive" in run
     assert "--force-confdef" in run
@@ -72,6 +87,42 @@ def test_base_stage_upgrades_os_packages() -> None:
     assert "rm -rf /var/lib/apt/lists/*" in run
     # All packages, not single ones, which would need a change per advisory
     assert "--only-upgrade" not in base_stage
+
+
+@pytest.mark.parametrize(
+    ("status", "output", "passes"),
+    [
+        (0, "Conf foo (1.0 Debian:13)\n", True),
+        (0, "Inst foo [1.0] (1.1 Debian-Security:13)\n", False),
+        # The simulation itself fails, e.g. as a lock is held
+        (100, "", False),
+    ],
+)
+def test_kept_back_guard(
+    tmp_path: Path, status: int, output: str, passes: bool
+) -> None:
+    """The build fails if updates are kept back, or if they can't be listed.
+
+    The step runs in `/bin/sh` (dash in Debian), without `pipefail`, so the
+    check must not depend on the exit status of a pipe's first command. Runs
+    the guard of the step with an `apt-get` stub that prints `output` and
+    exits with `status`.
+    """
+    run = _get_upgrade_run()
+    guard = run.partition("--force-confold && \\")[2].rpartition(" && \\")[0]
+    assert "apt-get -s dist-upgrade" in guard
+    stub = tmp_path / "apt-get"
+    stub.write_text(f"#!/bin/sh\nprintf '%s' '{output}'\nexit {status}\n")
+    stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"}
+    result = subprocess.run(  # noqa: S603  # command from the Dockerfile
+        ["/bin/sh", "-c", guard],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is passes, result.stderr
 
 
 def test_each_version_has_requirements() -> None:

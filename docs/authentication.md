@@ -381,8 +381,11 @@ a request field that the app reads. Call
 `foca.security.access_control.get_on_behalf_of_user()` (optionally with the
 value of the field) to get that user, e.g., to make them the owner of a
 resource the client creates. Requests of other callers naming a user are
-rejected with `403 Forbidden`, and names that are empty, blank or have
-surrounding whitespace with `400 Bad Request`. For names in the header, the
+rejected with `403 Forbidden`, and names that are empty, blank, have
+surrounding whitespace or are not valid values of policy rules (e.g., with a
+comma or a line break, or longer than 1024 characters with
+`access_control.subject_prefix`) with `400 Bad Request`, also where the app
+doesn't store them in rules (e.g., for listings or plugins). For names in the header, the
 response lists the header as the invalid field (cf. [Request-specific
 details](configuration/exceptions.md#request-specific-details)). FOCA logs
 a warning on the first validation if `on_behalf_of_header` is set, but no

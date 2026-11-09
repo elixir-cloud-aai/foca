@@ -230,6 +230,13 @@ class TestAddOwner:
         with as_caller(app, CONQUEST), pytest.raises(ValueError, match="both"):
             add_owner(TASK, subject="bob", on_behalf_of="alice")
 
+    def test_on_behalf_of_invalid_rule_value(self, app: Flask) -> None:
+        """Users that can't be stored in policy rules are client errors."""
+        with as_caller(app, CONQUEST, headers={HEADER: "al,ice"}):
+            with pytest.raises(BadRequestProblem):
+                add_owner(TASK)
+            assert list_roles(TASK) == []
+
     def test_on_behalf_of_user_overrides_header(self, app: Flask) -> None:
         """Users named in request fields take precedence over the header."""
         with as_caller(app, CONQUEST, headers={HEADER: "bob"}):

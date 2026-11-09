@@ -137,9 +137,10 @@ don't fail CI. If a scan fails:
    build (CI and release builds are; e.g., re-run CI), before the base images
    have it; locally, build with `--pull --no-cache`, as Docker otherwise
    reuses the layer with the old packages. The build fails if a package index
-   can't be fetched, or if updates are still kept back (e.g., as they would
-   remove packages; it lists them), instead of leaving them out silently:
-   then decide how to install them in the stage `base`.
+   can't be fetched, if updates are still kept back (e.g., as they would
+   remove packages; it lists them), instead of leaving them out silently
+   (then decide how to install them in the stage `base`), or if the check
+   for kept-back updates fails itself.
    The image has no pip, so scans don't report packages vendored by pip;
    CI fails if pip is back (`scripts/check-no-pip.sh`).
 2. Otherwise (e.g., no fixed version yet, or a vulnerability that does not

@@ -2162,14 +2162,37 @@ class TestResourceRoles:
         keep_group_subjects: bool,
         warned: bool,
     ) -> None:
-        """Granting roles to groups that are not subjects is warned about."""
+        """Granting roles to groups that are not subjects is warned about.
+
+        The warning quotes no values, which may come from clients (e.g., via
+        the ownership API); they are logged at DEBUG only.
+        """
         conf = _get_app_config(helper_app).security.access_control
         conf.group_mapping = group_mapping
         conf.keep_group_subjects = keep_group_subjects
-        with helper_app.app_context(), caplog.at_level(logging.WARNING):
+        with helper_app.app_context(), caplog.at_level(logging.DEBUG):
             assert add_resource_role("devs", "owner", "/items/1", subject_type="group")
             assert add_resource_role("devs", "maintainer", "/items/1")
-        assert ("does not apply" in caplog.text) is warned
+        warnings = [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelno >= logging.WARNING
+        ]
+        assert any("does not apply" in message for message in warnings) is warned
+        assert not any("devs" in message for message in warnings)
+        assert not any("/items/1" in message for message in warnings)
+        assert not any("owner" in message for message in warnings)
+        debug = [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelno == logging.DEBUG
+            and "does not apply" in record.getMessage()
+        ]
+        assert len(debug) == int(warned)
+        if warned:
+            assert "'owner'" in debug[0]
+            assert "'devs'" in debug[0]
+            assert "'/items/1'" in debug[0]
 
     def test_subject_like_roles_not_chained(self, helper_app: Flask) -> None:
         """Users cannot get the rights of groups via resource roles."""

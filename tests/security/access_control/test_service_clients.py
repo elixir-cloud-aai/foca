@@ -34,6 +34,9 @@ from foca.security.access_control.enforcement import (
     locked_enforcer,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
+    MAX_RULE_VALUE_LENGTH,
+)
 from foca.testing import request_context
 
 ISSUER = "https://login.example.org/oidc/"
@@ -266,6 +269,56 @@ class TestOnBehalfOf:
                 assert "alice" not in str(exc_info.value.detail)
             with pytest.raises(BadRequestProblem):
                 get_on_behalf_of_user(user)
+
+    @pytest.mark.parametrize(
+        "user",
+        [
+            "al,ice",
+            # Too long only with the prefix `user:` (1024 characters at most)
+            "alice" + "e" * (MAX_RULE_VALUE_LENGTH - len("user:") - 4),
+        ],
+    )
+    def test_invalid_rule_value(self, app: Flask, user: str) -> None:
+        """Named users must be valid values of policy rules.
+
+        Otherwise, making them owners would fail with a server error later
+        (cf. :py:func:`validate_rule_value`); the value checked is the user
+        with `access_control.subject_prefix`, as in policy rules. Users
+        named in the header are rejected as invalid fields that name the
+        header, not the user.
+        """
+        with request(app, CONQUEST, headers={HEADER: user}):
+            with pytest.raises(InvalidFieldsProblem) as exc_info:
+                get_on_behalf_of_user()
+            (error,) = exc_info.value.field_errors
+            assert (error.parameter, error.pointer) == (HEADER, None)
+            assert error.code == "invalid-value"
+            assert "alice" not in error.detail
+            assert "alice" not in str(exc_info.value.detail)
+            with pytest.raises(BadRequestProblem) as app_exc:
+                get_on_behalf_of_user(user)
+            assert "alice" not in str(app_exc.value.detail)
+
+    @pytest.mark.parametrize("user", ["al\nice", "al\rice"])
+    def test_line_break(self, app: Flask, user: str) -> None:
+        """Users passed by the app (e.g., from a body) must not break lines.
+
+        Header values can't contain line breaks.
+        """
+        with request(app, CONQUEST), pytest.raises(BadRequestProblem) as exc_info:
+            get_on_behalf_of_user(user)
+        assert "ice" not in str(exc_info.value.detail)
+
+    @pytest.mark.parametrize(
+        "user", ["#alice", "a" * (MAX_RULE_VALUE_LENGTH - len("user:"))]
+    )
+    def test_valid_rule_value(self, app: Flask, user: str) -> None:
+        """Users are valid if they are valid values of rules with the prefix.
+
+        E.g., a leading `#` is fine after the (non-empty) subject prefix.
+        """
+        with request(app, CONQUEST, headers={HEADER: user}):
+            assert get_on_behalf_of_user() == user
 
     def test_not_string(self, app: Flask) -> None:
         """Named users passed by the app must be strings."""

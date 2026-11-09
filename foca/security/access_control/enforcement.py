@@ -217,9 +217,13 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
 
     Raises:
         foca.errors.RequestValidationProblem: The named user is not a
-            string, is empty or blank, has surrounding whitespace, or
-            cannot be namespaced (cf.
-            :py:func:`foca.security.auth.namespace_subject`); for a user
+            string, is empty or blank, has surrounding whitespace, cannot
+            be namespaced (cf.
+            :py:func:`foca.security.auth.namespace_subject`), or, prefixed
+            with `access_control.subject_prefix`, is not a valid value of
+            policy rules (cf.
+            :py:func:`validate_rule_value`, e.g., as it contains a comma
+            or line break); for a user
             named in the header, an
             :py:class:`foca.errors.InvalidFieldsProblem` that names the
             header, but not the user.
@@ -265,6 +269,14 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
             "namespaced",
             header,
         )
+    # As policy rules, e.g. of owners (cf. `add_owner`), which would fail
+    # with a server error otherwise; the messages quote no values
+    try:
+        validate_rule_value(_prefix_subject(namespaced))
+    except ValueError as exc:
+        raise _invalid_user(
+            f"The user acted for cannot be stored in policy rules: {exc}", header
+        ) from None
     logger.debug(
         "Service client '%s' acts for user '%s'",
         escape_log_value(client.client_id),
@@ -1306,13 +1318,15 @@ def _validate_grantable_rule(
         and conf.group_mapping is not None
         and not conf.keep_group_subjects
     ):
+        # The values may come from clients (e.g., via the ownership API), so
+        # they are logged at DEBUG only
         logger.warning(
-            "Role '%s' granted to group "
-            "'%s' on "
-            "'%s' does not apply: group claim "
-            "values are not used as subjects with "
-            "'access_control.group_mapping', unless "
-            "'access_control.keep_group_subjects' is set",
+            "Role granted to a group does not apply: group claim values are "
+            "not used as subjects with 'access_control.group_mapping', unless "
+            "'access_control.keep_group_subjects' is set"
+        )
+        logger.debug(
+            "Role '%s' granted to group '%s' on '%s' does not apply",
             escape_log_value(role),
             escape_log_value(subject),
             escape_log_value(resource),
