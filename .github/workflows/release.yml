@@ -8,7 +8,9 @@
 # environment (required reviewer; one approval covers all matrix jobs waiting
 # for it). The version is derived
 # from the tag (via setuptools-scm). Release notes are the curated
-# `docs/releases/<version>.md` followed by GitHub's generated notes if the
+# `docs/releases/<version>.md` followed by GitHub's generated notes (since
+# the previous `v*` tag, without pull requests that only changed the library
+# chart, which has its own releases, `release-chart.yml`) if the
 # former exists (the run fails before anything is published if it is
 # missing although other releases have notes, contains `TODO` or is not in
 # the agreed format, see `scripts/release_notes.py`), otherwise the
@@ -418,6 +420,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      pull-requests: read # the files of the pull requests in the notes
     steps:
       # For `scripts/release_assets.py` and `scripts/release_notes.py`
       # (standard library only), and the curated notes of the release commit
@@ -469,13 +472,17 @@ jobs:
           # With curated notes of the release commit, the body is the curated
           # notes, then GitHub's generated ones (the agreed format, see
           # `scripts/release_notes.py`); otherwise the generated ones alone.
-          # Generated as `gh release create --generate-notes` does (since the
-          # previous release), on every run, so that a draft of an earlier
-          # attempt gets the notes since the current previous release
+          # Generated as `gh release create --generate-notes` does, but
+          # always since the previous `v*` tag (GitHub would otherwise
+          # compare against the latest release, which may be one of the
+          # library chart, `release-chart.yml`), and without the pull
+          # requests that only changed the chart (`release_notes.py
+          # generated`, as in `release-chart.yml`); on every run, so that a
+          # draft of an earlier attempt gets the current notes
           curated="docs/releases/${VERSION}.md"
           notes_file="$(mktemp)"
-          gh api "repos/${GH_REPO}/releases/generate-notes" \
-              -f "tag_name=${TAG}" --jq .body > "${notes_file}"
+          python scripts/release_notes.py generated "${TAG}" \
+              --repo "${GH_REPO}" > "${notes_file}"
           if [[ -f "${curated}" ]]; then
               generated="${notes_file}"
               notes_file="$(mktemp)"

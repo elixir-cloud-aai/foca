@@ -98,7 +98,9 @@ validation:
   anchors: warn
 
 # Add the notes of each release (`docs/releases/<version>.md`, read by the
-# release workflow) to "Changelog"; the build fails for notes missing here
+# release workflow; of the library chart `docs/releases/chart/<version>.md`,
+# read by the chart release workflow) to "Changelog"; the build fails for
+# notes missing here
 nav:
   - Home: index.md
   - Getting started: getting-started.md
@@ -145,3 +147,9 @@ nav:
       - "0.20.0": releases/0.20.0.md
       - "0.19.0": releases/0.19.0.md
       - "0.18.0": releases/0.18.0.md
+      - Library chart foca-common:
+          - "0.5.0": releases/chart/0.5.0.md
+          - "0.4.0": releases/chart/0.4.0.md
+          - "0.3.0": releases/chart/0.3.0.md
+          - "0.2.0": releases/chart/0.2.0.md
+          - "0.1.0": releases/chart/0.1.0.md

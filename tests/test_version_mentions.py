@@ -41,11 +41,13 @@ ALLOWED_FILES = (
     "tests/test_version_mentions.py",
 )
 # Files that may name it by their path: the migration guides and the
-# curated release notes, which are about their release
-# (`docs/migration-X.Y.md`, `docs/releases/X.Y.Z.md`)
+# curated release notes of FOCA and of the library chart, which are about
+# their release (`docs/migration-X.Y.md`, `docs/releases/X.Y.Z.md`,
+# `docs/releases/chart/X.Y.Z.md`)
 ALLOWED_PATHS = re.compile(
     r"docs/migration-[0-9]+\.[0-9]+\.md"
     r"|docs/releases/[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?\.md"
+    r"|docs/releases/chart/[0-9]+\.[0-9]+\.[0-9]+\.md"
 )
 # Mentions of the version that refer to a release of FOCA (`{version}` is the
 # escaped version, `{end}` the end of a version): the tag, the image and
@@ -259,6 +261,9 @@ def test_mentions_pre_release() -> None:
         ("docs/releases/1.2.3rc1.md", True),
         ("docs/releases/README.md", False),
         ("docs/releases/1.2.md", False),
+        ("docs/releases/chart/1.2.3.md", True),
+        ("docs/releases/chart/1.2.3rc1.md", False),
+        ("docs/releases/chart/README.md", False),
     ],
 )
 def test_allowed_paths(name: str, allowed: bool) -> None:
