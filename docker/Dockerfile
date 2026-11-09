@@ -28,11 +28,27 @@ LABEL org.opencontainers.image.vendor="ELIXIR On-Cloud"
 # isolated environments, so remove them for the same contents on all versions
 RUN pip uninstall --yes --no-cache-dir setuptools wheel
 
-# The pinned base images have a vulnerable apt (CVE-2026-109518; fixed by 3.0.4
-# in `trixie-security`), which images built on this one use too; can go once all
-# of them have the fix
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends --only-upgrade apt libapt-pkg7.0 && \
+# Install the Debian updates available at build time (e.g., from
+# `trixie-security`), which the pinned base images get only once upstream
+# rebuilds them and Dependabot updates the digests (e.g., zlib1g for
+# CVE-2026-76844, CVE-2026-85091 and CVE-2026-27171, apt for CVE-2026-109518),
+# so that images built on this one get the fixes of OS packages, too; rebuilds
+# of the same commit may thus get newer OS packages. The build fails if an
+# index can't be fetched, which would otherwise leave the packages as they
+# are, silently; updates that need new packages are installed, too (without
+# recommended ones), instead of being kept back; configuration files modified
+# in the base image keep their version, without a prompt; and the build fails
+# if updates are still kept back (e.g., as they would remove packages, which
+# needs a decision), listing them, instead of leaving them out silently
+RUN apt-get update --error-on=any && \
+    DEBIAN_FRONTEND=noninteractive \
+        apt-get upgrade -y --with-new-pkgs --no-install-recommends \
+            -o Dpkg::Options::=--force-confdef \
+            -o Dpkg::Options::=--force-confold && \
+    if apt-get -s dist-upgrade | grep '^Inst '; then \
+        echo "Updates kept back (listed above), see docker/Dockerfile" >&2; \
+        exit 1; \
+    fi && \
     rm -rf /var/lib/apt/lists/*
 
 # Build image: installs FOCA with pip from `docker/requirements/build.txt`, as
