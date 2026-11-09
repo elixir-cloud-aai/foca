@@ -1188,10 +1188,12 @@ next release); CI fails for changes of the chart (except its tests) since
 its latest release (tag) that keep or lower the version. To release it,
 merge the version change into `dev`, then create and push a signed tag
 `chart-vX.Y.Z` of that version on the merge commit (only final versions are
-released, no pre-releases):
+released, no pre-releases), naming the commit, so that the tag doesn't
+depend on what is checked out, and stopping at the first error:
 
 ```bash
-git tag -s chart-v0.1.0 -m "foca-common 0.1.0"
+git fetch origin &&
+git tag -s chart-v0.1.0 <sha> -m "foca-common 0.1.0" &&
 git push origin chart-v0.1.0
 ```
 
