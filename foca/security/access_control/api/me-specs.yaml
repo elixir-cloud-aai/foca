@@ -2,7 +2,7 @@ openapi: 3.0.2
 info:
   title: FOCA current caller API specification
   description: 'Tells callers who they are and what they may do.'
-  version: 1.0.0
+  version: 1.1.0
   license:
     name: Apache 2.0
     url: https://github.com/elixir-cloud-aai/foca/blob/dev/LICENSE

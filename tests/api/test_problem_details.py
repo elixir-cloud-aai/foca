@@ -29,9 +29,15 @@ def problem_validator() -> Draft4Validator:
 
 @pytest.mark.parametrize("name", ["access-control-specs.yaml", "me-specs.yaml"])
 def test_specs_of_foca(name: str) -> None:
-    """FOCA's own APIs declare the same schemas."""
+    """FOCA's own APIs declare the same schemas.
+
+    Their version is 1.1.0 since the `Error` schema gained `code`, `errors`
+    and `FieldError` (FOCA 0.22.0).
+    """
     path = files(foca.security.access_control.api).joinpath(name)
-    schemas = yaml.safe_load(path.read_text(encoding="utf-8"))["components"]["schemas"]
+    specs = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert specs["info"]["version"] == "1.1.0"
+    schemas = specs["components"]["schemas"]
     assert schemas["Error"] == SCHEMAS["Problem"]
     assert schemas["FieldError"] == SCHEMAS["FieldError"]
 
