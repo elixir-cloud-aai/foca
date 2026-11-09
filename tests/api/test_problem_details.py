@@ -32,7 +32,7 @@ def test_specs_of_foca(name: str) -> None:
     """FOCA's own APIs declare the same schemas.
 
     Their version is 1.1.0 since the `Error` schema gained `code`, `errors`
-    and `FieldError` (FOCA 0.22.0).
+    and `FieldError` (in the release that listed invalid fields).
     """
     path = files(foca.security.access_control.api).joinpath(name)
     specs = yaml.safe_load(path.read_text(encoding="utf-8"))
