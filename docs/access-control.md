@@ -891,6 +891,9 @@ def postTask(**kwargs):
 `get_on_behalf_of_user()` rejects requests of other callers that name a user
 with `403 Forbidden`; call it in every controller that should honor the
 header, so that clients notice when they are not allowed to act for users.
+Invalid users (e.g., empty, or with a comma, which policy rules can't hold)
+are rejected with `400 Bad Request` (cf. [service
+tokens](authentication.md#service-tokens)).
 
 `add_owner(resource)` does the same in one call (see [resource
 ownership](#resource-ownership)).

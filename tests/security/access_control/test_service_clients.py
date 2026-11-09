@@ -34,6 +34,9 @@ from foca.security.access_control.enforcement import (
     locked_enforcer,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
+from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
+    MAX_RULE_VALUE_LENGTH,
+)
 from foca.testing import request_context
 
 ISSUER = "https://login.example.org/oidc/"
@@ -268,14 +271,14 @@ class TestOnBehalfOf:
                 get_on_behalf_of_user(user)
 
     @pytest.mark.parametrize(
-        "user,prefix",
+        "user",
         [
-            ("al,ice", "user:"),
-            ("#alice", ""),
-            ("alice" + "e" * 1020, "user:"),
+            "al,ice",
+            # Too long only with the prefix `user:` (1024 characters at most)
+            "alice" + "e" * (MAX_RULE_VALUE_LENGTH - len("user:") - 4),
         ],
     )
-    def test_invalid_rule_value(self, app: Flask, user: str, prefix: str) -> None:
+    def test_invalid_rule_value(self, app: Flask, user: str) -> None:
         """Named users must be valid values of policy rules.
 
         Otherwise, making them owners would fail with a server error later
@@ -284,7 +287,6 @@ class TestOnBehalfOf:
         named in the header are rejected as invalid fields that name the
         header, not the user.
         """
-        _get_app_config(app).security.access_control.subject_prefix = prefix
         with request(app, CONQUEST, headers={HEADER: user}):
             with pytest.raises(InvalidFieldsProblem) as exc_info:
                 get_on_behalf_of_user()
@@ -307,10 +309,16 @@ class TestOnBehalfOf:
             get_on_behalf_of_user(user)
         assert "ice" not in str(exc_info.value.detail)
 
-    def test_valid_rule_value(self, app: Flask) -> None:
-        """Users starting with '#' are valid if the subject prefix isn't empty."""
-        with request(app, CONQUEST, headers={HEADER: "#alice"}):
-            assert get_on_behalf_of_user() == "#alice"
+    @pytest.mark.parametrize(
+        "user", ["#alice", "a" * (MAX_RULE_VALUE_LENGTH - len("user:"))]
+    )
+    def test_valid_rule_value(self, app: Flask, user: str) -> None:
+        """Users are valid if they are valid values of rules with the prefix.
+
+        E.g., a leading `#` is fine after the (non-empty) subject prefix.
+        """
+        with request(app, CONQUEST, headers={HEADER: user}):
+            assert get_on_behalf_of_user() == user
 
     def test_not_string(self, app: Flask) -> None:
         """Named users passed by the app must be strings."""

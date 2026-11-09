@@ -219,11 +219,11 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
         foca.errors.RequestValidationProblem: The named user is not a
             string, is empty or blank, has surrounding whitespace, cannot
             be namespaced (cf.
-            :py:func:`foca.security.auth.namespace_subject`), or, with
-            `access_control.subject_prefix`, is not a valid value of
+            :py:func:`foca.security.auth.namespace_subject`), or, prefixed
+            with `access_control.subject_prefix`, is not a valid value of
             policy rules (cf.
-            :py:func:`foca.security.access_control.foca_casbin_adapter.casbin_rule.validate_rule_value`,
-            e.g., as it contains a comma or line break); for a user
+            :py:func:`validate_rule_value`, e.g., as it contains a comma
+            or line break); for a user
             named in the header, an
             :py:class:`foca.errors.InvalidFieldsProblem` that names the
             header, but not the user.
