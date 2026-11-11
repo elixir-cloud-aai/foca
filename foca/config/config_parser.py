@@ -294,35 +294,29 @@ class ConfigParser:
         """Parse and merge a set of YAML files.
 
         Merging is done iteratively, from the first, second to the n-th
-        argument. Dictionary items are updated, not overwritten. For exact
-        behavior cf. https://github.com/mewwts/addict.
+        argument (cf. :py:func:`deep_merge`): mappings are merged, other
+        values replace earlier ones. Empty files count as empty mappings.
 
         Args:
             *args: One or more paths to YAML files.
             null_removes: Whether `null` values of the second and later files
-                remove keys rather than set them to `null` (cf.
-                :py:func:`deep_merge`).
+                remove keys rather than set them to `null`.
 
         Returns:
             Dictionary of merged YAML file contents, or an empty dictionary if
             no arguments have been supplied; if only a single YAML file path
             is provided, no merging is done.
         """
-        args_list = list(args)
-        if not args_list:
-            return {}
-        yaml_dict = Addict(ConfigParser.parse_yaml(args_list.pop(0)))
-        if null_removes:
-            merged: dict[str, Any] = yaml_dict.to_dict()
-            for arg in args_list:
-                content = Addict(ConfigParser.parse_yaml(arg)).to_dict()
-                merged = deep_merge(merged, content, null_removes=True)
-            return merged
-
-        for arg in args_list:
-            yaml_dict.update(Addict(ConfigParser.parse_yaml(arg)))
-
-        return yaml_dict.to_dict()
+        merged: dict[str, Any] = {}
+        for index, arg in enumerate(args):
+            # Addict turns empty files into empty mappings
+            content = Addict(ConfigParser.parse_yaml(arg)).to_dict()
+            merged = (
+                deep_merge(merged, content, null_removes=null_removes)
+                if index
+                else content
+            )
+        return merged
 
     def parse_custom_config(self, model: str) -> BaseModel:
         """Parse custom configuration and validate against a model.

@@ -400,12 +400,15 @@ def _apply_patches(
     Raises:
         OSError: A patch file cannot be read.
         ValueError: A patch file cannot be parsed or is not a mapping, or
-            patches set fields of path items defined via `$ref` (Connexion
+            patches set or remove fields of path items defined via `$ref` (Connexion
             replaces them with the fields of the referenced object, so the
             patches would not take effect).
     """
     patched = spec
     patched_paths: set[str] = set()
+    # Paths whose fields patches remove next to a `$ref` they keep, which
+    # does not remove the fields of the referenced object
+    removed_paths: set[str] = set()
     for patch in patches:
         content = _load_patch(patch)
         patch_paths = content.get("paths")
@@ -415,6 +418,17 @@ def _apply_patches(
                 for path, path_item in patch_paths.items()
                 if isinstance(path_item, dict) and set(path_item) - {"$ref"}
             )
+            current_paths = patched.get("paths")
+            removed_paths.update(
+                path
+                for path, path_item in patch_paths.items()
+                if isinstance(path_item, dict)
+                and "$ref" not in path_item
+                and None in path_item.values()
+                and isinstance(current_paths, dict)
+                and isinstance(current_paths.get(path), dict)
+                and "$ref" in current_paths[path]
+            )
         patched = deep_merge(patched, content, null_removes=True)
     paths = patched.get("paths")
     overridden = sorted(
@@ -423,13 +437,14 @@ def _apply_patches(
         if isinstance(paths, dict)
         and isinstance(paths.get(path), dict)
         and "$ref" in paths[path]
-        and set(paths[path]) - {"$ref"}
+        and (path in removed_paths or set(paths[path]) - {"$ref"})
     )
     if overridden:
         raise ValueError(
-            f"Patches of API spec {label} set fields of path items defined via "
-            "'$ref', which the fields of the referenced objects replace: "
-            f"{', '.join(overridden)}; patch the referenced objects instead"
+            f"Patches of API spec {label} set or remove fields of path items "
+            "defined via '$ref', which the fields of the referenced objects "
+            f"replace: {', '.join(overridden)}; patch the referenced objects "
+            "instead, or remove the reference ('$ref: null')"
         )
     logger.info(
         "Applied patches to API spec %s: %s",
@@ -467,7 +482,7 @@ def register_openapi(
         ValueError: Operations routed to the controllers of
             :py:mod:`foca.security.access_control.ownership_server` do not
             enforce access control policies, a patch cannot be parsed or is
-            not a mapping, patches set fields of path items defined via
+            not a mapping, patches set or remove fields of path items defined via
             `$ref`, or the specification is invalid after applying patches.
     """
     _install_route_table(app)

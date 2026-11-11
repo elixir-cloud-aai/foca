@@ -30,8 +30,8 @@ api:
 
 In this example, the first specification is merged from two files (later
 files update earlier ones, see [merging specification
-files](#merging-specification-files)). Root fields are added via `append` (here: a
-global security requirement), the controller module is added to every
+files](#merging-specification-files)). Root fields are added via `append`
+(here: a global security requirement), the controller module is added to every
 operation via `add_operation_fields` (operations that set the field
 themselves keep their value, e.g., to use another controller module), and
 FOCA's
@@ -162,14 +162,14 @@ paths](index.md#relative-paths)), so overlays usually refer to mounted files
 with absolute paths, or give patches inline.
 
 FOCA fails to start if a patch file cannot be read or is not a mapping, if
-the patched specification is invalid, or if patches set fields of a path item
-defined via `$ref` (Connexion replaces them with the fields of the
-referenced object, so they would silently not take effect; patch the
-referenced object instead, or remove the reference with `$ref: null` and
-define the path item in the patch, see [merging specification
-files](#merging-specification-files) for an example). Other errors registering a patched specification
-are logged with a hint to the patches. FOCA logs the patches applied to each
-specification, and warns of
+the patched specification is invalid, or if patches set or remove (`null`)
+fields of a path item defined via `$ref` (Connexion replaces them with the
+fields of the referenced object, so they would silently not take effect;
+patch the referenced object instead, or remove the reference with
+`$ref: null` and define the path item in the patch, see [merging
+specification files](#merging-specification-files) for an example). Other
+errors registering a patched specification are logged with a hint to the
+patches. FOCA logs the patches applied to each specification, and warns of
 
 - operations that required authentication (non-empty `security`
   requirements, of the operation or the specification, without an empty
@@ -178,8 +178,8 @@ specification, and warns of
   the patches, but not after (e.g., because a patch sets `security: []` or
   `x-foca-access-control: false`, or removes `security` with `null`),
 - operations added by patches (also by renaming paths, via local references
-  or by replacing a reference with a path item) that do not require authentication or opt out of access
-  control, and path items that patches refer to other files (which FOCA
+  or by replacing a reference with a path item) that do not require
+  authentication or opt out of access control, and path items that patches refer to other files (which FOCA
   cannot check), and
 - patches that change (also remove) security definitions or schemes.
 

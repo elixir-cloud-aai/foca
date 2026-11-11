@@ -309,6 +309,9 @@ def test_spec_config() -> None:
     """Test creation of the SpecConfig model with valid data."""
     res = SpecConfig(**SPEC_CONFIG)
     assert res.path == [Path(SPEC_CONFIG["path"])]
+    # `null` in merged files is a value unless opted in
+    assert res.merge_null_removes is False
+    assert SpecConfig(**SPEC_CONFIG, merge_null_removes=True).merge_null_removes
 
 
 def test_spec_config_rel() -> None:

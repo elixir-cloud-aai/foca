@@ -16,9 +16,10 @@ or replace a reference by a path item of their own (`$ref: null`).
 
 Patches that set a value to `null` (e.g., `default: null` or `example: null`
 in a schema) now remove it instead. Set such values in a file of `path`
-instead: files of `path` keep `null` values by default. Patches that set a
-whole mapping to `null` to replace it in a later patch (e.g., a path item)
-keep working.
+instead: files of `path` keep `null` values by default. FOCA doesn't warn of
+such removals; to find affected patches, look for `null` in them (e.g.,
+`grep -n null patches/*.yaml`). Patches that set a whole mapping to `null`
+to replace it in a later patch (e.g., a path item) keep working.
 
 Files of `path` merged into the first one keep `null` as a value; to let them
 remove keys, too, set `merge_null_removes: true` for the specification (see
