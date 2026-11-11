@@ -385,7 +385,9 @@ def _apply_patches(
 ) -> dict[str, Any]:
     """Deep-merge patches into a specification.
 
-    Applied patches are logged.
+    `null` values of patches remove keys, as in a JSON Merge Patch (RFC
+    7396; cf. :py:func:`foca.config.config_parser.deep_merge`). Applied
+    patches are logged.
 
     Args:
         spec: OpenAPI 2.x or 3.x specification.
@@ -413,7 +415,7 @@ def _apply_patches(
                 for path, path_item in patch_paths.items()
                 if isinstance(path_item, dict) and set(path_item) - {"$ref"}
             )
-        patched = deep_merge(patched, content)
+        patched = deep_merge(patched, content, null_removes=True)
     paths = patched.get("paths")
     overridden = sorted(
         path
@@ -474,7 +476,9 @@ def register_openapi(
     for spec in specs:
         # Merge specs
         list_specs = [spec.path] if isinstance(spec.path, Path) else spec.path
-        spec_parsed: dict[str, Any] = ConfigParser.merge_yaml(*list_specs)
+        spec_parsed: dict[str, Any] = ConfigParser.merge_yaml(
+            *list_specs, null_removes=spec.merge_null_removes
+        )
         logger.debug("Parsed spec: %s", list_specs)
 
         # Add/replace root objects

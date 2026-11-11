@@ -105,6 +105,23 @@ def test_merge_yaml_with_two_args() -> None:
     assert "put" in res["paths"]["/pets/{petId}"]
 
 
+@pytest.mark.parametrize("null_removes", [False, True])
+def test_merge_yaml_null(tmp_path: Path, null_removes: bool) -> None:
+    """`null` in later files sets values, or removes keys if opted in.
+
+    `null` in the first file is kept either way.
+    """
+    first = tmp_path / "first.yaml"
+    first.write_text("a: 1\nb: 2\nc: null\n")
+    second = tmp_path / "second.yaml"
+    second.write_text("a: null\nd:\n  e: null\n  f: 3\n")
+    res = ConfigParser.merge_yaml(first, second, null_removes=null_removes)
+    if null_removes:
+        assert res == {"b": 2, "c": None, "d": {"f": 3}}
+    else:
+        assert res == {"a": None, "b": 2, "c": None, "d": {"e": None, "f": 3}}
+
+
 def test_parse_custom_config_valid_model() -> None:
     """Test ``.parse_custom_config()`` with a valid model class."""
     conf = ConfigParser(config_file=Path(TEST_FILE))
@@ -190,6 +207,56 @@ def test_deep_merge(
     base_copy = deepcopy(base)
     assert deep_merge(base, overlay) == expected
     assert base == base_copy
+
+
+@pytest.mark.parametrize(
+    "base,overlay,expected",
+    [
+        # null removes keys, at any depth
+        ({"a": 1, "b": 2}, {"a": None}, {"b": 2}),
+        (
+            {"a": {"b": {"c": 1, "d": 2}}},
+            {"a": {"b": {"c": None}}},
+            {"a": {"b": {"d": 2}}},
+        ),
+        # removing keys that are not set does nothing
+        ({"a": 1}, {"b": None}, {"a": 1}),
+        ({"a": {"b": 1}}, {"a": {"c": {"d": None}}}, {"a": {"b": 1, "c": {}}}),
+        # null in mappings that replace other values is removed, too
+        ({"a": 1}, {"a": {"b": None, "c": 2}}, {"a": {"c": 2}}),
+        ({}, {"a": {"b": None}}, {"a": {}}),
+        # keys can be removed and set in one overlay (e.g., a reference
+        # replaced by a definition)
+        (
+            {"a": {"$ref": "other.yaml#/a"}},
+            {"a": {"$ref": None, "get": {"responses": {}}}},
+            {"a": {"get": {"responses": {}}}},
+        ),
+        # null in lists is kept, as lists replace earlier values
+        ({"a": [1]}, {"a": [None, {"b": None}]}, {"a": [None, {"b": None}]}),
+        # other values are merged as without `null_removes`
+        (
+            {"a": {"b": 1, "c": [1]}, "d": 1},
+            {"a": {"c": [2]}, "d": {"e": 1}},
+            {"a": {"b": 1, "c": [2]}, "d": {"e": 1}},
+        ),
+    ],
+)
+def test_deep_merge_null_removes(
+    base: dict[str, Any], overlay: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    """With `null_removes`, null removes keys (JSON Merge Patch, RFC 7396)."""
+    base_copy = deepcopy(base)
+    overlay_copy = deepcopy(overlay)
+    merged = deep_merge(base, overlay, null_removes=True)
+    assert merged == expected
+    assert base == base_copy
+    assert overlay == overlay_copy
+    # the result shares no mappings or lists with the arguments
+    merged_nested = [v for v in merged.values() if isinstance(v, dict | list)]
+    assert all(
+        v is not w for v in merged_nested for w in [*base.values(), *overlay.values()]
+    )
 
 
 def _write(path: Path, content: str) -> Path:
