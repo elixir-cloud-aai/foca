@@ -382,40 +382,99 @@ def _load_patch(patch: Path | dict[str, Any]) -> dict[str, Any]:
 
 def _track_removals(
     removed_paths: set[str],
-    patch_paths: dict[str, Any],
+    layer_paths: Any,
     before: Any,
     after: Any,
 ) -> None:
-    """Track removals of fields that path items get via `$ref`.
+    """Track removals of fields of path items defined via `$ref`.
 
     Connexion replaces path items defined via `$ref` with the referenced
-    objects, so removing (`null`) a field that only the referenced object has
-    does not take effect. Path items that a patch sets to `null` or gives a
-    `$ref` are no longer tracked, unless the patch removes such fields, too.
+    objects, so removing (`null`) fields next to a `$ref` that is kept does
+    not remove the fields of the referenced object. Paths are no longer
+    tracked once a later layer removes their path item (or all of `paths`)
+    or changes or removes its `$ref`.
 
     Args:
         removed_paths: Paths with such removals; updated in place.
-        patch_paths: `paths` of a patch.
-        before: `paths` of the specification before the patch.
-        after: `paths` of the specification after the patch.
+        layer_paths: `paths` of the layer merged.
+        before: `paths` of the specification before the layer.
+        after: `paths` of the specification after the layer.
     """
-    for path, path_item in patch_paths.items():
-        if not isinstance(path_item, dict) or "$ref" in path_item:
-            removed_paths.discard(path)
-        if not isinstance(path_item, dict):
-            continue
+    if not isinstance(layer_paths, dict):
+        removed_paths.clear()
+        return
+    for path, path_item in layer_paths.items():
         item_before = before.get(path) if isinstance(before, dict) else None
-        item_after = after.get(path) if isinstance(after, dict) else None
-        if not isinstance(item_after, dict) or "$ref" not in item_after:
+        if not isinstance(path_item, dict):
+            removed_paths.discard(path)
             continue
-        # Fields set next to the reference before are removed for real
-        if any(
-            key != "$ref"
-            and value is None
-            and not (isinstance(item_before, dict) and key in item_before)
-            for key, value in path_item.items()
+        if "$ref" in path_item and not (
+            isinstance(item_before, dict)
+            and item_before.get("$ref") == path_item["$ref"]
+        ):
+            removed_paths.discard(path)
+        item_after = after.get(path) if isinstance(after, dict) else None
+        if (
+            isinstance(item_after, dict)
+            and "$ref" in item_after
+            and any(key != "$ref" and value is None for key, value in path_item.items())
         ):
             removed_paths.add(path)
+
+
+def _merge_layers(
+    spec: dict[str, Any], layers: list[dict[str, Any]], what: str
+) -> dict[str, Any]:
+    """Deep-merge layers into a specification, with `null` removing keys.
+
+    Args:
+        spec: OpenAPI 2.x or 3.x specification.
+        layers: Mappings to merge, in order (cf.
+            :py:func:`foca.config.config_parser.deep_merge`).
+        what: What the layers are, for errors (e.g., "Patches of API spec
+            'my-api'").
+
+    Returns:
+        Merged specification.
+
+    Raises:
+        ValueError: The layers set or remove fields of path items defined
+            via `$ref` (Connexion replaces them with the fields of the
+            referenced object, so the layers would not take effect).
+    """
+    merged = spec
+    set_paths: set[str] = set()
+    removed_paths: set[str] = set()
+    for layer in layers:
+        before = merged.get("paths")
+        merged = deep_merge(merged, layer, null_removes=True)
+        if "paths" not in layer:
+            continue
+        layer_paths = layer["paths"]
+        if isinstance(layer_paths, dict):
+            set_paths.update(
+                path
+                for path, path_item in layer_paths.items()
+                if isinstance(path_item, dict) and set(path_item) - {"$ref"}
+            )
+        _track_removals(removed_paths, layer_paths, before, merged.get("paths"))
+    paths = merged.get("paths")
+    overridden = sorted(
+        path
+        for path in set_paths
+        if isinstance(paths, dict)
+        and isinstance(paths.get(path), dict)
+        and "$ref" in paths[path]
+        and (path in removed_paths or set(paths[path]) - {"$ref"})
+    )
+    if overridden:
+        raise ValueError(
+            f"{what} set or remove fields of path items defined via '$ref', "
+            "which the fields of the referenced objects replace: "
+            f"{', '.join(overridden)}; change the referenced objects instead, "
+            "or remove the reference ('$ref: null')"
+        )
+    return merged
 
 
 def _apply_patches(
@@ -438,43 +497,14 @@ def _apply_patches(
     Raises:
         OSError: A patch file cannot be read.
         ValueError: A patch file cannot be parsed or is not a mapping, or
-            patches set or remove fields of path items defined via `$ref` (Connexion
-            replaces them with the fields of the referenced object, so the
-            patches would not take effect).
+            patches set or remove fields of path items defined via `$ref`
+            (cf. :py:func:`_merge_layers`).
     """
-    patched = spec
-    patched_paths: set[str] = set()
-    # Paths whose fields patches remove next to a `$ref`, which does not
-    # remove the fields of the referenced object
-    removed_paths: set[str] = set()
-    for patch in patches:
-        content = _load_patch(patch)
-        before = patched.get("paths")
-        patched = deep_merge(patched, content, null_removes=True)
-        patch_paths = content.get("paths")
-        if isinstance(patch_paths, dict):
-            patched_paths.update(
-                path
-                for path, path_item in patch_paths.items()
-                if isinstance(path_item, dict) and set(path_item) - {"$ref"}
-            )
-            _track_removals(removed_paths, patch_paths, before, patched.get("paths"))
-    paths = patched.get("paths")
-    overridden = sorted(
-        path
-        for path in patched_paths
-        if isinstance(paths, dict)
-        and isinstance(paths.get(path), dict)
-        and "$ref" in paths[path]
-        and (path in removed_paths or set(paths[path]) - {"$ref"})
+    patched = _merge_layers(
+        spec,
+        [_load_patch(patch) for patch in patches],
+        f"Patches of API spec {label}",
     )
-    if overridden:
-        raise ValueError(
-            f"Patches of API spec {label} set or remove fields of path items "
-            "defined via '$ref', which the fields of the referenced objects "
-            f"replace: {', '.join(overridden)}; patch the referenced objects "
-            "instead, or remove the reference ('$ref: null')"
-        )
     logger.info(
         "Applied patches to API spec %s: %s",
         label,
@@ -511,8 +541,9 @@ def register_openapi(
         ValueError: Operations routed to the controllers of
             :py:mod:`foca.security.access_control.ownership_server` do not
             enforce access control policies, a patch cannot be parsed or is
-            not a mapping, patches set or remove fields of path items defined via
-            `$ref`, or the specification is invalid after applying patches.
+            not a mapping, patches (or, with `merge_null_removes`, files of
+            `path`) set or remove fields of path items defined via `$ref`,
+            or the specification is invalid after applying patches.
     """
     _install_route_table(app)
 
@@ -520,9 +551,20 @@ def register_openapi(
     for spec in specs:
         # Merge specs
         list_specs = [spec.path] if isinstance(spec.path, Path) else spec.path
-        spec_parsed: dict[str, Any] = ConfigParser.merge_yaml(
-            *list_specs, null_removes=spec.merge_null_removes
+        label = (
+            f"'{spec.name}'"
+            if spec.name is not None
+            else ", ".join(str(path) for path in list_specs)
         )
+        spec_parsed: dict[str, Any]
+        if spec.merge_null_removes:
+            spec_parsed = _merge_layers(
+                ConfigParser.merge_yaml(list_specs[0]),
+                [ConfigParser.merge_yaml(path) for path in list_specs[1:]],
+                f"Files of API spec {label}",
+            )
+        else:
+            spec_parsed = ConfigParser.merge_yaml(*list_specs)
         logger.debug("Parsed spec: %s", list_specs)
 
         # Add/replace root objects
@@ -539,11 +581,6 @@ def register_openapi(
                 _set_error_media_type(operation_object, media_type)
 
         # Apply patches
-        label = (
-            f"'{spec.name}'"
-            if spec.name is not None
-            else ", ".join(str(path) for path in list_specs)
-        )
         unpatched: dict[str, Any] | None = None
         if spec.patches:
             # Compare protections with operation fields added, as they are

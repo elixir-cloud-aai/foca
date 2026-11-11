@@ -663,10 +663,16 @@ class TestPatches:
             # also with the reference restated or replaced in the patch
             ({"paths": {"/pets": {"$ref": "#/x-items", "get": None}}},),
             ({"paths": {"/pets": {"$ref": "#/x-other", "get": None}}},),
-            # removal before fields of the reference are set again
+            # same reference restated by a later patch
             (
                 {"paths": {"/pets": {"get": None}}},
+                {"paths": {"/pets": {"$ref": "#/x-items"}}},
+            ),
+            # field set next to the reference, then removed (the referenced
+            # object may have it, too)
+            (
                 {"paths": {"/pets": {"summary": "Pets"}}},
+                {"paths": {"/pets": {"summary": None}}},
             ),
         ],
     )
@@ -704,7 +710,7 @@ class TestPatches:
                     {"paths": {"/pets": {"get": None}}},
                     {"paths": {"/pets": {"$ref": None, "post": {"responses": {}}}}},
                 ),
-                {"post"},
+                {"post": {"responses": {}}},
             ),
             # path item removed, then replaced by another reference
             (
@@ -713,7 +719,16 @@ class TestPatches:
                     {"paths": {"/pets": None}},
                     {"paths": {"/pets": {"$ref": "#/x-other"}}},
                 ),
-                {"$ref"},
+                {"$ref": "#/x-other"},
+            ),
+            # all paths removed, then the path item given a reference again
+            (
+                (
+                    {"paths": {"/pets": {"get": None}}},
+                    {"paths": None},
+                    {"paths": {"/pets": {"$ref": "#/x-items"}}},
+                ),
+                {"$ref": "#/x-items"},
             ),
             # path item given another reference
             (
@@ -721,7 +736,7 @@ class TestPatches:
                     {"paths": {"/pets": {"get": None}}},
                     {"paths": {"/pets": {"$ref": "#/x-other"}}},
                 ),
-                {"$ref"},
+                {"$ref": "#/x-other"},
             ),
         ],
     )
@@ -729,29 +744,16 @@ class TestPatches:
         self,
         monkeypatch: pytest.MonkeyPatch,
         patches: tuple[dict[str, Any], ...],
-        expected: set[str],
+        expected: dict[str, Any],
     ) -> None:
         """Removals are fine once later patches replace the reference."""
-        spec = self._patched(monkeypatch, *self.REFERENCE, *patches)
-        assert set(spec["paths"]["/pets"]) == expected
-
-    def test_removed_field_next_to_reference(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Fields set next to a reference can be removed."""
         spec = self._patched(
             monkeypatch,
-            {"paths": {"/pets": None}},
-            {
-                "x-items": {"get": {"responses": {}}},
-                "paths": {"/pets": {"$ref": "#/x-items"}},
-            },
-            # set and removed in one go, as in a specification with fields
-            # next to a reference that a patch removes
-            {"paths": {"/pets": {"summary": "Pets"}}},
-            {"paths": {"/pets": {"summary": None}}},
+            *self.REFERENCE,
+            *patches,
+            add_operation_fields=None,
         )
-        assert spec["paths"]["/pets"] == {"$ref": "#/x-items"}
+        assert spec["paths"]["/pets"] == expected
 
     def test_invalid_spec(self) -> None:
         """Patches making the specification invalid raise a clear error."""
@@ -973,6 +975,15 @@ class TestRemovingKeys:
         client = Client(app)
         assert client.get("/vendored/service-info").status_code == 200
         assert client.get("/vendored/pets").status_code == 401
+
+    def test_merged_files_removed_next_to_reference(self, tmp_path: Path) -> None:
+        """Merged files can't remove fields of path items defined via `$ref`."""
+        with pytest.raises(ValueError, match=r"Files of API spec 'vendored' set"):
+            self._register(
+                tmp_path,
+                additions=("paths:\n  /service-info:\n    get: null\n",),
+                merge_null_removes=True,
+            )
 
     def test_merged_files_without_opt_in(
         self, tmp_path: Path, fetched: list[str]

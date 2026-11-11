@@ -105,21 +105,16 @@ def test_merge_yaml_with_two_args() -> None:
     assert "put" in res["paths"]["/pets/{petId}"]
 
 
-@pytest.mark.parametrize("null_removes", [False, True])
-def test_merge_yaml_null(tmp_path: Path, null_removes: bool) -> None:
-    """`null` in later files sets values, or removes keys if opted in.
-
-    `null` in the first file is kept either way.
-    """
+def test_merge_yaml_null(tmp_path: Path) -> None:
+    """`null` in later files sets values; empty files are empty mappings."""
     first = tmp_path / "first.yaml"
     first.write_text("a: 1\nb: 2\nc: null\n")
     second = tmp_path / "second.yaml"
     second.write_text("a: null\nd:\n  e: null\n  f: 3\n")
-    res = ConfigParser.merge_yaml(first, second, null_removes=null_removes)
-    if null_removes:
-        assert res == {"b": 2, "c": None, "d": {"f": 3}}
-    else:
-        assert res == {"a": None, "b": 2, "c": None, "d": {"e": None, "f": 3}}
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("# nothing\n")
+    res = ConfigParser.merge_yaml(first, empty, second)
+    assert res == {"a": None, "b": 2, "c": None, "d": {"e": None, "f": 3}}
 
 
 def test_parse_custom_config_valid_model() -> None:

@@ -720,8 +720,10 @@ class SpecConfig(FOCABaseConfig):
             earlier ones.
         merge_null_removes: Whether `null` values in the second and later
             files of `path` remove keys of earlier files (as in patches)
-            rather than set them to `null`. Off by default, so that values
-            such as ``default: null`` keep working.
+            rather than set them to `null`; as for patches, they must not
+            set or remove fields of path items defined via `$ref` then. Off
+            by default, so that values such as ``default: null`` keep
+            working.
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
             For OpenAPI 3.x, see https://swagger.io/specification/.

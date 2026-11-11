@@ -125,7 +125,10 @@ paths:
 With the option set, later files can't set values to `null`: a `null` in
 them, also in mappings they add (e.g., `default: null` in a new schema),
 removes the key. Values that must be `null` go into the first file, or the
-option stays off. `null` in the first file is kept either way.
+option stays off. `null` in the first file is kept either way. As for
+patches, FOCA then fails to start if later files set or remove fields of a
+path item that keeps a `$ref` (see [patching
+specifications](#patching-specifications)).
 
 ## Patching specifications
 

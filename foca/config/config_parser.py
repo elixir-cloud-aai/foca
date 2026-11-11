@@ -290,32 +290,25 @@ class ConfigParser:
             raise OSError(f"file '{conf}' could not be read") from exc
 
     @staticmethod
-    def merge_yaml(*args: Path, null_removes: bool = False) -> dict[str, Any]:
+    def merge_yaml(*args: Path) -> dict[str, Any]:
         """Parse and merge a set of YAML files.
 
         Merging is done iteratively, from the first, second to the n-th
         argument (cf. :py:func:`deep_merge`): mappings are merged, other
-        values replace earlier ones. Empty files count as empty mappings.
+        values (including `null`) replace earlier ones. Empty files count as
+        empty mappings.
 
         Args:
             *args: One or more paths to YAML files.
-            null_removes: Whether `null` values of the second and later files
-                remove keys rather than set them to `null`.
 
         Returns:
             Dictionary of merged YAML file contents, or an empty dictionary if
-            no arguments have been supplied; if only a single YAML file path
-            is provided, no merging is done.
+            no arguments have been supplied.
         """
         merged: dict[str, Any] = {}
-        for index, arg in enumerate(args):
+        for arg in args:
             # Addict turns empty files into empty mappings
-            content = Addict(ConfigParser.parse_yaml(arg)).to_dict()
-            merged = (
-                deep_merge(merged, content, null_removes=null_removes)
-                if index
-                else content
-            )
+            merged = deep_merge(merged, Addict(ConfigParser.parse_yaml(arg)).to_dict())
         return merged
 
     def parse_custom_config(self, model: str) -> BaseModel:
