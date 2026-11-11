@@ -29,8 +29,9 @@ api:
 ```
 
 In this example, the first specification is merged from two files (later
-files update earlier ones). Root fields are added via `append` (here: a
-global security requirement), the controller module is added to every
+files update earlier ones, see [merging specification
+files](#merging-specification-files)). Root fields are added via `append`
+(here: a global security requirement), the controller module is added to every
 operation via `add_operation_fields` (operations that set the field
 themselves keep their value, e.g., to use another controller module), and
 FOCA's
@@ -73,6 +74,62 @@ Names appear in the logs and must be unique; in the list form, specifications
 may set `name` themselves. Apps that expect operators to adapt their
 specifications should use named specifications.
 
+## Merging specification files
+
+If `path` lists several files, each file is deep-merged into the result of
+the files before it: mappings are merged, while lists and other values
+replace earlier ones. Apps use this to add their own operations, schemas or
+extensions to a vendored specification (e.g., of a GA4GH API) without
+changing the vendored file.
+
+By default, `null` is a value like any other: `default: null` in a later file
+sets the default to `null`. With `merge_null_removes: true`, `null` in the
+second and later files removes the key instead, at any depth, as in
+[patches](#patching-specifications) (JSON Merge Patch,
+[RFC 7396](https://www.rfc-editor.org/rfc/rfc7396)). Apps need this to
+change a vendored specification where a change has to remove a key, e.g., to
+turn an API key scheme into an HTTP bearer scheme (Connexion rejects the
+`name` and `in` that the merged scheme would otherwise keep) or to replace a
+reference to another file or URL by a path item of their own (Connexion
+fetches references to URLs on every start):
+
+```yaml title="config.yaml"
+api:
+  specs:
+    my-api:
+      path:
+        - api/vendored.openapi.yaml
+        - api/additions.openapi.yaml
+      merge_null_removes: true
+```
+
+```yaml title="api/additions.openapi.yaml"
+components:
+  securitySchemes:
+    BEARER:
+      type: http
+      scheme: bearer
+      name: null
+      in: null
+paths:
+  /service-info:
+    $ref: null
+    get:
+      operationId: getServiceInfo
+      security: []
+      responses:
+        "200":
+          description: Service info
+```
+
+With the option set, later files can't set values to `null`: a `null` in
+them, also in mappings they add (e.g., `default: null` in a new schema),
+removes the key. Values that must be `null` go into the first file, or the
+option stays off. `null` in the first file is kept either way. As for
+patches, FOCA then fails to start if later files set or remove fields of a
+path item that keeps a `$ref` (see [patching
+specifications](#patching-specifications)).
+
 ## Patching specifications
 
 !!! danger "With great power comes great responsibility"
@@ -83,9 +140,12 @@ specifications should use named specifications.
 
 `patches` lists patches that are deep-merged into a specification, in order,
 after the files of `path` and the root fields of `append`, and before
-`add_operation_fields` and `add_security_fields`, with the same rules as the
-files of `path`: mappings are merged, while lists and other values replace
-earlier ones. Each patch is a YAML or JSON file, or a mapping given inline.
+`add_operation_fields` and `add_security_fields`, as a JSON Merge Patch
+([RFC 7396](https://www.rfc-editor.org/rfc/rfc7396)): mappings are merged,
+lists and other values replace earlier ones, and `null` removes a key, at any
+depth (keys that are not set are ignored). Patches can't set values to
+`null`; a `null` in a mapping that a patch adds is dropped, too. Each patch
+is a YAML or JSON file, or a mapping given inline.
 Apps leave `patches` unset; it is meant for operators, who set it in a config
 overlay for a [named specification](#named-specifications):
 
@@ -105,24 +165,26 @@ paths](index.md#relative-paths)), so overlays usually refer to mounted files
 with absolute paths, or give patches inline.
 
 FOCA fails to start if a patch file cannot be read or is not a mapping, if
-the patched specification is invalid, or if patches set fields of a path item
-defined via `$ref` (Connexion replaces them with the fields of the
-referenced object, so they would silently not take effect; patch the
-referenced object instead). Other errors registering a patched specification
-are logged with a hint to the patches. FOCA logs the patches applied to each
-specification, and warns of
+the patched specification is invalid, or if patches set or remove (`null`)
+fields of a path item defined via `$ref` (Connexion replaces them with the
+fields of the referenced object, so they would silently not take effect;
+patch the referenced object instead, or remove the reference with
+`$ref: null` and define the path item in the patch, see [merging
+specification files](#merging-specification-files) for an example). Other
+errors registering a patched specification are logged with a hint to the
+patches. FOCA logs the patches applied to each specification, and warns of
 
 - operations that required authentication (non-empty `security`
   requirements, of the operation or the specification, without an empty
   alternative) or were subject to [access
   control](../access-control.md#enforcing-policies-with-oidc-tokens) before
   the patches, but not after (e.g., because a patch sets `security: []` or
-  `x-foca-access-control: false`),
-- operations added by patches (also by renaming paths or via local
-  references) that do not require authentication or opt out of access
-  control, and path items that patches refer to other files (which FOCA
+  `x-foca-access-control: false`, or removes `security` with `null`),
+- operations added by patches (also by renaming paths, via local references
+  or by replacing a reference with a path item) that do not require
+  authentication or opt out of access control, and path items that patches refer to other files (which FOCA
   cannot check), and
-- patches that change security definitions or schemes.
+- patches that change (also remove) security definitions or schemes.
 
 Protections are compared after `add_operation_fields` (applied before and
 after the patches for the comparison), and with path items given via local

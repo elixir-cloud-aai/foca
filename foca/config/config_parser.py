@@ -24,22 +24,39 @@ logger = logging.getLogger(__name__)
 CONFIG_OVERLAY_ENV_VAR = "FOCA_CONFIG_OVERLAY"
 
 
-def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+def deep_merge(
+    base: dict[str, Any],
+    overlay: dict[str, Any],
+    *,
+    null_removes: bool = False,
+) -> dict[str, Any]:
     """Merge dictionaries recursively.
 
     Args:
         base: Dictionary to merge into.
         overlay: Dictionary to merge; mappings are merged recursively, while
-            all other values (including lists and ``None``) replace those in
-            `base`.
+            all other values (including lists and, unless `null_removes` is
+            set, ``None``) replace those in `base`.
+        null_removes: Whether ``None`` values of `overlay` remove their keys
+            from `base`, at any depth, as in a JSON Merge Patch (RFC 7396):
+            keys that `base` does not have are ignored, ``None`` values are
+            also dropped from mappings of `overlay` that replace other
+            values of `base`, and lists are kept as they are.
 
     Returns:
         Merged dictionary; the arguments are not modified.
     """
     merged = deepcopy(base)
     for key, value in overlay.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = deep_merge(merged[key], value)
+        target = merged.get(key)
+        if null_removes and value is None:
+            merged.pop(key, None)
+        elif isinstance(value, dict) and (null_removes or isinstance(target, dict)):
+            merged[key] = deep_merge(
+                target if isinstance(target, dict) else {},
+                value,
+                null_removes=null_removes,
+            )
         else:
             merged[key] = deepcopy(value)
     return merged
@@ -277,26 +294,22 @@ class ConfigParser:
         """Parse and merge a set of YAML files.
 
         Merging is done iteratively, from the first, second to the n-th
-        argument. Dictionary items are updated, not overwritten. For exact
-        behavior cf. https://github.com/mewwts/addict.
+        argument (cf. :py:func:`deep_merge`): mappings are merged, other
+        values (including `null`) replace earlier ones. Empty files count as
+        empty mappings.
 
         Args:
             *args: One or more paths to YAML files.
 
         Returns:
             Dictionary of merged YAML file contents, or an empty dictionary if
-            no arguments have been supplied; if only a single YAML file path
-            is provided, no merging is done.
+            no arguments have been supplied.
         """
-        args_list = list(args)
-        if not args_list:
-            return {}
-        yaml_dict = Addict(ConfigParser.parse_yaml(args_list.pop(0)))
-
-        for arg in args_list:
-            yaml_dict.update(Addict(ConfigParser.parse_yaml(arg)))
-
-        return yaml_dict.to_dict()
+        merged: dict[str, Any] = {}
+        for arg in args:
+            # Addict turns empty files into empty mappings
+            merged = deep_merge(merged, Addict(ConfigParser.parse_yaml(arg)).to_dict())
+        return merged
 
     def parse_custom_config(self, model: str) -> BaseModel:
         """Parse custom configuration and validate against a model.

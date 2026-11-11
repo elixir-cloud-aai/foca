@@ -716,7 +716,14 @@ class SpecConfig(FOCABaseConfig):
 
     Args:
         path: A single path or list of paths to OpenAPI 2.x or 3.x
-            specification in YAML format.
+            specification in YAML format; later files are deep-merged into
+            earlier ones.
+        merge_null_removes: Whether `null` values in the second and later
+            files of `path` remove keys of earlier files (as in patches)
+            rather than set them to `null`; as for patches, they must not
+            set or remove fields of path items defined via `$ref` then. Off
+            by default, so that values such as ``default: null`` keep
+            working.
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
             For OpenAPI 3.x, see https://swagger.io/specification/.
@@ -758,7 +765,8 @@ class SpecConfig(FOCABaseConfig):
             Must be unique.
         patches: Paths to YAML or JSON files (resolved like those of `path`)
             or mappings, deep-merged into the specification in order after
-            `path` and `append`, with the same rules as `path`. Meant for
+            `path` and `append`, with the same rules as `path`, except that
+            `null` values remove keys (JSON Merge Patch, RFC 7396). Meant for
             operators; patches can weaken or remove authentication and
             access control. Cf. the documentation on patching
             specifications.
@@ -766,6 +774,8 @@ class SpecConfig(FOCABaseConfig):
     Attributes:
         path: A single path or list of paths to OpenAPI 2.x or 3.x
             specification in YAML format.
+        merge_null_removes: Whether `null` values in the second and later
+            files of `path` remove keys of earlier files.
         append: Fields to be added/modified in the root of the specification
             file. For OpenAPI 2.x, see https://swagger.io/specification/v2/.
             For OpenAPI 3.x, see https://swagger.io/specification/.
@@ -825,6 +835,7 @@ class SpecConfig(FOCABaseConfig):
     """
 
     path: Path | list[Path]
+    merge_null_removes: bool = False
     append: list[dict[str, Any]] | None = None
     add_operation_fields: dict[str, Any] | None = None
     add_security_fields: dict[str, Any] | None = None

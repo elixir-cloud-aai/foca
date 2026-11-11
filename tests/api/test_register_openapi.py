@@ -8,6 +8,7 @@ from unittest import mock
 
 import pytest
 from connexion import App
+from connexion import json_schema as connexion_json_schema
 from connexion.exceptions import InvalidSpecification
 from pydantic import ValidationError
 
@@ -459,6 +460,8 @@ class TestPatches:
             ({"paths": {"/pets": {"post": {"security": [{}]}}}}, ["POST /pets"]),
             # root requirement inherited by `GET /pets/{petId}` only
             ({"security": []}, ["GET /pets/{petId}"]),
+            # root requirement removed
+            ({"security": None}, ["GET /pets/{petId}"]),
             # opted out of enforcement
             (
                 {"paths": {"/pets": {"post": {"x-foca-access-control": False}}}},
@@ -642,6 +645,116 @@ class TestPatches:
         with pytest.raises(ValueError, match=r"defined via '\$ref'.*: /pets;"):
             self._patched(monkeypatch, *patches)
 
+    # Patches replacing `/pets` by a reference to `#/x-items`
+    REFERENCE: tuple[dict[str, Any], ...] = (
+        {"paths": {"/pets": None}},
+        {
+            "x-items": {"get": {"responses": {}}},
+            "x-other": {"post": {"responses": {}}},
+            "paths": {"/pets": {"$ref": "#/x-items"}},
+        },
+    )
+
+    @pytest.mark.parametrize(
+        "patches",
+        [
+            # field of the referenced object removed
+            ({"paths": {"/pets": {"get": None}}},),
+            # also with the reference restated or replaced in the patch
+            ({"paths": {"/pets": {"$ref": "#/x-items", "get": None}}},),
+            ({"paths": {"/pets": {"$ref": "#/x-other", "get": None}}},),
+            # same reference restated by a later patch
+            (
+                {"paths": {"/pets": {"get": None}}},
+                {"paths": {"/pets": {"$ref": "#/x-items"}}},
+            ),
+            # field set next to the reference, then removed (the referenced
+            # object may have it, too)
+            (
+                {"paths": {"/pets": {"summary": "Pets"}}},
+                {"paths": {"/pets": {"summary": None}}},
+            ),
+        ],
+    )
+    def test_removed_next_to_reference(
+        self, monkeypatch: pytest.MonkeyPatch, patches: tuple[dict[str, Any], ...]
+    ) -> None:
+        """Removing fields of path items defined via `$ref` is rejected.
+
+        The referenced object keeps them, so the removal would not take
+        effect (e.g., an operation meant to be removed would stay).
+        """
+        with pytest.raises(ValueError, match=r"remove fields .*: /pets;"):
+            self._patched(monkeypatch, *self.REFERENCE, *patches)
+
+    def test_removed_with_reference_in_same_patch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Removals next to a reference added by the same patch are rejected."""
+        with pytest.raises(ValueError, match=r"remove fields .*: /pets;"):
+            self._patched(
+                monkeypatch,
+                {"paths": {"/pets": None}},
+                {
+                    "x-items": {"get": {"responses": {}}},
+                    "paths": {"/pets": {"$ref": "#/x-items", "get": None}},
+                },
+            )
+
+    @pytest.mark.parametrize(
+        "patches,expected",
+        [
+            # reference removed, too
+            (
+                (
+                    {"paths": {"/pets": {"get": None}}},
+                    {"paths": {"/pets": {"$ref": None, "post": {"responses": {}}}}},
+                ),
+                {"post": {"responses": {}}},
+            ),
+            # path item removed, then replaced by another reference
+            (
+                (
+                    {"paths": {"/pets": {"get": None}}},
+                    {"paths": {"/pets": None}},
+                    {"paths": {"/pets": {"$ref": "#/x-other"}}},
+                ),
+                {"$ref": "#/x-other"},
+            ),
+            # all paths removed, then the path item given a reference again
+            (
+                (
+                    {"paths": {"/pets": {"get": None}}},
+                    {"paths": None},
+                    {"paths": {"/pets": {"$ref": "#/x-items"}}},
+                ),
+                {"$ref": "#/x-items"},
+            ),
+            # path item given another reference
+            (
+                (
+                    {"paths": {"/pets": {"get": None}}},
+                    {"paths": {"/pets": {"$ref": "#/x-other"}}},
+                ),
+                {"$ref": "#/x-other"},
+            ),
+        ],
+    )
+    def test_removed_next_to_reference_replaced(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        patches: tuple[dict[str, Any], ...],
+        expected: dict[str, Any],
+    ) -> None:
+        """Removals are fine once later patches replace the reference."""
+        spec = self._patched(
+            monkeypatch,
+            *self.REFERENCE,
+            *patches,
+            add_operation_fields=None,
+        )
+        assert spec["paths"]["/pets"] == expected
+
     def test_invalid_spec(self) -> None:
         """Patches making the specification invalid raise a clear error."""
         spec_config = SpecConfig.model_validate(
@@ -681,6 +794,206 @@ class TestPatches:
             patch.write_text(content)
         with pytest.raises(error, match=message):
             self._patched(monkeypatch, patch)
+
+
+# A vendored specification with an API key scheme for bearer tokens and a
+# path item referring to another repository, as in TRS 2.0.2
+REMOTE_REF = (
+    "https://example.org/service-info/v1.0.0/service-info.yaml#/paths/~1service-info"
+)
+VENDORED_SPEC = f"""\
+openapi: 3.0.1
+info:
+  title: Vendored
+  version: 1.0.0
+servers:
+  - url: /vendored
+paths:
+  /service-info:
+    $ref: "{REMOTE_REF}"
+  /pets:
+    get:
+      operationId: listPets
+      security:
+        - BEARER: []
+      responses:
+        "200":
+          description: Pets
+components:
+  securitySchemes:
+    BEARER:
+      type: apiKey
+      name: Authorization
+      in: header
+"""
+# Patches that turn the scheme into an HTTP bearer scheme and the path item
+# into a local one
+PATCH_SCHEME = """\
+components:
+  securitySchemes:
+    BEARER:
+      type: http
+      scheme: bearer
+      name: null
+      in: null
+"""
+PATCH_PATH_ITEM = """\
+paths:
+  /service-info:
+    $ref: null
+    get:
+      operationId: showPetById
+      responses:
+        "200":
+          description: Service info
+"""
+
+
+class TestRemovingKeys:
+    """Tests for removing keys of specifications with `null` in patches.
+
+    The specification is loaded from files and registered with Connexion.
+    """
+
+    @pytest.fixture
+    def fetched(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Record URLs that Connexion fetches references from, failing."""
+        urls: list[str] = []
+
+        def get(url: str, *args: Any, **kwargs: Any) -> Any:
+            urls.append(url)
+            raise ConnectionError(url)
+
+        monkeypatch.setattr(connexion_json_schema.requests, "get", get)
+        return urls
+
+    @staticmethod
+    def _register(
+        tmp_path: Path,
+        *patches: str,
+        additions: tuple[str, ...] = (),
+        merge_null_removes: bool = False,
+    ) -> App:
+        """Register the vendored spec with files of the given contents.
+
+        Args:
+            tmp_path: Directory to write the files to.
+            *patches: Contents of patch files.
+            additions: Contents of files merged into the vendored spec via
+                `path`.
+            merge_null_removes: Value of `SpecConfig.merge_null_removes`.
+
+        Returns:
+            App with the spec registered.
+        """
+        spec_path = tmp_path / "vendored.yaml"
+        spec_path.write_text(VENDORED_SPEC)
+        spec_paths = [spec_path]
+        for index, addition in enumerate(additions):
+            addition_path = tmp_path / f"addition{index}.yaml"
+            addition_path.write_text(addition)
+            spec_paths.append(addition_path)
+        patch_paths: list[Path | dict[str, Any]] = []
+        for index, patch in enumerate(patches):
+            patch_path = tmp_path / f"patch{index}.yaml"
+            patch_path.write_text(patch)
+            patch_paths.append(patch_path)
+        spec_config = SpecConfig(
+            path=spec_paths,
+            merge_null_removes=merge_null_removes,
+            add_operation_fields=OPERATION_FIELDS_3,
+            add_security_fields=SECURITY_FIELDS_3,
+            patches=patch_paths or None,
+            name="vendored",
+        )
+        return register_openapi(app=App(__name__), specs=[spec_config])
+
+    def test_unpatched_fetches_reference(
+        self, tmp_path: Path, fetched: list[str]
+    ) -> None:
+        """Without patches, Connexion fetches the referenced path item."""
+        with pytest.raises(connexion_json_schema.RefResolutionError):
+            self._register(tmp_path)
+        assert fetched == [REMOTE_REF.partition("#")[0]]
+
+    def test_scheme_without_removed_fields_rejected(
+        self, tmp_path: Path, fetched: list[str]
+    ) -> None:
+        """Schemes keeping fields of their earlier type are invalid.
+
+        Connexion rejects HTTP schemes with `name` and `in`, so patches must
+        remove them.
+        """
+        patch = "\n".join(
+            line for line in PATCH_SCHEME.splitlines() if "null" not in line
+        )
+        with pytest.raises(ValueError, match="invalid after applying patches"):
+            self._register(tmp_path, patch, PATCH_PATH_ITEM)
+        assert not fetched
+
+    def test_scheme_and_path_item_replaced(
+        self,
+        tmp_path: Path,
+        fetched: list[str],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Patches with `null` replace the scheme and the reference.
+
+        Nothing is fetched, the patched scheme validates bearer tokens, and
+        the changes are warned of.
+        """
+        monkeypatch.setattr(module.logger, "disabled", False)
+        with caplog.at_level(logging.WARNING, logger=module.logger.name):
+            app = self._register(tmp_path, PATCH_SCHEME, PATCH_PATH_ITEM)
+        assert not fetched
+        assert _routes(app) >= {"GET /vendored/service-info", "GET /vendored/pets"}
+        client = Client(app)
+        assert client.get("/vendored/service-info").status_code == 200
+        # Connexion ignores API key schemes without `x-apikeyInfoFunc`, so
+        # only the bearer scheme requires a token
+        assert client.get("/vendored/pets").status_code == 401
+        warnings = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == module.logger.name and record.levelno == logging.WARNING
+        ]
+        assert len(warnings) == 2
+        assert warnings[0].endswith(
+            ": GET /service-info. Make sure that this is intended."
+        )
+        assert "change its security definitions or schemes" in warnings[1]
+
+    def test_merged_files(self, tmp_path: Path, fetched: list[str]) -> None:
+        """With `merge_null_removes`, merged files can remove keys, too."""
+        app = self._register(
+            tmp_path,
+            additions=(PATCH_SCHEME, PATCH_PATH_ITEM),
+            merge_null_removes=True,
+        )
+        assert not fetched
+        client = Client(app)
+        assert client.get("/vendored/service-info").status_code == 200
+        assert client.get("/vendored/pets").status_code == 401
+
+    def test_merged_files_removed_next_to_reference(self, tmp_path: Path) -> None:
+        """Merged files can't remove fields of path items defined via `$ref`."""
+        with pytest.raises(ValueError, match=r"Files of API spec 'vendored' set"):
+            self._register(
+                tmp_path,
+                additions=("paths:\n  /service-info:\n    get: null\n",),
+                merge_null_removes=True,
+            )
+
+    def test_merged_files_without_opt_in(
+        self, tmp_path: Path, fetched: list[str]
+    ) -> None:
+        """Without `merge_null_removes`, `null` in merged files is a value.
+
+        Connexion then rejects the specification.
+        """
+        with pytest.raises(InvalidSpecification):
+            self._register(tmp_path, additions=(PATCH_SCHEME, PATCH_PATH_ITEM))
 
 
 @pytest.mark.parametrize(
