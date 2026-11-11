@@ -130,6 +130,7 @@ nav:
       - Invalid request: problems/invalid-request.md
   - Testing: testing.md
   - Preparing for the ASGI release: preparing-for-asgi.md
+  - Migrating to 0.23.0: migration-0.23.md
   - Migrating to 0.22.0: migration-0.22.md
   - Migrating to 0.21.0: migration-0.21.md
   - Migrating to 0.20.0: migration-0.20.md
