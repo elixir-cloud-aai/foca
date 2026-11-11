@@ -645,29 +645,113 @@ class TestPatches:
         with pytest.raises(ValueError, match=r"defined via '\$ref'.*: /pets;"):
             self._patched(monkeypatch, *patches)
 
-    def test_removed_next_to_reference(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Patches replacing `/pets` by a reference to `#/x-items`
+    REFERENCE: tuple[dict[str, Any], ...] = (
+        {"paths": {"/pets": None}},
+        {
+            "x-items": {"get": {"responses": {}}},
+            "x-other": {"post": {"responses": {}}},
+            "paths": {"/pets": {"$ref": "#/x-items"}},
+        },
+    )
+
+    @pytest.mark.parametrize(
+        "patches",
+        [
+            # field of the referenced object removed
+            ({"paths": {"/pets": {"get": None}}},),
+            # also with the reference restated or replaced in the patch
+            ({"paths": {"/pets": {"$ref": "#/x-items", "get": None}}},),
+            ({"paths": {"/pets": {"$ref": "#/x-other", "get": None}}},),
+            # removal before fields of the reference are set again
+            (
+                {"paths": {"/pets": {"get": None}}},
+                {"paths": {"/pets": {"summary": "Pets"}}},
+            ),
+        ],
+    )
+    def test_removed_next_to_reference(
+        self, monkeypatch: pytest.MonkeyPatch, patches: tuple[dict[str, Any], ...]
+    ) -> None:
         """Removing fields of path items defined via `$ref` is rejected.
 
         The referenced object keeps them, so the removal would not take
         effect (e.g., an operation meant to be removed would stay).
         """
-        reference = [
+        with pytest.raises(ValueError, match=r"remove fields .*: /pets;"):
+            self._patched(monkeypatch, *self.REFERENCE, *patches)
+
+    def test_removed_with_reference_in_same_patch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Removals next to a reference added by the same patch are rejected."""
+        with pytest.raises(ValueError, match=r"remove fields .*: /pets;"):
+            self._patched(
+                monkeypatch,
+                {"paths": {"/pets": None}},
+                {
+                    "x-items": {"get": {"responses": {}}},
+                    "paths": {"/pets": {"$ref": "#/x-items", "get": None}},
+                },
+            )
+
+    @pytest.mark.parametrize(
+        "patches,expected",
+        [
+            # reference removed, too
+            (
+                (
+                    {"paths": {"/pets": {"get": None}}},
+                    {"paths": {"/pets": {"$ref": None, "post": {"responses": {}}}}},
+                ),
+                {"post"},
+            ),
+            # path item removed, then replaced by another reference
+            (
+                (
+                    {"paths": {"/pets": {"get": None}}},
+                    {"paths": {"/pets": None}},
+                    {"paths": {"/pets": {"$ref": "#/x-other"}}},
+                ),
+                {"$ref"},
+            ),
+            # path item given another reference
+            (
+                (
+                    {"paths": {"/pets": {"get": None}}},
+                    {"paths": {"/pets": {"$ref": "#/x-other"}}},
+                ),
+                {"$ref"},
+            ),
+        ],
+    )
+    def test_removed_next_to_reference_replaced(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        patches: tuple[dict[str, Any], ...],
+        expected: set[str],
+    ) -> None:
+        """Removals are fine once later patches replace the reference."""
+        spec = self._patched(monkeypatch, *self.REFERENCE, *patches)
+        assert set(spec["paths"]["/pets"]) == expected
+
+    def test_removed_field_next_to_reference(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fields set next to a reference can be removed."""
+        spec = self._patched(
+            monkeypatch,
             {"paths": {"/pets": None}},
             {
                 "x-items": {"get": {"responses": {}}},
                 "paths": {"/pets": {"$ref": "#/x-items"}},
             },
-        ]
-        with pytest.raises(ValueError, match=r"remove fields .*: /pets;"):
-            self._patched(monkeypatch, *reference, {"paths": {"/pets": {"get": None}}})
-        # removing the reference, too, is fine
-        spec = self._patched(
-            monkeypatch,
-            *reference,
-            {"paths": {"/pets": {"get": None}}},
-            {"paths": {"/pets": {"$ref": None, "post": {"responses": {}}}}},
+            # set and removed in one go, as in a specification with fields
+            # next to a reference that a patch removes
+            {"paths": {"/pets": {"summary": "Pets"}}},
+            {"paths": {"/pets": {"summary": None}}},
         )
-        assert set(spec["paths"]["/pets"]) == {"post"}
+        assert spec["paths"]["/pets"] == {"$ref": "#/x-items"}
 
     def test_invalid_spec(self) -> None:
         """Patches making the specification invalid raise a clear error."""

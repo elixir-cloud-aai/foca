@@ -380,6 +380,44 @@ def _load_patch(patch: Path | dict[str, Any]) -> dict[str, Any]:
     return content
 
 
+def _track_removals(
+    removed_paths: set[str],
+    patch_paths: dict[str, Any],
+    before: Any,
+    after: Any,
+) -> None:
+    """Track removals of fields that path items get via `$ref`.
+
+    Connexion replaces path items defined via `$ref` with the referenced
+    objects, so removing (`null`) a field that only the referenced object has
+    does not take effect. Path items that a patch sets to `null` or gives a
+    `$ref` are no longer tracked, unless the patch removes such fields, too.
+
+    Args:
+        removed_paths: Paths with such removals; updated in place.
+        patch_paths: `paths` of a patch.
+        before: `paths` of the specification before the patch.
+        after: `paths` of the specification after the patch.
+    """
+    for path, path_item in patch_paths.items():
+        if not isinstance(path_item, dict) or "$ref" in path_item:
+            removed_paths.discard(path)
+        if not isinstance(path_item, dict):
+            continue
+        item_before = before.get(path) if isinstance(before, dict) else None
+        item_after = after.get(path) if isinstance(after, dict) else None
+        if not isinstance(item_after, dict) or "$ref" not in item_after:
+            continue
+        # Fields set next to the reference before are removed for real
+        if any(
+            key != "$ref"
+            and value is None
+            and not (isinstance(item_before, dict) and key in item_before)
+            for key, value in path_item.items()
+        ):
+            removed_paths.add(path)
+
+
 def _apply_patches(
     spec: dict[str, Any], patches: list[Path | dict[str, Any]], label: str
 ) -> dict[str, Any]:
@@ -406,11 +444,13 @@ def _apply_patches(
     """
     patched = spec
     patched_paths: set[str] = set()
-    # Paths whose fields patches remove next to a `$ref` they keep, which
-    # does not remove the fields of the referenced object
+    # Paths whose fields patches remove next to a `$ref`, which does not
+    # remove the fields of the referenced object
     removed_paths: set[str] = set()
     for patch in patches:
         content = _load_patch(patch)
+        before = patched.get("paths")
+        patched = deep_merge(patched, content, null_removes=True)
         patch_paths = content.get("paths")
         if isinstance(patch_paths, dict):
             patched_paths.update(
@@ -418,18 +458,7 @@ def _apply_patches(
                 for path, path_item in patch_paths.items()
                 if isinstance(path_item, dict) and set(path_item) - {"$ref"}
             )
-            current_paths = patched.get("paths")
-            removed_paths.update(
-                path
-                for path, path_item in patch_paths.items()
-                if isinstance(path_item, dict)
-                and "$ref" not in path_item
-                and None in path_item.values()
-                and isinstance(current_paths, dict)
-                and isinstance(current_paths.get(path), dict)
-                and "$ref" in current_paths[path]
-            )
-        patched = deep_merge(patched, content, null_removes=True)
+            _track_removals(removed_paths, patch_paths, before, patched.get("paths"))
     paths = patched.get("paths")
     overridden = sorted(
         path
