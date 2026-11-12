@@ -454,8 +454,8 @@ reviews.
   and as `error` from the ASGI release, when apps update their copies (see
   [Finding Flask imports](../migration-0.22.md#finding-flask-imports)). In
   FOCA's CI and pre-commit hook, it is an `error` already
-  (`ast-grep scan --error=flask-import`): the examples use `foca.context`,
-  `foca.errors` and plain return values, as the guides for controllers
+  (`ast-grep scan --error=flask-import`): the examples use FOCA's own helpers
+  (`foca.context`, `foca.errors`) and plain return values, as the guides for controllers
   recommend.
 - **Docstrings:** Google-style docstrings at all levels: packages, modules,
   classes, methods and functions, also private ones and tests, with a
