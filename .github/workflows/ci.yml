@@ -135,8 +135,9 @@ jobs:
         # Checks the files configured in `pyproject.toml` (package and tests)
         run: mypy
       - name: Check anti-patterns with ast-grep
-        # Rules in `.ast-grep/` (`sgconfig.yml`)
-        run: ast-grep scan --format github
+        # Rules in `.ast-grep/` (`sgconfig.yml`); Flask imports in the
+        # examples fail the check (`flask-import` is a warning for apps)
+        run: ast-grep scan --format github --error=flask-import
       - name: Test ast-grep rules
         run: ast-grep test --skip-snapshot-tests
       - name: Check security issues with semgrep

@@ -140,6 +140,15 @@ def test_get_pet_by_id_404() -> None:
     assert response_data.detail == "We have never heard of this pet! :-("
 
 
+def test_get_unknown_pet_404() -> None:
+    """Test for `GET /pets/{id}` for an unknown pet: details name the pet."""
+    response = requests.get(url=f"{PETSTORE_URL}/pets/999999", timeout=TIMEOUT)
+    assert response.status_code == 404
+    body = response.json()
+    assert body["detail"] == "We have never heard of pet 999999! :-("
+    assert body["petId"] == 999999
+
+
 def test_delete_pet_204() -> None:
     """Test for `DELETE /pets/{id}` for successfully deleting a pet with a given id."""
     post_response = requests.post(
