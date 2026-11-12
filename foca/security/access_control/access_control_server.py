@@ -16,7 +16,8 @@ from pymongo.errors import DuplicateKeyError
 from foca.audit import log as audit_log
 from foca.config.access import get_collection, get_config
 from foca.deprecation import warn_deprecated
-from foca.errors import BadRequest, Conflict, NotFound
+from foca.errors import Conflict, InvalidFieldsProblem, NotFound
+from foca.errors.fields import FieldError, json_pointer
 from foca.security.access_control.constants import (
     CONFIGURED_FIELD,
     DEFAULT_PAGE_SIZE,
@@ -30,6 +31,7 @@ from foca.security.access_control.enforcement import (
 from foca.security.access_control.foca_casbin_adapter.adapter import _rule_values
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
+    InvalidRuleError,
     validate_rule,
 )
 from foca.utils.logging import escape_log_value, log_traffic_if
@@ -142,6 +144,81 @@ def _get_body(body: Any, permission: Any) -> Any:
     return permission
 
 
+def _invalid_field(
+    detail: str,
+    code: str,
+    *,
+    pointer: str | None = None,
+    parameter: str | None = None,
+) -> InvalidFieldsProblem:
+    """Describe an invalid field of a request to the permissions API.
+
+    Args:
+        detail: Description, without the client's values.
+        code: Stable, kebab-case code (documented in "Invalid requests").
+        pointer: JSON Pointer to the field in the request body.
+        parameter: Name of the parameter, instead of `pointer`.
+
+    Returns:
+        Problem naming the invalid field.
+    """
+    return InvalidFieldsProblem(
+        [FieldError(detail=detail, code=code, pointer=pointer, parameter=parameter)]
+    )
+
+
+def _rule_field_pointer(field: str | int | None) -> str:
+    """Get the JSON Pointer of a field of an invalid rule.
+
+    Args:
+        field: Invalid field (cf.
+            :py:class:`~foca.security.access_control.foca_casbin_adapter.casbin_rule.InvalidRuleError`).
+
+    Returns:
+        Pointer to `policy_type`, to the value (`v0` to `v5`) or to `rule`.
+    """
+    if field is None:
+        return json_pointer("rule")
+    if isinstance(field, int):
+        return json_pointer("rule", f"v{field}")
+    return json_pointer(field)
+
+
+def _check_rule_keys(rule: dict[Any, Any]) -> list[str]:
+    """Check the keys of a rule.
+
+    Args:
+        rule: Rule of a request body.
+
+    Returns:
+        Keys of the values of the rule, in order (`v0`, `v1`, ...).
+
+    Raises:
+        foca.errors.InvalidFieldsProblem: The rule has keys other than `v0`
+            to `v5` (`unknown-property`, at the first such key), or they are
+            not consecutive, starting from `v0` (`non-consecutive-keys`).
+    """
+    allowed = [f"v{index}" for index in range(MAX_RULE_VALUES)]
+    keys = allowed[: len(rule)]
+    if set(rule) != set(keys):
+        logger.error("Invalid policy rule rejected")
+    for key in rule:
+        if key not in allowed:
+            raise _invalid_field(
+                "Is not allowed.",
+                "unknown-property",
+                pointer=json_pointer("rule", str(key)),
+            )
+    if set(rule) != set(keys):
+        raise _invalid_field(
+            "Rule keys must be consecutive, starting from 'v0', up to "
+            f"'v{MAX_RULE_VALUES - 1}'.",
+            "non-consecutive-keys",
+            pointer=json_pointer("rule"),
+        )
+    return keys
+
+
 def _get_rule(body: Any) -> tuple[str, list[str]]:
     """Get and validate the policy rule of a request body.
 
@@ -152,25 +229,31 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
         Policy type and values of the rule.
 
     Raises:
-        foca.errors.BadRequest: The payload is not a valid rule
+        foca.errors.InvalidFieldsProblem: The payload is not a valid rule
             for the app's access control model (cf.
             :py:func:`validate_rule`), e.g., because the policy type is not
             defined in the model, the rule has keys other than `v0` to `v5`
             or values are missing, or it is a role rule that grants an
-            opt-in role (cf. :py:func:`grants_opt_in_role`).
+            opt-in role (cf. :py:func:`grants_opt_in_role`); names the
+            invalid field, with a code, but not its value.
     """
-    if not isinstance(body, dict) or not isinstance(body.get("rule"), dict):
+    if not isinstance(body, dict):
         logger.error("Invalid request payload.")
-        raise BadRequest
+        raise _invalid_field(
+            "The request body must be an object.", "invalid-type", pointer="#"
+        )
+    if "rule" not in body or not isinstance(body["rule"], dict):
+        logger.error("Invalid request payload.")
+        missing = "rule" not in body
+        raise _invalid_field(
+            "Is required." if missing else "Rules must be objects.",
+            "required" if missing else "invalid-type",
+            pointer=json_pointer("rule"),
+        )
     ptype = body.get("policy_type")
     rule = body["rule"]
-    keys = [f"v{index}" for index in range(MAX_RULE_VALUES)][: len(rule)]
+    keys = _check_rule_keys(rule)
     try:
-        if set(rule) != set(keys):
-            raise ValueError(
-                "Rule keys must be consecutive, starting from 'v0', up to "
-                f"'v{MAX_RULE_VALUES - 1}'"
-            )
         model = Model()
         model.load_model(current_app.config["CASBIN_MODEL"])
         values = validate_rule(ptype, [rule[key] for key in keys], model)
@@ -179,17 +262,28 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
             and len(values) >= 2
             and grants_opt_in_role(values[0], values[1])
         ):
-            raise ValueError(
+            raise InvalidRuleError(
                 f"Role rules must not grant the opt-in role '{values[1]}', as "
                 "it would then apply without asking for it: map groups to it "
-                "instead"
+                "instead",
+                code="opt-in-role",
+                reason=(
+                    "Role rules must not grant opt-in roles, as they would "
+                    "then apply without asking for them: map groups to them "
+                    "instead."
+                ),
+                field=1,
             )
-    except ValueError as exc:
+    except InvalidRuleError as exc:
         # Messages quote the client's values, so they are logged at DEBUG
-        # only, and not chained into the traceback that may be logged
+        # only, and not chained into the traceback that may be logged; the
+        # reason sent to clients doesn't quote them
         logger.error("Invalid policy rule rejected")
         logger.debug("Invalid rule: %s", escape_log_value(exc))
-        raise BadRequest from None
+        reason = exc.reason if exc.reason.endswith(".") else f"{exc.reason}."
+        raise _invalid_field(
+            reason, exc.code, pointer=_rule_field_pointer(exc.field)
+        ) from None
     return str(ptype), values
 
 
@@ -266,7 +360,8 @@ def postPermission(*, body: Any = _MISSING, permission: Any = _MISSING) -> str:
         Identifier of the new permission added.
 
     Raises:
-        foca.errors.BadRequest: The rule is invalid.
+        foca.errors.InvalidFieldsProblem: The rule is invalid (cf.
+            :py:func:`_get_rule`).
         TypeError: Neither or both of `body` and `permission` were passed.
     """
     ptype, values = _get_rule(_get_body(body, permission))
@@ -298,9 +393,11 @@ def putPermission(
         Identifier of updated permission.
 
     Raises:
-        foca.errors.BadRequest: The identifier does not have the
-            length and characters configured via `access_control.id_length`
-            and `access_control.id_charset`, or the rule is invalid.
+        foca.errors.InvalidFieldsProblem: The identifier does not have the
+            length (`invalid-length`) and characters (`invalid-character`)
+            configured via `access_control.id_length` and
+            `access_control.id_charset`, or the rule is invalid (cf.
+            :py:func:`_get_rule`).
         foca.errors.Conflict: The rule is set via the app's
             configuration (`access_control.policies`).
         TypeError: Neither or both of `body` and `permission` were passed.
@@ -309,7 +406,18 @@ def putPermission(
     if len(id) != conf.id_length or not set(id) <= set(conf.id_charset):
         # Without the identifier, a value of the client
         logger.error("Invalid policy rule identifier rejected")
-        raise BadRequest
+        if len(id) != conf.id_length:
+            raise _invalid_field(
+                f"Identifiers must have {conf.id_length} characters.",
+                "invalid-length",
+                parameter="id",
+            )
+        raise _invalid_field(
+            "Identifiers must only have the configured characters "
+            "('access_control.id_charset').",
+            "invalid-character",
+            parameter="id",
+        )
     ptype, values = _get_rule(_get_body(body, permission))
     _check_not_configured(id)
     previous = _get_stored_rule(id)
@@ -351,12 +459,18 @@ def getAllPermissions(
         (`pagination`).
 
     Raises:
-        foca.errors.BadRequest: The page size is out of range, or
-            the page does not exist (except page 0 if there are no
-            permissions).
+        foca.errors.InvalidFieldsProblem: The page size is out of range
+            (`too-small`, `too-large`), or the page does not exist (except
+            page 0 if there are no permissions; `too-small`, `too-large`).
     """
-    if not 1 <= page_size <= MAX_PAGE_SIZE or page < 0:
-        raise BadRequest
+    if page_size < 1:
+        raise _invalid_field("Must be at least 1.", "too-small", parameter="page_size")
+    if page_size > MAX_PAGE_SIZE:
+        raise _invalid_field(
+            f"Must be at most {MAX_PAGE_SIZE}.", "too-large", parameter="page_size"
+        )
+    if page < 0:
+        raise _invalid_field("Must be at least 0.", "too-small", parameter="page")
     collection = _get_permissions_collection()
     query = {
         **_PERMISSION_FILTER,
@@ -368,7 +482,7 @@ def getAllPermissions(
     total_pages = ceil(total / page_size)
     if page >= max(total_pages, 1):
         logger.error("Page %s out of range (%s pages)", page, total_pages)
-        raise BadRequest
+        raise _invalid_field("Is beyond the last page.", "too-large", parameter="page")
     permissions = (
         collection.find(filter=query, projection={"_id": False})
         .sort([("_id", 1)])

@@ -1693,7 +1693,10 @@ GET /admin/access-control/permissions?page_size=2&page=0
   permissions per page; `page` (default: 0) is the page to return.
 * Permissions are returned in the order they were created.
 * Requests for pages beyond the last page (except page 0 if there are no
-  permissions) or with a `page_size` out of range are rejected with `400`.
+  permissions) or with a `page_size` out of range are rejected with `400`,
+  naming the parameter (`page` or `page_size`) as an [invalid
+  field](problems/invalid-request.md) with the code `too-small` or
+  `too-large`.
 * Pages are not guaranteed to be consistent with each other: if permissions
   are created or deleted while paging, permissions may be skipped or returned
   twice.
@@ -1742,7 +1745,26 @@ model):
 * Values of `act` fields of policy definitions (e.g., `p = sub, obj, act`)
   must be valid regular expressions.
 
-The permissions API responds with `400` to invalid rules. Requests to
+The permissions API responds with `400` to invalid rules and identifiers,
+naming the invalid field in `errors` (see [invalid
+requests](problems/invalid-request.md#codes-of-the-permissions-api)), e.g.:
+
+```json
+{
+  "type": "https://foca.readthedocs.io/en/latest/problems/invalid-request/",
+  "status": 400,
+  "code": "invalid-request",
+  "errors": [
+    {
+      "detail": "Rule values must not contain commas or line breaks.",
+      "pointer": "#/rule/v0",
+      "code": "invalid-character"
+    }
+  ]
+}
+```
+
+Like all entries of `errors`, they never quote the rejected value. Requests to
 enforced operations whose subject is not a valid value (e.g., an identity
 claim containing a comma) are denied with `403`. Stored rules that are not
 valid (e.g., added to the database directly) are skipped with a warning when

@@ -11,9 +11,10 @@ import mongomock
 import pytest
 from flask import Flask, request
 from pymongo.collection import Collection
-from werkzeug.exceptions import BadRequest, Conflict, NotFound
+from werkzeug.exceptions import Conflict, NotFound
 
 from foca.config.access import _get_app_config, _set_app_config
+from foca.errors import InvalidFieldsProblem
 from foca.models.config import AccessControlConfig, Config, MongoConfig
 from foca.security.access_control import access_control_server as module
 from foca.security.access_control.access_control_server import (
@@ -214,7 +215,7 @@ class TestGetAllPermissions:
         self, app: Flask, stored: dict[str, Any], page_size: int, page: int
     ) -> None:
         """Page sizes and pages out of range are rejected."""
-        with app.app_context(), pytest.raises(BadRequest):
+        with app.app_context(), pytest.raises(InvalidFieldsProblem):
             unwrap(getAllPermissions)(page_size=page_size, page=page)
 
     def test_incomplete(
@@ -285,7 +286,7 @@ class TestPostPermission:
         """Invalid payloads are rejected."""
         with (
             request_context(app=app),
-            pytest.raises(BadRequest),
+            pytest.raises(InvalidFieldsProblem),
         ):
             unwrap(postPermission)(body=deepcopy(payload))
         assert collection.count_documents({}) == 0
@@ -419,7 +420,7 @@ class TestPutPermission:
         with (
             caplog.at_level("INFO"),
             request_context(app=app),
-            pytest.raises(BadRequest),
+            pytest.raises(InvalidFieldsProblem),
         ):
             unwrap(putPermission)(id=id, body=deepcopy(MOCK_PERMISSION))
         assert collection.count_documents({}) == 0
@@ -433,7 +434,7 @@ class TestPutPermission:
         """Invalid payloads are rejected."""
         with (
             request_context(app=app),
-            pytest.raises(BadRequest),
+            pytest.raises(InvalidFieldsProblem),
         ):
             unwrap(putPermission)(id=MOCK_ID, body=deepcopy(payload))
         assert collection.count_documents({}) == 0
@@ -449,7 +450,7 @@ class TestPutPermission:
         with (
             caplog.at_level("DEBUG"),
             request_context(app=app),
-            pytest.raises(BadRequest) as exc_info,
+            pytest.raises(InvalidFieldsProblem) as exc_info,
         ):
             unwrap(putPermission)(id=MOCK_ID, body=payload)
         assert exc_info.value.__cause__ is None
@@ -512,7 +513,7 @@ class TestLogging:
         """Invalid identifiers are not logged, as they are the client's values."""
         with (
             request_context(app=app),
-            pytest.raises(BadRequest),
+            pytest.raises(InvalidFieldsProblem),
         ):
             unwrap(putPermission)(id=self.ID, body=deepcopy(MOCK_PERMISSION))
         messages = [record.getMessage() for record in caplog.records]
@@ -594,3 +595,163 @@ class TestTrafficLogging:
             if record.name == logging_module.logger.name
         ]
         assert messages == ([] if log_traffic is False else expected)
+
+
+# Invalid payloads, with the invalid field (JSON Pointer) and its code
+INVALID_FIELDS: list[tuple[Any, str, str]] = [
+    ("", "#", "invalid-type"),
+    ({"rule": []}, "#/rule", "invalid-type"),
+    ({"policy_type": "p"}, "#/rule", "required"),
+    ({"rule": {"v0": "a", "v1": "b", "v2": "GET"}}, "#/policy_type", "required"),
+    (
+        {"policy_type": 1, "rule": {"v0": "a", "v1": "b", "v2": "GET"}},
+        "#/policy_type",
+        "invalid-type",
+    ),
+    (
+        {"policy_type": "s3cr3t", "rule": {"v0": "a", "v1": "b", "v2": "GET"}},
+        "#/policy_type",
+        "pattern-mismatch",
+    ),
+    (
+        {"policy_type": "p2", "rule": {"v0": "a", "v1": "b", "v2": "GET"}},
+        "#/policy_type",
+        "unknown-policy-type",
+    ),
+    ({"policy_type": "p", "rule": {}}, "#/rule", "wrong-value-count"),
+    (
+        {"policy_type": "p", "rule": {"v0": "a", "v1": "b"}},
+        "#/rule",
+        "wrong-value-count",
+    ),
+    (
+        {"policy_type": "g", "rule": {"v0": "a", "v1": "b", "v2": "c"}},
+        "#/rule",
+        "wrong-value-count",
+    ),
+    (
+        {"policy_type": "p", "rule": {"v0": "a", "v1": "b", "act": "GET"}},
+        "#/rule/act",
+        "unknown-property",
+    ),
+    (
+        {"policy_type": "p", "rule": {"v0": "a", "v1": "b", "v3": "GET"}},
+        "#/rule",
+        "non-consecutive-keys",
+    ),
+    (
+        {"policy_type": "p", "rule": {"v0": "a", "v1": 1, "v2": "GET"}},
+        "#/rule/v1",
+        "invalid-type",
+    ),
+    (
+        {"policy_type": "p", "rule": {"v0": "", "v1": "b", "v2": "GET"}},
+        "#/rule/v0",
+        "too-short",
+    ),
+    (
+        {"policy_type": "p", "rule": {"v0": "a", "v1": "s" * 1025, "v2": "GET"}},
+        "#/rule/v1",
+        "too-long",
+    ),
+    (
+        {"policy_type": "p", "rule": {"v0": "a,s3cr3t", "v1": "b", "v2": "GET"}},
+        "#/rule/v0",
+        "invalid-character",
+    ),
+    (
+        {"policy_type": "p", "rule": {"v0": "a", "v1": "b\ns3cr3t", "v2": "GET"}},
+        "#/rule/v1",
+        "invalid-character",
+    ),
+    (
+        {"policy_type": "p", "rule": {"v0": "#s3cr3t", "v1": "b", "v2": "GET"}},
+        "#/rule/v0",
+        "invalid-character",
+    ),
+    (
+        {"policy_type": "p", "rule": {"v0": "a", "v1": "b", "v2": "(s3cr3t"}},
+        "#/rule/v2",
+        "invalid-pattern",
+    ),
+]
+
+
+class TestInvalidFields:
+    """Tests for the invalid fields reported by the permissions API."""
+
+    @staticmethod
+    def _assert_field(exc: InvalidFieldsProblem, pointer: str, code: str) -> None:
+        """Assert that the problem names one field, without the client's values.
+
+        Args:
+            exc: Raised problem.
+            pointer: Expected JSON Pointer of the invalid field.
+            code: Expected code.
+        """
+        assert [(e.pointer, e.parameter, e.code) for e in exc.field_errors] == [
+            (pointer, None, code)
+        ]
+        assert "s3cr3t" not in exc.field_errors[0].detail
+        assert "s3cr3t" not in str(exc.detail)
+        assert exc.__cause__ is None
+
+    @pytest.mark.parametrize("payload,pointer,code", INVALID_FIELDS)
+    def test_post(self, app: Flask, payload: Any, pointer: str, code: str) -> None:
+        """Invalid fields of new permissions are reported."""
+        with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
+            unwrap(postPermission)(body=deepcopy(payload))
+        self._assert_field(exc.value, pointer, code)
+
+    @pytest.mark.parametrize("payload,pointer,code", INVALID_FIELDS)
+    def test_put(self, app: Flask, payload: Any, pointer: str, code: str) -> None:
+        """Invalid fields of updated permissions are reported."""
+        with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
+            unwrap(putPermission)(id=MOCK_ID, body=deepcopy(payload))
+        self._assert_field(exc.value, pointer, code)
+
+    def test_opt_in_role(self, app: Flask, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Role rules granting opt-in roles are reported at the role."""
+        monkeypatch.setattr(module, "grants_opt_in_role", lambda *_: True)
+        body = {"policy_type": "g", "rule": {"v0": "user:a", "v1": "s3cr3t"}}
+        with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
+            unwrap(postPermission)(body=body)
+        self._assert_field(exc.value, "#/rule/v1", "opt-in-role")
+
+    @pytest.mark.parametrize(
+        "id,code", [("mock", "invalid-length"), ("mock-1", "invalid-character")]
+    )
+    def test_put_id(self, app: Flask, id: str, code: str) -> None:
+        """Invalid identifiers are reported as the path parameter `id`."""
+        with request_context(app=app), pytest.raises(InvalidFieldsProblem) as exc:
+            unwrap(putPermission)(id=id, body=deepcopy(MOCK_PERMISSION))
+        errors = exc.value.field_errors
+        assert [(e.pointer, e.parameter, e.code) for e in errors] == [
+            (None, "id", code)
+        ]
+        assert id not in errors[0].detail
+
+    @pytest.mark.parametrize(
+        "page_size,page,parameter,code",
+        [
+            (0, 0, "page_size", "too-small"),
+            (1001, 0, "page_size", "too-large"),
+            (1, -1, "page", "too-small"),
+            (1, 1, "page", "too-large"),
+        ],
+    )
+    def test_pages(
+        self,
+        app: Flask,
+        stored: dict[str, Any],
+        page_size: int,
+        page: int,
+        parameter: str,
+        code: str,
+    ) -> None:
+        """Page sizes and pages out of range are reported as their parameters."""
+        with app.app_context(), pytest.raises(InvalidFieldsProblem) as exc:
+            unwrap(getAllPermissions)(page_size=page_size, page=page)
+        assert [(e.pointer, e.parameter, e.code) for e in exc.value.field_errors] == [
+            (None, parameter, code)
+        ]

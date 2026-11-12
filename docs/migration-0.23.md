@@ -1,9 +1,12 @@
 # Migrating to 0.23.0
 
-FOCA 0.23.0 lets patches of API specifications remove keys. Apps and
-deployments need to change only if:
+FOCA 0.23.0 lets patches of API specifications remove keys, and the
+permissions API reports invalid fields. Apps and deployments need to change
+only if:
 
-- their [patches set values to `null`](#null-in-patches-removes-keys).
+- their [patches set values to `null`](#null-in-patches-removes-keys);
+- their tests or clients expect the [permissions API's plain `400`
+  responses](#the-permissions-api-reports-invalid-fields).
 
 ## `null` in patches removes keys
 
@@ -25,3 +28,25 @@ Files of `path` merged into the first one keep `null` as a value; to let them
 remove keys, too, set `merge_null_removes: true` for the specification (see
 [merging specification
 files](configuration/api.md#merging-specification-files)).
+
+## The permissions API reports invalid fields
+
+FOCA's [permissions API](access-control.md#rule-values) (`/permissions`)
+rejects invalid rules, identifiers and pages as
+[invalid fields](problems/invalid-request.md), like the app's own endpoints:
+`400` responses have the `type` and `code` (`invalid-request`) of invalid
+requests and name the invalid field in `errors`, with a [stable
+code](problems/invalid-request.md#codes-of-the-permissions-api) and without
+the rejected value. They were plain `400 Bad Request` problems with only a
+`detail`.
+
+The controllers of `foca.security.access_control.access_control_server`
+now raise `foca.errors.InvalidFieldsProblem` instead of
+`foca.errors.BadRequest`, so these responses get the problem details mapped
+to `RequestValidationProblem`, not those mapped to `BadRequest`; with
+`exceptions.public_members`, list `type`, `code` and `errors` to send the
+fields. Tests that expect `BadRequest` from these controllers expect
+`InvalidFieldsProblem` instead. `validate_rule()` and `validate_rule_value()`
+of `foca.security.access_control.foca_casbin_adapter.casbin_rule` raise
+`InvalidRuleError`, a `ValueError` with the invalid field and its code, so
+code catching `ValueError` keeps working.
