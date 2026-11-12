@@ -21,8 +21,9 @@ note: |
   the FOCA docs (migration to 0.22).
 # Shared with FOCA apps, which set `files:` to their package and tests
 # (`<pkg>/**`, `tests/**`); in FOCA, it covers the examples (FOCA's own
-# tests use Flask on purpose). `no-new-flask-internals.yml` has the same
-# rule for FOCA's own package.
+# tests use Flask on purpose), and FOCA's CI and pre-commit raise it to an
+# error there (`ast-grep scan --error=flask-import`).
+# `no-new-flask-internals.yml` has the same rule for FOCA's own package.
 files:
   - examples/**
 rule:
