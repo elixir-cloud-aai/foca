@@ -104,20 +104,24 @@ FOCA's request validation uses these codes:
 ### Codes of the permissions API
 
 FOCA's [permissions API](../access-control.md#rule-values) checks rules and
-identifiers itself, also if the request passed the schema, and reports the
-first invalid field with one of the codes above (`required`,
-`invalid-type`, `pattern-mismatch`, `unknown-property`, `too-short`,
-`too-long`, `too-small`, `too-large`) or one of these:
+identifiers and the pages of lists itself, also if the request passed the
+schema. Each response names one invalid field, the first one found:
 
-| Code | Meaning |
-| --- | --- |
-| `unknown-policy-type` | `policy_type` is not defined in the app's access control model. |
-| `wrong-value-count` | `rule` has more or fewer values than its policy type's definition has fields. |
-| `non-consecutive-keys` | The keys of `rule` are not consecutive, starting from `v0`. |
-| `invalid-character` | A rule value has a comma or line break, or starts with `#`; or the path parameter `id` has characters other than those of `access_control.id_charset`. |
-| `invalid-pattern` | The action of a policy rule is not a valid regular expression. |
-| `opt-in-role` | A role rule grants an opt-in role (`v1`). |
-| `invalid-length` | The path parameter `id` doesn't have the length `access_control.id_length`. |
+| Code | Reported at | Meaning |
+| --- | --- | --- |
+| `invalid-type` | `#`, `#/rule`, `#/policy_type`, `#/rule/vN` | The body or `rule` is not an object, or `policy_type` or a value is not a string. |
+| `required` | `#/rule`, `#/policy_type` | `rule` or `policy_type` is missing. |
+| `pattern-mismatch` | `#/policy_type` | `policy_type` is not `p` or `g`, optionally followed by digits. |
+| `unknown-policy-type` | `#/policy_type` | `policy_type` is not defined in the app's access control model. |
+| `unknown-property` | `#/rule/<key>` | `rule` has a key other than `v0` to `v5`. |
+| `non-consecutive-keys` | `#/rule` | The keys of `rule` are not consecutive, starting from `v0`. |
+| `wrong-value-count` | `#/rule` | `rule` has more or fewer values than its policy type's definition has fields. |
+| `too-short`, `too-long` | `#/rule/vN` | A value is empty or longer than 1024 characters. |
+| `invalid-character` | `#/rule/vN`, parameter `id` | A value has a comma or line break, or starts with `#`; or `id` has characters other than those of `access_control.id_charset`. |
+| `invalid-pattern` | `#/rule/vN` | The action of a policy rule is not a valid regular expression. |
+| `opt-in-role` | `#/rule/v1` | A role rule grants an opt-in role. |
+| `invalid-length` | parameter `id` | `id` doesn't have the length `access_control.id_length`. |
+| `too-small`, `too-large` | parameters `page_size`, `page` | `page_size` is out of range, or `page` is negative or beyond the last page. |
 
 Apps add codes of their own for their own checks (see below), e.g.,
 `scheme-not-allowed`; document them in their API specifications.

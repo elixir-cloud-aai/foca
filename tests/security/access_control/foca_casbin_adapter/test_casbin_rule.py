@@ -12,6 +12,7 @@ from foca.security.access_control.constants import (
 )
 from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     CasbinRule,
+    InvalidRuleError,
     validate_rule,
     validate_rule_value,
 )
@@ -155,3 +156,45 @@ class TestValidateRule:
         assert validate_rule("p9", ["a", "(b"]) == ["a", "(b"]
         with pytest.raises(ValueError):
             validate_rule("p9", ["a", "b,c"])
+
+
+class TestInvalidRuleError:
+    """Tests for the field, code and reason of `InvalidRuleError`."""
+
+    @pytest.mark.parametrize(
+        "ptype,values,field,code",
+        [
+            (None, ["a"], "policy_type", "required"),
+            (1, ["a"], "policy_type", "invalid-type"),
+            ("s3cr3t", ["a"], "policy_type", "pattern-mismatch"),
+            ("p", [], None, "wrong-value-count"),
+            ("p", ["a", 1, "c"], 1, "invalid-type"),
+            ("p", ["a", "b", ""], 2, "too-short"),
+            ("p", ["s" * 1025, "b", "c"], 0, "too-long"),
+            ("p", ["a", "b,s3cr3t", "c"], 1, "invalid-character"),
+            ("p", ["#s3cr3t", "b", "c"], 0, "invalid-character"),
+            ("p9", ["a", "b", "c"], "policy_type", "unknown-policy-type"),
+            ("p", ["a", "b"], None, "wrong-value-count"),
+            ("p", ["a", "b", "(s3cr3t"], 2, "invalid-pattern"),
+        ],
+    )
+    def test_fields(
+        self,
+        model: Model,
+        ptype: Any,
+        values: list[Any],
+        field: str | int | None,
+        code: str,
+    ) -> None:
+        """Errors name the field and code; their reasons don't quote values."""
+        with pytest.raises(ValueError) as exc_info:
+            validate_rule(ptype, values, model)
+        exc = exc_info.value
+        assert isinstance(exc, InvalidRuleError)
+        assert (exc.field, exc.code) == (field, code)
+        assert "s3cr3t" not in exc.reason
+
+    def test_reason_defaults_to_message(self) -> None:
+        """Without a reason, the message is the reason."""
+        exc = InvalidRuleError("Bad rule", code="invalid")
+        assert (str(exc), exc.reason, exc.field) == ("Bad rule", "Bad rule", None)

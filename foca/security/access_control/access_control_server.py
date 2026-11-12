@@ -199,6 +199,9 @@ def _check_rule_keys(rule: dict[Any, Any]) -> list[str]:
             not consecutive, starting from `v0` (`non-consecutive-keys`).
     """
     allowed = [f"v{index}" for index in range(MAX_RULE_VALUES)]
+    keys = allowed[: len(rule)]
+    if set(rule) != set(keys):
+        logger.error("Invalid policy rule rejected")
     for key in rule:
         if key not in allowed:
             raise _invalid_field(
@@ -206,7 +209,6 @@ def _check_rule_keys(rule: dict[Any, Any]) -> list[str]:
                 "unknown-property",
                 pointer=json_pointer("rule", str(key)),
             )
-    keys = allowed[: len(rule)]
     if set(rule) != set(keys):
         raise _invalid_field(
             "Rule keys must be consecutive, starting from 'v0', up to "
@@ -250,11 +252,7 @@ def _get_rule(body: Any) -> tuple[str, list[str]]:
         )
     ptype = body.get("policy_type")
     rule = body["rule"]
-    try:
-        keys = _check_rule_keys(rule)
-    except InvalidFieldsProblem:
-        logger.error("Invalid policy rule rejected")
-        raise
+    keys = _check_rule_keys(rule)
     try:
         model = Model()
         model.load_model(current_app.config["CASBIN_MODEL"])
