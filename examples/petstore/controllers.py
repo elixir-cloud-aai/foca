@@ -4,7 +4,6 @@ import logging
 from typing import Any
 
 from exceptions import NotFound
-from flask import Response, make_response
 from pymongo.collection import Collection
 
 from foca import get_collection
@@ -71,7 +70,7 @@ def findPetById(id: int) -> dict[str, Any]:
         Pet.
 
     Raises:
-        werkzeug.exceptions.NotFound: The pet does not exist.
+        foca.errors.NotFound: The pet does not exist.
     """
     db_collection: Collection[dict[str, Any]] = get_collection(
         db="petstore", collection="pets"
@@ -85,7 +84,7 @@ def findPetById(id: int) -> dict[str, Any]:
     return record
 
 
-def deletePet(id: int) -> Response:
+def deletePet(id: int) -> tuple[str, int]:
     """Delete a pet.
 
     Args:
@@ -95,7 +94,7 @@ def deletePet(id: int) -> Response:
         Empty response with status 204.
 
     Raises:
-        werkzeug.exceptions.NotFound: The pet does not exist.
+        foca.errors.NotFound: The pet does not exist.
     """
     db_collection: Collection[dict[str, Any]] = get_collection(
         db="petstore", collection="pets"
@@ -109,5 +108,4 @@ def deletePet(id: int) -> Response:
     db_collection.delete_one(
         {"id": id},
     )
-    response = make_response("", 204)
-    return response
+    return "", 204
