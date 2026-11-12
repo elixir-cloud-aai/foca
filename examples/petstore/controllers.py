@@ -7,6 +7,7 @@ from exceptions import NotFound
 from pymongo.collection import Collection
 
 from foca import get_collection
+from foca.errors.exceptions import problem_response
 
 logger = logging.getLogger(__name__)
 
@@ -60,17 +61,16 @@ def addPet(pet: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def findPetById(id: int) -> dict[str, Any]:
+def findPetById(id: int) -> Any:
     """Get a pet.
 
     Args:
         id: Identifier of the pet.
 
     Returns:
-        Pet.
-
-    Raises:
-        foca.errors.NotFound: The pet does not exist.
+        Pet; if it does not exist, a `404` error response naming the pet
+        (`detail`, `petId`), built with `problem_response()`, as the
+        mapped details are the same for all pets.
     """
     db_collection: Collection[dict[str, Any]] = get_collection(
         db="petstore", collection="pets"
@@ -80,7 +80,9 @@ def findPetById(id: int) -> dict[str, Any]:
         {"_id": False},
     )
     if record is None:
-        raise NotFound
+        return problem_response(
+            NotFound(f"We have never heard of pet {id}! :-("), petId=id
+        )
     return record
 
 
