@@ -103,9 +103,15 @@ FOCA's request validation uses these codes:
 
 ### Codes of the permissions API
 
-FOCA's [permissions API](../access-control.md#rule-values) checks rules and
-identifiers and the pages of lists itself, also if the request passed the
-schema. Each response names one invalid field, the first one found:
+Requests to FOCA's [permissions API](../access-control.md#rule-values) are
+first checked against its specification, like all requests: fields that the
+schema rejects are reported with the codes above (e.g., `required` at
+`#/rule/v0` for an empty `rule`, or `invalid-type` for a `page` that is not an
+integer). The permissions API then checks rules, identifiers and pages
+itself, which matters for what the schema can't check (e.g., the policy types
+and number of values of the app's model) and for custom `api_specs` with
+looser schemas. These checks stop at the first invalid field, so each
+response names one, with these codes:
 
 | Code | Reported at | Meaning |
 | --- | --- | --- |
