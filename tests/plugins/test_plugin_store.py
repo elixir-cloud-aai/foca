@@ -13,9 +13,10 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import mongomock
+import pymongo
 import pytest
 from pydantic import ValidationError
-from pymongo import MongoClient
+from pymongo import MongoClient, _csot
 from pymongo.errors import (
     DuplicateKeyError,
     ExecutionTimeout,
@@ -719,7 +720,9 @@ class TestMongoNamespaceSize:
         recount = MagicMock(side_effect=ServerSelectionTimeoutError("db.internal"))
         backend.recount = recount  # type: ignore[method-assign]
         store.set("a", 1)
-        backend._background["ns"].join(5)
+        background = backend._background["ns"]
+        background.join(5)
+        assert not background.is_alive()
         store.set("b", 1)
         assert recount.call_count == 2  # in the call, then in the background
         assert "namespace ns not counted again (ServerSelectionTimeoutError)" in (
@@ -762,8 +765,63 @@ class TestMongoNamespaceSize:
         assert backend._background["ns"] is thread
         release.set()
         thread.join(5)
+        assert not thread.is_alive()
         assert calls == ["ns", "ns"]
         assert ns_size(backend) == 2 * SMALL
+
+    def test_background_count_ignores_deadline(self, mongo: MongoStoreBackend) -> None:
+        """Background counts don't inherit the deadline of the call."""
+        backend = mongo
+        deadlines: list[float | None] = []
+
+        def recount(ns: str) -> int:
+            deadlines.append(_csot.remaining())
+            return 0
+
+        backend.recount = recount  # type: ignore[method-assign]
+        with pymongo.timeout(0.001):
+            backend._recount_in_background("ns")
+        thread = backend._background["ns"]
+        thread.join(5)
+        assert not thread.is_alive()
+        remaining = deadlines[0]
+        assert remaining is not None
+        assert remaining > 1
+
+    def test_thread_not_started(
+        self, mongo: MongoStoreBackend, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """If no thread can be started, the failure is logged, not raised."""
+        backend = mongo
+
+        def fail(self: threading.Thread) -> None:
+            raise RuntimeError("can't start new thread")
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(threading.Thread, "start", fail)
+            backend._recount_in_background("ns")
+        assert "ns" not in backend._background
+        assert (
+            "namespace ns not counted in the background (can't start new thread)"
+        ) in caplog.text
+
+    def test_concurrent_writes_while_counting(self, mongo: MongoStoreBackend) -> None:
+        """Sizes added while a count runs are kept (also of this process)."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 1)
+        original = backend.collection.aggregate
+
+        def concurrent(*args: Any, **kwargs: Any) -> Any:
+            result = list(original(*args, **kwargs))
+            # writes after the entries were read
+            store.set("b", 1)
+            store.set("c", 1)
+            return iter(result)
+
+        backend.collection.aggregate = concurrent  # type: ignore[method-assign]
+        assert backend.recount("ns") == SMALL
+        assert ns_size(backend) == 3 * SMALL
 
     def test_grow_at_the_limit(self, mongo: MongoStoreBackend) -> None:
         """Sizes grow up to the limit exactly, and not beyond."""

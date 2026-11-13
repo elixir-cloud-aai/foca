@@ -402,6 +402,7 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
         "lookups", ctx.principal.subject_type, ctx.principal.subject
     )
     budget = self.config.daily_lookups
+    # a StoreError here (e.g., a full store) fails the call: no lookup
     if ctx.store.increment(user, ttl=86400, limit=budget) is None:
         raise NotApplicable("daily lookup budget used up")
     location = self.lookup(host, ctx)  # e.g., with ctx.http

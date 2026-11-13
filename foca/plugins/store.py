@@ -35,6 +35,7 @@ if location is None:
 ```
 """
 
+import contextvars
 import hashlib
 import hmac
 import json
@@ -606,9 +607,10 @@ class MongoStoreBackend:
     timeout), the write goes on with the size kept so far (the failure is
     logged), and a thread of the process counts the namespace again in the
     background, within `_BACKGROUND_TIMEOUT` seconds, so that the size
-    doesn't drift. Writes of other processes while a count runs, and
-    writes that failed after their size was added (they may have been
-    applied all the same), may be miscounted until the next count.
+    doesn't drift. Writes and deletions while a count runs (cf.
+    :py:meth:`recount`), and writes that failed after their size was
+    added (they may have been applied all the same), may be miscounted
+    until the next count.
 
     Attributes:
         shared: `True`: all processes share the entries.
@@ -703,8 +705,12 @@ class MongoStoreBackend:
 
         One aggregation over the entries of the namespace (index `ns`);
         entries without `size` (of FOCA versions before 0.23.0) count
-        :py:data:`STORE_ENTRY_OVERHEAD`. Writes of other processes in the
-        meantime may be missed, until the next count.
+        :py:data:`STORE_ENTRY_OVERHEAD`. The stored size is corrected by
+        the difference between the count and the size read before it
+        (`$inc`, not `$set`), so that sizes that writes and deletions add
+        while the count runs are kept: those of entries that the count
+        sees too then count twice, deletions that it misses not at all,
+        until the next count.
 
         Args:
             ns: Namespace.
@@ -716,6 +722,8 @@ class MongoStoreBackend:
             pymongo.errors.PyMongoError: The database failed or was too
                 slow.
         """
+        kept = self.sizes.find_one({"_id": ns})
+        before = int(kept.get("size", 0)) if kept is not None else 0
         size = {"$ifNull": ["$size", STORE_ENTRY_OVERHEAD]}
         counted = list(
             self.collection.aggregate(
@@ -726,7 +734,9 @@ class MongoStoreBackend:
             )
         )
         total = int(counted[0]["size"]) if counted else 0
-        self.sizes.update_one({"_id": ns}, {"$set": {"size": total}}, upsert=True)
+        self.sizes.update_one(
+            {"_id": ns}, {"$inc": {"size": total - before}}, upsert=True
+        )
         return total
 
     def _recount_if_due(self, ns: str, interval: float, timeout: float) -> bool:
@@ -793,11 +803,26 @@ class MongoStoreBackend:
             running = self._background.get(ns)
             if running is not None and running.is_alive():
                 return
+            # in a context of its own, so that the deadline of the call
+            # doesn't apply (threads may inherit contexts, e.g., free-
+            # threaded Python 3.14)
             thread = threading.Thread(
-                target=run, name=f"plugin-store-recount-{ns}", daemon=True
+                target=contextvars.Context().run,
+                args=(run,),
+                name=f"plugin-store-recount-{ns}",
+                daemon=True,
             )
+            try:
+                thread.start()
+            except RuntimeError as exc:  # e.g., no more threads
+                logger.warning(
+                    "Size of the plugin store namespace %s not counted in the"
+                    " background (%s)",
+                    ns,
+                    exc,
+                )
+                return
             self._background[ns] = thread
-            thread.start()
 
     def _adjust(self, ns: str, delta: int) -> None:
         """Add to the size of a namespace, if it has been counted.
