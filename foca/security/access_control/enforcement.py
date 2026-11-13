@@ -109,9 +109,10 @@ def get_current_subject() -> str | None:
     Returns:
         Value of the claim configured via `access_control.claim_identity`
         (default: `auth.claim_identity`) of the validated token of the
-        current request, namespaced by its issuer if the issuer has a
-        namespace (`<namespace>|<subject>`, e.g., with several trusted
-        issuers; cf. :py:func:`foca.security.auth.namespace_subject`), or
+        current request, namespaced by its issuer
+        (`<namespace>|<subject>`, by default with the issuer as namespace,
+        unless the issuer keeps its subjects bare; cf.
+        :py:func:`foca.security.auth.namespace_subject`), or
         `None` if not available, or if it cannot be namespaced. The value
         is returned without `access_control.subject_prefix`.
     """
@@ -211,8 +212,8 @@ def get_on_behalf_of_user(user: str | None = None) -> str | None:
 
     Returns:
         Named user identifier, without `access_control.subject_prefix`,
-        namespaced by the issuer of the service client if it has a
-        namespace (cf. :py:func:`get_current_subject`), as service clients
+        namespaced by the issuer of the service client (cf.
+        :py:func:`get_current_subject`), as service clients
         name users of their issuer; or `None` if the caller names no user.
 
     Raises:

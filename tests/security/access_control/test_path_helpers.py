@@ -45,6 +45,7 @@ from foca.utils.urls import (
     get_api_base_path,
     get_resource_path,
 )
+from tests.security.access_control.callers import BARE_ISSUER
 
 DEFAULT_PERMISSIONS_SPEC = (
     Path(foca_module.__file__).parent
@@ -53,6 +54,7 @@ DEFAULT_PERMISSIONS_SPEC = (
     / "api"
     / "access-control-specs.yaml"
 )
+
 DB_NAME = "access_control_db"
 COLLECTION_NAME = "policy_rules"
 ISSUER = "https://login.example.org/oidc/"
@@ -196,7 +198,7 @@ def _create_app(
     config = Config(
         security=SecurityConfig(
             auth=AuthConfig(
-                issuers=[ISSUER],
+                issuers=[BARE_ISSUER],
                 audience=["foca"],
                 service_clients=[ServiceClientConfig(client_id="svc")],
             ),

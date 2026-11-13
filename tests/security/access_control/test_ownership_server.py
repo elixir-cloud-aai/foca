@@ -38,6 +38,7 @@ from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.auth import _unauthorized
 from foca.testing import Client, Response, request_context
 from foca.utils import pagination
+from tests.security.access_control.callers import BARE_ISSUER
 
 ISSUER = "https://login.example.org/oidc/"
 OTHER_ISSUER = "https://login.example.com/oidc/"
@@ -192,7 +193,7 @@ def _create_app(
         {
             "security": {
                 "auth": {
-                    "issuers": [ISSUER] if issuers is None else issuers,
+                    "issuers": [BARE_ISSUER] if issuers is None else issuers,
                     "audience": ["foca"],
                 },
                 "access_control": {

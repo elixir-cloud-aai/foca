@@ -58,6 +58,10 @@ CHANGES_EPOCH_FIELD = "epoch"
 CHANGES_FIELD = "changes"
 MAX_RECORDED_CHANGES = 100
 
+# Separator of the namespace and the subject of namespaced subjects (cf.
+# `foca.security.auth.namespace_subject`)
+NAMESPACE_SEPARATOR = "|"
+
 # Prefix of group claim values used as roles without `group_mapping`
 GROUP_PREFIX = "group:"
 # Prefix of service clients (client IDs) in policy rules

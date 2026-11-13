@@ -37,6 +37,7 @@ from foca.security.access_control.constants import (
     GRANTED_RIGHTS_MODEL_FILE,
     MAINTAINER_ROLE,
     MIN_ID_SPACE,
+    NAMESPACE_SEPARATOR,
     OWNER_ROLE,
     PACKAGED_MODEL_PREFIX,
     RESOURCE_ROLE_MODEL_FILE,
@@ -1707,9 +1708,6 @@ class ServiceClientConfig(FOCABaseConfig):
     on_behalf_of: bool = False
 
 
-NAMESPACE_SEPARATOR = "|"
-"""Separator of the namespace and the subject of namespaced subjects."""
-
 _NAMESPACE_FORBIDDEN = frozenset(f"{NAMESPACE_SEPARATOR},\r\n")
 
 MAX_NAMESPACE_LENGTH = 256
@@ -1752,14 +1750,16 @@ class IssuerConfig(FOCABaseConfig):
         namespace: Namespace of the subjects of the issuer's tokens, as
             `<namespace>|<subject>` (cf.
             :py:func:`foca.security.auth.namespace_subject`), so that equal
-            subjects of different issuers are different users. If `None`
-            (default), the issuer if several issuers are trusted, else none.
-            An empty value keeps the issuer's subjects bare, e.g., for the
-            first issuer of an app that trusts a second one later, so that
-            its stored subjects stay valid. Must not contain `|`, commas or
-            line breaks, and must have at most 256 characters
-            (`MAX_NAMESPACE_LENGTH`), so that namespaced subjects fit into
-            policy rules.
+            subjects of different issuers are different users, also if
+            only one issuer is trusted, so that trusting another one later
+            changes no stored subject. If `None` (default), the issuer. An
+            empty value keeps the issuer's subjects bare, e.g., for an app
+            whose subjects were stored bare before FOCA 0.23.0, so that they
+            stay valid; at most one issuer may keep its subjects bare. Must
+            not contain `|`, commas or line breaks, and must have at most
+            256 characters (`MAX_NAMESPACE_LENGTH`), so that namespaced
+            subjects fit into policy rules; set it if the issuer doesn't
+            meet these requirements.
         audience: Accepted audiences of the issuer's tokens (cf.
             `AuthConfig.audience`). If `None` (default),
             `AuthConfig.audience` applies.
@@ -1897,10 +1897,11 @@ class AuthConfig(FOCABaseConfig):
         issuers: Trusted token issuers, i.e., values of the `iss` claim of
             accepted tokens, as URLs or with settings of their own (cf.
             :py:class:`IssuerConfig`). Tokens of other issuers are rejected
-            without contacting them. If empty, all tokens are rejected. With
-            several issuers, subjects are namespaced by issuer (cf.
-            `IssuerConfig.namespace`); issuers must have different
-            namespaces, and at most one may keep its subjects bare.
+            without contacting them. If empty, all tokens are rejected.
+            Subjects are namespaced by issuer (cf.
+            `IssuerConfig.namespace`), also with a single issuer; issuers
+            must have different namespaces, and at most one may keep its
+            subjects bare.
         add_key_to_claims: Whether to add the identity provider's public key
             that the token was verified with, in PEM format, to the claims.
         allow_expired: Allow/disallow expired JWTs. If ``False``, a ``401``
@@ -2232,20 +2233,15 @@ class AuthConfig(FOCABaseConfig):
 
         Returns:
             Namespace of each trusted issuer, in the order of `issuers`: its
-            `namespace`, or by default the issuer if several issuers are
-            trusted; `None` if its subjects are bare (an empty or, with one
-            issuer, unset namespace).
+            `namespace`, by default the issuer; `None` if its subjects are
+            bare (an empty namespace).
 
         Raises:
             ValueError: An issuer is listed with different settings.
         """
-        settings = self.get_issuer_configs()
-        several = len(settings) > 1
         return {
-            issuer: (issuer if several else None)
-            if conf.namespace is None
-            else (conf.namespace or None)
-            for issuer, conf in settings.items()
+            issuer: issuer if conf.namespace is None else (conf.namespace or None)
+            for issuer, conf in self.get_issuer_configs().items()
         }
 
     @model_validator(mode="after")

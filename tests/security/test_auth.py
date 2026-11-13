@@ -1398,10 +1398,33 @@ class TestNamespaceSubject:
     """Tests for `namespace_subject()`."""
 
     def test_one_issuer(self) -> None:
-        """Subjects of a single issuer are bare, as before."""
+        """Subjects of a single issuer are namespaced by the issuer, too."""
         conf = AuthConfig(issuers=[ISSUER], audience=[AUDIENCE])
+        assert auth.namespace_subject("alice", ISSUER, conf) == f"{ISSUER}|alice"
+        # subjects may contain `|`
+        assert auth.namespace_subject("a|b", ISSUER, conf) == f"{ISSUER}|a|b"
+        # untrusted or missing issuers
+        assert auth.namespace_subject("alice", "https://x", conf) is None
+        assert auth.namespace_subject("alice", None, conf) is None
+
+    def test_one_issuer_namespace(self) -> None:
+        """The namespace of an issuer replaces the issuer."""
+        conf = AuthConfig.model_validate(
+            {"issuers": [{"issuer": ISSUER, "namespace": "ls"}], "audience": [AUDIENCE]}
+        )
+        assert auth.namespace_subject("alice", ISSUER, conf) == "ls|alice"
+
+    def test_one_bare_issuer(self) -> None:
+        """Subjects of a single issuer are bare with an empty namespace."""
+        conf = AuthConfig.model_validate(
+            {"issuers": [{"issuer": ISSUER, "namespace": ""}], "audience": [AUDIENCE]}
+        )
+        assert auth.namespace_subject("alice", ISSUER, conf) == "alice"
+        # no namespaced subjects to collide with
         assert auth.namespace_subject("a|b", ISSUER, conf) == "a|b"
-        assert auth.namespace_subject("alice", None, conf) == "alice"
+
+    def test_no_issuers(self) -> None:
+        """Without trusted issuers, subjects are bare (no token validates)."""
         assert auth.namespace_subject("alice", "https://x", AuthConfig()) == "alice"
 
     def test_several_issuers(self) -> None:

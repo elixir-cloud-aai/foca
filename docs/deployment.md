@@ -170,7 +170,9 @@ warnings, naming the setting to change, among others:
   `group_mapping` without `keep_group_subjects` if a configured or stored
   rule has a group as its subject, `keep_group_subjects` without
   `group_mapping`, several trusted issuers with group claims (their
-  values are not namespaced by issuer), and stored configured rules removed as
+  values are not namespaced by issuer), configured or stored rules naming
+  users that no trusted issuer has (e.g., without namespace), and stored
+  configured rules removed as
   `policies` is not set; opt-in roles that no group is mapped to, and
   opt-in roles that CORS doesn't allow to ask for (also without access
   control);

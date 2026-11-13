@@ -624,6 +624,189 @@ class TestSyncPolicies:
         assert "not enabled" in capsys.readouterr().err
 
 
+class TestNamespaceSubjects:
+    """Tests for `namespace-subjects`."""
+
+    @staticmethod
+    def _conf(database: str, auth: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Create a configuration with access control and a bare user's rule.
+
+        Args:
+            database: Name of the database of the policies.
+            auth: Authentication settings; by default, `AUTH`.
+
+        Returns:
+            Configuration.
+        """
+        return {
+            "security": {
+                "auth": AUTH if auth is None else auth,
+                "access_control": {
+                    "enabled": True,
+                    "db_name": database,
+                    "collection_name": "policies",
+                    "policies": [["g", "user:carol", "admin"]],
+                },
+            }
+        }
+
+    @staticmethod
+    def _users(database: str) -> list[str]:
+        """Get the users of the stored rules that are not configured.
+
+        Args:
+            database: Name of the database of the policies.
+
+        Returns:
+            Users (`v0`), sorted.
+        """
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            f"mongodb://localhost:{MONGO_PORT}"
+        )
+        try:
+            return sorted(
+                doc["v0"]
+                for doc in client[database]["policies"].find(
+                    {"configured": {"$ne": True}, "v0": {"$type": "string"}}
+                )
+            )
+        finally:
+            client.close()
+
+    @staticmethod
+    def _store(database: str, *users: str) -> None:
+        """Store rules of users, as written via the permissions API.
+
+        Args:
+            database: Name of the database of the policies.
+            *users: Users, with prefix.
+        """
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            f"mongodb://localhost:{MONGO_PORT}"
+        )
+        try:
+            client[database]["policies"].insert_many(
+                [{"ptype": "g", "v0": user, "v1": "admin"} for user in users]
+            )
+        finally:
+            client.close()
+
+    @pytest.mark.mongodb
+    def test_namespace(
+        self,
+        app_module: AppFactory,
+        database: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Bare users of stored rules are namespaced; dry runs only count them."""
+        module = app_module(self._conf(database))
+        self._store(database, "user:alice", f"user:{ISSUER}|bob")
+        # stores the configured rule, as on startup
+        assert main(["--app", f"{module}:foca", "sync-policies"]) == 0
+        args = ["--app", f"{module}:foca", "namespace-subjects", ISSUER]
+        assert main([*args, "--dry-run"]) == 0
+        output = capsys.readouterr().out
+        assert "To namespace: 1 stored rules" in output
+        # the configured rule
+        assert "Kept: 1 configured rules" in output
+        # bob's rule
+        assert (
+            "Kept: 1 stored rules naming users that already start with the "
+            "namespace of a trusted issuer" in output
+        )
+        assert self._users(database) == ["user:alice", f"user:{ISSUER}|bob"]
+        assert main(args) == 0
+        assert "Namespaced: 1 stored rules" in capsys.readouterr().out
+        assert self._users(database) == [
+            f"user:{ISSUER}|alice",
+            f"user:{ISSUER}|bob",
+        ]
+
+    @pytest.mark.mongodb
+    def test_invalid_kept(
+        self,
+        app_module: AppFactory,
+        database: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Users that would be too long namespaced are counted and kept."""
+        module = app_module(self._conf(database))
+        self._store(database, f"user:{'x' * 1000}")
+        args = ["--app", f"{module}:foca", "namespace-subjects", ISSUER]
+        assert main(args) == 0
+        assert "Kept: 1 stored rules whose" in capsys.readouterr().out
+
+    @pytest.mark.mongodb
+    def test_conflicting_kept(
+        self,
+        app_module: AppFactory,
+        database: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Roles on resources of users with a namespaced role there are kept."""
+        module = app_module(self._conf(database))
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            f"mongodb://localhost:{MONGO_PORT}"
+        )
+        try:
+            client[database]["policies"].insert_many(
+                [
+                    {"ptype": "g2", "v0": "user:alice", "v1": "owner", "v2": "/x"},
+                    {
+                        "ptype": "g2",
+                        "v0": f"user:{ISSUER}|alice",
+                        "v1": "maintainer",
+                        "v2": "/x",
+                    },
+                ]
+            )
+        finally:
+            client.close()
+        args = ["--app", f"{module}:foca", "namespace-subjects", ISSUER]
+        assert main(args) == 0
+        assert "Kept: 1 stored rules granting roles" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "auth,namespace,error",
+        [
+            (AUTH, "https://other.example.org/", "No trusted issuer has the"),
+            (AUTH, "", "No trusted issuer has the"),
+            (
+                {
+                    "issuers": [
+                        {"issuer": ISSUER, "namespace": ""},
+                        "https://other.example.org/",
+                    ],
+                    "audience": ["foca"],
+                },
+                "https://other.example.org/",
+                "keeps its subjects bare",
+            ),
+        ],
+    )
+    def test_refused(
+        self,
+        app_module: AppFactory,
+        capsys: pytest.CaptureFixture[str],
+        auth: dict[str, Any],
+        namespace: str,
+        error: str,
+    ) -> None:
+        """Namespaces must be of trusted issuers, none of which is bare."""
+        module = app_module(self._conf("unused", auth))
+        args = ["--app", f"{module}:foca", "namespace-subjects", namespace]
+        assert main(args) == 1
+        assert error in capsys.readouterr().err
+
+    def test_not_enabled(
+        self, app_module: AppFactory, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Without access control, there's nothing to do, which is reported."""
+        args = ["--app", f"{app_module({})}:foca", "namespace-subjects", ISSUER]
+        assert main(args) == 1
+        assert "not enabled" in capsys.readouterr().err
+
+
 class TestExportSpec:
     """Tests for `export-spec`."""
 

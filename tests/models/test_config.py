@@ -684,14 +684,14 @@ B = "https://b.example.org"
 @pytest.mark.parametrize(
     "issuers,namespaces",
     [
-        # one issuer: bare by default
-        ([A], [None]),
-        ([A, A], [None]),
-        ([{"issuer": A}], [None]),
-        ([A, {"issuer": A}], [None]),
+        # the issuer by default, also for a single issuer
+        ([A], [A]),
+        ([A, A], [A]),
+        ([{"issuer": A}], [A]),
+        ([A, {"issuer": A}], [A]),
         ([{"issuer": A, "namespace": "a"}], ["a"]),
+        # bare only if set so
         ([{"issuer": A, "namespace": ""}], [None]),
-        # several issuers: the issuer by default
         ([A, B], [A, B]),
         ([{"issuer": A, "namespace": ""}, B], [None, B]),
         (
@@ -723,6 +723,7 @@ def test_AuthConfig_issuer_namespaces(
         ([A, {"issuer": A, "namespace": "a"}], "different settings"),
         # issuers with forbidden characters cannot be the default namespace
         (["https://a.example.org/|x", B], "set `security"),
+        (["https://a.example.org/|x"], "set `security"),
         # forbidden characters
         ([{"issuer": A, "namespace": "a|b"}], "must not contain"),
         ([{"issuer": A, "namespace": "a,b"}], "must not contain"),
@@ -730,6 +731,7 @@ def test_AuthConfig_issuer_namespaces(
         ([{"issuer": ""}], "at least 1 character"),
         ([{"issuer": A, "namespace": "x" * 257}], "at most 256 characters"),
         ([f"https://{'x' * 250}.org", B], "shorter"),
+        ([f"https://{'x' * 250}.org"], "shorter"),
     ],
 )
 def test_AuthConfig_issuer_namespaces_invalid(issuers: list[Any], match: str) -> None:
@@ -739,9 +741,14 @@ def test_AuthConfig_issuer_namespaces_invalid(issuers: list[Any], match: str) ->
 
 
 def test_AuthConfig_issuer_one_with_forbidden_characters() -> None:
-    """Test AuthConfig instantiation; a single issuer is not a namespace."""
-    res = AuthConfig(issuers=["https://a.example.org/|x"], audience=["foca"])
-    assert res.get_namespaces() == {"https://a.example.org/|x": None}
+    """Test AuthConfig instantiation; a single issuer with a namespace."""
+    res = AuthConfig.model_validate(
+        {
+            "issuers": [{"issuer": "https://a.example.org/|x", "namespace": "a"}],
+            "audience": ["foca"],
+        }
+    )
+    assert res.get_namespaces() == {"https://a.example.org/|x": "a"}
     assert res.issuer_urls == ["https://a.example.org/|x"]
 
 

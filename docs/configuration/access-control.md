@@ -93,7 +93,7 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
 - **Admins:** the groups (via `group_mapping`) and service clients (via
   `client_mapping`) mapped to the role `admin` are logged (`INFO`). If none
   is mapped to it and no rule of `policies` grants it (e.g., `[g,
-  "user:alice", admin]`), a warning is logged, as nobody is then an admin
+  "user:https://login.example.org/oidc/|alice", admin]`), a warning is logged, as nobody is then an admin
   via mappings or configured rules. Rules for groups (`group:<value>`)
   count only if `claim_groups` is set and group claim values are used as
   group subjects (see below). Only direct
@@ -132,6 +132,19 @@ is enabled, `Foca.create_app()` checks them, and refuses to start
   (e.g., written via the permissions API), otherwise at `INFO`, as apps that
   only map groups to roles lose nothing. Set `keep_group_subjects: true` if
   the app grants roles to groups.
+- **Users:** users are named in rules with the namespace of their issuer
+  (`user:<namespace>|<subject>`, cf. [several trusted
+  issuers](../authentication.md#several-trusted-issuers)). A warning is
+  logged if a rule of `policies` names a user that no trusted issuer has,
+  e.g., without namespace (`user:alice`), naming the positions of these
+  rules, but not the users; and if a stored rule does (e.g., written via the
+  permissions API, or stored before FOCA 0.23.0, cf. [Migrating to
+  0.23.0](../migration-0.23.md#subjects-are-always-namespaced-by-issuer)).
+  Such rules apply to nobody. Users without namespace are fine if an issuer
+  keeps its subjects bare (`namespace: ""`). Only warnings, as custom models
+  may match subjects in other ways. The check of stored rules runs where
+  stored configured rules are replaced (on startup, or with
+  [`foca sync-policies`](../cli.md#sync-policies)).
 - **Opt-in roles:** the opt-in roles and their header are logged
   (`INFO`), and a warning is logged for opt-in roles that no group is
   mapped to (no user can opt in to them), and if CORS is enabled but

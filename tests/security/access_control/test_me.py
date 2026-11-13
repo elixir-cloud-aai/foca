@@ -11,6 +11,7 @@ from flask import Flask
 from pydantic import ValidationError
 
 from foca.api.register_openapi import register_openapi
+from foca.config.access import _get_app_config
 from foca.errors.exceptions import register_exception_handler
 from foca.factories.connexion_app import create_connexion_app
 from foca.models.config import (
@@ -30,6 +31,7 @@ from foca.security.access_control.me import import_me_hook
 from foca.security.auth import InvalidTokenResolver
 from foca.testing import Client
 from foca.utils.urls import _register_api, get_resource_path
+from tests.security.access_control.callers import BARE_ISSUER
 
 ISSUER = "https://login.example.org/oidc/"
 ADMINS = "urn:example:admins"
@@ -122,7 +124,7 @@ def _create_app(
     config = Config(
         security=SecurityConfig(
             auth=AuthConfig(
-                issuers=[ISSUER],
+                issuers=[BARE_ISSUER],
                 audience=["foca"],
                 service_clients=[ServiceClientConfig(client_id="conquest")],
             ),
@@ -219,6 +221,19 @@ class TestResponse:
         """Admins learn that they are, from role rules."""
         data = _get(_create_app(tmp_path, me_enabled=True), "ruled").json()
         assert data["groups"] == []
+        assert data["admin"] is True
+
+    def test_namespaced_by_single_issuer(self, tmp_path: Path) -> None:
+        """Users of the default single issuer learn their namespaced subject."""
+        app = _create_app(tmp_path, me_enabled=True)
+        _get_app_config(app).security.auth.issuers = [ISSUER]
+        # the bare rule no longer applies, the namespaced one does
+        assert _get(app, "ruled").json()["admin"] is False
+        app.config["casbin_adapter"].save_policy_line(
+            ptype="g", rule=[f"user:{ISSUER}|ruled", "admin"]
+        )
+        data = _get(app, "ruled").json()
+        assert data["subject"] == f"{ISSUER}|ruled"
         assert data["admin"] is True
 
     def test_opt_in(self, tmp_path: Path) -> None:
@@ -427,7 +442,7 @@ class TestRegistration:
         )
         config = Config(
             security=SecurityConfig(
-                auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
+                auth=AuthConfig(issuers=[BARE_ISSUER], audience=["foca"]),
                 access_control=conf,
             ),
             db=MongoConfig(),
@@ -485,7 +500,7 @@ class TestRegistration:
             Config(
                 security=SecurityConfig(
                     auth=AuthConfig(
-                        issuers=[ISSUER],
+                        issuers=[BARE_ISSUER],
                         audience=["foca"],
                         reject_invalid_tokens=True,
                     ),

@@ -49,6 +49,7 @@ from foca.security.access_control.foca_casbin_adapter.adapter import (
     PolicyChanges,
 )
 from foca.testing import request_context
+from tests.security.access_control.callers import BARE_ISSUER
 
 DB_NAME = "foca_test_enforcer_cache"
 TASK = "/tasks/1"
@@ -987,7 +988,7 @@ def _create_app(collection: Collection[dict[str, Any]]) -> Flask:
     conf = Config.model_validate(
         {
             "security": {
-                "auth": {"issuers": [ISSUER], "audience": ["foca"]},
+                "auth": {"issuers": [BARE_ISSUER], "audience": ["foca"]},
                 "access_control": {"enabled": True, "model": RESOURCE_ROLE_MODEL},
             }
         }

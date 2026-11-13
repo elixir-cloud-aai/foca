@@ -10,6 +10,7 @@ foca --app my_app.app:foca check-config
 foca --app my_app.app:foca create-indexes
 foca --app my_app.app:foca sync-policies
 foca --app my_app.app:foca export-spec --format json > openapi.json
+foca --app my_app.app:foca namespace-subjects --dry-run https://login.example.org/oidc/
 ```
 
 `--app` is `module:attribute`, naming a `Foca` instance or a function returning one,
@@ -85,6 +86,41 @@ what FOCA and your configuration add. So `servers` of OpenAPI 3 has the base pat
 the API, without the hosts of the file. `--format` is `yaml` (default) or `json`. If the
 app has several specifications, `--spec` selects one, by its name in `api.specs` or its
 base path. The permissions API isn't exported.
+
+### `namespace-subjects`
+
+Rewrites the bare users of stored policy rules (`user:<subject>`) to users of a trusted
+issuer, namespaced as `user:<namespace>|<subject>` (see [several trusted
+issuers](authentication.md#several-trusted-issuers)), e.g., the users that an app
+stored before FOCA 0.23.0, when subjects of a single issuer were bare (see [Migrating
+to 0.23.0](migration-0.23.md#subjects-are-always-namespaced-by-issuer)). The argument
+is the namespace of the issuer whose users are bare: by default, the issuer itself, as
+in `security.auth.issuers`. Users that start with the namespace of a trusted issuer and
+`|` are kept, so that the command can run again, e.g., after an interrupted run; all
+others count as bare, also those containing `|` (e.g., `user:auth0|123`), and also
+namespaced users of issuers that are no longer trusted: remove or rewrite their rules
+first. So don't choose namespaces that the issuer's subjects may start with, followed
+by `|` (e.g., `auth0` for subjects like `auth0|123`): such subjects count as namespaced
+already. The command reports the stored rules whose users start with the namespace of
+any trusted issuer and `|`.
+
+Only stored rules that aren't configured are rewritten (e.g., written via the
+permissions API or by the [resource ownership
+helpers](access-control.md#resource-ownership)), in any of their values (e.g., owners
+in `g2` rules). Configured rules are counted, but kept, as the app replaces them with
+those of `security.access_control.policies`: namespace the users there. Rules whose
+namespaced users wouldn't be valid rule values (more than 1024 characters) are counted
+and kept, and so are roles of bare users on resources (e.g., `g2` rules) on which the
+namespaced user had a stored role before the run, e.g., granted or changed since the
+upgrade, so that the command doesn't add to roles changed since. The rules are then marked as changed, so that
+running app instances load them again. With `--dry-run`, the command only counts the
+rules.
+
+It fails if access control isn't enabled, if no trusted issuer has the namespace, and
+if an issuer keeps its subjects bare (`namespace: ""`), as bare users are then that
+issuer's. Run it once the configuration trusts the issuer with its namespace, i.e.,
+with the configuration of the new version. Data that the app stores itself, e.g.,
+owners in documents (cf. `set_owner_field()`), isn't rewritten.
 
 
 ## Startup switches

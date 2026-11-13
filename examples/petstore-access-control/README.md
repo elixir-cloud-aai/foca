@@ -43,9 +43,9 @@ Access control is configured entirely in the [configuration file][app-config]
 policy collection and the permissions API), which requires trusted token
 issuers (`security.auth.issuers`), and with `enforce: True`, FOCA checks every request
 to an operation that requires authentication against the policies, using the
-`sub` claim of the validated bearer token as the subject (e.g.,
-`user:alice`), the request path as the object and the HTTP method as the
-action. Requests that no policy allows are denied with `403`.
+`sub` claim of the validated bearer token, namespaced by its issuer, as the
+subject (e.g., `user:https://login.example.org/oidc/|alice`), the request path as the object and
+the HTTP method as the action. Requests that no policy allows are denied with `403`.
 
 The [access control model][app-model] supports resource-scoped roles. The
 following policies are configured (`security.access_control.policies`) and
@@ -57,12 +57,13 @@ change or remove single rules by name:
 | `list-add-pets` | `p, *, /pets, (GET)\|(POST)` | Any authenticated user may list and add pets. |
 | `owners-read-delete` | `p, owner, /pets/:id, (GET)\|(DELETE)` | Owners may view and delete their pets. |
 | `owners-list-roles` | `p, owner, /pets/:id/permissions, GET` | Owners may list the roles on their pets. |
-| `owners-manage-roles` | `p, owner, /pets/:id/permissions/users/:userId, (PUT)\|(DELETE)` | Owners may grant and revoke roles on their pets. |
+| `owners-manage-roles` | `p, owner, /pets/:id/permissions/users/*, (PUT)\|(DELETE)` | Owners may grant and revoke roles on their pets (users are namespaced by issuer, so they contain slashes). |
 | `maintainers-read` | `p, maintainer, /pets/:id, GET` | Maintainers may view pets. |
 
 The [controllers][app-controllers] only manage ownership, with FOCA's
 [resource ownership helpers][res-ownership]: `addPet` makes the creator of a
-pet its owner (`add_owner()`, e.g., `g2, user:alice, owner, /pets/0`),
+pet its owner (`add_owner()`, e.g., `g2, user:https://login.example.org/oidc/|alice, owner,
+/pets/0`),
 `findPets` only lists the pets the caller has a role on (all pets for admins;
 `resource_filter()`), and `deletePet` removes all roles granted on a deleted
 pet (`remove_resource()`). Owners grant and revoke roles (`owner` or
@@ -77,7 +78,8 @@ trusted clients to act for users.
 
 Subjects with the `admin` role may do everything, including managing
 policies via the [permissions API](#explore-app). Admins make other users
-admins via the permissions API (e.g., with the rule `g, user:bob, admin`);
+admins via the permissions API (e.g., with the rule
+`g, user:https://login.example.org/oidc/|bob, admin`);
 changes made there take effect at once. To make the first user an admin,
 map a group claim of your identity provider to the `admin` role via
 `claim_groups` and `group_mapping` (see the commented example in the
@@ -220,7 +222,8 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
   ```
 
 * To **let user `bob` view a pet** (owners and admins only; `owner` would
-  make `bob` a co-owner):
+  make `bob` a co-owner); users are named with the namespace of their
+  issuer, by default the issuer:
 
   ```console
   curl -X PUT \
@@ -228,7 +231,7 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
       --header 'Accept: application/json' \
       --header 'Content-Type: application/json' \
       -d '{"role":"maintainer"}' \
-      'http://localhost/pets/0/permissions/users/bob'
+      'http://localhost/pets/0/permissions/users/https://login.example.org/oidc/|bob'
   ```
 
 * To **list the roles on a pet** (owners and admins only):
@@ -247,7 +250,7 @@ Alternatively, you can access the API endpoints programmatically, e.g., via
   curl -X DELETE \
       --header "Authorization: Bearer ${TOKEN}" \
       --header 'Accept: application/json' \
-      'http://localhost/pets/0/permissions/users/bob'
+      'http://localhost/pets/0/permissions/users/https://login.example.org/oidc/|bob'
   ```
 
 The permissions API can only be used by admins:
@@ -259,7 +262,7 @@ The permissions API can only be used by admins:
       --header "Authorization: Bearer ${TOKEN}" \
       --header 'Accept: application/json' \
       --header 'Content-Type: application/json' \
-      -d '{"policy_type":"g","rule":{"v0":"user:bob","v1":"admin"}}' \
+      -d '{"policy_type":"g","rule":{"v0":"user:https://login.example.org/oidc/|bob","v1":"admin"}}' \
       'http://localhost/admin/access-control/permissions'
   ```
 

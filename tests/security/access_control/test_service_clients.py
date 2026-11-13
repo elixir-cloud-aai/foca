@@ -38,6 +38,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUE_LENGTH,
 )
 from foca.testing import request_context
+from tests.security.access_control.callers import BARE_ISSUER
 
 ISSUER = "https://login.example.org/oidc/"
 OTHER_ISSUER = "https://other.example.org/"
@@ -61,7 +62,7 @@ def app() -> Flask:
         {
             "security": {
                 "auth": {
-                    "issuers": [ISSUER],
+                    "issuers": [BARE_ISSUER],
                     "audience": ["foca"],
                     "service_clients": [
                         {"client_id": "conquest", "on_behalf_of": True},

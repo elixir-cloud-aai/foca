@@ -1016,3 +1016,40 @@ def test_default_model() -> None:
     app = create_app(model_file=DEFAULT_MODEL_FILE)
     with as_caller(app, ALICE), pytest.raises(ValueError, match="resource-scoped"):
         add_owner(TASK)
+
+
+class TestNamespacedBySingleIssuer:
+    """Tests for owners of the default single issuer, namespaced by it."""
+
+    @pytest.fixture
+    def app(self) -> Flask:
+        """App whose single trusted issuer is the namespace of its subjects.
+
+        Returns:
+            App.
+        """
+        app = create_app()
+        _get_app_config(app).security.auth.issuers = [ISSUER]
+        return app
+
+    def test_add_owner(self, app: Flask) -> None:
+        """Owners, also those named by service clients, are namespaced."""
+        alice = f"{ISSUER}|alice"
+        with as_caller(app, ALICE):
+            assert add_owner(TASK) == ResourceRole("user", alice, "owner")
+        with as_caller(app, CONQUEST, headers={HEADER: "bob"}):
+            owner = add_owner("/tasks/2")
+            assert owner == ResourceRole("user", f"{ISSUER}|bob", "owner")
+        with as_caller(app, ALICE):
+            assert list_roles(TASK) == [ResourceRole("user", alice, "owner")]
+        rules = list(app.config["casbin_adapter"]._collection.find({"ptype": "g2"}))
+        assert sorted(rule["v0"] for rule in rules) == [
+            f"user:{alice}",
+            f"user:{ISSUER}|bob",
+        ]
+
+    def test_set_owner_field(self, app: Flask) -> None:
+        """Owners in documents are namespaced, with the issuer."""
+        with as_caller(app, ALICE):
+            owner = set_owner_field({})
+        assert owner == {"iss": ISSUER, "type": "user", "sub": f"{ISSUER}|alice"}

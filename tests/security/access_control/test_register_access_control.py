@@ -961,3 +961,148 @@ class TestWarnDefaultBasePath:
         )
         register_access_control_module._warn_default_base_path(conf)
         assert ("names the default path" in caplog.text) is warned
+
+
+ISSUER = "https://login.example.org/oidc/"
+UNKNOWN_USERS = "Configured policy rules at positions"
+STORED_UNKNOWN_USERS = "Stored policy rules name users without the namespace"
+
+
+def _auth(*issuers: Any) -> AuthConfig:
+    """Get authentication settings trusting issuers.
+
+    Args:
+        *issuers: Trusted issuers, as URLs or settings.
+
+    Returns:
+        Authentication settings.
+    """
+    return AuthConfig.model_validate({"issuers": list(issuers), "audience": ["foca"]})
+
+
+class TestPolicyUsers:
+    """Tests for the checks of users named in rules."""
+
+    @pytest.fixture(autouse=True)
+    def _mongo_clients(self, mongo_clients: MongoClients) -> None:
+        """Use in-memory MongoDB clients, as indexes are created."""
+
+    @pytest.mark.parametrize(
+        "issuers,policies,positions",
+        [
+            # bare users of the default namespace, the issuer
+            ([ISSUER], [["g", "user:alice", "admin"]], [0]),
+            (
+                [ISSUER],
+                [
+                    ["p", "*", "/x", "GET"],
+                    ["g", f"user:{ISSUER}|alice", "admin"],
+                    ["g2", "user:bob", "owner", "/x"],
+                    ["p", "group:a", "/x", "GET"],
+                ],
+                [2],
+            ),
+            ([{"issuer": ISSUER, "namespace": "ls"}], [["g", "user:ls|a", "x"]], []),
+            # an issuer keeps its subjects bare
+            ([{"issuer": ISSUER, "namespace": ""}], [["g", "user:a|b", "x"]], []),
+            (
+                [{"issuer": ISSUER, "namespace": ""}, "https://other.example.org/"],
+                [["g", "user:alice", "admin"], ["g", "user:a|b", "admin"]],
+                [1],
+            ),
+            # no trusted issuers, or no rules
+            ([], [["g", "user:alice", "admin"]], []),
+            ([ISSUER], None, []),
+        ],
+    )
+    def test_configured(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        issuers: list[Any],
+        policies: list[list[str]] | None,
+        positions: list[int],
+    ) -> None:
+        """Configured rules naming unknown users are warned about, by position."""
+        conf = AccessControlConfig(policies=policies)
+        with caplog.at_level(logging.WARNING):
+            register_access_control_module._check_policy_users(conf, _auth(*issuers))
+        warnings = [w for w in _warnings(caplog) if w.startswith(UNKNOWN_USERS)]
+        if positions:
+            assert warnings == [warnings[0]]
+            assert f"positions {positions} of" in warnings[0]
+            assert "alice" not in warnings[0]
+            assert "bob" not in warnings[0]
+        else:
+            assert not warnings
+
+    def test_configured_on_registration(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Configured rules are checked when access control is registered."""
+        cnx_app = create_connexion_app(
+            Config(security=SecurityConfig(auth=_auth(ISSUER)))
+        )
+        conf = AccessControlConfig(
+            db_name="access_control_db",
+            collection_name="policy_rules",
+            policies=[["g", "user:alice", "admin"]],
+        )
+        with caplog.at_level(logging.WARNING):
+            register_access_control(
+                cnx_app=cnx_app, mongo_config=None, access_control_config=conf
+            )
+        assert any(w.startswith(UNKNOWN_USERS) for w in _warnings(caplog))
+
+    @pytest.mark.parametrize(
+        "issuers,stored,warned",
+        [
+            ([ISSUER], True, True),
+            ([ISSUER], False, False),
+            # not checked without namespaces
+            ([{"issuer": ISSUER, "namespace": ""}], True, False),
+        ],
+    )
+    def test_stored(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        issuers: list[Any],
+        stored: bool,
+        warned: bool,
+    ) -> None:
+        """Stored rules naming unknown users are warned about."""
+        check = MagicMock(return_value=stored)
+        monkeypatch.setattr(Adapter, "has_stored_unknown_users", check)
+        cnx_app = create_connexion_app(
+            Config(security=SecurityConfig(auth=_auth(*issuers)))
+        )
+        conf = AccessControlConfig(
+            db_name="access_control_db", collection_name="policy_rules"
+        )
+        with caplog.at_level(logging.WARNING):
+            register_access_control(
+                cnx_app=cnx_app, mongo_config=None, access_control_config=conf
+            )
+        warnings = [w for w in _warnings(caplog) if w.startswith(STORED_UNKNOWN_USERS)]
+        assert bool(warnings) is warned
+        if warned:
+            assert check.call_args.args == ("user:", [ISSUER])
+
+    def test_stored_unknown(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Startup continues if stored rules cannot be checked."""
+        failure = MagicMock(side_effect=PyMongoError("unavailable"))
+        monkeypatch.setattr(Adapter, "has_stored_unknown_users", failure)
+        cnx_app = create_connexion_app(
+            Config(security=SecurityConfig(auth=_auth(ISSUER)))
+        )
+        conf = AccessControlConfig(
+            db_name="access_control_db", collection_name="policy_rules"
+        )
+        with caplog.at_level(logging.WARNING):
+            register_access_control(
+                cnx_app=cnx_app, mongo_config=None, access_control_config=conf
+            )
+        assert any(
+            w.startswith("Could not check for stored policy rules with unknown users")
+            for w in _warnings(caplog)
+        )

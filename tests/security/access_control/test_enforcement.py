@@ -74,6 +74,7 @@ from foca.security.access_control.register_access_control import (
 from foca.security.auth import _unauthorized
 from foca.testing import Client, Response, request_context
 from tests.mock_data import INVALID_TOKEN_CHALLENGE
+from tests.security.access_control.callers import BARE_ISSUER
 
 DB_NAME = "access_control_db"
 COLLECTION_NAME = "policy_rules"
@@ -269,7 +270,7 @@ def _create_app(
     spec_file.write_text(yaml.safe_dump(deepcopy(SPEC)))
     config = Config(
         security=SecurityConfig(
-            auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
+            auth=AuthConfig(issuers=[BARE_ISSUER], audience=["foca"]),
             access_control=access_control,
         ),
         db=MongoConfig(
@@ -1161,7 +1162,7 @@ def helper_app() -> Flask:
     app = Flask(__name__)
     conf = Config(
         security=SecurityConfig(
-            auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
+            auth=AuthConfig(issuers=[BARE_ISSUER], audience=["foca"]),
             access_control=_access_control_config(),
         ),
     )
@@ -1361,6 +1362,31 @@ class TestCurrentSubject:
                 ],
                 "audience": ["foca"],
             }
+        )
+        ctx = self._context(helper_app, claims)
+        try:
+            assert get_current_subject() == subject
+            subjects = _get_current_policy_subjects()
+            assert subjects == ([] if subject is None else [f"user:{subject}"])
+        finally:
+            ctx.close()
+
+    @pytest.mark.parametrize(
+        "claims,subject",
+        [
+            ({"iss": ISSUER, "sub": "carol"}, f"{ISSUER}|carol"),
+            # subjects may contain `|`
+            ({"iss": ISSUER, "sub": "a|b"}, f"{ISSUER}|a|b"),
+            ({"iss": "https://x.example.org", "sub": "carol"}, None),
+            ({"sub": "carol"}, None),
+        ],
+    )
+    def test_namespaced_by_single_issuer(
+        self, helper_app: Flask, claims: dict[str, Any], subject: str | None
+    ) -> None:
+        """Subjects of a single trusted issuer are namespaced by default."""
+        _get_app_config(helper_app).security.auth = AuthConfig(
+            issuers=[ISSUER], audience=["foca"]
         )
         ctx = self._context(helper_app, claims)
         try:
