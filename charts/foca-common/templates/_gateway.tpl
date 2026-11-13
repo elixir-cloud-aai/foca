@@ -22,6 +22,7 @@ The keys of the settings of FOCA's plugins (`foca.plugins.config`) in the values
   "keySecret" "key_secret"
   "maxAlternatives" "max_alternatives"
   "maxEntrySize" "max_entry_size"
+  "maxNamespaceSize" "max_namespace_size"
   "maxItems" "max_items"
   "maxResponseSize" "max_response_size"
   "maxRouteEntries" "max_route_entries"
