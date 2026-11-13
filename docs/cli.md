@@ -99,10 +99,10 @@ in `security.auth.issuers`. Users that start with the namespace of a trusted iss
 `|` are kept, so that the command can run again, e.g., after an interrupted run; all
 others count as bare, also those containing `|` (e.g., `user:auth0|123`), and also
 namespaced users of issuers that are no longer trusted: remove or rewrite their rules
-first. So don't choose a namespace that the issuer's subjects may start with, followed
+first. So don't choose namespaces that the issuer's subjects may start with, followed
 by `|` (e.g., `auth0` for subjects like `auth0|123`): such subjects count as namespaced
-already. The command reports the stored rules whose users start with the namespace and
-`|` before it runs.
+already. The command reports the stored rules whose users start with the namespace of
+any trusted issuer and `|`.
 
 Only stored rules that aren't configured are rewritten (e.g., written via the
 permissions API or by the [resource ownership
@@ -111,8 +111,8 @@ in `g2` rules). Configured rules are counted, but kept, as the app replaces them
 those of `security.access_control.policies`: namespace the users there. Rules whose
 namespaced users wouldn't be valid rule values (more than 1024 characters) are counted
 and kept, and so are roles of bare users on resources (e.g., `g2` rules) on which the
-namespaced user already has a role, e.g., granted or changed since the upgrade, as
-users have one role per resource. The rules are then marked as changed, so that
+namespaced user had a stored role before the run, e.g., granted or changed since the
+upgrade, so that the command doesn't add to roles changed since. The rules are then marked as changed, so that
 running app instances load them again. With `--dry-run`, the command only counts the
 rules.
 

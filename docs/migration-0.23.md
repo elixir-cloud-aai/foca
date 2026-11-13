@@ -51,8 +51,9 @@ the permissions API lose their roles. Choose one of these before you upgrade:
 
 2. **Namespace the stored subjects:** optionally set a shorter `namespace` for
    the issuer (e.g., `ls`; it must not change later, and the issuer's subjects
-   must not start with it and `|`, e.g., not `auth0` for subjects like
-   `auth0|123`), then, with the configuration of the new version:
+   must not start with the namespace of any trusted issuer and `|`, e.g., not
+   `auth0` for subjects like `auth0|123`), then, with the configuration of the
+   new version:
 
     1. Namespace the users of configured rules in
        `security.access_control.policies`, e.g., `[g, "user:alice", admin]`

@@ -196,9 +196,10 @@ def _namespace_subjects(foca: Foca, args: argparse.Namespace) -> str:
     if counts.ambiguous:
         output += (
             f"Kept: {counts.ambiguous} stored rules naming users that already "
-            f"start with '{namespace}|' (e.g., namespaced by an earlier run); "
-            "bare subjects that look like this can't be told apart, so if the "
-            "issuer's subjects may start so, choose another namespace.\n"
+            "start with the namespace of a trusted issuer and '|' (e.g., "
+            "granted since the upgrade, or namespaced by an earlier run); bare "
+            "subjects that look like this can't be told apart, so if the "
+            "issuer's subjects may start so, choose other namespaces.\n"
         )
     if counts.configured:
         output += (

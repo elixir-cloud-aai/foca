@@ -711,8 +711,8 @@ class TestNamespaceSubjects:
         assert "Kept: 1 configured rules" in output
         # bob's rule
         assert (
-            f"Kept: 1 stored rules naming users that already start with '{ISSUER}|'"
-            in output
+            "Kept: 1 stored rules naming users that already start with the "
+            "namespace of a trusted issuer" in output
         )
         assert self._users(database) == ["user:alice", f"user:{ISSUER}|bob"]
         assert main(args) == 0

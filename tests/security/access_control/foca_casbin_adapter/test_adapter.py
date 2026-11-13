@@ -1673,6 +1673,49 @@ class TestNamespaceUsers:
             ["g2", f"user:{ns}|alice", "owner", "/pets/2"],
         ]
 
+    def test_several_resource_roles(
+        self, policy_collection: Collection[dict[str, Any]]
+    ) -> None:
+        """Several roles of a bare user on a resource are all namespaced."""
+        adapter = Adapter(policy_collection)
+        ns = ISSUER_NAMESPACE
+        adapter.add_policy("g", "g2", ["user:alice", "owner", "/pets/1"])
+        adapter.add_policy("g", "g2", ["user:alice", "maintainer", "/pets/1"])
+        expected = NamespacedUsers(rewritten=2, configured=0, invalid=0)
+        assert adapter.namespace_users("user:", ns, [ns], dry_run=True) == expected
+        assert adapter.namespace_users("user:", ns, [ns]) == expected
+        assert self._rules(adapter) == [
+            ["g2", f"user:{ns}|alice", "maintainer", "/pets/1"],
+            ["g2", f"user:{ns}|alice", "owner", "/pets/1"],
+        ]
+
+    def test_configured_resource_roles(
+        self, policy_collection: Collection[dict[str, Any]]
+    ) -> None:
+        """Configured roles of namespaced users on resources don't conflict."""
+        adapter = Adapter(policy_collection)
+        ns = ISSUER_NAMESPACE
+        adapter.set_configured_policies([["g2", f"user:{ns}|alice", "owner", "/p"]])
+        adapter.add_policy("g", "g2", ["user:alice", "maintainer", "/p"])
+        result = adapter.namespace_users("user:", ns, [ns])
+        assert result == NamespacedUsers(rewritten=1, configured=0, invalid=0)
+
+    def test_ambiguous_other_namespace(
+        self, policy_collection: Collection[dict[str, Any]]
+    ) -> None:
+        """Users of any trusted namespace count as ambiguous, and are kept."""
+        adapter = Adapter(policy_collection)
+        adapter.add_policy("p", "p", ["user:github|42", "/x", "GET"])
+        adapter.add_policy("p", "p", ["user:alice", "/x", "GET"])
+        result = adapter.namespace_users("user:", "ls", ["ls", "github"])
+        assert result == NamespacedUsers(
+            rewritten=1, configured=0, invalid=0, ambiguous=1
+        )
+        assert self._rules(adapter) == [
+            ["p", "user:github|42", "/x", "GET"],
+            ["p", "user:ls|alice", "/x", "GET"],
+        ]
+
     def test_dry_run(self, mock_adapter: Adapter) -> None:
         """Dry runs only count the rules."""
         mock_adapter.add_policy("p", "p", ["user:alice", "/x", "GET"])

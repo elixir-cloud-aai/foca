@@ -112,6 +112,33 @@ def _user_query(pattern: str) -> dict[str, Any]:
     return {"$or": [{field: {"$regex": pattern}} for field in _VALUE_FIELDS]}
 
 
+def _resource_role_key(
+    document: dict[str, Any], user: Any
+) -> tuple[str, str, str] | None:
+    """Get policy type, user and resource of a resource-scoped role rule.
+
+    Args:
+        document: Stored rule.
+        user: User of the rule, e.g., as rewritten.
+
+    Returns:
+        Policy type, `user` and resource if the rule is a resource-scoped
+        role rule (a `g` type with three values: user, role, resource) and
+        `user` is a string; otherwise `None`.
+    """
+    ptype = document.get("ptype")
+    resource = document.get("v2")
+    if (
+        isinstance(ptype, str)
+        and ptype.startswith("g")
+        and isinstance(user, str)
+        and isinstance(resource, str)
+        and document.get("v3") is None
+    ):
+        return ptype, user, resource
+    return None
+
+
 @dataclass(frozen=True)
 class NamespacedUsers:
     """Numbers of rules with bare users, as counted by the adapter.
@@ -125,13 +152,16 @@ class NamespacedUsers:
         invalid: Stored rules that are not configured, kept as a
             namespaced user would not be a valid rule value.
         conflicting: Stored resource-scoped role rules (three values, e.g.,
-            `g2`) that are not configured, kept as the namespaced user
-            already has a role on the resource (e.g., granted since the
-            upgrade), which the rewrite would add to rather than replace.
-        ambiguous: Stored rules that are not configured whose users start
-            with `namespace` and the separator, so they count as namespaced,
-            but may be bare subjects that look namespaced (e.g.,
-            `auth0|123` with the namespace `auth0`).
+            `g2`) that are not configured, kept as the namespaced user had
+            a stored role on the resource before the run (e.g., granted or
+            changed since the upgrade), which the rewrite would add to, e.g.,
+            undoing a demotion.
+        ambiguous: Stored rules that are not configured whose users already
+            started with a namespace of a trusted issuer and the separator
+            before the run, so they count as namespaced, but may be bare
+            subjects that look namespaced (e.g., `auth0|123` with the
+            namespace `auth0`); also rules granted to namespaced users since
+            the upgrade, or rewritten by an earlier run.
     """
 
     rewritten: int
@@ -889,6 +919,10 @@ class Adapter(persist.Adapter):
         of `namespace`. So only call it if no trusted issuer keeps its
         subjects bare. Every value of a rule (`v0` to `v5`) that starts with
         `prefix` counts as a user, e.g., also in the role field of `g` rules.
+        Resource-scoped role rules of bare users are kept if the namespaced
+        user had a stored role on the resource before the run (cf.
+        `NamespacedUsers.conflicting`), so that roles granted or changed
+        since the upgrade are not added to.
         Configured rules are counted, but not rewritten, as the app replaces
         them with those of its configuration. Unless `dry_run`, marks the
         stored rules as changed (cf. :py:meth:`mark_changed`), also if
@@ -904,13 +938,20 @@ class Adapter(persist.Adapter):
         Returns:
             Numbers of rules with bare users (cf. :py:class:`NamespacedUsers`).
         """
+        namespaces = list(namespaces)
         pattern = unknown_user_pattern(prefix, namespaces)
         regex = re.compile(pattern)
-        # Before rewriting, so that only rules stored so are counted
-        prefixed = f"^{re.escape(f'{prefix}{namespace}{NAMESPACE_SEPARATOR}')}"
-        ambiguous = self._collection.count_documents(
-            {CONFIGURED_FIELD: {"$ne": True}, **_user_query(prefixed)}
+        # Before rewriting, so that rules rewritten by this run don't count,
+        # and dry runs count as real runs do
+        known = "|".join(
+            f"{re.escape(value)}{re.escape(NAMESPACE_SEPARATOR)}"
+            for value in namespaces
         )
+        namespaced = f"^{re.escape(prefix)}(?:{known})"
+        ambiguous = self._collection.count_documents(
+            {CONFIGURED_FIELD: {"$ne": True}, **_user_query(namespaced)}
+        )
+        resource_roles = self._namespaced_resource_roles(namespaced)
         rewritten = invalid = conflicting = 0
         try:
             for document in self._collection.find(
@@ -929,7 +970,7 @@ class Adapter(persist.Adapter):
                 except ValueError:
                     invalid += 1
                     continue
-                if self._has_resource_role(document, changed):
+                if _resource_role_key(document, changed.get("v0")) in resource_roles:
                     conflicting += 1
                     continue
                 rewritten += 1
@@ -959,42 +1000,29 @@ class Adapter(persist.Adapter):
             ambiguous=ambiguous,
         )
 
-    def _has_resource_role(
-        self, document: dict[str, Any], changed: dict[str, str]
-    ) -> bool:
-        """Check whether a namespaced user already has a role on a resource.
-
-        Resource-scoped role rules (`g` types with three values: subject,
-        role, resource) give a subject one role per resource (cf.
-        :py:meth:`replace_role_rule`), so the rule of a bare user is not
-        rewritten if the namespaced user has a role on the resource, e.g.,
-        granted or changed since the upgrade.
+    def _namespaced_resource_roles(self, pattern: str) -> set[tuple[str, str, str]]:
+        """Get the resources on which namespaced users have stored roles.
 
         Args:
-            document: Stored rule with a bare user.
-            changed: Rewritten values of the rule, by field.
+            pattern: Regular expression matching namespaced users.
 
         Returns:
-            Whether the rule is a resource-scoped role rule of a bare user
-            whose namespaced user has a role on the same resource.
+            Policy type, user and resource of each stored resource-scoped
+            role rule (`g` types with three values: user, role, resource)
+            that is not configured and whose user matches `pattern`.
         """
-        ptype = document.get("ptype")
-        resource = document.get("v2")
-        if (
-            not isinstance(ptype, str)
-            or not ptype.startswith("g")
-            or "v0" not in changed
-            or not isinstance(resource, str)
-            or document.get("v3") is not None
-        ):
-            return False
         query = {
-            "_id": {"$ne": document["_id"]},
-            "ptype": ptype,
-            "v0": changed["v0"],
-            "v2": resource,
+            CONFIGURED_FIELD: {"$ne": True},
+            "ptype": {"$regex": "^g"},
+            "v0": {"$regex": pattern},
+            "v2": {"$type": "string"},
+            "v3": None,
         }
-        return self._collection.count_documents(query, limit=1) > 0
+        keys = (
+            _resource_role_key(document, document["v0"])
+            for document in self._collection.find(query)
+        )
+        return {key for key in keys if key is not None}
 
     def get_filtered_rules(
         self,
