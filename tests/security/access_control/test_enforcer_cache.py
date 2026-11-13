@@ -49,12 +49,11 @@ from foca.security.access_control.foca_casbin_adapter.adapter import (
     PolicyChanges,
 )
 from foca.testing import request_context
+from tests.security.access_control.callers import BARE_ISSUER
 
 DB_NAME = "foca_test_enforcer_cache"
 TASK = "/tasks/1"
 ISSUER = "https://login.example.org/oidc/"
-# Keeps its subjects bare, as the tests name users without namespace
-BARE_ISSUER = {"issuer": ISSUER, "namespace": ""}
 # Model whose rules Casbin sorts by priority
 PRIORITY_MODEL = """
 [request_definition]

@@ -22,7 +22,6 @@ from foca.models.config import (
     AccessControlConfig,
     AuthConfig,
     Config,
-    IssuerConfig,
     MongoConfig,
     SecurityConfig,
     ServiceClientConfig,
@@ -46,6 +45,7 @@ from foca.utils.urls import (
     get_api_base_path,
     get_resource_path,
 )
+from tests.security.access_control.callers import BARE_ISSUER
 
 DEFAULT_PERMISSIONS_SPEC = (
     Path(foca_module.__file__).parent
@@ -54,11 +54,10 @@ DEFAULT_PERMISSIONS_SPEC = (
     / "api"
     / "access-control-specs.yaml"
 )
+
 DB_NAME = "access_control_db"
 COLLECTION_NAME = "policy_rules"
 ISSUER = "https://login.example.org/oidc/"
-# Keeps its subjects bare, as the tests name users without namespace
-BARE_ISSUER = IssuerConfig(issuer=ISSUER, namespace="")
 THIS_MODULE = __name__
 ADMIN_GROUP = "urn:example:admins"
 

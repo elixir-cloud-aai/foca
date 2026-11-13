@@ -187,6 +187,19 @@ def _namespace_subjects(foca: Foca, args: argparse.Namespace) -> str:
             f"Kept: {counts.invalid} stored rules whose namespaced users would "
             "not be valid rule values (e.g., too long).\n"
         )
+    if counts.conflicting:
+        output += (
+            f"Kept: {counts.conflicting} stored rules granting roles on resources "
+            "on which the namespaced users already have a role (e.g., changed "
+            "since the upgrade).\n"
+        )
+    if counts.ambiguous:
+        output += (
+            f"Kept: {counts.ambiguous} stored rules naming users that already "
+            f"start with '{namespace}|' (e.g., namespaced by an earlier run); "
+            "bare subjects that look like this can't be told apart, so if the "
+            "issuer's subjects may start so, choose another namespace.\n"
+        )
     if counts.configured:
         output += (
             f"Kept: {counts.configured} configured rules with bare users; "

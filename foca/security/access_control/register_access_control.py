@@ -1100,9 +1100,15 @@ def sync_policies(app: Flask, access_control_config: AccessControlConfig) -> boo
             force=access_control_config.policies_force,
         )
     _check_stored_group_subjects(adapter, access_control_config)
+    # FOCA's apps have a configuration; apps set up by hand (e.g., in tests)
+    # may lack it, and with it the issuers whose namespaces are checked
     config = _find_app_config(app)
-    # Without settings of issuers (e.g., apps set up in tests), no namespaces
-    if config is not None:
+    if config is None:
+        logger.debug(
+            "Stored policy rules not checked for unknown users: no FOCA "
+            "configuration attached to the app."
+        )
+    else:
         _check_stored_users(adapter, access_control_config, config.security.auth)
     return applied
 

@@ -10,7 +10,7 @@ import mongomock
 from flask import Flask
 
 from foca.config.access import _set_app_config
-from foca.models.config import Config
+from foca.models.config import Config, IssuerConfig
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     RESOURCE_ROLE_MODEL_FILE,
@@ -19,8 +19,9 @@ from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.testing import request_context
 
 ISSUER = "https://login.example.org/oidc/"
-# Keeps its subjects bare, as the tests name users without namespace
-BARE_ISSUER = {"issuer": ISSUER, "namespace": ""}
+# Trusted issuer keeping its subjects bare (`namespace: ""`), as most tests
+# name users without namespace; tests of namespaced subjects trust `ISSUER`
+BARE_ISSUER = IssuerConfig(issuer=ISSUER, namespace="")
 HEADER = "X-On-Behalf-Of"
 ADMINS = "urn:example:group:admins"
 TASK = "/tasks/1"

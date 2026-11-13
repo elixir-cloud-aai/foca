@@ -124,11 +124,21 @@ class NamespacedUsers:
         configured: Configured rules, which are not rewritten.
         invalid: Stored rules that are not configured, kept as a
             namespaced user would not be a valid rule value.
+        conflicting: Stored resource-scoped role rules (three values, e.g.,
+            `g2`) that are not configured, kept as the namespaced user
+            already has a role on the resource (e.g., granted since the
+            upgrade), which the rewrite would add to rather than replace.
+        ambiguous: Stored rules that are not configured whose users start
+            with `namespace` and the separator, so they count as namespaced,
+            but may be bare subjects that look namespaced (e.g.,
+            `auth0|123` with the namespace `auth0`).
     """
 
     rewritten: int
     configured: int
     invalid: int
+    conflicting: int = 0
+    ambiguous: int = 0
 
 
 # Version of recorded changes whose stored version is not an integer
@@ -850,13 +860,15 @@ class Adapter(persist.Adapter):
                 :py:meth:`foca.models.config.AuthConfig.get_namespaces`).
 
         Returns:
-            Whether a stored rule that is not configured has a value naming
-            a user that no trusted issuer has (cf.
-            :py:func:`unknown_user_pattern`).
+            Whether a stored rule that is not configured has a subject (its
+            first value, where FOCA's models have users) naming a user that
+            no trusted issuer has (cf. :py:func:`unknown_user_pattern`).
+            Only the first value is checked, as the check runs on every
+            startup.
         """
         query = {
             CONFIGURED_FIELD: {"$ne": True},
-            **_user_query(unknown_user_pattern(prefix, namespaces)),
+            "v0": {"$regex": unknown_user_pattern(prefix, namespaces)},
         }
         return self._collection.count_documents(query, limit=1) > 0
 
@@ -874,16 +886,19 @@ class Adapter(persist.Adapter):
         `<prefix><namespace>|<subject>`, unless the subject starts with a
         namespace of `namespaces` and the separator, so that the rewrite can
         be repeated: all other users are taken as bare users of the issuer
-        of `namespace`. Configured rules are counted, but not rewritten, as
-        the app replaces them with those of its configuration. Unless
-        `dry_run`, marks the stored rules as changed (cf.
-        :py:meth:`mark_changed`), also if rewriting fails halfway.
+        of `namespace`. So only call it if no trusted issuer keeps its
+        subjects bare. Every value of a rule (`v0` to `v5`) that starts with
+        `prefix` counts as a user, e.g., also in the role field of `g` rules.
+        Configured rules are counted, but not rewritten, as the app replaces
+        them with those of its configuration. Unless `dry_run`, marks the
+        stored rules as changed (cf. :py:meth:`mark_changed`), also if
+        rewriting fails halfway.
 
         Args:
             prefix: Prefix of users in rules (`access_control.subject_prefix`).
             namespace: Namespace of the issuer whose subjects are bare.
             namespaces: Namespaces of the subjects of all trusted issuers,
-                including `namespace`.
+                including `namespace`; none may keep its subjects bare.
             dry_run: Only count the rules.
 
         Returns:
@@ -891,7 +906,12 @@ class Adapter(persist.Adapter):
         """
         pattern = unknown_user_pattern(prefix, namespaces)
         regex = re.compile(pattern)
-        rewritten = invalid = 0
+        # Before rewriting, so that only rules stored so are counted
+        prefixed = f"^{re.escape(f'{prefix}{namespace}{NAMESPACE_SEPARATOR}')}"
+        ambiguous = self._collection.count_documents(
+            {CONFIGURED_FIELD: {"$ne": True}, **_user_query(prefixed)}
+        )
+        rewritten = invalid = conflicting = 0
         try:
             for document in self._collection.find(
                 {CONFIGURED_FIELD: {"$ne": True}, **_user_query(pattern)}
@@ -908,6 +928,9 @@ class Adapter(persist.Adapter):
                         validate_rule_value(value)
                 except ValueError:
                     invalid += 1
+                    continue
+                if self._has_resource_role(document, changed):
+                    conflicting += 1
                     continue
                 rewritten += 1
                 if not dry_run:
@@ -929,8 +952,49 @@ class Adapter(persist.Adapter):
             }
         )
         return NamespacedUsers(
-            rewritten=rewritten, configured=configured, invalid=invalid
+            rewritten=rewritten,
+            configured=configured,
+            invalid=invalid,
+            conflicting=conflicting,
+            ambiguous=ambiguous,
         )
+
+    def _has_resource_role(
+        self, document: dict[str, Any], changed: dict[str, str]
+    ) -> bool:
+        """Check whether a namespaced user already has a role on a resource.
+
+        Resource-scoped role rules (`g` types with three values: subject,
+        role, resource) give a subject one role per resource (cf.
+        :py:meth:`replace_role_rule`), so the rule of a bare user is not
+        rewritten if the namespaced user has a role on the resource, e.g.,
+        granted or changed since the upgrade.
+
+        Args:
+            document: Stored rule with a bare user.
+            changed: Rewritten values of the rule, by field.
+
+        Returns:
+            Whether the rule is a resource-scoped role rule of a bare user
+            whose namespaced user has a role on the same resource.
+        """
+        ptype = document.get("ptype")
+        resource = document.get("v2")
+        if (
+            not isinstance(ptype, str)
+            or not ptype.startswith("g")
+            or "v0" not in changed
+            or not isinstance(resource, str)
+            or document.get("v3") is not None
+        ):
+            return False
+        query = {
+            "_id": {"$ne": document["_id"]},
+            "ptype": ptype,
+            "v0": changed["v0"],
+            "v2": resource,
+        }
+        return self._collection.count_documents(query, limit=1) > 0
 
     def get_filtered_rules(
         self,

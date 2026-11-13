@@ -709,6 +709,11 @@ class TestNamespaceSubjects:
         assert "To namespace: 1 stored rules" in output
         # the configured rule
         assert "Kept: 1 configured rules" in output
+        # bob's rule
+        assert (
+            f"Kept: 1 stored rules naming users that already start with '{ISSUER}|'"
+            in output
+        )
         assert self._users(database) == ["user:alice", f"user:{ISSUER}|bob"]
         assert main(args) == 0
         assert "Namespaced: 1 stored rules" in capsys.readouterr().out
@@ -730,6 +735,36 @@ class TestNamespaceSubjects:
         args = ["--app", f"{module}:foca", "namespace-subjects", ISSUER]
         assert main(args) == 0
         assert "Kept: 1 stored rules whose" in capsys.readouterr().out
+
+    @pytest.mark.mongodb
+    def test_conflicting_kept(
+        self,
+        app_module: AppFactory,
+        database: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Roles on resources of users with a namespaced role there are kept."""
+        module = app_module(self._conf(database))
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            f"mongodb://localhost:{MONGO_PORT}"
+        )
+        try:
+            client[database]["policies"].insert_many(
+                [
+                    {"ptype": "g2", "v0": "user:alice", "v1": "owner", "v2": "/x"},
+                    {
+                        "ptype": "g2",
+                        "v0": f"user:{ISSUER}|alice",
+                        "v1": "maintainer",
+                        "v2": "/x",
+                    },
+                ]
+            )
+        finally:
+            client.close()
+        args = ["--app", f"{module}:foca", "namespace-subjects", ISSUER]
+        assert main(args) == 0
+        assert "Kept: 1 stored rules granting roles" in capsys.readouterr().out
 
     @pytest.mark.parametrize(
         "auth,namespace,error",

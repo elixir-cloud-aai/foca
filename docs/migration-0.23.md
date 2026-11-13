@@ -50,8 +50,9 @@ the permissions API lose their roles. Choose one of these before you upgrade:
     ```
 
 2. **Namespace the stored subjects:** optionally set a shorter `namespace` for
-   the issuer (e.g., `ls`; it must not change later), then, with the
-   configuration of the new version:
+   the issuer (e.g., `ls`; it must not change later, and the issuer's subjects
+   must not start with it and `|`, e.g., not `auth0` for subjects like
+   `auth0|123`), then, with the configuration of the new version:
 
     1. Namespace the users of configured rules in
        `security.access_control.policies`, e.g., `[g, "user:alice", admin]`
@@ -62,7 +63,9 @@ the permissions API lose their roles. Choose one of these before you upgrade:
        tool](cli.md#namespace-subjects), first with `--dry-run` to count them,
        before the new version serves requests (e.g., in a Helm `pre-upgrade`
        hook, or right after the upgrade; until then, the stored users lose
-       their roles):
+       their roles, and roles on resources that are changed meanwhile keep
+       their change, while the bare user's earlier role is kept bare, see
+       the command's output):
 
         ```shell
         foca --app my_app.app:foca namespace-subjects --dry-run https://login.example.org/oidc/
@@ -72,13 +75,19 @@ the permissions API lose their roles. Choose one of these before you upgrade:
     3. Rewrite the subjects that your app stores itself, e.g., owners in
        documents (`set_owner_field()`, field `owner` by default) or users
        stored from `get_current_subject()`. For owner fields, e.g., in
-       `mongosh`, for the collection `pets` and the issuer as namespace:
+       `mongosh`, for the collection `pets` and the issuer as namespace; the
+       owner field stores the issuer, so only owners of that issuer are
+       rewritten:
 
         ```javascript
-        const ns = "https://login.example.org/oidc/|";
+        const iss = "https://login.example.org/oidc/";
         db.pets.updateMany(
-          {"owner.type": "user", "owner.sub": {$not: {$regex: "^https://login\\.example\\.org/oidc/\\|"}}},
-          [{$set: {"owner.sub": {$concat: [ns, "$owner.sub"]}}}]
+          {
+            "owner.iss": iss,
+            "owner.type": "user",
+            "owner.sub": {$type: "string", $not: {$regex: "^https://login\\.example\\.org/oidc/\\|"}},
+          },
+          [{$set: {"owner.sub": {$concat: [iss, "|", "$owner.sub"]}}}]
         );
         ```
 

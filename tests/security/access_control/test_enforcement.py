@@ -34,7 +34,6 @@ from foca.models.config import (
     CollectionConfig,
     Config,
     DBConfig,
-    IssuerConfig,
     MongoConfig,
     SecurityConfig,
     SpecConfig,
@@ -75,14 +74,13 @@ from foca.security.access_control.register_access_control import (
 from foca.security.auth import _unauthorized
 from foca.testing import Client, Response, request_context
 from tests.mock_data import INVALID_TOKEN_CHALLENGE
+from tests.security.access_control.callers import BARE_ISSUER
 
 DB_NAME = "access_control_db"
 COLLECTION_NAME = "policy_rules"
 ADMIN_ENTITLEMENT = "urn:example:group:admins"
 GROUP = "urn:geant:example.org:group:team#example.org"
 ISSUER = "https://login.example.org/oidc/"
-# Keeps its subjects bare, as the tests name users without namespace
-BARE_ISSUER = IssuerConfig(issuer=ISSUER, namespace="")
 OTHER = "https://other.example.org/"
 NO_GROUPS = "https://social.example.org/"
 THIS_MODULE = __name__

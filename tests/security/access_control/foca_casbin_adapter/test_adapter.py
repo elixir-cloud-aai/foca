@@ -1589,8 +1589,11 @@ def test_has_stored_unknown_users(
     adapter.add_policy("p", "p", [f"user:{ISSUER_NAMESPACE}|a", "/x", "GET"])
     adapter.add_policy("p", "p", ["group:a", "/x", "GET"])
     assert not adapter.has_stored_unknown_users("user:", namespaces)
-    # bare users are known if an issuer keeps its subjects bare
+    # only subjects are checked
     adapter.add_policy("g", "g", ["admin", "user:bob"])
+    assert not adapter.has_stored_unknown_users("user:", namespaces)
+    # bare users are known if an issuer keeps its subjects bare
+    adapter.add_policy("g", "g", ["user:bob", "admin"])
     assert not adapter.has_stored_unknown_users("user:", [None, *namespaces])
     assert adapter.has_stored_unknown_users("user:", namespaces)
 
@@ -1627,7 +1630,10 @@ class TestNamespaceUsers:
         adapter.add_policy("g", "g2", ["user:dave", "owner", "/y"])
         version = adapter.get_changes(with_changes=False).version
         result = adapter.namespace_users("user:", ns, [ns])
-        assert result == NamespacedUsers(rewritten=3, configured=1, invalid=0)
+        # bob's rule is already namespaced
+        assert result == NamespacedUsers(
+            rewritten=3, configured=1, invalid=0, ambiguous=1
+        )
         assert self._rules(adapter) == [
             ["g2", f"user:{ns}|dave", "owner", "/y"],
             ["p", "group:g", "/x", "GET"],
@@ -1638,7 +1644,34 @@ class TestNamespaceUsers:
         # cached enforcers load the rules again
         assert adapter.get_changes(with_changes=False).version > version
         result = adapter.namespace_users("user:", ns, [ns])
-        assert result == NamespacedUsers(rewritten=0, configured=1, invalid=0)
+        assert result == NamespacedUsers(
+            rewritten=0, configured=1, invalid=0, ambiguous=4
+        )
+
+    def test_conflicting_resource_roles(
+        self, policy_collection: Collection[dict[str, Any]]
+    ) -> None:
+        """Roles of namespaced users on resources aren't added to."""
+        adapter = Adapter(policy_collection)
+        ns = ISSUER_NAMESPACE
+        adapter.add_policy("g", "g2", ["user:alice", "owner", "/pets/1"])
+        adapter.add_policy("g", "g2", ["user:alice", "owner", "/pets/2"])
+        # demoted since the upgrade
+        adapter.add_policy("g", "g2", [f"user:{ns}|alice", "maintainer", "/pets/1"])
+        # global roles may add up
+        adapter.add_policy("g", "g", ["user:alice", "admin"])
+        adapter.add_policy("g", "g", [f"user:{ns}|alice", "auditor"])
+        result = adapter.namespace_users("user:", ns, [ns])
+        assert result == NamespacedUsers(
+            rewritten=2, configured=0, invalid=0, conflicting=1, ambiguous=2
+        )
+        assert self._rules(adapter) == [
+            ["g", f"user:{ns}|alice", "admin"],
+            ["g", f"user:{ns}|alice", "auditor"],
+            ["g2", "user:alice", "owner", "/pets/1"],
+            ["g2", f"user:{ns}|alice", "maintainer", "/pets/1"],
+            ["g2", f"user:{ns}|alice", "owner", "/pets/2"],
+        ]
 
     def test_dry_run(self, mock_adapter: Adapter) -> None:
         """Dry runs only count the rules."""
