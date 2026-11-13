@@ -405,7 +405,10 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
     if ctx.store.increment(user, ttl=86400, limit=budget) is None:
         raise NotApplicable("daily lookup budget used up")
     location = self.lookup(host, ctx)  # e.g., with ctx.http
-    ctx.store.set(f"geo:{host}", location, ttl=3600)
+    try:
+        ctx.store.set(f"geo:{host}", location, ttl=3600)
+    except StoreError:  # e.g., StoreFullError: go on without caching
+        pass
     return location
 ```
 
@@ -435,8 +438,14 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
   `increment()` of a new counter, raise `foca.plugins.StoreFullError` (a
   `StoreError`) if the entry doesn't fit; replacing an entry by one that
   isn't larger, incrementing existing counters and deleting are never
-  refused for size. Plugins that cache catch it and go on without caching; give cached
-  entries a `ttl` that fits their use, so that they make room again.
+  refused for size. Plugins that cache catch it and go on without
+  caching; give cached entries a `ttl` that fits their use, so that they
+  make room again. All plugins of a distribution share the namespace and
+  its limit: entries keyed by client input (e.g., a cache of hosts of
+  inputs) can fill it, and new counters (e.g., budgets of new users) then
+  fail too. Bound such caches yourself (e.g., cache only what the plugin
+  looked up within a budget), and decide what a budget does when the
+  store fails (e.g., fail closed: no lookup).
 - Entries are in a namespace per distribution: plugins of one
   distribution share them, plugins of others can't read them; FOCA's
   built-in plugins use `foca`.

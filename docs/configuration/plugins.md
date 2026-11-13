@@ -299,10 +299,18 @@ still count until the namespace is counted again: each process does that
 before its first write to a namespace, every 5 minutes, and when a write
 doesn't fit (then at most every 10 s, before failing it). A count is one
 aggregation over the namespace's entries and takes at most half the time
-left for the write; if it fails, the write goes on with the size counted
-so far, and the app logs a warning. Concurrent writes near the limit, and
-writes while another process counts, may exceed the limit slightly until
-the next count. Entries written by FOCA versions before 0.23.0 have no
+left for the write; if it fails (e.g., a large namespace and a short
+`timeout` of the plugin call), the write goes on with the size counted so far, the app
+logs a warning, and a thread of the process counts the namespace in the
+background (within 60 s). Concurrent writes near the limit, writes while
+another process counts, and writes that failed (e.g., timed out) after
+their size was added, may miscount the size slightly until the next
+count.
+
+The size limit counts bytes of keys and values, not memory or storage:
+entries take several times their counted size in the memory of a process
+(about three times for small entries) and in the database (with indexes).
+Size the memory of processes and the database accordingly. Entries written by FOCA versions before 0.23.0 have no
 `size` and count 64 bytes each until they are replaced or expire. To
 reset a namespace's size, delete its document, e.g., in `mongosh`:
 `db.plugin_store_sizes.deleteOne({_id: "<namespace>"})`; each process

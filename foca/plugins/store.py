@@ -28,7 +28,10 @@ if count is None:
 location = ctx.store.get(f"geo:{host}")
 if location is None:
     location = lookup(host)
-    ctx.store.set(f"geo:{host}", location, ttl=3600)
+    try:
+        ctx.store.set(f"geo:{host}", location, ttl=3600)
+    except StoreFullError:  # go on without caching
+        pass
 ```
 """
 
@@ -599,10 +602,13 @@ class MongoStoreBackend:
     its first write to it, every `_RECOUNT_INTERVAL` seconds, and when a
     write does not fit, at most every `_RECOUNT_RETRY_INTERVAL` seconds,
     retrying the write then. Counts take at most half the time left for
-    the write; if one fails, the write goes on with the size kept so far
-    (the failure is logged), and the namespace is counted again after the
-    interval. Writes of other processes while a count runs may be missed
-    until the next count.
+    the write; if one fails (e.g., a large namespace and a short step
+    timeout), the write goes on with the size kept so far (the failure is
+    logged), and a thread of the process counts the namespace again in the
+    background, within `_BACKGROUND_TIMEOUT` seconds, so that the size
+    doesn't drift. Writes of other processes while a count runs, and
+    writes that failed after their size was added (they may have been
+    applied all the same), may be miscounted until the next count.
 
     Attributes:
         shared: `True`: all processes share the entries.
@@ -615,6 +621,7 @@ class MongoStoreBackend:
     _SETUP_TIMEOUT = 10.0
     _RECOUNT_INTERVAL = 300.0
     _RECOUNT_RETRY_INTERVAL = 10.0
+    _BACKGROUND_TIMEOUT = 60.0
 
     def __init__(self, collection: Collection[dict[str, Any]]) -> None:
         """Create the backend.
@@ -641,6 +648,8 @@ class MongoStoreBackend:
         self._indexed = False
         # `time.monotonic()` of the last count, by namespace
         self._counted: dict[str, float] = {}
+        # threads that count namespaces in the background, by namespace
+        self._background: dict[str, threading.Thread] = {}
         self._counted_lock = threading.Lock()
 
     def setup(self) -> None:
@@ -724,8 +733,8 @@ class MongoStoreBackend:
         """Count a namespace again unless this process did so recently.
 
         Only one thread of the process counts a namespace at a time; a
-        failed count is logged, not raised, and tried again after the
-        interval.
+        failed count is logged, not raised, and tried again in the
+        background (:py:meth:`_recount_in_background`).
 
         Args:
             ns: Namespace.
@@ -748,12 +757,47 @@ class MongoStoreBackend:
         except PyMongoError as exc:
             logger.warning(
                 "Size of the plugin store namespace %s not counted again (%s):"
-                " writes go on with the size kept so far",
+                " writes go on with the size kept so far; counting it in the"
+                " background",
                 ns,
                 type(exc).__name__,
             )
+            self._recount_in_background(ns)
             return False
         return True
+
+    def _recount_in_background(self, ns: str) -> None:
+        """Count a namespace again in a thread, unless one already does.
+
+        The count takes at most `_BACKGROUND_TIMEOUT` seconds, outside the
+        deadline of the plugin call; a failure is logged.
+
+        Args:
+            ns: Namespace.
+        """
+
+        def run() -> None:
+            """Count the namespace, logging a failure."""
+            try:
+                with pymongo.timeout(self._BACKGROUND_TIMEOUT):
+                    self.recount(ns)
+            except PyMongoError as exc:
+                logger.warning(
+                    "Size of the plugin store namespace %s not counted again"
+                    " in the background (%s)",
+                    ns,
+                    type(exc).__name__,
+                )
+
+        with self._counted_lock:
+            running = self._background.get(ns)
+            if running is not None and running.is_alive():
+                return
+            thread = threading.Thread(
+                target=run, name=f"plugin-store-recount-{ns}", daemon=True
+            )
+            self._background[ns] = thread
+            thread.start()
 
     def _adjust(self, ns: str, delta: int) -> None:
         """Add to the size of a namespace, if it has been counted.
