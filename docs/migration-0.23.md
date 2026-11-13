@@ -71,10 +71,15 @@ plugin catches it. Before, a namespace was bounded only by `max_ttl`.
   `Plugin store namespace full`.
 - With a database, FOCA keeps the size of each namespace in the new
   collection `plugin_store_sizes` of the same database, and each entry's
-  size in a new field `size`. Entries written by earlier versions are
-  counted, and get the field, when a process first writes to their
-  namespace; the database user needs no new rights.
-- Store backends of their own (implementations of
-  `foca.plugins.store.StoreBackend`) take the new keyword argument
-  `max_size` in `set()` and `increment()`, and raise `StoreFullError` if
-  the namespace would exceed it.
+  size in a new field `size` (see [how namespace sizes are
+  counted](configuration/plugins.md#how-namespace-sizes-are-counted)).
+  The database user needs the same rights on `plugin_store_sizes` as on
+  `plugin_store`: nothing changes with the `readWrite` role on the
+  database, but roles limited to the collection `plugin_store` need the new
+  collection too. Entries written by earlier versions count 64 bytes each
+  until they are replaced or expire.
+- **Breaking** for store backends of their own (implementations of
+  `foca.plugins.store.StoreBackend`): `ctx.store` now passes the keyword
+  argument `max_size` to `set()` and `increment()`, so backends without it
+  fail with `TypeError` at the first such call. Add it, and raise
+  `StoreFullError` if the namespace would exceed it.

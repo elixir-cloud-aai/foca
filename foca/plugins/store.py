@@ -35,6 +35,7 @@ if location is None:
 import hashlib
 import hmac
 import json
+import logging
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -51,6 +52,8 @@ from pymongo.read_preferences import ReadPreference
 
 from foca.plugins.base import PluginError
 from foca.plugins.selection import MAX_SAFE_INTEGER, check_i_json
+
+logger = logging.getLogger(__name__)
 
 STORE_COLLECTION = "plugin_store"
 """Name of the collection of the store, in the app's first database."""
@@ -83,6 +86,9 @@ its key and value (UTF-8; counters: 8 bytes), for the space that an entry
 takes beyond them (e.g., its expiry and identifier)."""
 
 _COUNTER_SIZE = 8
+
+_SIZE_FIELDS = {"size": True}
+"""Fields of documents that :py:func:`_document_size` needs."""
 
 StoreMode = Literal["shared", "local", "off"]
 """Where a plugin's entries are kept: `shared` (database), `local` (memory
@@ -225,7 +231,7 @@ class StoreBackend(Protocol):
 
         Raises:
             StoreFullError: The namespace would exceed `max_size`; writes
-                that don't grow it are always applied.
+                that don't grow it are never refused for size.
         """
 
     def delete(self, ns: str, key: str, now: datetime, timeout: float) -> bool:
@@ -292,8 +298,9 @@ class MemoryStoreBackend:
     """Backend that keeps entries in the memory of the process.
 
     Thread-safe; expired entries are removed when read, from time to time
-    when entries are written, and when a namespace is full. The sizes of
-    the namespaces are exact.
+    when entries are written, and when a namespace is full (at most every
+    `_FULL_SWEEP_INTERVAL` seconds per namespace, as that scans all
+    entries). The sizes of the namespaces are exact.
 
     Attributes:
         shared: `False`: each process has its own entries.
@@ -301,11 +308,14 @@ class MemoryStoreBackend:
 
     shared = False
     _SWEEP_INTERVAL = 1024
+    _FULL_SWEEP_INTERVAL = 10.0
 
     def __init__(self) -> None:
         """Create an empty backend."""
         self._entries: dict[tuple[str, str], StoreEntry] = {}
         self._sizes: dict[str, int] = {}
+        # `time.monotonic()` of the last sweep of a full namespace
+        self._full_swept: dict[str, float] = {}
         self._lock = threading.Lock()
         self._writes = 0
 
@@ -411,14 +421,28 @@ class MemoryStoreBackend:
                 `max_size`, also without its expired entries.
         """
         size = entry_size(key, entry.value)
-        previous = self._entries.get((ns, key))
-        delta = size - (entry_size(key, previous.value) if previous else 0)
+
+        def growth() -> int:
+            """Get the bytes by which the write grows the namespace.
+
+            Returns:
+                Bytes; negative if it shrinks.
+            """
+            previous = self._entries.get((ns, key))
+            return size - (entry_size(key, previous.value) if previous else 0)
+
+        delta = growth()
         if max_size is not None and delta > 0:
             if self._sizes.get(ns, 0) + delta > max_size:
-                self._sweep(now, ns)
-                # the entry itself may have expired and been removed
-                previous = self._entries.get((ns, key))
-                delta = size - (entry_size(key, previous.value) if previous else 0)
+                swept = self._full_swept.get(ns)
+                if (
+                    swept is None
+                    or time.monotonic() - swept >= self._FULL_SWEEP_INTERVAL
+                ):
+                    self._full_swept[ns] = time.monotonic()
+                    self._sweep(now, ns)
+                    # the entry itself may have expired and been removed
+                    delta = growth()
             if self._sizes.get(ns, 0) + delta > max_size:
                 raise _full(size, max_size)
         self._entries[(ns, key)] = entry
@@ -570,9 +594,15 @@ class MongoStoreBackend:
     deletions subtract the sizes of their entries, but entries removed by
     the TTL index still count until the namespace is counted again. Each
     process counts a namespace again (summing `size` over its entries,
-    expired ones included until removed) before its first write to it,
-    every `_RECOUNT_INTERVAL` seconds, and when a write does not fit, at
-    most every `_RECOUNT_RETRY_INTERVAL` seconds, retrying the write then.
+    expired ones included until removed; entries of FOCA versions before
+    0.23.0, without `size`, count :py:data:`STORE_ENTRY_OVERHEAD`) before
+    its first write to it, every `_RECOUNT_INTERVAL` seconds, and when a
+    write does not fit, at most every `_RECOUNT_RETRY_INTERVAL` seconds,
+    retrying the write then. Counts take at most half the time left for
+    the write; if one fails, the write goes on with the size kept so far
+    (the failure is logged), and the namespace is counted again after the
+    interval. Writes of other processes while a count runs may be missed
+    until the next count.
 
     Attributes:
         shared: `True`: all processes share the entries.
@@ -662,9 +692,10 @@ class MongoStoreBackend:
     def recount(self, ns: str) -> int:
         """Count the size of a namespace again, from its entries.
 
-        Entries written by FOCA versions without sizes get their size.
-        Writes of other processes in the meantime may be miscounted, until
-        the next count.
+        One aggregation over the entries of the namespace (index `ns`);
+        entries without `size` (of FOCA versions before 0.23.0) count
+        :py:data:`STORE_ENTRY_OVERHEAD`. Writes of other processes in the
+        meantime may be missed, until the next count.
 
         Args:
             ns: Namespace.
@@ -676,44 +707,53 @@ class MongoStoreBackend:
             pymongo.errors.PyMongoError: The database failed or was too
                 slow.
         """
+        size = {"$ifNull": ["$size", STORE_ENTRY_OVERHEAD]}
         counted = list(
             self.collection.aggregate(
                 [
-                    {"$match": {"ns": ns, "size": {"$exists": True}}},
-                    {"$group": {"_id": None, "size": {"$sum": "$size"}}},
+                    {"$match": {"ns": ns}},
+                    {"$group": {"_id": None, "size": {"$sum": size}}},
                 ]
             )
         )
         total = int(counted[0]["size"]) if counted else 0
-        # one by one, as such entries exist only until they expire
-        for document in list(
-            self.collection.find(
-                {"ns": ns, "size": {"$exists": False}}, projection=_SIZE_FIELDS
-            )
-        ):
-            size = _document_size(document)
-            total += size
-            self.collection.update_one(
-                {"_id": document["_id"], "size": {"$exists": False}},
-                {"$set": {"size": size}},
-            )
         self.sizes.update_one({"_id": ns}, {"$set": {"size": total}}, upsert=True)
-        with self._counted_lock:
-            self._counted[ns] = time.monotonic()
         return total
 
-    def _since_count(self, ns: str) -> float:
-        """Get the seconds since this process last counted a namespace.
+    def _recount_if_due(self, ns: str, interval: float, timeout: float) -> bool:
+        """Count a namespace again unless this process did so recently.
+
+        Only one thread of the process counts a namespace at a time; a
+        failed count is logged, not raised, and tried again after the
+        interval.
 
         Args:
             ns: Namespace.
+            interval: Seconds after which a count is due.
+            timeout: Seconds left for the write; the count takes at most
+                half of them.
 
         Returns:
-            Seconds; infinite if never.
+            Whether the namespace was counted.
         """
+        now = time.monotonic()
         with self._counted_lock:
             counted = self._counted.get(ns)
-        return float("inf") if counted is None else time.monotonic() - counted
+            if counted is not None and now - counted < interval:
+                return False
+            self._counted[ns] = now
+        try:
+            with pymongo.timeout(timeout / 2):
+                self.recount(ns)
+        except PyMongoError as exc:
+            logger.warning(
+                "Size of the plugin store namespace %s not counted again (%s):"
+                " writes go on with the size kept so far",
+                ns,
+                type(exc).__name__,
+            )
+            return False
+        return True
 
     def _adjust(self, ns: str, delta: int) -> None:
         """Add to the size of a namespace, if it has been counted.
@@ -729,7 +769,14 @@ class MongoStoreBackend:
         if delta:
             self.sizes.update_one({"_id": ns}, {"$inc": {"size": delta}})
 
-    def _reserve(self, ns: str, size: int, delta: int, max_size: int | None) -> None:
+    def _reserve(
+        self,
+        ns: str,
+        size: int,
+        delta: int,
+        max_size: int | None,
+        timeout: float,
+    ) -> None:
         """Add the growth of a namespace by a write, if it fits.
 
         Args:
@@ -737,6 +784,7 @@ class MongoStoreBackend:
             size: Bytes that the written entry counts.
             delta: Bytes by which the write grows the namespace.
             max_size: Maximum size of the namespace, in bytes, if any.
+            timeout: Seconds left for the write.
 
         Raises:
             StoreFullError: The namespace would exceed `max_size`, also
@@ -745,18 +793,18 @@ class MongoStoreBackend:
             pymongo.errors.PyMongoError: The database failed or was too
                 slow.
         """
-        if self._since_count(ns) >= self._RECOUNT_INTERVAL:
-            self.recount(ns)
+        self._recount_if_due(ns, self._RECOUNT_INTERVAL, timeout)
         if max_size is None or delta <= 0:
             self._adjust(ns, delta)
             return
         if delta <= max_size:
-            for attempt in range(2):
-                if self._grow(ns, delta, max_size):
-                    return
-                if attempt or self._since_count(ns) < self._RECOUNT_RETRY_INTERVAL:
-                    break
-                self.recount(ns)
+            if self._grow(ns, delta, max_size):
+                return
+            # entries removed by the TTL index may still count
+            if self._recount_if_due(
+                ns, self._RECOUNT_RETRY_INTERVAL, timeout
+            ) and self._grow(ns, delta, max_size):
+                return
         raise _full(size, max_size)
 
     def _grow(self, ns: str, delta: int, max_size: int) -> bool:
@@ -850,7 +898,7 @@ class MongoStoreBackend:
         with _guard(timeout):
             self._ensure_indexes()
             known = self.collection.find_one({"_id": ident}, projection=_SIZE_FIELDS)
-            self._reserve(ns, size, size - _document_size(known), max_size)
+            self._reserve(ns, size, size - _document_size(known), max_size, timeout)
             previous = _retry_upsert(
                 lambda: self.collection.find_one_and_replace(
                     {"_id": ident},
@@ -967,7 +1015,9 @@ class MongoStoreBackend:
                 expired = self.collection.find_one(
                     {"_id": ident}, projection=_SIZE_FIELDS
                 )
-                self._reserve(ns, size, size - _document_size(expired), max_size)
+                self._reserve(
+                    ns, size, size - _document_size(expired), max_size, timeout
+                )
                 previous: Mapping[str, Any] | None = None
                 try:
                     self.collection.insert_one({"_id": ident, **counter})
@@ -980,16 +1030,14 @@ class MongoStoreBackend:
                         projection=_SIZE_FIELDS,
                     )
                     if previous is None:
-                        # not written: take the growth back
+                        # a live entry was created in between: nothing was
+                        # written, so take the reserved growth back and try
+                        # again
                         self._adjust(ns, _document_size(expired) - size)
                         continue
                 self._adjust(ns, _document_size(expired) - _document_size(previous))
                 return by
         raise StoreError("Plugin store busy: increment not applied")
-
-
-_SIZE_FIELDS = {"key": True, "value": True, "size": True}
-"""Fields of documents that :py:func:`_document_size` needs."""
 
 
 def _document_size(document: Mapping[str, Any] | None) -> int:
@@ -999,18 +1047,16 @@ def _document_size(document: Mapping[str, Any] | None) -> int:
         document: Document, with the fields of `_SIZE_FIELDS`, if any.
 
     Returns:
-        Its `size`, computed for documents of FOCA versions without sizes;
-        0 without document.
+        Its `size`; :py:data:`STORE_ENTRY_OVERHEAD` for documents without
+        valid size (of FOCA versions before 0.23.0), as in
+        :py:meth:`MongoStoreBackend.recount`; 0 without document.
     """
     if document is None:
         return 0
     size = document.get("size")
     if isinstance(size, int) and not isinstance(size, bool):
         return size
-    value = document.get("value")
-    return entry_size(
-        str(document.get("key", "")), value if isinstance(value, str) else None
-    )
+    return STORE_ENTRY_OVERHEAD
 
 
 def _ident(ns: str, key: str) -> str:
@@ -1223,7 +1269,7 @@ class Store:
                 value is too large.
             StoreFullError: The namespace has no room for the entry
                 (`max_namespace_size`); replacing an entry by one that is
-                not larger always works.
+                not larger is never refused.
             StoreError: The store failed, or the deadline passed.
         """
         _check_key(key)

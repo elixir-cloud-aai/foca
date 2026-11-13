@@ -25,6 +25,7 @@ from pymongo.errors import (
 from pymongo.read_preferences import ReadPreference
 
 from foca import Foca
+from foca import plugins as plugins_api
 from foca.models.config import Config, DBConfig, MongoConfig
 from foca.plugins import (
     Context,
@@ -489,6 +490,7 @@ class TestNamespaceSize:
             store.set("d", 1)
         assert "'d'" not in str(info.value)
         assert isinstance(info.value, StoreError)
+        assert plugins_api.StoreFullError is StoreFullError
         assert store.get("d") is None
         other = make_store(backend, namespace="other", max_namespace_size=SMALL)
         other.set("d", 1)
@@ -559,6 +561,21 @@ class TestMemoryNamespaceSize:
         store.set("c", 1)
         assert backend._sizes == {"ns": 2 * SMALL, "o": SMALL}
         assert ("o", "a") in backend._entries  # other namespaces stay
+
+    def test_full_sweeps_limited(self) -> None:
+        """Full namespaces are swept at most every few seconds."""
+        clock = Clock()
+        backend = MemoryStoreBackend()
+        store = make_store(backend, clock, max_namespace_size=SMALL)
+        store.set("a", 1, ttl=1)
+        with pytest.raises(StoreFullError):
+            store.set("b", 1)  # swept, nothing expired
+        clock.advance(1)
+        with pytest.raises(StoreFullError):
+            store.set("b", 1)  # not swept again yet
+        backend._FULL_SWEEP_INTERVAL = 0.0
+        store.set("b", 1)
+        assert list(backend._entries) == [("ns", "b")]
 
     def test_sweep_counts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Sweeps and reads of expired entries update the sizes."""
@@ -649,29 +666,45 @@ class TestMongoNamespaceSize:
         assert ns_size(backend) == 3 * SMALL
 
     def test_legacy_documents(self) -> None:
-        """Entries without size (earlier versions) are counted and get one."""
+        """Entries without size (earlier versions) count the overhead only."""
         backend = mongomock_backend()
         backend.collection.insert_many(
             [
                 {"_id": "ns\x1fv", "ns": "ns", "key": "v", "value": "1"},
                 {"_id": "ns\x1fc", "ns": "ns", "key": "c", "n": 1},
+                {"_id": "ns\x1fs", "ns": "ns", "key": "s", "value": "1", "size": 70},
                 {"_id": "o\x1fv", "ns": "o", "key": "v", "value": "1"},
             ]
         )
-        counter = STORE_ENTRY_OVERHEAD + 1 + 8
-        assert backend.recount("ns") == SMALL + counter
-        assert backend.recount("ns") == SMALL + counter
-        sizes = {d["_id"]: d.get("size") for d in backend.collection.find()}
-        assert sizes == {"ns\x1fv": SMALL, "ns\x1fc": counter, "o\x1fv": None}
+        assert backend.recount("ns") == 2 * STORE_ENTRY_OVERHEAD + 70
+        assert ns_size(backend) == 2 * STORE_ENTRY_OVERHEAD + 70
         assert backend.recount("empty") == 0
+        store = make_store(backend)
+        backend._counted["ns"] = time.monotonic()
+        store.delete("v")  # subtracts what it counted
+        assert ns_size(backend) == STORE_ENTRY_OVERHEAD + 70
 
     def test_document_size(self) -> None:
-        """Sizes of documents: stored, or computed from key and value."""
+        """Sizes of documents: stored, or the overhead for earlier versions."""
         assert _document_size(None) == 0
-        assert _document_size({"size": 5, "key": "k", "value": "1"}) == 5
-        assert _document_size({"size": True, "key": "k", "value": "1"}) == SMALL
-        assert _document_size({"key": "k", "value": 5}) == STORE_ENTRY_OVERHEAD + 9
-        assert _document_size({}) == STORE_ENTRY_OVERHEAD + 8
+        assert _document_size({"size": 5}) == 5
+        assert _document_size({"size": True}) == STORE_ENTRY_OVERHEAD
+        assert _document_size({}) == STORE_ENTRY_OVERHEAD
+
+    def test_failed_recount(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Failed counts are logged, don't fail writes, and wait for the interval."""
+        backend = mongomock_backend()
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        recount = MagicMock(side_effect=ServerSelectionTimeoutError("db.internal"))
+        backend.recount = recount  # type: ignore[method-assign]
+        store.set("a", 1)
+        store.set("b", 1)
+        assert recount.call_count == 1
+        assert "namespace ns not counted again (ServerSelectionTimeoutError)" in (
+            caplog.text
+        )
+        assert "db.internal" not in caplog.text
+        assert ns_size(backend) == 2 * SMALL
 
     def test_changed_in_between(self) -> None:
         """Entries written between read and replacement are accounted for."""

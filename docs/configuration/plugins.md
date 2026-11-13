@@ -218,21 +218,15 @@ plugins that declare stored data (`data_stored`) keep it in memory.
   a distribution) together (default: 16 MiB), so that a plugin that writes
   many keys can't fill the database or the memory. Each entry counts the
   bytes of its key and value in UTF-8 (counters: 8 bytes) plus 64 bytes,
-  e.g., about 200,000 entries of 20 bytes in 16 MiB. A write that would
-  exceed it fails with `StoreFullError` (a `StoreError`): `set()` and
-  `increment()` of a new counter; replacing an entry by one that isn't
-  larger, incrementing existing counters and deleting always work. Each
-  plugin's writes are checked against its own setting (`available.<id>.store`
-  may raise or lower it). With a database, the sizes are kept in the
-  collection `plugin_store_sizes` (one document per namespace) and are
-  approximate: entries that MongoDB removes on expiry still count until the
-  namespace is counted again, which each process does before its first
-  write to a namespace, every 5 minutes, and when a write doesn't fit (then
-  at most every 10 s, before failing it). Entries written by FOCA versions
-  before 0.23.0 are counted, and get their size, then. Concurrent writes
-  near the limit may exceed it slightly. Without database, the sizes are
-  exact per process. Raise the limit if plugins log `Plugin store namespace
-  full`; deleting the namespace's entries (see below) also frees it.
+  e.g., about 200,000 entries of 20 bytes in 16 MiB. `set()`, and
+  `increment()` of a new counter, fail with `StoreFullError` (a
+  `StoreError`) if the entry doesn't fit; replacing an entry by one that
+  isn't larger, incrementing existing counters and deleting are never
+  refused for size. Each plugin's writes are checked against its own setting
+  (`available.<id>.store` may raise or lower it). Raise the limit if
+  plugins log `Plugin store namespace full`; deleting the namespace's
+  entries (see below) also frees it. See [how sizes are
+  counted](#how-namespace-sizes-are-counted).
 - `max_ttl` limits how long entries live (default: 30 days, at most 10
   years); entries without TTL get it, longer TTLs are cut to it. MongoDB
   removes expired entries about once a minute; until then, they are no
@@ -288,6 +282,31 @@ plugins that declare stored data (`data_stored`) keep it in memory.
       described above if needed. During a rolling update, processes with the
       old and the new secret don't see each other's entries either. Rotate
       the secret in quiet times, and restart all replicas after changing it.
+
+### How namespace sizes are counted
+
+Without database, each process counts the sizes of its namespaces exactly;
+when a namespace is full, it first removes its expired entries (at most
+every 10 s per namespace, as that scans all entries of the process).
+
+With a database, the sizes are approximate. FOCA keeps them in the
+collection `plugin_store_sizes` of the same database (one document per
+namespace; the database user needs the same rights on it as on
+`plugin_store`, as with the `readWrite` role on the database), and each
+entry's size in its field `size`. Writes and deletions add and subtract
+the sizes of their entries, but entries that MongoDB removes on expiry
+still count until the namespace is counted again: each process does that
+before its first write to a namespace, every 5 minutes, and when a write
+doesn't fit (then at most every 10 s, before failing it). A count is one
+aggregation over the namespace's entries and takes at most half the time
+left for the write; if it fails, the write goes on with the size counted
+so far, and the app logs a warning. Concurrent writes near the limit, and
+writes while another process counts, may exceed the limit slightly until
+the next count. Entries written by FOCA versions before 0.23.0 have no
+`size` and count 64 bytes each until they are replaced or expire. To
+reset a namespace's size, delete its document, e.g., in `mongosh`:
+`db.plugin_store_sizes.deleteOne({_id: "<namespace>"})`; each process
+counts it again within 5 minutes or at its next write that doesn't fit.
 
 ## Migrating from middlewares
 

@@ -434,8 +434,8 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
   value in UTF-8, counters 8 bytes, plus 64 bytes). `set()`, and
   `increment()` of a new counter, raise `foca.plugins.StoreFullError` (a
   `StoreError`) if the entry doesn't fit; replacing an entry by one that
-  isn't larger, incrementing existing counters and deleting always work.
-  Plugins that cache catch it and go on without caching; give cached
+  isn't larger, incrementing existing counters and deleting are never
+  refused for size. Plugins that cache catch it and go on without caching; give cached
   entries a `ttl` that fits their use, so that they make room again.
 - Entries are in a namespace per distribution: plugins of one
   distribution share them, plugins of others can't read them; FOCA's
