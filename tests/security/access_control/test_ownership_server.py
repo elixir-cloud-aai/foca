@@ -40,6 +40,8 @@ from foca.testing import Client, Response, request_context
 from foca.utils import pagination
 
 ISSUER = "https://login.example.org/oidc/"
+# Keeps its subjects bare, as the tests name users without namespace
+BARE_ISSUER = {"issuer": ISSUER, "namespace": ""}
 OTHER_ISSUER = "https://login.example.com/oidc/"
 ADMINS = "urn:example:group:admins"
 CONTROLLERS = ownership_server.__name__
@@ -192,7 +194,7 @@ def _create_app(
         {
             "security": {
                 "auth": {
-                    "issuers": [ISSUER] if issuers is None else issuers,
+                    "issuers": [BARE_ISSUER] if issuers is None else issuers,
                     "audience": ["foca"],
                 },
                 "access_control": {

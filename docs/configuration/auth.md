@@ -68,7 +68,8 @@ tokens](../authentication.md#service-tokens)). See
 require them for operations.
 
 Issuers are listed as URLs, or with settings of their own, e.g., to choose
-the namespace of their subjects (cf. [several trusted
+the namespace of their subjects, which is the issuer by default, also with a
+single issuer, or to keep them bare (`namespace: ""`; cf. [several trusted
 issuers](../authentication.md#several-trusted-issuers)). Identity providers
 differ, so issuers may also have an `audience`, a group claim
 (`claim_groups`, cf. [`security.access_control`](access-control.md)) and
@@ -84,7 +85,7 @@ security:
       - my-app
     issuers:
       - issuer: https://login.example.org/oidc/
-        namespace: ""
+        namespace: ""  # subjects stored bare before FOCA 0.23.0
       - issuer: https://login.example.com/oidc/
         namespace: example-com
         audience:

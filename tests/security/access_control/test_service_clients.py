@@ -40,6 +40,8 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
 from foca.testing import request_context
 
 ISSUER = "https://login.example.org/oidc/"
+# Keeps its subjects bare, as the tests name users without namespace
+BARE_ISSUER = {"issuer": ISSUER, "namespace": ""}
 OTHER_ISSUER = "https://other.example.org/"
 HEADER = "X-On-Behalf-Of"
 # Claims of validated tokens
@@ -61,7 +63,7 @@ def app() -> Flask:
         {
             "security": {
                 "auth": {
-                    "issuers": [ISSUER],
+                    "issuers": [BARE_ISSUER],
                     "audience": ["foca"],
                     "service_clients": [
                         {"client_id": "conquest", "on_behalf_of": True},

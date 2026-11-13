@@ -19,6 +19,8 @@ from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.testing import request_context
 
 ISSUER = "https://login.example.org/oidc/"
+# Keeps its subjects bare, as the tests name users without namespace
+BARE_ISSUER = {"issuer": ISSUER, "namespace": ""}
 HEADER = "X-On-Behalf-Of"
 ADMINS = "urn:example:group:admins"
 TASK = "/tasks/1"
@@ -56,7 +58,7 @@ def create_app(
         {
             "security": {
                 "auth": {
-                    "issuers": [ISSUER],
+                    "issuers": [BARE_ISSUER],
                     "audience": ["foca"],
                     "service_clients": [
                         {"client_id": "conquest", "on_behalf_of": True},

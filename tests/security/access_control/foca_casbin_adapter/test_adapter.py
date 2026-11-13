@@ -1,9 +1,11 @@
 """Tests for `adapter.py` module."""
 
+import re
 from collections.abc import Callable, Iterator
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, ClassVar, NoReturn, cast
+from unittest import mock
 
 import mongomock
 import pytest
@@ -28,6 +30,7 @@ from foca.security.access_control.foca_casbin_adapter import adapter as module
 from foca.security.access_control.foca_casbin_adapter.adapter import (
     MALFORMED_VERSION,
     Adapter,
+    NamespacedUsers,
 )
 
 # Constants
@@ -1544,3 +1547,127 @@ def test_has_stored_group_subjects(mock_adapter: Adapter) -> None:
     assert not mock_adapter.has_stored_group_subjects()
     mock_adapter.add_policy("p", "p", ["group:a", "/x", "GET"])
     assert mock_adapter.has_stored_group_subjects()
+
+
+ISSUER_NAMESPACE = "https://login.example.org/"
+
+
+@pytest.mark.parametrize(
+    "namespaces,value,unknown",
+    [
+        ([ISSUER_NAMESPACE], "user:alice", True),
+        ([ISSUER_NAMESPACE], "user:a|b", True),
+        ([ISSUER_NAMESPACE], f"user:{ISSUER_NAMESPACE}|alice", False),
+        ([ISSUER_NAMESPACE, "ls"], "user:ls|alice", False),
+        ([ISSUER_NAMESPACE], "user:https://login.example.org|alice", True),
+        ([ISSUER_NAMESPACE], "group:alice", False),
+        # an issuer keeps its subjects bare: only users that look namespaced
+        ([None, "ls"], "user:alice", False),
+        ([None, "ls"], "user:ls|alice", False),
+        ([None, "ls"], "user:other|alice", True),
+        # namespaces are matched literally
+        (["l.s"], "user:lxs|alice", True),
+    ],
+)
+def test_unknown_user_pattern(
+    namespaces: list[str | None], value: str, unknown: bool
+) -> None:
+    """Users are unknown unless they have the namespace of a trusted issuer."""
+    pattern = module.unknown_user_pattern("user:", namespaces)
+    assert bool(re.match(pattern, value)) is unknown
+
+
+def test_has_stored_unknown_users(
+    policy_collection: Collection[dict[str, Any]],
+) -> None:
+    """Only stored rules that are not configured count, with any value."""
+    adapter = Adapter(policy_collection)
+    namespaces = [ISSUER_NAMESPACE]
+    assert not adapter.has_stored_unknown_users("user:", namespaces)
+    adapter.set_configured_policies([["g", "user:alice", "admin"]])
+    assert not adapter.has_stored_unknown_users("user:", namespaces)
+    adapter.add_policy("p", "p", [f"user:{ISSUER_NAMESPACE}|a", "/x", "GET"])
+    adapter.add_policy("p", "p", ["group:a", "/x", "GET"])
+    assert not adapter.has_stored_unknown_users("user:", namespaces)
+    # bare users are known if an issuer keeps its subjects bare
+    adapter.add_policy("g", "g", ["admin", "user:bob"])
+    assert not adapter.has_stored_unknown_users("user:", [None, *namespaces])
+    assert adapter.has_stored_unknown_users("user:", namespaces)
+
+
+class TestNamespaceUsers:
+    """Tests for `Adapter.namespace_users()`."""
+
+    @staticmethod
+    def _rules(adapter: Adapter) -> list[list[str]]:
+        """Get the values of the stored rules that are not configured.
+
+        Args:
+            adapter: Adapter.
+
+        Returns:
+            Policy type and values of each rule, sorted.
+        """
+        return sorted(
+            [doc["ptype"], *(doc[f"v{i}"] for i in range(4) if doc.get(f"v{i}"))]
+            for doc in adapter._collection.find(
+                {CONFIGURED_FIELD: {"$ne": True}, "ptype": {"$type": "string"}}
+            )
+        )
+
+    def test_namespace(self, policy_collection: Collection[dict[str, Any]]) -> None:
+        """Bare users are namespaced, others kept; repeated runs change nothing."""
+        adapter = Adapter(policy_collection)
+        ns = ISSUER_NAMESPACE
+        adapter.set_configured_policies([["g", "user:carol", "admin"]])
+        adapter.add_policy("p", "p", ["user:alice", "/x", "GET"])
+        adapter.add_policy("p", "p", ["user:a|b", "/x", "GET"])
+        adapter.add_policy("p", "p", [f"user:{ns}|bob", "/x", "GET"])
+        adapter.add_policy("p", "p", ["group:g", "/x", "GET"])
+        adapter.add_policy("g", "g2", ["user:dave", "owner", "/y"])
+        version = adapter.get_changes(with_changes=False).version
+        result = adapter.namespace_users("user:", ns, [ns])
+        assert result == NamespacedUsers(rewritten=3, configured=1, invalid=0)
+        assert self._rules(adapter) == [
+            ["g2", f"user:{ns}|dave", "owner", "/y"],
+            ["p", "group:g", "/x", "GET"],
+            ["p", f"user:{ns}|alice", "/x", "GET"],
+            ["p", f"user:{ns}|a|b", "/x", "GET"],
+            ["p", f"user:{ns}|bob", "/x", "GET"],
+        ]
+        # cached enforcers load the rules again
+        assert adapter.get_changes(with_changes=False).version > version
+        result = adapter.namespace_users("user:", ns, [ns])
+        assert result == NamespacedUsers(rewritten=0, configured=1, invalid=0)
+
+    def test_dry_run(self, mock_adapter: Adapter) -> None:
+        """Dry runs only count the rules."""
+        mock_adapter.add_policy("p", "p", ["user:alice", "/x", "GET"])
+        version = mock_adapter.get_changes(with_changes=False).version
+        result = mock_adapter.namespace_users("user:", "ls", ["ls"], dry_run=True)
+        assert result == NamespacedUsers(rewritten=1, configured=0, invalid=0)
+        assert self._rules(mock_adapter) == [["p", "user:alice", "/x", "GET"]]
+        assert mock_adapter.get_changes(with_changes=False).version == version
+
+    def test_invalid(self, mock_adapter: Adapter) -> None:
+        """Rules whose namespaced users would be too long are kept."""
+        long_user = f"user:{'x' * 1000}"
+        mock_adapter.add_policy("p", "p", [long_user, "/x", "GET"])
+        namespace = "n" * 100
+        result = mock_adapter.namespace_users("user:", namespace, [namespace])
+        assert result == NamespacedUsers(rewritten=0, configured=0, invalid=1)
+        assert self._rules(mock_adapter) == [["p", long_user, "/x", "GET"]]
+
+    def test_marked_changed_on_failure(
+        self, mock_adapter: Adapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rules are marked as changed also if rewriting fails halfway."""
+        mock_adapter.add_policy("p", "p", ["user:alice", "/x", "GET"])
+        version = mock_adapter.get_changes(with_changes=False).version
+        failure = ConnectionFailure("database not available")
+        monkeypatch.setattr(
+            mock_adapter._collection, "update_one", mock.Mock(side_effect=failure)
+        )
+        with pytest.raises(ConnectionFailure):
+            mock_adapter.namespace_users("user:", "ls", ["ls"])
+        assert mock_adapter.get_changes(with_changes=False).version > version

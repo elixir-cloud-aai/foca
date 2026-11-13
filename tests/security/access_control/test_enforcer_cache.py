@@ -53,6 +53,8 @@ from foca.testing import request_context
 DB_NAME = "foca_test_enforcer_cache"
 TASK = "/tasks/1"
 ISSUER = "https://login.example.org/oidc/"
+# Keeps its subjects bare, as the tests name users without namespace
+BARE_ISSUER = {"issuer": ISSUER, "namespace": ""}
 # Model whose rules Casbin sorts by priority
 PRIORITY_MODEL = """
 [request_definition]
@@ -987,7 +989,7 @@ def _create_app(collection: Collection[dict[str, Any]]) -> Flask:
     conf = Config.model_validate(
         {
             "security": {
-                "auth": {"issuers": [ISSUER], "audience": ["foca"]},
+                "auth": {"issuers": [BARE_ISSUER], "audience": ["foca"]},
                 "access_control": {"enabled": True, "model": RESOURCE_ROLE_MODEL},
             }
         }

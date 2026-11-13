@@ -18,6 +18,7 @@ from foca.models.config import (
     AuthConfig,
     Config,
     ExceptionConfig,
+    IssuerConfig,
     MongoConfig,
     SecurityConfig,
     ServiceClientConfig,
@@ -32,6 +33,8 @@ from foca.testing import Client
 from foca.utils.urls import _register_api, get_resource_path
 
 ISSUER = "https://login.example.org/oidc/"
+# Keeps its subjects bare, as the tests name users without namespace
+BARE_ISSUER = IssuerConfig(issuer=ISSUER, namespace="")
 ADMINS = "urn:example:admins"
 TOKENS: dict[str, dict[str, Any]] = {
     "user": {"sub": "user", "iss": ISSUER, "groups": ["other"]},
@@ -122,7 +125,7 @@ def _create_app(
     config = Config(
         security=SecurityConfig(
             auth=AuthConfig(
-                issuers=[ISSUER],
+                issuers=[BARE_ISSUER],
                 audience=["foca"],
                 service_clients=[ServiceClientConfig(client_id="conquest")],
             ),
@@ -427,7 +430,7 @@ class TestRegistration:
         )
         config = Config(
             security=SecurityConfig(
-                auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
+                auth=AuthConfig(issuers=[BARE_ISSUER], audience=["foca"]),
                 access_control=conf,
             ),
             db=MongoConfig(),
@@ -485,7 +488,7 @@ class TestRegistration:
             Config(
                 security=SecurityConfig(
                     auth=AuthConfig(
-                        issuers=[ISSUER],
+                        issuers=[BARE_ISSUER],
                         audience=["foca"],
                         reject_invalid_tokens=True,
                     ),

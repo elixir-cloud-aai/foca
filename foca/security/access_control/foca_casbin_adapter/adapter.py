@@ -38,6 +38,7 @@ from foca.security.access_control.constants import (
     MARKER_GENERATION_FIELD,
     MARKER_REVISION_FIELD,
     MAX_RECORDED_CHANGES,
+    NAMESPACE_SEPARATOR,
     RULE_GENERATIONS_FIELD,
     STALE_GENERATION_AGE,
 )
@@ -45,6 +46,7 @@ from foca.security.access_control.foca_casbin_adapter.casbin_rule import (
     MAX_RULE_VALUES,
     CasbinRule,
     validate_rule,
+    validate_rule_value,
 )
 from foca.utils.misc import generate_id
 
@@ -59,6 +61,74 @@ _FILTER_INDEXES = [[("ptype", 1), ("v0", 1), ("v1", 1)], [("ptype", 1), ("v2", 1
 
 # Recorded change of all rules (cf. `PolicyChanges`)
 _ALL_CHANGED: dict[str, Any] = {"ptype": None}
+
+# Fields of the values of stored rules
+_VALUE_FIELDS = tuple(f"v{index}" for index in range(MAX_RULE_VALUES))
+
+
+def unknown_user_pattern(prefix: str, namespaces: Iterable[str | None]) -> str:
+    """Get a pattern of rule values naming users that no trusted issuer has.
+
+    Users are identified as `<prefix><namespace>|<subject>`, or as
+    `<prefix><subject>` if an issuer keeps its subjects bare, as long as
+    the subject doesn't contain `|` (cf.
+    :py:func:`foca.security.auth.namespace_subject`).
+
+    Args:
+        prefix: Prefix of users in rules (`access_control.subject_prefix`).
+        namespaces: Namespaces of the subjects of the trusted issuers;
+            `None` for an issuer that keeps its subjects bare (cf.
+            :py:meth:`foca.models.config.AuthConfig.get_namespaces`).
+
+    Returns:
+        Regular expression, for Python and MongoDB, matching values that
+        start with `prefix`, but not with a namespace of `namespaces` and
+        the separator, and, if an issuer keeps its subjects bare, contain
+        the separator.
+    """
+    namespaces = list(namespaces)
+    known = "|".join(
+        f"{re.escape(namespace)}{re.escape(NAMESPACE_SEPARATOR)}"
+        for namespace in namespaces
+        if namespace
+    )
+    pattern = f"^{re.escape(prefix)}"
+    if known:
+        pattern += f"(?!{known})"
+    if None in namespaces:
+        pattern += f".*{re.escape(NAMESPACE_SEPARATOR)}"
+    return pattern
+
+
+def _user_query(pattern: str) -> dict[str, Any]:
+    """Get a query matching stored rules with a value matching a pattern.
+
+    Args:
+        pattern: Regular expression.
+
+    Returns:
+        Query matching rules with any value matching `pattern`.
+    """
+    return {"$or": [{field: {"$regex": pattern}} for field in _VALUE_FIELDS]}
+
+
+@dataclass(frozen=True)
+class NamespacedUsers:
+    """Numbers of rules with bare users, as counted by the adapter.
+
+    Cf. :py:meth:`Adapter.namespace_users`.
+
+    Attributes:
+        rewritten: Stored rules that are not configured, rewritten (or to
+            rewrite, in dry runs).
+        configured: Configured rules, which are not rewritten.
+        invalid: Stored rules that are not configured, kept as a
+            namespaced user would not be a valid rule value.
+    """
+
+    rewritten: int
+    configured: int
+    invalid: int
 
 
 # Version of recorded changes whose stored version is not an integer
@@ -767,6 +837,100 @@ class Adapter(persist.Adapter):
             "v0": {"$regex": f"^{re.escape(GROUP_PREFIX)}"},
         }
         return self._collection.count_documents(query, limit=1) > 0
+
+    def has_stored_unknown_users(
+        self, prefix: str, namespaces: Iterable[str | None]
+    ) -> bool:
+        """Check whether a rule that is not configured names an unknown user.
+
+        Args:
+            prefix: Prefix of users in rules (`access_control.subject_prefix`).
+            namespaces: Namespaces of the subjects of the trusted issuers;
+                `None` for an issuer that keeps its subjects bare (cf.
+                :py:meth:`foca.models.config.AuthConfig.get_namespaces`).
+
+        Returns:
+            Whether a stored rule that is not configured has a value naming
+            a user that no trusted issuer has (cf.
+            :py:func:`unknown_user_pattern`).
+        """
+        query = {
+            CONFIGURED_FIELD: {"$ne": True},
+            **_user_query(unknown_user_pattern(prefix, namespaces)),
+        }
+        return self._collection.count_documents(query, limit=1) > 0
+
+    def namespace_users(
+        self,
+        prefix: str,
+        namespace: str,
+        namespaces: Iterable[str],
+        dry_run: bool = False,
+    ) -> NamespacedUsers:
+        """Namespace the bare users of the stored rules.
+
+        Rewrites users of stored rules that are not configured, e.g., written
+        via the permissions API, from `<prefix><subject>` to
+        `<prefix><namespace>|<subject>`, unless the subject starts with a
+        namespace of `namespaces` and the separator, so that the rewrite can
+        be repeated: all other users are taken as bare users of the issuer
+        of `namespace`. Configured rules are counted, but not rewritten, as
+        the app replaces them with those of its configuration. Unless
+        `dry_run`, marks the stored rules as changed (cf.
+        :py:meth:`mark_changed`), also if rewriting fails halfway.
+
+        Args:
+            prefix: Prefix of users in rules (`access_control.subject_prefix`).
+            namespace: Namespace of the issuer whose subjects are bare.
+            namespaces: Namespaces of the subjects of all trusted issuers,
+                including `namespace`.
+            dry_run: Only count the rules.
+
+        Returns:
+            Numbers of rules with bare users (cf. :py:class:`NamespacedUsers`).
+        """
+        pattern = unknown_user_pattern(prefix, namespaces)
+        regex = re.compile(pattern)
+        rewritten = invalid = 0
+        try:
+            for document in self._collection.find(
+                {CONFIGURED_FIELD: {"$ne": True}, **_user_query(pattern)}
+            ):
+                changed = {
+                    field: f"{prefix}{namespace}{NAMESPACE_SEPARATOR}"
+                    f"{value[len(prefix) :]}"
+                    for field in _VALUE_FIELDS
+                    if isinstance(value := document.get(field), str)
+                    and regex.match(value)
+                }
+                try:
+                    for value in changed.values():
+                        validate_rule_value(value)
+                except ValueError:
+                    invalid += 1
+                    continue
+                rewritten += 1
+                if not dry_run:
+                    # Only if unchanged meanwhile; another run rewrites it
+                    self._collection.update_one(
+                        {
+                            "_id": document["_id"],
+                            **{field: document[field] for field in changed},
+                        },
+                        {"$set": changed},
+                    )
+        finally:
+            if not dry_run:
+                self.mark_changed()
+        configured = self._collection.count_documents(
+            {
+                **self._configured_query(self._active_generation()),
+                **_user_query(pattern),
+            }
+        )
+        return NamespacedUsers(
+            rewritten=rewritten, configured=configured, invalid=invalid
+        )
 
     def get_filtered_rules(
         self,

@@ -183,17 +183,23 @@ claims fail with `401` as soon as the cached user info has expired.
 
 ### Several trusted issuers
 
-Different issuers may issue the same subject to different users. If
-several issuers are trusted, the subjects used for [access
+Different issuers may issue the same subject to different users. The
+subjects used for [access
 control](access-control.md#identity-and-group-claims) are therefore
 namespaced by issuer, as `<namespace>|<subject>`: by default, the namespace
 is the issuer (e.g., `https://login.example.org/oidc/|alice`, in rules
-`user:https://login.example.org/oidc/|alice`). With a single trusted
-issuer, subjects are bare (e.g., `alice`), as before. Set the `namespace` of
-an issuer to choose a shorter one, or set it to `""` to keep the subjects of
-that issuer bare (cf. [`security.auth`](configuration/auth.md)). Issuers
-must have different namespaces, and at most one issuer may keep its
-subjects bare; FOCA refuses to start otherwise. Bare subjects that contain
+`user:https://login.example.org/oidc/|alice`). This applies with a single
+trusted issuer, too, so that trusting another issuer later changes no stored
+subject (since FOCA 0.23.0; see [Migrating to
+0.23.0](migration-0.23.md#subjects-are-always-namespaced-by-issuer)). Set the
+`namespace` of an issuer to choose a shorter one (e.g., `ls`, for
+`ls|alice`), or set it to `""` to keep the subjects of that issuer bare, e.g.,
+to keep the subjects that an app stored before (cf.
+[`security.auth`](configuration/auth.md)). Issuers must have different
+namespaces, and at most one issuer may keep its subjects bare; FOCA refuses
+to start otherwise. An issuer that is the namespace of its subjects (no
+`namespace` set) must not contain `|`, commas or line breaks, and must have
+at most 256 characters; set a `namespace` otherwise. Bare subjects that contain
 `|` next to namespaced ones cannot be told apart from namespaced subjects:
 such users are not identified (`401` on enforced operations, and
 `get_current_subject()` returns `None`). Namespaces have at most 256
@@ -218,14 +224,13 @@ same values to different users or clients, or check the `iss` claim in your
 controllers. The subject returned by `validate_token()` (`user_id`) and the
 claims of the token are not namespaced either.
 
-!!! tip "Trusting a second issuer"
-    Adding a second issuer namespaces the subjects of the first issuer, too,
-    by default: rules, role grants and owners stored for its bare subjects
-    (e.g., `user:alice`) then no longer apply. To keep them, set
-    `namespace: ""` for the first issuer, so that its subjects stay bare,
-    and let the new issuer's subjects be namespaced (users of the first
-    issuer whose subjects contain `|` are then no longer identified;
-    check for such subjects first):
+!!! tip "Trusting another issuer"
+    As subjects are namespaced with a single trusted issuer, too, trusting
+    another one changes no stored subject. An issuer that keeps its subjects
+    bare (`namespace: ""`, e.g., as the app stored them before FOCA 0.23.0)
+    may keep doing so next to issuers whose subjects are namespaced. Users of
+    that issuer whose subjects contain `|` are then no longer identified;
+    check for such subjects first:
 
     ```yaml
     security:
@@ -236,13 +241,12 @@ claims of the token are not namespaced either.
           - https://login.example.com/oidc/  # subjects namespaced by issuer
     ```
 
-    Otherwise, rewrite the stored subjects of the first issuer to the
-    namespaced form, e.g., `user:alice` to
-    `user:https://login.example.org/oidc/|alice`, in rules (via the
-    permissions API) and in owner fields of documents (cf.
-    `set_owner_field()`). Also check configured `policies` that name users.
-    Removing all but one issuer again makes the subjects of the remaining
-    issuer bare, unless it has a `namespace`.
+    To namespace the bare subjects instead, rewrite them as described in
+    [Migrating to
+    0.23.0](migration-0.23.md#subjects-are-always-namespaced-by-issuer)
+    (e.g., with `foca namespace-subjects`, cf. [command-line
+    tool](cli.md#namespace-subjects)). Don't change the namespace of an
+    issuer once subjects are stored with it: they then no longer apply.
 
 Identity providers also differ in the audiences of their tokens, their
 group claims and the claims they release only via user info: issuers may

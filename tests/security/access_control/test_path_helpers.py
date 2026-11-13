@@ -22,6 +22,7 @@ from foca.models.config import (
     AccessControlConfig,
     AuthConfig,
     Config,
+    IssuerConfig,
     MongoConfig,
     SecurityConfig,
     ServiceClientConfig,
@@ -56,6 +57,8 @@ DEFAULT_PERMISSIONS_SPEC = (
 DB_NAME = "access_control_db"
 COLLECTION_NAME = "policy_rules"
 ISSUER = "https://login.example.org/oidc/"
+# Keeps its subjects bare, as the tests name users without namespace
+BARE_ISSUER = IssuerConfig(issuer=ISSUER, namespace="")
 THIS_MODULE = __name__
 ADMIN_GROUP = "urn:example:admins"
 
@@ -196,7 +199,7 @@ def _create_app(
     config = Config(
         security=SecurityConfig(
             auth=AuthConfig(
-                issuers=[ISSUER],
+                issuers=[BARE_ISSUER],
                 audience=["foca"],
                 service_clients=[ServiceClientConfig(client_id="svc")],
             ),

@@ -34,6 +34,7 @@ from foca.models.config import (
     CollectionConfig,
     Config,
     DBConfig,
+    IssuerConfig,
     MongoConfig,
     SecurityConfig,
     SpecConfig,
@@ -80,6 +81,8 @@ COLLECTION_NAME = "policy_rules"
 ADMIN_ENTITLEMENT = "urn:example:group:admins"
 GROUP = "urn:geant:example.org:group:team#example.org"
 ISSUER = "https://login.example.org/oidc/"
+# Keeps its subjects bare, as the tests name users without namespace
+BARE_ISSUER = IssuerConfig(issuer=ISSUER, namespace="")
 OTHER = "https://other.example.org/"
 NO_GROUPS = "https://social.example.org/"
 THIS_MODULE = __name__
@@ -269,7 +272,7 @@ def _create_app(
     spec_file.write_text(yaml.safe_dump(deepcopy(SPEC)))
     config = Config(
         security=SecurityConfig(
-            auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
+            auth=AuthConfig(issuers=[BARE_ISSUER], audience=["foca"]),
             access_control=access_control,
         ),
         db=MongoConfig(
@@ -1161,7 +1164,7 @@ def helper_app() -> Flask:
     app = Flask(__name__)
     conf = Config(
         security=SecurityConfig(
-            auth=AuthConfig(issuers=[ISSUER], audience=["foca"]),
+            auth=AuthConfig(issuers=[BARE_ISSUER], audience=["foca"]),
             access_control=_access_control_config(),
         ),
     )
@@ -1361,6 +1364,31 @@ class TestCurrentSubject:
                 ],
                 "audience": ["foca"],
             }
+        )
+        ctx = self._context(helper_app, claims)
+        try:
+            assert get_current_subject() == subject
+            subjects = _get_current_policy_subjects()
+            assert subjects == ([] if subject is None else [f"user:{subject}"])
+        finally:
+            ctx.close()
+
+    @pytest.mark.parametrize(
+        "claims,subject",
+        [
+            ({"iss": ISSUER, "sub": "carol"}, f"{ISSUER}|carol"),
+            # subjects may contain `|`
+            ({"iss": ISSUER, "sub": "a|b"}, f"{ISSUER}|a|b"),
+            ({"iss": "https://x.example.org", "sub": "carol"}, None),
+            ({"sub": "carol"}, None),
+        ],
+    )
+    def test_namespaced_by_single_issuer(
+        self, helper_app: Flask, claims: dict[str, Any], subject: str | None
+    ) -> None:
+        """Subjects of a single trusted issuer are namespaced by default."""
+        _get_app_config(helper_app).security.auth = AuthConfig(
+            issuers=[ISSUER], audience=["foca"]
         )
         ctx = self._context(helper_app, claims)
         try:

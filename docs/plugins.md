@@ -663,8 +663,9 @@ ownership helpers:
 - `subject` and `subject_type`: the client ID of a service client
   (`client`), or else the user's subject (`user`), as stored with
   resources: user subjects (also in `acting_for`) are namespaced by their
-  issuer if it has a namespace (`<namespace>|<subject>`, e.g., with
-  several trusted issuers; cf. [access control](access-control.md)); key
+  issuer (`<namespace>|<subject>`, by default with the issuer as namespace,
+  unless the issuer keeps its subjects bare; cf. [several trusted
+  issuers](authentication.md#several-trusted-issuers)); key
   quotas or records on both fields, as a client and a user may have the
   same identifier;
 - `acting_for`: the user that a service client acts for (header
@@ -676,7 +677,7 @@ ownership helpers:
   (`foca.security.access_control.get_current_roles()`): the role mapped
   from the service client (`access_control.client_mapping`) and from group
   claims, and roles granted via global role rules (`g`, e.g.,
-  `g, user:alice, admin`), also transitively; none for unidentified
+  `g, user:<namespace>|alice, admin`), also transitively; none for unidentified
   callers. So `roles` in the plugin configuration are access control
   roles.
 

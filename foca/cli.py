@@ -140,6 +140,61 @@ def _sync_policies(foca: Foca, _args: argparse.Namespace) -> str:
     return "Policies synchronized.\n"
 
 
+def _namespace_subjects(foca: Foca, args: argparse.Namespace) -> str:
+    """Namespace the bare users of the stored policy rules.
+
+    Args:
+        foca: `Foca` instance.
+        args: Arguments of the command: `namespace`, and `dry_run`.
+
+    Returns:
+        Output: the numbers of rules (cf.
+        :py:meth:`foca.security.access_control.foca_casbin_adapter.adapter.Adapter.namespace_users`).
+
+    Raises:
+        ValueError: Access control isn't enabled, the namespace is empty or
+            no trusted issuer has it, or an issuer keeps its subjects bare,
+            so that bare users are that issuer's.
+    """
+    access_control = foca.conf.security.access_control
+    if not access_control.enabled:
+        raise ValueError("Access control is not enabled")
+    namespaces = foca.conf.security.auth.get_namespaces()
+    namespace = args.namespace
+    if namespace not in namespaces.values() or not namespace:
+        known = ", ".join(sorted(value for value in namespaces.values() if value))
+        raise ValueError(
+            f"No trusted issuer has the namespace '{namespace}', but: "
+            f"{known or 'none'} (security.auth.issuers)"
+        )
+    bare = [issuer for issuer, value in namespaces.items() if value is None]
+    if bare:
+        raise ValueError(
+            f"Issuer '{bare[0]}' keeps its subjects bare (namespace ''), so "
+            "bare users are its users: nothing to namespace"
+        )
+    app = _create_app_without_writes(foca)
+    counts = app.app.config["casbin_adapter"].namespace_users(
+        access_control.subject_prefix,
+        namespace,
+        [value for value in namespaces.values() if value],
+        dry_run=args.dry_run,
+    )
+    verb = "To namespace" if args.dry_run else "Namespaced"
+    output = f"{verb}: {counts.rewritten} stored rules with bare users.\n"
+    if counts.invalid:
+        output += (
+            f"Kept: {counts.invalid} stored rules whose namespaced users would "
+            "not be valid rule values (e.g., too long).\n"
+        )
+    if counts.configured:
+        output += (
+            f"Kept: {counts.configured} configured rules with bare users; "
+            "namespace them in 'security.access_control.policies'.\n"
+        )
+    return output
+
+
 def _select_spec(apis: list[_RegisteredApi], name: str | None) -> _RegisteredApi:
     """Select the API whose specification to export.
 
@@ -222,6 +277,12 @@ def _create_parser() -> argparse.ArgumentParser:
             _export_spec,
             "Write a merged API specification, as served, to the standard output.",
         ),
+        (
+            "namespace-subjects",
+            _namespace_subjects,
+            "Namespace the bare users of the stored policy rules with the "
+            "namespace of a trusted issuer, e.g., those stored before FOCA 0.23.0.",
+        ),
     ):
         command = commands.add_parser(name, help=description, description=description)
         command.set_defaults(function=function)
@@ -238,6 +299,19 @@ def _create_parser() -> argparse.ArgumentParser:
                     "Name in 'api.specs', or base path, of the specification; "
                     "required if the app has several"
                 ),
+            )
+        elif name == "namespace-subjects":
+            command.add_argument(
+                "namespace",
+                help=(
+                    "Namespace of the issuer whose users are bare: by default, "
+                    "the issuer (e.g., https://login.example.org/)"
+                ),
+            )
+            command.add_argument(
+                "--dry-run",
+                action="store_true",
+                help="Only count the rules, without changes",
             )
     return parser
 
