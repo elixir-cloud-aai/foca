@@ -11,18 +11,21 @@ registries:
     password: ${{secrets.DOCKERHUB_TOKEN}}
     replaces-base: true
 
+# No entry sets `target-branch`: pull requests go to the default branch
+# (`dev`) anyway, and while `target-branch` is set, GitHub doesn't apply
+# the entry's options (`labels`, `ignore`, ...) to security updates
 updates:
   # Python packages: FOCA's, those of the tools (`requirements/`), of the
   # FOCA image (`docker/requirements`) and those that the images of the
   # examples install (`examples/petstore`, `examples/gateway`)
   - package-ecosystem: pip
+    labels: ["type: dependencies"]
     directories:
       - /
       - /requirements
       - /docker/requirements
       - /examples/petstore
       - /examples/gateway
-    target-branch: dev
     schedule:
       interval: weekly
     versioning-strategy: increase-if-necessary
@@ -51,11 +54,11 @@ updates:
 
   # Actions in the workflows and in the local composite actions
   - package-ecosystem: github-actions
+    labels: ["type: dependencies"]
     directories:
       - /
       - /.github/actions/install-chart
       - /.github/actions/test-chart
-    target-branch: dev
     schedule:
       interval: weekly
     groups:
@@ -65,8 +68,8 @@ updates:
   # Digests of the Python images in the Dockerfile of the FOCA image; its
   # Python versions are chosen deliberately (see the Python version policy)
   - package-ecosystem: docker
+    labels: ["type: dependencies"]
     directory: /docker
-    target-branch: dev
     registries: [dockerhub]
     schedule:
       interval: weekly
@@ -80,8 +83,8 @@ updates:
   # uv in the petstore example's image (`ghcr.io`, tag and digest); its base
   # image is the FOCA image built locally
   - package-ecosystem: docker
+    labels: ["type: dependencies"]
     directory: /examples/petstore
-    target-branch: dev
     schedule:
       interval: weekly
     ignore:
@@ -89,8 +92,8 @@ updates:
 
   # The same in the gateway example's image
   - package-ecosystem: docker
+    labels: ["type: dependencies"]
     directory: /examples/gateway
-    target-branch: dev
     schedule:
       interval: weekly
     ignore:
@@ -102,8 +105,8 @@ updates:
   # library chart is local (`file://`). The snapshots of the chart tests
   # contain the images: refresh them in these PRs (see docs/helm-chart.md)
   - package-ecosystem: helm
+    labels: ["type: dependencies"]
     directories: ["/examples/petstore/chart", "/examples/gateway/chart"]
-    target-branch: dev
     registries: [dockerhub]
     schedule:
       interval: weekly
