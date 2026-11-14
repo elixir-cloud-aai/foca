@@ -43,7 +43,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Protocol
@@ -710,7 +710,9 @@ class MongoStoreBackend:
         (`$inc`, not `$set`), so that sizes that writes and deletions add
         while the count runs are kept: those of entries that the count
         sees too then count twice, deletions that it misses not at all,
-        until the next count.
+        until the next count. Each correction bumps the field `gen` of the
+        size, and applies only if it is still the one read, so that
+        concurrent counts (of this or other processes) correct it once.
 
         Args:
             ns: Namespace.
@@ -724,6 +726,8 @@ class MongoStoreBackend:
         """
         kept = self.sizes.find_one({"_id": ns})
         before = int(kept.get("size", 0)) if kept is not None else 0
+        # `None` matches sizes without `gen` (inserted by writes) too
+        gen = kept.get("gen") if kept is not None else None
         size = {"$ifNull": ["$size", STORE_ENTRY_OVERHEAD]}
         counted = list(
             self.collection.aggregate(
@@ -734,9 +738,13 @@ class MongoStoreBackend:
             )
         )
         total = int(counted[0]["size"]) if counted else 0
-        self.sizes.update_one(
-            {"_id": ns}, {"$inc": {"size": total - before}}, upsert=True
-        )
+        # a duplicate: corrected by a concurrent count in the meantime
+        with suppress(DuplicateKeyError):
+            self.sizes.update_one(
+                {"_id": ns, "gen": gen},
+                {"$inc": {"size": total - before}, "$set": {"gen": (gen or 0) + 1}},
+                upsert=True,
+            )
         return total
 
     def _recount_if_due(self, ns: str, interval: float, timeout: float) -> bool:
@@ -845,8 +853,11 @@ class MongoStoreBackend:
         delta: int,
         max_size: int | None,
         timeout: float,
-    ) -> None:
+    ) -> int:
         """Add the growth of a namespace by a write, if it fits.
+
+        Writes that don't grow the namespace, or without maximum, add
+        nothing: they adjust the size after they succeeded.
 
         Args:
             ns: Namespace.
@@ -854,6 +865,9 @@ class MongoStoreBackend:
             delta: Bytes by which the write grows the namespace.
             max_size: Maximum size of the namespace, in bytes, if any.
             timeout: Seconds left for the write.
+
+        Returns:
+            Bytes added to the size: `delta` or 0.
 
         Raises:
             StoreFullError: The namespace would exceed `max_size`, also
@@ -864,16 +878,15 @@ class MongoStoreBackend:
         """
         self._recount_if_due(ns, self._RECOUNT_INTERVAL, timeout)
         if max_size is None or delta <= 0:
-            self._adjust(ns, delta)
-            return
+            return 0
         if delta <= max_size:
             if self._grow(ns, delta, max_size):
-                return
+                return delta
             # entries removed by the TTL index may still count
             if self._recount_if_due(
                 ns, self._RECOUNT_RETRY_INTERVAL, timeout
             ) and self._grow(ns, delta, max_size):
-                return
+                return delta
         raise _full(size, max_size)
 
     def _grow(self, ns: str, delta: int, max_size: int) -> bool:
@@ -895,10 +908,15 @@ class MongoStoreBackend:
         update = {"$inc": {"size": delta}}
         try:
             # inserts the size if absent; fails if present but too large
-            self.sizes.update_one(query, update, upsert=True)
+            result = self.sizes.update_one(query, update, upsert=True)
         except DuplicateKeyError:
             # too large, or inserted concurrently
             return bool(self.sizes.update_one(query, update).matched_count)
+        if result.upserted_id is not None:
+            # the size was absent (e.g., deleted by an operator): count the
+            # namespace again at the next write
+            with self._counted_lock:
+                self._counted.pop(ns, None)
         return True
 
     def get(
@@ -967,7 +985,9 @@ class MongoStoreBackend:
         with _guard(timeout):
             self._ensure_indexes()
             known = self.collection.find_one({"_id": ident}, projection=_SIZE_FIELDS)
-            self._reserve(ns, size, size - _document_size(known), max_size, timeout)
+            reserved = self._reserve(
+                ns, size, size - _document_size(known), max_size, timeout
+            )
             previous = _retry_upsert(
                 lambda: self.collection.find_one_and_replace(
                     {"_id": ident},
@@ -976,8 +996,9 @@ class MongoStoreBackend:
                     upsert=True,
                 )
             )
-            # if the entry changed since it was read
-            self._adjust(ns, _document_size(known) - _document_size(previous))
+            # what wasn't reserved (e.g., shrinking), and if the entry changed
+            # since it was read
+            self._adjust(ns, size - _document_size(previous) - reserved)
 
     def delete(self, ns: str, key: str, now: datetime, timeout: float) -> bool:
         """Delete an entry (cf. :py:class:`StoreBackend`).
@@ -1084,7 +1105,7 @@ class MongoStoreBackend:
                 expired = self.collection.find_one(
                     {"_id": ident}, projection=_SIZE_FIELDS
                 )
-                self._reserve(
+                reserved = self._reserve(
                     ns, size, size - _document_size(expired), max_size, timeout
                 )
                 previous: Mapping[str, Any] | None = None
@@ -1102,9 +1123,9 @@ class MongoStoreBackend:
                         # a live entry was created in between: nothing was
                         # written, so take the reserved growth back and try
                         # again
-                        self._adjust(ns, _document_size(expired) - size)
+                        self._adjust(ns, -reserved)
                         continue
-                self._adjust(ns, _document_size(expired) - _document_size(previous))
+                self._adjust(ns, size - _document_size(previous) - reserved)
                 return by
         raise StoreError("Plugin store busy: increment not applied")
 

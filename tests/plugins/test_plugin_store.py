@@ -532,6 +532,7 @@ class TestNamespaceSize:
         store = make_store(backend, max_namespace_size=SMALL - 1)
         with pytest.raises(StoreFullError, match=f"entry of {SMALL} bytes"):
             store.set("a", 1)
+        assert store.get("a") is None  # not written
 
     def test_unlimited(self, backend: StoreBackend) -> None:
         """Without maximum (hand-built settings), namespaces are unbounded."""
@@ -646,12 +647,10 @@ class TestMongoNamespaceSize:
         store.increment("c")
         assert backend.sizes.name == STORE_SIZES_COLLECTION
         size = SMALL + STORE_ENTRY_OVERHEAD + 9
-        assert list(backend.sizes.find()) == [{"_id": "ns", "size": size}]
+        # counted once, at the first write (`gen`)
+        assert list(backend.sizes.find()) == [{"_id": "ns", "size": size, "gen": 1}]
         store.delete("a")
-        assert backend.sizes.find_one({"_id": "ns"}) == {
-            "_id": "ns",
-            "size": size - SMALL,
-        }
+        assert ns_size(backend) == size - SMALL
 
     def test_recount_when_full(self, mongo: MongoStoreBackend) -> None:
         """Full namespaces are counted again, at most every few seconds."""
@@ -664,7 +663,7 @@ class TestMongoNamespaceSize:
             store.set("b", 1)  # counted at the first write, just now
         backend._RECOUNT_RETRY_INTERVAL = 0.0
         store.set("b", 1)
-        assert backend.sizes.find_one({"_id": "ns"}) == {"_id": "ns", "size": SMALL}
+        assert ns_size(backend) == SMALL
         with pytest.raises(StoreFullError):
             store.set("c", 1)  # counted again, still full
 
@@ -717,6 +716,7 @@ class TestMongoNamespaceSize:
         """
         backend = mongo
         store = make_store(backend, max_namespace_size=10 * SMALL)
+        backend.sizes.insert_one({"_id": "ns", "size": 0})  # counted before
         recount = MagicMock(side_effect=ServerSelectionTimeoutError("db.internal"))
         backend.recount = recount  # type: ignore[method-assign]
         store.set("a", 1)
@@ -823,6 +823,74 @@ class TestMongoNamespaceSize:
         assert backend.recount("ns") == SMALL
         assert ns_size(backend) == 3 * SMALL
 
+    def test_concurrent_counts(self, mongo: MongoStoreBackend) -> None:
+        """Concurrent counts correct the size once."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 1)
+        backend.sizes.update_one({"_id": "ns"}, {"$set": {"size": 5 * SMALL}})
+        original = backend.collection.aggregate
+        nested: list[int] = []
+
+        def concurrent(*args: Any, **kwargs: Any) -> Any:
+            result = list(original(*args, **kwargs))
+            if not nested:  # another count, after this one read the size
+                nested.append(0)
+                nested[0] = backend.recount("ns")
+            return iter(result)
+
+        backend.collection.aggregate = concurrent  # type: ignore[method-assign]
+        assert backend.recount("ns") == SMALL
+        assert nested == [SMALL]
+        assert ns_size(backend) == SMALL
+
+    def test_concurrent_first_counts(self, mongo: MongoStoreBackend) -> None:
+        """A first count that loses to a concurrent one leaves its size."""
+        backend = mongo
+        backend.collection.insert_one(
+            {"_id": "ns\x1fa", "ns": "ns", "key": "a", "value": "1", "size": SMALL}
+        )
+        original = backend.collection.aggregate
+        nested: list[int] = []
+
+        def concurrent(*args: Any, **kwargs: Any) -> Any:
+            result = list(original(*args, **kwargs))
+            if not nested:
+                nested.append(0)
+                nested[0] = backend.recount("ns")
+            return iter(result)
+
+        backend.collection.aggregate = concurrent  # type: ignore[method-assign]
+        assert backend.recount("ns") == SMALL
+        assert ns_size(backend) == SMALL
+
+    def test_deleted_size(self, mongo: MongoStoreBackend) -> None:
+        """A deleted size is counted again at the next write."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 1)
+        store.set("b", 1)
+        backend.sizes.delete_one({"_id": "ns"})
+        store.set("c", 1)  # inserts the size of its entry only
+        assert ns_size(backend) == SMALL
+        store.set("d", 1)  # counts the namespace again first
+        assert ns_size(backend) == 4 * SMALL
+
+    def test_failed_shrinking_write(self, mongo: MongoStoreBackend) -> None:
+        """Writes that would shrink the namespace but fail don't change its size."""
+        backend = mongo
+        store = make_store(backend, max_namespace_size=10 * SMALL)
+        store.set("a", 123)
+        size = ns_size(backend)
+
+        def fail(*args: Any, **kwargs: Any) -> Any:
+            raise ExecutionTimeout("too slow")
+
+        backend.collection.find_one_and_replace = fail  # type: ignore[method-assign]
+        with pytest.raises(StoreError):
+            store.set("a", 1)
+        assert ns_size(backend) == size
+
     def test_grow_at_the_limit(self, mongo: MongoStoreBackend) -> None:
         """Sizes grow up to the limit exactly, and not beyond."""
         backend = mongo
@@ -866,6 +934,11 @@ class TestMongoNamespaceSize:
         backend._counted["ns"] = time.monotonic()
         assert backend._grow("ns", 1, 10) is True
         assert backend._grow("ns", 1, 10) is False
+        # the retries keep the bound of the size
+        bounded = {"_id": "ns", "size": {"$lte": 9}}
+        assert [call.args[0] for call in sizes.update_one.call_args_list] == [
+            bounded
+        ] * 4
 
     def test_new_counter_races(self, mongo: MongoStoreBackend) -> None:
         """Counters that replace expired entries or lose a race keep sizes right."""

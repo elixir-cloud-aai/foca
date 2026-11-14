@@ -311,8 +311,8 @@ miscount the size slightly until the next count. Entries written by FOCA
 versions before 0.23.0 have no `size` and count 64 bytes each until they
 are replaced or expire. To reset a namespace's size, delete its document,
 e.g., in `mongosh`: `db.plugin_store_sizes.deleteOne({_id:
-"<namespace>"})`; each process counts it again within 5 minutes or at its
-next write that doesn't fit.
+"<namespace>"})`; the next write that finds it absent recreates it, and
+the process counts the namespace again at its next write.
 
 The size limit counts bytes of keys and values, not memory or storage:
 entries take several times their counted size in the memory of a process

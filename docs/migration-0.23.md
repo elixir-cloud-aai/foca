@@ -77,7 +77,10 @@ plugin catches it. Before, a namespace was bounded only by `max_ttl`.
   `plugin_store`: nothing changes with the `readWrite` role on the
   database, but roles limited to the collection `plugin_store` need the new
   collection too. Entries written by earlier versions count 64 bytes each
-  until they are replaced or expire.
+  until they are replaced or expire. During a rolling upgrade, writes of
+  replicas of earlier versions aren't counted until the next count (within
+  5 minutes of each upgraded process), so namespaces may exceed the limit
+  briefly.
 - **Breaking** for store backends of their own (implementations of
   `foca.plugins.store.StoreBackend`): `ctx.store` now passes the keyword
   argument `max_size` to `set()` and `increment()`, so backends without it
