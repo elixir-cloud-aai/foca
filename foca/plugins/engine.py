@@ -291,6 +291,7 @@ def _store_settings(
             max_entry_size=effective.max_entry_size,
             max_ttl=effective.max_ttl,
             key_secret=key_secret_bytes,
+            max_namespace_size=effective.max_namespace_size,
         )
     modes: dict[str, set[str]] = {}
     for item in settings.values():

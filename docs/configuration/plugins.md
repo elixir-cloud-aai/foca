@@ -32,6 +32,7 @@ plugins:
     store:                 # ctx.store of plugins; per plugin: available.<id>.store
       enabled: true        # in the app's database, if any; else memory per process
       max_entry_size: 4096 # bytes per value, as compact JSON
+      max_namespace_size: 16777216  # bytes per namespace (16 MiB), approximate
       max_ttl: 2592000     # seconds (30 days); also the default TTL
       # key_secret: ...    # HMAC secret for ctx.store.key_for(); don't commit it,
       #                    # use FOCA_PLUGINS_STORE_KEY_SECRET (see Plugin store)
@@ -197,10 +198,10 @@ replica set, also if the app's connection prefers secondaries.
 
 Without database, each process keeps its entries in memory: they are lost
 on restart, counters (e.g., budgets) hold per process (per Gunicorn worker
-and replica), and memory use is **unbounded**: it grows with the entries
-that plugins write within `max_ttl` (there is no size limit per
-namespace), plus expired entries until they are removed (when read, and
-all of them every 1024 writes). The same holds for plugins whose store is
+and replica), and memory use grows with the entries that plugins write
+within `max_ttl`, up to `max_namespace_size` per namespace and process
+(expired entries are removed when read, when a namespace is full, and all
+of them every 1024 writes). The same holds for plugins whose store is
 turned off. Without database, configure a short `max_ttl` (e.g., an hour)
 and a single worker per replica; apps log a warning once at startup if
 plugins that declare stored data (`data_stored`) keep it in memory.
@@ -213,6 +214,19 @@ plugins that declare stored data (`data_stored`) keep it in memory.
   entries (the app logs a warning).
 - `max_entry_size` limits each value (bytes of compact JSON); larger
   values fail the plugin call.
+- `max_namespace_size` limits the entries of a namespace (all plugins of
+  a distribution) together (default: 16 MiB), so that a plugin that writes
+  many keys can't fill the database or the memory. Each entry counts the
+  bytes of its key and value in UTF-8 (counters: 8 bytes) plus 64 bytes,
+  e.g., about 200,000 entries of 20 bytes in 16 MiB. `set()`, and
+  `increment()` of a new counter, fail with `StoreFullError` (a
+  `StoreError`) if the entry doesn't fit; replacing an entry by one that
+  isn't larger, incrementing existing counters and deleting are never
+  refused for size. Each plugin's writes are checked against its own setting
+  (`available.<id>.store` may raise or lower it). Raise the limit if
+  plugins log `Plugin store namespace full`; deleting the namespace's
+  entries (see below) also frees it. See [how sizes are
+  counted](#how-namespace-sizes-are-counted).
 - `max_ttl` limits how long entries live (default: 30 days, at most 10
   years); entries without TTL get it, longer TTLs are cut to it. MongoDB
   removes expired entries about once a minute; until then, they are no
@@ -230,7 +244,9 @@ plugins that declare stored data (`data_stored`) keep it in memory.
   `db.plugin_store.deleteMany({ns: "<namespace>"})`, with the namespace of
   the plugins' distribution (cf. [plugin store](../plugins.md#plugin-store));
   the same removes the entries of a distribution that is no longer
-  installed.
+  installed. Its size in `plugin_store_sizes` is counted again at the
+  latest when a write doesn't fit; to remove it too:
+  `db.plugin_store_sizes.deleteOne({_id: "<namespace>"})`.
 - Plugins of one distribution share a namespace; plugins of other
   distributions can't read it. Entries keyed by users are personal data:
   their retention is at most `max_ttl`.
@@ -266,6 +282,42 @@ plugins that declare stored data (`data_stored`) keep it in memory.
       described above if needed. During a rolling update, processes with the
       old and the new secret don't see each other's entries either. Rotate
       the secret in quiet times, and restart all replicas after changing it.
+
+### How namespace sizes are counted
+
+Without database, each process counts the sizes of its namespaces exactly;
+when a namespace is full, it first removes its expired entries (at most
+every 10 s per namespace, as that scans all entries of the process).
+
+With a database, the sizes are approximate. FOCA keeps them in the
+collection `plugin_store_sizes` of the same database (one document per
+namespace; the database user needs the same rights on it as on
+`plugin_store`, as with the `readWrite` role on the database), and each
+entry's size in its field `size`. Writes and deletions add and subtract
+the sizes of their entries, but entries that MongoDB removes on expiry
+still count until the namespace is counted again: each process does that
+before its first write to a namespace, every 5 minutes, and when a write
+doesn't fit (then at most every 10 s, before failing it). A count is one
+aggregation over the namespace's entries and takes at most half the time
+left for the write; if it fails (e.g., a large namespace and a short
+`timeout` of the plugin call), the write goes on with the size counted so
+far, the app logs a warning, and a thread of the process tries once to
+count the namespace in the background, for at most 60 s (if that fails
+too, the app logs another warning, and the next count is due as above).
+Concurrent writes near the limit, writes and deletions while a count runs
+(it corrects the size by the difference to what it read before, so they
+may count twice or, for deletions, not at all), and writes that failed (e.g., timed out) after their size was added, may
+miscount the size slightly until the next count. Entries written by FOCA
+versions before 0.23.0 have no `size` and count 64 bytes each until they
+are replaced or expire. To reset a namespace's size, delete its document,
+e.g., in `mongosh`: `db.plugin_store_sizes.deleteOne({_id:
+"<namespace>"})`; the next write that finds it absent recreates it, and
+the process counts the namespace again at its next write.
+
+The size limit counts bytes of keys and values, not memory or storage:
+entries take several times their counted size in the memory of a process
+(about three times for small entries) and in the database (with indexes).
+Size the memory of processes and the database accordingly.
 
 ## Migrating from middlewares
 

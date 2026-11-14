@@ -402,10 +402,14 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
         "lookups", ctx.principal.subject_type, ctx.principal.subject
     )
     budget = self.config.daily_lookups
+    # a StoreError here (e.g., a full store) fails the call: no lookup
     if ctx.store.increment(user, ttl=86400, limit=budget) is None:
         raise NotApplicable("daily lookup budget used up")
     location = self.lookup(host, ctx)  # e.g., with ctx.http
-    ctx.store.set(f"geo:{host}", location, ttl=3600)
+    try:
+        ctx.store.set(f"geo:{host}", location, ttl=3600)
+    except StoreError:  # e.g., StoreFullError: go on without caching
+        pass
     return location
 ```
 
@@ -429,6 +433,20 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
   after the operator's `max_ttl` (default: 30 days), which is also the
   default. If the operator lowers `max_ttl`, existing entries expire at
   most `max_ttl` after the next start.
+- The entries of a namespace take at most the operator's
+  `max_namespace_size` (default: 16 MiB; each entry counts its key and
+  value in UTF-8, counters 8 bytes, plus 64 bytes). `set()`, and
+  `increment()` of a new counter, raise `foca.plugins.StoreFullError` (a
+  `StoreError`) if the entry doesn't fit; replacing an entry by one that
+  isn't larger, incrementing existing counters and deleting are never
+  refused for size. Plugins that cache catch it and go on without
+  caching; give cached entries a `ttl` that fits their use, so that they
+  make room again. All plugins of a distribution share the namespace and
+  its limit: entries keyed by client input (e.g., a cache of hosts of
+  inputs) can fill it, and new counters (e.g., budgets of new users) then
+  fail too. Bound such caches yourself (e.g., cache only what the plugin
+  looked up within a budget), and decide what a budget does when the
+  store fails (e.g., fail closed: no lookup).
 - Entries are in a namespace per distribution: plugins of one
   distribution share them, plugins of others can't read them; FOCA's
   built-in plugins use `foca`.
@@ -436,16 +454,17 @@ def locate(self, host: str, ctx: Context) -> dict[str, float]:
   (`ctx.store.mode` is `shared`); without one, or if the operator turned the
   store off for the plugin (`plugins.available.<id>.store.enabled: false`),
   each process has its own (`local` or `off`): counters then hold per
-  process, so budgets are only approximate, and the entries' memory is not
-  bounded by size, only by `max_ttl`. A plugin whose store is off
+  process, so budgets are only approximate, and each process keeps up to
+  `max_namespace_size` per namespace. A plugin whose store is off
   doesn't see the entries of the other plugins of its distribution (the
   app logs a warning).
 - The store works with mongomock too (e.g., in apps' tests), which
   removes entries by the TTL index in real time.
 - Calls are bounded by the deadline of the hook; database errors and
   timeouts raise `foca.plugins.StoreError` (invalid arguments
-  `ValueError`), which fails the call like any other error: catch it
-  where the plugin can go on without the store (e.g., a cache).
+  `ValueError`; full namespaces its subclass `StoreFullError`), which fails
+  the call like any other error: catch it where the plugin can go on
+  without the store (e.g., a cache).
 - Keys and values are data the operator stores: keep personal data out,
   or pseudonymize it, e.g., user identifiers with
   `ctx.store.key_for(*parts)` (a hash of the namespace and the parts:

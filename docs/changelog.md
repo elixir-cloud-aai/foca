@@ -29,6 +29,7 @@ its own release notes on GitHub, published from the notes in
 `docs/releases/chart/`, followed by GitHub's generated list of the changes
 of the chart:
 
+- [foca-common 0.6.0](releases/chart/0.6.0.md)
 - [foca-common 0.5.0](releases/chart/0.5.0.md)
 - [foca-common 0.4.0](releases/chart/0.4.0.md)
 - [foca-common 0.3.0](releases/chart/0.3.0.md)

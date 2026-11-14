@@ -1,12 +1,15 @@
 # Migrating to 0.23.0
 
-FOCA 0.23.0 lets patches of API specifications remove keys, and the
-permissions API reports invalid fields. Apps and deployments need to change
-only if:
+FOCA 0.23.0 lets patches of API specifications remove keys, the
+permissions API reports invalid fields, and the plugin store limits the
+size of each namespace. Apps and deployments need to change only if:
 
 - their [patches set values to `null`](#null-in-patches-removes-keys);
 - their tests or clients expect the [permissions API's plain `400`
-  responses](#the-permissions-api-reports-invalid-fields).
+  responses](#the-permissions-api-reports-invalid-fields);
+- their plugins keep more than 16 MiB in the [plugin
+  store](#the-plugin-store-limits-namespaces), or they implement a store
+  backend of their own.
 
 ## `null` in patches removes keys
 
@@ -50,3 +53,36 @@ fields. Tests that expect `BadRequest` from these controllers expect
 of `foca.security.access_control.foca_casbin_adapter.casbin_rule` raise
 `InvalidRuleError`, a `ValueError` with the invalid field and its code, so
 code catching `ValueError` keeps working.
+
+## The plugin store limits namespaces
+
+The entries of each namespace of the [plugin
+store](configuration/plugins.md#plugin-store) (`ctx.store`; one per
+distribution of plugins) now take at most `max_namespace_size` bytes
+(`plugins.defaults.store`, or per plugin `plugins.available.<id>.store`;
+in FOCA's Helm library chart 0.6.0, `maxNamespaceSize`), by default 16 MiB:
+each entry counts its key and value plus 64 bytes. Writes that would exceed
+it raise `foca.plugins.StoreFullError` (a `StoreError`, so plugins that
+catch `StoreError` keep working), which fails the plugin call unless the
+plugin catches it. Before, a namespace was bounded only by `max_ttl`.
+
+- If plugins may keep more (e.g., large caches with long TTLs), raise the
+  limit before upgrading. Apps log failed plugin calls as warnings; look for
+  `Plugin store namespace full`.
+- With a database, FOCA keeps the size of each namespace in the new
+  collection `plugin_store_sizes` of the same database, and each entry's
+  size in a new field `size` (see [how namespace sizes are
+  counted](configuration/plugins.md#how-namespace-sizes-are-counted)).
+  The database user needs the same rights on `plugin_store_sizes` as on
+  `plugin_store`: nothing changes with the `readWrite` role on the
+  database, but roles limited to the collection `plugin_store` need the new
+  collection too. Entries written by earlier versions count 64 bytes each
+  until they are replaced or expire. During a rolling upgrade, writes of
+  replicas of earlier versions aren't counted until the next count (within
+  5 minutes of each upgraded process), so namespaces may exceed the limit
+  briefly.
+- **Breaking** for store backends of their own (implementations of
+  `foca.plugins.store.StoreBackend`): `ctx.store` now passes the keyword
+  argument `max_size` to `set()` and `increment()`, so backends without it
+  fail with `TypeError` at the first such call. Add it, and raise
+  `StoreFullError` if the namespace would exceed it.
