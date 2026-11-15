@@ -229,7 +229,7 @@ def _check_policy_users(
     Raises:
         ValueError: A configured policy rule names a user (a value starting
             with `subject_prefix`) that no trusted issuer has, and the model
-            is one that FOCA ships.
+            is one that FOCA ships, or a copy of one.
     """
     namespaces = list(auth_config.get_namespaces().values())
     # Without namespaces (e.g., no trusted issuers), any subject is bare
@@ -278,19 +278,29 @@ def _check_policy_users(
 
 
 def _is_packaged_model(model: str | None) -> bool:
-    """Check whether a model is one that FOCA ships.
+    """Check whether a model is one that FOCA ships, or a copy of one.
+
+    Copies count, too (e.g., of apps that copied a model before
+    `foca:<file>` existed), as they match subjects in the same way. Files
+    are compared ignoring whitespace.
 
     Args:
         model: Path of the model (`access_control.model`, resolved); `None`
             for the default model.
 
     Returns:
-        Whether `model` is the default model or the path of a model that
-        FOCA ships.
+        Whether `model` is the default model, or a file with the content of
+        a model that FOCA ships.
     """
+    if model is None:
+        return True
+    path = Path(model)
+    if not path.is_file():
+        return False
+    content = path.read_text(encoding="utf-8").split()
     packaged = files(ACCESS_CONTROL_BASE_PATH)
-    return model is None or any(
-        Path(model).resolve() == Path(str(packaged.joinpath(name))).resolve()
+    return any(
+        content == packaged.joinpath(name).read_text(encoding="utf-8").split()
         for name in (
             DEFAULT_MODEL_FILE,
             RESOURCE_ROLE_MODEL_FILE,

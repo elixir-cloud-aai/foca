@@ -36,6 +36,8 @@ from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
     DEFAULT_MODEL_FILE,
+    GRANTED_RIGHTS_MODEL_FILE,
+    RESOURCE_ROLE_MODEL_FILE,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
@@ -1057,9 +1059,12 @@ class TestPolicyUsers:
     ) -> None:
         """With custom models, which may match users in other ways, only warns."""
         model = tmp_path / "model.conf"
-        model.write_text(
-            files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE).read_text()
+        default = files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE)
+        custom = default.read_text().replace(
+            "g(r.sub, p.sub)", "keyMatch(r.sub, p.sub)"
         )
+        assert custom != default.read_text()
+        model.write_text(custom)
         conf = AccessControlConfig(
             model=str(model), policies=[["p", "user:*", "/public", "GET"]]
         )
@@ -1069,6 +1074,32 @@ class TestPolicyUsers:
         assert len(warnings) == 1
         assert "positions [0] of" in warnings[0]
         assert "custom model" in warnings[0]
+
+    @pytest.mark.parametrize(
+        "name",
+        [DEFAULT_MODEL_FILE, RESOURCE_ROLE_MODEL_FILE, GRANTED_RIGHTS_MODEL_FILE],
+    )
+    @pytest.mark.parametrize("copy", [False, True])
+    def test_configured_packaged_model(
+        self, tmp_path: Path, name: str, copy: bool
+    ) -> None:
+        """Models that FOCA ships, and copies of them, fail startup."""
+        model = f"foca:{name}"
+        if copy:
+            copied = tmp_path / "model.conf"
+            text = files(ACCESS_CONTROL_BASE_PATH).joinpath(name).read_text()
+            # whitespace is ignored
+            copied.write_text(f"\n{text.replace(' = ', '  =  ')}\n\n")
+            model = str(copied)
+        conf = AccessControlConfig(model=model, policies=[["g", "user:alice", "admin"]])
+        with pytest.raises(ValueError, match=UNKNOWN_USERS):
+            register_access_control_module._check_policy_users(conf, _auth(ISSUER))
+
+    def test_is_packaged_model(self, tmp_path: Path) -> None:
+        """No model is the default model; missing files are custom models."""
+        assert register_access_control_module._is_packaged_model(None)
+        missing = str(tmp_path / "missing.conf")
+        assert not register_access_control_module._is_packaged_model(missing)
 
     def test_configured_on_registration(self) -> None:
         """Configured rules are checked when access control is registered."""

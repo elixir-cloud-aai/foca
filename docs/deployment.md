@@ -172,9 +172,10 @@ warnings, naming the setting to change, among others:
   `group_mapping`, several trusted issuers with group claims (their
   values are not namespaced by issuer), stored rules naming users that no
   trusted issuer has (e.g., without namespace; configured ones are an
-  error), and stored configured rules removed as `policies` is not set; opt-in roles that no group is mapped to, and
-  opt-in roles that CORS doesn't allow to ask for (also without access
-  control);
+  error with the models that FOCA ships), and stored configured rules
+  removed as `policies` is not set; opt-in roles that no group is mapped
+  to, and opt-in roles that CORS doesn't allow to ask for (also without
+  access control);
 - [service info](configuration/service-info.md#placeholders): values in
   reserved example domains, as in templates, and the placeholder version
   `0.0.0.dev0`;

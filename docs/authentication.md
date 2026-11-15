@@ -199,10 +199,10 @@ that an app that stored them bare before can upgrade without moving data
 explicit opt-out for one issuer, for existing deployments; it will be
 reconsidered for FOCA 1.0, so new deployments shouldn't use it. Issuers must
 have different namespaces, and at most one issuer may keep its subjects bare;
-FOCA refuses to start otherwise. An issuer that is the namespace of its subjects (no
-`namespace` set) must not contain `|`, commas or line breaks, and must have
-at most 256 characters; set a `namespace` otherwise. Bare subjects that contain
-`|` next to namespaced ones cannot be told apart from namespaced subjects:
+FOCA refuses to start otherwise. An issuer that is the namespace of its
+subjects (no `namespace` set) must not contain `|`, commas or line breaks,
+and must have at most 256 characters; set a `namespace` otherwise. Bare
+subjects that contain `|` next to namespaced ones cannot be told apart from namespaced subjects:
 such users are not identified (`401` on enforced operations, and
 `get_current_subject()` returns `None`). Namespaces have at most 256
 characters; namespaced subjects that don't fit into policy rules (1024

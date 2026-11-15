@@ -66,8 +66,8 @@ Choose one of these before you upgrade:
        refuses to start if a configured rule names a user without the
        namespace of a trusted issuer (`ValueError`, naming the rules in
        `policies`), so that admins aren't lost unnoticed (with a custom
-       `model`, it only warns), and warns on startup of stored rules naming
-       such users.
+       `model` that isn't a copy of one that FOCA ships, it only warns), and
+       warns on startup of stored rules naming such users.
     2. Rewrite the stored rules with the [command-line
        tool](cli.md#namespace-subjects), first with `--dry-run` to count them,
        before the new version serves requests (e.g., in a Helm `pre-upgrade`
