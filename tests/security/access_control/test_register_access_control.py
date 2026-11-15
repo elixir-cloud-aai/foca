@@ -35,6 +35,7 @@ from foca.security.access_control import (
 from foca.security.access_control.constants import (
     ACCESS_CONTROL_BASE_PATH,
     DEFAULT_API_SPEC_PATH,
+    DEFAULT_MODEL_FILE,
 )
 from foca.security.access_control.foca_casbin_adapter.adapter import Adapter
 from foca.security.access_control.register_access_control import (
@@ -1017,7 +1018,6 @@ class TestPolicyUsers:
     )
     def test_configured(
         self,
-        caplog: pytest.LogCaptureFixture,
         issuers: list[Any],
         policies: list[list[str]] | None,
         positions: list[int],
@@ -1036,9 +1036,39 @@ class TestPolicyUsers:
             # says how to fix the configuration
             assert "'user:<namespace>|<subject>'" in message
             assert "'security.auth.issuers[].namespace'" in message
-            assert "foca namespace-subjects" in message
         else:
             register_access_control_module._check_policy_users(conf, _auth(*issuers))
+
+    def test_configured_named(self) -> None:
+        """Named rules are named in the error, instead of positions."""
+        conf = AccessControlConfig.model_validate(
+            {
+                "policies": {
+                    "public": ["p", "*", "/x", "GET"],
+                    "admins": ["g", "user:alice", "admin"],
+                }
+            }
+        )
+        with pytest.raises(ValueError, match="Configured policy rules 'admins' of"):
+            register_access_control_module._check_policy_users(conf, _auth(ISSUER))
+
+    def test_configured_custom_model(
+        self, caplog: pytest.LogCaptureFixture, tmp_path: Path
+    ) -> None:
+        """With custom models, which may match users in other ways, only warns."""
+        model = tmp_path / "model.conf"
+        model.write_text(
+            files(ACCESS_CONTROL_BASE_PATH).joinpath(DEFAULT_MODEL_FILE).read_text()
+        )
+        conf = AccessControlConfig(
+            model=str(model), policies=[["p", "user:*", "/public", "GET"]]
+        )
+        with caplog.at_level(logging.WARNING):
+            register_access_control_module._check_policy_users(conf, _auth(ISSUER))
+        warnings = [w for w in _warnings(caplog) if w.startswith(UNKNOWN_USERS)]
+        assert len(warnings) == 1
+        assert "positions [0] of" in warnings[0]
+        assert "custom model" in warnings[0]
 
     def test_configured_on_registration(self) -> None:
         """Configured rules are checked when access control is registered."""
@@ -1050,7 +1080,7 @@ class TestPolicyUsers:
             collection_name="policy_rules",
             policies=[["g", "user:alice", "admin"]],
         )
-        with pytest.raises(ValueError, match=UNKNOWN_USERS):
+        with pytest.raises(ValueError, match=rf"{UNKNOWN_USERS} \[0\] of"):
             register_access_control(
                 cnx_app=cnx_app, mongo_config=None, access_control_config=conf
             )

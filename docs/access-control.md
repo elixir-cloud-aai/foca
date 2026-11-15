@@ -274,8 +274,8 @@ security:
 Users are named with the namespace of their issuer, by default the issuer
 (cf. [several trusted issuers](authentication.md#several-trusted-issuers)).
 FOCA refuses to start if a configured rule names a user that no trusted
-issuer has, e.g., without namespace, and logs a warning on startup if a
-stored rule does (see [startup
+issuer has, e.g., without namespace (with a custom model, it only warns),
+and logs a warning on startup if a stored rule does (see [startup
 checks](configuration/access-control.md#startup-checks)).
 
 On startup, FOCA validates the rules against the model (cf. [rule

@@ -197,9 +197,9 @@ subject (since FOCA 0.23.0; see [Migrating to
 that an app that stored them bare before can upgrade without moving data
 (cf. [`security.auth`](configuration/auth.md)). Keeping subjects bare is an
 explicit opt-out for one issuer, for existing deployments; it will be
-reconsidered for FOCA 1.0, so new deployments shouldn't use it. Issuers must have different
-namespaces, and at most one issuer may keep its subjects bare; FOCA refuses
-to start otherwise. An issuer that is the namespace of its subjects (no
+reconsidered for FOCA 1.0, so new deployments shouldn't use it. Issuers must
+have different namespaces, and at most one issuer may keep its subjects bare;
+FOCA refuses to start otherwise. An issuer that is the namespace of its subjects (no
 `namespace` set) must not contain `|`, commas or line breaks, and must have
 at most 256 characters; set a `namespace` otherwise. Bare subjects that contain
 `|` next to namespaced ones cannot be told apart from namespaced subjects:
