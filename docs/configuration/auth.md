@@ -69,7 +69,9 @@ require them for operations.
 
 Issuers are listed as URLs, or with settings of their own, e.g., to choose
 the namespace of their subjects, which is the issuer by default, also with a
-single issuer, or to keep them bare (`namespace: ""`; cf. [several trusted
+single issuer, or to keep them bare (`namespace: ""`, an opt-out for one
+issuer whose subjects an existing deployment stored bare, to be reconsidered
+for FOCA 1.0; cf. [several trusted
 issuers](../authentication.md#several-trusted-issuers)). Identity providers
 differ, so issuers may also have an `audience`, a group claim
 (`claim_groups`, cf. [`security.access_control`](access-control.md)) and

@@ -193,9 +193,11 @@ trusted issuer, too, so that trusting another issuer later changes no stored
 subject (since FOCA 0.23.0; see [Migrating to
 0.23.0](migration-0.23.md#subjects-are-always-namespaced-by-issuer)). Set the
 `namespace` of an issuer to choose a shorter one (e.g., `ls`, for
-`ls|alice`), or set it to `""` to keep the subjects of that issuer bare, e.g.,
-to keep the subjects that an app stored before (cf.
-[`security.auth`](configuration/auth.md)). Issuers must have different
+`ls|alice`), or set it to `""` to keep the subjects of that issuer bare, so
+that an app that stored them bare before can upgrade without moving data
+(cf. [`security.auth`](configuration/auth.md)). Keeping subjects bare is an
+explicit opt-out for one issuer, for existing deployments; it will be
+reconsidered for FOCA 1.0, so new deployments shouldn't use it. Issuers must have different
 namespaces, and at most one issuer may keep its subjects bare; FOCA refuses
 to start otherwise. An issuer that is the namespace of its subjects (no
 `namespace` set) must not contain `|`, commas or line breaks, and must have

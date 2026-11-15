@@ -1755,7 +1755,9 @@ class IssuerConfig(FOCABaseConfig):
             changes no stored subject. If `None` (default), the issuer. An
             empty value keeps the issuer's subjects bare, e.g., for an app
             whose subjects were stored bare before FOCA 0.23.0, so that they
-            stay valid; at most one issuer may keep its subjects bare. Must
+            stay valid without moving data; an explicit opt-out for existing
+            deployments, to be reconsidered for FOCA 1.0. At most one issuer
+            may keep its subjects bare. Must
             not contain `|`, commas or line breaks, and must have at most
             256 characters (`MAX_NAMESPACE_LENGTH`), so that namespaced
             subjects fit into policy rules; set it if the issuer doesn't
