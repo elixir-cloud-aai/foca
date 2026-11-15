@@ -117,6 +117,7 @@ configuration models, see [Configuration](configuration/index.md).
       members:
         - Store
         - StoreError
+        - StoreFullError
         - StoreSettings
         - StoreBackend
         - StoreEntry
@@ -124,6 +125,9 @@ configuration models, see [Configuration](configuration/index.md).
         - MongoStoreBackend
         - STORE_COLLECTION
         - STORE_INDEXES
+        - STORE_SIZES_COLLECTION
+        - STORE_ENTRY_OVERHEAD
+        - entry_size
         - MIN_TTL
         - MAX_KEY_LENGTH
         - StoreMode

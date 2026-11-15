@@ -254,6 +254,9 @@ class StoreConfig(_Model):
             (shared by all processes), if one is configured; if `false`,
             each process keeps them in memory, as without database.
         max_entry_size: Maximum size of values, in bytes, as compact JSON.
+        max_namespace_size: Maximum size of the entries of a namespace (a
+            distribution of plugins), in bytes (default: 16 MiB), counted
+            approximately: keys and values, plus 64 bytes per entry.
         max_ttl: Maximum time to live of entries, in seconds (default: 30
             days); entries without a time to live get it.
         key_secret: Secret for the keys that plugins derive with
@@ -266,6 +269,8 @@ class StoreConfig(_Model):
     Attributes:
         enabled: Whether plugins keep their entries in the database.
         max_entry_size: Maximum size of values, in bytes.
+        max_namespace_size: Maximum size of the entries of a namespace, in
+            bytes.
         max_ttl: Maximum time to live of entries, in seconds.
         key_secret: Secret for derived keys, if set (masked in `repr()`,
             logs and dumps).
@@ -273,6 +278,7 @@ class StoreConfig(_Model):
 
     enabled: bool = True
     max_entry_size: PositiveInt = 4096
+    max_namespace_size: PositiveInt = 16 * 1024 * 1024
     max_ttl: MaxTtl = 2_592_000
     key_secret: SecretStr | None = None
 
@@ -300,17 +306,22 @@ class StoreOverrideConfig(_Model):
     Args:
         enabled: Whether the plugin keeps its entries in the database.
         max_entry_size: Maximum size of values, in bytes.
+        max_namespace_size: Maximum size of the entries of the plugin's
+            namespace, in bytes, for the plugin's writes.
         max_ttl: Maximum time to live of entries, in seconds.
 
     Attributes:
         enabled: Whether the plugin keeps its entries in the database, if
             set.
         max_entry_size: Maximum size of values, in bytes, if set.
+        max_namespace_size: Maximum size of the namespace, in bytes, if
+            set.
         max_ttl: Maximum time to live of entries, in seconds, if set.
     """
 
     enabled: bool | None = None
     max_entry_size: PositiveInt | None = None
+    max_namespace_size: PositiveInt | None = None
     max_ttl: MaxTtl | None = None
 
     def apply(self, defaults: StoreConfig) -> StoreConfig:
